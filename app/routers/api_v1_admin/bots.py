@@ -1280,6 +1280,7 @@ class EnrolledSkillOut(BaseModel):
     last_fetched_at: Optional[datetime] = None
     auto_inject_count: int = 0
     last_auto_injected_at: Optional[datetime] = None
+    enrolled_bot_count: int = 0
 
 
 EnrollmentSource = Literal["starter", "fetched", "manual", "migration", "authored"]
@@ -1303,6 +1304,16 @@ async def admin_bot_enrolled_skills_list(
     if not bot_row:
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
 
+    # Subquery for per-skill enrollment count across all bots
+    enroll_count_sq = (
+        select(
+            BotSkillEnrollment.skill_id,
+            func.count().label("enrolled_bot_count"),
+        )
+        .group_by(BotSkillEnrollment.skill_id)
+        .subquery()
+    )
+
     rows = (await db.execute(
         select(
             BotSkillEnrollment.skill_id,
@@ -1316,8 +1327,10 @@ async def admin_bot_enrolled_skills_list(
             SkillRow.description,
             SkillRow.surface_count,
             SkillRow.last_surfaced_at,
+            func.coalesce(enroll_count_sq.c.enrolled_bot_count, 0).label("enrolled_bot_count"),
         )
         .join(SkillRow, SkillRow.id == BotSkillEnrollment.skill_id)
+        .outerjoin(enroll_count_sq, enroll_count_sq.c.skill_id == BotSkillEnrollment.skill_id)
         .where(BotSkillEnrollment.bot_id == bot_id)
         .order_by(BotSkillEnrollment.enrolled_at.desc())
     )).all()
@@ -1335,6 +1348,7 @@ async def admin_bot_enrolled_skills_list(
             last_fetched_at=r.last_fetched_at,
             auto_inject_count=r.auto_inject_count,
             last_auto_injected_at=r.last_auto_injected_at,
+            enrolled_bot_count=r.enrolled_bot_count,
         )
         for r in rows
     ]

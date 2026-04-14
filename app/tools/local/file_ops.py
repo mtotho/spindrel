@@ -677,7 +677,26 @@ def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool
             logger.info("edit: whitespace-flex match on %s (%d replacement(s))", path, count)
             return json.dumps(_edit_envelope(new_text, count, matched="whitespace-normalized"))
 
-    # 3. No match — provide helpful error with closest text
+    # 3. Line-contains match — find is a long substring of exactly one line
+    # Handles the common case where the LLM omits a bullet prefix or trailing text.
+    if len(find.strip()) >= 60:
+        _find_stripped = find.strip()
+        _matching_lines = [
+            (i, line) for i, line in enumerate(text.splitlines())
+            if _find_stripped in line or line.strip() in _find_stripped
+        ]
+        if len(_matching_lines) == 1:
+            _idx, _matched_line = _matching_lines[0]
+            # Replace the entire line, preserving the line's leading whitespace
+            lines = text.splitlines(keepends=True)
+            _leading = lines[_idx][:len(lines[_idx]) - len(lines[_idx].lstrip())]
+            lines[_idx] = _leading + replace.lstrip() + "\n"
+            new_text = "".join(lines)
+            Path(path).write_text(new_text)
+            logger.info("edit: line-contains match on %s (line %d)", path, _idx + 1)
+            return json.dumps(_edit_envelope(new_text, 1, matched="line-contains"))
+
+    # 4. No match — provide helpful error with closest text
     hint = _find_closest_hint(find, text)
     return _error(f"find string not found in file.{hint}")
 

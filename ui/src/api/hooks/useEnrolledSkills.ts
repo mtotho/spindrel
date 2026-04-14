@@ -13,6 +13,7 @@ export interface EnrolledSkill {
   last_fetched_at: string | null;
   auto_inject_count: number;
   last_auto_injected_at: string | null;
+  enrolled_bot_count: number;
 }
 
 export function useEnrolledSkills(botId?: string) {

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Search, X, Plus, TrendingUp, Zap } from "lucide-react";
+import { Search, X, Plus, TrendingUp, Zap, AlertTriangle } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useEnrolledSkills,
@@ -7,6 +7,8 @@ import {
   useUnenrollSkill,
   type EnrolledSkill,
 } from "@/src/api/hooks/useEnrolledSkills";
+import { useDeleteSkill } from "@/src/api/hooks/useSkills";
+import { useQueryClient } from "@tanstack/react-query";
 import { AdvancedSection } from "@/src/components/shared/SettingsControls";
 import type { SkillOption } from "@/src/types/api";
 
@@ -45,20 +47,208 @@ function formatDate(iso: string | null): string {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Three-choice modal for removing authored skills                    */
+/* ------------------------------------------------------------------ */
+
+function RemoveAuthoredSkillModal({
+  skill,
+  botName,
+  onCancel,
+  onUnenroll,
+  onDelete,
+  isDeleting,
+  isUnenrolling,
+}: {
+  skill: EnrolledSkill;
+  botName: string;
+  onCancel: () => void;
+  onUnenroll: () => void;
+  onDelete: () => void;
+  isDeleting: boolean;
+  isUnenrolling: boolean;
+}) {
+  const t = useThemeTokens();
+  const busy = isDeleting || isUnenrolling;
+  const otherBots = skill.enrolled_bot_count - 1;
+
+  if (typeof document === "undefined") return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const ReactDOM = require("react-dom");
+  return ReactDOM.createPortal(
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={busy ? undefined : onCancel}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.45)",
+          zIndex: 10020,
+        }}
+      />
+      {/* Dialog */}
+      <div
+        style={{
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          width: 420,
+          maxWidth: "90vw",
+          zIndex: 10021,
+          background: t.surfaceRaised,
+          border: `1px solid ${t.surfaceBorder}`,
+          borderRadius: 12,
+          boxShadow: "0 16px 48px rgba(0,0,0,0.3)",
+          padding: 20,
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <AlertTriangle size={15} color={t.danger} />
+            <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
+              Remove authored skill
+            </span>
+          </div>
+          {!busy && (
+            <button
+              onClick={onCancel}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: 4,
+              }}
+            >
+              <X size={16} color={t.textDim} />
+            </button>
+          )}
+        </div>
+
+        {/* Body */}
+        <div style={{ fontSize: 13, color: t.textMuted, lineHeight: "20px", marginBottom: 8 }}>
+          <strong style={{ color: t.text }}>&ldquo;{skill.name}&rdquo;</strong> was created by{" "}
+          <strong style={{ color: t.text }}>{botName}</strong>.
+        </div>
+
+        <div style={{ fontSize: 12, color: t.textDim, lineHeight: "18px", marginBottom: 16 }}>
+          You can remove it from this bot&rsquo;s working set, or delete it permanently from the
+          catalog.
+        </div>
+
+        {otherBots > 0 && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "8px 10px",
+              background: t.warningSubtle,
+              border: `1px solid ${t.warningBorder}`,
+              borderRadius: 6,
+              fontSize: 12,
+              color: t.warningMuted,
+              marginBottom: 16,
+            }}
+          >
+            <AlertTriangle size={13} />
+            <span>
+              {otherBots} other bot{otherBots !== 1 ? "s" : ""} also use{otherBots === 1 ? "s" : ""}{" "}
+              this skill. Deleting it removes it from all bots.
+            </span>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button
+            onClick={onCancel}
+            disabled={busy}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 6,
+              border: `1px solid ${t.surfaceBorder}`,
+              background: "transparent",
+              cursor: busy ? "default" : "pointer",
+              fontSize: 12,
+              color: t.textDim,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onUnenroll}
+            disabled={busy}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 6,
+              border: `1px solid ${t.surfaceBorder}`,
+              background: "transparent",
+              cursor: busy ? "default" : "pointer",
+              fontSize: 12,
+              fontWeight: 600,
+              color: t.text,
+              opacity: busy ? 0.5 : 1,
+            }}
+          >
+            {isUnenrolling ? "Removing..." : "Just unenroll"}
+          </button>
+          <button
+            onClick={onDelete}
+            disabled={busy}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 6,
+              background: t.danger,
+              border: "none",
+              cursor: busy ? "default" : "pointer",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "#fff",
+              opacity: busy ? 0.5 : 1,
+            }}
+          >
+            {isDeleting ? "Deleting..." : "Delete permanently"}
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
 export function EnrolledSkillsPanel({
   botId,
+  botName,
   catalogSkills,
 }: {
   botId: string;
+  botName: string;
   catalogSkills: SkillOption[];
 }) {
   const t = useThemeTokens();
+  const queryClient = useQueryClient();
   const { data: enrolled, isLoading } = useEnrolledSkills(botId);
   const enrollMut = useEnrollSkill(botId);
   const unenrollMut = useUnenrollSkill(botId);
+  const deleteMut = useDeleteSkill();
   const [filter, setFilter] = useState("");
   const [showAddPicker, setShowAddPicker] = useState(false);
   const [pickerFilter, setPickerFilter] = useState("");
+  const [removeTarget, setRemoveTarget] = useState<EnrolledSkill | null>(null);
 
   const enrolledIds = useMemo(
     () => new Set((enrolled ?? []).map((e) => e.skill_id)),
@@ -102,6 +292,31 @@ export function EnrolledSkillsPanel({
       )
       .slice(0, 30);
   }, [catalogSkills, enrolledIds, pickerFilter]);
+
+  const handleRemoveClick = (e: EnrolledSkill) => {
+    if (e.source === "authored") {
+      setRemoveTarget(e);
+    } else {
+      unenrollMut.mutate(e.skill_id);
+    }
+  };
+
+  const handleUnenrollOnly = () => {
+    if (!removeTarget) return;
+    unenrollMut.mutate(removeTarget.skill_id, {
+      onSuccess: () => setRemoveTarget(null),
+    });
+  };
+
+  const handleDeletePermanently = () => {
+    if (!removeTarget) return;
+    deleteMut.mutate(removeTarget.skill_id, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["bot-enrolled-skills", botId] });
+        setRemoveTarget(null);
+      },
+    });
+  };
 
   return (
     <AdvancedSection title="Working Set (Enrolled Skills)" defaultOpen>
@@ -261,7 +476,7 @@ export function EnrolledSkillsPanel({
                       </div>
                     </div>
                     <button
-                      onClick={() => unenrollMut.mutate(e.skill_id)}
+                      onClick={() => handleRemoveClick(e)}
                       disabled={unenrollMut.isPending}
                       title="Remove from working set"
                       style={{
@@ -443,6 +658,19 @@ export function EnrolledSkillsPanel({
           )}
         </div>
       </div>
+
+      {/* Authored skill removal modal */}
+      {removeTarget && (
+        <RemoveAuthoredSkillModal
+          skill={removeTarget}
+          botName={botName}
+          onCancel={() => setRemoveTarget(null)}
+          onUnenroll={handleUnenrollOnly}
+          onDelete={handleDeletePermanently}
+          isDeleting={deleteMut.isPending}
+          isUnenrolling={unenrollMut.isPending}
+        />
+      )}
     </AdvancedSection>
   );
 }

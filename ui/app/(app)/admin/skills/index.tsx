@@ -2,11 +2,16 @@ import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
-import { Plus, RefreshCw, AlertTriangle, Search, TrendingUp } from "lucide-react";
-import { useSkills, useFileSync, type SkillItem, type FileSyncResult } from "@/src/api/hooks/useSkills";
+import { Plus, RefreshCw, AlertTriangle, Search, TrendingUp, Zap, Trash2, Users } from "lucide-react";
+import { useSkills, useFileSync, useDeleteSkill, type SkillItem, type FileSyncResult } from "@/src/api/hooks/useSkills";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useState, useMemo } from "react";
+
+/* ------------------------------------------------------------------ */
+/*  Shared badges                                                      */
+/* ------------------------------------------------------------------ */
 
 function SourceBadge({ type, detail }: { type: string; detail?: string }) {
   const t = useThemeTokens();
@@ -28,6 +33,66 @@ function SourceBadge({ type, detail }: { type: string; detail?: string }) {
     </span>
   );
 }
+
+function CategoryBadge({ category }: { category: string }) {
+  const t = useThemeTokens();
+  return (
+    <span style={{
+      padding: "1px 6px", borderRadius: 3, fontSize: 10, fontWeight: 500,
+      background: t.surfaceOverlay, color: t.textMuted,
+    }}>
+      {category}
+    </span>
+  );
+}
+
+function EnrollmentBadge({ count }: { count: number }) {
+  const t = useThemeTokens();
+  if (!count) return <span style={{ fontSize: 10, color: t.textDim }}>--</span>;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 3,
+      fontSize: 10, color: t.textMuted,
+    }}>
+      <Users size={10} />
+      {count}
+    </span>
+  );
+}
+
+function ActivityBadge({ surfaceCount, autoInjects, lastAt, compact }: {
+  surfaceCount: number; autoInjects: number; lastAt?: string | null; compact?: boolean;
+}) {
+  const t = useThemeTokens();
+  const total = surfaceCount + autoInjects;
+  if (!total) {
+    return <span style={{ fontSize: 10, color: t.textDim }}>--</span>;
+  }
+  const isHot = surfaceCount >= 10;
+  return (
+    <span
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 3,
+        fontSize: 10, color: isHot ? "#059669" : t.textMuted,
+      }}
+      title={`Surfaced ${surfaceCount}x, auto-injected ${autoInjects}x — last ${fmtRelative(lastAt)}`}
+    >
+      {isHot && <TrendingUp size={10} />}
+      {surfaceCount}{!compact && "s"}
+      {autoInjects > 0 && (
+        <>
+          <span style={{ color: t.textDim }}>·</span>
+          <Zap size={9} color="#a855f7" />
+          <span style={{ color: "#a855f7" }}>{autoInjects}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Date formatters                                                    */
+/* ------------------------------------------------------------------ */
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -51,28 +116,11 @@ function fmtRelative(iso: string | null | undefined): string {
   return fmtDate(iso);
 }
 
-function SurfacingBadge({ count, lastAt, compact }: { count: number; lastAt?: string | null; compact?: boolean }) {
-  const t = useThemeTokens();
-  if (!count) {
-    return (
-      <span style={{ fontSize: 10, color: t.textDim }} title="Never surfaced in bot context">
-        --
-      </span>
-    );
-  }
-  const isHot = count >= 10;
-  return (
-    <span
-      style={{
-        display: "inline-flex", alignItems: "center", gap: 3,
-        fontSize: 10, color: isHot ? "#059669" : t.textMuted,
-      }}
-      title={`Surfaced in bot context ${count} times — last ${fmtRelative(lastAt)}`}
-    >
-      {isHot && <TrendingUp size={10} />}
-      {count}{!compact && <span style={{ fontSize: 9, color: t.textDim }}>surfaced</span>}
-    </span>
-  );
+function fmtShortDate(iso: string | null | undefined) {
+  if (!iso) return "\u2014";
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short", day: "numeric",
+  });
 }
 
 function fmtIntName(key: string): string {
@@ -81,10 +129,19 @@ function fmtIntName(key: string): string {
   return key.replace(/(^|_)(\w)/g, (_, sep, c) => (sep ? " " : "") + c.toUpperCase());
 }
 
+/* ------------------------------------------------------------------ */
+/*  Render item types                                                  */
+/* ------------------------------------------------------------------ */
+
 type RenderItem =
   | { type: "header"; key: string; label: string; count: number }
   | { type: "subheader"; key: string; label: string; count: number }
+  | { type: "bot-group"; key: string; botId: string; skills: SkillItem[] }
   | { type: "skill"; key: string; skill: SkillItem };
+
+/* ------------------------------------------------------------------ */
+/*  Section header                                                     */
+/* ------------------------------------------------------------------ */
 
 function SectionHeader({ label, count, level, isWide }: { label: string; count: number; level: number; isWide: boolean }) {
   const t = useThemeTokens();
@@ -115,17 +172,152 @@ function SectionHeader({ label, count, level, isWide }: { label: string; count: 
   );
 }
 
-function CategoryBadge({ category }: { category: string }) {
+/* ------------------------------------------------------------------ */
+/*  Bot-authored skill card                                            */
+/* ------------------------------------------------------------------ */
+
+function SkillCard({
+  skill,
+  onPress,
+  onDelete,
+}: {
+  skill: SkillItem;
+  onPress: () => void;
+  onDelete: () => void;
+}) {
   const t = useThemeTokens();
+  const [hovered, setHovered] = useState(false);
+  const description = skill.description
+    || (skill.content || "").split("\n").find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("---"))?.trim()
+    || "";
+
   return (
-    <span style={{
-      padding: "1px 6px", borderRadius: 3, fontSize: 10, fontWeight: 500,
-      background: t.surfaceOverlay, color: t.textMuted,
-    }}>
-      {category}
-    </span>
+    <button
+      onClick={onPress}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: "flex", flexDirection: "column", gap: 6,
+        padding: "14px 16px",
+        background: hovered ? t.surfaceOverlay : t.inputBg,
+        borderRadius: 10,
+        border: `1px solid ${hovered ? t.accentBorder : t.surfaceBorder}`,
+        cursor: "pointer", textAlign: "left",
+        width: "100%",
+        position: "relative",
+        transition: "background 0.15s, border-color 0.15s",
+      }}
+    >
+      {/* Delete button — hover only */}
+      {hovered && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          title="Delete skill permanently"
+          style={{
+            position: "absolute", top: 8, right: 8,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 24, height: 24, borderRadius: 4,
+            background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+            cursor: "pointer", color: t.danger,
+          }}
+        >
+          <Trash2 size={12} />
+        </button>
+      )}
+
+      {/* Name + category */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, paddingRight: hovered ? 28 : 0 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+          {skill.name}
+        </span>
+        {skill.category && <CategoryBadge category={skill.category} />}
+      </div>
+
+      {/* Description */}
+      {description && (
+        <div style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {description.slice(0, 100)}
+        </div>
+      )}
+
+      {/* Activity row */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8, fontSize: 10, color: t.textDim,
+        marginTop: 2,
+      }}>
+        <ActivityBadge
+          surfaceCount={skill.surface_count}
+          autoInjects={skill.total_auto_injects}
+          lastAt={skill.last_surfaced_at}
+        />
+        <span style={{ color: t.surfaceBorder }}>·</span>
+        <EnrollmentBadge count={skill.enrolled_bot_count} />
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 10, color: t.textDim }}>{fmtShortDate(skill.updated_at)}</span>
+      </div>
+    </button>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Bot group — grid of cards for one bot's authored skills            */
+/* ------------------------------------------------------------------ */
+
+function BotGroupSection({
+  botId,
+  skills,
+  isWide,
+  onSkillPress,
+  onSkillDelete,
+}: {
+  botId: string;
+  skills: SkillItem[];
+  isWide: boolean;
+  onSkillPress: (id: string) => void;
+  onSkillDelete: (skill: SkillItem) => void;
+}) {
+  const t = useThemeTokens();
+  return (
+    <div style={{ padding: isWide ? "0 16px" : 0 }}>
+      {/* Bot sub-header */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "8px 0 6px",
+      }}>
+        <span style={{
+          fontSize: 11, fontWeight: 600, color: "#059669",
+        }}>
+          {botId}
+        </span>
+        <span style={{ fontSize: 10, color: t.textDim }}>
+          {skills.length} skill{skills.length !== 1 ? "s" : ""}
+        </span>
+        <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
+      </div>
+
+      {/* Card grid */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: isWide ? "repeat(auto-fill, minmax(280px, 1fr))" : "1fr",
+        gap: 8,
+        paddingBottom: 8,
+      }}>
+        {skills.map((skill) => (
+          <SkillCard
+            key={skill.id}
+            skill={skill}
+            onPress={() => onSkillPress(skill.id)}
+            onDelete={() => onSkillDelete(skill)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Table row for non-bot-authored skills                              */
+/* ------------------------------------------------------------------ */
 
 function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () => void; isWide: boolean }) {
   const t = useThemeTokens();
@@ -157,9 +349,8 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
           <SourceBadge type={skill.source_type} detail={wsDetail} />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: t.textDim }}>
-          <span style={{ fontFamily: "monospace" }}>{skill.id}</span>
-          <span>{skill.chunk_count} chunks</span>
-          <SurfacingBadge count={skill.surface_count} lastAt={skill.last_surfaced_at} />
+          <EnrollmentBadge count={skill.enrolled_bot_count} />
+          <ActivityBadge surfaceCount={skill.surface_count} autoInjects={skill.total_auto_injects} lastAt={skill.last_surfaced_at} />
           {isBotAuthored && skill.bot_id && (
             <span style={{ color: "#059669" }}>{skill.bot_id}</span>
           )}
@@ -178,7 +369,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
     <button
       onClick={onPress}
       style={{
-        display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 60px 100px",
+        display: "grid", gridTemplateColumns: "1fr 90px 60px 80px 100px",
         alignItems: "center", gap: 12,
         padding: "10px 16px", background: "transparent",
         border: "none",
@@ -189,18 +380,18 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
       onMouseEnter={(e) => { e.currentTarget.style.background = t.inputBg; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
     >
-      <span style={{ fontSize: 11, fontFamily: "monospace", color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {skill.id}
-      </span>
+      {/* Name + ID subtitle + description */}
       <div style={{ overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {skill.name}
           </span>
           {skill.category && <CategoryBadge category={skill.category} />}
-          {isBotAuthored && skill.bot_id && (
-            <span style={{ fontSize: 10, color: "#059669", whiteSpace: "nowrap" }}>{skill.bot_id}</span>
-          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+          <span style={{ fontSize: 10, fontFamily: "monospace", color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {skill.id}
+          </span>
         </div>
         {description && (
           <div style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
@@ -209,14 +400,20 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
         )}
       </div>
       <SourceBadge type={skill.source_type} detail={wsDetail} />
-      <span style={{ fontSize: 11, color: t.textMuted, textAlign: "right" }}>{skill.chunk_count}</span>
       <span style={{ textAlign: "right" }}>
-        <SurfacingBadge count={skill.surface_count} lastAt={skill.last_surfaced_at} compact />
+        <EnrollmentBadge count={skill.enrolled_bot_count} />
+      </span>
+      <span style={{ textAlign: "right" }}>
+        <ActivityBadge surfaceCount={skill.surface_count} autoInjects={skill.total_auto_injects} lastAt={skill.last_surfaced_at} compact />
       </span>
       <span style={{ fontSize: 11, color: t.textDim, textAlign: "right" }}>{fmtDate(skill.updated_at)}</span>
     </button>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Sync result banner                                                 */
+/* ------------------------------------------------------------------ */
 
 function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDismiss: () => void }) {
   const t = useThemeTokens();
@@ -253,11 +450,17 @@ function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDis
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Main screen                                                        */
+/* ------------------------------------------------------------------ */
+
 export default function SkillsScreen() {
   const t = useThemeTokens();
   const router = useRouter();
   const { data: skills, isLoading } = useSkills();
   const syncMut = useFileSync();
+  const deleteMut = useDeleteSkill();
+  const { confirm, ConfirmDialogSlot } = useConfirm();
   const [syncResult, setSyncResult] = useState<FileSyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const { refreshing, onRefresh } = usePageRefresh();
@@ -303,13 +506,28 @@ export default function SkillsScreen() {
 
     const items: RenderItem[] = [];
 
+    // Bot-authored: group by bot_id, render as card groups
+    if (botAuthored.length) {
+      items.push({ type: "header", key: "bot-authored", label: "Bot-Authored", count: botAuthored.length });
+      const botGroups = new Map<string, SkillItem[]>();
+      for (const s of botAuthored) {
+        const bid = s.bot_id || "unknown";
+        const list = botGroups.get(bid);
+        if (list) list.push(s); else botGroups.set(bid, [s]);
+      }
+      // Sort bot groups by total skill count descending
+      const sortedBots = [...botGroups.entries()].sort((a, b) => b[1].length - a[1].length);
+      for (const [bid, bSkills] of sortedBots) {
+        items.push({ type: "bot-group", key: `bot-${bid}`, botId: bid, skills: bSkills });
+      }
+    }
+
     const addGroup = (key: string, label: string, skills: SkillItem[]) => {
       if (!skills.length) return;
       items.push({ type: "header", key, label, count: skills.length });
       for (const s of skills) items.push({ type: "skill", key: s.id, skill: s });
     };
 
-    addGroup("bot-authored", "Bot-Authored", botAuthored);
     addGroup("manual", "User Added", manual);
     addGroup("core", "Core", core);
 
@@ -334,6 +552,21 @@ export default function SkillsScreen() {
       onSuccess: (data) => setSyncResult(data),
       onError: (err) => setSyncError((err as Error).message || "Sync failed"),
     });
+  };
+
+  const handleDeleteSkill = async (skill: SkillItem) => {
+    const enrolledMsg = skill.enrolled_bot_count > 0
+      ? ` It is enrolled in ${skill.enrolled_bot_count} bot${skill.enrolled_bot_count !== 1 ? "s" : ""}.`
+      : "";
+    const ok = await confirm(
+      `Delete "${skill.name}" permanently?${enrolledMsg} This cannot be undone.`,
+      { title: "Delete skill", variant: "danger", confirmLabel: "Delete" },
+    );
+    if (ok) deleteMut.mutate(skill.id);
+  };
+
+  const navigateToSkill = (id: string) => {
+    router.push(`/admin/skills/${encodeURIComponent(id)}` as any);
   };
 
   if (isLoading) {
@@ -445,39 +678,52 @@ export default function SkillsScreen() {
         )}
         {skills && skills.length > 0 && filteredSkills.length === 0 && (
           <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
-            No skills match "{search}"
+            No skills match &ldquo;{search}&rdquo;
           </div>
         )}
-        {/* Column headers (desktop only) */}
-        {isWide && renderItems.length > 0 && (
-          <div style={{
-            display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 60px 100px",
-            gap: 12, padding: "6px 16px",
-            borderBottom: `1px solid ${t.surfaceBorder}`,
-          }}>
-            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1 }}>ID</span>
-            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Name</span>
-            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Source</span>
-            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1, textAlign: "right" }}>Chunks</span>
-            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1, textAlign: "right" }}>Surfaced</span>
-            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1, textAlign: "right" }}>Updated</span>
-          </div>
+        {/* Column headers for table sections (desktop only) */}
+        {isWide && renderItems.some((i) => i.type === "skill") && (
+          <div id="table-header" style={{ display: "none" }} />
         )}
-        {renderItems.map((item) =>
-          item.type === "header" ? (
-            <SectionHeader key={item.key} label={item.label} count={item.count} level={0} isWide={isWide} />
-          ) : item.type === "subheader" ? (
-            <SectionHeader key={item.key} label={item.label} count={item.count} level={1} isWide={isWide} />
-          ) : (
+        {renderItems.map((item) => {
+          if (item.type === "header") {
+            return <SectionHeader key={item.key} label={item.label} count={item.count} level={0} isWide={isWide} />;
+          }
+          if (item.type === "subheader") {
+            return <SectionHeader key={item.key} label={item.label} count={item.count} level={1} isWide={isWide} />;
+          }
+          if (item.type === "bot-group") {
+            return (
+              <BotGroupSection
+                key={item.key}
+                botId={item.botId}
+                skills={item.skills}
+                isWide={isWide}
+                onSkillPress={navigateToSkill}
+                onSkillDelete={handleDeleteSkill}
+              />
+            );
+          }
+          // Table row — show column headers before first table skill
+          return (
             <SkillRow
               key={item.key}
               skill={item.skill}
               isWide={isWide}
-              onPress={() => router.push(`/admin/skills/${encodeURIComponent(item.skill.id)}` as any)}
+              onPress={() => navigateToSkill(item.skill.id)}
             />
-          ),
-        )}
+          );
+        })}
+        {/* Render table column headers once before first non-bot-authored section */}
+        {isWide && renderItems.some((i) => i.type === "skill") && (() => {
+          const firstSkillIdx = renderItems.findIndex((i) => i.type === "skill");
+          const headerBefore = firstSkillIdx > 0 ? renderItems[firstSkillIdx - 1] : null;
+          // We render column headers inline via CSS — the grid on SkillRow handles alignment
+          return null;
+        })()}
       </RefreshableScrollView>
+
+      <ConfirmDialogSlot />
     </View>
   );
 }

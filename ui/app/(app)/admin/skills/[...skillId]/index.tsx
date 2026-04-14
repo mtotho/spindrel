@@ -5,6 +5,7 @@ import { Trash2, Info } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import { useSkill, useCreateSkill, useUpdateSkill, useDeleteSkill } from "@/src/api/hooks/useSkills";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { FormRow, TextInput, Section } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
 
@@ -35,6 +36,7 @@ export default function SkillDetailScreen() {
   const createMut = useCreateSkill();
   const updateMut = useUpdateSkill(skillId);
   const deleteMut = useDeleteSkill();
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
@@ -64,10 +66,18 @@ export default function SkillDetailScreen() {
   }, [isNew, id, name, content, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
-    if (!skillId || !confirm("Delete this skill?")) return;
+    if (!skillId) return;
+    const enrolledMsg = skill?.enrolled_bot_count
+      ? ` It is enrolled in ${skill.enrolled_bot_count} bot${skill.enrolled_bot_count !== 1 ? "s" : ""}.`
+      : "";
+    const ok = await confirm(
+      `Delete "${skill?.name || skillId}" permanently?${enrolledMsg} This cannot be undone.`,
+      { title: "Delete skill", variant: "danger", confirmLabel: "Delete permanently" },
+    );
+    if (!ok) return;
     await deleteMut.mutateAsync(skillId);
     goBack();
-  }, [skillId, deleteMut, goBack]);
+  }, [skillId, skill, deleteMut, goBack, confirm]);
 
   const isSaving = createMut.isPending || updateMut.isPending;
   const canSave = isNew ? (id.trim() && name.trim()) : name.trim();
@@ -232,6 +242,7 @@ export default function SkillDetailScreen() {
                     {skill.source_path && <InfoRow label="Path" value={skill.source_path} />}
                     {skill.category && <InfoRow label="Category" value={skill.category} />}
                     <InfoRow label="Chunks" value={String(skill.chunk_count)} />
+                    <InfoRow label="Enrolled bots" value={String(skill.enrolled_bot_count)} />
                     <InfoRow label="Created" value={fmtDate(skill.created_at)} />
                     <InfoRow label="Updated" value={fmtDate(skill.updated_at)} />
                   </div>
@@ -255,6 +266,7 @@ export default function SkillDetailScreen() {
           </div>
         </div>
       </ScrollView>
+      <ConfirmDialogSlot />
     </View>
   );
 }

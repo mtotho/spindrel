@@ -17,6 +17,7 @@ export interface SkillItem {
   surface_count: number;
   total_auto_injects: number;
   bot_id?: string | null;
+  enrolled_bot_count: number;
 }
 
 export function useSkills(opts?: {

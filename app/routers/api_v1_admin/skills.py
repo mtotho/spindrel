@@ -36,6 +36,7 @@ class SkillOut(BaseModel):
     surface_count: int = 0
     total_auto_injects: int = 0
     bot_id: Optional[str] = None
+    enrolled_bot_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -88,6 +89,13 @@ async def admin_list_skills(
         .group_by(Document.source)
     )).all()
     chunk_map = {row[0]: row[1] for row in chunk_rows}
+
+    # Enrollment counts per skill
+    enrollment_rows = (await db.execute(
+        select(BotSkillEnrollment.skill_id, func.count().label("cnt"))
+        .group_by(BotSkillEnrollment.skill_id)
+    )).all()
+    enrollment_map = {row.skill_id: row.cnt for row in enrollment_rows}
 
     # Aggregate auto-inject + surfacing counts (time-windowed or all-time)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days > 0 else None
@@ -146,6 +154,7 @@ async def admin_list_skills(
             surface_count=surf_map.get(s.id, 0) if cutoff else s.surface_count,
             total_auto_injects=ai_map.get(s.id, 0),
             bot_id=_extract_bot_id(s.id, s.source_type),
+            enrolled_bot_count=enrollment_map.get(s.id, 0),
         )
         for s in skills
     ]
@@ -166,6 +175,10 @@ async def admin_get_skill(
         select(func.count()).select_from(Document)
         .where(Document.source == f"skill:{skill_id}")
     )).scalar_one()
+    enrolled_bot_count = (await db.execute(
+        select(func.count()).select_from(BotSkillEnrollment)
+        .where(BotSkillEnrollment.skill_id == skill_id)
+    )).scalar_one()
     return SkillOut(
         id=row.id, name=row.name, content=row.content or "",
         description=row.description, category=row.category,
@@ -175,6 +188,7 @@ async def admin_get_skill(
         created_at=row.created_at, updated_at=row.updated_at,
         last_surfaced_at=row.last_surfaced_at,
         surface_count=row.surface_count,
+        enrolled_bot_count=enrolled_bot_count,
     )
 
 

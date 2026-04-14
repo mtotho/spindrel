@@ -128,7 +128,8 @@ Your channels (primary and member) are listed in the "## Channels" snapshot appe
 - **Member channels matter** — you may have learned things in channels you're a guest in. Review them too.
 
 ## Step 2 — Curate MEMORY.md (with contradiction detection + lifecycle metadata)
-Read your current memory/MEMORY.md. For each entry:
+**IMPORTANT**: Call `get_memory_file("MEMORY")` first — the bootstrap injection in your context may be truncated. You need the FULL file content before attempting any edits, because `file(operation="edit")` requires an exact `find` string match.
+For each entry:
 - **Accuracy**: Is it still true? Remove or update stale facts.
 - **Duplicates**: Merge overlapping entries.
 - **Contradictions**: Check for conflicting entries. When found, keep the newer/more reliable one and archive the old with `<!-- superseded YYYY-MM-DD: reason -->`. Contradictions between channels are common — resolve by checking which is more recent or authoritative.

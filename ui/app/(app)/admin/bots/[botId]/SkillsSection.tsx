@@ -177,7 +177,7 @@ export function SkillsSection({
       </div>
 
       {draft.id && (
-        <EnrolledSkillsPanel botId={draft.id} catalogSkills={editorData.all_skills} />
+        <EnrolledSkillsPanel botId={draft.id} botName={draft.name} catalogSkills={editorData.all_skills} />
       )}
 
       <div style={{ fontSize: 11, color: t.textDim }}>

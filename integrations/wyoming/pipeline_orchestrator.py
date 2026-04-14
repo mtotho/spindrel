@@ -335,8 +335,14 @@ class SatelliteConnection:
             await self._drain_spurious_pipelines()
 
     async def _drain_spurious_pipelines(self):
-        """Discard RunPipeline events that arrived during TTS playback."""
+        """Discard RunPipeline events that arrived during TTS playback.
+
+        When we discard a pipeline, the satellite is stuck in streaming mode
+        waiting for a Transcript to end the interaction.  We must send one
+        back so it returns to wake-word listening.
+        """
         assert self._client is not None
+        drained = False
         while True:
             try:
                 event = await asyncio.wait_for(self._client.read_event(), timeout=0.5)
@@ -346,11 +352,20 @@ class SatelliteConnection:
                 break
             if RunPipeline.is_type(event.type):
                 logger.info("Discarding spurious pipeline event (TTS echo)")
+                drained = True
             elif AudioChunk.is_type(event.type) or AudioStart.is_type(event.type):
                 continue  # drain audio too
+            elif AudioStop.is_type(event.type):
+                continue
             else:
                 logger.debug("Post-TTS event: %s", event.type)
                 break
+
+        if drained:
+            # Send empty transcript so satellite exits streaming and
+            # returns to wake-word listening mode.
+            await self._client.write_event(Transcript(text="").event())
+            logger.info("Sent reset transcript to satellite")
 
     async def _speak(self, text: str):
         """Synthesize text and send audio to the satellite."""
