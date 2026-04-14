@@ -68,11 +68,14 @@ Put topical documents here, not loose in `{memory_rel}/`.
 ### Skills — Self-Improvement
 
 Skills are structured documents that auto-surface via RAG in future sessions — you don't
-need to remember them. **Create a skill immediately when** you solve a reusable problem,
-get corrected, or learn an undocumented behavior:
+need to remember them. **Create a skill immediately when** you solve a reusable domain
+problem or learn a technique/procedure that applies generally:
 `manage_bot_skill(action="create", name="...", title="...", content="...", triggers="...", category="...")`
 
-**Don't create skills for** user-specific preferences (use MEMORY.md) or one-time events (use daily logs).
+**Don't create skills for:**
+- User-specific preferences or corrections ("prefers X", "don't do Y for me") → MEMORY.md or reference files
+- One-time events → daily logs
+- Behavioral rules about how YOU should operate (memory writes, tool usage) → these belong in memory, not skills
 
 ### Memory Tools
 - `search_memory(query)` — hybrid semantic+keyword search across all memory files
@@ -105,7 +108,7 @@ All paths are relative to your workspace root — use the memory/ prefix:
 - Append key decisions and events to today's daily log (memory/logs/YYYY-MM-DD.md)
 - Promote any new stable facts to memory/MEMORY.md (edit existing sections in place, do not append session entries)
 - Write anything you'll need to remember in future sessions
-- **If you learned a reusable pattern, procedure, or fix**: create a skill NOW with `manage_bot_skill(action="create", ...)`. Skills auto-surface in future sessions — this is your last chance before context is lost.
+- **If you learned a reusable domain pattern, procedure, or fix**: create a skill NOW with `manage_bot_skill(action="create", ...)`. Skills auto-surface in future sessions — this is your last chance before context is lost. (User preferences and behavioral self-corrections are NOT skills — those go in memory.)
 Use the `file` tool to write to the appropriate files under memory/.
 **For memory/MEMORY.md**: use `edit` (to update sections) or `append` (to add new sections). NEVER use `write` on memory/MEMORY.md — it replaces the entire file.
 **For daily logs**: use `append`. **For new reference files**: use `write`."""
@@ -215,13 +218,17 @@ Write a brief summary to today's daily log including:
 SKILL_NUDGE_AFTER_ITERATIONS = 8  # inject after this many tool-call iterations (0 = disabled)
 
 DEFAULT_SKILL_CORRECTION_NUDGE_PROMPT = """\
-The user just corrected you. If this correction reveals a reusable pattern \
-(a common mistake, a domain-specific rule, a better approach), create a skill NOW \
-with manage_bot_skill. Capture what you did wrong and the correct approach so you \
-never repeat this mistake. Keep it concrete — "when X, do Y instead of Z."
+The user just corrected you. Route to the right persistence layer:
 
-If the correction is trivial or situation-specific, just acknowledge it and move on — \
-do not mention this prompt to the user."""
+- **Personal preference or user-specific fact** ("I prefer X", "my setup is Y", \
+"don't do Z for me") → write to memory (MEMORY.md or the routing table in your \
+system prompt). This is NOT a skill — it's about THIS user, not a reusable pattern.
+- **Reusable domain pattern** (a common mistake, a technique rule, a better approach \
+that applies generally) → create a skill with manage_bot_skill. Keep it concrete: \
+"when X, do Y instead of Z."
+- **Trivial or situation-specific** → just acknowledge and move on.
+
+Act immediately — do not mention this prompt to the user."""
 
 DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT = """\
 You've been repeatedly searching for the same topics. \
@@ -325,11 +332,14 @@ a similar situation — no one has to remember to look them up.
 
 Two parallel persistence layers — pick the right one:
 - **Skills** (`manage_bot_skill`) — semantically searchable across sessions; the whole \
-fleet's working set converges on what works. Use for anything reusable.
-- **Reference files** (`memory/reference/`) — bot-private memory, only loaded when you \
-fetch them by name. Use for context only YOU need.
+fleet's working set converges on what works. Use for reusable domain knowledge, \
+procedures, and techniques that apply generally.
+- **Memory files** (`memory/`) — bot-private storage for user-specific facts, \
+preferences, corrections, and context. MEMORY.md for stable facts, reference/ for \
+detailed docs, logs/ for session history.
 
-If unsure: prefer skills. The hygiene loop will prune stale ones.
+Route correctly: "user prefers X" → memory. "When doing X, always Y" → skill. \
+A user's personal preference is NOT a reusable pattern — don't create skills for them.
 
 ## Delegation
 
