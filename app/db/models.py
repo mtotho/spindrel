@@ -65,8 +65,6 @@ class Channel(Base):
     local_tools_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     mcp_servers_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     client_tools_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    skills_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    skills_extra: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     carapaces_extra: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     carapaces_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     model_tier_overrides: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))

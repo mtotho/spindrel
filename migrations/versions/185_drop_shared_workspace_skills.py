@@ -9,7 +9,7 @@ catalog skills on demand. The workspace-wide pin is redundant — and the
 phases.
 
 This is the workspace-level companion to the channel-level Phase 4 cleanup
-(`channels.skills_extra` / `skills_disabled`), which is still parked.
+(`channels.skills_extra` / `skills_disabled`), completed in migration 195.
 
 Revision ID: 185
 Revises: 184

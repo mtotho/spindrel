@@ -133,36 +133,11 @@ class TestSkillConfigBasic:
 
 
 class TestBotAuthoredSkillEnrollment:
-    """Test that bot-authored skills respect channel skills_disabled."""
+    """Test that bot-authored skills are merged correctly."""
 
     @pytest.mark.asyncio
-    async def test_bot_skills_respect_skills_disabled(self):
-        """Bot-authored skills should be filtered by channel skills_disabled."""
-        from app.agent.context_assembly import _get_bot_authored_skill_ids
-        from app.agent.bots import BotConfig, SkillConfig
-
-        bot = BotConfig(
-            id="testbot", name="Test", model="m", system_prompt="p",
-            skills=[],
-        )
-
-        # Simulate the enrollment logic from context_assembly.py
-        bot_skill_ids = ["bots/testbot/docker-net", "bots/testbot/k8s-debug"]
-        existing_skill_ids = {s.id for s in bot.skills}
-        disabled = {"bots/testbot/docker-net"}  # disabled by channel
-
-        new_skills = [
-            SkillConfig(id=sid, mode="on_demand")
-            for sid in bot_skill_ids
-            if sid not in existing_skill_ids and sid not in disabled
-        ]
-
-        assert len(new_skills) == 1
-        assert new_skills[0].id == "bots/testbot/k8s-debug"
-
-    @pytest.mark.asyncio
-    async def test_bot_skills_all_enrolled_when_no_disabled(self):
-        """Without disabled list, all bot-authored skills should be enrolled."""
+    async def test_bot_skills_all_enrolled(self):
+        """All bot-authored skills should be enrolled (deduped against existing)."""
         from app.agent.bots import BotConfig, SkillConfig
 
         bot = BotConfig(
@@ -172,12 +147,11 @@ class TestBotAuthoredSkillEnrollment:
 
         bot_skill_ids = ["bots/testbot/docker-net", "bots/testbot/k8s-debug"]
         existing_skill_ids = {s.id for s in bot.skills}
-        disabled = set()
 
         new_skills = [
             SkillConfig(id=sid, mode="on_demand")
             for sid in bot_skill_ids
-            if sid not in existing_skill_ids and sid not in disabled
+            if sid not in existing_skill_ids
         ]
 
         assert len(new_skills) == 2

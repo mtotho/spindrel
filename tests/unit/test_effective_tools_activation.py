@@ -33,8 +33,6 @@ def _channel(**kwargs) -> SimpleNamespace:
         local_tools_disabled=None,
         mcp_servers_disabled=None,
         client_tools_disabled=None,
-        skills_disabled=None,
-        skills_extra=None,
         carapaces_extra=None,
         carapaces_disabled=None,
         integrations=[],

@@ -49,16 +49,6 @@ async def get_skill(skill_id: str) -> str:
     # that patch `async_session` see all the queries through the mock — no
     # leaked sessions against the real engine.
     async with async_session() as db:
-        # Channel-disabled skills are blocked even if the catalog has them.
-        # Promotion to the working set is also blocked so disable stays effective.
-        if channel_id is not None:
-            from app.db.models import Channel as _ChannelRow
-            ch = await db.get(_ChannelRow, channel_id)
-            if ch is not None:
-                disabled = set(getattr(ch, "skills_disabled", None) or [])
-                if skill_id in disabled:
-                    return f"Skill '{skill_id}' is disabled on this channel."
-
         row = await db.get(SkillRow, skill_id)
         if not row:
             return f"Skill '{skill_id}' not found."

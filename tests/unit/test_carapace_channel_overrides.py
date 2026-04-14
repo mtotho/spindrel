@@ -31,8 +31,6 @@ def _channel(**kwargs) -> SimpleNamespace:
         local_tools_disabled=None,
         mcp_servers_disabled=None,
         client_tools_disabled=None,
-        skills_disabled=None,
-        skills_extra=None,
         carapaces_extra=None,
         carapaces_disabled=None,
     )
@@ -75,16 +73,6 @@ class TestCarapaceChannelOverrides:
         eff = resolve_effective_tools(bot, ch)
         assert "exec_command" not in eff.local_tools
         assert "file" in eff.local_tools
-
-    def test_skills_disabled_preserved(self):
-        bot = _bot(skills=[
-            SkillConfig(id="testing", mode="pinned"),
-            SkillConfig(id="debugging", mode="on_demand"),
-        ])
-        ch = _channel(skills_disabled=["testing"])
-        eff = resolve_effective_tools(bot, ch)
-        assert all(s.id != "testing" for s in eff.skills)
-        assert any(s.id == "debugging" for s in eff.skills)
 
     def test_mutual_exclusion_extra_disabled(self):
         """A carapace in both extra and disabled should end up disabled."""

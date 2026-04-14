@@ -331,34 +331,6 @@ class TestGetSkillPromotion:
         invalidate_enrolled_cache()
         assert await get_enrolled_skill_ids("bot6") == ["promoteme"]
 
-    async def test_get_skill_blocked_by_channel_disable(self, patched_session, db_session):
-        from app.agent.context import current_bot_id, current_channel_id
-        from app.db.models import Channel
-        from app.services.skill_enrollment import get_enrolled_skill_ids, invalidate_enrolled_cache
-        from app.tools.local.skills import get_skill
-
-        await _create_bot(db_session, "bot7")
-        await _create_skill(db_session, "blockedhere")
-
-        ch_id = uuid.uuid4()
-        db_session.add(Channel(
-            id=ch_id, name="ch", bot_id="bot7", skills_disabled=["blockedhere"],
-        ))
-        await db_session.commit()
-
-        tok_b = current_bot_id.set("bot7")
-        tok_c = current_channel_id.set(ch_id)
-        try:
-            invalidate_enrolled_cache()
-            content = await get_skill(skill_id="blockedhere")
-        finally:
-            current_channel_id.reset(tok_c)
-            current_bot_id.reset(tok_b)
-
-        assert "disabled on this channel" in content
-        # Critical: must NOT have been enrolled
-        invalidate_enrolled_cache()
-        assert await get_enrolled_skill_ids("bot7") == []
 
 
 # ---------------------------------------------------------------------------

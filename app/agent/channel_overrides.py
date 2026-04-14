@@ -83,34 +83,9 @@ def _apply_disabled(bot_list: list[str], disabled: list | None) -> list[str]:
 
 def _resolve_skills(
     bot_skills: list[SkillConfig],
-    disabled: list | None,
-    extras: list | None = None,
 ) -> list[SkillConfig]:
-    """Resolve skills with disabled/extras semantics.
-
-    - extras: add new skills from global pool
-    - disabled: remove skills by id
-    """
-    # Start with bot skills (per-bot YAML/DB rows; workspace-level skill pinning
-    # was removed in Phase 4 — bots now self-curate via the working set).
-    result_map = {s.id: s for s in bot_skills}
-    # Merge channel extras (new skills from global pool)
-    if extras:
-        for entry in extras:
-            sid = entry if isinstance(entry, str) else entry.get("id", "")
-            if sid and sid not in result_map:
-                if isinstance(entry, dict):
-                    result_map[sid] = SkillConfig(
-                        id=sid,
-                        mode=entry.get("mode", "on_demand"),
-                    )
-                else:
-                    result_map[sid] = SkillConfig(id=sid)
-    # Remove disabled
-    if disabled:
-        disabled_set = set(disabled)
-        return [s for s in result_map.values() if s.id not in disabled_set]
-    return list(result_map.values())
+    """Return a copy of bot skills. Channel-level overrides removed in Phase 4."""
+    return list(bot_skills)
 
 
 def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> EffectiveTools:
@@ -173,10 +148,6 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
         mcp_servers=_apply_disabled(_mcp, channel.mcp_servers_disabled),
         client_tools=_apply_disabled(bot.client_tools, channel.client_tools_disabled),
         pinned_tools=list(bot.pinned_tools),
-        skills=_resolve_skills(
-            bot.skills,
-            channel.skills_disabled,
-            getattr(channel, "skills_extra", None),
-        ),
+        skills=_resolve_skills(bot.skills),
         carapaces=_carapaces,
     )

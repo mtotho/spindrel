@@ -204,18 +204,28 @@ class SatelliteConnection:
         # when the user stopped speaking.
         audio_buffer = AudioBuffer()
         collecting = False
-        got_speech = False
-        silence_chunks = 0
-        # Silence detection tuned for typical hat mics (WM8960 etc.) where
-        # the noise floor can be 500-700 RMS.  Speech needs to clearly
-        # exceed 2000 RMS to count, and 1.5s of sub-2000 after speech = done.
-        SILENCE_THRESHOLD = 2000
-        SILENCE_CHUNKS_NEEDED = 24  # ~1.5s at 16kHz/1024 samples per chunk
-        MAX_COLLECT_SECONDS = 15  # hard cap to prevent infinite collection
-        chunks_collected = 0
+        # Collect audio for a fixed window after wake word.  Energy-based
+        # silence detection is unreliable on noisy hat mics (WM8960 etc.)
+        # where the SNR is too low.  Instead we collect for up to
+        # COLLECT_SECONDS and send whatever we got to Whisper — it handles
+        # noisy audio well and ignores silence.
+        COLLECT_SECONDS = 5
+        collect_deadline = asyncio.get_event_loop().time() + COLLECT_SECONDS
 
         while True:
-            event = await asyncio.wait_for(self._client.read_event(), timeout=30.0)
+            remaining = collect_deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                logger.info("Collection window closed (%ds)", COLLECT_SECONDS)
+                break
+
+            try:
+                event = await asyncio.wait_for(
+                    self._client.read_event(), timeout=min(remaining, 5.0),
+                )
+            except asyncio.TimeoutError:
+                logger.info("Collection timeout, proceeding with audio")
+                break
+
             if event is None:
                 logger.warning("Connection lost during audio collection")
                 return
@@ -228,37 +238,12 @@ class SatelliteConnection:
                     channels=audio_start.channels,
                 )
                 collecting = True
-                got_speech = False
-                silence_chunks = 0
-                chunks_collected = 0
 
             elif AudioChunk.is_type(event.type):
                 if not collecting:
                     collecting = True
-                    got_speech = False
-                    silence_chunks = 0
-                    chunks_collected = 0
                 chunk = AudioChunk.from_event(event)
                 audio_buffer.add_chunk(chunk.audio)
-                chunks_collected += 1
-
-                # Hard timeout
-                if chunks_collected > (MAX_COLLECT_SECONDS * 16000 // 1024):
-                    logger.warning("Hit max collection time (%ds)", MAX_COLLECT_SECONDS)
-                    break
-
-                audio_data = chunk.audio
-                if len(audio_data) >= 2:
-                    samples = struct.unpack(f"<{len(audio_data) // 2}h", audio_data)
-                    rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
-                    if rms > SILENCE_THRESHOLD:
-                        got_speech = True
-                        silence_chunks = 0
-                    elif got_speech:
-                        silence_chunks += 1
-                        if silence_chunks >= SILENCE_CHUNKS_NEEDED:
-                            logger.info("Silence detected after speech, stopping collection")
-                            break
 
             elif AudioStop.is_type(event.type):
                 break
@@ -271,12 +256,14 @@ class SatelliteConnection:
 
         if duration < 0.3:
             logger.info("Audio too short, ignoring")
+            await self._reset_satellite()
             return
 
         # Step 1: STT — transcribe via Whisper
         transcript = await transcribe_audio(self.whisper_uri, audio_buffer)
         if not transcript or not transcript.strip():
             logger.info("Empty transcript, skipping")
+            await self._reset_satellite()
             return
 
         logger.info("Transcript from %s: %r", self.device_id, transcript)
@@ -371,6 +358,12 @@ class SatelliteConnection:
             # returns to wake-word listening mode.
             await self._client.write_event(Transcript(text="").event())
             logger.info("Sent reset transcript to satellite")
+
+    async def _reset_satellite(self):
+        """Send empty transcript so satellite returns to wake-word listening."""
+        if self._client:
+            await self._client.write_event(Transcript(text="").event())
+            logger.debug("Sent reset to satellite")
 
     async def _speak(self, text: str):
         """Synthesize text and send audio to the satellite."""

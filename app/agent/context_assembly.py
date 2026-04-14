@@ -224,10 +224,9 @@ def _compact_tool_usage(name: str, fn: dict[str, Any]) -> str:
 def _merge_skills(
     bot: BotConfig,
     new_skill_ids: list[str],
-    disabled_ids: set[str] | None = None,
     mode: str = "on_demand",
 ) -> BotConfig:
-    """Merge new skills into bot config, deduplicating and respecting disabled list.
+    """Merge new skills into bot config, deduplicating.
 
     Updates the current_resolved_skill_ids context var as a side effect.
     Returns a new BotConfig with merged skills.
@@ -236,11 +235,10 @@ def _merge_skills(
     from app.agent.context import current_resolved_skill_ids
 
     existing = {s.id for s in bot.skills}
-    disabled = disabled_ids or set()
     new_skills = [
         SkillConfig(id=sid, mode=mode)
         for sid in new_skill_ids
-        if sid not in existing and sid not in disabled
+        if sid not in existing
     ]
     if not new_skills:
         return bot
@@ -1056,7 +1054,6 @@ async def assemble_context(
     # appear with file edits) but the discovery now writes a persistent
     # enrollment row instead of merging into the per-turn bot.skills list
     # directly. The merge happens via the enrolled-list load below.
-    _ch_skills_disabled = set(getattr(_ch_row, "skills_disabled", None) or []) if _ch_row else set()
     if bot.id:
         from app.services.skill_enrollment import (
             enroll_many as _enroll_many,
@@ -1081,7 +1078,7 @@ async def assemble_context(
             _source_map = await _get_enrolled_source_map(bot.id)
             if _enrolled_ids:
                 _prev = len(bot.skills)
-                bot = _merge_skills(bot, _enrolled_ids, _ch_skills_disabled)
+                bot = _merge_skills(bot, _enrolled_ids)
                 if len(bot.skills) > _prev:
                     yield {"type": "enrolled_skills", "count": len(bot.skills) - _prev}
         except Exception:

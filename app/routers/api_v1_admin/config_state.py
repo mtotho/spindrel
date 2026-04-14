@@ -380,8 +380,6 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 "local_tools_disabled": row.get("local_tools_disabled"),
                 "mcp_servers_disabled": row.get("mcp_servers_disabled"),
                 "client_tools_disabled": row.get("client_tools_disabled"),
-                "skills_disabled": row.get("skills_disabled"),
-                "skills_extra": row.get("skills_extra"),
                 "workspace_base_prompt_enabled": row.get("workspace_base_prompt_enabled"),
                 "history_mode": row.get("history_mode"),
                 "trigger_heartbeat_before_compaction": row.get("trigger_heartbeat_before_compaction"),

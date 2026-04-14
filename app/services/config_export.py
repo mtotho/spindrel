@@ -250,8 +250,6 @@ async def assemble_config_state(db) -> dict:
             "local_tools_disabled": ch.local_tools_disabled,
             "mcp_servers_disabled": ch.mcp_servers_disabled,
             "client_tools_disabled": ch.client_tools_disabled,
-            "skills_disabled": ch.skills_disabled,
-            "skills_extra": ch.skills_extra,
             "workspace_base_prompt_enabled": ch.workspace_base_prompt_enabled,
             "history_mode": ch.history_mode,
             "trigger_heartbeat_before_compaction": ch.trigger_heartbeat_before_compaction,

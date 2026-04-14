@@ -18,16 +18,15 @@ SKILLS_DIR = Path("skills")
 
 
 async def cascade_skill_deletion(skill_id: str, db) -> dict:
-    """Remove a deleted skill from all bot.skills and channel.skills_extra JSONB arrays.
+    """Remove a deleted skill from all bot.skills JSONB arrays.
 
-    Returns {"bots_updated": N, "channels_updated": N} for logging.
+    Returns {"bots_updated": N} for logging.
     """
-    from app.db.models import Bot, Channel
+    from app.db.models import Bot
     from sqlalchemy.orm.attributes import flag_modified
 
-    stats = {"bots_updated": 0, "channels_updated": 0}
+    stats = {"bots_updated": 0}
 
-    # --- Bots: remove from skills JSONB array ---
     bots = (await db.execute(select(Bot))).scalars().all()
     for bot in bots:
         skills = bot.skills or []
@@ -36,18 +35,6 @@ async def cascade_skill_deletion(skill_id: str, db) -> dict:
             bot.skills = filtered
             flag_modified(bot, "skills")
             stats["bots_updated"] += 1
-
-    # --- Channels: remove from skills_extra JSONB array ---
-    channels = (await db.execute(
-        select(Channel).where(Channel.skills_extra.isnot(None))
-    )).scalars().all()
-    for ch in channels:
-        extras = ch.skills_extra or []
-        filtered = [s for s in extras if s.get("id") != skill_id]
-        if len(filtered) != len(extras):
-            ch.skills_extra = filtered
-            flag_modified(ch, "skills_extra")
-            stats["channels_updated"] += 1
 
     return stats
 

@@ -376,8 +376,6 @@ class ChannelSettingsOut(BaseModel):
     local_tools_disabled: Optional[list[str]] = None
     mcp_servers_disabled: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
-    skills_disabled: Optional[list[str]] = None
-    skills_extra: Optional[list[dict]] = None
     # Workspace overrides (null = inherit from workspace)
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
@@ -444,8 +442,6 @@ class ChannelSettingsUpdate(BaseModel):
     local_tools_disabled: Optional[list[str]] = None
     mcp_servers_disabled: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
-    skills_disabled: Optional[list[str]] = None
-    skills_extra: Optional[list[dict]] = None
     # Workspace overrides (null = inherit from workspace)
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
@@ -722,7 +718,6 @@ class EffectiveToolsOut(BaseModel):
     skills: list[dict]
     mode: dict  # per-category mode: "inherit" | "disabled"
     disabled: dict = {}  # per-category disabled lists
-    skills_extra: list[dict] = []  # channel-added skills
     carapaces: list[str] = []  # resolved carapace IDs
     carapace_sources: dict[str, str] = {}  # carapace_id → source label
 
@@ -790,9 +785,6 @@ async def admin_channel_effective_tools(
         )).all()
         skill_names = {r.id: r.name for r in rows}
 
-    # Channel-added skills (skills_extra)
-    skills_extra_list = channel.skills_extra or []
-
     return EffectiveToolsOut(
         local_tools=eff.local_tools,
         mcp_servers=eff.mcp_servers,
@@ -807,15 +799,13 @@ async def admin_channel_effective_tools(
             "mcp_servers": _mode(channel.mcp_servers_disabled),
             "client_tools": _mode(channel.client_tools_disabled),
             "pinned_tools": "inherit",
-            "skills": "disabled" if channel.skills_disabled else "inherit",
+            "skills": "inherit",
         },
         disabled={
             "local_tools": channel.local_tools_disabled or [],
             "mcp_servers": channel.mcp_servers_disabled or [],
             "client_tools": channel.client_tools_disabled or [],
-            "skills": channel.skills_disabled or [],
         },
-        skills_extra=skills_extra_list,
         carapaces=eff.carapaces,
         carapace_sources=carapace_sources,
     )
@@ -1897,7 +1887,6 @@ async def admin_channel_config_overhead(
     disabled_local = set(channel.local_tools_disabled or [])
     disabled_mcp = set(channel.mcp_servers_disabled or [])
     disabled_client = set(channel.client_tools_disabled or [])
-    disabled_skills = set(channel.skills_disabled or [])
 
     if disabled_local:
         local_tools = [t for t in local_tools if t not in disabled_local]
@@ -1905,14 +1894,6 @@ async def admin_channel_config_overhead(
         mcp_servers = [s for s in mcp_servers if s not in disabled_mcp]
     if disabled_client:
         client_tools = [t for t in client_tools if t not in disabled_client]
-    if disabled_skills:
-        skills = [s for s in skills if s["id"] not in disabled_skills]
-
-    # Add channel-extra skills (stored as dicts with "id" key)
-    for entry in (channel.skills_extra or []):
-        sid = entry["id"] if isinstance(entry, dict) else entry
-        if not any(s["id"] == sid for s in skills):
-            skills.append({"id": sid, "mode": "on_demand"})
 
     # Build a draft dict from the resolved bot config + channel overrides
     draft: dict = {

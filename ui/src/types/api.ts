@@ -454,8 +454,6 @@ export interface ChannelSettings {
   local_tools_disabled?: string[] | null;
   mcp_servers_disabled?: string[] | null;
   client_tools_disabled?: string[] | null;
-  skills_disabled?: string[] | null;
-  skills_extra?: { id: string; mode?: string }[] | null;
   // Workspace overrides
   workspace_base_prompt_enabled?: boolean | null;
   // Channel workspace
@@ -486,7 +484,6 @@ export interface EffectiveTools {
   skills: { id: string; mode: string; name?: string }[];
   mode: Record<string, "inherit" | "disabled">;
   disabled: Record<string, string[]>;
-  skills_extra: { id: string; mode?: string }[];
   carapaces: string[];
   carapace_sources: Record<string, string>;
 }
