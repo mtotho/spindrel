@@ -207,7 +207,7 @@ class SatelliteConnection:
         got_speech = False
         silence_chunks = 0
         # Silence threshold: ~1.5s of low-energy audio after speech started
-        SILENCE_THRESHOLD = 150  # RMS below this = silence
+        SILENCE_THRESHOLD = 1000  # RMS below this = silence
         SILENCE_CHUNKS_NEEDED = 24  # ~1.5s at 16kHz/1024 samples per chunk
 
         while True:
