@@ -694,9 +694,11 @@ def _op_list(path: str, ws_root: str) -> str:
 
     dirs_first = sorted(items, key=lambda x: (not os.path.isdir(os.path.join(path, x)), x))
 
+    # Directories hidden from direct listings — only internal/implementation dirs.
+    # _SKIP_DIRS is for recursive grep/glob; this is a smaller set for ls-style listing.
+    _LIST_HIDDEN = frozenset({".versions"})
     for name in dirs_first:
-        # Hide internal directories from listing
-        if name in _SKIP_DIRS:
+        if name in _LIST_HIDDEN:
             continue
         full = os.path.join(path, name)
         if os.path.isdir(full):
