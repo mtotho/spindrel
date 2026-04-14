@@ -206,9 +206,15 @@ class SatelliteConnection:
         collecting = False
         got_speech = False
         silence_chunks = 0
-        # Silence threshold: ~1.5s of low-energy audio after speech started
-        SILENCE_THRESHOLD = 1000  # RMS below this = silence
         SILENCE_CHUNKS_NEEDED = 24  # ~1.5s at 16kHz/1024 samples per chunk
+
+        # Auto-calibrate silence threshold from the first N chunks.
+        # This adapts to different mic noise floors instead of hardcoding.
+        CALIBRATION_CHUNKS = 8  # ~0.5s of audio for calibration
+        CALIBRATION_MULTIPLIER = 3.0  # speech must be 3x above noise floor
+        MIN_SILENCE_THRESHOLD = 500
+        calibration_rms: list[float] = []
+        silence_threshold: float | None = None
 
         while True:
             event = await asyncio.wait_for(self._client.read_event(), timeout=30.0)
@@ -229,27 +235,38 @@ class SatelliteConnection:
 
             elif AudioChunk.is_type(event.type):
                 if not collecting:
-                    # Some satellites (e.g. wyoming-satellite with local wake
-                    # word) send AudioChunk directly without AudioStart.
-                    # Start collecting implicitly.
                     collecting = True
                     got_speech = False
                     silence_chunks = 0
                 chunk = AudioChunk.from_event(event)
                 audio_buffer.add_chunk(chunk.audio)
 
-                # Simple energy-based silence detection
                 audio_data = chunk.audio
                 if len(audio_data) >= 2:
                     samples = struct.unpack(f"<{len(audio_data) // 2}h", audio_data)
                     rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
-                    if rms > SILENCE_THRESHOLD:
+
+                    # Calibration phase: measure noise floor
+                    if silence_threshold is None:
+                        calibration_rms.append(rms)
+                        if len(calibration_rms) >= CALIBRATION_CHUNKS:
+                            noise_floor = max(calibration_rms)
+                            silence_threshold = max(
+                                noise_floor * CALIBRATION_MULTIPLIER,
+                                MIN_SILENCE_THRESHOLD,
+                            )
+                            logger.info(
+                                "Calibrated silence threshold: %.0f "
+                                "(noise floor: %.0f)",
+                                silence_threshold, noise_floor,
+                            )
+                        continue
+
+                    if rms > silence_threshold:
                         got_speech = True
                         silence_chunks = 0
-                        logger.debug("Speech: rms=%.0f", rms)
                     elif got_speech:
                         silence_chunks += 1
-                        logger.debug("Silence: rms=%.0f (%d/%d)", rms, silence_chunks, SILENCE_CHUNKS_NEEDED)
                         if silence_chunks >= SILENCE_CHUNKS_NEEDED:
                             logger.info("Silence detected after speech, stopping collection")
                             break
@@ -258,7 +275,6 @@ class SatelliteConnection:
                 break
 
             elif StreamingStopped.is_type(event.type):
-                # Satellite stopped streaming without AudioStop
                 break
 
         duration = audio_buffer.duration_seconds

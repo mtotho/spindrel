@@ -2,7 +2,7 @@ import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
-import { Plus, RefreshCw, AlertTriangle, Search, TrendingUp, Zap, Trash2, Users } from "lucide-react";
+import { Plus, RefreshCw, AlertTriangle, Search, TrendingUp, Zap, Trash2, Users, X, Filter } from "lucide-react";
 import { useSkills, useFileSync, useDeleteSkill, type SkillItem, type FileSyncResult } from "@/src/api/hooks/useSkills";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
@@ -127,6 +127,144 @@ function fmtIntName(key: string): string {
   const special: Record<string, string> = { arr: "ARR", github: "GitHub" };
   if (special[key]) return special[key];
   return key.replace(/(^|_)(\w)/g, (_, sep, c) => (sep ? " " : "") + c.toUpperCase());
+}
+
+/* ------------------------------------------------------------------ */
+/*  Filter types & chip bar                                            */
+/* ------------------------------------------------------------------ */
+
+type SkillFilter =
+  | { type: "source"; value: string; label: string }       // "bot-authored", "file", "manual", "integration"
+  | { type: "bot"; value: string; label: string }           // specific bot
+  | { type: "integration"; value: string; label: string }   // specific integration
+  | { type: "category"; value: string; label: string };     // specific category
+
+function filterKey(f: SkillFilter): string {
+  return `${f.type}:${f.value}`;
+}
+
+function FilterChipBar({
+  skills,
+  active,
+  onToggle,
+  onClear,
+}: {
+  skills: SkillItem[];
+  active: SkillFilter | null;
+  onToggle: (f: SkillFilter) => void;
+  onClear: () => void;
+}) {
+  const t = useThemeTokens();
+
+  // Derive filter options from actual data
+  const options = useMemo(() => {
+    const chips: SkillFilter[] = [];
+    const botIds = new Set<string>();
+    const intNames = new Set<string>();
+    const categories = new Set<string>();
+    let hasBotAuthored = false;
+    let hasFile = false;
+    let hasManual = false;
+    let hasIntegration = false;
+
+    for (const s of skills) {
+      if (s.source_type === "tool") {
+        hasBotAuthored = true;
+        if (s.bot_id) botIds.add(s.bot_id);
+      } else if (s.source_type === "file") {
+        hasFile = true;
+      } else if (s.source_type === "manual") {
+        hasManual = true;
+      } else if (s.source_type === "integration") {
+        hasIntegration = true;
+        const name = s.id.match(/^integrations\/([^/]+)\//)?.[1];
+        if (name) intNames.add(name);
+      }
+      if (s.category) categories.add(s.category);
+    }
+
+    // Source type chips
+    if (hasBotAuthored) chips.push({ type: "source", value: "tool", label: "Bot-authored" });
+    if (hasFile) chips.push({ type: "source", value: "file", label: "Core" });
+    if (hasManual) chips.push({ type: "source", value: "manual", label: "User added" });
+    if (hasIntegration) chips.push({ type: "source", value: "integration", label: "Integrations" });
+
+    // Per-bot chips (only if multiple bots)
+    if (botIds.size > 1) {
+      for (const bid of [...botIds].sort()) {
+        chips.push({ type: "bot", value: bid, label: bid });
+      }
+    }
+
+    // Per-integration chips (only if multiple)
+    if (intNames.size > 1) {
+      for (const name of [...intNames].sort()) {
+        chips.push({ type: "integration", value: name, label: fmtIntName(name) });
+      }
+    }
+
+    // Category chips (if 2+ categories)
+    if (categories.size >= 2) {
+      for (const cat of [...categories].sort()) {
+        chips.push({ type: "category", value: cat, label: cat });
+      }
+    }
+
+    return chips;
+  }, [skills]);
+
+  if (options.length < 2) return null;
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 6,
+      overflowX: "auto", whiteSpace: "nowrap",
+      paddingBottom: 2,
+    }}>
+      <Filter size={12} color={t.textDim} style={{ flexShrink: 0 }} />
+      {options.map((opt) => {
+        const isActive = active && filterKey(active) === filterKey(opt);
+        // Determine chip color based on type
+        let activeBg = t.accentSubtle;
+        let activeFg = t.accent;
+        let activeBorder = t.accentBorder;
+        if (opt.type === "bot") {
+          activeBg = "rgba(16,185,129,0.15)";
+          activeFg = "#059669";
+          activeBorder = "rgba(16,185,129,0.3)";
+        } else if (opt.type === "integration") {
+          activeBg = "rgba(249,115,22,0.15)";
+          activeFg = "#ea580c";
+          activeBorder = "rgba(249,115,22,0.3)";
+        } else if (opt.type === "category") {
+          activeBg = t.purpleSubtle;
+          activeFg = t.purple;
+          activeBorder = t.purpleBorder;
+        }
+
+        return (
+          <button
+            key={filterKey(opt)}
+            onClick={() => isActive ? onClear() : onToggle(opt)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              padding: "3px 10px", borderRadius: 12,
+              fontSize: 11, fontWeight: 500,
+              border: `1px solid ${isActive ? activeBorder : t.surfaceBorder}`,
+              background: isActive ? activeBg : "transparent",
+              color: isActive ? activeFg : t.textMuted,
+              cursor: "pointer",
+              transition: "all 0.15s",
+              flexShrink: 0,
+            }}
+          >
+            {opt.label}
+            {isActive && <X size={10} />}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -467,21 +605,47 @@ export default function SkillsScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
   const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState<SkillFilter | null>(null);
 
   const filteredSkills = useMemo(() => {
     if (!skills) return [];
-    if (!search.trim()) return skills;
-    const q = search.toLowerCase();
-    return skills.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.id.toLowerCase().includes(q) ||
-        s.source_type.toLowerCase().includes(q) ||
-        (s.description || "").toLowerCase().includes(q) ||
-        (s.category || "").toLowerCase().includes(q) ||
-        (s.triggers || []).some((t) => t.toLowerCase().includes(q)),
-    );
-  }, [skills, search]);
+    let result = skills;
+
+    // Apply chip filter
+    if (activeFilter) {
+      result = result.filter((s) => {
+        switch (activeFilter.type) {
+          case "source":
+            return s.source_type === activeFilter.value;
+          case "bot":
+            return s.bot_id === activeFilter.value;
+          case "integration":
+            return s.source_type === "integration" &&
+              s.id.match(/^integrations\/([^/]+)\//)?.[1] === activeFilter.value;
+          case "category":
+            return s.category === activeFilter.value;
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Apply text search
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.id.toLowerCase().includes(q) ||
+          s.source_type.toLowerCase().includes(q) ||
+          (s.description || "").toLowerCase().includes(q) ||
+          (s.category || "").toLowerCase().includes(q) ||
+          (s.triggers || []).some((t) => t.toLowerCase().includes(q)),
+      );
+    }
+
+    return result;
+  }, [skills, search, activeFilter]);
 
   const renderItems = useMemo((): RenderItem[] => {
     if (!filteredSkills.length) return [];
@@ -612,36 +776,54 @@ export default function SkillsScreen() {
         }
       />
 
-      {/* Search bar */}
+      {/* Search + filter bar */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 10,
+        display: "flex", flexDirection: "column", gap: 6,
         padding: isWide ? "8px 16px" : "8px 12px",
         borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
-        <div style={{
-          display: "flex", alignItems: "center", gap: 6,
-          background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
-          borderRadius: 6, padding: "5px 10px",
-          maxWidth: isWide ? 300 : undefined, flex: isWide ? undefined : 1,
-        }}>
-          <Search size={13} color={t.textDim} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter skills..."
-            style={{
-              background: "none", border: "none", outline: "none",
-              color: t.text, fontSize: 12, flex: 1, width: "100%",
-            }}
-          />
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6,
+            background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
+            borderRadius: 6, padding: "5px 10px",
+            maxWidth: isWide ? 300 : undefined, flex: isWide ? undefined : 1,
+          }}>
+            <Search size={13} color={t.textDim} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter skills..."
+              style={{
+                background: "none", border: "none", outline: "none",
+                color: t.text, fontSize: 12, flex: 1, width: "100%",
+              }}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}
+              >
+                <X size={12} color={t.textDim} />
+              </button>
+            )}
+          </div>
+          {skills && skills.length > 0 && (
+            <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap" }}>
+              {(search || activeFilter) && filteredSkills.length !== skills.length
+                ? `${filteredSkills.length} / ${skills.length}`
+                : skills.length}{" "}
+              skills
+            </span>
+          )}
         </div>
         {skills && skills.length > 0 && (
-          <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap" }}>
-            {search && filteredSkills.length !== skills.length
-              ? `${filteredSkills.length} / ${skills.length}`
-              : skills.length}{" "}
-            skills
-          </span>
+          <FilterChipBar
+            skills={skills}
+            active={activeFilter}
+            onToggle={setActiveFilter}
+            onClear={() => setActiveFilter(null)}
+          />
         )}
       </div>
 
@@ -678,12 +860,20 @@ export default function SkillsScreen() {
         )}
         {skills && skills.length > 0 && filteredSkills.length === 0 && (
           <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
-            No skills match &ldquo;{search}&rdquo;
+            No skills match {search ? `"${search}"` : "this filter"}.
+            {(search || activeFilter) && (
+              <button
+                onClick={() => { setSearch(""); setActiveFilter(null); }}
+                style={{
+                  display: "block", margin: "8px auto 0", background: "none",
+                  border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+                  padding: "4px 12px", fontSize: 11, color: t.accent, cursor: "pointer",
+                }}
+              >
+                Clear filters
+              </button>
+            )}
           </div>
-        )}
-        {/* Column headers for table sections (desktop only) */}
-        {isWide && renderItems.some((i) => i.type === "skill") && (
-          <div id="table-header" style={{ display: "none" }} />
         )}
         {renderItems.map((item) => {
           if (item.type === "header") {
@@ -714,13 +904,6 @@ export default function SkillsScreen() {
             />
           );
         })}
-        {/* Render table column headers once before first non-bot-authored section */}
-        {isWide && renderItems.some((i) => i.type === "skill") && (() => {
-          const firstSkillIdx = renderItems.findIndex((i) => i.type === "skill");
-          const headerBefore = firstSkillIdx > 0 ? renderItems[firstSkillIdx - 1] : null;
-          // We render column headers inline via CSS — the grid on SkillRow handles alignment
-          return null;
-        })()}
       </RefreshableScrollView>
 
       <ConfirmDialogSlot />
