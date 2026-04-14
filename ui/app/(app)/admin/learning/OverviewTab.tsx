@@ -3,11 +3,16 @@ import { useRouter } from "expo-router";
 import { useWindowDimensions } from "react-native";
 import {
   Moon, Activity, BookOpen, TrendingUp, AlertTriangle, FileText, PenLine, Zap,
+  ArrowRight, Clock,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useLearningOverview, type MemoryFileActivity } from "@/src/api/hooks/useLearningOverview";
 import { DreamingBotTable } from "@/src/components/learning/DreamingBotTable";
-import { StatCard, fmtRelative } from "@/app/(app)/admin/bots/[botId]/LearningSection";
+import { fmtRelative } from "@/app/(app)/admin/bots/[botId]/LearningSection";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function fmtRelativeFuture(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -29,6 +34,165 @@ function shortPath(path: string): string {
 
 const OP_LABELS: Record<string, string> = { write: "wrote", append: "appended", edit: "edited" };
 
+// ---------------------------------------------------------------------------
+// Metric Card — richer than StatCard with optional subtitle + accent bar
+// ---------------------------------------------------------------------------
+
+function MetricCard({ label, value, subtitle, icon, accent, onClick }: {
+  label: string;
+  value: number | string;
+  subtitle?: string;
+  icon: React.ReactNode;
+  accent: string;
+  onClick?: () => void;
+}) {
+  const t = useThemeTokens();
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        flex: 1,
+        minWidth: 130,
+        padding: "14px 16px 12px",
+        borderRadius: 10,
+        background: t.surfaceRaised,
+        border: `1px solid ${t.surfaceBorder}`,
+        position: "relative",
+        overflow: "hidden",
+        cursor: onClick ? "pointer" : undefined,
+        transition: "border-color 0.15s",
+      }}
+      onMouseEnter={(e) => { if (onClick) e.currentTarget.style.borderColor = accent; }}
+      onMouseLeave={(e) => { if (onClick) e.currentTarget.style.borderColor = t.surfaceBorder; }}
+    >
+      {/* Accent top bar */}
+      <div style={{
+        position: "absolute", top: 0, left: 0, right: 0, height: 2,
+        background: `linear-gradient(90deg, ${accent}, transparent)`,
+        opacity: 0.7,
+      }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+        {icon}
+        <span style={{
+          fontSize: 9, color: t.textDim, textTransform: "uppercase",
+          fontWeight: 700, letterSpacing: 0.8,
+        }}>
+          {label}
+        </span>
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: t.text, lineHeight: 1 }}>
+        {value}
+      </div>
+      {subtitle && (
+        <div style={{ fontSize: 9, color: t.textDim, marginTop: 4 }}>
+          {subtitle}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Activity heatmap — 7 days × intensity
+// ---------------------------------------------------------------------------
+
+function ActivityHeatmap({ activity }: { activity: MemoryFileActivity[] }) {
+  const t = useThemeTokens();
+
+  const dayBuckets = useMemo(() => {
+    const buckets: number[] = new Array(7).fill(0);
+    const now = Date.now();
+    for (const item of activity) {
+      const daysAgo = Math.floor((now - new Date(item.created_at).getTime()) / 86_400_000);
+      if (daysAgo >= 0 && daysAgo < 7) buckets[6 - daysAgo]++;
+    }
+    return buckets;
+  }, [activity]);
+
+  const max = Math.max(...dayBuckets, 1);
+  const dayLabels = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      return d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2);
+    });
+  }, []);
+
+  return (
+    <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 32 }}>
+      {dayBuckets.map((count, i) => {
+        const intensity = count / max;
+        return (
+          <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, flex: 1 }}>
+            <div
+              title={`${dayLabels[i]}: ${count} write${count !== 1 ? "s" : ""}`}
+              style={{
+                width: "100%",
+                maxWidth: 20,
+                height: Math.max(4, intensity * 24),
+                borderRadius: 2,
+                background: count > 0
+                  ? `rgba(139, 92, 246, ${0.25 + intensity * 0.65})`
+                  : `${t.surfaceBorder}`,
+                transition: "height 0.3s ease",
+              }}
+            />
+            <span style={{ fontSize: 7, color: t.textDim, lineHeight: 1 }}>{dayLabels[i]}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Skill activity sparkline — surfacings + injects
+// ---------------------------------------------------------------------------
+
+function SkillActivityRing({ surfacings, autoInjects, total }: {
+  surfacings: number; autoInjects: number; total: number;
+}) {
+  if (total === 0) return null;
+  const surfPct = surfacings / total;
+  const injectPct = autoInjects / total;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <svg width={28} height={28} viewBox="0 0 28 28">
+        <circle cx={14} cy={14} r={11} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={3} />
+        <circle
+          cx={14} cy={14} r={11}
+          fill="none"
+          stroke="#f59e0b"
+          strokeWidth={3}
+          strokeDasharray={`${surfPct * 69.1} ${69.1}`}
+          strokeDashoffset={0}
+          transform="rotate(-90 14 14)"
+          strokeLinecap="round"
+        />
+        <circle
+          cx={14} cy={14} r={11}
+          fill="none"
+          stroke="#a855f7"
+          strokeWidth={3}
+          strokeDasharray={`${injectPct * 69.1} ${69.1}`}
+          strokeDashoffset={-(surfPct * 69.1)}
+          transform="rotate(-90 14 14)"
+          strokeLinecap="round"
+        />
+      </svg>
+      <div style={{ fontSize: 9, lineHeight: "14px" }}>
+        <div style={{ color: "#f59e0b" }}>{surfacings} surf</div>
+        <div style={{ color: "#a855f7" }}>{autoInjects} inject</div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// OverviewTab
+// ---------------------------------------------------------------------------
+
 export function OverviewTab() {
   const t = useThemeTokens();
   const router = useRouter();
@@ -41,7 +205,10 @@ export function OverviewTab() {
     return data.bots.filter((b) => b.last_task_status === "failed");
   }, [data]);
 
-  const failedRuns = useMemo(() => (data?.recent_runs ?? []).filter((r) => r.status === "failed"), [data]);
+  const failedRuns = useMemo(
+    () => (data?.recent_runs ?? []).filter((r) => r.status === "failed"),
+    [data],
+  );
 
   // Group memory activity by day
   const activityByDay = useMemo(() => {
@@ -59,49 +226,90 @@ export function OverviewTab() {
     return groups;
   }, [data]);
 
+  // Dreaming stats
+  const nextRunBot = useMemo(() => {
+    if (!data?.bots.length) return null;
+    const upcoming = data.bots
+      .filter((b) => b.next_run_at && b.enabled)
+      .sort((a, b) => new Date(a.next_run_at!).getTime() - new Date(b.next_run_at!).getTime());
+    return upcoming[0] ?? null;
+  }, [data]);
+
   if (isLoading) {
-    return <div style={{ color: t.textDim, fontSize: 12, padding: 20 }}>Loading...</div>;
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+        <div style={{ color: t.textDim, fontSize: 12 }}>Loading learning data...</div>
+      </div>
+    );
   }
 
   if (!data) return null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {/* Stats row */}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <StatCard
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* --- Metrics row --- */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: 10 }}>
+        <MetricCard
           label="Bots Dreaming"
-          value={`${data.dreaming_enabled_count} / ${data.total_bots}`}
-          icon={<Moon size={14} color="#8b5cf6" />}
-          color="#8b5cf6"
+          value={`${data.dreaming_enabled_count}/${data.total_bots}`}
+          subtitle={nextRunBot ? `Next: ${nextRunBot.bot_name} ${fmtRelativeFuture(nextRunBot.next_run_at)}` : undefined}
+          icon={<Moon size={13} color="#8b5cf6" />}
+          accent="#8b5cf6"
         />
-        <StatCard
+        <MetricCard
           label="Runs (7d)"
           value={data.total_hygiene_runs_7d}
-          icon={<Activity size={14} color="#3b82f6" />}
+          subtitle={botsWithFailures.length > 0 ? `${botsWithFailures.length} failed` : "all healthy"}
+          icon={<Activity size={13} color="#3b82f6" />}
+          accent="#3b82f6"
         />
-        <StatCard
+        <MetricCard
           label="Bot Skills"
           value={data.total_bot_skills}
-          icon={<BookOpen size={14} color="#059669" />}
+          icon={<BookOpen size={13} color="#059669" />}
+          accent="#059669"
+          onClick={() => router.push("/admin/learning#Skills" as any)}
         />
-        <StatCard
+        <MetricCard
           label="Surfacings"
           value={data.total_surfacings}
-          icon={<TrendingUp size={14} color="#f59e0b" />}
+          icon={<TrendingUp size={13} color="#f59e0b" />}
+          accent="#f59e0b"
         />
-        <StatCard
+        <MetricCard
           label="Auto-Injects"
           value={data.total_auto_injects ?? 0}
-          icon={<Zap size={14} color="#a855f7" />}
+          subtitle="system-initiated skill loads"
+          icon={<Zap size={13} color="#a855f7" />}
+          accent="#a855f7"
         />
       </div>
 
-      {/* Failures callout */}
+      {/* --- Skill usage breakdown --- */}
+      {(data.total_surfacings > 0 || (data.total_auto_injects ?? 0) > 0) && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 16,
+          padding: "12px 16px", borderRadius: 10,
+          background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+        }}>
+          <SkillActivityRing
+            surfacings={data.total_surfacings}
+            autoInjects={data.total_auto_injects ?? 0}
+            total={data.total_surfacings + (data.total_auto_injects ?? 0)}
+          />
+          <div style={{ flex: 1, fontSize: 11, color: t.textMuted, lineHeight: "18px" }}>
+            <strong style={{ color: t.text }}>{data.total_surfacings + (data.total_auto_injects ?? 0)}</strong> total skill loads across all bots.{" "}
+            <span style={{ color: "#f59e0b" }}>Surfacings</span> are bot-initiated <code style={{ fontSize: 10 }}>get_skill()</code> calls.{" "}
+            <span style={{ color: "#a855f7" }}>Auto-injects</span> are system-initiated loads when a skill is relevant to the conversation.
+          </div>
+        </div>
+      )}
+
+      {/* --- Failures callout --- */}
       {botsWithFailures.length > 0 && (
         <div style={{
           display: "flex", flexDirection: "column", gap: 8,
-          padding: "12px 16px", borderRadius: 8,
+          padding: "12px 16px", borderRadius: 10,
           background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -138,6 +346,7 @@ export function OverviewTab() {
                       {failedRun.error}
                     </span>
                   )}
+                  <ArrowRight size={10} color={t.danger} style={{ flexShrink: 0 }} />
                 </button>
               );
             })}
@@ -145,31 +354,55 @@ export function OverviewTab() {
         </div>
       )}
 
-      {/* Two-column: Bot table + Memory Activity */}
+      {/* --- Two-column: Bot table + Memory Activity --- */}
       <div style={{ display: "flex", gap: 20, flexDirection: isMobile ? "column" : "row" }}>
-        {/* Left: Dreaming status table (read-only — manage in Dreaming tab) */}
+        {/* Left: Dreaming status table */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: t.text, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-            <Moon size={14} color="#8b5cf6" />
-            Dreaming by Bot
-            <span style={{ fontSize: 10, color: t.textDim, fontWeight: 400, marginLeft: 4 }}>
-              (manage in Dreaming tab)
-            </span>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            marginBottom: 10,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Moon size={14} color="#8b5cf6" />
+              <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Dreaming by Bot</span>
+            </div>
+            <button
+              onClick={() => router.push("/admin/learning#Dreaming" as any)}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 10, color: t.textMuted, background: "none", border: "none",
+                cursor: "pointer", padding: "2px 0",
+              }}
+            >
+              Manage <ArrowRight size={9} />
+            </button>
           </div>
-
           <DreamingBotTable bots={data.bots} mode="view" />
         </div>
 
         {/* Right: Memory Activity Feed */}
         <div style={{ flex: 1, minWidth: 0, maxWidth: isMobile ? undefined : 420 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: t.text, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, marginBottom: 10,
+          }}>
             <PenLine size={14} color={t.textMuted} />
-            Memory Activity
+            <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Memory Activity</span>
             <span style={{ fontSize: 10, color: t.textDim, fontWeight: 400 }}>(7d)</span>
           </div>
+
+          {/* Activity heatmap */}
+          {(data.memory_activity?.length ?? 0) > 0 && (
+            <div style={{
+              marginBottom: 10, padding: "10px 12px", borderRadius: 8,
+              background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+            }}>
+              <ActivityHeatmap activity={data.memory_activity} />
+            </div>
+          )}
+
           {activityByDay.length === 0 ? (
             <div style={{
-              padding: 24, textAlign: "center", borderRadius: 8,
+              padding: 24, textAlign: "center", borderRadius: 10,
               background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
             }}>
               <FileText size={20} color={t.textDim} style={{ marginBottom: 8 }} />
@@ -177,16 +410,16 @@ export function OverviewTab() {
             </div>
           ) : (
             <div style={{
-              borderRadius: 8, border: `1px solid ${t.surfaceBorder}`, overflow: "hidden",
-              maxHeight: 500, overflowY: "auto",
+              borderRadius: 10, border: `1px solid ${t.surfaceBorder}`, overflow: "hidden",
+              maxHeight: 460, overflowY: "auto",
             }}>
               {activityByDay.map((group) => (
                 <div key={group.date}>
                   <div style={{
-                    padding: "4px 12px", fontSize: 9, fontWeight: 600, color: t.textDim,
-                    textTransform: "uppercase", letterSpacing: 0.5,
+                    padding: "4px 12px", fontSize: 9, fontWeight: 700, color: t.textDim,
+                    textTransform: "uppercase", letterSpacing: 0.8,
                     background: t.surfaceOverlay, borderBottom: `1px solid ${t.surfaceBorder}`,
-                    position: "sticky", top: 0,
+                    position: "sticky", top: 0, zIndex: 1,
                   }}>
                     {group.date}
                   </div>
@@ -195,11 +428,14 @@ export function OverviewTab() {
                       key={`${item.created_at}-${i}`}
                       style={{
                         display: "flex", alignItems: "center", gap: 8,
-                        padding: "6px 12px",
+                        padding: "7px 12px",
                         borderBottom: `1px solid ${t.surfaceBorder}`,
                       }}
                     >
-                      <FileText size={12} color={item.is_hygiene ? "#8b5cf6" : t.textDim} />
+                      <div style={{
+                        width: 3, height: 20, borderRadius: 2, flexShrink: 0,
+                        background: item.is_hygiene ? "#8b5cf6" : t.surfaceBorder,
+                      }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           <span style={{
@@ -210,15 +446,17 @@ export function OverviewTab() {
                           </span>
                           {item.is_hygiene && (
                             <span style={{
-                              fontSize: 8, fontWeight: 600, padding: "1px 5px", borderRadius: 3,
-                              background: "rgba(139,92,246,0.12)", color: "#8b5cf6",
+                              fontSize: 7, fontWeight: 700, padding: "1px 5px", borderRadius: 3,
+                              background: "rgba(139,92,246,0.15)", color: "#8b5cf6",
+                              textTransform: "uppercase", letterSpacing: 0.5,
                             }}>
                               dreaming
                             </span>
                           )}
                         </div>
-                        <div style={{ fontSize: 9, color: t.textDim }}>
-                          {item.bot_name} {OP_LABELS[item.operation] ?? item.operation} &middot; {new Date(item.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                        <div style={{ fontSize: 9, color: t.textDim, marginTop: 1 }}>
+                          {item.bot_name} {OP_LABELS[item.operation] ?? item.operation} &middot;{" "}
+                          {new Date(item.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
                         </div>
                       </div>
                     </div>

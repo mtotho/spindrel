@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "expo-router";
 import {
   BookOpen, TrendingUp, AlertTriangle, Flame, Zap,
-  ChevronUp, ChevronDown,
+  ChevronUp, ChevronDown, Sparkles,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useSkills, type SkillItem } from "@/src/api/hooks/useSkills";
@@ -11,7 +11,49 @@ import {
   StatCard, HealthBadge, getHealth, parseFrontmatter, fmtRelative,
 } from "@/app/(app)/admin/bots/[botId]/LearningSection";
 
-type SortKey = "name" | "bot" | "surface_count" | "total_auto_injects" | "last_surfaced_at" | "created_at";
+type SortKey = "name" | "bot" | "activity" | "surface_count" | "total_auto_injects" | "last_surfaced_at" | "created_at";
+
+// ---------------------------------------------------------------------------
+// Inline activity bar — stacked horizontal bar for surfacings + injects
+// ---------------------------------------------------------------------------
+
+function ActivityBar({ surfacings, autoInjects, maxActivity }: {
+  surfacings: number; autoInjects: number; maxActivity: number;
+}) {
+  const t = useThemeTokens();
+  const total = surfacings + autoInjects;
+  if (maxActivity === 0) return <div style={{ width: 60, height: 6, borderRadius: 3, background: t.surfaceBorder }} />;
+
+  const widthPct = Math.max(4, (total / maxActivity) * 100);
+  const surfPct = total > 0 ? (surfacings / total) * 100 : 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 60 }}>
+      <div style={{
+        width: 60, height: 6, borderRadius: 3, overflow: "hidden",
+        background: t.surfaceBorder, position: "relative",
+      }}>
+        <div style={{
+          position: "absolute", left: 0, top: 0, bottom: 0,
+          width: `${widthPct}%`, borderRadius: 3, overflow: "hidden",
+          display: "flex",
+        }}>
+          {surfacings > 0 && (
+            <div style={{ width: `${surfPct}%`, height: "100%", background: "#f59e0b" }} />
+          )}
+          {autoInjects > 0 && (
+            <div style={{ flex: 1, height: "100%", background: "#a855f7" }} />
+          )}
+        </div>
+      </div>
+      <span style={{ fontSize: 8, color: t.textDim, textAlign: "right" }}>{total}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SkillsTab
+// ---------------------------------------------------------------------------
 
 export function SkillsTab() {
   const t = useThemeTokens();
@@ -34,6 +76,7 @@ export function SkillsTab() {
       ...parseFrontmatter(s.content),
       health: getHealth(s),
       bot_name: s.bot_id ? botNameMap[s.bot_id] ?? s.bot_id : "—",
+      totalActivity: s.surface_count + (s.total_auto_injects ?? 0),
     }));
   }, [skills, botNameMap]);
 
@@ -44,8 +87,9 @@ export function SkillsTab() {
       switch (sortKey) {
         case "name": cmp = a.name.localeCompare(b.name); break;
         case "bot": cmp = a.bot_name.localeCompare(b.bot_name); break;
+        case "activity": cmp = a.totalActivity - b.totalActivity; break;
         case "surface_count": cmp = a.surface_count - b.surface_count; break;
-        case "total_auto_injects": cmp = a.total_auto_injects - b.total_auto_injects; break;
+        case "total_auto_injects": cmp = (a.total_auto_injects ?? 0) - (b.total_auto_injects ?? 0); break;
         case "last_surfaced_at": {
           const at = a.last_surfaced_at ? new Date(a.last_surfaced_at).getTime() : 0;
           const bt = b.last_surfaced_at ? new Date(b.last_surfaced_at).getTime() : 0;
@@ -63,8 +107,9 @@ export function SkillsTab() {
   const totalSkills = parsed.length;
   const totalSurfacings = parsed.reduce((n, s) => n + s.surface_count, 0);
   const totalAutoInjects = parsed.reduce((n, s) => n + (s.total_auto_injects ?? 0), 0);
-  const activeSkills = parsed.filter((s) => s.surface_count > 0 || (s.total_auto_injects ?? 0) > 0).length;
-  const neverSurfaced = parsed.filter((s) => s.surface_count === 0 && (s.total_auto_injects ?? 0) === 0).length;
+  const activeSkills = parsed.filter((s) => s.totalActivity > 0).length;
+  const neverSurfaced = parsed.filter((s) => s.totalActivity === 0).length;
+  const maxActivity = Math.max(...parsed.map((s) => s.totalActivity), 1);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
@@ -74,27 +119,34 @@ export function SkillsTab() {
   const SortIcon = sortAsc ? ChevronUp : ChevronDown;
 
   if (isLoading) {
-    return <div style={{ color: t.textDim, fontSize: 12, padding: 20 }}>Loading...</div>;
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+        <div style={{ color: t.textDim, fontSize: 12 }}>Loading skills...</div>
+      </div>
+    );
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Bot-Authored Skills</div>
-      <div style={{ fontSize: 11, color: t.textDim }}>
-        Skills created by bots via the <code style={{ color: t.textMuted }}>manage_bot_skill</code> tool across all bots.
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Bot-Authored Skills</div>
+        <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>
+          Skills created by bots via <code style={{ color: t.textMuted, fontSize: 10 }}>manage_bot_skill</code>.{" "}
+          <span style={{ color: "#f59e0b" }}>Amber</span> = surfacings, <span style={{ color: "#a855f7" }}>purple</span> = auto-injects.
+        </div>
       </div>
 
       {totalSkills === 0 && (
         <div style={{
-          padding: 24, textAlign: "center", borderRadius: 8,
+          padding: 32, textAlign: "center", borderRadius: 10,
           background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
         }}>
-          <BookOpen size={24} color={t.textDim} style={{ marginBottom: 8 }} />
+          <Sparkles size={28} color={t.textDim} style={{ marginBottom: 8 }} />
           <div style={{ fontSize: 13, color: t.textMuted, marginBottom: 4 }}>
-            No bot-authored skills yet.
+            No bot-authored skills yet
           </div>
           <div style={{ fontSize: 11, color: t.textDim }}>
-            Skills are created automatically when bots use the <code style={{ color: t.textMuted }}>manage_bot_skill</code> tool.
+            Skills appear when bots use <code style={{ color: t.textMuted }}>manage_bot_skill</code> to document procedures.
           </div>
         </div>
       )}
@@ -104,22 +156,22 @@ export function SkillsTab() {
           {/* Stats row */}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <StatCard label="Total Skills" value={totalSkills} icon={<BookOpen size={12} color="#059669" />} />
-            <StatCard label="Total Surfacings" value={totalSurfacings} icon={<TrendingUp size={12} color="#3b82f6" />} />
+            <StatCard label="Surfacings" value={totalSurfacings} icon={<TrendingUp size={12} color="#f59e0b" />} />
             <StatCard label="Auto-Injects" value={totalAutoInjects} icon={<Zap size={12} color="#a855f7" />} />
             <StatCard label="Active" value={activeSkills} icon={<Flame size={12} color="#ef4444" />} />
-            <StatCard label="Never Surfaced" value={neverSurfaced} icon={<AlertTriangle size={12} color={t.textDim} />} />
+            <StatCard label="Unused" value={neverSurfaced} icon={<AlertTriangle size={12} color={t.textDim} />} />
           </div>
 
           {/* Health callouts */}
           {neverSurfaced > 0 && (
             <div style={{
               display: "flex", alignItems: "center", gap: 8,
-              padding: "8px 12px", borderRadius: 6,
-              background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.2)",
+              padding: "8px 12px", borderRadius: 8,
+              background: "rgba(234,179,8,0.06)", border: "1px solid rgba(234,179,8,0.15)",
             }}>
-              <AlertTriangle size={14} color="#d97706" />
+              <AlertTriangle size={13} color="#d97706" />
               <span style={{ fontSize: 11, color: "#d97706" }}>
-                <strong>{neverSurfaced}</strong> skill{neverSurfaced !== 1 ? "s have" : " has"} never been surfaced or auto-injected.
+                <strong>{neverSurfaced}</strong> skill{neverSurfaced !== 1 ? "s" : ""} never used — review triggers or consider removing.
               </span>
             </div>
           )}
@@ -128,14 +180,18 @@ export function SkillsTab() {
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
               <thead>
-                <tr style={{ borderBottom: `2px solid ${t.surfaceBorder}` }}>
+                <tr style={{
+                  borderBottom: `2px solid ${t.surfaceBorder}`,
+                  background: t.surfaceOverlay,
+                }}>
                   {([
                     ["name", "Name"],
                     ["bot", "Bot"],
                     [null, "Category"],
+                    ["activity", "Activity"],
                     ["surface_count", "Surfacings"],
-                    ["total_auto_injects", "Auto-Injects"],
-                    ["last_surfaced_at", "Last Surfaced"],
+                    ["total_auto_injects", "Injects"],
+                    ["last_surfaced_at", "Last Active"],
                     [null, "Health"],
                   ] as const).map(([key, label], i) => (
                     <th
@@ -143,14 +199,15 @@ export function SkillsTab() {
                       onClick={key ? () => toggleSort(key as SortKey) : undefined}
                       style={{
                         textAlign: i >= 3 ? "right" : "left",
-                        padding: "6px 8px", fontWeight: 600, color: t.textMuted,
+                        padding: "7px 8px", fontWeight: 700, color: t.textDim,
                         cursor: key ? "pointer" : "default",
                         userSelect: "none", whiteSpace: "nowrap",
+                        fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5,
                       }}
                     >
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
                         {label}
-                        {key && sortKey === key && <SortIcon size={10} />}
+                        {key && sortKey === (key as SortKey) && <SortIcon size={10} />}
                       </span>
                     </th>
                   ))}
@@ -158,7 +215,15 @@ export function SkillsTab() {
               </thead>
               <tbody>
                 {sorted.map((s) => (
-                  <tr key={s.id} style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}>
+                  <tr
+                    key={s.id}
+                    style={{
+                      borderBottom: `1px solid ${t.surfaceBorder}`,
+                      transition: "background 0.1s",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceOverlay; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >
                     {/* Name */}
                     <td style={{ padding: "8px 8px", maxWidth: 200 }}>
                       <button
@@ -184,7 +249,7 @@ export function SkillsTab() {
                     <td style={{ padding: "8px 8px" }}>
                       {s.category ? (
                         <span style={{
-                          padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600,
+                          padding: "2px 7px", borderRadius: 4, fontSize: 9, fontWeight: 600,
                           background: t.accentSubtle, color: t.accent,
                         }}>
                           {s.category}
@@ -193,11 +258,25 @@ export function SkillsTab() {
                         <span style={{ color: t.textDim }}>—</span>
                       )}
                     </td>
+                    {/* Activity bar */}
+                    <td style={{ padding: "8px 8px", textAlign: "right" }}>
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <ActivityBar
+                          surfacings={s.surface_count}
+                          autoInjects={s.total_auto_injects ?? 0}
+                          maxActivity={maxActivity}
+                        />
+                      </div>
+                    </td>
                     {/* Surfacings */}
                     <td style={{ padding: "8px 8px", textAlign: "right" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                         {s.surface_count >= 10 && <Flame size={10} color="#ef4444" />}
-                        <span style={{ color: s.surface_count > 0 ? t.text : t.textDim, fontWeight: s.surface_count >= 10 ? 600 : 400 }}>
+                        <span style={{
+                          color: s.surface_count > 0 ? t.text : t.textDim,
+                          fontWeight: s.surface_count >= 10 ? 600 : 400,
+                          fontVariantNumeric: "tabular-nums",
+                        }}>
                           {s.surface_count}
                         </span>
                       </span>
@@ -206,12 +285,16 @@ export function SkillsTab() {
                     <td style={{ padding: "8px 8px", textAlign: "right" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                         {(s.total_auto_injects ?? 0) >= 10 && <Zap size={10} color="#a855f7" />}
-                        <span style={{ color: (s.total_auto_injects ?? 0) > 0 ? t.text : t.textDim, fontWeight: (s.total_auto_injects ?? 0) >= 10 ? 600 : 400 }}>
+                        <span style={{
+                          color: (s.total_auto_injects ?? 0) > 0 ? t.text : t.textDim,
+                          fontWeight: (s.total_auto_injects ?? 0) >= 10 ? 600 : 400,
+                          fontVariantNumeric: "tabular-nums",
+                        }}>
                           {s.total_auto_injects ?? 0}
                         </span>
                       </span>
                     </td>
-                    {/* Last surfaced */}
+                    {/* Last active */}
                     <td style={{ padding: "8px 8px", textAlign: "right", color: t.textDim, whiteSpace: "nowrap" }}>
                       {fmtRelative(s.last_surfaced_at)}
                     </td>
