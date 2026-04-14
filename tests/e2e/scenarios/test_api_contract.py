@@ -52,7 +52,7 @@ async def test_bot_create_and_get(client: E2EClient) -> None:
             {
                 "id": bot_id,
                 "name": "Contract Test Bot",
-                "model": "gemini-2.5-flash",
+                "model": "gemini-2.5-flash-lite",
                 "system_prompt": "You are a test bot.",
                 "local_tools": ["get_current_time"],
                 "tool_retrieval": False,
@@ -61,14 +61,14 @@ async def test_bot_create_and_get(client: E2EClient) -> None:
         )
         assert created["id"] == bot_id
         assert created["name"] == "Contract Test Bot"
-        assert created["model"] == "gemini-2.5-flash"
+        assert created["model"] == "gemini-2.5-flash-lite"
         assert "get_current_time" in created["local_tools"]
 
         # GET should match
         fetched = await client.get_bot(bot_id)
         assert fetched["id"] == bot_id
         assert fetched["name"] == "Contract Test Bot"
-        assert fetched["model"] == "gemini-2.5-flash"
+        assert fetched["model"] == "gemini-2.5-flash-lite"
         assert fetched["tool_retrieval"] is False
     finally:
         await client.delete_bot(bot_id)
@@ -83,7 +83,7 @@ async def test_bot_update_fields(client: E2EClient) -> None:
             {
                 "id": bot_id,
                 "name": "Update Test",
-                "model": "gemini-2.5-flash",
+                "model": "gemini-2.5-flash-lite",
             }
         )
 
@@ -119,7 +119,7 @@ async def test_bot_delete(client: E2EClient) -> None:
         {
             "id": bot_id,
             "name": "Delete Test",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-2.5-flash-lite",
         }
     )
     await client.delete_bot(bot_id)
@@ -159,7 +159,7 @@ async def test_carapaces_persist_through_update(client: E2EClient) -> None:
             {
                 "id": bot_id,
                 "name": "Carapaces Test",
-                "model": "gemini-2.5-flash",
+                "model": "gemini-2.5-flash-lite",
             }
         )
 
@@ -190,7 +190,7 @@ async def test_bot_out_includes_all_expected_fields(client: E2EClient) -> None:
             {
                 "id": bot_id,
                 "name": "Schema Test",
-                "model": "gemini-2.5-flash",
+                "model": "gemini-2.5-flash-lite",
             }
         )
         # Fields that have been missing from BotOut at various points
@@ -221,7 +221,7 @@ async def test_bot_default_values(client: E2EClient) -> None:
             {
                 "id": bot_id,
                 "name": "Defaults Test",
-                "model": "gemini-2.5-flash",
+                "model": "gemini-2.5-flash-lite",
             }
         )
         assert created["tool_retrieval"] is True  # default on

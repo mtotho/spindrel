@@ -358,6 +358,74 @@ async def _inject_memory_scheme(
                 })
                 yield {"type": "memory_scheme_reference_index", "count": len(ref_files)}
 
+        # 5. List loose .md files in memory/ root (not MEMORY.md, not dirs)
+        _skip = {"MEMORY.md"}
+        loose_files = sorted(
+            f for f in os.listdir(mem_root)
+            if f.endswith(".md") and f not in _skip
+            and os.path.isfile(os.path.join(mem_root, f))
+        )
+        if loose_files:
+            loose_entries = []
+            for lf in loose_files:
+                try:
+                    mtime = os.path.getmtime(os.path.join(mem_root, lf))
+                    lf_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+                    loose_entries.append(f"  - {lf} (modified {lf_date})")
+                except Exception:
+                    loose_entries.append(f"  - {lf}")
+            messages.append({
+                "role": "system",
+                "content": (
+                    f"Other files in {mem_file_rel}/ (use file(read) to access):\n"
+                    + "\n".join(loose_entries)
+                    + f"\n\nTip: consider moving these to {mem_file_rel}/reference/ "
+                    "so they appear in the reference index."
+                ),
+            })
+            yield {"type": "memory_scheme_loose_files", "count": len(loose_files)}
+
+        # 6. Memory-write nudge — remind bot to save if it hasn't written
+        #    to memory/ recently. Scan messages for file tool calls that
+        #    wrote to memory/. Count user turns since last such write.
+        _NUDGE_TURN_THRESHOLD = 5
+        user_turns_since_memory_write = 0
+        found_memory_write = False
+        for msg in reversed(messages):
+            role = msg.get("role", "")
+            if role == "user":
+                user_turns_since_memory_write += 1
+                if user_turns_since_memory_write > _NUDGE_TURN_THRESHOLD:
+                    break
+            elif role == "tool":
+                # Check if this was a file tool call that wrote to memory/
+                content_str = msg.get("content", "")
+                if isinstance(content_str, str) and "memory/" in content_str and '"ok"' in content_str:
+                    found_memory_write = True
+                    break
+            elif role == "assistant":
+                # Check tool_calls in assistant messages for memory/ paths
+                for tc in msg.get("tool_calls", []):
+                    args = tc.get("function", {}).get("arguments", "")
+                    if isinstance(args, str) and "memory/" in args:
+                        name = tc.get("function", {}).get("name", "")
+                        if name == "file":
+                            found_memory_write = True
+                            break
+                if found_memory_write:
+                    break
+
+        if user_turns_since_memory_write >= _NUDGE_TURN_THRESHOLD and not found_memory_write:
+            messages.append({
+                "role": "system",
+                "content": (
+                    f"[Memory reminder] {user_turns_since_memory_write} user messages since your "
+                    "last memory write. If the user stated any preferences, corrections, facts, "
+                    "or decisions, write them to memory NOW — they will be lost on compaction."
+                ),
+            })
+            yield {"type": "memory_scheme_nudge", "turns_since_write": user_turns_since_memory_write}
+
     except Exception:
         logger.warning("Failed to inject memory scheme files for bot %s", bot.id, exc_info=True)
 

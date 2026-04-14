@@ -38,7 +38,7 @@ async def test_create_channel_with_member_bots(client: E2EClient) -> None:
         await client.create_bot({
             "id": member_id,
             "name": "Member Bot",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-2.5-flash-lite",
             "tool_retrieval": False,
             "persona": False,
         })
@@ -67,7 +67,7 @@ async def test_add_and_list_bot_members(client: E2EClient) -> None:
         await client.create_bot({
             "id": member_id,
             "name": "List Test Member",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-2.5-flash-lite",
             "tool_retrieval": False,
             "persona": False,
         })
@@ -100,7 +100,7 @@ async def test_remove_bot_member(client: E2EClient) -> None:
         await client.create_bot({
             "id": member_id,
             "name": "Remove Test Member",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-2.5-flash-lite",
             "tool_retrieval": False,
             "persona": False,
         })
@@ -126,7 +126,7 @@ async def test_add_duplicate_member_returns_409(client: E2EClient) -> None:
         await client.create_bot({
             "id": member_id,
             "name": "Dup Test",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-2.5-flash-lite",
             "tool_retrieval": False,
             "persona": False,
         })
@@ -196,7 +196,7 @@ async def test_update_member_config(client: E2EClient) -> None:
         await client.create_bot({
             "id": member_id,
             "name": "Config Test Member",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-2.5-flash-lite",
             "tool_retrieval": False,
             "persona": False,
         })
@@ -233,7 +233,7 @@ async def test_update_member_config_null_removes_key(client: E2EClient) -> None:
         await client.create_bot({
             "id": member_id,
             "name": "Null Config Test",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-2.5-flash-lite",
             "tool_retrieval": False,
             "persona": False,
         })
@@ -266,7 +266,7 @@ async def test_update_member_config_invalid_style_returns_422(client: E2EClient)
         await client.create_bot({
             "id": member_id,
             "name": "Invalid Style Test",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-2.5-flash-lite",
             "tool_retrieval": False,
             "persona": False,
         })
@@ -294,7 +294,7 @@ async def test_channel_out_includes_member_bots_field(client: E2EClient) -> None
         await client.create_bot({
             "id": member_id,
             "name": "Detail Test Member",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-2.5-flash-lite",
             "tool_retrieval": False,
             "persona": False,
         })

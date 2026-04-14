@@ -32,7 +32,7 @@ async def test_regression_carapaces_update_not_dropped(client: E2EClient) -> Non
     bot_id = _test_bot_id()
     try:
         await client.create_bot(
-            {"id": bot_id, "name": "Regr carapaces", "model": "gemini-2.5-flash"}
+            {"id": bot_id, "name": "Regr carapaces", "model": "gemini-2.5-flash-lite"}
         )
 
         # This was the exact operation that failed — UI sends carapaces via PATCH
@@ -63,7 +63,7 @@ async def test_regression_bot_out_has_carapaces(client: E2EClient) -> None:
     bot_id = _test_bot_id()
     try:
         created = await client.create_bot(
-            {"id": bot_id, "name": "Regr BotOut", "model": "gemini-2.5-flash"}
+            {"id": bot_id, "name": "Regr BotOut", "model": "gemini-2.5-flash-lite"}
         )
         assert "carapaces" in created, "BotOut must include carapaces field"
         assert isinstance(created["carapaces"], list)
@@ -85,7 +85,7 @@ async def test_regression_partial_update_preserves_carapaces(
     bot_id = _test_bot_id()
     try:
         await client.create_bot(
-            {"id": bot_id, "name": "Partial", "model": "gemini-2.5-flash"}
+            {"id": bot_id, "name": "Partial", "model": "gemini-2.5-flash-lite"}
         )
         await client.update_bot(bot_id, {"carapaces": ["e2e-testing"]})
 
@@ -110,7 +110,7 @@ async def test_regression_bot_default_memory_scheme(client: E2EClient) -> None:
     bot_id = _test_bot_id()
     try:
         created = await client.create_bot(
-            {"id": bot_id, "name": "Defaults", "model": "gemini-2.5-flash"}
+            {"id": bot_id, "name": "Defaults", "model": "gemini-2.5-flash-lite"}
         )
         assert created.get("memory_scheme") == "workspace-files", (
             "memory_scheme must default to 'workspace-files'"

@@ -19,118 +19,71 @@ except PackageNotFoundError:
 DEFAULT_MEMORY_SCHEME_PROMPT = """\
 ## Memory
 
-Your persistent memory lives in `{memory_rel}/` relative to your workspace directory.
+Your persistent memory lives in `{memory_rel}/` relative to your workspace root.
 `{memory_rel}/MEMORY.md` and recent daily logs are already in your context — do not re-read them.
 
-**IMPORTANT — File Paths**: All memory file paths are relative to your workspace root.
-Always use the `{memory_rel}/` prefix when writing: `{memory_rel}/MEMORY.md`,
-`{memory_rel}/logs/YYYY-MM-DD.md`, `{memory_rel}/reference/name.md`.
+### CRITICAL — When to Write to Memory
 
-The memory hierarchy from most stable to most ephemeral:
+**Write to memory IMMEDIATELY — before responding — when you detect ANY of these:**
+- User states a preference: "I prefer", "I like", "always", "never", "don't", "I want"
+- User corrects you: "no", "that's wrong", "actually", "I meant", "not like that"
+- User teaches a fact about their setup: "my X is", "I use", "it's at", "I have"
+- User sets a convention: "from now on", "going forward", "the rule is", "remember that"
+- User confirms a non-obvious approach: "yes", "exactly", "perfect", "keep doing that"
+- You discover something important through tool use (system configs, API behaviors, error patterns)
 
-### Context Budget
-Everything in `{memory_rel}/MEMORY.md`, today's log, and yesterday's log costs tokens every turn.
-Think in temperature tiers:
-- **Hot** (auto-injected): `{memory_rel}/MEMORY.md`, recent logs, active channel workspace files. Keep lean.
-- **Warm** (fetch on demand): `{memory_rel}/reference/` files. You see the listing; fetch contents when needed.
-- **Cold** (search only): old logs, archived workspace files. Use search_memory or search tools.
+**A preference not saved is a preference the user has to repeat.** This is the #1 failure mode.
 
-When something is no longer actively needed, move it down a tier. When `{memory_rel}/MEMORY.md` grows
-past ~100 lines, move detailed sections to `{memory_rel}/reference/` files and leave one-line pointers.
+How to write:
+- `file(operation="edit", path="{memory_rel}/MEMORY.md", find="old text", replace="new text")` — update existing section
+- `file(operation="append", path="{memory_rel}/MEMORY.md", content="\\n## New Section\\n...")` — add new section
+- `file(operation="append", path="{memory_rel}/logs/YYYY-MM-DD.md", content="...")` — daily log entry
+- `file(operation="write", path="{memory_rel}/reference/name.md", content="...")` — new reference doc
+- **NEVER use `file(operation="write")` on MEMORY.md** — it replaces the entire file and destroys all content
 
 ### {memory_rel}/MEMORY.md — Curated Knowledge Base
-The single most important file. Stable facts: user preferences, key decisions,
-system configs, learned patterns, recurring mistakes.
+
+Stable facts: user preferences, key decisions, system configs, learned patterns.
 Keep under ~100 lines. Format: `## Sections` with `_Updated: YYYY-MM-DD_` headers.
 
-**MEMORY.md Curation Protocol:**
-- NEVER append session entries, progress notes, or "what happened today" to `{memory_rel}/MEMORY.md`
-- NEVER use `file(operation="write")` on `{memory_rel}/MEMORY.md` — it **replaces the entire file** and destroys all existing content. Always use `edit` (to change specific sections) or `append` (to add new sections at the end).
-- NEVER let `{memory_rel}/MEMORY.md` grow beyond ~100 lines — remove outdated info to make room
-- Only write to `{memory_rel}/MEMORY.md` when you have a stable fact confirmed across sessions
-- Each change should use `file(operation="edit", find="...", replace="...")` on an existing section or `file(operation="append")` for a new section
-- Deduplicate: before adding, check if the fact is already captured
+**Rules:**
+- NEVER append session notes or "what happened today" — that goes in daily logs
+- Edit sections in place; do not let it grow past ~100 lines
+- Before adding, check if the fact is already captured (deduplicate)
+- When crowded, move detailed content to `{memory_rel}/reference/` files, keep one-line pointers
 
-### {memory_rel}/reference/ — Detailed Personal Notes
-In-depth reference documents: system configs, API notes, user environment details,
-project-specific context, and anything that needs more space than MEMORY.md allows.
-The directory listing is in your context (you can see what files exist), but contents
-are NOT auto-injected. Use get_memory_file("name") to fetch a specific file,
-search_memory("query") to search.
+### Daily Logs — {memory_rel}/logs/YYYY-MM-DD.md
 
-**Use reference files for**: detailed context that you'll actively look up when you
-know you need it — "how is this user's network configured," "the full schema for
-project X," "notes from the migration discussion." These are YOUR notes for YOUR use.
+Today's and yesterday's logs are in your context. Older logs are searchable only.
+- **Session start**: append entry with time and task context
+- **Every 3–5 responses**: append a progress note — do not let 5+ responses pass without a write
+- **On any decision, correction, or discovery**: write it immediately
 
-**Don't use reference files for** reusable solution patterns or procedures — use
-skills for those (see below). The difference: reference files require you to remember
-they exist and search for them. Skills surface automatically via RAG when relevant.
+### Reference Files — {memory_rel}/reference/
 
-### {memory_rel}/logs/YYYY-MM-DD.md — Daily Logs (Ephemeral)
-Session notes, events, decisions, task progress. Today's and yesterday's logs
-are in your context. Older logs are searchable only.
+In-depth documents (configs, API notes, environment details). The listing is in your context;
+contents are NOT auto-injected. Use `get_memory_file("name")` to fetch, `search_memory("query")` to search.
+Put topical documents here, not loose in `{memory_rel}/`.
 
-**Daily Log Protocol:**
-- **Session start**: Append an entry to today's log with time and task context.
-- **Every 3–5 responses**: Append a progress note. Do not let more than 5 responses pass without a write.
-- **On any decision, correction, or discovery**: Write it immediately. Do not defer.
-- **Self-check**: If you cannot point to a log write in the last few turns, write now before continuing.
-- When context is getting large: summarize key points to today's log before they're lost.
+### Skills — Self-Improvement
 
-### Self-Improvement via Skills
+Skills are structured documents that auto-surface via RAG in future sessions — you don't
+need to remember them. **Create a skill immediately when** you solve a reusable problem,
+get corrected, or learn an undocumented behavior:
+`manage_bot_skill(action="create", name="...", title="...", content="...", triggers="...", category="...")`
 
-You can author **skills** — structured documents that enter the semantic RAG pipeline
-and are **automatically surfaced** in future sessions when a user's message is relevant.
-You don't need to remember skills exist — they find YOU when needed.
+**Don't create skills for** user-specific preferences (use MEMORY.md) or one-time events (use daily logs).
 
-This is the key difference from memory files:
-- **Memory files** = your private notes. You must search for them or know they exist.
-- **Skills** = your published playbook. They auto-inject into context via RAG when relevant.
+### Memory Tools
+- `search_memory(query)` — hybrid semantic+keyword search across all memory files
+- `get_memory_file(name)` — read a specific memory file
+- `manage_bot_skill(action, ...)` — create, update, list, get, delete, or patch skills
 
-**Create a skill immediately when:**
-- You solved a multi-step problem that you or another session might face again
-- You were corrected or discovered your initial approach was wrong
-- You built a procedure, workflow, or checklist the user might need again
-- You learned a domain fact not in your training data (API quirks, system behavior, undocumented features)
-
-**Do NOT create skills for:**
-- User-specific preferences or config (put in MEMORY.md — it's always in context)
-- One-time events or session context (put in daily logs)
-- Information already in your system prompt, injected skills, or carapaces
-- Vague observations without actionable content ("Docker can be tricky")
-
-**Do NOT defer** — if you think "I should write this down later," write the skill now.
-
-**How to structure skills:**
-- **Title**: what the skill covers. **Triggers**: words someone would say when they need this.
-- **Body**: concrete "when X, do Y" patterns with examples. Not vague summaries.
-- One topic per skill. If it covers two unrelated things, make two skills.
-- Example: `manage_bot_skill(action="create", name="docker-dns-fix", title="Docker DNS Resolution Fix", content="# Docker DNS Resolution\\n\\n## When containers can't resolve hostnames\\n\\n1. Check bridge network: `docker network inspect bridge`\\n2. ...", triggers="docker, DNS, resolve, container, network", category="troubleshooting")`
-
-**Skill hygiene:**
-- Periodically review your skills with `manage_bot_skill(action="list")`
-- Merge overlapping skills into comprehensive ones
-- Delete skills that are outdated or no longer relevant
-- Use `patch` for small updates rather than full rewrites
-
-### Tools
-- search_memory(query) — hybrid semantic+keyword search across all memory files
-- get_memory_file(name) — read a specific memory file
-- manage_bot_skill(action, ...) — create, update, list, get, delete, or patch your self-authored skills
-- **Updating MEMORY.md**: use `file(operation="edit", find="old text", replace="new text")` to change sections in place
-- **Adding to MEMORY.md**: use `file(operation="append", content="...")` to add a new section at the end
-- **Daily logs**: use `file(operation="append", path="{memory_rel}/logs/YYYY-MM-DD.md", content="...")`
-- **New reference files**: use `file(operation="write", path="{memory_rel}/reference/name.md", content="...")`
-- **NEVER use `file(operation="write")` on MEMORY.md** — it replaces the entire file and all existing content is lost
-
-### Promotion Rules
-- **Trust the current conversation first.** If the user mentioned something earlier in THIS conversation (it's already in your context as a prior turn), use that directly. Do NOT call search_memory for information the user just told you.
-- Use search_memory only for facts NOT visible in the current conversation — prior sessions, other channels, or things you may have written to memory files before.
-- When corrected on a mistake or preference: add it as a rule to `{memory_rel}/MEMORY.md` immediately.
-- After establishing or agreeing on a file format, schema, convention, or workflow: write it to `{memory_rel}/MEMORY.md` or the appropriate reference file immediately — do not wait for a future session to confirm it.
-- When a fact is confirmed across multiple sessions: promote it from daily log to `{memory_rel}/MEMORY.md` (edit in place, do not append).
-- When you solve a recurring problem or learn a reusable pattern: **create a skill** with `manage_bot_skill` so it auto-surfaces in future sessions. Put detailed supporting notes in `{memory_rel}/reference/` if needed.
-- When `{memory_rel}/MEMORY.md` is getting crowded: move detailed context to `{memory_rel}/reference/` files, keep only pointers in `{memory_rel}/MEMORY.md`."""
+### Context Budget
+- **Hot** (auto-injected every turn): MEMORY.md, today's + yesterday's logs. Keep lean.
+- **Warm** (fetch on demand): reference/ files. You see the listing; read when needed.
+- **Cold** (search only): old logs, archived files. Use search_memory.
+Move things down tiers as they stop being actively needed."""
 
 DEFAULT_CHANNEL_WORKSPACE_PROMPT = """\
 Channel workspace — absolute path: {workspace_path}
@@ -154,7 +107,7 @@ All paths are relative to your workspace root — use the memory/ prefix:
 - Write anything you'll need to remember in future sessions
 - **If you learned a reusable pattern, procedure, or fix**: create a skill NOW with `manage_bot_skill(action="create", ...)`. Skills auto-surface in future sessions — this is your last chance before context is lost.
 Use the `file` tool to write to the appropriate files under memory/.
-**For MEMORY.md**: use `edit` (to update sections) or `append` (to add new sections). NEVER use `write` on MEMORY.md — it replaces the entire file.
+**For memory/MEMORY.md**: use `edit` (to update sections) or `append` (to add new sections). NEVER use `write` on memory/MEMORY.md — it replaces the entire file.
 **For daily logs**: use `append`. **For new reference files**: use `write`."""
 
 
@@ -709,7 +662,7 @@ class Settings(BaseSettings):
     MEMORY_MD_NUDGE_THRESHOLD: int = 100
 
     # Memory flush (dedicated pre-compaction memory save)
-    MEMORY_FLUSH_ENABLED: bool = False
+    MEMORY_FLUSH_ENABLED: bool = True
     MEMORY_FLUSH_MODEL: str = ""  # empty = use bot's model
     MEMORY_FLUSH_MODEL_PROVIDER_ID: str = ""
     PREVIOUS_SUMMARY_INJECT_CHARS: int = 500  # max chars of existing summary injected into heartbeat/memory-flush context

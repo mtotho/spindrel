@@ -233,7 +233,7 @@ async def test_carapace_usage_after_bot_assign(client: E2EClient) -> None:
         await client.create_bot({
             "id": bot_id,
             "name": "Carapace Usage Test Bot",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-2.5-flash-lite",
         })
         await client.update_bot(bot_id, {"carapaces": [cid]})
 
