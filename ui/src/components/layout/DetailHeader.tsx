@@ -1,5 +1,5 @@
-import { useWindowDimensions } from "react-native";
 import { ArrowLeft, ChevronRight } from "lucide-react";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useGoBack } from "@/src/hooks/useGoBack";
 
@@ -17,7 +17,7 @@ interface DetailHeaderProps {
 
 export function DetailHeader({ parentLabel, parentHref, title, subtitle, right, hideTitle, inline }: DetailHeaderProps) {
   const t = useThemeTokens();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isMobile = width < 768;
 
   // Prefer in-app history (real "previous page") and fall back to the parent

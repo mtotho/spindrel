@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, Platform } from "react-native";
 import { Loader2, Wrench, Check, XCircle, ShieldAlert, Sparkles, Pin, ChevronRight, ChevronDown, Brain, BookOpen } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
@@ -92,42 +91,23 @@ export function ProcessingIndicator({ botName }: { botName?: string }) {
   const bg = avatarColor(name);
   const t = useThemeTokens();
 
-  if (Platform.OS === "web") {
-    return (
-      <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: "10px 20px 4px", alignSelf: "stretch" }}>
-        <div style={{ paddingTop: 2 }}>
-          <Avatar name={name} isUser={false} />
+  return (
+    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: "10px 20px 4px", alignSelf: "stretch" }}>
+      <div style={{ paddingTop: 2 }}>
+        <Avatar name={name} isUser={false} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: bg }}>{name}</span>
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: bg }}>{name}</span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
-            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-            <span style={{ fontSize: 13, color: t.textMuted, marginLeft: 2 }}>Processing...</span>
-          </div>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
+          <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+          <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+          <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+          <span style={{ fontSize: 13, color: t.textMuted, marginLeft: 2 }}>Processing...</span>
         </div>
       </div>
-    );
-  }
-
-  return (
-    <View style={{ flexDirection: "row", gap: 12, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, alignSelf: "stretch" }}>
-      <View style={{ paddingTop: 2 }}>
-        <Avatar name={name} isUser={false} />
-      </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <Text style={{ fontSize: 15, fontWeight: "700", color: bg }}>{name}</Text>
-        </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 }}>
-          <View className="w-2 h-2 rounded-full bg-text-dim animate-pulse" />
-          <Text style={{ fontSize: 13, color: t.textMuted }}>Processing...</Text>
-        </View>
-      </View>
-    </View>
+    </div>
   );
 }
 
@@ -563,184 +543,62 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
   const name = botName || "Bot";
   const bg = avatarColor(name);
   const t = useThemeTokens();
-  const isWeb = Platform.OS === "web";
 
   // Trim trailing whitespace/newlines to prevent empty spacer divs from markdown parser
   const displayContent = content.trim();
   const displayThinking = thinkingContent?.trim() ?? "";
 
-  // ── Web path ──
-  if (isWeb) {
-    return (
-      <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: "10px 20px 4px", alignSelf: "stretch" }}>
-        <div style={{ paddingTop: 2 }}>
-          <Avatar name={name} isUser={false} />
-        </div>
-
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Name header */}
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: bg }}>{name}</span>
-          </div>
-
-          {/* Thinking content */}
-          {displayThinking ? (
-            <ThinkingBlock text={displayThinking} borderColor={t.textDim} textColor={t.textMuted} labelColor={t.purpleMuted} />
-          ) : null}
-
-          {/* Auto-injected skills */}
-          {autoInjectedSkills && autoInjectedSkills.length > 0 && (
-            <SkillPills skills={autoInjectedSkills} t={t} />
-          )}
-
-          {/* Tool calls in progress */}
-          {toolCalls.length > 0 && <ToolCallCards toolCalls={toolCalls} t={t} botId={botId} />}
-
-          {/* Streaming text */}
-          {displayContent ? (
-            <div style={{ contain: "content" }}>
-              <MarkdownContent text={displayContent} t={t} />
-              <span
-                style={{
-                  display: "inline-block",
-                  width: 2,
-                  height: 17,
-                  backgroundColor: t.purple,
-                  marginLeft: 2,
-                  verticalAlign: "text-bottom",
-                  opacity: 0.8,
-                  animation: "blink 1s step-end infinite",
-                }}
-              />
-            </div>
-          ) : toolCalls.length === 0 ? (
-            /* Typing indicator dots */
-            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, padding: "4px 0" }}>
-              <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-              <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-              <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-            </div>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Native path ──
   return (
-    <View style={{ flexDirection: "row", gap: 12, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, alignSelf: "stretch" }}>
-      <View style={{ paddingTop: 2 }}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: "10px 20px 4px", alignSelf: "stretch" }}>
+      <div style={{ paddingTop: 2 }}>
         <Avatar name={name} isUser={false} />
-      </View>
+      </div>
 
-      <View style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         {/* Name header */}
-        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <Text style={{ fontSize: 15, fontWeight: "700", color: bg }}>
-            {name}
-          </Text>
-        </View>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: bg }}>{name}</span>
+        </div>
 
         {/* Thinking content */}
         {displayThinking ? (
-          <View
-            style={{
-              marginBottom: 8,
-              marginTop: 2,
-              paddingLeft: 12,
-              paddingVertical: 6,
-              borderLeftWidth: 3,
-              borderLeftColor: t.textDim,
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 13,
-                lineHeight: 20,
-                color: t.textMuted,
-                fontStyle: "italic",
-              }}
-              numberOfLines={12}
-            >
-              {displayThinking}
-            </Text>
-          </View>
+          <ThinkingBlock text={displayThinking} borderColor={t.textDim} textColor={t.textMuted} labelColor={t.purpleMuted} />
         ) : null}
 
-        {/* Tool calls — native (grouped) */}
-        {toolCalls.length > 0 && (
-          <View className="mb-2 gap-1.5">
-            {groupToolCalls(toolCalls).map((group, gi) => {
-              if (group.calls.length > 1) {
-                const doneCount = group.calls.filter(c => c.status === "done").length;
-                const runningCount = group.calls.filter(c => c.status === "running").length;
-                const total = group.calls.length;
-                const allDone = doneCount === total;
-                const iconColor = allDone ? t.success : runningCount > 0 ? t.purple : t.textDim;
-                return (
-                  <View
-                    key={gi}
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 8,
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 6,
-                      backgroundColor: t.overlayLight,
-                      borderWidth: 1,
-                      borderColor: t.overlayBorder,
-                      alignSelf: "flex-start",
-                    }}
-                  >
-                    <Wrench size={12} color={iconColor} />
-                    <Text style={{ fontSize: 12, color: t.textMuted }}>{group.name}</Text>
-                    <Text style={{ fontSize: 11, color: iconColor, fontWeight: "500" }}>
-                      {doneCount}/{total}
-                    </Text>
-                  </View>
-                );
-              }
-              const tc = group.calls[0];
-              return (
-                <View
-                  key={gi}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: 6,
-                    backgroundColor: t.overlayLight,
-                    borderWidth: 1,
-                    borderColor: tc.status === "awaiting_approval" ? t.warningBorder : tc.status === "denied" ? t.dangerBorder : t.overlayBorder,
-                    alignSelf: "flex-start",
-                  }}
-                >
-                  <Wrench size={12} color={tc.status === "denied" ? t.danger : tc.status === "awaiting_approval" ? t.warning : tc.status === "running" ? t.purple : t.success} />
-                  <Text style={{ fontSize: 12, color: t.textMuted }}>{tc.name}</Text>
-                  {tc.status === "running" && <Loader2 size={10} color={t.purple} />}
-                  {tc.status === "done" && <Text style={{ fontSize: 11, color: t.success }}>done</Text>}
-                  {tc.status === "awaiting_approval" && <Text style={{ fontSize: 11, color: t.warning }}>awaiting approval</Text>}
-                  {tc.status === "denied" && <Text style={{ fontSize: 11, color: t.danger }}>denied</Text>}
-                </View>
-              );
-            })}
-          </View>
+        {/* Auto-injected skills */}
+        {autoInjectedSkills && autoInjectedSkills.length > 0 && (
+          <SkillPills skills={autoInjectedSkills} t={t} />
         )}
+
+        {/* Tool calls in progress */}
+        {toolCalls.length > 0 && <ToolCallCards toolCalls={toolCalls} t={t} botId={botId} />}
 
         {/* Streaming text */}
         {displayContent ? (
-          <Text style={{ fontSize: 15, lineHeight: 22, color: t.contentText }}>{displayContent}</Text>
+          <div style={{ contain: "content" }}>
+            <MarkdownContent text={displayContent} t={t} />
+            <span
+              style={{
+                display: "inline-block",
+                width: 2,
+                height: 17,
+                backgroundColor: t.purple,
+                marginLeft: 2,
+                verticalAlign: "text-bottom",
+                opacity: 0.8,
+                animation: "blink 1s step-end infinite",
+              }}
+            />
+          </div>
         ) : toolCalls.length === 0 ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4 }}>
-            <View className="w-2 h-2 rounded-full bg-text-dim animate-pulse" />
-            <View className="w-2 h-2 rounded-full bg-text-dim animate-pulse delay-150" />
-            <View className="w-2 h-2 rounded-full bg-text-dim animate-pulse delay-300" />
-          </View>
+          /* Typing indicator dots */
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, padding: "4px 0" }}>
+            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+          </div>
         ) : null}
-      </View>
-    </View>
+      </div>
+    </div>
   );
 }

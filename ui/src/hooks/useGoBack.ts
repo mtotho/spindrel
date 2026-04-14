@@ -1,6 +1,5 @@
 import { useRouter, useNavigationContainerRef } from "expo-router";
 import { useCallback } from "react";
-import { Platform } from "react-native";
 
 /**
  * Safe go-back that falls back to a parent route when there's no in-app history.
@@ -17,11 +16,9 @@ export function useGoBack(fallback: string) {
   return useCallback(() => {
     if (nav?.canGoBack()) {
       router.back();
-    } else if (Platform.OS === "web") {
+    } else {
       // No in-app history — replace so the dead-end page isn't left in history
       router.replace(fallback as any);
-    } else {
-      router.push(fallback as any);
     }
   }, [router, nav, fallback]);
 }

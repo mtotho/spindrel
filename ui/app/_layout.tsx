@@ -1,9 +1,6 @@
 import "../global.css";
 import { useEffect } from "react";
-import { View, Text, ActivityIndicator, Platform } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { StatusBar } from "expo-status-bar";
-import { SafeAreaProvider } from "react-native-safe-area-context";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuthStore } from "@/src/stores/auth";
 import { useThemeStore } from "@/src/stores/theme";
@@ -24,7 +21,6 @@ const queryClient = new QueryClient({
 function useApplyThemeClass() {
   const mode = useThemeStore((s) => s.mode);
   useEffect(() => {
-    if (Platform.OS !== "web") return;
     const el = document.documentElement;
     if (mode === "dark") {
       el.classList.add("dark");
@@ -52,8 +48,6 @@ function useApplyThemeClass() {
  */
 function useWebViewportFix() {
   useEffect(() => {
-    if (Platform.OS !== "web") return;
-
     // 1. Fix viewport meta — add viewport-fit=cover so env(safe-area-inset-*)
     //    returns real values, disable user zoom to prevent iOS double-tap zoom.
     const vp = document.querySelector('meta[name="viewport"]');
@@ -177,10 +171,10 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     const spinnerColor = "#3b82f6";
     const textColor = mode === "dark" ? "#666666" : "#a3a3a3";
     return (
-      <View style={{ flex: 1, backgroundColor: bg, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator color={spinnerColor} />
-        <Text style={{ color: textColor, marginTop: 8, fontSize: 12 }}>Loading...</Text>
-      </View>
+      <div style={{ display: "flex", flex: 1, backgroundColor: bg, alignItems: "center", justifyContent: "center", height: "100%" }}>
+        <div className="chat-spinner" style={{ width: 24, height: 24, borderColor: spinnerColor, borderTopColor: "transparent" }} />
+        <span style={{ color: textColor, marginTop: 8, fontSize: 12 }}>Loading...</span>
+      </div>
     );
   }
 
@@ -188,18 +182,14 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
-  const mode = useThemeStore((s) => s.mode);
   return (
-    <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <AuthGate>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(auth)" />
-            <Stack.Screen name="(app)" />
-          </Stack>
-          <StatusBar style={mode === "dark" ? "light" : "dark"} />
-        </AuthGate>
-      </QueryClientProvider>
-    </SafeAreaProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthGate>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(app)" />
+        </Stack>
+      </AuthGate>
+    </QueryClientProvider>
   );
 }

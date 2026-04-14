@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
-import { View, Text, TextInput, Pressable, Platform } from "react-native";
 import { Send, Square, Paperclip, X, Cpu, Mic, Check } from "lucide-react";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
@@ -97,27 +96,19 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     }
   }, [channelId, pendingFiles, setDraftFiles]);
   const [showModelPicker, setShowModelPicker] = useState(false);
-  const inputRef = useRef<TextInput>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapChatInputHandle>(null);
   const editorWrapperRef = useRef<HTMLDivElement>(null);
 
   const handleSend = useCallback(() => {
-    // On web, read directly from editor to avoid stale React state
-    const message = Platform.OS === "web"
-      ? (editorRef.current?.getMarkdown() ?? text).trim()
-      : text.trim();
+    const message = (editorRef.current?.getMarkdown() ?? text).trim();
     if ((!message && pendingFiles.length === 0) || disabled) return;
     onSend(message, pendingFiles.length > 0 ? pendingFiles : undefined);
     if (channelId) clearDraft(channelId);
     else { setLocalText(""); setLocalFiles([]); }
-    if (Platform.OS === "web") {
-      editorRef.current?.clear();
-      editorRef.current?.focus();
-    } else {
-      inputRef.current?.focus();
-    }
+    editorRef.current?.clear();
+    editorRef.current?.focus();
   }, [text, pendingFiles, disabled, onSend, channelId, clearDraft]);
 
   // --- Audio recording ---
@@ -128,10 +119,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
         onSendAudio(result.base64, result.format, text.trim() || undefined);
         if (channelId) clearDraft(channelId);
         else { setLocalText(""); setLocalFiles([]); }
-        if (Platform.OS === "web") {
-          editorRef.current?.clear();
-          editorRef.current?.focus();
-        }
+        editorRef.current?.clear();
+        editorRef.current?.focus();
       }
     } else {
       await recorder.startRecording();
@@ -140,7 +129,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
   // Global keyboard listener for recording mode (editor is hidden, so onKeyDown won't fire)
   useEffect(() => {
-    if (!recorder.isRecording || Platform.OS !== "web") return;
+    if (!recorder.isRecording) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -187,18 +176,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     [handleFileSelect]
   );
 
-  // --- Native key handler ---
-  const handleKeyPress = (e: any) => {
-    if (
-      Platform.OS === "web" &&
-      e.nativeEvent?.key === "Enter" &&
-      !e.nativeEvent?.shiftKey
-    ) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
   const hasContent = !!(text.trim() || pendingFiles.length > 0);
   const canSend = hasContent && !disabled;
   // Show stop button when streaming and user hasn't typed anything
@@ -214,13 +191,12 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     setStopArmed(false);
   }, [showStop]);
   // Show mic icon when input is empty and onSendAudio is available
-  const showMic = !hasContent && !!onSendAudio && !isStreaming && Platform.OS === "web";
+  const showMic = !hasContent && !!onSendAudio && !isStreaming;
   // Queue bar: visible when streaming and user has typed content, or when a message is already queued
   const showQueueBar = !!isStreaming && (hasContent || !!isQueued);
 
   // "Send now" — cancel stream and send immediately (web only)
   const handleSendNowLocal = useCallback(() => {
-    if (Platform.OS !== "web") return;
     const message = (editorRef.current?.getMarkdown() ?? text).trim();
     if ((!message && pendingFiles.length === 0) || disabled) return;
     onSendNow?.(message, pendingFiles.length > 0 ? pendingFiles : undefined);
@@ -230,9 +206,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     editorRef.current?.focus();
   }, [text, pendingFiles, disabled, onSendNow, channelId, clearDraft]);
 
-  // Web: Tiptap rich editor
-  if (Platform.OS === "web") {
-    const sendBtnBg = showStop ? "#ef4444"
+  const sendBtnBg = showStop ? "#ef4444"
       : recorder.isRecording ? "#ef4444"
       : canSend ? t.accent
       : "transparent";
@@ -593,42 +567,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
         </div>
       </div>
     );
-  }
-
-  // Native: keep RN TextInput
-  return (
-    <View className="flex-row items-end gap-2 px-4 py-3" style={{ borderTopWidth: 1, borderTopColor: t.overlayLight, backgroundColor: t.surface }}>
-      <TextInput
-        ref={inputRef}
-        className="flex-1 bg-surface-raised rounded-xl px-4 py-3 text-text text-[15px] min-h-[44px] max-h-[280px]"
-        style={{ borderWidth: 1, borderColor: t.overlayLight }}
-        placeholder="Type a message..."
-        placeholderTextColor={t.textDim}
-        value={text}
-        onChangeText={setText}
-        onKeyPress={handleKeyPress}
-        multiline
-        editable={!disabled}
-      />
-      <Pressable
-        onPress={showStop ? onCancel : handleSend}
-        disabled={!(text.trim() && !disabled) && !showStop}
-        className="items-center justify-center rounded-lg"
-        style={{
-          width: 44,
-          height: 44,
-          backgroundColor: showStop ? "#ef4444" : text.trim() && !disabled ? t.accent : "transparent",
-          opacity: (text.trim() && !disabled) || showStop ? 1 : 0.4,
-        }}
-      >
-        {showStop ? (
-          <Square size={16} color="white" fill="white" />
-        ) : (
-          <Send size={18} color={text.trim() && !disabled ? "white" : t.textDim} />
-        )}
-      </Pressable>
-    </View>
-  );
 }
 
 function fileToBase64(file: File): Promise<string> {

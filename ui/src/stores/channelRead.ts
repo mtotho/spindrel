@@ -1,7 +1,5 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Platform } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface ChannelReadState {
   /** Map of channelId -> ISO timestamp of last visit */
@@ -14,10 +12,7 @@ interface ChannelReadState {
   deleteChannel: (channelId: string) => void;
 }
 
-const storage =
-  Platform.OS === "web"
-    ? createJSONStorage(() => localStorage)
-    : createJSONStorage(() => AsyncStorage);
+const storage = createJSONStorage(() => localStorage);
 
 export const useChannelReadStore = create<ChannelReadState>()(
   persist(

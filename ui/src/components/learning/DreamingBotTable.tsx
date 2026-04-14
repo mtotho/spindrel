@@ -7,8 +7,8 @@
  */
 import { useMemo } from "react";
 import { useRouter } from "expo-router";
-import { useWindowDimensions } from "react-native";
 import { Moon, Play } from "lucide-react";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { StatusBadge } from "@/src/components/shared/SettingsControls";
 import type { BotDreamingStatus } from "@/src/api/hooks/useLearningOverview";
@@ -83,7 +83,7 @@ export interface DreamingBotTableProps {
 export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableProps) {
   const t = useThemeTokens();
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isMobile = width < 768;
   const qc = useQueryClient();
   const triggerMut = useTriggerMemoryHygiene();

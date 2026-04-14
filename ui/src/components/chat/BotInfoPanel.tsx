@@ -4,7 +4,6 @@
  */
 
 import { useEffect, useMemo } from "react";
-import { Platform } from "react-native";
 import { X, Bot, Wrench, Puzzle, Server, Shield, ExternalLink } from "lucide-react";
 import { useRouter } from "expo-router";
 import { useThemeTokens } from "../../theme/tokens";
@@ -471,7 +470,6 @@ function CaparacesSection({ carapaces, sources }: { carapaces: string[]; sources
 // ---------------------------------------------------------------------------
 
 export function BotInfoPanel(props: Props) {
-  if (Platform.OS !== "web") return null;
   const ReactDOM = require("react-dom");
   return ReactDOM.createPortal(
     <BotInfoPanelContent {...props} />,
