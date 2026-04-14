@@ -208,6 +208,7 @@ async def run_turn(
             provider_id_override=req.model_provider_id_override,
             system_preamble=ctx.system_preamble,
         )
+        _auto_injected_skills: list[dict] = []
         async for event in emit_run_stream_events(
             _run_stream_iter,
             channel_id=channel_id,
@@ -215,6 +216,15 @@ async def run_turn(
             turn_id=turn_id,
         ):
             etype = event.get("type")
+
+            if etype == "auto_inject":
+                _auto_injected_skills.append({
+                    "skill_id": event.get("skill_id", ""),
+                    "skill_name": event.get("skill_name", ""),
+                    "similarity": event.get("similarity", 0.0),
+                    "source": event.get("source", ""),
+                })
+                continue
 
             if etype == "cancelled":
                 was_cancelled = True
@@ -284,6 +294,14 @@ async def run_turn(
             # Anything else (transcript, thinking_content, warning, fallback,
             # context_pruning, rate_limit_wait): no typed kind exists yet.
             # The follow-up UI session will decide which deserve new kinds.
+
+        # 4b. Tag the last assistant message with auto-injected skill info
+        #     so persist_turn can carry it into the DB row's metadata.
+        if _auto_injected_skills:
+            for _m in reversed(messages[from_index:]):
+                if _m.get("role") == "assistant":
+                    _m["_auto_injected_skills"] = _auto_injected_skills
+                    break
 
         # 5. Persist the turn (DB write + outbox enqueue + bus publish).
         #    Runs unconditionally — cancelled turns must persist the [STOP] /
@@ -370,6 +388,10 @@ async def run_turn(
                         # and error being independent.
                         error=error_text or None,
                         client_actions=list(response_actions or []),
+                        extra_metadata=(
+                            {"auto_injected_skills": _auto_injected_skills}
+                            if _auto_injected_skills else {}
+                        ),
                     ),
                 ),
             )

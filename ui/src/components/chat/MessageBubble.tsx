@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { useThemeTokens } from "../../theme/tokens";
+import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import { DelegationCard } from "./DelegationCard";
 import { MarkdownContent } from "./MarkdownContent";
@@ -11,6 +11,47 @@ import { RichToolResult } from "./RichToolResult";
 import { extractDisplayText, parseSlackPrefix, stripBBPrefix, resolveDisplay, avatarColor } from "./messageUtils";
 import { useToolResultCompact } from "../../stores/toolResultPref";
 import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
+
+type AutoInjectedSkillMeta = { skillId?: string; skill_id?: string; skillName?: string; skill_name?: string; similarity?: number };
+
+/** Compact inline skill badges for persisted messages */
+function SkillBadges({ skills, t }: { skills: AutoInjectedSkillMeta[]; t: ThemeTokens }) {
+  if (!skills.length) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4, marginBottom: 2 }}>
+      {skills.map((s, i) => {
+        const name = s.skillName ?? s.skill_name ?? "skill";
+        const sim = s.similarity ?? 0;
+        return (
+          <div
+            key={s.skillId ?? s.skill_id ?? i}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "1px 7px 1px 5px",
+              borderRadius: 10,
+              backgroundColor: t.purpleSubtle,
+              border: `1px solid ${t.purpleBorder}`,
+            }}
+          >
+            <div style={{
+              width: 4,
+              height: 4,
+              borderRadius: "50%",
+              backgroundColor: t.purple,
+              opacity: 0.3 + sim * 0.7,
+              flexShrink: 0,
+            }} />
+            <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 500 }}>
+              {name}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // Re-export for external consumers
 export { extractDisplayText } from "./messageUtils";
@@ -56,6 +97,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const richEnvelope: ToolResultEnvelope | undefined = meta.envelope as ToolResultEnvelope | undefined;
   const msgToolCalls: ToolCall[] | undefined = message.tool_calls;
   const trigger = meta.trigger as string | undefined;
+  const autoInjectedSkills = (meta.auto_injected_skills as AutoInjectedSkillMeta[]) || [];
   const delegations = (meta.delegations as any[]) || [];
   const delegatedByDisplay = meta.delegated_by_display as string | undefined;
   const triggerBadge = trigger === "workflow"
@@ -109,6 +151,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} t={t} />
       )}
+      {autoInjectedSkills.length > 0 && <SkillBadges skills={autoInjectedSkills} t={t} />}
       {(toolsUsed.length > 0 || (msgToolCalls && msgToolCalls.length > 0)) && (
         <ToolBadges
           toolNames={toolsUsed}

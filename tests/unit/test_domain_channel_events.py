@@ -96,9 +96,13 @@ class TestKindPayloadPairing:
         cases[ChannelEventKind.MEMORY_SCHEME_BOOTSTRAP] = MemorySchemeBootstrapPayload(
             bot_id="x", turn_id=_tid, scheme="workspace-files", files_loaded=3,
         )
-        from app.domain.payloads import PinnedFileUpdatedPayload
+        from app.domain.payloads import PinnedFileUpdatedPayload, SkillAutoInjectPayload
         cases[ChannelEventKind.PINNED_FILE_UPDATED] = PinnedFileUpdatedPayload(
             channel_id=cid, path="report.md", content_type="text/markdown",
+        )
+        cases[ChannelEventKind.SKILL_AUTO_INJECT] = SkillAutoInjectPayload(
+            bot_id="x", turn_id=_tid, skill_id="s1", skill_name="Test Skill",
+            similarity=0.65, source="authored",
         )
 
         for kind in ChannelEventKind:

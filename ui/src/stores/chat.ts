@@ -345,6 +345,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           ...(turn.botName ? { sender_display_name: turn.botName } : {}),
           ...(turn.botId ? { sender_id: `bot:${turn.botId}` } : {}),
           ...(turn.isPrimary ? {} : { trigger: "member_mention", sender_type: "bot" }),
+          ...(turn.autoInjectedSkills.length > 0 ? { auto_injected_skills: turn.autoInjectedSkills } : {}),
         };
         const hasMetadata = Object.keys(metadata).length > 0;
         messages = [

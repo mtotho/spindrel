@@ -530,6 +530,9 @@ async def persist_turn(
         # Carry forward sticky-tool flag (skill/runbook output never pruned)
         if msg.get("_no_prune"):
             meta = {**meta, "no_prune": True}
+        # Carry forward auto-injected skills for UI display on persisted messages
+        if msg.get("_auto_injected_skills"):
+            meta = {**meta, "auto_injected_skills": msg["_auto_injected_skills"]}
         # Extract delegation info from delegate_to_agent tool calls
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
             _delegations = []
