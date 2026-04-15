@@ -60,7 +60,7 @@ export default function WorkspaceFileBrowser() {
 
   if (isLoading || !workspace) {
     return (
-      <div style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.surface }}>
+      <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.surface }}>
         <Spinner />
       </div>
     );

@@ -16,14 +16,12 @@ import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { isoToLocalInput, localInputToISO } from "@/src/utils/time";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
-  ScheduledAtPicker,
-  RecurrencePicker,
-  ScheduleSummary,
   EnableToggle,
   InfoRow,
   STATUS_OPTIONS,
   TASK_TYPE_OPTIONS_FULL,
 } from "@/src/components/shared/SchedulingPickers";
+import { TriggerSection, type TriggerConfig } from "@/src/components/shared/TriggerSection";
 
 function fmtDatetime(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -96,6 +94,7 @@ export default function TaskDetailScreen() {
   const [taskType, setTaskType] = useState("scheduled");
   const [scheduledAt, setScheduledAt] = useState("");
   const [recurrence, setRecurrence] = useState("");
+  const [triggerConfig, setTriggerConfig] = useState<TriggerConfig>({ type: "schedule" });
   const [triggerRagLoop, setTriggerRagLoop] = useState(false);
   const [modelOverride, setModelOverride] = useState("");
   const [workflowId, setWorkflowId] = useState<string | null>(null);
@@ -115,6 +114,11 @@ export default function TaskDetailScreen() {
     setTaskType(task.task_type || "scheduled");
     setScheduledAt(task.scheduled_at ? isoToLocalInput(task.scheduled_at) : "");
     setRecurrence(task.recurrence || "");
+    if (task.trigger_config) {
+      setTriggerConfig(task.trigger_config as TriggerConfig);
+    } else if (task.recurrence) {
+      setTriggerConfig({ type: "schedule" });
+    }
     setTriggerRagLoop(task.trigger_rag_loop ?? task.callback_config?.trigger_rag_loop ?? false);
     setModelOverride(task.model_override || task.callback_config?.model_override || "");
     setWorkflowId(task.workflow_id ?? null);
@@ -381,10 +385,15 @@ export default function TaskDetailScreen() {
               )}
             </Section>
 
-            <Section title="Scheduling">
-              <ScheduledAtPicker value={scheduledAt} onChange={setScheduledAt} />
-              <RecurrencePicker value={recurrence} onChange={setRecurrence} />
-              <ScheduleSummary scheduledAt={scheduledAt} recurrence={recurrence} />
+            <Section title="Trigger">
+              <TriggerSection
+                triggerConfig={triggerConfig}
+                onTriggerConfigChange={setTriggerConfig}
+                scheduledAt={scheduledAt}
+                onScheduledAtChange={setScheduledAt}
+                recurrence={recurrence}
+                onRecurrenceChange={setRecurrence}
+              />
             </Section>
 
             <Section title="Options">

@@ -57,7 +57,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
 
   if (isLoading || !run) {
     return (
-      <div style={{ alignItems: "center", padding: 24 }}>
+      <div style={{ display: "flex", alignItems: "center", padding: 24 }}>
         <Spinner />
       </div>
     );
@@ -91,7 +91,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
         {!embedded ? (
           <button type="button"
             onClick={onBack}
-            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}
           >
             <ArrowLeft size={16} color={t.textMuted} />
             <span style={{ color: t.textMuted, fontSize: 13 }}>All runs</span>
@@ -264,6 +264,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
                   key={i}
                   onClick={() => setActiveStepIndex(i)}
                   style={{
+                    display: "flex",
                     flexDirection: "row", alignItems: "center", gap: 8,
                     paddingBlock: 8, paddingInline: 12,
                     borderLeftWidth: 2,

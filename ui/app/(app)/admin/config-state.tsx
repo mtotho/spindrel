@@ -109,7 +109,7 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen((p) => !p)}
-        className="flex-row items-center gap-2 rounded-md px-3 py-2.5 hover:bg-surface-overlay active:bg-surface-overlay"
+        className="flex flex-row items-center gap-2 rounded-md px-3 py-2.5 hover:bg-surface-overlay active:bg-surface-overlay"
       >
         <Icon size={14} color={t.textMuted} />
         <span style={{ fontSize: 13, fontWeight: "600", color: t.text }}>
@@ -141,7 +141,7 @@ function KV({ k, v }: { k: string; v: any }) {
           ? JSON.stringify(v)
           : String(v);
   return (
-    <div className="flex-row" style={{ paddingTop: 1, paddingBottom: 1 } as any}>
+    <div className="flex flex-row" style={{ paddingTop: 1, paddingBottom: 1 } as any}>
       <span
         style={{
           fontSize: 12,
@@ -226,7 +226,7 @@ function ProvidersSection({ data }: { data: any[] }) {
     <>
       {data.map((p) => (
         <div key={p.id} style={{ marginBottom: 4 }}>
-          <div className="flex-row items-center gap-2" style={{ paddingTop: 2, paddingBottom: 2 }}>
+          <div className="flex flex-row items-center gap-2" style={{ paddingTop: 2, paddingBottom: 2 }}>
             <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {p.display_name}
             </span>
@@ -253,7 +253,7 @@ function BotsSection({ data }: { data: any[] }) {
     <>
       {data.map((b) => (
         <div key={b.id} style={{ marginBottom: 6 }}>
-          <div className="flex-row items-center gap-2 flex-wrap" style={{ paddingTop: 2, paddingBottom: 2 }}>
+          <div className="flex flex-row items-center gap-2 flex-wrap" style={{ paddingTop: 2, paddingBottom: 2 }}>
             <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {b.name}
             </span>
@@ -261,7 +261,7 @@ function BotsSection({ data }: { data: any[] }) {
               {b.model}
             </span>
           </div>
-          <div className="flex-row flex-wrap gap-x-3" style={{ paddingTop: 1, paddingBottom: 1 }}>
+          <div className="flex flex-row flex-wrap gap-x-3" style={{ paddingTop: 1, paddingBottom: 1 }}>
             <Tag label="tools" value={b.local_tools?.length ?? 0} />
             <Tag label="mcp" value={b.mcp_servers?.length ?? 0} />
             <Tag label="skills" value={b.skills?.length ?? 0} />
@@ -291,7 +291,7 @@ function ChannelsSection({ data }: { data: any[] }) {
     <>
       {data.map((ch) => (
         <div key={ch.id} style={{ marginBottom: 4 }}>
-          <div className="flex-row items-center gap-2" style={{ paddingTop: 2, paddingBottom: 2 }}>
+          <div className="flex flex-row items-center gap-2" style={{ paddingTop: 2, paddingBottom: 2 }}>
             <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {ch.name}
             </span>
@@ -317,7 +317,7 @@ function WorkspacesSection({ data }: { data: any[] }) {
     <>
       {data.map((ws) => (
         <div key={ws.id} style={{ marginBottom: 4 }}>
-          <div className="flex-row items-center gap-2" style={{ paddingTop: 2, paddingBottom: 2 }}>
+          <div className="flex flex-row items-center gap-2" style={{ paddingTop: 2, paddingBottom: 2 }}>
             <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {ws.name}
             </span>
@@ -349,7 +349,7 @@ function SkillsSection({ data }: { data: any[] }) {
   return (
     <>
       {data.map((s) => (
-        <div key={s.id} className="flex-row items-center gap-3" style={{ paddingTop: 2, paddingBottom: 2 }}>
+        <div key={s.id} className="flex flex-row items-center gap-3" style={{ paddingTop: 2, paddingBottom: 2 }}>
           <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600", minWidth: 160 }}>
             {s.name}
           </span>
@@ -373,7 +373,7 @@ function TasksSection({ data }: { data: any[] }) {
   return (
     <>
       {data.map((t) => (
-        <div key={t.id} className="flex-row items-center gap-3" style={{ paddingTop: 2, paddingBottom: 2 }}>
+        <div key={t.id} className="flex flex-row items-center gap-3" style={{ paddingTop: 2, paddingBottom: 2 }}>
           <span style={{ fontSize: 12, color: tk.text, fontFamily: "monospace", fontWeight: "600" }}>
             {t.title || t.bot_id}
           </span>
@@ -405,7 +405,7 @@ function UsersSection({ data }: { data: any[] }) {
   return (
     <>
       {data.map((u) => (
-        <div key={u.id} className="flex-row items-center gap-3" style={{ paddingTop: 2, paddingBottom: 2 }}>
+        <div key={u.id} className="flex flex-row items-center gap-3" style={{ paddingTop: 2, paddingBottom: 2 }}>
           <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
             {u.display_name}
           </span>
@@ -539,12 +539,12 @@ export default function ConfigStatePage() {
   }, []);
 
   const HeaderButtons = (
-    <div className="flex-row items-center gap-1">
+    <div className="flex flex-row items-center gap-1">
       <button
         type="button"
         onClick={handleBackup}
         disabled={!data}
-        className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
+        className="flex flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
         style={{ opacity: data ? 1 : 0.4 }}
       >
         <Download size={14} color={t.accent} />
@@ -553,7 +553,7 @@ export default function ConfigStatePage() {
       <button
         type="button"
         onClick={handleFileSelect}
-        className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
+        className="flex flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
       >
         <Upload size={14} color={t.warning} />
         <span style={{ fontSize: 12, color: t.warning }}>Restore</span>
@@ -562,7 +562,7 @@ export default function ConfigStatePage() {
         type="button"
         onClick={handleCopy}
         disabled={!data}
-        className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
+        className="flex flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
         style={{ opacity: data ? 1 : 0.4 }}
       >
         {copied ? <Check size={14} color={t.success} /> : <Copy size={14} color={t.textMuted} />}
@@ -621,7 +621,7 @@ export default function ConfigStatePage() {
                 {s}
               </span>
             ))}
-            <div className="flex-row gap-3" style={{ marginTop: 12 }}>
+            <div className="flex flex-row gap-3" style={{ marginTop: 12 }}>
               <button
                 type="button"
                 onClick={handleRestore}
@@ -702,7 +702,7 @@ export default function ConfigStatePage() {
         )}
 
         {isLoading ? (
-          <div style={{ padding: 40, alignItems: "center" }}>
+          <div style={{ display: "flex", padding: 40, alignItems: "center" }}>
             <Spinner color={t.accent} />
           </div>
         ) : error ? (
@@ -710,7 +710,7 @@ export default function ConfigStatePage() {
             Failed to load config state
           </span>
         ) : data ? (
-          <div style={{ gap: 2 }}>
+          <div style={{ display: "flex", gap: 2 }}>
             <CollapsibleSection title="System" defaultOpen>
               <SystemSection data={data.system} />
             </CollapsibleSection>

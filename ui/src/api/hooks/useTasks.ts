@@ -24,6 +24,7 @@ export interface TaskDetail {
   callback_config?: Record<string, any> | null;
   execution_config?: Record<string, any> | null;
   delegation_session_id?: string | null;
+  trigger_config?: Record<string, any> | null;
   model_override?: string | null;
   model_provider_id_override?: string | null;
   fallback_models?: { model: string; provider_id?: string | null }[] | null;
@@ -59,6 +60,9 @@ export interface TaskCreatePayload {
   model_provider_id_override?: string | null;
   workflow_id?: string | null;
   workflow_session_mode?: string | null;
+  trigger_config?: Record<string, any> | null;
+  skills?: string[] | null;
+  tools?: string[] | null;
 }
 
 export interface TaskUpdatePayload {
@@ -79,6 +83,33 @@ export interface TaskUpdatePayload {
   model_provider_id_override?: string | null;
   workflow_id?: string | null;
   workflow_session_mode?: string | null;
+  trigger_config?: Record<string, any> | null;
+  skills?: string[] | null;
+  tools?: string[] | null;
+}
+
+// ---------------------------------------------------------------------------
+// Trigger events
+// ---------------------------------------------------------------------------
+
+export interface TriggerEventOption {
+  type: string;
+  label: string;
+  description?: string;
+}
+
+export interface TriggerEventSource {
+  source: string;
+  label: string;
+  events: TriggerEventOption[];
+}
+
+export function useTriggerEvents() {
+  return useQuery({
+    queryKey: ["admin-trigger-events"],
+    queryFn: () => apiFetch<{ sources: TriggerEventSource[] }>("/api/v1/admin/tasks/trigger-events"),
+    staleTime: 5 * 60_000,
+  });
 }
 
 export function useTask(taskId: string | undefined) {

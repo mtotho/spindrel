@@ -52,14 +52,14 @@ export function ParamsEditor({ value, onChange, disabled }: ParamsEditorProps) {
 
   if (entries.length === 0) {
     return (
-      <div style={{ gap: 8 }}>
+      <div style={{ display: "flex", gap: 8 }}>
         <span style={{ color: t.textDim, fontSize: 12, fontStyle: "italic" }}>
           No parameters defined
         </span>
         {!disabled && (
           <button type="button"
             onClick={addParam}
-            style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingBlock: 4 }}
+            style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, paddingBlock: 4 }}
           >
             <Plus size={12} color={t.accent} />
             <span style={{ color: t.accent, fontSize: 12 }}>Add Parameter</span>
@@ -70,7 +70,7 @@ export function ParamsEditor({ value, onChange, disabled }: ParamsEditorProps) {
   }
 
   return (
-    <div style={{ gap: 6 }}>
+    <div style={{ display: "flex", gap: 6 }}>
       {/* Header */}
       <div style={{
         display: "grid",
@@ -136,7 +136,7 @@ export function ParamsEditor({ value, onChange, disabled }: ParamsEditorProps) {
       {!disabled && (
         <button type="button"
           onClick={addParam}
-          style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingBlock: 6 }}
+          style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, paddingBlock: 6 }}
         >
           <Plus size={12} color={t.accent} />
           <span style={{ color: t.accent, fontSize: 12 }}>Add Parameter</span>

@@ -135,7 +135,7 @@ export default function TraceScreen() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <Spinner />
       </div>
     );
@@ -143,7 +143,7 @@ export default function TraceScreen() {
 
   if (!data) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <span className="text-text-muted">Trace not found.</span>
       </div>
     );

@@ -561,6 +561,7 @@ export function ChannelFileExplorer({
       {/* Title bar */}
       <div
         style={{
+          display: "flex",
           flexDirection: "row",
           alignItems: "center",
           paddingLeft: 10,
@@ -760,7 +761,7 @@ export function ChannelFileExplorer({
               </span>
             )}
             {uploadStatus && (
-              <div style={{ flexDirection: "row", alignItems: "center", gap: 6, padding: 8 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: 8 }}>
                 <Spinner color={t.accent} size={14} />
                 <span style={{ color: t.textMuted, fontSize: 11 }}>
                   Uploading {uploadStatus.current}/{uploadStatus.total}…
@@ -796,7 +797,7 @@ export function ChannelFileExplorer({
             pointerEvents: "none",
           }}
         >
-          <div style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Upload size={14} color={t.accent} />
             <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>
               Drop to upload to {currentPath}

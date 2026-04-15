@@ -158,6 +158,7 @@ export function StepNavItem({
     <button type="button"
       onClick={onClick}
       style={{
+        display: "flex",
         flexDirection: "row", alignItems: "center", gap: 8,
         paddingBlock: 6, paddingInline: 10,
         borderLeftWidth: 2,

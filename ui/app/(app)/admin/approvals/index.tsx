@@ -366,7 +366,7 @@ export default function ApprovalsScreen() {
           </div>
 
           {isLoading ? (
-            <div className="items-center justify-center py-20">
+            <div className="flex items-center justify-center py-20">
               <Spinner color={t.accent} />
             </div>
           ) : (

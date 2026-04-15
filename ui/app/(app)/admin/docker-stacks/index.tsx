@@ -42,7 +42,7 @@ function StatusBadge({ status, t }: { status: string; t: ThemeTokens }) {
   const Icon = style.icon;
   return (
     <div
-      className="flex-row items-center gap-1 rounded-full px-2 py-0.5"
+      className="flex flex-row items-center gap-1 rounded-full px-2 py-0.5"
       style={{ backgroundColor: style.bg, border: `1px solid ${style.border}` }}
     >
       <Icon size={12} color={style.color} />
@@ -87,16 +87,16 @@ function StackCard({
         cursor: "pointer",
       }}
     >
-      <div className="flex-row items-start justify-between">
-        <div className="flex-1 gap-1">
-          <div className="flex-row items-center gap-2">
+      <div className="flex flex-row items-start justify-between">
+        <div className="flex flex-1 gap-1">
+          <div className="flex flex-row items-center gap-2">
             <Boxes size={16} color={t.accent} />
             <span className="text-base font-semibold" style={{ color: t.text }}>
               {stack.name}
             </span>
             {isIntegration && (
               <div
-                className="flex-row items-center gap-1 rounded-full px-2 py-0.5"
+                className="flex flex-row items-center gap-1 rounded-full px-2 py-0.5"
                 style={{ backgroundColor: t.accentSubtle, border: `1px solid ${t.accentBorder}` }}
               >
                 <Plug size={10} color={t.accent} />
@@ -111,7 +111,7 @@ function StackCard({
               {stack.description}
             </span>
           ) : null}
-          <div className="flex-row items-center gap-3 mt-1">
+          <div className="flex flex-row items-center gap-3 mt-1">
             <span className="text-xs" style={{ color: t.textDim }}>
               {isIntegration ? `Integration: ${stack.integration_id}` : `Bot: ${stack.created_by_bot}`}
             </span>
@@ -127,9 +127,9 @@ function StackCard({
             )}
           </div>
         </div>
-        <div className="items-end gap-2">
+        <div className="flex items-end gap-2">
           <StatusBadge status={stack.status} t={t} />
-          <div className="flex-row gap-1">
+          <div className="flex flex-row gap-1">
             {stack.status === "stopped" && (
               <button
                 type="button"
@@ -225,8 +225,8 @@ export default function DockerStacksPage() {
         contentContainerStyle={{ padding: 16, paddingBottom: 80, gap: 16 }}
       >
         {/* Header */}
-        <div className="flex-row items-center justify-between">
-          <div className="flex-row items-center gap-2">
+        <div className="flex flex-row items-center justify-between">
+          <div className="flex flex-row items-center gap-2">
             <Boxes size={22} color={t.accent} />
             <span className="text-xl font-bold" style={{ color: t.text }}>
               Docker Stacks
@@ -246,7 +246,7 @@ export default function DockerStacksPage() {
 
         {/* Search */}
         <div
-          className="flex-row items-center gap-2 rounded-lg px-3 py-2"
+          className="flex flex-row items-center gap-2 rounded-lg px-3 py-2"
           style={{
             backgroundColor: t.surfaceRaised,
             border: `1px solid ${t.surfaceBorder}`,
@@ -270,11 +270,11 @@ export default function DockerStacksPage() {
         </div>
 
         {isLoading ? (
-          <div className="items-center py-12">
+          <div className="flex items-center py-12">
             <Spinner />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="items-center py-12 gap-2">
+          <div className="flex items-center py-12 gap-2">
             <Boxes size={40} color={t.textDim} />
             <span className="text-base" style={{ color: t.textMuted }}>
               {search ? "No stacks match your search" : "No Docker stacks yet"}
@@ -326,8 +326,8 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="gap-2">
-      <div className="flex-row items-center gap-2">
+    <div className="flex gap-2">
+      <div className="flex flex-row items-center gap-2">
         <span className="text-sm font-semibold" style={{ color: t.textMuted }}>
           {title}
         </span>

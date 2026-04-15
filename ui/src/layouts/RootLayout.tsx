@@ -83,6 +83,7 @@ function useWebViewportFix() {
         left: "0",
         right: "0",
         height: "100dvh",
+        boxSizing: "border-box",
         overflow: "hidden",
         paddingTop: "env(safe-area-inset-top, 0px)",
         paddingBottom: "env(safe-area-inset-bottom, 0px)",

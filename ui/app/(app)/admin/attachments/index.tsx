@@ -637,7 +637,7 @@ export default function AttachmentsPage() {
 
         {/* List */}
         {isLoading ? (
-          <div style={{ padding: 24, alignItems: "center" }}>
+          <div style={{ display: "flex", padding: 24, alignItems: "center" }}>
             <Spinner color={t.accent} />
           </div>
         ) : !data?.attachments.length ? (

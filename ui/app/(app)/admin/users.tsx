@@ -82,7 +82,7 @@ function IntegrationFieldsEditor({
   return (
     <>
       {integrations.map((integration) => (
-        <div key={integration.id} className="gap-2">
+        <div key={integration.id} className="flex gap-2">
           <span className="text-text-dim text-xs font-medium">{integration.name}</span>
           {integration.fields.map((field) => (
             <IntegrationFieldInput
@@ -115,7 +115,7 @@ function IntegrationFieldInput({
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   return (
-    <div className="gap-1">
+    <div className="flex gap-1">
       <span className="text-text-dim text-[11px]">{field.label}</span>
       <div>
         <input
@@ -226,10 +226,10 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
 
   if (editing) {
     return (
-      <div className="bg-surface-raised border border-accent/30 rounded-lg p-4 gap-3">
-        <div className="flex-row items-center justify-between">
+      <div className="flex bg-surface-raised border border-accent/30 rounded-lg p-4 gap-3">
+        <div className="flex flex-row items-center justify-between">
           <span className="text-text font-medium">{user.email}</span>
-          <div className="flex-row gap-2">
+          <div className="flex flex-row gap-2">
             <button type="button" onClick={handleSave} className="p-1.5 rounded bg-accent/20">
               <Check size={14} color={t.accent} />
             </button>
@@ -238,7 +238,7 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
             </button>
           </div>
         </div>
-        <div className="gap-2">
+        <div className="flex gap-2">
           <span className="text-text-dim text-xs">Display Name</span>
           <input
             className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
@@ -246,7 +246,7 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
             onChange={(e) => setDisplayName(e.target.value)}
           />
         </div>
-        <div className="gap-2">
+        <div className="flex gap-2">
           <span className="text-text-dim text-xs">Avatar URL</span>
           <input
             className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
@@ -268,8 +268,8 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
   }
 
   return (
-    <button type="button" className="bg-surface-raised border border-surface-border rounded-lg p-4 flex-row items-center gap-4 hover:border-accent/50">
-      <div className="w-10 h-10 rounded-full bg-accent/20 items-center justify-center overflow-hidden">
+    <button type="button" className="flex bg-surface-raised border border-surface-border rounded-lg p-4 flex-row items-center gap-4 hover:border-accent/50">
+      <div className="flex w-10 h-10 rounded-full bg-accent/20 items-center justify-center overflow-hidden">
         {user.avatar_url ? (
           <img src={user.avatar_url} style={{ width: 40, height: 40 }} alt="" />
         ) : (
@@ -277,7 +277,7 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex-row items-center gap-2">
+        <div className="flex flex-row items-center gap-2">
           <span className="text-text font-medium">{user.display_name}</span>
           {user.is_admin && (
             <div className="bg-amber-500/20 px-1.5 py-0.5 rounded">
@@ -295,7 +295,7 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
         </div>
         <span className="text-text-muted text-xs mt-0.5">{user.email}</span>
       </div>
-      <div className="flex-row gap-2">
+      <div className="flex flex-row gap-2">
         <button type="button" onClick={() => setEditing(true)} className="p-2 rounded hover:bg-surface-overlay">
           <Pencil size={14} color={t.textMuted} />
         </button>
@@ -353,7 +353,7 @@ export default function UsersScreen() {
         right={
           <button type="button"
             onClick={() => setShowCreate(!showCreate)}
-            className="flex-row items-center gap-2 bg-accent px-4 py-2 rounded-lg"
+            className="flex flex-row items-center gap-2 bg-accent px-4 py-2 rounded-lg"
           >
             <UserPlus size={14} color="#fff" />
             <span className="text-white text-sm font-medium">New User</span>
@@ -362,15 +362,15 @@ export default function UsersScreen() {
       />
 
       {isLoading ? (
-        <div className="flex-1 items-center justify-center">
+        <div className="flex flex-1 items-center justify-center">
           <Spinner />
         </div>
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1 p-4">
-          <div className="gap-2 max-w-3xl">
+          <div className="flex gap-2 max-w-3xl">
             {/* Create form */}
             {showCreate && (
-              <div className="bg-surface-raised border border-accent/30 rounded-lg p-4 gap-3 mb-2">
+              <div className="flex bg-surface-raised border border-accent/30 rounded-lg p-4 gap-3 mb-2">
                 <span className="text-text font-medium">Create Local User</span>
                 <input
                   className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
@@ -399,7 +399,7 @@ export default function UsersScreen() {
                 <button type="button"
                   onClick={() => createMutation.mutate()}
                   disabled={createMutation.isPending}
-                  className="bg-accent rounded px-4 py-2 items-center"
+                  className="flex bg-accent rounded px-4 py-2 items-center"
                 >
                   <span className="text-white text-sm font-medium">Create</span>
                 </button>

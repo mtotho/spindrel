@@ -336,6 +336,13 @@ async def lifespan(application: FastAPI):
     logger.info("Loading MCP servers from DB...")
     await load_mcp_servers()
     extra_tool_dirs = [Path(p.strip()).expanduser().resolve() for p in settings.TOOL_DIRS.split(":") if p.strip()]
+    # Also check SPINDREL_HOME for a top-level tools/ directory
+    from app.services.paths import local_home_dir as _local_home_dir
+    _home = _local_home_dir()
+    if _home:
+        _home_tools = Path(_home) / "tools"
+        if _home_tools.is_dir() and _home_tools not in extra_tool_dirs:
+            extra_tool_dirs.append(_home_tools)
     logger.info("Discovering extra tool directories...")
     discover_and_load_tools(extra_tool_dirs)
     # Import local tools to trigger @register decorators
@@ -408,25 +415,19 @@ async def lifespan(application: FastAPI):
     for _sw in _sw_rows:
         shared_workspace_service.ensure_host_dirs(str(_sw.id))
 
-    # Auto-append workspace integrations directory to INTEGRATION_DIRS
-    # so bots can scaffold integrations at /workspace/integrations/ and
-    # they'll be discovered on next restart.
+    # Auto-append workspace integrations directory so bots can scaffold
+    # integrations at /workspace/integrations/ and they're discovered on restart.
+    from app.services.paths import add_runtime_integration_dir
     if default_ws:
         _ws_int_path = os.path.join(
             shared_workspace_service.get_host_root(str(default_ws.id)),
             "integrations",
         )
         os.makedirs(_ws_int_path, exist_ok=True)
-        _existing = settings.INTEGRATION_DIRS
-        _existing_paths = {p.strip() for p in _existing.split(":")} if _existing else set()
-        if _ws_int_path not in _existing_paths:
-            settings.INTEGRATION_DIRS = (
-                f"{_existing}:{_ws_int_path}" if _existing else _ws_int_path
-            )
-            logger.info("Added workspace integrations directory: %s", _ws_int_path)
+        add_runtime_integration_dir(_ws_int_path)
+        logger.info("Registered workspace integrations directory: %s", _ws_int_path)
 
-    # Discover and register integration routers (must happen inside lifespan
-    # so workspace integrations path is available in INTEGRATION_DIRS)
+    # Discover and register integration routers
     from integrations import discover_integrations as _discover_integrations
     for _integration_id, _integration_router in _discover_integrations():
         try:

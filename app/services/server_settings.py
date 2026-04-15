@@ -30,8 +30,9 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "SYSTEM_PAUSE_BEHAVIOR": {"group": "System", "label": "Pause Behavior", "description": "What to do with incoming messages while paused", "type": "string", "options": ["queue", "drop"]},
     "GLOBAL_BASE_PROMPT": {"group": "System", "label": "Global Base Prompt", "description": "Prepended before all other base/system prompts for every bot. Use for org-wide instructions.", "type": "string", "widget": "textarea"},
     # --- Paths ---
-    "INTEGRATION_DIRS": {"group": "Paths", "label": "Integration Directories", "description": "Colon-separated paths to external integration directories. Supports ~ for home. Overrides the .env value. Requires server restart.", "type": "string", "nullable": True},
-    "TOOL_DIRS": {"group": "Paths", "label": "Extra Tool Directories", "description": "Colon-separated paths to extra tool directories (not needed if tools are inside an INTEGRATION_DIRS subdirectory). Supports ~ for home. Overrides the .env value. Requires server restart.", "type": "string", "nullable": True},
+    "SPINDREL_HOME": {"group": "Paths", "label": "Spindrel Home", "description": "Path to your Spindrel home directory. Each subdirectory is discovered as an integration (tools, capabilities, skills). In Docker, set HOME_HOST_DIR and HOME_LOCAL_DIR env vars for path translation. Requires server restart.", "type": "string", "nullable": True},
+    "INTEGRATION_DIRS": {"group": "Paths", "label": "Integration Directories", "description": "Colon-separated paths to external integration directories. Deprecated — use Spindrel Home instead.", "type": "string", "nullable": True, "ui_hidden": True},
+    "TOOL_DIRS": {"group": "Paths", "label": "Extra Tool Directories", "description": "Colon-separated paths to extra tool directories. Deprecated — use Spindrel Home instead.", "type": "string", "nullable": True, "ui_hidden": True},
     # --- General ---
     "API_KEY": {"group": "General", "label": "API Key", "description": "Static API key for server auth", "type": "string", "read_only": True},
     "TIMEZONE": {"group": "General", "label": "Timezone", "description": "Server timezone (e.g. America/New_York)", "type": "string"},

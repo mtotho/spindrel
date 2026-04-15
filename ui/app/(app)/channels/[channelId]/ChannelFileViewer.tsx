@@ -159,6 +159,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
       {/* Header */}
       <div
         style={{
+          display: "flex",
           flexDirection: "row",
           alignItems: "center",
           gap: 8,
@@ -252,6 +253,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
             onClick={handleSave}
             disabled={!isDirty || writeMutation.isPending}
             style={{
+              display: "flex",
               flexDirection: "row",
               alignItems: "center",
               gap: 5,
@@ -274,7 +276,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
       {/* Editor / Preview area */}
       {isImage ? (
         imageLoading ? (
-          <div style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center" }}>
             <Spinner color={t.accent} />
           </div>
         ) : imageBlobUrl ? (
@@ -294,12 +296,12 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
             />
           </div>
         ) : (
-          <div style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center" }}>
             <span style={{ color: t.textDim, fontSize: 12 }}>Failed to load image</span>
           </div>
         )
       ) : isLoading ? (
-        <div style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center" }}>
           <Spinner color={t.accent} />
         </div>
       ) : true ? (

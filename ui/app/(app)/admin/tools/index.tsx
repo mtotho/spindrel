@@ -250,7 +250,7 @@ export default function ToolsScreen() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <Spinner />
       </div>
     );

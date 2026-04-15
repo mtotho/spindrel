@@ -98,7 +98,7 @@ export default function ToolDetailScreen() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <Spinner />
       </div>
     );
@@ -106,7 +106,7 @@ export default function ToolDetailScreen() {
 
   if (!tool) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <span style={{ color: t.textDim, fontSize: 13 }}>Tool not found</span>
       </div>
     );
@@ -127,7 +127,7 @@ export default function ToolDetailScreen() {
       />
 
       {/* Body */}
-      <div style={{ flex: 1, ...(isWide ? { flexDirection: "row" as const } : {}) }}>
+      <div style={{ display: "flex", flex: 1, ...(isWide ? { flexDirection: "row" as const } : {}) }}>
         {/* Main content */}
         <div style={{
           ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),

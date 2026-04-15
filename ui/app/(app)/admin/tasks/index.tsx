@@ -10,6 +10,7 @@ import { AlertCircle } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useBots } from "@/src/api/hooks/useBots";
 import { TaskEditor } from "@/src/components/shared/TaskEditor";
+import { TaskCreateModal } from "@/src/components/shared/TaskCreateModal";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { formatDate } from "@/src/utils/time";
@@ -151,7 +152,6 @@ export default function TasksScreen() {
   };
 
   const handleTaskPress = (task: TaskItem) => {
-    // Workflow tasks -> navigate to task detail page (has WorkflowRunLink)
     if (task.task_type === "workflow") {
       navigate(`/admin/tasks/${task.id}`);
       return;
@@ -176,21 +176,25 @@ export default function TasksScreen() {
       ].filter(Boolean).join(" \u00b7 ") || "No schedules"
     : undefined;
 
+  const VIEW_MODES: { key: ViewMode; label: string; icon?: typeof Calendar }[] = [
+    { key: "schedule", label: "Schedule", icon: Calendar },
+    { key: "day", label: "Day" },
+    { key: "week", label: "Week" },
+    { key: "list", label: "List", icon: List },
+    { key: "cron", label: "Cron Jobs", icon: Terminal },
+  ];
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, background: t.surface, overflow: "hidden" }}>
+    <div className="flex-1 bg-surface overflow-hidden">
       <PageHeader variant="list"
         title="Tasks"
         subtitle={subtitle}
         right={
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <div className="flex flex-row items-center gap-1.5 flex-wrap">
             <button
               onClick={() => setEditorState({ mode: "create" })}
               title="New Task"
-              style={{
-                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-                padding: "5px 14px", fontSize: 12, fontWeight: 600,
-                border: "none", cursor: "pointer", borderRadius: 6, background: t.accent, color: "#fff",
-              }}
+              className="flex flex-row items-center gap-1.5 px-3.5 py-[5px] text-xs font-semibold border-none cursor-pointer rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
             >
               <Plus size={14} />
               {!isMobile && "New Task"}
@@ -199,12 +203,11 @@ export default function TasksScreen() {
             <select
               value={botFilter}
               onChange={(e) => setBotFilter(e.target.value)}
-              style={{
-                padding: "5px 8px", fontSize: 11, borderRadius: 6,
-                background: t.surfaceRaised, color: botFilter ? t.text : t.textDim,
-                border: botFilter ? `1px solid ${t.accent}` : `1px solid ${t.surfaceBorder}`,
-                cursor: "pointer", maxWidth: 140,
-              }}
+              className={`px-2 py-[5px] text-[11px] rounded-md bg-surface-raised cursor-pointer max-w-[140px] outline-none ${
+                botFilter
+                  ? "text-text border border-accent"
+                  : "text-text-dim border border-surface-border"
+              }`}
             >
               <option value="">All Bots</option>
               {bots?.map((b: any) => (
@@ -212,46 +215,44 @@ export default function TasksScreen() {
               ))}
             </select>
 
-            <div style={{ display: "flex", flexDirection: "row", background: t.surfaceRaised, borderRadius: 6, overflow: "hidden" }}>
-              {(["schedule", "day", "week", "list", "cron"] as ViewMode[]).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setViewMode(m)}
-                  style={{
-                    padding: "5px 12px", fontSize: 11, fontWeight: 500,
-                    border: "none", cursor: "pointer",
-                    background: viewMode === m ? t.accent : "transparent",
-                    color: viewMode === m ? "#fff" : t.textMuted,
-                    textTransform: "capitalize",
-                    display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-                  }}
-                >
-                  {m === "schedule" && <Calendar size={12} />}
-                  {m === "list" && <List size={12} />}
-                  {m === "cron" && <Terminal size={12} />}
-                  {m === "schedule" ? "Schedule" : m === "cron" ? "Cron Jobs" : m}
-                </button>
-              ))}
+            <div className="flex flex-row gap-0.5 bg-surface-raised rounded-lg border border-surface-border p-0.5">
+              {VIEW_MODES.map((m) => {
+                const IconCmp = m.icon;
+                return (
+                  <button
+                    key={m.key}
+                    onClick={() => setViewMode(m.key)}
+                    className={`flex px-3 py-[5px] text-[11px] font-semibold border-none cursor-pointer rounded-md flex-row items-center gap-1 capitalize transition-colors duration-100 ${
+                      viewMode === m.key
+                        ? "bg-accent text-white"
+                        : "bg-transparent text-text-muted hover:text-text"
+                    }`}
+                  >
+                    {IconCmp && <IconCmp size={12} />}
+                    {m.label}
+                  </button>
+                );
+              })}
             </div>
 
             {isCalendar && (
               <>
-                <button onClick={goToday} style={{
-                  padding: "5px 8px", fontSize: 11, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
-                  background: "transparent", color: t.textMuted, cursor: "pointer",
-                }}>
+                <button
+                  onClick={goToday}
+                  className="px-2 py-[5px] text-[11px] border border-surface-border rounded-md bg-transparent text-text-muted cursor-pointer hover:text-text hover:border-accent/50 transition-colors"
+                >
                   Today
                 </button>
-                <button onClick={goPrev} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-                  <ChevronLeft size={16} color={t.textMuted} />
+                <button onClick={goPrev} className="bg-transparent border-none cursor-pointer p-0.5">
+                  <ChevronLeft size={16} className="text-text-muted" />
                 </button>
-                <span style={{ fontSize: 12, color: t.text, fontWeight: 500, textAlign: "center" }}>
+                <span className="text-xs text-text font-medium text-center">
                   {viewMode === "day"
                     ? formatDate(baseDate)
                     : `${formatDate(baseDate)} \u2014 ${formatDate(addDays(baseDate, 6))}`}
                 </span>
-                <button onClick={goNext} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-                  <ChevronRight size={16} color={t.textMuted} />
+                <button onClick={goNext} className="bg-transparent border-none cursor-pointer p-0.5">
+                  <ChevronRight size={16} className="text-text-muted" />
                 </button>
               </>
             )}
@@ -273,28 +274,17 @@ export default function TasksScreen() {
 
       {/* Invalid schedule warning */}
       {invalidSchedules.length > 0 && (
-        <div style={{
-          display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 8,
-          padding: "10px 16px",
-          background: t.dangerSubtle,
-          borderBottom: `1px solid ${t.dangerBorder}`,
-        }}>
-          <AlertCircle size={14} color={t.danger} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: t.danger, marginBottom: 2 }}>
+        <div className="flex flex-row items-start gap-2 px-4 py-2.5 bg-danger/[0.08] border-b border-danger/[0.15]">
+          <AlertCircle size={14} className="text-danger shrink-0 mt-px" />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-bold text-danger mb-0.5">
               {invalidSchedules.length} schedule{invalidSchedules.length !== 1 ? "s" : ""} with invalid recurrence — will never fire
             </div>
             {invalidSchedules.map((s) => (
               <span
                 key={s.id}
                 onClick={() => setEditorState({ mode: "edit", taskId: s.id })}
-                style={{
-                  display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-                  fontSize: 11, color: t.danger, cursor: "pointer",
-                  marginRight: 12,
-                  textDecoration: "underline",
-                  textDecorationColor: t.dangerBorder,
-                }}
+                className="inline-flex flex-row items-center gap-1 text-[11px] text-danger cursor-pointer mr-3 underline decoration-danger/30"
               >
                 {s.title || s.prompt?.substring(0, 40) || s.id.slice(0, 8)} ({s.recurrence})
               </span>
@@ -309,7 +299,7 @@ export default function TasksScreen() {
           <CronJobsView />
         </RefreshableScrollView>
       ) : isLoading ? (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <div className="flex flex-1 items-center justify-center">
           <div className="chat-spinner" />
         </div>
       ) : viewMode === "schedule" ? (
@@ -334,10 +324,10 @@ export default function TasksScreen() {
         </RefreshableScrollView>
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
-          <div style={{
-            display: "flex", flexDirection: "row", flex: 1, minHeight: 1500,
-            borderLeft: `1px solid ${t.surfaceOverlay}`,
-          }}>
+          <div
+            className="flex flex-row flex-1 border-l border-surface-overlay"
+            style={{ minHeight: 1500 }}
+          >
             {Object.entries(tasksByDay).map(([dayStr, tasks]) => (
               <DayColumn
                 key={dayStr}
@@ -351,11 +341,24 @@ export default function TasksScreen() {
         </RefreshableScrollView>
       )}
 
-      {/* Task Editor overlay */}
-      {editorOpen && (
+      {/* Task Create modal (create / clone) */}
+      {editorState.mode === "create" && (
+        <TaskCreateModal
+          onClose={handleEditorClose}
+          onSaved={handleEditorSaved}
+        />
+      )}
+      {editorState.mode === "clone" && (
+        <TaskCreateModal
+          cloneFromId={editorCloneFromId}
+          onClose={handleEditorClose}
+          onSaved={handleEditorSaved}
+        />
+      )}
+      {/* Task Editor overlay (edit) */}
+      {editorState.mode === "edit" && (
         <TaskEditor
           taskId={editorTaskId}
-          cloneFromId={editorCloneFromId}
           onClose={handleEditorClose}
           onSaved={handleEditorSaved}
           onClone={(id) => setEditorState({ mode: "clone", cloneFromId: id })}

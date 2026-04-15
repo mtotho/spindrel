@@ -3,7 +3,7 @@ import { RefreshCw, AlertTriangle } from "lucide-react";
 import { formatTime, formatDate } from "@/src/utils/time";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
-  type TaskItem, STATUS_CFG,
+  type TaskItem, STATUS_CFG, TYPE_BADGE_COLORS,
   displayTitle, TypeBadge, TaskStatusBadge as StatusBadge, BotDot,
 } from "@/src/components/shared/TaskConstants";
 import { getTaskTime, isToday } from "./taskUtils";
@@ -12,17 +12,18 @@ import { getTaskTime, isToday } from "./taskUtils";
 // Current time indicator line
 // ---------------------------------------------------------------------------
 export function NowLine() {
-  const t = useThemeTokens();
   const now = new Date();
   const minutesSinceMidnight = now.getHours() * 60 + now.getMinutes();
   const pct = (minutesSinceMidnight / 1440) * 100;
+  const timeStr = now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   return (
-    <div style={{
-      position: "absolute", left: 0, right: 0, top: `${pct}%`,
-      display: "flex", flexDirection: "row", alignItems: "center", zIndex: 5, pointerEvents: "none",
-    }}>
-      <div style={{ width: 8, height: 8, borderRadius: 4, background: t.danger, marginLeft: -4 }} />
-      <div style={{ flex: 1, height: 1, background: t.danger }} />
+    <div
+      className="flex absolute left-0 right-0 flex-row items-center z-[5] pointer-events-none"
+      style={{ top: `${pct}%` }}
+    >
+      <div className="w-2.5 h-2.5 rounded-full bg-danger -ml-[5px] shadow-[0_0_6px_rgb(var(--color-danger))]" />
+      <div className="flex-1 h-[1.5px] bg-danger/70" />
+      <span className="text-[9px] text-danger font-bold px-1.5 bg-surface rounded-sm">{timeStr}</span>
     </div>
   );
 }
@@ -31,18 +32,13 @@ export function NowLine() {
 // Hour labels / grid
 // ---------------------------------------------------------------------------
 export function HourLabels() {
-  const t = useThemeTokens();
   const hours = Array.from({ length: 24 }, (_, i) => i);
   return (
     <>
       {hours.map((h) => {
         const pct = (h / 24) * 100;
         return (
-          <div key={h} style={{
-            position: "absolute", left: 0, top: `${pct}%`,
-            fontSize: 10, color: t.textDim, width: 40, textAlign: "right", paddingRight: 8,
-            transform: "translateY(-50%)", pointerEvents: "none",
-          }}>
+          <div key={h} className="absolute left-0 text-[10px] text-text-dim w-10 text-right pr-2 pointer-events-none -translate-y-1/2" style={{ top: `${pct}%` }}>
             {h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`}
           </div>
         );
@@ -52,17 +48,15 @@ export function HourLabels() {
 }
 
 export function HourGrid() {
-  const t = useThemeTokens();
   const hours = Array.from({ length: 24 }, (_, i) => i);
   return (
     <>
       {hours.map((h) => (
-        <div key={h} style={{
-          position: "absolute", left: 48, right: 0,
-          top: `${(h / 24) * 100}%`,
-          borderTop: `1px solid ${t.surfaceRaised}`,
-          pointerEvents: "none",
-        }} />
+        <div
+          key={h}
+          className="absolute left-12 right-0 border-t border-surface-border/30 pointer-events-none"
+          style={{ top: `${(h / 24) * 100}%` }}
+        />
       ))}
     </>
   );
@@ -72,21 +66,15 @@ export function HourGrid() {
 // Schedule conflict warning banner
 // ---------------------------------------------------------------------------
 export function ConflictBanner({ warnings }: { warnings: string[] }) {
-  const t = useThemeTokens();
   return (
-    <div style={{
-      display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 8,
-      padding: "8px 16px 8px 36px",
-      background: t.warningSubtle,
-      borderLeft: `3px solid ${t.warning}`,
-    }}>
-      <AlertTriangle size={14} color={t.warning} style={{ flexShrink: 0, marginTop: 1 }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: t.warningMuted, marginBottom: 2 }}>
+    <div className="flex flex-row items-start gap-2 px-4 py-2 pl-9 bg-warning/[0.08] border-l-[3px] border-l-warning">
+      <AlertTriangle size={14} className="text-warning shrink-0 mt-px" />
+      <div className="flex-1 min-w-0">
+        <div className="text-[11px] font-bold text-warning-muted mb-0.5">
           Schedule Overlap — Schedules fire within 2 hours of each other
         </div>
         {warnings.map((w, i) => (
-          <div key={i} style={{ fontSize: 10, color: t.warningMuted }}>
+          <div key={i} className="text-[10px] text-warning-muted">
             {w}
           </div>
         ))}
@@ -96,7 +84,7 @@ export function ConflictBanner({ warnings }: { warnings: string[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Task card on timeline (Day/Week views) — simplified
+// Task card on timeline (Day/Week views)
 // ---------------------------------------------------------------------------
 export function TaskCard({
   task, isPast, onClick, compact, style: extraStyle,
@@ -112,7 +100,7 @@ export function TaskCard({
   const isRecurring = !!task.recurrence;
   const time = task.scheduled_at || task.created_at;
 
-  // Theme-aware backgrounds
+  // Theme-aware backgrounds — still inline since they depend on multiple runtime states
   const cancelledBg = hovered ? t.surfaceOverlay : t.surface;
   const virtualBg = hovered ? t.surfaceOverlay : t.accentMuted;
   const normalBg = hovered ? t.surfaceOverlay : isPast ? t.inputBg : t.surfaceRaised;
@@ -129,63 +117,55 @@ export function TaskCard({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        padding: compact ? "4px 8px" : "8px 12px", borderRadius: compact ? 6 : 8,
+        padding: compact ? "4px 8px" : "8px 12px",
+        borderRadius: compact ? 6 : 8,
         background: bg,
         border: `1px solid ${borderColor}`,
+        borderLeft: `3px solid ${(TYPE_BADGE_COLORS[task.task_type ?? "agent"] || TYPE_BADGE_COLORS.agent)?.fg || borderColor}`,
         borderStyle: isVirtual ? "dashed" : "solid",
-        opacity: isCancelled ? 0.4 : isVirtual ? (hovered ? 0.8 : 0.6) : (isPast && !hovered ? 0.5 : 1),
-        transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s",
+        opacity: isCancelled ? 0.35 : isVirtual ? (hovered ? 0.85 : 0.55) : (isPast && !hovered ? 0.45 : 1),
+        transition: "opacity 0.2s, box-shadow 0.2s, border-color 0.2s, transform 0.15s",
         cursor: "pointer",
-        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.15)" : "none",
+        boxShadow: hovered ? "0 6px 20px rgba(0,0,0,0.2)" : "0 1px 3px rgba(0,0,0,0.06)",
         zIndex: hovered ? 100 : undefined,
+        transform: hovered ? "translateY(-1px)" : "none",
         ...extraStyle,
       }}
     >
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: compact ? 4 : 8 }}>
-        <Icon size={compact ? 10 : 13} color={s.fg} style={{ flexShrink: 0 }} />
-        <span style={{
-          fontSize: compact ? 10 : 13, fontWeight: 600,
-          color: isCancelled ? t.textDim : t.text,
-          textDecoration: isCancelled ? "line-through" : "none",
-          flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>
+      <div className={`flex flex-row items-center ${compact ? "gap-1" : "gap-2"}`}>
+        <Icon size={compact ? 10 : 13} color={s.fg} className="shrink-0" />
+        <span className={`${compact ? "text-[10px]" : "text-[13px]"} font-semibold ${isCancelled ? "text-text-dim line-through" : "text-text"} flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap`}>
           {displayTitle(task)}
         </span>
 
         {!compact && <StatusBadge status={task.status} />}
 
         {isRecurring && (
-          <span style={{
-            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
-            background: t.warningSubtle, color: t.warning,
-            padding: compact ? "0px 5px" : "1px 7px", borderRadius: 10,
-            fontSize: compact ? 8 : 10, fontWeight: 700,
-            flexShrink: 0,
-          }}>
-            <RefreshCw size={compact ? 7 : 9} color={t.warning} />
+          <span className={`inline-flex flex-row items-center gap-[3px] bg-warning/[0.08] text-warning ${compact ? "px-[5px] text-[8px]" : "px-[7px] py-px text-[10px]"} rounded-full font-bold shrink-0`}>
+            <RefreshCw size={compact ? 7 : 9} className="text-warning" />
             {task.recurrence}
           </span>
         )}
 
         {!compact && (
-          <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0 }}>
+          <span className="text-[11px] text-text-dim shrink-0">
             {time ? formatTime(time) : "\u2014"}
           </span>
         )}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: compact ? 4 : 6, marginTop: compact ? 2 : 4 }}>
+      <div className={`flex flex-row items-center ${compact ? "gap-1 mt-0.5" : "gap-1.5 mt-1"}`}>
         <BotDot botId={task.bot_id} size={compact ? 6 : 8} />
-        <span style={{ fontSize: compact ? 9 : 10, color: t.textDim }}>{task.bot_id}</span>
+        <span className={`${compact ? "text-[9px]" : "text-[10px]"} text-text-dim`}>{task.bot_id}</span>
         {!compact && task.task_type && <TypeBadge type={task.task_type} />}
         {compact && (
-          <span style={{ fontSize: 9, color: t.textDim, marginLeft: "auto" }}>
+          <span className="text-[9px] text-text-dim ml-auto">
             {time ? formatTime(time) : ""}
           </span>
         )}
       </div>
       {!compact && task.error && (
-        <div style={{ fontSize: 10, color: t.danger, marginTop: 4 }}>
+        <div className="text-[10px] text-danger mt-1">
           {task.error.substring(0, 100)}
         </div>
       )}
@@ -198,19 +178,56 @@ export function TaskCard({
 // ---------------------------------------------------------------------------
 const CARD_HEIGHT_PX = 70;
 const CARD_COMPACT_HEIGHT_PX = 46;
-const CARD_SUPER_COMPACT_HEIGHT_PX = 28;
+const CARD_SUPER_COMPACT_HEIGHT_PX = 36;
 const CARD_MIN_GAP = 4;
-/** Max minutes a card can be pushed past its natural time-of-day position */
-const MAX_COLLISION_PUSH = 180;
+
+/** Lane-based layout: assign overlapping cards to side-by-side lanes (like Google Calendar). */
+function assignLanes(sorted: { task: TaskItem; topPx: number }[], cardHeight: number): { task: TaskItem; topPx: number; lane: number; totalLanes: number }[] {
+  const items: { task: TaskItem; topPx: number; lane: number; bottomPx: number }[] = [];
+
+  for (const { task, topPx } of sorted) {
+    const bottomPx = topPx + cardHeight;
+    let lane = 0;
+    while (items.some((prev) => prev.lane === lane && prev.bottomPx + CARD_MIN_GAP > topPx)) {
+      lane++;
+    }
+    items.push({ task, topPx, lane, bottomPx });
+  }
+
+  const result: { task: TaskItem; topPx: number; lane: number; totalLanes: number }[] = [];
+  const visited = new Set<number>();
+
+  for (let i = 0; i < items.length; i++) {
+    if (visited.has(i)) continue;
+    const group: number[] = [];
+    const queue = [i];
+    visited.add(i);
+    while (queue.length > 0) {
+      const idx = queue.shift()!;
+      group.push(idx);
+      for (let j = 0; j < items.length; j++) {
+        if (visited.has(j)) continue;
+        if (items[idx].topPx < items[j].bottomPx + CARD_MIN_GAP && items[j].topPx < items[idx].bottomPx + CARD_MIN_GAP) {
+          visited.add(j);
+          queue.push(j);
+        }
+      }
+    }
+    const maxLane = Math.max(...group.map((g) => items[g].lane)) + 1;
+    for (const g of group) {
+      result.push({ task: items[g].task, topPx: items[g].topPx, lane: items[g].lane, totalLanes: maxLane });
+    }
+  }
+
+  return result;
+}
 
 export function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void; compact?: boolean }) {
-  const t = useThemeTokens();
   const now = new Date();
   const showNow = isToday(date);
 
   const baseCardHeight = compact ? CARD_COMPACT_HEIGHT_PX : CARD_HEIGHT_PX;
 
-  // Shrink cards dynamically when there are too many to fit in 1440px (24h)
   const effectiveCardHeight = useMemo(() => {
     if (tasks.length <= 1) return baseCardHeight;
     const available = 1440 - CARD_MIN_GAP * (tasks.length - 1);
@@ -221,66 +238,54 @@ export function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; t
   const autoCompact = effectiveCardHeight <= CARD_COMPACT_HEIGHT_PX;
 
   const positioned = useMemo(() => {
-    const sorted = [...tasks].sort((a, b) => getTaskTime(a).getTime() - getTaskTime(b).getTime());
-    const items: { task: TaskItem; topPx: number }[] = [];
-
-    for (const t of sorted) {
-      const taskTime = getTaskTime(t);
-      const naturalPos = taskTime.getHours() * 60 + taskTime.getMinutes();
-      let topPx = naturalPos;
-
-      for (const prev of items) {
-        const prevBottom = prev.topPx + effectiveCardHeight + CARD_MIN_GAP;
-        if (topPx < prevBottom) {
-          topPx = prevBottom;
-        }
-      }
-      // Don't push a card more than MAX_COLLISION_PUSH minutes past its real time
-      topPx = Math.min(topPx, naturalPos + MAX_COLLISION_PUSH);
-      // Stay within day bounds
-      topPx = Math.min(topPx, 1440 - effectiveCardHeight);
-      items.push({ task: t, topPx });
-    }
-    return items;
+    const sorted = [...tasks]
+      .sort((a, b) => getTaskTime(a).getTime() - getTaskTime(b).getTime())
+      .map((task) => {
+        const taskTime = getTaskTime(task);
+        const topPx = taskTime.getHours() * 60 + taskTime.getMinutes();
+        return { task, topPx: Math.min(topPx, 1440 - effectiveCardHeight) };
+      });
+    return assignLanes(sorted, effectiveCardHeight);
   }, [tasks, effectiveCardHeight]);
 
   return (
-    <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
-      <div style={{
-        padding: "8px 12px", borderBottom: `1px solid ${t.surfaceOverlay}`,
-        background: showNow ? t.accentSubtle : "transparent",
-        position: "sticky", top: 0, zIndex: 3,
-      }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: showNow ? t.accent : t.text }}>
+    <div className="flex-1 min-w-0 relative">
+      <div className={`flex flex-row items-baseline justify-between px-3.5 py-2.5 border-b border-surface-overlay sticky top-0 z-[3] ${showNow ? "bg-accent/[0.06]" : "bg-transparent"}`}>
+        <div className={`text-xs font-semibold ${showNow ? "text-accent" : "text-text"}`}>
           {formatDate(date)}
         </div>
-        <div style={{ fontSize: 10, color: t.textDim }}>
+        <div className={`text-[10px] font-medium ${showNow ? "text-accent/80" : "text-text-dim"}`}>
           {tasks.length} task{tasks.length !== 1 ? "s" : ""}
         </div>
       </div>
 
-      <div style={{ position: "relative", height: 1440, paddingLeft: 48 }}>
+      <div className="relative pl-12" style={{ height: 1440 }}>
         <HourGrid />
         <HourLabels />
         {showNow && <NowLine />}
 
-        {positioned.map(({ task: t, topPx }) => (
-          <TaskCard
-            key={t.id}
-            task={t}
-            isPast={getTaskTime(t) < now && t.status !== "running"}
-            onClick={() => onTaskPress(t)}
-            compact={autoCompact || compact}
-            style={{
-              position: "absolute",
-              top: topPx,
-              left: 52,
-              right: 8,
-              maxHeight: effectiveCardHeight,
-              overflow: "hidden",
-            }}
-          />
-        ))}
+        {positioned.map(({ task: tk, topPx, lane, totalLanes }) => {
+          const contentWidth = `calc(100% - 60px)`;
+          const laneWidth = `calc(${contentWidth} / ${totalLanes})`;
+          const laneLeft = `calc(52px + (${contentWidth} / ${totalLanes}) * ${lane})`;
+          return (
+            <TaskCard
+              key={tk.id}
+              task={tk}
+              isPast={getTaskTime(tk) < now && tk.status !== "running"}
+              onClick={() => onTaskPress(tk)}
+              compact={autoCompact || compact}
+              style={{
+                position: "absolute",
+                top: topPx,
+                left: laneLeft,
+                width: `calc(${laneWidth} - ${CARD_MIN_GAP}px)`,
+                maxHeight: effectiveCardHeight,
+                overflow: "hidden",
+              }}
+            />
+          );
+        })}
       </div>
     </div>
   );

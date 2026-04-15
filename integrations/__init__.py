@@ -49,24 +49,23 @@ def _get_manifest_field(integration_id: str, field: str):
 
 
 def _all_integration_dirs() -> list[Path]:
-    """Return all integration directories: in-repo integrations/, packages/, + INTEGRATION_DIRS."""
+    """Return all integration directories: in-repo integrations/, packages/, + external."""
     dirs = [_INTEGRATIONS_DIR, _PACKAGES_DIR]
 
     try:
-        from app.config import settings
-        extra = settings.INTEGRATION_DIRS
+        from app.services.paths import effective_integration_dirs
+        for p in effective_integration_dirs():
+            dirs.append(Path(p))
     except Exception:
+        # Fallback for early imports before app is fully initialized
         extra = os.environ.get("INTEGRATION_DIRS", "")
-
-    if extra:
-        for p in extra.split(":"):
-            p = p.strip()
-            if p:
-                path = Path(p).expanduser().resolve()
-                if path.is_dir():
-                    dirs.append(path)
-                else:
-                    logger.warning("INTEGRATION_DIRS path does not exist: %s", path)
+        if extra:
+            for p in extra.split(":"):
+                p = p.strip()
+                if p:
+                    path = Path(p).expanduser().resolve()
+                    if path.is_dir():
+                        dirs.append(path)
     return dirs
 
 

@@ -50,7 +50,7 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
   };
 
   return (
-    <div style={{ gap: 16 }}>
+    <div style={{ display: "flex", gap: 16 }}>
       {/* Stats bar */}
       {stats && (
         <div style={{
@@ -105,7 +105,7 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
 
       {/* Attachment list */}
       {isLoading ? (
-        <div style={{ padding: 24, alignItems: "center" }}>
+        <div style={{ display: "flex", padding: 24, alignItems: "center" }}>
           <Spinner color={t.accent} />
         </div>
       ) : !filtered?.length ? (

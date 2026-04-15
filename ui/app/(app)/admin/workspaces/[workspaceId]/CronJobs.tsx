@@ -54,7 +54,7 @@ export function CronJobs({ workspaceId, status }: CronJobsProps) {
       {expanded && (
         <>
           {isLoading ? (
-            <div style={{ padding: 12, alignItems: "center" }}>
+            <div style={{ display: "flex", padding: 12, alignItems: "center" }}>
               <Spinner />
             </div>
           ) : (

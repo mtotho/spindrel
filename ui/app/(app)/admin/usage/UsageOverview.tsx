@@ -146,7 +146,7 @@ export function OverviewTab({
 
   if (isLoading) {
     return (
-      <div className="items-center justify-center" style={{ padding: 40 }}>
+      <div className="flex items-center justify-center" style={{ padding: 40 }}>
         <Spinner />
       </div>
     );

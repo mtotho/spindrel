@@ -1,5 +1,4 @@
 import { AlertTriangle, XCircle } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import {
   type TaskTypeFilter, type StatusFilter,
   TASK_TYPE_FILTERS, STATUS_FILTERS,
@@ -21,28 +20,20 @@ export function TaskFilters({
   disabledScheduleCount: number;
   conflictCount: number;
 }) {
-  const t = useThemeTokens();
-
   return (
-    <div style={{
-      display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-      padding: "8px 20px", borderBottom: `1px solid ${t.surfaceRaised}`,
-      overflowX: "auto", flexWrap: "wrap",
-    }}>
+    <div className="flex flex-row items-center gap-1.5 px-5 py-2 border-b border-surface-raised overflow-x-auto flex-wrap">
       {/* Type filter pills */}
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
-        <span style={{ fontSize: 10, color: t.textDim, fontWeight: 600, marginRight: 2 }}>TYPE</span>
+      <div className="flex flex-row items-center gap-1">
+        <span className="text-[10px] text-text-dim font-semibold mr-0.5">TYPE</span>
         {TASK_TYPE_FILTERS.map((f) => (
           <button
             key={f.key}
             onClick={() => setTypeFilter(f.key)}
-            style={{
-              padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-              borderRadius: 12,
-              background: typeFilter === f.key ? t.accent : t.surfaceRaised,
-              color: typeFilter === f.key ? "#fff" : t.textMuted,
-              whiteSpace: "nowrap",
-            }}
+            className={`px-2.5 py-1 text-[11px] font-semibold border-none cursor-pointer rounded-full whitespace-nowrap transition-colors duration-100 ${
+              typeFilter === f.key
+                ? "bg-accent text-white"
+                : "bg-surface-raised text-text-muted hover:text-text"
+            }`}
           >
             {f.label}
           </button>
@@ -50,46 +41,39 @@ export function TaskFilters({
       </div>
 
       {/* Separator */}
-      <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
+      <div className="w-px h-5 bg-surface-overlay mx-1" />
 
       {/* Status filter pills */}
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
-        <span style={{ fontSize: 10, color: t.textDim, fontWeight: 600, marginRight: 2 }}>STATUS</span>
+      <div className="flex flex-row items-center gap-1">
+        <span className="text-[10px] text-text-dim font-semibold mr-0.5">STATUS</span>
         {STATUS_FILTERS.map((f) => (
           <button
             key={f.key}
             onClick={() => setStatusFilter(f.key)}
-            style={{
-              padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-              borderRadius: 12,
-              background: statusFilter === f.key
-                ? (f.key === "cancelled" ? t.surfaceBorder : f.key === "failed" ? t.dangerSubtle : t.accent)
-                : t.surfaceRaised,
-              color: statusFilter === f.key
-                ? (f.key === "cancelled" ? t.textMuted : f.key === "failed" ? t.danger : "#fff")
-                : t.textMuted,
-              whiteSpace: "nowrap",
-            }}
+            className={`px-2.5 py-1 text-[11px] font-semibold border-none cursor-pointer rounded-full whitespace-nowrap transition-colors duration-100 ${
+              statusFilter === f.key
+                ? f.key === "cancelled"
+                  ? "bg-surface-border text-text-muted"
+                  : f.key === "failed"
+                    ? "bg-danger/[0.08] text-danger"
+                    : "bg-accent text-white"
+                : "bg-surface-raised text-text-muted hover:text-text"
+            }`}
           >
             {f.label}
           </button>
         ))}
       </div>
 
-      {/* Disabled schedules indicator (clickable - switch to cancelled filter) */}
+      {/* Disabled schedules indicator */}
       {disabledScheduleCount > 0 && statusFilter !== "cancelled" && (
         <>
-          <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
+          <div className="w-px h-5 bg-surface-overlay mx-1" />
           <button
             onClick={() => setStatusFilter("cancelled")}
-            style={{
-              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-              fontSize: 11, fontWeight: 600, color: t.textDim,
-              background: t.surfaceRaised, padding: "3px 10px", borderRadius: 12,
-              border: "none", cursor: "pointer",
-            }}
+            className="inline-flex flex-row items-center gap-1 text-[11px] font-semibold text-text-dim bg-surface-raised px-2.5 py-[3px] rounded-full border-none cursor-pointer hover:text-text"
           >
-            <XCircle size={11} color={t.textDim} />
+            <XCircle size={11} className="text-text-dim" />
             {disabledScheduleCount} disabled
           </button>
         </>
@@ -98,13 +82,9 @@ export function TaskFilters({
       {/* Conflict indicator */}
       {conflictCount > 0 && (
         <>
-          <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
-          <span style={{
-            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-            fontSize: 11, fontWeight: 700, color: t.warningMuted,
-            background: t.warningSubtle, padding: "3px 10px", borderRadius: 12,
-          }}>
-            <AlertTriangle size={11} color={t.warningMuted} />
+          <div className="w-px h-5 bg-surface-overlay mx-1" />
+          <span className="inline-flex flex-row items-center gap-1 text-[11px] font-bold text-warning-muted bg-warning/[0.08] px-2.5 py-[3px] rounded-full">
+            <AlertTriangle size={11} className="text-warning-muted" />
             {conflictCount} bot{conflictCount !== 1 ? "s" : ""} with overlapping schedules
           </span>
         </>

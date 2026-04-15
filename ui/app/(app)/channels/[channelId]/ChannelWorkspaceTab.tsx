@@ -67,7 +67,7 @@ function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; chann
   };
 
   return (
-    <div style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8}}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8}}>
       <Link
         to={`/admin/workspaces/${workspaceId}/files`}
         onClick={handleBrowse}
@@ -173,11 +173,12 @@ function IndexedDirectoriesSection({
       title="Indexed Directories"
       description="Additional folders to index for semantic search. Contents are automatically retrieved and injected into context when relevant to the conversation."
       action={
-        <div style={{ flexDirection: "row", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
           <button type="button"
             onClick={() => reindexMutation.mutate()}
             disabled={reindexMutation.isPending || segments.length === 0}
             style={{
+              display: "flex",
               flexDirection: "row",
               alignItems: "center",
               gap: 4,
@@ -204,6 +205,7 @@ function IndexedDirectoriesSection({
         <div
           key={i}
           style={{
+            display: "flex",
             flexDirection: "row",
             alignItems: "center",
             gap: 8,
@@ -237,6 +239,7 @@ function IndexedDirectoriesSection({
 
       {adding ? (
         <div style={{
+          display: "flex",
           gap: 8,
           padding: 10,
           borderRadius: 6,
@@ -267,7 +270,7 @@ function IndexedDirectoriesSection({
             />
             <DefaultHint value={newModel} defaultValue={defaultModel} label="Inherited" />
           </FormRow>
-          <div style={{ flexDirection: "row", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
             <div style={{ flex: 1 }}>
               <FormRow label="Top K (optional)" description="Max results returned">
                 <TextInput
@@ -289,7 +292,7 @@ function IndexedDirectoriesSection({
               </FormRow>
             </div>
           </div>
-          <div style={{ flexDirection: "row", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
             <button type="button"
               onClick={handleAdd}
               disabled={!newPath.trim()}
@@ -315,6 +318,7 @@ function IndexedDirectoriesSection({
         <button type="button"
           onClick={() => setAdding(true)}
           style={{
+            display: "flex",
             flexDirection: "row",
             alignItems: "center",
             gap: 6,

@@ -64,12 +64,12 @@ function AccountSection({ user }: { user: AuthUser }) {
   });
 
   return (
-    <div className="gap-4">
+    <div className="flex gap-4">
       <span className="text-text font-semibold text-base">Account</span>
 
       {/* Avatar preview */}
-      <div className="flex-row items-center gap-4">
-        <div className="w-16 h-16 rounded-full bg-accent/20 items-center justify-center overflow-hidden">
+      <div className="flex flex-row items-center gap-4">
+        <div className="flex w-16 h-16 rounded-full bg-accent/20 items-center justify-center overflow-hidden">
           {avatarUrl ? (
             <img src={avatarUrl} style={{ width: 64, height: 64 }} alt="Avatar" />
           ) : (
@@ -79,7 +79,7 @@ function AccountSection({ user }: { user: AuthUser }) {
         <div>
           <span className="text-text font-medium">{user.display_name}</span>
           <span className="text-text-muted text-xs">{user.email}</span>
-          <div className="flex-row gap-2 mt-1">
+          <div className="flex flex-row gap-2 mt-1">
             <div className="bg-surface-overlay px-1.5 py-0.5 rounded">
               <span className="text-text-dim text-[10px]">{user.auth_method}</span>
             </div>
@@ -93,7 +93,7 @@ function AccountSection({ user }: { user: AuthUser }) {
       </div>
 
       {/* Fields */}
-      <div className="gap-2">
+      <div className="flex gap-2">
         <span className="text-text-dim text-xs">Display Name</span>
         <input
           className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
@@ -101,7 +101,7 @@ function AccountSection({ user }: { user: AuthUser }) {
           onChange={(e) => setDisplayName(e.target.value)}
         />
       </div>
-      <div className="gap-2">
+      <div className="flex gap-2">
         <span className="text-text-dim text-xs">Avatar URL</span>
         <input
           className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
@@ -116,7 +116,7 @@ function AccountSection({ user }: { user: AuthUser }) {
           type="button"
           onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending}
-          className="bg-accent rounded px-4 py-2 self-start flex-row items-center gap-2"
+          className="flex bg-accent rounded px-4 py-2 self-start flex-row items-center gap-2"
         >
           {saveMutation.isPending ? (
             <Spinner size={16} color="#fff" />
@@ -197,7 +197,7 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
 
   if (isLoading) {
     return (
-      <div className="gap-4">
+      <div className="flex gap-4">
         <span className="text-text font-semibold text-base">Integrations</span>
         <Spinner size={16} color={t.accent} />
       </div>
@@ -206,7 +206,7 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
 
   if (!integrations?.length) {
     return (
-      <div className="gap-4">
+      <div className="flex gap-4">
         <span className="text-text font-semibold text-base">Integrations</span>
         <span className="text-text-muted text-sm">No integrations configured.</span>
       </div>
@@ -214,8 +214,8 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className="gap-4">
-      <div className="flex-row items-center gap-2">
+    <div className="flex gap-4">
+      <div className="flex flex-row items-center gap-2">
         <Link2 size={16} color="#9ca3af" />
         <span className="text-text font-semibold text-base">Integrations</span>
       </div>
@@ -226,11 +226,11 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
       {integrations.map((integration) => (
         <div
           key={integration.id}
-          className="bg-surface-raised border border-surface-border rounded-lg p-4 gap-3"
+          className="flex bg-surface-raised border border-surface-border rounded-lg p-4 gap-3"
         >
           <span className="text-text font-medium">{integration.name}</span>
           {integration.fields.map((field) => (
-            <div key={field.key} className="gap-1">
+            <div key={field.key} className="flex gap-1">
               <span className="text-text-dim text-xs">{field.label}</span>
               <input
                 className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
@@ -248,7 +248,7 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
           type="button"
           onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending}
-          className="bg-accent rounded px-4 py-2 self-start flex-row items-center gap-2"
+          className="flex bg-accent rounded px-4 py-2 self-start flex-row items-center gap-2"
         >
           {saveMutation.isPending ? (
             <Spinner size={16} color="#fff" />
@@ -316,8 +316,8 @@ function SecuritySection({ user }: { user: AuthUser }) {
 
   if (user.auth_method !== "local") {
     return (
-      <div className="gap-4">
-        <div className="flex-row items-center gap-2">
+      <div className="flex gap-4">
+        <div className="flex flex-row items-center gap-2">
           <Lock size={16} color="#9ca3af" />
           <span className="text-text font-semibold text-base">Security</span>
         </div>
@@ -329,18 +329,18 @@ function SecuritySection({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className="gap-4">
-      <div className="flex-row items-center gap-2">
+    <div className="flex gap-4">
+      <div className="flex flex-row items-center gap-2">
         <Lock size={16} color="#9ca3af" />
         <span className="text-text font-semibold text-base">Security</span>
       </div>
 
-      <div className="bg-surface-raised border border-surface-border rounded-lg p-4 gap-3">
+      <div className="flex bg-surface-raised border border-surface-border rounded-lg p-4 gap-3">
         <span className="text-text font-medium text-sm">Change Password</span>
 
-        <div className="gap-1">
+        <div className="flex gap-1">
           <span className="text-text-dim text-xs">Current Password</span>
-          <div className="flex-row items-center">
+          <div className="flex flex-row items-center">
             <input
               className="flex-1 bg-surface border border-surface-border rounded-l px-3 py-2 text-text text-sm"
               value={currentPassword}
@@ -361,9 +361,9 @@ function SecuritySection({ user }: { user: AuthUser }) {
           </div>
         </div>
 
-        <div className="gap-1">
+        <div className="flex gap-1">
           <span className="text-text-dim text-xs">New Password</span>
-          <div className="flex-row items-center">
+          <div className="flex flex-row items-center">
             <input
               className="flex-1 bg-surface border border-surface-border rounded-l px-3 py-2 text-text text-sm"
               value={newPassword}
@@ -384,7 +384,7 @@ function SecuritySection({ user }: { user: AuthUser }) {
           </div>
         </div>
 
-        <div className="gap-1">
+        <div className="flex gap-1">
           <span className="text-text-dim text-xs">Confirm New Password</span>
           <input
             className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
@@ -401,7 +401,7 @@ function SecuritySection({ user }: { user: AuthUser }) {
           type="button"
           onClick={handleSubmit}
           disabled={changeMutation.isPending || !currentPassword || !newPassword}
-          className="bg-accent rounded px-4 py-2 self-start flex-row items-center gap-2"
+          className="flex bg-accent rounded px-4 py-2 self-start flex-row items-center gap-2"
           style={{
             opacity: !currentPassword || !newPassword ? 0.5 : 1,
           }}
@@ -428,7 +428,7 @@ export default function ProfileScreen() {
 
   if (!user) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <span className="text-text-muted">Not logged in</span>
       </div>
     );
@@ -439,7 +439,7 @@ export default function ProfileScreen() {
       <PageHeader variant="list" title="Profile" />
 
       <div className="flex-1 p-6 overflow-auto">
-        <div className="gap-8 max-w-lg">
+        <div className="flex gap-8 max-w-lg">
           <AccountSection user={user} />
 
           <div className="h-px bg-surface-border" />

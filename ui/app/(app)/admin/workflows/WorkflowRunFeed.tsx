@@ -124,6 +124,7 @@ export default function WorkflowRunFeed({
         <button type="button"
           onClick={jumpToActive}
           style={{
+            display: "flex",
             position: "sticky", bottom: 12,
             alignSelf: "center",
             flexDirection: "row", alignItems: "center", gap: 5,

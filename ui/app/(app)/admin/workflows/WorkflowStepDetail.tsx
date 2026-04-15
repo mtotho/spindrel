@@ -366,6 +366,7 @@ function FieldGroup({ title, defaultOpen, children, t }: {
       <button type="button"
         onClick={() => setOpen(!open)}
         style={{
+          display: "flex",
           flexDirection: "row", alignItems: "center", gap: 6,
           paddingBlock: 8, paddingInline: 12,
         }}

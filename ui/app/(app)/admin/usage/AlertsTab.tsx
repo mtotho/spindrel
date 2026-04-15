@@ -49,7 +49,7 @@ function StatusBanner() {
 
   if (statusLoading || !status) {
     return (
-      <div className="items-center justify-center" style={{ padding: 20 }}>
+      <div className="flex items-center justify-center" style={{ padding: 20 }}>
         <Spinner />
       </div>
     );
@@ -194,7 +194,7 @@ function ConfigForm() {
 
   if (isLoading || !config) {
     return (
-      <div className="items-center justify-center" style={{ padding: 20 }}>
+      <div className="flex items-center justify-center" style={{ padding: 20 }}>
         <Spinner />
       </div>
     );
@@ -586,7 +586,7 @@ function AlertHistory() {
 
   if (isLoading) {
     return (
-      <div className="items-center justify-center" style={{ padding: 20 }}>
+      <div className="flex items-center justify-center" style={{ padding: 20 }}>
         <Spinner />
       </div>
     );

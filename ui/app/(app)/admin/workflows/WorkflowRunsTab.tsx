@@ -78,7 +78,7 @@ export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflow
   ) : null;
 
   const runList = isLoading ? (
-    <div style={{ alignItems: "center", padding: 24 }}>
+    <div style={{ display: "flex", alignItems: "center", padding: 24 }}>
       <Spinner />
     </div>
   ) : !runs || runs.length === 0 ? (
@@ -123,7 +123,7 @@ export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflow
   // Mobile: just list view
   if (isMobile) {
     return (
-      <div style={{ gap: 12 }}>
+      <div style={{ display: "flex", gap: 12 }}>
         {header}
         {filters}
         {runList}

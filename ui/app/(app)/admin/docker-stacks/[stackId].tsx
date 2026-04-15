@@ -50,7 +50,7 @@ function StatusBadge({ status, t }: { status: string; t: ThemeTokens }) {
   const Icon = style.icon;
   return (
     <div
-      className="flex-row items-center gap-1 rounded-full px-2.5 py-1"
+      className="flex flex-row items-center gap-1 rounded-full px-2.5 py-1"
       style={{ backgroundColor: style.bg, border: `1px solid ${style.border }`}}
     >
       <Icon size={14} color={style.color} />
@@ -83,7 +83,7 @@ function TabButton({
   return (
     <button type="button"
       onClick={onClick}
-      className={`flex-row items-center gap-1.5 px-3 py-2 rounded-lg ${
+      className={`flex flex-row items-center gap-1.5 px-3 py-2 rounded-lg ${
         active ? "bg-accent/15" : "hover:bg-surface-overlay"
       }`}
     >
@@ -113,14 +113,14 @@ function ServicesTab({
 }) {
   if (isLoading) {
     return (
-      <div className="items-center py-8">
+      <div className="flex items-center py-8">
         <Spinner color={t.accent} />
       </div>
     );
   }
   if (!services || services.length === 0) {
     return (
-      <div className="items-center py-8">
+      <div className="flex items-center py-8">
         <span className="text-sm" style={{ color: t.textDim }}>
           No services running
         </span>
@@ -128,25 +128,25 @@ function ServicesTab({
     );
   }
   return (
-    <div className="gap-2">
+    <div className="flex gap-2">
       {services.map((svc) => {
         const stStyle = getStatusStyle(svc.state, t);
         return (
           <div
             key={svc.name}
-            className="rounded-lg p-3 flex-row items-center justify-between"
+            className="flex rounded-lg p-3 flex-row items-center justify-between"
             style={{
               backgroundColor: t.surfaceRaised,
               border: `1px solid ${t.surfaceBorder}`,
             }}
           >
-            <div className="flex-row items-center gap-2">
+            <div className="flex flex-row items-center gap-2">
               <Server size={14} color={t.accent} />
               <span className="text-sm font-medium" style={{ color: t.text }}>
                 {svc.name}
               </span>
             </div>
-            <div className="flex-row items-center gap-3">
+            <div className="flex flex-row items-center gap-3">
               {svc.ports.length > 0 && (
                 <span className="text-xs" style={{ color: t.textDim }}>
                   {svc.ports.map((p) => `${p.host_port}:${p.container_port}`).join(", ")}
@@ -215,10 +215,10 @@ function LogsTab({
   const { data: logsData, isLoading } = useDockerStackLogs(stackId, selectedService);
 
   return (
-    <div className="gap-3">
+    <div className="flex gap-3">
       {/* Service filter */}
       {services && services.length > 0 && (
-        <div className="flex-row flex-wrap gap-1.5">
+        <div className="flex flex-row flex-wrap gap-1.5">
           <button type="button"
             onClick={() => setSelectedService(undefined)}
             className={`rounded-full px-3 py-1 ${!selectedService ? "bg-accent/15" : ""}`}
@@ -301,7 +301,7 @@ export default function DockerStackDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <Spinner color={t.accent} />
       </div>
     );
@@ -309,7 +309,7 @@ export default function DockerStackDetailPage() {
 
   if (!stack) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center gap-2">
+      <div className="flex flex-1 bg-surface items-center justify-center gap-2">
         <span className="text-base" style={{ color: t.textMuted }}>
           Stack not found
         </span>
@@ -331,7 +331,7 @@ export default function DockerStackDetailPage() {
         contentContainerStyle={{ padding: 16, paddingBottom: 80, gap: 16 }}
       >
         {/* Back + Title */}
-        <div className="flex-row items-center gap-3">
+        <div className="flex flex-row items-center gap-3">
           <button type="button" onClick={() => navigate("/admin/docker-stacks")} className="p-1">
             <ArrowLeft size={20} color={t.textMuted} />
           </button>
@@ -344,18 +344,18 @@ export default function DockerStackDetailPage() {
 
         {/* Info bar */}
         <div
-          className="rounded-lg p-4 gap-2"
+          className="flex rounded-lg p-4 gap-2"
           style={{
             backgroundColor: t.surfaceRaised,
             border: `1px solid ${t.surfaceBorder}`,
           }}
         >
-          <div className="flex-row flex-wrap gap-4">
+          <div className="flex flex-row flex-wrap gap-4">
             {stack.source === "integration" ? (
-              <div className="flex-row items-center gap-1.5">
+              <div className="flex flex-row items-center gap-1.5">
                 <div>
                   <span className="text-xs" style={{ color: t.textDim }}>Integration</span>
-                  <div className="flex-row items-center gap-1">
+                  <div className="flex flex-row items-center gap-1">
                     <Plug size={12} color={t.accent} />
                     <span className="text-sm font-medium" style={{ color: t.text }}>
                       {stack.integration_id}
@@ -391,7 +391,7 @@ export default function DockerStackDetailPage() {
         </div>
 
         {/* Actions */}
-        <div className="flex-row gap-2">
+        <div className="flex flex-row gap-2">
           {(stack.status === "stopped" || stack.status === "error") && (
             <ActionButton
               label="Start"
@@ -435,7 +435,7 @@ export default function DockerStackDetailPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex-row gap-1">
+        <div className="flex flex-row gap-1">
           <TabButton
             label="Services"
             icon={Server}
@@ -511,7 +511,7 @@ function ActionButton({
     <button type="button"
       onClick={onClick}
       disabled={loading}
-      className="flex-row items-center gap-1.5 rounded-lg px-3 py-2 hover:opacity-80"
+      className="flex flex-row items-center gap-1.5 rounded-lg px-3 py-2 hover:opacity-80"
       style={{
         border: `1px solid ${color}`,
         opacity: loading ? 0.6 : 1,

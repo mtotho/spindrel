@@ -219,3 +219,7 @@ def _emit_webhook(event: str, ctx: HookContext) -> None:
         "data": ctx.extra,
     }
     safe_create_task(emit_webhooks(event, payload))
+
+    # Fire event-triggered tasks matching this system event
+    from app.agent.tasks import fire_event_triggers
+    safe_create_task(fire_event_triggers("system", event, ctx.extra or {}))

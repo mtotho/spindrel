@@ -563,11 +563,17 @@ class Settings(BaseSettings):
     FS_INDEX_CONCURRENCY: int = 8          # max concurrent file embeddings during indexing
     FS_INDEX_PERIODIC_MINUTES: int = 30     # periodic re-verify interval (0 = disabled); catches watcher crashes
 
+    # Spindrel home directory — root of user customizations.
+    # Contains integration subdirectories (e.g. toths/, alpaca/).
+    # In Docker, set HOME_HOST_DIR + HOME_LOCAL_DIR for path translation.
+    SPINDREL_HOME: str = ""
+
     # Extra tool directories (colon-separated paths) scanned at startup in addition to ./tools/
     TOOL_DIRS: str = ""
 
     # Extra integration directories (colon-separated paths) scanned at startup
     # in addition to ./integrations/. See docs/integrations/README.md.
+    # Deprecated: use SPINDREL_HOME instead.
     INTEGRATION_DIRS: str = ""
 
     # Capability auto-discovery
@@ -634,6 +640,13 @@ class Settings(BaseSettings):
     # Leave both empty when running the server on the host.
     WORKSPACE_HOST_DIR: str = ""    # e.g., "/home/you/.spindrel-workspaces"
     WORKSPACE_LOCAL_DIR: str = ""   # e.g., "/workspace-data"
+
+    # Spindrel home directory (integrations, carapaces, etc.)
+    # Same pattern as workspace paths: HOST is the real path on the host,
+    # LOCAL is where it's mounted inside the container.
+    HOME_HOST_DIR: str = ""         # e.g., "/home/you/spindrel-home"
+    HOME_LOCAL_DIR: str = ""        # e.g., "/app/home"
+
     # Public URL of this server (injected into workspace containers)
     SERVER_PUBLIC_URL: str = "http://host.docker.internal:8000"
 

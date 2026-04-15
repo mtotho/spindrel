@@ -53,6 +53,7 @@ class TaskDetailOut(BaseModel):
     execution_config: Optional[dict] = None
     correlation_id: Optional[uuid.UUID] = None
     delegation_session_id: Optional[uuid.UUID] = None
+    trigger_config: Optional[dict] = None
     # Surfaced from execution_config/callback_config for convenience
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
@@ -111,6 +112,9 @@ class TaskCreateIn(BaseModel):
     max_run_seconds: Optional[int] = None
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
+    trigger_config: Optional[dict] = None
+    skills: Optional[list[str]] = None
+    tools: Optional[list[str]] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -147,6 +151,9 @@ class TaskUpdateIn(BaseModel):
     max_run_seconds: Optional[int] = None
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
+    trigger_config: Optional[dict] = None
+    skills: Optional[list[str]] = None
+    tools: Optional[list[str]] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -274,6 +281,7 @@ async def admin_list_tasks(
             "workflow_id": t.workflow_id,
             "workflow_session_mode": t.workflow_session_mode,
             "max_run_seconds": t.max_run_seconds,
+            "trigger_config": t.trigger_config,
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
             "run_at": t.run_at.isoformat() if t.run_at else None,
@@ -287,6 +295,58 @@ async def admin_list_tasks(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.get("/tasks/trigger-events")
+async def admin_list_trigger_events(
+    _auth=Depends(require_scopes("tasks:read")),
+):
+    """List available trigger event sources and their events.
+
+    Aggregates from:
+    - Internal EVENT_REGISTRY (system webhook events)
+    - Installed integration manifests (binding.config_fields where key == 'event_filter')
+    """
+    from app.services.webhooks import EVENT_REGISTRY
+    from integrations import discover_binding_metadata
+
+    sources: list[dict] = []
+
+    # Internal system events
+    system_events = [
+        {"type": k, "label": k.replace("_", " ").title(), "description": v}
+        for k, v in EVENT_REGISTRY.items()
+    ]
+    if system_events:
+        sources.append({
+            "source": "internal",
+            "label": "System Events",
+            "events": system_events,
+        })
+
+    # Integration events from binding metadata
+    bindings = discover_binding_metadata()
+    for integration_id, binding in bindings.items():
+        config_fields = binding.get("config_fields", [])
+        for field in config_fields:
+            if field.get("key") != "event_filter":
+                continue
+            options = field.get("options", [])
+            if not options:
+                continue
+            events = [
+                {"type": opt["value"], "label": opt.get("label", opt["value"])}
+                for opt in options
+                if isinstance(opt, dict) and "value" in opt
+            ]
+            if events:
+                sources.append({
+                    "source": integration_id,
+                    "label": binding.get("display_name_placeholder", integration_id.title()),
+                    "events": events,
+                })
+
+    return {"sources": sources}
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDetailOut)
@@ -376,13 +436,18 @@ async def admin_create_task(
         ec_extras["model_provider_id_override"] = body.model_provider_id_override
     if body.fallback_models:
         ec_extras["fallback_models"] = body.fallback_models
+    if body.skills:
+        ec_extras["skills"] = body.skills
+    if body.tools:
+        ec_extras["tools"] = body.tools
     if cb_extras:
         callback_config = cb_extras
     if ec_extras:
         execution_config = ec_extras
 
-    # If recurrence is set, create as an active schedule template
-    initial_status = "active" if body.recurrence else "pending"
+    # Active status for schedule templates and event-triggered tasks (they're templates)
+    trigger_type = (body.trigger_config or {}).get("type")
+    initial_status = "active" if (body.recurrence or trigger_type == "event") else "pending"
 
     # Use placeholder prompt when workflow_id is set and prompt is empty
     effective_prompt = body.prompt or ("[Workflow trigger]" if body.workflow_id else "")
@@ -408,6 +473,7 @@ async def admin_create_task(
         max_run_seconds=body.max_run_seconds,
         workflow_id=body.workflow_id,
         workflow_session_mode=body.workflow_session_mode,
+        trigger_config=body.trigger_config,
     )
     db.add(task)
     await db.commit()
@@ -431,7 +497,7 @@ async def admin_update_task(
 
     updates = body.model_dump(exclude_unset=True)
 
-    for field in ("prompt", "prompt_template_id", "workspace_file_path", "workspace_id", "bot_id", "status", "task_type", "title", "max_run_seconds", "workflow_id", "workflow_session_mode"):
+    for field in ("prompt", "prompt_template_id", "workspace_file_path", "workspace_id", "bot_id", "status", "task_type", "title", "max_run_seconds", "workflow_id", "workflow_session_mode", "trigger_config"):
         if field in updates:
             setattr(task, field, updates[field])
     if "recurrence" in updates:
@@ -450,7 +516,7 @@ async def admin_update_task(
         task.callback_config = cb
         sa_attributes.flag_modified(task, "callback_config")
 
-    ec_fields = {"model_override", "model_provider_id_override", "fallback_models"}
+    ec_fields = {"model_override", "model_provider_id_override", "fallback_models", "skills", "tools"}
     if ec_fields & updates.keys():
         ec = dict(task.execution_config or {})
         if "model_override" in updates:
@@ -459,6 +525,10 @@ async def admin_update_task(
             ec["model_provider_id_override"] = updates["model_provider_id_override"] or None
         if "fallback_models" in updates:
             ec["fallback_models"] = updates["fallback_models"] or None
+        if "skills" in updates:
+            ec["skills"] = updates["skills"] or None
+        if "tools" in updates:
+            ec["tools"] = updates["tools"] or None
         task.execution_config = ec
         sa_attributes.flag_modified(task, "execution_config")
 

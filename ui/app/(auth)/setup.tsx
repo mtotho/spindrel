@@ -50,10 +50,10 @@ export default function SetupScreen() {
   };
 
   return (
-    <div className="flex-1 bg-surface items-center justify-center p-6">
-      <div className="w-full max-w-sm gap-6">
+    <div className="flex flex-1 bg-surface items-center justify-center p-6">
+      <div className="flex w-full max-w-sm gap-6">
         {/* Header */}
-        <div className="items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-4">
           <span className="text-text text-2xl font-bold">Welcome to Spindrel</span>
           <span className="text-text-muted text-sm text-center">
             Create your admin account to get started
@@ -61,8 +61,8 @@ export default function SetupScreen() {
         </div>
 
         {/* Display Name */}
-        <div className="gap-2">
-          <div className="flex-row items-center gap-2">
+        <div className="flex gap-2">
+          <div className="flex flex-row items-center gap-2">
             <User size={16} color={t.textMuted} />
             <span className="text-text-muted text-sm">Display Name</span>
           </div>
@@ -75,8 +75,8 @@ export default function SetupScreen() {
         </div>
 
         {/* Email */}
-        <div className="gap-2">
-          <div className="flex-row items-center gap-2">
+        <div className="flex gap-2">
+          <div className="flex flex-row items-center gap-2">
             <Mail size={16} color={t.textMuted} />
             <span className="text-text-muted text-sm">Email</span>
           </div>
@@ -91,8 +91,8 @@ export default function SetupScreen() {
         </div>
 
         {/* Password */}
-        <div className="gap-2">
-          <div className="flex-row items-center gap-2">
+        <div className="flex gap-2">
+          <div className="flex flex-row items-center gap-2">
             <Lock size={16} color={t.textMuted} />
             <span className="text-text-muted text-sm">Password</span>
           </div>
@@ -115,7 +115,7 @@ export default function SetupScreen() {
           type="button"
           onClick={handleLocalSetup}
           disabled={loading}
-          className="bg-accent rounded-lg px-4 py-3 flex-row items-center justify-center gap-2 active:bg-accent-hover"
+          className="flex bg-accent rounded-lg px-4 py-3 flex-row items-center justify-center gap-2 active:bg-accent-hover"
         >
           {loading ? (
             <Spinner color="white" size={16} />

@@ -285,7 +285,7 @@ export default function IntegrationsScreen() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <Spinner color={t.accent} />
       </div>
     );
@@ -348,7 +348,7 @@ export default function IntegrationsScreen() {
 
       {/* Status legend */}
       {all && all.length > 0 && (
-        <div className="prose" style={{
+        <div style={{
           padding: isWide ? "4px 16px 6px" : "4px 12px 6px",
           fontSize: 11, color: t.textDim, lineHeight: 1.5,
         }}>

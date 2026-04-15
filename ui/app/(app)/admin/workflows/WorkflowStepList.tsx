@@ -62,7 +62,7 @@ export function WorkflowStepList({
   }, [steps, onChange, onSelect]);
 
   return (
-    <div style={{ gap: 4 }}>
+    <div style={{ display: "flex", gap: 4 }}>
       {/* Section header */}
       <div style={{
         display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
@@ -137,6 +137,7 @@ function AddStepButton({ onAdd, t }: {
       <button type="button"
         onClick={() => onAdd("agent")}
         style={{
+          display: "flex",
           flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
           gap: 4, paddingBlock: 7, borderRadius: 6,
           borderWidth: 1, borderStyle: "dashed", borderColor: t.accentBorder,
@@ -149,6 +150,7 @@ function AddStepButton({ onAdd, t }: {
       <button type="button"
         onClick={() => onAdd("tool")}
         style={{
+          display: "flex",
           flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
           gap: 4, paddingBlock: 7, borderRadius: 6,
           borderWidth: 1, borderStyle: "dashed", borderColor: t.purpleBorder,
@@ -161,6 +163,7 @@ function AddStepButton({ onAdd, t }: {
       <button type="button"
         onClick={() => onAdd("exec")}
         style={{
+          display: "flex",
           flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
           gap: 4, paddingBlock: 7, borderRadius: 6,
           borderWidth: 1, borderStyle: "dashed", borderColor: t.warningBorder,

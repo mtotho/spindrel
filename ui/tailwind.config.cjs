@@ -26,9 +26,19 @@ module.exports = {
           muted: "rgb(var(--color-text-muted) / <alpha-value>)",
           dim: "rgb(var(--color-text-dim) / <alpha-value>)",
         },
+        input: {
+          DEFAULT: "rgb(var(--color-input-bg) / <alpha-value>)",
+          border: "rgb(var(--color-input-border) / <alpha-value>)",
+        },
         success: "rgb(var(--color-success) / <alpha-value>)",
-        warning: "rgb(var(--color-warning) / <alpha-value>)",
-        danger: "rgb(var(--color-danger) / <alpha-value>)",
+        warning: {
+          DEFAULT: "rgb(var(--color-warning) / <alpha-value>)",
+          muted: "rgb(var(--color-warning-muted) / <alpha-value>)",
+        },
+        danger: {
+          DEFAULT: "rgb(var(--color-danger) / <alpha-value>)",
+          muted: "rgb(var(--color-danger-muted) / <alpha-value>)",
+        },
         purple: "rgb(var(--color-purple) / <alpha-value>)",
         skeleton: "rgb(var(--color-skeleton) / <alpha-value>)",
       },

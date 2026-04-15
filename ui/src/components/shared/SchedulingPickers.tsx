@@ -13,26 +13,6 @@ import { parseRecurrenceMs, isValidRecurrence } from "@/app/(app)/admin/tasks/ta
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const SCHEDULE_PRESETS = [
-  { label: "+30m", value: "+30m" },
-  { label: "+1h", value: "+1h" },
-  { label: "+2h", value: "+2h" },
-  { label: "+6h", value: "+6h" },
-  { label: "+1d", value: "+1d" },
-  { label: "+7d", value: "+7d" },
-];
-
-const RECURRENCE_PRESETS = [
-  { label: "None", value: "" },
-  { label: "30 min", value: "+30m" },
-  { label: "1 hour", value: "+1h" },
-  { label: "2 hours", value: "+2h" },
-  { label: "6 hours", value: "+6h" },
-  { label: "12 hours", value: "+12h" },
-  { label: "Daily", value: "+1d" },
-  { label: "Weekly", value: "+1w" },
-];
-
 const UNIT_MS: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
 const UNIT_NAMES: Record<string, [string, string]> = {
   s: ["second", "seconds"],
@@ -76,49 +56,31 @@ function resolveRelative(value: string): Date | null {
 // ---------------------------------------------------------------------------
 export function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const t = useThemeTokens();
-  const isRelative = /^\+\d+[smhdw]$/.test(value);
-
-  const resolvedTime = useMemo(() => {
-    if (!isRelative) return null;
-    return resolveRelative(value);
-  }, [value, isRelative]);
+  const isNow = !value;
 
   return (
-    <FormRow label="Scheduled At">
+    <FormRow label="Start">
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-          <PillButton
-            active={!value}
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <button
             onClick={() => onChange("")}
-            label="Now"
-            t={t}
-          />
-          {SCHEDULE_PRESETS.map((p) => (
-            <PillButton
-              key={p.value}
-              active={value === p.value}
-              onClick={() => onChange(p.value)}
-              label={p.label}
-              t={t}
+            style={{
+              padding: "6px 14px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
+              borderRadius: 6, flexShrink: 0,
+              background: isNow ? t.accent : t.surfaceRaised,
+              color: isNow ? "#fff" : t.textMuted,
+            }}
+          >
+            Now
+          </button>
+          <div style={{ flex: 1 }}>
+            <DateTimePicker
+              value={value}
+              onChange={onChange}
+              placeholder="Pick a date & time..."
             />
-          ))}
-        </div>
-        <DateTimePicker
-          value={isRelative ? "" : value}
-          onChange={onChange}
-          placeholder="Pick a date & time..."
-        />
-        {isRelative && resolvedTime && (
-          <div style={{ fontSize: 11, color: t.textDim, display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <span style={{ color: t.accent, fontWeight: 600 }}>{value}</span>
-            <span>&rarr;</span>
-            <span style={{ fontFamily: "monospace" }}>
-              {resolvedTime.toLocaleString(undefined, {
-                month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-              })}
-            </span>
           </div>
-        )}
+        </div>
       </div>
     </FormRow>
   );
@@ -127,63 +89,88 @@ export function ScheduledAtPicker({ value, onChange }: { value: string; onChange
 // ---------------------------------------------------------------------------
 // RecurrencePicker
 // ---------------------------------------------------------------------------
+const RECURRENCE_UNITS = [
+  { label: "Minutes", value: "m" },
+  { label: "Hours", value: "h" },
+  { label: "Days", value: "d" },
+  { label: "Weeks", value: "w" },
+];
+
 export function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const t = useThemeTokens();
-  const isPreset = RECURRENCE_PRESETS.some((p) => p.value === value);
-  const showCustom = !!value && !isPreset;
+  const parsed = value ? parseRecurrence(value) : null;
+  const hasRecurrence = !!value;
   const isValid = !value || isValidRecurrence(value);
 
+  const numValue = parsed?.value ?? 1;
+  const unitValue = parsed?.unit ?? "h";
+
+  const handleToggle = () => {
+    if (hasRecurrence) {
+      onChange("");
+    } else {
+      onChange("+1h");
+    }
+  };
+
+  const handleNumChange = (n: number) => {
+    if (n < 1) n = 1;
+    onChange(`+${n}${unitValue}`);
+  };
+
+  const handleUnitChange = (u: string) => {
+    onChange(`+${numValue}${u}`);
+  };
+
   return (
-    <FormRow label="Recurrence">
+    <FormRow label="Repeat">
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
-          {RECURRENCE_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => onChange(p.value)}
-              style={{
-                padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-                borderRadius: 6,
-                background: value === p.value ? (p.value ? t.warningSubtle : t.surfaceBorder) : t.surfaceRaised,
-                color: value === p.value ? (p.value ? t.warning : t.text) : t.textMuted,
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
           <button
-            onClick={() => { if (!showCustom) onChange("+3h"); }}
+            onClick={handleToggle}
             style={{
-              padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-              borderRadius: 6,
-              background: showCustom ? t.warningSubtle : t.surfaceRaised,
-              color: showCustom ? t.warning : t.textMuted,
+              padding: "6px 14px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
+              borderRadius: 6, flexShrink: 0,
+              background: !hasRecurrence ? t.surfaceRaised : t.warningSubtle,
+              color: !hasRecurrence ? t.textMuted : t.warning,
             }}
           >
-            Custom
+            {hasRecurrence ? "Repeating" : "No repeat"}
           </button>
+          {hasRecurrence && (
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12, color: t.textMuted }}>every</span>
+              <input
+                type="number"
+                min={1}
+                value={numValue}
+                onChange={(e) => handleNumChange(parseInt(e.target.value) || 1)}
+                style={{
+                  width: 56, padding: "6px 8px", fontSize: 13, textAlign: "center",
+                  background: t.inputBg, border: `1px solid ${isValid ? t.surfaceBorder : t.danger}`,
+                  borderRadius: 6, color: t.text, outline: "none",
+                }}
+              />
+              <select
+                value={unitValue}
+                onChange={(e) => handleUnitChange(e.target.value)}
+                style={{
+                  padding: "6px 8px", fontSize: 13,
+                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
+                  borderRadius: 6, color: t.text, outline: "none", cursor: "pointer",
+                }}
+              >
+                {RECURRENCE_UNITS.map((u) => (
+                  <option key={u.value} value={u.value}>{u.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
-        {showCustom && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <input
-              type="text"
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              placeholder="+3h, +45m, +2d, etc."
-              style={{
-                background: t.inputBg,
-                border: `1px solid ${isValid ? t.surfaceBorder : t.danger}`,
-                borderRadius: 8,
-                padding: "7px 12px", color: t.text, fontSize: 13, outline: "none",
-                maxWidth: 200,
-              }}
-            />
-            {!isValid && (
-              <span style={{ fontSize: 10, color: t.danger }}>
-                Format: +NUMBER[s|m|h|d|w] (e.g. +30m, +2h, +1d)
-              </span>
-            )}
-          </div>
+        {hasRecurrence && !isValid && (
+          <span style={{ fontSize: 10, color: t.danger }}>
+            Invalid recurrence value
+          </span>
         )}
       </div>
     </FormRow>
@@ -394,26 +381,3 @@ export const TASK_TYPE_OPTIONS_CREATE = [
   { label: "Agent", value: "agent" },
 ];
 
-// ---------------------------------------------------------------------------
-// Internal: pill button
-// ---------------------------------------------------------------------------
-function PillButton({ active, onClick, label, t }: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  t: ReturnType<typeof useThemeTokens>;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-        borderRadius: 6,
-        background: active ? t.accent : t.surfaceRaised,
-        color: active ? "#fff" : t.textMuted,
-      }}
-    >
-      {label}
-    </button>
-  );
-}

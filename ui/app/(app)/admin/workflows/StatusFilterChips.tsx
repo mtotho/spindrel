@@ -61,6 +61,7 @@ export function StatusFilterChips({ runs, active, onChange }: Props) {
             key={s.key}
             onClick={() => onChange(s.key)}
             style={{
+              display: "flex",
               flexDirection: "row", alignItems: "center", gap: 4,
               paddingInline: 10, paddingBlock: 4, borderRadius: 12,
               backgroundColor: isActive ? t.accentSubtle : t.codeBg,

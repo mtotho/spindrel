@@ -60,14 +60,14 @@ export function AppShell() {
   }, [mobileSidebarOpen]);
 
   return (
-    <div className="flex flex-col flex-1 bg-surface overflow-hidden h-full">
+    <div className="relative flex flex-col flex-1 bg-surface overflow-hidden h-full">
       {status?.paused && <SystemPauseBanner behavior={status.pause_behavior} />}
       <div className="flex flex-row flex-1 overflow-hidden">
         {/* Sidebar — hidden on single column (mobile), shown as overlay when toggled */}
         {columns !== "single" && <Sidebar />}
 
         {/* Center content — always visible */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           <Outlet />
         </div>
 

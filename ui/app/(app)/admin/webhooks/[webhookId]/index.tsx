@@ -273,7 +273,7 @@ export default function WebhookDetailScreen() {
 
   if (!isNew && isLoading) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <Spinner />
       </div>
     );
@@ -535,7 +535,7 @@ export default function WebhookDetailScreen() {
           {!isNew && (
             <Section title="Recent Deliveries">
               {deliveriesLoading ? (
-                <div className="items-center py-4">
+                <div className="flex items-center py-4">
                   <Spinner />
                 </div>
               ) : deliveries && deliveries.length > 0 ? (

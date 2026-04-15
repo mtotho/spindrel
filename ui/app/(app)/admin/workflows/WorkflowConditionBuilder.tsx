@@ -323,6 +323,7 @@ export function WorkflowConditionBuilder({
         <button type="button"
           onClick={addCondition}
           style={{
+            display: "flex",
             flexDirection: "row", alignItems: "center", gap: 4,
             paddingBlock: 6, paddingTop: conditions.length > 0 ? 8 : 4,
           }}

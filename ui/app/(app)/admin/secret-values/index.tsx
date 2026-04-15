@@ -409,7 +409,7 @@ export default function SecretValuesScreen() {
           </div>
 
           {isLoading ? (
-            <div className="items-center justify-center py-20">
+            <div className="flex items-center justify-center py-20">
               <Spinner />
             </div>
           ) : (

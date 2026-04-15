@@ -137,6 +137,7 @@ export function RefreshableScrollView({
       onPointerCancel={onPointerUp}
       className={className}
       style={{
+        display: "block",
         flex: 1,
         overflowY: "auto",
         overflowX: "hidden",

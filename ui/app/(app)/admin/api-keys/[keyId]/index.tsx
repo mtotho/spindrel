@@ -226,7 +226,7 @@ export default function ApiKeyDetailScreen() {
 
   if (!isNew && isLoading) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <Spinner color={t.accent} />
       </div>
     );

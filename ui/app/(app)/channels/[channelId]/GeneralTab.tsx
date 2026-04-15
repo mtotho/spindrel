@@ -268,7 +268,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
                 placeholder="e.g. Work, Personal"
               />
               {categorySuggestions.length > 0 && categoryValue.length > 0 && (
-                <div className="flex-row flex-wrap gap-1" style={{ marginTop: 4 }}>
+                <div className="flex flex-row flex-wrap gap-1" style={{ marginTop: 4 }}>
                   {categorySuggestions.slice(0, 4).map((cat) => (
                     <button type="button"
                       key={cat}

@@ -69,8 +69,10 @@ function ExplorerFileRow({
     <button type="button"
       onClick={() => onSelect(file.path)}
       style={{
+        display: "flex",
         flexDirection: "row",
         alignItems: "center",
+        width: "100%",
         height: ROW_HEIGHT,
         paddingLeft: ROW_PADDING_LEFT,
         paddingRight: 8,
@@ -153,8 +155,10 @@ function ExplorerFolderRow({
       <button type="button"
         onClick={() => setOpen(!open)}
         style={{
+          display: "flex",
           flexDirection: "row",
           alignItems: "center",
+          width: "100%",
           height: ROW_HEIGHT,
           paddingLeft: ROW_PADDING_LEFT,
           paddingRight: 8,
@@ -191,7 +195,7 @@ function ExplorerFolderRow({
           borderLeft: `1px solid ${t.surfaceBorder}`,
         }}>
           {isLoading && (
-            <div style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: ROW_PADDING_LEFT }}>
+            <div style={{ display: "flex", height: ROW_HEIGHT, justifyContent: "center", paddingLeft: ROW_PADDING_LEFT }}>
               <Spinner color={t.accent} size={14} />
             </div>
           )}
@@ -258,8 +262,10 @@ function ExplorerSection({
       <button type="button"
         onClick={() => setOpen(!open)}
         style={{
+          display: "flex",
           flexDirection: "row",
           alignItems: "center",
+          width: "100%",
           height: 24,
           paddingLeft: 10, paddingRight: 10,
           backgroundColor: t.surfaceOverlay,
@@ -311,7 +317,7 @@ function ExplorerSection({
             pointerEvents: "none",
           }}
         >
-          <div style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Upload size={14} color={t.accent} />
             <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>
               Drop files to upload to data/
@@ -426,9 +432,11 @@ export function ChannelFileBrowser({
       border: `1px solid ${t.surfaceBorder}`,
       borderRadius: 8,
       overflow: "hidden",
+      maxHeight: 320,
+      overflowY: "auto",
     }}>
       {hasNoFiles ? (
-        <div style={{ padding: 20, alignItems: "center" }}>
+        <div style={{ display: "flex", padding: 20, alignItems: "center" }}>
           <span style={{ color: t.textDim, fontSize: 12 }}>
             No workspace files yet. The bot will create them automatically.
           </span>
@@ -447,7 +455,7 @@ export function ChannelFileBrowser({
               />
             ))}
             {activeFiles.length === 0 && (
-              <div style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: 12 }}>
+              <div style={{ display: "flex", height: ROW_HEIGHT, justifyContent: "center", paddingLeft: 12 }}>
                 <span style={{ color: t.textDim, fontSize: 11, fontStyle: "italic" }}>No active files</span>
               </div>
             )}
@@ -465,7 +473,7 @@ export function ChannelFileBrowser({
               />
             ))}
             {archivedFiles.length === 0 && (
-              <div style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: 12 }}>
+              <div style={{ display: "flex", height: ROW_HEIGHT, justifyContent: "center", paddingLeft: 12 }}>
                 <span style={{ color: t.textDim, fontSize: 11, fontStyle: "italic" }}>No archived files</span>
               </div>
             )}
@@ -503,14 +511,14 @@ export function ChannelFileBrowser({
               />
             ))}
             {dataFiles.length === 0 && !uploadStatus && (
-              <div style={{ height: 32, justifyContent: "center", paddingLeft: 12 }}>
+              <div style={{ display: "flex", height: 32, justifyContent: "center", paddingLeft: 12 }}>
                 <span style={{ color: t.textDim, fontSize: 11, fontStyle: "italic" }}>
                   Drag files here to upload
                 </span>
               </div>
             )}
             {uploadStatus && (
-              <div style={{ flexDirection: "row", alignItems: "center", gap: 8, height: ROW_HEIGHT, paddingLeft: 12 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, height: ROW_HEIGHT, paddingLeft: 12 }}>
                 <Spinner color={t.accent} size={14} />
                 <span style={{ color: t.textMuted, fontSize: 11 }}>
                   Uploading {uploadStatus.uploading}/{uploadStatus.total}...

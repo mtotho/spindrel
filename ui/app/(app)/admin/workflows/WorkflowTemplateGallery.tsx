@@ -20,8 +20,8 @@ export function WorkflowTemplateGallery({ onSelectTemplate, onStartBlank, onImpo
   const { data: templates, isLoading } = useWorkflowTemplates();
 
   return (
-    <div style={{ gap: 16 }}>
-      <div style={{ gap: 4 }}>
+    <div style={{ display: "flex", gap: 16 }}>
+      <div style={{ display: "flex", gap: 4 }}>
         <span style={{ color: t.text, fontSize: 18, fontWeight: "700" }}>
           Create a Workflow
         </span>
@@ -31,7 +31,7 @@ export function WorkflowTemplateGallery({ onSelectTemplate, onStartBlank, onImpo
       </div>
 
       {isLoading ? (
-        <div style={{ alignItems: "center", padding: 32 }}>
+        <div style={{ display: "flex", alignItems: "center", padding: 32 }}>
           <Spinner />
         </div>
       ) : (
@@ -110,7 +110,7 @@ function TemplateCard({ template, onSelect, t }: {
         padding: 16,
       }}
     >
-      <div style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <Zap size={16} color={t.accent} />
         <span style={{ color: t.text, fontWeight: "600", fontSize: 14, flex: 1 }}>
           {template.name}
@@ -121,7 +121,7 @@ function TemplateCard({ template, onSelect, t }: {
           {template.description}
         </span>
       ) : null}
-      <div style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <span style={{ color: t.textDim, fontSize: 11 }}>
           {template.steps.length} step{template.steps.length !== 1 ? "s" : ""}
         </span>
@@ -157,6 +157,7 @@ function ActionCard({ icon, title, description, onClick, t }: {
     <button type="button"
       onClick={onClick}
       style={{
+        display: "flex",
         backgroundColor: t.codeBg,
         borderRadius: 10,
         borderWidth: 1,

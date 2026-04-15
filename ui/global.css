@@ -2,38 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── RN compat reset ────────────────────────────────────── */
-/* Most pages still use inline styles that assume flex-column default.
-   Keep this until all pages are converted to Tailwind classes.
-   Sidebar components override via explicit Tailwind flex classes. */
+/* ── RN compat: column default ─────────────────────────── */
+/* Elements that become flex containers (via inline display:"flex" or
+   Tailwind `flex` class) default to column direction, matching the
+   React Native layout model most pages were built against.
+   Harmless on non-flex elements (browser ignores flex-direction on block). */
 @layer base {
   div, button, a {
-    display: flex;
     flex-direction: column;
   }
   p a, span a, li a {
     display: inline;
   }
-}
-
-/* ── Prose reset — restore normal inline-flow inside rendered text ──── */
-/* The RN-compat reset above makes every div flex-column, which forces inline
-   elements (strong, span, a) onto their own lines.  Text content needs
-   standard block-flow so inline text wraps naturally.
-
-   Two mechanisms:
-   1. .prose class — explicit opt-in (MarkdownContent, helper text)
-   2. :has() auto-detect — any div whose direct children include inline
-      formatting elements (<strong>, <em>, <br>) is almost certainly prose,
-      not a flex layout container. */
-.prose, .prose div       { display: block; flex-direction: unset; }
-.prose a                 { display: inline; }
-.prose ul, .prose ol     { display: block; }
-.prose li                { display: list-item; }
-
-div:has(> strong), div:has(> em), div:has(> br) {
-  display: block;
-  flex-direction: unset;
 }
 
 /* ── Sidebar component classes ──────────────────────────── */

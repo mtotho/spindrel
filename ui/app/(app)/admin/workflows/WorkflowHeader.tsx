@@ -45,7 +45,7 @@ export function WorkflowHeader({
         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
           <button type="button"
             onClick={onBack}
-            style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+            style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}
           >
             <ArrowLeft size={16} color={t.textMuted} />
             <span style={{ color: t.textMuted, fontSize: 12 }}>Workflows</span>
@@ -104,6 +104,7 @@ export function WorkflowHeader({
               onClick={onSave}
               disabled={(!dirty && !isNew) || saving}
               style={{
+                display: "flex",
                 flexDirection: "row", alignItems: "center", gap: 4,
                 paddingInline: 14, paddingBlock: 6, borderRadius: 6,
                 backgroundColor: dirty || isNew ? t.accent : t.surfaceBorder,

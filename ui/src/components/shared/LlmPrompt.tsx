@@ -288,33 +288,15 @@ export function AutocompleteMenu({
 }
 
 // ---------------------------------------------------------------------------
-// Fullscreen modal editor
+// Shared autocomplete hook (used by both inline LlmPrompt and FullscreenEditor)
 // ---------------------------------------------------------------------------
-function FullscreenEditor({
-  value,
-  onChange,
-  label,
-  placeholder,
-  generateContext,
-  fieldType,
-  botId,
-  channelId,
-  onClose,
-}: {
-  value: string;
-  onChange: (text: string) => void;
-  label?: string;
-  placeholder?: string;
-  generateContext?: string;
-  fieldType?: string;
-  botId?: string;
-  channelId?: string;
-  onClose: () => void;
-}) {
-  const t = useThemeTokens();
-  const { data: completions } = useCompletions();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+function usePromptAutocomplete(
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>,
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  value: string,
+  onChange: (text: string) => void,
+  completions: CompletionItem[] | undefined,
+) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 });
   const [atStart, setAtStart] = useState(-1);
@@ -343,7 +325,7 @@ function FullscreenEditor({
         setShowMenu(true);
       } else { setShowMenu(false); }
     },
-    [completions, onChange]
+    [completions, onChange, textareaRef, containerRef]
   );
 
   const selectItem = useCallback(
@@ -360,20 +342,53 @@ function FullscreenEditor({
         ta.focus();
       });
     },
-    [value, atStart, onChange]
+    [value, atStart, onChange, textareaRef]
   );
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Escape" && !showMenu) { onClose(); return; }
+    (e: React.KeyboardEvent, onEscapeFallback?: () => void) => {
+      if (e.key === "Escape" && !showMenu) { onEscapeFallback?.(); return; }
       if (!showMenu) return;
       if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1)); }
       else if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)); }
       else if (e.key === "Enter" || e.key === "Tab") { if (filtered.length > 0) { e.preventDefault(); selectItem(filtered[activeIdx]); } }
       else if (e.key === "Escape") { setShowMenu(false); }
     },
-    [showMenu, filtered, activeIdx, selectItem, onClose]
+    [showMenu, filtered, activeIdx, selectItem]
   );
+
+  return { showMenu, setShowMenu, menuPos, filtered, activeIdx, setActiveIdx, handleInput, selectItem, handleKeyDown };
+}
+
+// ---------------------------------------------------------------------------
+// Fullscreen modal editor
+// ---------------------------------------------------------------------------
+function FullscreenEditor({
+  value,
+  onChange,
+  label,
+  placeholder,
+  generateContext,
+  fieldType,
+  botId,
+  channelId,
+  onClose,
+}: {
+  value: string;
+  onChange: (text: string) => void;
+  label?: string;
+  placeholder?: string;
+  generateContext?: string;
+  fieldType?: string;
+  botId?: string;
+  channelId?: string;
+  onClose: () => void;
+}) {
+  const t = useThemeTokens();
+  const { data: completions } = useCompletions();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const ac = usePromptAutocomplete(textareaRef, containerRef, value, onChange, completions);
 
   if (typeof document === "undefined") return null;
   return createPortal(
@@ -411,9 +426,9 @@ function FullscreenEditor({
         <textarea
           ref={textareaRef}
           value={value}
-          onChange={(e) => handleInput(e.target.value)}
-          onKeyDown={handleKeyDown as any}
-          onBlur={() => setTimeout(() => setShowMenu(false), 200)}
+          onChange={(e) => ac.handleInput(e.target.value)}
+          onKeyDown={((e: React.KeyboardEvent) => ac.handleKeyDown(e, onClose)) as any}
+          onBlur={() => setTimeout(() => ac.setShowMenu(false), 200)}
           placeholder={placeholder}
           autoFocus
           style={{
@@ -426,16 +441,22 @@ function FullscreenEditor({
           onFocus={(e) => { e.target.style.borderColor = t.accent; }}
           onBlurCapture={(e) => { e.target.style.borderColor = t.surfaceBorder; }}
         />
+        {/* Character / token count */}
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "6px 4px 0" }}>
+          <span style={{ fontSize: 11, color: t.textDim }}>
+            {value.length} chars &middot; ~{Math.ceil(value.length / 4)} tokens
+          </span>
+        </div>
       </div>
 
       <AutocompleteMenu
-        show={showMenu}
-        items={filtered}
-        activeIdx={activeIdx}
-        menuPos={menuPos}
-        onSelect={selectItem}
-        onHover={setActiveIdx}
-        onClose={() => setShowMenu(false)}
+        show={ac.showMenu}
+        items={ac.filtered}
+        activeIdx={ac.activeIdx}
+        menuPos={ac.menuPos}
+        onSelect={ac.selectItem}
+        onHover={ac.setActiveIdx}
+        onClose={() => ac.setShowMenu(false)}
       />
     </div>,
     document.body
@@ -461,66 +482,8 @@ export function LlmPrompt({
   const { data: completions } = useCompletions();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const [showMenu, setShowMenu] = useState(false);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 });
-  const [atStart, setAtStart] = useState(-1);
-  const [filtered, setFiltered] = useState<CompletionItem[]>([]);
-  const [activeIdx, setActiveIdx] = useState(0);
   const [expanded, setExpanded] = useState(false);
-
-  const handleInput = useCallback(
-    (text: string) => {
-      onChange(text);
-      const ta = textareaRef.current;
-      if (!ta || !completions) return;
-      const pos = ta.selectionStart;
-      const before = text.substring(0, pos);
-      const atIdx = before.lastIndexOf("@");
-      if (atIdx === -1 || (atIdx > 0 && /\w/.test(before[atIdx - 1]))) { setShowMenu(false); return; }
-      const query = before.substring(atIdx + 1);
-      if (/\s/.test(query)) { setShowMenu(false); return; }
-      setAtStart(atIdx);
-      const scored = completions.map((c) => ({ c, s: scoreMatch(c.value, c.label, query) }))
-        .filter((x) => x.s > 0).sort((a, b) => b.s - a.s).map((x) => x.c).slice(0, 10);
-      setActiveIdx(0);
-      setFiltered(scored);
-      if (scored.length > 0 && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setMenuPos({ top: rect.bottom + 2, left: rect.left, width: rect.width });
-        setShowMenu(true);
-      } else { setShowMenu(false); }
-    },
-    [completions, onChange]
-  );
-
-  const selectItem = useCallback(
-    (item: CompletionItem) => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const before = value.substring(0, atStart);
-      const after = value.substring(ta.selectionStart);
-      onChange(before + "@" + item.value + " " + after);
-      setShowMenu(false);
-      requestAnimationFrame(() => {
-        const cur = atStart + item.value.length + 2;
-        ta.selectionStart = ta.selectionEnd = cur;
-        ta.focus();
-      });
-    },
-    [value, atStart, onChange]
-  );
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (!showMenu) return;
-      if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1)); }
-      else if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)); }
-      else if (e.key === "Enter" || e.key === "Tab") { if (filtered.length > 0) { e.preventDefault(); selectItem(filtered[activeIdx]); } }
-      else if (e.key === "Escape") { setShowMenu(false); }
-    },
-    [showMenu, filtered, activeIdx, selectItem]
-  );
+  const ac = usePromptAutocomplete(textareaRef, containerRef, value, onChange, completions);
 
   return (
     <div>
@@ -553,9 +516,9 @@ export function LlmPrompt({
         <textarea
           ref={textareaRef}
           value={value}
-          onChange={(e) => handleInput(e.target.value)}
-          onKeyDown={handleKeyDown as any}
-          onBlur={() => setTimeout(() => setShowMenu(false), 200)}
+          onChange={(e) => ac.handleInput(e.target.value)}
+          onKeyDown={((e: React.KeyboardEvent) => ac.handleKeyDown(e)) as any}
+          onBlur={() => setTimeout(() => ac.setShowMenu(false), 200)}
           placeholder={placeholder}
           rows={rows}
           style={{
@@ -568,18 +531,24 @@ export function LlmPrompt({
           onBlurCapture={(e) => { e.target.style.borderColor = t.surfaceBorder; }}
         />
       </div>
-      {helpText && (
-        <div style={{ color: t.textDim, fontSize: 11, marginTop: 4 }}>{helpText}</div>
-      )}
+      {/* Character / token count */}
+      <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+        {helpText ? (
+          <span style={{ color: t.textDim, fontSize: 11 }}>{helpText}</span>
+        ) : <span />}
+        <span style={{ fontSize: 11, color: t.textDim }}>
+          {value.length} chars &middot; ~{Math.ceil(value.length / 4)} tokens
+        </span>
+      </div>
 
       <AutocompleteMenu
-        show={showMenu}
-        items={filtered}
-        activeIdx={activeIdx}
-        menuPos={menuPos}
-        onSelect={selectItem}
-        onHover={setActiveIdx}
-        onClose={() => setShowMenu(false)}
+        show={ac.showMenu}
+        items={ac.filtered}
+        activeIdx={ac.activeIdx}
+        menuPos={ac.menuPos}
+        onSelect={ac.selectItem}
+        onHover={ac.setActiveIdx}
+        onClose={() => ac.setShowMenu(false)}
       />
 
       {expanded && (

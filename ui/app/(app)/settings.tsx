@@ -67,7 +67,7 @@ function SelectField({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="flex-row flex-wrap gap-1.5">
+    <div className="flex flex-row flex-wrap gap-1.5">
       {item.options!.map((opt) => (
         <button
           type="button"
@@ -146,7 +146,7 @@ function TextareaField({
   const [showBuiltin, setShowBuiltin] = useState(false);
 
   return (
-    <div style={{ width: "100%", gap: 8 }}>
+    <div style={{ display: "flex", width: "100%", gap: 8 }}>
       <textarea
         className="bg-surface border border-surface-border rounded px-3 py-3 text-text text-sm"
         value={value}
@@ -169,7 +169,7 @@ function TextareaField({
           <button
             type="button"
             onClick={() => setShowBuiltin(!showBuiltin)}
-            className="flex-row items-center gap-2 px-3 py-2"
+            className="flex flex-row items-center gap-2 px-3 py-2"
           >
             <ChevronDown
               size={12}
@@ -348,8 +348,8 @@ function SettingRow({
   };
 
   return (
-    <div className="py-3 gap-2">
-      <div className="flex-row items-center gap-2 flex-wrap">
+    <div className="flex py-3 gap-2">
+      <div className="flex flex-row items-center gap-2 flex-wrap">
         <span className="text-text text-sm font-medium">{item.label}</span>
         {item.overridden && (
           <div className="bg-accent/20 px-1.5 py-0.5 rounded">
@@ -363,14 +363,14 @@ function SettingRow({
         )}
       </div>
       <span className="text-text-dim text-xs">{item.description}</span>
-      <div className="flex-row items-center gap-2">
+      <div className="flex flex-row items-center gap-2">
         {renderField()}
         {item.overridden && !item.read_only && (
           <button
             type="button"
             onClick={() => onReset(item.key)}
             disabled={isResetting}
-            className="flex-row items-center gap-1 px-2 py-1.5 rounded border border-surface-border hover:bg-surface-overlay"
+            className="flex flex-row items-center gap-1 px-2 py-1.5 rounded border border-surface-border hover:bg-surface-overlay"
           >
             {isResetting ? (
               <Spinner size={16} color="#9ca3af" />
@@ -693,7 +693,7 @@ export default function SettingsScreen() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <Spinner size={32} color={t.accent} />
       </div>
     );
@@ -701,7 +701,7 @@ export default function SettingsScreen() {
 
   if (error) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center p-4">
+      <div className="flex flex-1 bg-surface items-center justify-center p-4">
         <span className="text-red-400 text-sm">
           Failed to load settings: {error instanceof Error ? error.message : "Unknown error"}
         </span>
@@ -714,9 +714,9 @@ export default function SettingsScreen() {
       <PageHeader variant="list"
         title="Settings"
         right={
-          <div className="flex-row items-center gap-2">
+          <div className="flex flex-row items-center gap-2">
             {saved && (
-              <div className="flex-row items-center gap-1">
+              <div className="flex flex-row items-center gap-1">
                 <Check size={14} color="#22c55e" />
                 <span className="text-green-400 text-xs">Saved</span>
               </div>
@@ -726,7 +726,7 @@ export default function SettingsScreen() {
                 type="button"
                 onClick={handleSave}
                 disabled={updateMutation.isPending}
-                className="bg-accent rounded px-3 py-1.5 flex-row items-center gap-1.5"
+                className="flex bg-accent rounded px-3 py-1.5 flex-row items-center gap-1.5"
               >
                 {updateMutation.isPending ? (
                   <Spinner size={16} color="#fff" />
@@ -745,7 +745,7 @@ export default function SettingsScreen() {
         <ServerStatusBar />
       </div>
 
-      <div className="flex-1 flex-row">
+      <div className="flex flex-1 flex-row">
         {/* Desktop group nav */}
         {isDesktop && (
           <div

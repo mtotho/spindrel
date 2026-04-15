@@ -38,7 +38,7 @@ export function WorkflowIdentitySection({
   const defaultsCount = Object.keys(draft.defaults || {}).length;
 
   return (
-    <div style={{ gap: 4 }}>
+    <div style={{ display: "flex", gap: 4 }}>
       {/* Identity section — always open */}
       <CollapsibleSection title="Identity" defaultOpen t={t}>
         {isNew && (
@@ -168,6 +168,7 @@ function CollapsibleSection({ title, badge, defaultOpen, children, t }: {
       <button type="button"
         onClick={() => setOpen(!open)}
         style={{
+          display: "flex",
           flexDirection: "row", alignItems: "center", gap: 6,
           paddingBlock: 8, paddingInline: 10,
         }}
@@ -216,7 +217,7 @@ function TriggersEditor({ value, onChange }: {
   const update = (key: string, v: boolean) => onChange({ ...value, [key]: v });
 
   return (
-    <div style={{ gap: 4 }}>
+    <div style={{ display: "flex", gap: 4 }}>
       <Toggle value={!!value.tool} onChange={(v) => update("tool", v)} label="Tool" description="Via manage_workflow tool" />
       <Toggle value={!!value.api} onChange={(v) => update("api", v)} label="API" description="Via admin API" />
       <Toggle value={!!value.heartbeat} onChange={(v) => update("heartbeat", v)} label="Heartbeat" description="From heartbeat prompts" />

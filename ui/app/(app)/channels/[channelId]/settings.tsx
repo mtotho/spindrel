@@ -406,7 +406,7 @@ export default function ChannelSettingsScreen() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         className="flex-1"
-        contentContainerStyle={{ padding: isMobile ? 12 : 16, paddingBottom: 36, gap: isMobile ? 16 : 20, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
+        contentContainerStyle={{ padding: isMobile ? 12 : 16, gap: isMobile ? 16 : 20, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
         key={tab}
       >
         {tab === "general" && (

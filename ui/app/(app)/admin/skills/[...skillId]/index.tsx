@@ -86,7 +86,7 @@ export default function SkillDetailScreen() {
 
   if (!isNew && isLoading) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <Spinner />
       </div>
     );
@@ -159,7 +159,7 @@ export default function SkillDetailScreen() {
       )}
 
       {/* Body */}
-      <div style={{ flex: 1, ...(isWide ? { flexDirection: "row" as const } : {}) }}>
+      <div style={{ display: "flex", flex: 1, ...(isWide ? { flexDirection: "row" as const } : {}) }}>
         {/* Content editor */}
         <div style={{
           ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),

@@ -212,7 +212,7 @@ export function HudProgress({ item }: { item: HudItem }) {
 export function HudGroup({ item, hudQueryKey }: { item: HudItem; hudQueryKey?: string[] }) {
   const t = useThemeTokens();
   return (
-    <div style={{ gap: 4 }}>
+    <div style={{ display: "flex", gap: 4 }}>
       {item.label && (
         <span style={{ fontSize: 11, fontWeight: "600", color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {item.label}

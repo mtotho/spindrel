@@ -125,17 +125,17 @@ export default function LoginScreen() {
   // Step 1: Server URL input
   if (!serverChecked) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center p-6">
-        <div className="w-full max-w-sm gap-6">
-          <div className="items-center gap-2 mb-4">
+      <div className="flex flex-1 bg-surface items-center justify-center p-6">
+        <div className="flex w-full max-w-sm gap-6">
+          <div className="flex items-center gap-2 mb-4">
             <span className="text-text text-2xl font-bold">Spindrel</span>
             <span className="text-text-muted text-sm">
               Enter your server URL to get started
             </span>
           </div>
 
-          <div className="gap-2">
-            <div className="flex-row items-center gap-2">
+          <div className="flex gap-2">
+            <div className="flex flex-row items-center gap-2">
               <Server size={16} color={t.textMuted} />
               <span className="text-text-muted text-sm">Server URL</span>
             </div>
@@ -158,7 +158,7 @@ export default function LoginScreen() {
             type="button"
             onClick={handleCheckServer}
             disabled={loading}
-            className="bg-accent rounded-lg px-4 py-3 flex-row items-center justify-center gap-2 active:bg-accent-hover"
+            className="flex bg-accent rounded-lg px-4 py-3 flex-row items-center justify-center gap-2 active:bg-accent-hover"
           >
             {loading ? (
               <Spinner color="white" size={16} />
@@ -176,9 +176,9 @@ export default function LoginScreen() {
 
   // Step 2: Login form
   return (
-    <div className="flex-1 bg-surface items-center justify-center p-6">
-      <div className="w-full max-w-sm gap-6">
-        <div className="items-center gap-2 mb-4">
+    <div className="flex flex-1 bg-surface items-center justify-center p-6">
+      <div className="flex w-full max-w-sm gap-6">
+        <div className="flex items-center gap-2 mb-4">
           <span className="text-text text-2xl font-bold">Sign In</span>
           <span className="text-text-muted text-sm">
             {serverUrl.replace(/^https?:\/\//, "")}
@@ -186,8 +186,8 @@ export default function LoginScreen() {
         </div>
 
         {/* Email */}
-        <div className="gap-2">
-          <div className="flex-row items-center gap-2">
+        <div className="flex gap-2">
+          <div className="flex flex-row items-center gap-2">
             <Mail size={16} color={t.textMuted} />
             <span className="text-text-muted text-sm">Email</span>
           </div>
@@ -202,8 +202,8 @@ export default function LoginScreen() {
         </div>
 
         {/* Password */}
-        <div className="gap-2">
-          <div className="flex-row items-center gap-2">
+        <div className="flex gap-2">
+          <div className="flex flex-row items-center gap-2">
             <Lock size={16} color={t.textMuted} />
             <span className="text-text-muted text-sm">Password</span>
           </div>
@@ -226,7 +226,7 @@ export default function LoginScreen() {
           type="button"
           onClick={handleLogin}
           disabled={loading}
-          className="bg-accent rounded-lg px-4 py-3 flex-row items-center justify-center gap-2 active:bg-accent-hover"
+          className="flex bg-accent rounded-lg px-4 py-3 flex-row items-center justify-center gap-2 active:bg-accent-hover"
         >
           {loading ? (
             <Spinner color="white" size={16} />
@@ -242,7 +242,7 @@ export default function LoginScreen() {
         <button
           type="button"
           onClick={() => setShowApiKey(!showApiKey)}
-          className="flex-row items-center justify-center gap-1"
+          className="flex flex-row items-center justify-center gap-1"
         >
           <span className="text-text-dim text-xs">Use API Key instead</span>
           {showApiKey ? (
@@ -253,9 +253,9 @@ export default function LoginScreen() {
         </button>
 
         {showApiKey && (
-          <div className="gap-4">
-            <div className="gap-2">
-              <div className="flex-row items-center gap-2">
+          <div className="flex gap-4">
+            <div className="flex gap-2">
+              <div className="flex flex-row items-center gap-2">
                 <Key size={16} color={t.textMuted} />
                 <span className="text-text-muted text-sm">API Key</span>
               </div>
@@ -272,7 +272,7 @@ export default function LoginScreen() {
               type="button"
               onClick={handleApiKeyConnect}
               disabled={loading}
-              className="border border-surface-border rounded-lg px-4 py-3 flex-row items-center justify-center gap-2"
+              className="flex border border-surface-border rounded-lg px-4 py-3 flex-row items-center justify-center gap-2"
             >
               <span className="text-text-muted font-semibold">
                 Connect with API Key
@@ -288,7 +288,7 @@ export default function LoginScreen() {
             setServerChecked(false);
             setError(null);
           }}
-          className="items-center"
+          className="flex items-center"
         >
           <span className="text-text-dim text-xs">Change server</span>
         </button>

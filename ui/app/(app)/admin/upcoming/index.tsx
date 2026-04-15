@@ -133,8 +133,8 @@ export default function UpcomingActivityPage() {
       >
         {/* Header */}
         <div style={{ paddingInline: 24, paddingTop: 24, paddingBottom: 12 }}>
-          <div style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <div style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
               <Clock size={20} color={t.text} />
               <span style={{ fontSize: 20, fontWeight: "700", color: t.text }}>
                 Upcoming Activity
@@ -143,7 +143,7 @@ export default function UpcomingActivityPage() {
             <Link to={"/admin/tasks"}>
               <button type="button"
                 className="hover:bg-surface-overlay active:bg-surface-overlay"
-                style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 6, paddingInline: 12, paddingBlock: 6 }}
+                style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 6, paddingInline: 12, paddingBlock: 6 }}
               >
                 <span style={{ fontSize: 14, color: t.accent }}>Tasks</span>
                 <ArrowRight size={14} color={t.accent} />
@@ -152,7 +152,7 @@ export default function UpcomingActivityPage() {
           </div>
 
           {/* Type filter */}
-          <div style={{ flexDirection: "row", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
             {FILTERS.map((f) => (
               <button type="button"
                 key={f.key}
@@ -178,11 +178,11 @@ export default function UpcomingActivityPage() {
 
         {/* Content */}
         {isLoading ? (
-          <div style={{ paddingInline: 24, gap: 12, paddingTop: 8 }}>
+          <div style={{ display: "flex", paddingInline: 24, gap: 12, paddingTop: 8 }}>
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingBlock: 12 }}>
+              <div key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12, paddingBlock: 12 }}>
                 <div className="animate-pulse" style={{ width: 18, height: 18, borderRadius: 4, backgroundColor: t.skeletonBg }} />
-                <div style={{ flex: 1, gap: 6 }}>
+                <div style={{ display: "flex", flex: 1, gap: 6 }}>
                   <div className="animate-pulse" style={{ height: 14, width: `${40 + i * 12}%`, borderRadius: 4, backgroundColor: t.skeletonBg }} />
                   <div className="animate-pulse" style={{ height: 11, width: `${25 + i * 8}%`, borderRadius: 4, backgroundColor: t.skeletonBg }} />
                 </div>
@@ -190,7 +190,7 @@ export default function UpcomingActivityPage() {
             ))}
           </div>
         ) : !groups.length ? (
-          <div style={{ alignItems: "center", justifyContent: "center", paddingBlock: 64, paddingInline: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", paddingBlock: 64, paddingInline: 24 }}>
             <Clock size={32} color={t.textDim} style={{ opacity: 0.3, marginBottom: 12 }} />
             <span style={{ fontSize: 14, color: t.textDim }}>No upcoming activity</span>
           </div>
@@ -225,6 +225,7 @@ export default function UpcomingActivityPage() {
                     <button type="button"
                       className="hover:bg-surface-overlay active:bg-surface-overlay"
                       style={{
+                        display: "flex",
                         flexDirection: "row",
                         alignItems: "center",
                         gap: 12,
@@ -256,7 +257,7 @@ export default function UpcomingActivityPage() {
                             ? `Heartbeat — #${item.channel_name}`
                             : item.title}
                         </span>
-                        <div style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
+                        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
                           <span style={{ fontSize: 12, color: t.textMuted }}>
                             {item.bot_name}
                           </span>
@@ -276,7 +277,7 @@ export default function UpcomingActivityPage() {
                             </span>
                           )}
                           {item.in_quiet_hours && (
-                            <div style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 2 }}>
                               <Moon size={10} color={t.textDim} style={{ opacity: 0.5 }} />
                               <span style={{ fontSize: 10, color: t.textDim }}>quiet</span>
                             </div>
@@ -285,7 +286,7 @@ export default function UpcomingActivityPage() {
                       </div>
 
                       {/* Recurring indicator + Type badge */}
-                      <div style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
                         {(item.recurrence || item.interval_minutes || item.interval_hours) && (
                           <RefreshCw size={12} color={t.textDim} />
                         )}
@@ -302,7 +303,7 @@ export default function UpcomingActivityPage() {
                       </div>
 
                       {/* Time */}
-                      <div style={{ alignItems: "flex-end", minWidth: 52 }}>
+                      <div style={{ display: "flex", alignItems: "flex-end", minWidth: 52 }}>
                         <span style={{ fontSize: 12, color: t.textMuted }}>
                           {item.scheduled_at ? formatTimeShort(item.scheduled_at) : "\u2014"}
                         </span>

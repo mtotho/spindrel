@@ -307,7 +307,7 @@ export default function WorkflowsPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex-1 items-center justify-center">
+        <div className="flex flex-1 items-center justify-center">
           <Spinner />
         </div>
       ) : (
@@ -319,7 +319,7 @@ export default function WorkflowsPage() {
             )}
 
             {(!workflows || workflows.length === 0) && (
-              <div style={{ alignItems: "center", paddingTop: 60, gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", paddingTop: 60, gap: 12 }}>
                 <Zap size={36} color={t.surfaceBorder} />
                 <span style={{ color: t.textMuted, fontSize: 15, fontWeight: "600" }}>
                   No workflows yet
@@ -330,6 +330,7 @@ export default function WorkflowsPage() {
                 <button type="button"
                   onClick={() => navigate("/admin/workflows/new")}
                   style={{
+                    display: "flex",
                     flexDirection: "row", alignItems: "center", gap: 6,
                     paddingInline: 16, paddingBlock: 8, borderRadius: 8,
                     backgroundColor: t.accent, marginTop: 8,
@@ -341,7 +342,7 @@ export default function WorkflowsPage() {
               </div>
             )}
             {workflows && workflows.length > 0 && filtered.length === 0 && (
-              <div style={{ alignItems: "center", paddingTop: 60 }}>
+              <div style={{ display: "flex", alignItems: "center", paddingTop: 60 }}>
                 <span style={{ color: t.textDim, fontSize: 13 }}>
                   No workflows match &quot;{search}&quot;
                 </span>
@@ -399,10 +400,10 @@ function WorkflowCard({ workflow: w, recentRuns, t }: {
           padding: 14,
         }}
       >
-        <div style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ flex: 1 }}>
             {/* Name + badges */}
-            <div style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Zap size={16} color={t.accent} />
               <span style={{ color: t.text, fontWeight: "600", fontSize: 14 }}>
                 {w.name}
@@ -435,7 +436,7 @@ function WorkflowCard({ workflow: w, recentRuns, t }: {
             ) : null}
 
             {/* Metadata row */}
-            <div style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
               {/* Step type summary */}
               <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                 {stepTypeSummary.map(([type, count]) => {
@@ -459,7 +460,7 @@ function WorkflowCard({ workflow: w, recentRuns, t }: {
               )}
               {/* Tags */}
               {w.tags.length > 0 && (
-                <div style={{ flexDirection: "row", gap: 4 }}>
+                <div style={{ display: "flex", flexDirection: "row", gap: 4 }}>
                   {w.tags.map((tag) => (
                     <div key={tag} style={{
                       backgroundColor: t.purpleSubtle, borderWidth: 1,

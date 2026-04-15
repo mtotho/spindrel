@@ -227,7 +227,7 @@ export default function WorkflowDetailPage() {
 
   if (isLoading && !isNew) {
     return (
-      <div className="flex-1 items-center justify-center">
+      <div className="flex flex-1 items-center justify-center">
         <Spinner />
       </div>
     );
@@ -483,7 +483,7 @@ function MobileDefinitionEditor({ draft, update, isNew, workflowSecrets, t }: {
 
   return (
     <div style={{ padding: 16, overflow: "auto" }}>
-      <div style={{ gap: 12 }}>
+      <div style={{ display: "flex", gap: 12 }}>
         <WorkflowIdentitySection
           draft={draft}
           update={update}
@@ -577,8 +577,8 @@ function YamlImport({ onImport, onCancel, t }: {
   };
 
   return (
-    <div style={{ gap: 12 }}>
-      <div style={{ gap: 4 }}>
+    <div style={{ display: "flex", gap: 12 }}>
+      <div style={{ display: "flex", gap: 4 }}>
         <span style={{ color: t.text, fontSize: 18, fontWeight: "700" }}>Import YAML</span>
         <span style={{ color: t.textMuted, fontSize: 13 }}>Paste a workflow YAML definition below.</span>
       </div>
@@ -739,6 +739,7 @@ function ExportModal({ yaml, onClose, t }: {
             <button type="button"
               onClick={handleCopy}
               style={{
+                display: "flex",
                 flexDirection: "row", alignItems: "center", gap: 4,
                 paddingInline: 10, paddingBlock: 4, borderRadius: 6,
                 backgroundColor: t.accentSubtle, borderWidth: 1, borderColor: t.accentBorder,

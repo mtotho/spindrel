@@ -7,6 +7,8 @@ import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useTask, useCreateTask, useUpdateTask, useDeleteTask } from "@/src/api/hooks/useTasks";
 import { useWorkflows } from "@/src/api/hooks/useWorkflows";
+import { useSkills } from "@/src/api/hooks/useSkills";
+import { useTools } from "@/src/api/hooks/useTools";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
@@ -14,16 +16,14 @@ import { FormRow, TextInput, SelectInput, Toggle, Section } from "@/src/componen
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { formatDateTime, isoToLocalInput, localInputToISO } from "@/src/utils/time";
-import { useThemeTokens } from "../../theme/tokens";
 import {
-  ScheduledAtPicker,
-  RecurrencePicker,
-  ScheduleSummary,
   EnableToggle,
   InfoRow,
   STATUS_OPTIONS,
   TASK_TYPE_OPTIONS_CREATE,
 } from "./SchedulingPickers";
+import { TriggerSection, type TriggerConfig } from "./TriggerSection";
+import { ChipPicker } from "./TaskCreateModal";
 
 
 // ---------------------------------------------------------------------------
@@ -50,7 +50,6 @@ export function TaskEditor({
   cloneFromId,
   extraQueryKeysToInvalidate,
 }: TaskEditorProps) {
-  const t = useThemeTokens();
   const isCreate = !taskId;
   const loadTaskId = taskId ?? cloneFromId;
   const { data: existingTask, isLoading: loadingTask } = useTask(loadTaskId ?? undefined);
@@ -59,6 +58,8 @@ export function TaskEditor({
   const deleteMut = useDeleteTask();
   const { data: bots } = useBots();
   const { data: channels } = useChannels();
+  const { data: allSkills } = useSkills();
+  const { data: allTools } = useTools();
   const isWide = typeof window !== "undefined" && window.innerWidth >= 768;
   const qc = useQueryClient();
 
@@ -80,6 +81,9 @@ export function TaskEditor({
   const [maxRunSeconds, setMaxRunSeconds] = useState<string>("");
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [workflowSessionMode, setWorkflowSessionMode] = useState<string | null>(null);
+  const [triggerConfig, setTriggerConfig] = useState<TriggerConfig>({ type: "schedule" });
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+  const [selectedToolKeys, setSelectedToolKeys] = useState<string[]>([]);
   const [initialized, setInitialized] = useState(false);
   const { data: workflows } = useWorkflows();
 
@@ -102,6 +106,13 @@ export function TaskEditor({
     setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
     setWorkflowId(existingTask.workflow_id ?? null);
     setWorkflowSessionMode(existingTask.workflow_session_mode ?? null);
+    if (existingTask.trigger_config) {
+      setTriggerConfig(existingTask.trigger_config as TriggerConfig);
+    } else if (existingTask.recurrence) {
+      setTriggerConfig({ type: "schedule" });
+    }
+    setSelectedSkillIds(existingTask.execution_config?.skills ?? []);
+    setSelectedToolKeys(existingTask.execution_config?.tools ?? []);
     setInitialized(true);
   }
 
@@ -123,6 +134,11 @@ export function TaskEditor({
     setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
     setWorkflowId(existingTask.workflow_id ?? null);
     setWorkflowSessionMode(existingTask.workflow_session_mode ?? null);
+    if (existingTask.trigger_config) {
+      setTriggerConfig(existingTask.trigger_config as TriggerConfig);
+    }
+    setSelectedSkillIds(existingTask.execution_config?.skills ?? []);
+    setSelectedToolKeys(existingTask.execution_config?.tools ?? []);
     setInitialized(true);
   }
 
@@ -167,6 +183,8 @@ export function TaskEditor({
           max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
           workflow_id: workflowId || null,
           workflow_session_mode: workflowSessionMode || null,
+          skills: selectedSkillIds.length > 0 ? selectedSkillIds : null,
+          tools: selectedToolKeys.length > 0 ? selectedToolKeys : null,
         });
       } else {
         await updateMut.mutateAsync({
@@ -186,6 +204,9 @@ export function TaskEditor({
           max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
           workflow_id: workflowId || null,
           workflow_session_mode: workflowSessionMode || null,
+          trigger_config: triggerConfig,
+          skills: selectedSkillIds.length > 0 ? selectedSkillIds : null,
+          tools: selectedToolKeys.length > 0 ? selectedToolKeys : null,
         });
       }
       invalidateExtra();
@@ -215,44 +236,37 @@ export function TaskEditor({
     })),
   ];
 
+  const skillOptions = (allSkills || []).map((s) => ({ key: s.id, label: s.name, tag: s.category ?? undefined }));
+  const toolOptions = (allTools || []).map((tl) => ({ key: tl.tool_key, label: tl.tool_name, tag: tl.source_integration ?? undefined }));
+
   const editorTitle = cloneFromId ? "New Task (Clone)" : isCreate ? "New Task" : "Edit Task";
 
   return ReactDOM.createPortal(
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 10000,
-      background: t.surface, display: "flex", flexDirection: "column",
-    }}>
+    <div className="fixed inset-0 z-[10000] bg-surface">
       {/* Header */}
-      <div style={{
-        display: "flex", flexDirection: "row", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px", borderBottom: `1px solid ${t.surfaceBorder}`, flexShrink: 0,
-        gap: 8,
-      }}>
+      <div className={`flex flex-row items-center border-b border-surface-border shrink-0 gap-2 ${isWide ? "px-5 py-3" : "px-3 py-2.5"}`}>
         <button
           onClick={onClose}
-          style={{ background: "none", border: "none", cursor: "pointer", padding: 4, flexShrink: 0 }}
+          className="bg-transparent border-none cursor-pointer p-1 shrink-0 rounded-md hover:bg-surface-overlay"
         >
-          <ChevronLeft size={22} color={t.textMuted} />
+          <ChevronLeft size={22} className="text-text-muted" />
         </button>
 
-        <span style={{ color: t.text, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+        <span className="text-text text-sm font-bold shrink-0">
           {editorTitle}
         </span>
         {cloneFromId && (
-          <span style={{
-            fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-            background: t.warningSubtle, color: t.warningMuted,
-          }}>
+          <span className="text-[10px] px-2 py-0.5 rounded font-semibold bg-warning/[0.08] text-warning-muted">
             CLONE
           </span>
         )}
         {!isCreate && existingTask && isWide && (
-          <span style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace" }}>
+          <span className="text-text-dim text-[11px] font-mono">
             {taskId?.slice(0, 8)}
           </span>
         )}
 
-        <div style={{ flex: 1 }} />
+        <div className="flex-1" />
 
         {/* View Logs button (edit mode, when correlation_id available) */}
         {!isCreate && existingTask?.correlation_id && (
@@ -262,12 +276,7 @@ export function TaskEditor({
               navigate(`/admin/logs/${existingTask.correlation_id}`);
             }}
             title="View Logs"
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
-              padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: `1px solid ${t.accentMuted}`, borderRadius: 6,
-              background: "transparent", color: t.accent, cursor: "pointer", flexShrink: 0,
-            }}
+            className={`flex flex-row items-center ${isWide ? "gap-1.5 px-3.5" : "px-2"} py-1.5 text-[13px] border border-accent-muted rounded-md bg-transparent text-accent cursor-pointer shrink-0 hover:bg-accent/[0.06] transition-colors`}
           >
             <FileText size={14} />
             {isWide && "Logs"}
@@ -279,12 +288,7 @@ export function TaskEditor({
           <button
             onClick={() => onClone(taskId)}
             title="Clone"
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
-              padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
-              background: "transparent", color: t.textMuted, cursor: "pointer", flexShrink: 0,
-            }}
+            className={`flex flex-row items-center ${isWide ? "gap-1.5 px-3.5" : "px-2"} py-1.5 text-[13px] border border-surface-border rounded-md bg-transparent text-text-muted cursor-pointer shrink-0 hover:border-accent/50 hover:text-text transition-colors`}
           >
             <Copy size={14} />
             {isWide && "Clone"}
@@ -296,12 +300,7 @@ export function TaskEditor({
             onClick={handleDelete}
             disabled={deleteMut.isPending}
             title="Delete"
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
-              padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
-              background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
-            }}
+            className={`flex flex-row items-center ${isWide ? "gap-1.5 px-3.5" : "px-2"} py-1.5 text-[13px] border border-danger/[0.15] rounded-md bg-transparent text-danger cursor-pointer shrink-0 hover:bg-danger/[0.06] transition-colors`}
           >
             <Trash2 size={14} />
             {isWide && "Delete"}
@@ -321,13 +320,11 @@ export function TaskEditor({
         <button
           onClick={handleSave}
           disabled={saving || !hasPromptOrWorkflow || !botId}
-          style={{
-            padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
-            border: "none", borderRadius: 6, flexShrink: 0,
-            background: (!hasPromptOrWorkflow || !botId) ? t.surfaceBorder : t.accent,
-            color: (!hasPromptOrWorkflow || !botId) ? t.textDim : "#fff",
-            cursor: (!hasPromptOrWorkflow || !botId) ? "not-allowed" : "pointer",
-          }}
+          className={`${isWide ? "px-5" : "px-3"} py-1.5 text-[13px] font-semibold border-none rounded-md shrink-0 transition-colors ${
+            hasPromptOrWorkflow && botId
+              ? "bg-accent text-white cursor-pointer hover:bg-accent-hover"
+              : "bg-surface-border text-text-dim cursor-not-allowed"
+          }`}
         >
           {saving ? "..." : isCreate ? "Create" : "Save"}
         </button>
@@ -335,39 +332,28 @@ export function TaskEditor({
 
       {/* Error display */}
       {(createMut.error || updateMut.error || deleteMut.error) && (
-        <div style={{ padding: "8px 20px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
+        <div className="px-5 py-2 bg-danger/[0.08] text-danger text-xs">
           {(createMut.error || updateMut.error || deleteMut.error)?.message || "An error occurred"}
         </div>
       )}
 
       {/* Body */}
       {(((!isCreate && !cloneFromId) || cloneFromId) && loadingTask) ? (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <div className="flex flex-1 items-center justify-center">
           <div className="chat-spinner" />
         </div>
       ) : (
-        <div style={{
-          flex: 1,
-          overflowY: "auto",
-          ...(isWide ? { display: "flex", flexDirection: "row" as const } : {}),
-        }}>
+        <div className={`flex flex-1 overflow-y-auto ${isWide ? "flex-row" : ""}`}>
           {/* Prompt + Result/Error */}
-          <div style={{
-            ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),
-            display: "flex", flexDirection: "column",
-          }}>
-            <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className={isWide ? "flex-[3] border-r border-surface-overlay" : ""}>
+            <div className="flex px-5 py-4 gap-4">
               <FormRow label="Title">
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Short task title (optional)"
-                  style={{
-                    background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
-                    padding: "7px 12px", color: t.text, fontSize: 13,
-                    outline: "none", width: "100%",
-                  }}
+                  className="bg-input border border-surface-border rounded-lg px-3 py-[7px] text-text text-[13px] outline-none w-full focus:border-accent"
                 />
               </FormRow>
               <WorkspaceFilePrompt
@@ -398,12 +384,8 @@ export function TaskEditor({
 
               {!isCreate && existingTask?.result && (
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Result</div>
-                  <div style={{
-                    padding: 12, borderRadius: 8, background: t.inputBg, border: `1px solid ${t.surfaceRaised}`,
-                    fontSize: 12, color: t.success, whiteSpace: "pre-wrap",
-                    maxHeight: 300, overflow: "auto", fontFamily: "monospace",
-                  }}>
+                  <div className="text-xs font-semibold text-text-muted mb-1.5">Result</div>
+                  <div className="p-3 rounded-lg bg-input border border-surface-raised text-xs text-success whitespace-pre-wrap max-h-[300px] overflow-auto font-mono">
                     {existingTask.result}
                   </div>
                 </div>
@@ -411,12 +393,8 @@ export function TaskEditor({
 
               {!isCreate && existingTask?.error && (
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Error</div>
-                  <div style={{
-                    padding: 12, borderRadius: 8, background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
-                    fontSize: 12, color: t.danger, whiteSpace: "pre-wrap",
-                    maxHeight: 200, overflow: "auto", fontFamily: "monospace",
-                  }}>
+                  <div className="text-xs font-semibold text-text-muted mb-1.5">Error</div>
+                  <div className="p-3 rounded-lg bg-danger/[0.08] border border-danger/[0.15] text-xs text-danger whitespace-pre-wrap max-h-[200px] overflow-auto font-mono">
                     {existingTask.error}
                   </div>
                 </div>
@@ -425,12 +403,8 @@ export function TaskEditor({
           </div>
 
           {/* Metadata fields */}
-          <div style={{
-            ...(isWide ? { flex: 2 } : {}),
-            padding: "16px 20px",
-            borderTop: isWide ? "none" : `1px solid ${t.surfaceOverlay}`,
-          }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className={`px-5 py-4 ${isWide ? "flex-[2]" : "border-t border-surface-overlay"}`}>
+            <div className="flex gap-4">
               <Section title="Configuration">
                 <FormRow label="Bot">
                   <SelectInput
@@ -495,10 +469,32 @@ export function TaskEditor({
                 )}
               </Section>
 
-              <Section title="Scheduling">
-                <ScheduledAtPicker value={scheduledAt} onChange={setScheduledAt} />
-                <RecurrencePicker value={recurrence} onChange={setRecurrence} />
-                <ScheduleSummary scheduledAt={scheduledAt} recurrence={recurrence} />
+              <Section title="Trigger">
+                <TriggerSection
+                  triggerConfig={triggerConfig}
+                  onTriggerConfigChange={setTriggerConfig}
+                  scheduledAt={scheduledAt}
+                  onScheduledAtChange={setScheduledAt}
+                  recurrence={recurrence}
+                  onRecurrenceChange={setRecurrence}
+                />
+              </Section>
+
+              <Section title="Skills & Tools">
+                <ChipPicker
+                  label="Skills"
+                  items={skillOptions}
+                  selected={selectedSkillIds}
+                  onAdd={(id) => setSelectedSkillIds([...selectedSkillIds, id])}
+                  onRemove={(id) => setSelectedSkillIds(selectedSkillIds.filter((x) => x !== id))}
+                />
+                <ChipPicker
+                  label="Tools"
+                  items={toolOptions}
+                  selected={selectedToolKeys}
+                  onAdd={(key) => setSelectedToolKeys([...selectedToolKeys, key])}
+                  onRemove={(key) => setSelectedToolKeys(selectedToolKeys.filter((x) => x !== key))}
+                />
               </Section>
 
               <Section title="Options">
@@ -538,7 +534,7 @@ export function TaskEditor({
               {/* Read-only timing info in edit mode */}
               {!isCreate && existingTask && (
                 <Section title="Timing">
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div className="flex gap-2">
                     <InfoRow label="Created" value={formatDateTime(existingTask.created_at)} />
                     <InfoRow label="Scheduled" value={formatDateTime(existingTask.scheduled_at)} />
                     <InfoRow label="Run At" value={formatDateTime(existingTask.run_at)} />
@@ -554,40 +550,31 @@ export function TaskEditor({
               {/* Read-only dispatch info in edit mode */}
               {!isCreate && existingTask && (
                 <Section title="Dispatch">
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div className="flex gap-2">
                     <InfoRow label="Type" value={existingTask.dispatch_type} />
                     {existingTask.delegation_session_id && (
                       <InfoRow label="Delegation Context" value={existingTask.delegation_session_id.slice(0, 8) + "..."} />
                     )}
                     {existingTask.dispatch_config && (
                       <div>
-                        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Dispatch Config</div>
-                        <pre style={{
-                          fontSize: 10, color: t.textMuted, background: t.inputBg, padding: 8,
-                          borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
-                        }}>
+                        <div className="text-[11px] text-text-dim mb-1">Dispatch Config</div>
+                        <pre className="text-[10px] text-text-muted bg-input p-2 rounded-md overflow-auto max-h-[120px] m-0">
                           {JSON.stringify(existingTask.dispatch_config, null, 2)}
                         </pre>
                       </div>
                     )}
                     {existingTask.execution_config && (
                       <div>
-                        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Execution Config</div>
-                        <pre style={{
-                          fontSize: 10, color: t.textMuted, background: t.inputBg, padding: 8,
-                          borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
-                        }}>
+                        <div className="text-[11px] text-text-dim mb-1">Execution Config</div>
+                        <pre className="text-[10px] text-text-muted bg-input p-2 rounded-md overflow-auto max-h-[120px] m-0">
                           {JSON.stringify(existingTask.execution_config, null, 2)}
                         </pre>
                       </div>
                     )}
                     {existingTask.callback_config && (
                       <div>
-                        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Callback Config</div>
-                        <pre style={{
-                          fontSize: 10, color: t.textMuted, background: t.inputBg, padding: 8,
-                          borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
-                        }}>
+                        <div className="text-[11px] text-text-dim mb-1">Callback Config</div>
+                        <pre className="text-[10px] text-text-muted bg-input p-2 rounded-md overflow-auto max-h-[120px] m-0">
                           {JSON.stringify(existingTask.callback_config, null, 2)}
                         </pre>
                       </div>

@@ -153,7 +153,7 @@ export default function WebhooksScreen() {
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh}>
         <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
           {isLoading ? (
-            <div className="items-center justify-center py-20">
+            <div className="flex items-center justify-center py-20">
               <Spinner />
             </div>
           ) : (

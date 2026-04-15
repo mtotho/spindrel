@@ -939,7 +939,7 @@ export default function IntegrationDetailScreen() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <Spinner color={t.accent} />
       </div>
     );
@@ -947,7 +947,7 @@ export default function IntegrationDetailScreen() {
 
   if (!item) {
     return (
-      <div className="flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 bg-surface items-center justify-center">
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
           <div style={{ color: t.textDim, fontSize: 13 }}>Integration not found.</div>
           <button

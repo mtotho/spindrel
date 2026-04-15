@@ -175,7 +175,7 @@ export default function FallbacksScreen() {
 
         {/* Events table */}
         {isLoading ? (
-          <div className="flex-1 items-center justify-center" style={{ padding: 40 }}>
+          <div className="flex flex-1 items-center justify-center" style={{ padding: 40 }}>
             <Spinner />
           </div>
         ) : (

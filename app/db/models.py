@@ -1181,6 +1181,7 @@ class Task(Base):
     workflow_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     workflow_session_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    trigger_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
         Index("ix_tasks_status_run_at", "status", "run_at"),

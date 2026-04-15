@@ -175,7 +175,7 @@ export default function CarapacesPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex-1 items-center justify-center">
+        <div className="flex flex-1 items-center justify-center">
           <Spinner color={t.accent} />
         </div>
       ) : (

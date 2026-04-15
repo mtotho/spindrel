@@ -256,6 +256,96 @@ async def spawn_due_schedules() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Event triggers
+# ---------------------------------------------------------------------------
+
+def _matches_event_filter(filter_config: dict, event_data: dict) -> bool:
+    """Check if event_data matches all key-value pairs in filter_config."""
+    for key, expected in filter_config.items():
+        actual = event_data.get(key)
+        if actual is None or str(actual) != str(expected):
+            return False
+    return True
+
+
+async def _spawn_from_event_trigger(template_id: uuid.UUID, event_data: dict) -> None:
+    """Spawn a concrete task from an event-triggered template."""
+    async with async_session() as db:
+        template = await db.get(Task, template_id)
+        if template is None or template.status != "active":
+            return
+
+        from app.services.prompt_resolution import resolve_prompt
+        prompt = await resolve_prompt(
+            workspace_id=str(template.workspace_id) if template.workspace_id else None,
+            workspace_file_path=template.workspace_file_path,
+            template_id=str(template.prompt_template_id) if template.prompt_template_id else None,
+            inline_prompt=template.prompt,
+            db=db,
+        )
+
+        # Inject event data into execution_config so the agent can reference it
+        ec = dict(template.execution_config) if template.execution_config else {}
+        ec["event_data"] = event_data
+
+        concrete = Task(
+            bot_id=template.bot_id,
+            client_id=template.client_id,
+            session_id=template.session_id,
+            channel_id=template.channel_id,
+            prompt=prompt,
+            title=template.title,
+            prompt_template_id=template.prompt_template_id,
+            workspace_file_path=template.workspace_file_path,
+            workspace_id=template.workspace_id,
+            scheduled_at=datetime.now(timezone.utc),
+            status="pending",
+            task_type=template.task_type,
+            dispatch_type=template.dispatch_type,
+            dispatch_config=dict(template.dispatch_config) if template.dispatch_config else None,
+            callback_config=dict(template.callback_config) if template.callback_config else None,
+            execution_config=ec,
+            recurrence=None,
+            parent_task_id=template.id,
+            max_run_seconds=template.max_run_seconds,
+            workflow_id=template.workflow_id,
+            workflow_session_mode=template.workflow_session_mode,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(concrete)
+        template.run_count = (template.run_count or 0) + 1
+        await db.commit()
+        logger.info("Event trigger %s spawned concrete task %s", template.id, concrete.id)
+
+
+async def fire_event_triggers(event_source: str, event_type: str, event_data: dict) -> int:
+    """Find active event-triggered tasks matching this event and spawn instances."""
+    async with async_session() as db:
+        stmt = (
+            select(Task)
+            .where(Task.status == "active")
+            .where(Task.trigger_config["type"].as_string() == "event")
+            .where(Task.trigger_config["event_source"].as_string() == event_source)
+            .where(Task.trigger_config["event_type"].as_string() == event_type)
+            .limit(50)
+        )
+        tasks = (await db.execute(stmt)).scalars().all()
+
+    spawned = 0
+    for task in tasks:
+        tc = task.trigger_config or {}
+        event_filter = tc.get("event_filter") or {}
+        if not _matches_event_filter(event_filter, event_data):
+            continue
+        try:
+            await _spawn_from_event_trigger(task.id, event_data)
+            spawned += 1
+        except Exception:
+            logger.exception("Failed to spawn from event trigger %s", task.id)
+    return spawned
+
+
+# ---------------------------------------------------------------------------
 # Runner helpers
 # ---------------------------------------------------------------------------
 

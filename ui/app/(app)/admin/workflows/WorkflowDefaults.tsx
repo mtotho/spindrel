@@ -50,7 +50,7 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
     let isValid = true;
     try { JSON.parse(rawText); } catch { isValid = false; }
     return (
-      <div style={{ gap: 8 }}>
+      <div style={{ display: "flex", gap: 8 }}>
         <textarea
           value={rawText}
           onChange={(e) => {
@@ -83,7 +83,7 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
   }
 
   return (
-    <div style={{ gap: 14 }}>
+    <div style={{ display: "flex", gap: 14 }}>
       <FormRow label="Bot" description="Default bot for all steps">
         <select
           value={value.bot_id || ""}
