@@ -861,23 +861,66 @@ async def serve_integration_ui(integration_id: str, path: str = ""):
 # ---------------------------------------------------------------------------
 # Main UI — serve built React SPA from ui-dist/ (baked into Docker image)
 # ---------------------------------------------------------------------------
-# Uses a Starlette Mount with a custom SPA-aware static files app.
-# Mount is checked AFTER all explicit routes, so /api/v1/*, /chat, /health
-# etc. are never shadowed.
+# IMPORTANT: We cannot use app.mount("/", ...) because Starlette Mounts at "/"
+# swallow ALL requests including API routes. Instead, we add a lowest-priority
+# middleware that serves static files only when no API route matched (404).
 _UI_DIST = Path(__file__).resolve().parent.parent / "ui-dist"
 if _UI_DIST.is_dir():
-    from starlette.staticfiles import StaticFiles
-    from starlette.responses import FileResponse
+    import mimetypes
+    from starlette.responses import FileResponse, Response
     from starlette.types import Receive, Scope, Send
 
-    class SPAStaticFiles(StaticFiles):
-        """StaticFiles subclass that falls back to index.html for SPA routing."""
-        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-            try:
-                await super().__call__(scope, receive, send)
-            except Exception:
-                # File not found → serve index.html for client-side routing
-                scope["path"] = "/index.html"
-                await super().__call__(scope, receive, send)
+    _UI_INDEX = _UI_DIST / "index.html"
 
-    app.mount("/", SPAStaticFiles(directory=_UI_DIST, html=True), name="ui")
+    class SPAFallbackMiddleware:
+        """ASGI middleware that serves the SPA when the app returns 404.
+
+        Only intercepts GET requests — API POSTs etc. pass through untouched.
+        Serves exact file matches from ui-dist/, falls back to index.html
+        for client-side routing.
+        """
+        def __init__(self, app):
+            self.app = app
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] != "http" or scope.get("method", "") != "GET":
+                await self.app(scope, receive, send)
+                return
+
+            # Capture the response status
+            response_started = False
+            status_code = 0
+
+            async def send_wrapper(message):
+                nonlocal response_started, status_code
+                if message["type"] == "http.response.start":
+                    status_code = message["status"]
+                    if status_code != 404:
+                        response_started = True
+                        await send(message)
+                        return
+                    # 404 — don't send yet, we'll try the SPA
+                    return
+                if message["type"] == "http.response.body":
+                    if response_started:
+                        await send(message)
+                        return
+                    # This is the 404 body — suppress it, serve SPA instead
+
+            await self.app(scope, receive, send_wrapper)
+
+            if not response_started and status_code == 404:
+                # Try serving a static file from ui-dist
+                path = scope.get("path", "/").lstrip("/")
+                file_path = (_UI_DIST / path).resolve()
+                if (
+                    path
+                    and str(file_path).startswith(str(_UI_DIST.resolve()))
+                    and file_path.is_file()
+                ):
+                    resp = FileResponse(file_path)
+                else:
+                    resp = FileResponse(_UI_INDEX, media_type="text/html")
+                await resp(scope, receive, send)
+
+    app = SPAFallbackMiddleware(app)
