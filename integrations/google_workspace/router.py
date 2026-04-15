@@ -7,7 +7,7 @@ import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from integrations.sdk import get_db
@@ -42,6 +42,32 @@ def _cleanup_expired_states() -> None:
     expired = [k for k, v in _pending_states.items() if now - v["created_at"] > _STATE_TTL]
     for k in expired:
         del _pending_states[k]
+
+
+def _oauth_result_page(*, success: bool, detail: str = "") -> HTMLResponse:
+    """Return a small HTML page that tells the user to close the tab.
+
+    This avoids redirecting to a UI route that may not be reachable through
+    a tunnel or reverse proxy (the tunnel only exposes ``/integrations/*``).
+    """
+    if success:
+        heading = "Connected"
+        msg = f"Google Workspace connected as <strong>{detail}</strong>." if detail else "Google Workspace connected."
+        color = "#22c55e"
+    else:
+        heading = "Connection Failed"
+        msg = f"OAuth error: {detail}" if detail else "OAuth flow failed."
+        color = "#ef4444"
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Google Workspace — {heading}</title>
+<style>body{{font-family:system-ui,sans-serif;display:flex;justify-content:center;
+align-items:center;min-height:100vh;margin:0;background:#111;color:#e5e5e5}}
+.card{{text-align:center;padding:2rem;border-radius:12px;background:#1a1a1a;
+border:1px solid #333;max-width:400px}}
+h1{{color:{color};margin:0 0 .5rem}}</style></head>
+<body><div class="card"><h1>{heading}</h1><p>{msg}</p>
+<p style="color:#888;font-size:.875rem">You can close this tab.</p></div></body></html>"""
+    return HTMLResponse(html)
 
 
 def _get_base_url() -> str:
@@ -113,9 +139,8 @@ async def auth_callback(
 
     # Handle user-denied consent or other OAuth errors
     if error:
-        base_url = _get_base_url()
         logger.warning("OAuth callback error: %s", error)
-        return RedirectResponse(f"{base_url}/admin/integrations/google_workspace?error={error}")
+        return _oauth_result_page(success=False, detail=error)
 
     if not code:
         raise HTTPException(status_code=400, detail="Missing authorization code")
@@ -194,8 +219,7 @@ async def auth_callback(
 
     logger.info("Google Workspace OAuth connected for %s (scopes: %s)", email, granted_service_names)
 
-    # Redirect back to admin integration page
-    return RedirectResponse(f"{base_url}/admin/integrations/google_workspace")
+    return _oauth_result_page(success=True, detail=email)
 
 
 @router.get("/auth/status")

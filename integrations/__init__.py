@@ -729,6 +729,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
                             break
                     sys_status.append({
                         "binary": binary,
+                        "apt_package": dep.get("apt_package", binary),
                         "install_hint": dep.get("install_hint", ""),
                         "installed": found,
                     })

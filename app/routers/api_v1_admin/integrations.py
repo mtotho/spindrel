@@ -6,7 +6,7 @@ import logging
 import os
 import sys
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -396,24 +396,40 @@ async def report_device_status(
 
 @router.post("/integrations/{integration_id}/install-deps")
 async def install_deps(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
-    """Install Python dependencies from the integration's requirements.txt."""
-    from integrations import _iter_integration_candidates
+    """Install Python dependencies for an integration.
 
-    # Find the integration directory
-    req_path = None
-    for candidate, iid, _is_external, _source in _iter_integration_candidates():
+    Uses the YAML-declared package names as the source of truth.  Falls back
+    to requirements.txt if the manifest has no dependency declarations.
+    """
+    from integrations import _iter_integration_candidates, _get_setup
+
+    # Find the integration directory and its declared packages
+    packages: list[str] = []
+    req_path: str | None = None
+    for candidate, iid, is_external, source in _iter_integration_candidates():
         if iid == integration_id:
+            setup = _get_setup(candidate, iid, is_external, source)
+            if setup:
+                for dep in setup.get("python_dependencies", []):
+                    packages.append(dep["package"])
             rp = candidate / "requirements.txt"
             if rp.exists():
                 req_path = str(rp)
             break
 
-    if req_path is None:
-        raise HTTPException(status_code=404, detail=f"No requirements.txt found for integration {integration_id!r}")
+    if not packages and req_path is None:
+        raise HTTPException(status_code=404, detail=f"No Python dependencies found for integration {integration_id!r}")
 
     try:
+        if packages:
+            # Install from YAML-declared package names (always complete)
+            cmd = [sys.executable, "-m", "pip", "install", "-q", *packages]
+        else:
+            # Fallback to requirements.txt
+            cmd = [sys.executable, "-m", "pip", "install", "-q", "-r", req_path]
+
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "pip", "install", "-q", "-r", req_path,
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -424,7 +440,7 @@ async def install_deps(integration_id: str, _auth=Depends(require_scopes("integr
             logger.error("pip install failed for %s: %s", integration_id, err)
             raise HTTPException(status_code=500, detail=f"pip install failed: {err[:500]}")
 
-        logger.info("Installed dependencies for integration %s", integration_id)
+        logger.info("Installed dependencies for integration %s: %s", integration_id, packages or req_path)
         return {
             "integration_id": integration_id,
             "installed": True,
@@ -508,6 +524,33 @@ async def install_npm_deps(integration_id: str, _auth=Depends(require_scopes("in
     except Exception as exc:
         logger.exception("Failed to install npm deps for %s", integration_id)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/integrations/{integration_id}/install-system-deps")
+async def install_system_deps(integration_id: str, request: Request, _auth=Depends(require_scopes("integrations:write"))):
+    """Install a system dependency (apt package) for an integration."""
+    from app.services.integration_deps import install_system_package
+
+    body = await request.json()
+    apt_package = body.get("apt_package")
+    if not apt_package or not isinstance(apt_package, str):
+        raise HTTPException(status_code=400, detail="apt_package is required")
+
+    # Basic validation — only allow simple package names
+    import re
+    if not re.match(r"^[a-z0-9][a-z0-9.+\-]+$", apt_package):
+        raise HTTPException(status_code=400, detail=f"Invalid package name: {apt_package!r}")
+
+    success = await install_system_package(apt_package)
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Failed to install {apt_package}")
+
+    return {
+        "integration_id": integration_id,
+        "apt_package": apt_package,
+        "installed": True,
+        "message": f"System package '{apt_package}' installed successfully.",
+    }
 
 
 # ---------------------------------------------------------------------------

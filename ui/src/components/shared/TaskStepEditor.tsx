@@ -1,12 +1,11 @@
 /**
- * TaskStepEditor — inline pipeline builder for the task editor.
+ * TaskStepEditor — vertical timeline pipeline builder for the task editor.
  *
- * Renders an ordered list of step cards (exec/tool/agent) with conditions,
- * reorder controls, and an "Add Step" button. Used inside TaskCreateModal
- * and TaskEditor when the user toggles from single-prompt to steps mode.
+ * Renders an ordered list of step cards connected by a vertical timeline line,
+ * with numbered circle nodes, colored type badges, and an "Add Step" button.
  */
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { ChevronUp, ChevronDown, Trash2, Terminal, Wrench, Bot, Plus, AlertCircle, CheckCircle2, XCircle, Clock, SkipForward, ArrowDown, ChevronDown as ChevronDownIcon } from "lucide-react";
+import { ChevronUp, ChevronDown, Trash2, Terminal, Wrench, Bot, Plus, CheckCircle2, XCircle, Clock, SkipForward, ChevronDown as ChevronDownIcon } from "lucide-react";
 import type { StepDef, StepType, StepState } from "@/src/api/hooks/useTasks";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { LlmModelDropdown } from "./LlmModelDropdown";
@@ -15,10 +14,10 @@ import { LlmModelDropdown } from "./LlmModelDropdown";
 // Step type metadata
 // ---------------------------------------------------------------------------
 
-const STEP_TYPES: { value: StepType; label: string; icon: typeof Terminal; color: string; border: string; bg: string }[] = [
-  { value: "exec", label: "Shell", icon: Terminal, color: "text-amber-400", border: "border-l-amber-400/60", bg: "bg-amber-400/5" },
-  { value: "tool", label: "Tool", icon: Wrench, color: "text-blue-400", border: "border-l-blue-400/60", bg: "bg-blue-400/5" },
-  { value: "agent", label: "LLM", icon: Bot, color: "text-purple-400", border: "border-l-purple-400/60", bg: "bg-purple-400/5" },
+const STEP_TYPES: { value: StepType; label: string; icon: typeof Terminal; color: string; bgBadge: string; nodeActive: string; borderAccent: string; cardBg: string }[] = [
+  { value: "exec", label: "Shell", icon: Terminal, color: "text-amber-400", bgBadge: "bg-amber-400/10 text-amber-400 border-amber-400/25", nodeActive: "bg-amber-400 text-white", borderAccent: "border-l-amber-400/60", cardBg: "bg-amber-400/[0.03]" },
+  { value: "tool", label: "Tool", icon: Wrench, color: "text-blue-400", bgBadge: "bg-blue-400/10 text-blue-400 border-blue-400/25", nodeActive: "bg-blue-400 text-white", borderAccent: "border-l-blue-400/60", cardBg: "bg-blue-400/[0.03]" },
+  { value: "agent", label: "LLM", icon: Bot, color: "text-purple-400", bgBadge: "bg-purple-400/10 text-purple-400 border-purple-400/25", nodeActive: "bg-purple-400 text-white", borderAccent: "border-l-purple-400/60", cardBg: "bg-purple-400/[0.03]" },
 ];
 
 function stepMeta(type: StepType) {
@@ -234,7 +233,7 @@ function ToolSelector({ value, tools, onChange }: {
 }
 
 // ---------------------------------------------------------------------------
-// Condition editor (simple)
+// Condition editor
 // ---------------------------------------------------------------------------
 
 type ConditionMode = "always" | "output_contains" | "output_not_contains" | "status_is";
@@ -312,7 +311,7 @@ function StepConditionEditor({ step, stepIndex, steps, onChange }: {
 }
 
 // ---------------------------------------------------------------------------
-// Step result display (read-only, for completed pipelines)
+// Step result badge
 // ---------------------------------------------------------------------------
 
 function StepResultBadge({ state }: { state: StepState }) {
@@ -349,7 +348,6 @@ function ToolArgsEditor({ step, tools, readOnly, onChange }: {
   const paramDescs = tool ? getParamDescriptions(tool) : new Map();
   const currentArgs = step.tool_args ?? {};
 
-  // If we have schema, show structured fields; otherwise show raw JSON
   if (!rawMode && tool && paramDescs.size > 0 && !readOnly) {
     return (
       <div className="flex flex-col gap-1.5">
@@ -392,7 +390,6 @@ function ToolArgsEditor({ step, tools, readOnly, onChange }: {
     );
   }
 
-  // Raw JSON mode or no schema
   return (
     <div className="flex flex-col gap-1">
       {paramDescs.size > 0 && !readOnly && (
@@ -427,7 +424,7 @@ function ToolArgsEditor({ step, tools, readOnly, onChange }: {
 }
 
 // ---------------------------------------------------------------------------
-// Step type selector (custom dropdown, no native select)
+// Step type selector (custom dropdown)
 // ---------------------------------------------------------------------------
 
 const ON_FAILURE_OPTIONS = [
@@ -439,7 +436,6 @@ function StepTypeSelector({ value, onChange }: { value: StepType; onChange: (v: 
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const meta = stepMeta(value);
-  const Icon = meta.icon;
 
   useEffect(() => {
     if (!open) return;
@@ -454,13 +450,13 @@ function StepTypeSelector({ value, onChange }: { value: StepType; onChange: (v: 
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex flex-row items-center gap-1 bg-transparent border-none text-xs font-semibold text-text cursor-pointer hover:text-accent transition-colors"
+        className={`inline-flex flex-row items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full border cursor-pointer transition-colors ${meta.bgBadge} hover:opacity-80`}
       >
         {meta.label}
-        <ChevronDownIcon size={10} className="text-text-dim" />
+        <ChevronDownIcon size={9} className="opacity-60" />
       </button>
       {open && (
-        <div className="absolute top-full left-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-50 py-1 min-w-[120px]">
+        <div className="absolute top-full left-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-50 py-1 min-w-[130px]">
           {STEP_TYPES.map((t) => {
             const TIcon = t.icon;
             return (
@@ -483,7 +479,7 @@ function StepTypeSelector({ value, onChange }: { value: StepType; onChange: (v: 
 }
 
 // ---------------------------------------------------------------------------
-// Individual step card
+// Timeline step card
 // ---------------------------------------------------------------------------
 
 function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange, onDelete, onMove }: {
@@ -506,11 +502,12 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
   const update = (patch: Partial<StepDef>) => onChange({ ...step, ...patch });
 
   return (
-    <div className={`rounded-lg border border-surface-border ${meta.border} border-l-2 transition-shadow hover:shadow-sm`}>
+    <div className={`rounded-lg border border-surface-border ${meta.borderAccent} border-l-[3px] shadow-sm group transition-shadow hover:shadow-md ${meta.cardBg}`}>
       {/* Header row */}
-      <div className={`flex flex-row items-center gap-2 px-3 py-2 ${meta.bg} rounded-t-lg`}>
+      <div className="flex flex-row items-center gap-2.5 px-3.5 py-2.5">
+        {/* Reorder controls */}
         {!readOnly && (
-          <div className="flex flex-col shrink-0 -my-1">
+          <div className="flex flex-col shrink-0 -my-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               onClick={() => onMove(-1)}
               disabled={isFirst}
@@ -527,30 +524,36 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
             </button>
           </div>
         )}
-        <div className="flex flex-row items-center gap-1.5 shrink-0">
-          <span className="text-text-dim text-[10px] font-mono w-4 text-right">{stepIndex + 1}</span>
-          <Icon size={13} className={meta.color} />
-        </div>
+
+        {/* Type badge */}
         {readOnly ? (
-          <span className="text-xs font-semibold text-text">{meta.label}</span>
+          <span className={`inline-flex flex-row items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full border ${meta.bgBadge}`}>
+            <Icon size={11} />
+            {meta.label}
+          </span>
         ) : (
           <StepTypeSelector value={step.type} onChange={(v) => update({ type: v })} />
         )}
-        {!readOnly && (
+
+        {/* Label */}
+        {!readOnly ? (
           <input
             type="text"
             value={step.label ?? ""}
             onChange={(e) => update({ label: e.target.value })}
             placeholder="Step label (optional)"
-            className="flex-1 bg-transparent border-none text-xs text-text-muted outline-none placeholder:text-text-dim/50 min-w-0"
+            className="flex-1 bg-transparent border-none text-xs text-text-muted outline-none placeholder:text-text-dim/40 min-w-0"
           />
+        ) : (
+          step.label && <span className="text-xs text-text-muted flex-1">{step.label}</span>
         )}
-        {readOnly && step.label && (
-          <span className="text-xs text-text-muted flex-1">{step.label}</span>
-        )}
+
+        {/* Status badge */}
         {stepState && <StepResultBadge state={stepState} />}
+
+        {/* Actions — hover revealed */}
         {!readOnly && (
-          <div className="flex flex-row items-center gap-1.5 ml-auto shrink-0">
+          <div className="flex flex-row items-center gap-1.5 ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
             <MiniDropdown
               value={step.on_failure ?? "abort"}
               options={ON_FAILURE_OPTIONS}
@@ -567,7 +570,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
       </div>
 
       {/* Body — type-specific fields */}
-      <div className="px-3 py-2.5 flex flex-col gap-2">
+      <div className="px-3.5 py-3 flex flex-col gap-2.5 border-t border-surface-border/50">
         {step.type === "exec" && (
           <>
             <textarea
@@ -674,7 +677,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
           </div>
         )}
         {stepState && stepState.result && !stepState.error && (
-          <details className="group" open={stepState.status === "done" && steps.length <= 3}>
+          <details className="group/result" open={stepState.status === "done" && steps.length <= 3}>
             <summary className="flex flex-row items-center gap-1.5 cursor-pointer text-[10px] font-semibold text-emerald-400/70 uppercase tracking-wider hover:text-emerald-400 transition-colors select-none">
               <CheckCircle2 size={11} />
               Output
@@ -699,45 +702,45 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
 function AddStepButton({ onAdd }: { onAdd: (type: StepType) => void }) {
   const [open, setOpen] = useState(false);
 
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex flex-row items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-text-muted bg-transparent border border-dashed border-surface-border rounded-lg cursor-pointer hover:border-accent/50 hover:text-accent transition-colors"
+      >
+        <Plus size={14} />
+        Add Step
+      </button>
+    );
+  }
+
   return (
-    <div className="relative inline-flex flex-row">
-      {!open ? (
-        <button
-          onClick={() => setOpen(true)}
-          className="flex flex-row items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-text-muted bg-transparent border border-dashed border-surface-border rounded-lg cursor-pointer hover:border-accent/50 hover:text-accent transition-colors"
-        >
-          <Plus size={13} />
-          Add Step
-        </button>
-      ) : (
-        <div className="flex flex-row items-center gap-1">
-          {STEP_TYPES.map((t) => {
-            const TIcon = t.icon;
-            return (
-              <button
-                key={t.value}
-                onClick={() => { onAdd(t.value); setOpen(false); }}
-                className="flex flex-row items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-surface-raised border border-surface-border rounded-lg cursor-pointer text-text hover:border-accent/50 hover:text-accent transition-colors"
-              >
-                <TIcon size={13} className={t.color} />
-                {t.label}
-              </button>
-            );
-          })}
+    <div className="flex flex-row items-center gap-1.5">
+      {STEP_TYPES.map((t) => {
+        const TIcon = t.icon;
+        return (
           <button
-            onClick={() => setOpen(false)}
-            className="px-2 py-1.5 text-xs text-text-dim bg-transparent border-none cursor-pointer hover:text-text"
+            key={t.value}
+            onClick={() => { onAdd(t.value); setOpen(false); }}
+            className="flex flex-row items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-surface-raised border border-surface-border rounded-lg cursor-pointer text-text hover:border-accent/50 hover:text-accent transition-colors"
           >
-            Cancel
+            <TIcon size={14} className={t.color} />
+            {t.label}
           </button>
-        </div>
-      )}
+        );
+      })}
+      <button
+        onClick={() => setOpen(false)}
+        className="px-2.5 py-2 text-xs text-text-dim bg-transparent border-none cursor-pointer hover:text-text"
+      >
+        Cancel
+      </button>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Main editor
+// Main editor — vertical timeline layout
 // ---------------------------------------------------------------------------
 
 export interface TaskStepEditorProps {
@@ -774,38 +777,93 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
   }, [steps, onChange]);
 
   return (
-    <div className="flex flex-col gap-0">
+    <div className="flex flex-col">
       {steps.length === 0 && !readOnly && (
-        <div className="flex flex-col items-center gap-2 py-8 text-text-dim rounded-lg border border-dashed border-surface-border bg-surface-raised/30">
-          <AlertCircle size={20} className="opacity-30" />
-          <span className="text-xs">No steps yet. Add your first step below.</span>
+        <div className="flex flex-col items-center gap-3 py-10 text-text-dim rounded-xl border border-dashed border-surface-border bg-surface-raised/20">
+          <div className="text-sm font-medium text-text-muted">Build your pipeline</div>
+          <div className="text-xs text-text-dim">Add steps to create a multi-step automation</div>
+          <div className="flex flex-row items-center gap-1.5 mt-2">
+            {STEP_TYPES.map((t) => {
+              const TIcon = t.icon;
+              return (
+                <button
+                  key={t.value}
+                  onClick={() => addStep(t.value)}
+                  className="flex flex-row items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-surface border border-surface-border rounded-lg cursor-pointer text-text hover:border-accent/50 hover:text-accent transition-colors"
+                >
+                  <TIcon size={14} className={t.color} />
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
-      {steps.map((step, i) => (
-        <div key={step.id}>
-          {i > 0 && (
-            <div className="flex flex-row justify-center py-0.5">
-              <ArrowDown size={14} className="text-surface-border" />
-            </div>
+
+      {/* Timeline container */}
+      {steps.length > 0 && (
+        <div className="relative pl-5">
+          {/* Vertical timeline line */}
+          {steps.length > 1 && (
+            <div
+              className="absolute left-[11px] top-[22px] bottom-[22px] w-[2px] bg-surface-border rounded-full"
+            />
           )}
-          <StepCard
-            step={step}
-            stepIndex={i}
-            steps={steps}
-            stepState={stepStates?.[i]}
-            readOnly={readOnly}
-            tools={tools}
-            onChange={(updated) => updateStep(i, updated)}
-            onDelete={() => deleteStep(i)}
-            onMove={(dir) => moveStep(i, dir)}
-          />
+
+          <div className="flex flex-col gap-3">
+            {steps.map((step, i) => {
+              const meta = stepMeta(step.type);
+              const stepState = stepStates?.[i];
+              const nodeColor = stepState?.status === "done"
+                ? "bg-emerald-500 text-white"
+                : stepState?.status === "failed"
+                  ? "bg-red-500 text-white"
+                  : stepState?.status === "running"
+                    ? "bg-blue-500 text-white animate-pulse"
+                    : meta.nodeActive;
+
+              return (
+                <div key={step.id} className="relative">
+                  {/* Timeline node */}
+                  <div className={`absolute -left-5 top-[11px] flex items-center justify-center w-[22px] h-[22px] rounded-full text-[10px] font-bold z-10 ${nodeColor} shadow-sm`}>
+                    {stepState?.status === "done" ? (
+                      <CheckCircle2 size={12} />
+                    ) : stepState?.status === "failed" ? (
+                      <XCircle size={12} />
+                    ) : (
+                      i + 1
+                    )}
+                  </div>
+
+                  {/* Step card */}
+                  <StepCard
+                    step={step}
+                    stepIndex={i}
+                    steps={steps}
+                    stepState={stepState}
+                    readOnly={readOnly}
+                    tools={tools}
+                    onChange={(updated) => updateStep(i, updated)}
+                    onDelete={() => deleteStep(i)}
+                    onMove={(dir) => moveStep(i, dir)}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </div>
-      ))}
-      <div className="mt-2">
-        {!readOnly && <AddStepButton onAdd={addStep} />}
-      </div>
+      )}
+
+      {/* Add step button */}
       {!readOnly && steps.length > 0 && (
-        <p className="text-[10px] text-text-dim mt-2 px-1">
+        <div className="mt-3 pl-5">
+          <AddStepButton onAdd={addStep} />
+        </div>
+      )}
+
+      {/* Hint */}
+      {!readOnly && steps.length > 0 && (
+        <p className="text-[10px] text-text-dim mt-3 pl-5">
           Prior step results are auto-injected. Use <code className="text-accent/80 bg-accent/5 px-1 py-0.5 rounded text-[10px]">{"{{steps.<id>.result}}"}</code> for explicit references.
         </p>
       )}

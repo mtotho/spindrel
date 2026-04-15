@@ -11,6 +11,7 @@ from app.services.integration_deps import (
     _check_npm_deps,
     _check_python_deps,
     _check_system_deps,
+    _is_system_dep_available,
     ensure_integration_deps,
 )
 
@@ -48,11 +49,8 @@ async def test_runs_pip_when_import_fails():
 
 
 @pytest.mark.asyncio
-async def test_uses_requirements_txt_when_available(tmp_path):
-    """Prefers requirements.txt when the file exists."""
-    req_file = tmp_path / "requirements.txt"
-    req_file.write_text("some-pkg>=1.0\n")
-
+async def test_installs_missing_packages_by_name(tmp_path):
+    """Always installs the specific missing packages by name from YAML."""
     deps = [{"package": "some-pkg", "import_name": "nonexistent_pkg_xyz"}]
 
     mock_proc = AsyncMock()
@@ -63,8 +61,7 @@ async def test_uses_requirements_txt_when_available(tmp_path):
         await _check_python_deps("test_int", deps, tmp_path)
         mock_exec.assert_called_once()
         call_args = mock_exec.call_args[0]
-        assert "-r" in call_args
-        assert str(req_file) in call_args
+        assert "some-pkg" in call_args
 
 
 @pytest.mark.asyncio
@@ -120,47 +117,45 @@ async def test_runs_npm_when_check_path_missing(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_system_dep_logs_warning_when_missing(caplog):
-    """Logs a warning when a system binary is not found."""
+def test_system_dep_not_available_when_missing():
+    """Reports missing when binary doesn't exist."""
+    dep = {"binary": "nonexistent_binary_xyz"}
+    assert _is_system_dep_available(dep) is False
+
+
+def test_system_dep_available_via_alternatives():
+    """Finds the binary via alternatives list."""
+    dep = {"binary": "nonexistent_xyz", "alternatives": ["python3"]}
+    assert _is_system_dep_available(dep) is True
+
+
+def test_system_dep_available_when_found():
+    """Reports available when primary binary exists."""
+    dep = {"binary": "python3"}
+    assert _is_system_dep_available(dep) is True
+
+
+@pytest.mark.asyncio
+async def test_check_system_deps_logs_warning_for_uninstalled(caplog):
+    """Logs a warning when a system dep is missing and was never installed."""
     deps = [{"binary": "nonexistent_binary_xyz", "install_hint": "apt-get install xyz"}]
 
     import logging
-    with caplog.at_level(logging.WARNING):
-        _check_system_deps("test_int", deps)
+    with caplog.at_level(logging.WARNING), \
+         patch("app.services.integration_deps._read_installed_system_packages", return_value=set()):
+        await _check_system_deps("test_int", deps)
     assert "nonexistent_binary_xyz" in caplog.text
     assert "test_int" in caplog.text
 
 
-def test_system_dep_checks_alternatives():
-    """Finds the binary via alternatives list."""
-    deps = [{"binary": "nonexistent_xyz", "alternatives": ["python3"], "install_hint": ""}]
+@pytest.mark.asyncio
+async def test_check_system_deps_reinstalls_previously_installed(caplog):
+    """Re-installs a package that was previously installed (survived in persist file)."""
+    deps = [{"binary": "nonexistent_xyz", "apt_package": "some-pkg"}]
 
     import logging
-    import io
-    handler = logging.StreamHandler(io.StringIO())
-    logger = logging.getLogger("app.services.integration_deps")
-    logger.addHandler(handler)
-    try:
-        _check_system_deps("test_int", deps)
-        # python3 exists, so no warning should be logged
-        output = handler.stream.getvalue()
-        assert "nonexistent_xyz" not in output
-    finally:
-        logger.removeHandler(handler)
-
-
-def test_system_dep_no_warning_when_found():
-    """No warning when the primary binary exists (python3 is always available)."""
-    deps = [{"binary": "python3", "install_hint": ""}]
-
-    import logging
-    import io
-    handler = logging.StreamHandler(io.StringIO())
-    logger = logging.getLogger("app.services.integration_deps")
-    logger.addHandler(handler)
-    try:
-        _check_system_deps("test_int", deps)
-        output = handler.stream.getvalue()
-        assert "python3" not in output
-    finally:
-        logger.removeHandler(handler)
+    with caplog.at_level(logging.INFO), \
+         patch("app.services.integration_deps._read_installed_system_packages", return_value={"some-pkg"}), \
+         patch("app.services.integration_deps.install_system_package", new_callable=AsyncMock, return_value=True) as mock_install:
+        await _check_system_deps("test_int", deps)
+    mock_install.assert_called_once_with("some-pkg")

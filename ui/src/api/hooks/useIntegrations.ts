@@ -37,6 +37,7 @@ export interface NpmDependency {
 
 export interface SystemDependency {
   binary: string;
+  apt_package: string;
   install_hint: string;
   installed: boolean;
 }
@@ -208,6 +209,20 @@ export function useInstallNpmDeps(id: string) {
       apiFetch<{ installed: boolean; message: string }>(
         `/api/v1/admin/integrations/${id}/install-npm-deps`,
         { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-integrations"] });
+    },
+  });
+}
+
+export function useInstallSystemDep(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (aptPackage: string) =>
+      apiFetch<{ installed: boolean; message: string }>(
+        `/api/v1/admin/integrations/${id}/install-system-deps`,
+        { method: "POST", body: JSON.stringify({ apt_package: aptPackage }) }
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-integrations"] });

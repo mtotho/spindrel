@@ -1,13 +1,15 @@
 """Auto-install missing integration dependencies on server startup.
 
 Checks all integration manifests for declared Python, npm, and system
-dependencies.  Missing Python/npm deps are installed automatically;
-missing system deps produce a warning log.
+dependencies.  Missing Python/npm deps are installed automatically.
+System deps are installed via apt-get and the package list is persisted
+to the workspace volume so they survive Docker rebuilds.
 """
 from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import logging
 import os
 import shutil
@@ -16,6 +18,29 @@ import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Persistent file tracking apt-installed system packages.
+# Lives on the workspace volume so it survives Docker rebuilds.
+_SYSTEM_DEPS_FILE = Path(os.environ.get("WORKSPACE_DATA_DIR", "/workspace-data")) / ".installed-system-deps.json"
+
+
+def _read_installed_system_packages() -> set[str]:
+    """Read the set of previously apt-installed package names."""
+    try:
+        if _SYSTEM_DEPS_FILE.exists():
+            return set(json.loads(_SYSTEM_DEPS_FILE.read_text()))
+    except Exception:
+        logger.debug("Could not read %s", _SYSTEM_DEPS_FILE, exc_info=True)
+    return set()
+
+
+def _persist_installed_system_packages(packages: set[str]) -> None:
+    """Write the set of apt-installed package names to the workspace volume."""
+    try:
+        _SYSTEM_DEPS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _SYSTEM_DEPS_FILE.write_text(json.dumps(sorted(packages)))
+    except Exception:
+        logger.warning("Could not persist system deps to %s", _SYSTEM_DEPS_FILE, exc_info=True)
 
 
 async def ensure_integration_deps() -> None:
@@ -43,7 +68,7 @@ async def ensure_integration_deps() -> None:
 
         await _check_python_deps(integration_id, deps.get("python", []), int_dir)
         await _check_npm_deps(integration_id, deps.get("npm", []), int_dir)
-        _check_system_deps(integration_id, deps.get("system", []))
+        await _check_system_deps(integration_id, deps.get("system", []))
 
 
 async def _check_python_deps(
@@ -66,8 +91,6 @@ async def _check_python_deps(
     if not missing:
         return
 
-    # Prefer requirements.txt if it exists, otherwise install packages directly
-    req_path = int_dir / "requirements.txt"
     t0 = time.monotonic()
     logger.info(
         "Auto-installing Python dependencies for '%s': %s",
@@ -75,10 +98,9 @@ async def _check_python_deps(
         ", ".join(missing),
     )
 
-    if req_path.exists():
-        cmd = [sys.executable, "-m", "pip", "install", "-q", "-r", str(req_path)]
-    else:
-        cmd = [sys.executable, "-m", "pip", "install", "-q", *missing]
+    # Always install the specific missing packages from the YAML declaration.
+    # requirements.txt may be incomplete (e.g. wyoming had 2 of 3 packages).
+    cmd = [sys.executable, "-m", "pip", "install", "-q", *missing]
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -183,29 +205,96 @@ async def _check_npm_deps(
             logger.exception("Failed to auto-install npm deps for '%s'", integration_id)
 
 
-def _check_system_deps(integration_id: str, system_deps: list[dict]) -> None:
-    """Check system dependencies and log warnings for missing ones."""
+def _is_system_dep_available(dep: dict) -> bool:
+    """Check if a system dependency binary is available."""
+    binary = dep.get("binary", "")
+    alternatives = dep.get("alternatives", [])
+    for candidate in [binary, *alternatives]:
+        if candidate and shutil.which(candidate):
+            return True
+    return False
+
+
+async def _check_system_deps(integration_id: str, system_deps: list[dict]) -> None:
+    """Re-install previously-installed system packages if missing after rebuild."""
     if not system_deps:
         return
+
+    previously_installed = _read_installed_system_packages()
 
     for dep in system_deps:
         binary = dep.get("binary")
         if not binary:
             continue
 
-        # Check the primary binary and alternatives
-        alternatives = dep.get("alternatives", [])
-        found = False
-        for candidate in [binary, *alternatives]:
-            if shutil.which(candidate):
-                found = True
-                break
+        if _is_system_dep_available(dep):
+            continue
 
-        if not found:
-            hint = dep.get("install_hint", f"Install '{binary}' in the Dockerfile")
+        # Check if we previously installed this — if so, re-install automatically
+        apt_package = dep.get("apt_package", binary)
+        if apt_package in previously_installed:
+            logger.info(
+                "Re-installing system dependency '%s' for '%s' (lost after rebuild)",
+                apt_package,
+                integration_id,
+            )
+            success = await install_system_package(apt_package)
+            if not success:
+                logger.error(
+                    "Failed to re-install system dependency '%s' for '%s'",
+                    apt_package,
+                    integration_id,
+                )
+        else:
+            hint = dep.get("install_hint", f"Use the Install button in the admin UI")
             logger.warning(
                 "System dependency '%s' not found for integration '%s' — %s",
                 binary,
                 integration_id,
                 hint,
             )
+
+
+async def install_system_package(apt_package: str) -> bool:
+    """Install a system package via apt-get and persist to the workspace volume.
+
+    Returns True on success, False on failure.
+    """
+    t0 = time.monotonic()
+    try:
+        # apt-get update first (package lists may be cleared in slim images)
+        update_proc = await asyncio.create_subprocess_exec(
+            "apt-get", "update", "-qq",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(update_proc.communicate(), timeout=60)
+
+        proc = await asyncio.create_subprocess_exec(
+            "apt-get", "install", "-y", "-qq", "--no-install-recommends", apt_package,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+
+        if proc.returncode != 0:
+            err = (stderr or b"").decode(errors="replace").strip()
+            logger.error("apt-get install '%s' failed (exit %d): %s", apt_package, proc.returncode, err[:500])
+            return False
+
+        elapsed = time.monotonic() - t0
+        logger.info("Installed system package '%s' in %.1fs", apt_package, elapsed)
+
+        # Persist so it gets re-installed after future rebuilds
+        installed = _read_installed_system_packages()
+        installed.add(apt_package)
+        _persist_installed_system_packages(installed)
+
+        return True
+
+    except asyncio.TimeoutError:
+        logger.error("apt-get install '%s' timed out", apt_package)
+        return False
+    except Exception:
+        logger.exception("Failed to install system package '%s'", apt_package)
+        return False

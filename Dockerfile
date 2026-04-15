@@ -14,7 +14,6 @@ FROM python:3.12-slim
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     curl wget git jq ripgrep fd-find tree unzip zip \
     build-essential sqlite3 openssh-client ca-certificates gnupg \
-    chromium \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js + claude CLI — required for the Claude Code integration.

@@ -25,6 +25,7 @@ import {
   useSetAutoStart,
   useInstallDeps,
   useInstallNpmDeps,
+  useInstallSystemDep,
   useIntegrationApiKey,
   useProvisionIntegrationApiKey,
   useRevokeIntegrationApiKey,
@@ -545,10 +546,13 @@ function NpmDependencySection({ item }: { item: IntegrationItem }) {
 // ---------------------------------------------------------------------------
 
 function SystemDependencySection({ item }: { item: IntegrationItem }) {
+  const t = useThemeTokens();
+  const installMut = useInstallSystemDep(item.id);
   const deps = item.system_dependencies;
   if (!deps || deps.length === 0) return null;
 
   const allInstalled = deps.every((d) => d.installed);
+  const missing = deps.filter((d) => !d.installed);
 
   return (
     <div className="flex flex-col gap-2">
@@ -567,13 +571,31 @@ function SystemDependencySection({ item }: { item: IntegrationItem }) {
           </span>
         ))}
       </div>
-      {allInstalled ? (
-        <span className="text-[11px] text-green-500">All system dependencies available</span>
-      ) : (
-        <span className="text-[11px] text-red-500">
-          {deps.filter((d) => !d.installed).map((d) => d.install_hint || `Install '${d.binary}'`).join("; ")}
-        </span>
+      {!allInstalled && (
+        <div className="flex flex-row items-center gap-2 flex-wrap">
+          <button
+            onClick={() => {
+              for (const d of missing) {
+                installMut.mutate(d.apt_package);
+              }
+            }}
+            disabled={installMut.isPending}
+            style={{
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
+              padding: "5px 14px", borderRadius: 5, border: "none",
+              background: t.accent, color: "#fff", fontSize: 12, fontWeight: 600,
+              cursor: installMut.isPending ? "wait" : "pointer",
+              opacity: installMut.isPending ? 0.6 : 1,
+            }}
+          >
+            <Download size={12} />
+            {installMut.isPending ? "Installing..." : "Install System Dependencies"}
+          </button>
+          {installMut.isSuccess && <span className="text-[11px] text-green-500">Installed</span>}
+          {installMut.isError && <span className="text-[11px] text-red-500">Install failed</span>}
+        </div>
       )}
+      {allInstalled && <span className="text-[11px] text-green-500">All system dependencies available</span>}
     </div>
   );
 }

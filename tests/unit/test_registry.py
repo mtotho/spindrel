@@ -149,3 +149,53 @@ class TestCallLocalTool:
         _register_dummy("dict_tool", func=dict_tool)
         result = await registry.call_local_tool("dict_tool", "{}")
         assert json.loads(result) == {"key": "value"}
+
+    async def test_bare_string_recovery_single_required_param(self):
+        """Models sometimes send bare strings instead of JSON objects.
+
+        When the tool has exactly one required string parameter, recover
+        by mapping the raw string to that parameter.
+        """
+        async def echo(command: str):
+            return f"got: {command}"
+
+        schema = {
+            "type": "function",
+            "function": {
+                "name": "echo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string", "description": "The command"},
+                    },
+                    "required": ["command"],
+                },
+            },
+        }
+        registry.register(schema)(echo)
+        result = await registry.call_local_tool("echo", "tasks +list")
+        assert result == "got: tasks +list"
+
+    async def test_bare_string_no_recovery_multi_params(self):
+        """When there are multiple params, bare string should still error."""
+        async def multi(a: str, b: str):
+            return "nope"
+
+        schema = {
+            "type": "function",
+            "function": {
+                "name": "multi",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "string"},
+                        "b": {"type": "string"},
+                    },
+                    "required": ["a", "b"],
+                },
+            },
+        }
+        registry.register(schema)(multi)
+        result = await registry.call_local_tool("multi", "bare string")
+        parsed = json.loads(result)
+        assert "error" in parsed

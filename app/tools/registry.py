@@ -167,7 +167,28 @@ async def call_local_tool(name: str, arguments: str) -> str:
     if entry is None:
         return json.dumps({"error": f"Unknown local tool: {name}"})
     try:
-        args = json.loads(arguments) if arguments else {}
+        args = {}
+        if arguments:
+            try:
+                args = json.loads(arguments)
+            except (json.JSONDecodeError, ValueError):
+                # Model sent bare string instead of JSON object — recover if
+                # the tool has exactly one required string parameter.
+                params = (
+                    entry.get("schema", {})
+                    .get("function", {})
+                    .get("parameters", {})
+                )
+                props = params.get("properties", {})
+                required = params.get("required", [])
+                str_params = [
+                    k for k, v in props.items()
+                    if v.get("type") == "string"
+                ]
+                if len(str_params) == 1 and str_params[0] in required:
+                    args = {str_params[0]: arguments}
+                else:
+                    raise
         # Coerce args based on declared schema (e.g. string → list for array params)
         schema_props = (
             entry.get("schema", {})

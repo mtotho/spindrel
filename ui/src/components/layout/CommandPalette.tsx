@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
-import { useSidebarSections } from "../../api/hooks/useIntegrations";
+import { useSidebarSections, useIntegrations } from "../../api/hooks/useIntegrations";
 import { useThemeTokens } from "../../theme/tokens";
 import { useUIStore } from "../../stores/ui";
 
@@ -279,6 +279,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const { data: channels } = useChannels();
   const { data: bots } = useBots();
   const { data: sidebarData } = useSidebarSections();
+  const { data: integrationsData } = useIntegrations();
 
   // Build flat item list
   const allItems = useMemo<PaletteItem[]>(() => {
@@ -312,6 +313,19 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
     items.push(...ADMIN_ITEMS);
 
+    if (integrationsData?.integrations) {
+      for (const int of integrationsData.integrations) {
+        items.push({
+          id: `integration-${int.id}`,
+          label: int.name,
+          hint: "Integration",
+          href: `/admin/integrations/${int.id}`,
+          icon: Plug,
+          category: "Integrations",
+        });
+      }
+    }
+
     if (sidebarData?.sections) {
       for (const section of sidebarData.sections) {
         for (const item of section.items) {
@@ -328,7 +342,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     }
 
     return items;
-  }, [channels, bots, sidebarData]);
+  }, [channels, bots, sidebarData, integrationsData]);
 
   // Filter + sort by fuzzy score, preserving match indices
   const scoredResults = useMemo<ScoredItem[]>(() => {

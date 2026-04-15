@@ -177,8 +177,8 @@ export default function LoginScreen() {
   // Step 2: Login form
   return (
     <div className="flex flex-1 bg-surface items-center justify-center p-6">
-      <div className="flex w-full max-w-sm gap-6">
-        <div className="flex items-center gap-2 mb-4">
+      <div className="flex flex-col w-full max-w-sm gap-6">
+        <div className="flex flex-col items-center gap-2 mb-4">
           <span className="text-text text-2xl font-bold">Sign In</span>
           <span className="text-text-muted text-sm">
             {serverUrl.replace(/^https?:\/\//, "")}

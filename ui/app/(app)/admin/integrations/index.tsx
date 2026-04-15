@@ -6,7 +6,13 @@ import { Spinner } from "@/src/components/shared/Spinner";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { Search, Play, Square, RefreshCw, BookOpen } from "lucide-react";
+import {
+  Search, Play, Square, RefreshCw, BookOpen, X, Plug,
+  CheckCircle2, AlertTriangle,
+  // Icon map for dynamic resolution
+  Tv, MessageCircle, Terminal, MessageSquare, PenTool, Globe,
+  Camera, Code2, Cloud, Rss, LayoutDashboard, Mail, Mic,
+} from "lucide-react";
 import { IntegrationGuideModal } from "./IntegrationGuideModal";
 import {
   useIntegrations,
@@ -15,38 +21,73 @@ import {
   useRestartProcess,
   type IntegrationItem,
 } from "@/src/api/hooks/useIntegrations";
-import { StatusBadge, CapBadge, formatUptime } from "./components";
+import { CapBadge, formatUptime } from "./components";
 
-// ---------------------------------------------------------------------------
-// Section header (matches skills/tools pattern)
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/*  Icon resolver                                                      */
+/* ------------------------------------------------------------------ */
 
-function SectionHeader({ label, count, isWide }: { label: string; count: number; isWide: boolean }) {
+const ICON_MAP: Record<string, React.ComponentType<{ size?: number; color?: string; className?: string }>> = {
+  Tv, MessageCircle, Terminal, MessageSquare, PenTool, Globe,
+  Camera, Code2, Cloud, Rss, LayoutDashboard, Mail, Mic,
+  Search, Plug, BookOpen,
+};
+
+function IntegrationIcon({ name, size = 18, color }: { name?: string; size?: number; color?: string }) {
+  const Icon = (name && ICON_MAP[name]) || Plug;
+  return <Icon size={size} color={color} />;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Status dot — minimal, no badge chrome                              */
+/* ------------------------------------------------------------------ */
+
+const STATUS_META: Record<string, { color: string; label: string }> = {
+  ready: { color: "#22c55e", label: "Ready" },
+  partial: { color: "#eab308", label: "Needs setup" },
+  not_configured: { color: "#6b7280", label: "Not configured" },
+  disabled: { color: "#ef4444", label: "Disabled" },
+};
+
+function StatusDot({ status }: { status: string }) {
+  const meta = STATUS_META[status] || STATUS_META.not_configured;
+  return (
+    <span className="inline-flex flex-row items-center gap-1.5">
+      <span
+        className="w-[6px] h-[6px] rounded-full shrink-0"
+        style={{ background: meta.color }}
+      />
+      <span className="text-[10px] font-medium" style={{ color: meta.color }}>
+        {meta.label}
+      </span>
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Section header                                                     */
+/* ------------------------------------------------------------------ */
+
+function SectionHeader({ label, count }: { label: string; count: number }) {
   const t = useThemeTokens();
   return (
-    <div style={{
-      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-      padding: isWide ? "14px 16px 6px 16px" : "14px 0 6px 0",
-    }}>
-      <span style={{
-        fontSize: 11, fontWeight: 600, color: t.textMuted,
-        textTransform: "uppercase", letterSpacing: 1,
-      }}>
+    <div className="flex flex-row items-center gap-2 col-span-full pt-4 pb-1">
+      <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: t.textMuted }}>
         {label}
       </span>
-      <span style={{ fontSize: 10, color: t.textDim, fontWeight: 500 }}>
+      <span className="text-[10px] font-medium tabular-nums" style={{ color: t.textDim }}>
         {count}
       </span>
-      <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
+      <div className="flex-1 h-px" style={{ background: t.surfaceBorder }} />
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Inline process controls (compact, for list rows)
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/*  Process controls — compact horizontal                              */
+/* ------------------------------------------------------------------ */
 
-function InlineProcessControls({ item }: { item: IntegrationItem }) {
+function ProcessControls({ item }: { item: IntegrationItem }) {
   const t = useThemeTokens();
   const startMut = useStartProcess(item.id);
   const stopMut = useStopProcess(item.id);
@@ -56,42 +97,36 @@ function InlineProcessControls({ item }: { item: IntegrationItem }) {
   const isRunning = ps?.status === "running";
   const anyPending = startMut.isPending || stopMut.isPending || restartMut.isPending;
 
-  const btnStyle = (bg: string, fg: string): React.CSSProperties => ({
-    display: "flex", flexDirection: "row", alignItems: "center", gap: 3,
-    padding: "2px 8px", borderRadius: 4, border: "none",
-    background: bg, color: fg,
-    fontSize: 10, fontWeight: 600,
-    cursor: anyPending ? "wait" : "pointer",
-    opacity: anyPending ? 0.5 : 1,
-  });
-
   const stop = (e: React.MouseEvent) => { e.stopPropagation(); stopMut.mutate(); };
   const restart = (e: React.MouseEvent) => { e.stopPropagation(); restartMut.mutate(); };
   const start = (e: React.MouseEvent) => { e.stopPropagation(); startMut.mutate(); };
 
+  const btnClass = "flex flex-row items-center justify-center w-5 h-5 rounded border-none";
+
   return (
-    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
-      <span style={{
-        width: 7, height: 7, borderRadius: 4,
-        background: isRunning ? "#22c55e" : "#6b7280", flexShrink: 0,
-      }} />
-      <span style={{ fontSize: 11, fontWeight: 500, color: isRunning ? "#22c55e" : t.textDim, whiteSpace: "nowrap" }}>
+    <div className="flex flex-row items-center gap-1.5 mt-1 pt-0">
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: isRunning ? "#22c55e" : "#6b7280" }} />
+      <span className="text-[10px] font-medium" style={{ color: isRunning ? "#22c55e" : t.textDim }}>
         {isRunning ? "Running" : "Stopped"}
       </span>
       {isRunning && ps?.uptime_seconds != null && (
-        <span style={{ fontSize: 10, color: t.textDim, whiteSpace: "nowrap" }}>{formatUptime(ps.uptime_seconds)}</span>
+        <span className="text-[9px]" style={{ color: t.textDim }}>{formatUptime(ps.uptime_seconds)}</span>
       )}
+      <div className="flex-1" />
       {isRunning ? (
-        <div style={{ display: "flex", flexDirection: "row", gap: 3 }}>
-          <button onClick={stop} disabled={anyPending} title="Stop" style={btnStyle("rgba(239,68,68,0.15)", "#ef4444")}>
+        <div className="flex flex-row gap-0.5">
+          <button onClick={stop} disabled={anyPending} title="Stop" className={btnClass}
+            style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444", opacity: anyPending ? 0.5 : 1, cursor: anyPending ? "wait" : "pointer" }}>
             <Square size={9} />
           </button>
-          <button onClick={restart} disabled={anyPending} title="Restart" style={btnStyle("rgba(59,130,246,0.15)", "#3b82f6")}>
+          <button onClick={restart} disabled={anyPending} title="Restart" className={btnClass}
+            style={{ background: "rgba(59,130,246,0.12)", color: "#3b82f6", opacity: anyPending ? 0.5 : 1, cursor: anyPending ? "wait" : "pointer" }}>
             <RefreshCw size={9} />
           </button>
         </div>
       ) : (
-        <button onClick={start} disabled={anyPending} title="Start" style={btnStyle("rgba(34,197,94,0.15)", "#22c55e")}>
+        <button onClick={start} disabled={anyPending} title="Start" className={btnClass}
+          style={{ background: "rgba(34,197,94,0.12)", color: "#22c55e", opacity: anyPending ? 0.5 : 1, cursor: anyPending ? "wait" : "pointer" }}>
           <Play size={9} />
         </button>
       )}
@@ -99,16 +134,21 @@ function InlineProcessControls({ item }: { item: IntegrationItem }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Integration row
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/*  Integration card                                                   */
+/* ------------------------------------------------------------------ */
 
-function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boolean }) {
+function IntegrationCard({ item }: { item: IntegrationItem }) {
   const t = useThemeTokens();
   const navigate = useNavigate();
+  const [hovered, setHovered] = useState(false);
   const isDisabled = item.disabled;
 
   const envSetCount = item.env_vars.filter((v) => v.is_set).length;
+  const envTotal = item.env_vars.length;
+  const allEnvSet = envTotal > 0 && envSetCount === envTotal;
+  const missingRequired = item.env_vars.some((v) => v.required && !v.is_set);
+
   const activeCaps = [
     item.has_router && "router",
     item.has_hooks && "hooks",
@@ -117,109 +157,76 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
     item.has_carapaces && "capabilities",
   ].filter(Boolean) as string[];
 
-  const rowOpacity = isDisabled ? 0.45 : 1;
   const effectiveStatus = isDisabled ? "disabled" : item.status;
 
-  if (!isWide) {
-    // Mobile: card layout (matches skills/tools mobile pattern)
-    return (
-      <button
-        onClick={() => navigate(`/admin/integrations/${item.id}`)}
-        style={{
-          display: "flex", flexDirection: "column", gap: 6,
-          padding: "12px 16px", background: t.inputBg, borderRadius: 8,
-          border: `1px solid ${t.surfaceBorder}`, cursor: "pointer",
-          textAlign: "left", width: "100%",
-          opacity: rowOpacity,
-        }}
-      >
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>{item.name}</span>
-          <StatusBadge status={effectiveStatus} />
-        </div>
-        <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
-          {activeCaps.map((c) => <CapBadge key={c} label={c} active />)}
-        </div>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, fontSize: 11, color: t.textDim }}>
-          <span style={{
-            fontSize: 9, fontWeight: 600, padding: "1px 5px", borderRadius: 3,
-            background: "rgba(107,114,128,0.08)", textTransform: "uppercase", letterSpacing: 0.3,
-          }}>
-            {item.source}
-          </span>
-          {item.env_vars.length > 0 && (
-            <span style={{ color: envSetCount === item.env_vars.length ? "#22c55e" : t.textDim }}>
-              {envSetCount}/{item.env_vars.length} vars
-            </span>
-          )}
-          {item.webhook && (
-            <code style={{ fontFamily: "monospace", fontSize: 10, color: t.textDim }}>{item.webhook.path}</code>
-          )}
-        </div>
-        {item.has_process && !isDisabled && <InlineProcessControls item={item} />}
-      </button>
-    );
-  }
-
-  // Desktop: table row (matches skills/tools desktop pattern)
   return (
     <button
       onClick={() => navigate(`/admin/integrations/${item.id}`)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="flex flex-col text-left w-full rounded-lg overflow-hidden"
       style={{
-        display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
-        padding: "10px 16px", background: "transparent",
-        border: "none",
-        borderBottom: `1px solid ${t.surfaceBorder}`,
+        background: hovered ? t.surfaceOverlay : t.surfaceRaised,
+        border: `1px solid ${t.surfaceBorder}`,
+        opacity: isDisabled ? 0.45 : 1,
         cursor: "pointer",
-        textAlign: "left", width: "100%",
-        opacity: rowOpacity,
+        transition: "background 0.12s, box-shadow 0.12s",
+        boxShadow: hovered ? "0 2px 8px rgba(0,0,0,0.12)" : "none",
+        padding: "10px 12px",
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = t.inputBg; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
     >
-      {/* Name + meta */}
-      <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{item.name}</span>
-          <StatusBadge status={effectiveStatus} />
-          <div style={{ display: "flex", flexDirection: "row", gap: 3, flexWrap: "wrap" }}>
-            {activeCaps.map((c) => <CapBadge key={c} label={c} active />)}
-          </div>
+      {/* Top row: icon + name + status */}
+      <div className="flex flex-row items-center gap-2.5 w-full">
+        <div
+          className="flex flex-row items-center justify-center w-8 h-8 rounded-md shrink-0"
+          style={{ background: t.surfaceOverlay }}
+        >
+          <IntegrationIcon name={item.icon} size={16} color={t.textMuted} />
         </div>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
-          <span style={{
-            fontSize: 9, fontWeight: 600, padding: "1px 5px", borderRadius: 3,
-            background: "rgba(107,114,128,0.08)", color: t.textDim,
-            textTransform: "uppercase", letterSpacing: 0.3,
-          }}>
-            {item.source}
+        <div className="flex flex-col min-w-0 flex-1">
+          <span className="text-[13px] font-semibold truncate leading-tight" style={{ color: t.text }}>
+            {item.name}
           </span>
-          {item.webhook && (
-            <span style={{ fontSize: 11, color: t.textDim }}>
-              <code style={{ fontFamily: "monospace", fontSize: 10, color: t.textDim }}>{item.webhook.path}</code>
-            </span>
-          )}
-          {item.env_vars.length > 0 && (
-            <span style={{ fontSize: 10, color: envSetCount === item.env_vars.length ? "#22c55e" : t.textDim }}>
-              {envSetCount}/{item.env_vars.length} vars
-            </span>
-          )}
+          <StatusDot status={effectiveStatus} />
         </div>
+        {/* Env var indicator — top right */}
+        {envTotal > 0 && (
+          <span
+            className="inline-flex flex-row items-center gap-1 text-[10px] font-medium tabular-nums shrink-0"
+            style={{ color: allEnvSet ? "#22c55e" : missingRequired ? "#eab308" : t.textDim }}
+          >
+            {allEnvSet ? <CheckCircle2 size={10} /> : missingRequired ? <AlertTriangle size={10} /> : null}
+            {envSetCount}/{envTotal}
+          </span>
+        )}
       </div>
 
-      {/* Process controls (right side) */}
-      {item.has_process && !isDisabled && <InlineProcessControls item={item} />}
+      {/* Capability pills — horizontal wrap */}
+      {activeCaps.length > 0 && (
+        <div className="flex flex-row flex-wrap gap-1 mt-2">
+          {activeCaps.map((c) => (
+            <CapBadge key={c} label={c} active />
+          ))}
+        </div>
+      )}
+
+      {/* Process controls */}
+      {item.has_process && !isDisabled && <ProcessControls item={item} />}
     </button>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main list screen
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/*  Render item types                                                  */
+/* ------------------------------------------------------------------ */
 
 type RenderItem =
   | { type: "header"; key: string; label: string; count: number }
-  | { type: "row"; key: string; item: IntegrationItem };
+  | { type: "card"; key: string; item: IntegrationItem };
+
+/* ------------------------------------------------------------------ */
+/*  Main screen                                                        */
+/* ------------------------------------------------------------------ */
 
 export default function IntegrationsScreen() {
   const t = useThemeTokens();
@@ -230,7 +237,6 @@ export default function IntegrationsScreen() {
   const [search, setSearch] = useState("");
   const [showGuide, setShowGuide] = useState(false);
 
-  // Deduplicate
   const all = useMemo(() => {
     if (!data?.integrations) return undefined;
     return [...new Map(data.integrations.map((i) => [i.id, i])).values()];
@@ -261,23 +267,16 @@ export default function IntegrationsScreen() {
     }
 
     const items: RenderItem[] = [];
+    const add = (key: string, label: string, list: IntegrationItem[]) => {
+      if (!list.length) return;
+      items.push({ type: "header", key, label, count: list.length });
+      for (const i of list) items.push({ type: "card", key: i.id, item: i });
+    };
 
-    if (ready.length) {
-      items.push({ type: "header", key: "ready", label: "Ready", count: ready.length });
-      for (const i of ready) items.push({ type: "row", key: i.id, item: i });
-    }
-    if (needsSetup.length) {
-      items.push({ type: "header", key: "needs-setup", label: "Needs Setup", count: needsSetup.length });
-      for (const i of needsSetup) items.push({ type: "row", key: i.id, item: i });
-    }
-    if (packages.length) {
-      items.push({ type: "header", key: "packages", label: "Packages", count: packages.length });
-      for (const i of packages) items.push({ type: "row", key: i.id, item: i });
-    }
-    if (disabled.length) {
-      items.push({ type: "header", key: "disabled", label: "Disabled", count: disabled.length });
-      for (const i of disabled) items.push({ type: "row", key: i.id, item: i });
-    }
+    add("ready", "Ready", ready);
+    add("needs-setup", "Needs Setup", needsSetup);
+    add("packages", "Packages", packages);
+    add("disabled", "Disabled", disabled);
 
     return items;
   }, [filtered]);
@@ -294,98 +293,79 @@ export default function IntegrationsScreen() {
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
       <PageHeader variant="list" title="Integrations" />
 
-      {/* Toolbar: search bar (when items exist) + guide button (always) */}
-      <div style={{
-        display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
-        padding: isWide ? "8px 16px" : "8px 12px",
-        borderBottom: `1px solid ${t.surfaceBorder}`,
-      }}>
+      {/* Toolbar */}
+      <div
+        className="flex flex-row items-center gap-2.5"
+        style={{ padding: isWide ? "8px 16px" : "8px 12px", borderBottom: `1px solid ${t.surfaceBorder}` }}
+      >
         {all && all.length > 0 && (
-          <>
-            <div style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
-              borderRadius: 6, padding: "5px 10px",
-              maxWidth: isWide ? 300 : undefined, flex: isWide ? undefined : 1,
-            }}>
-              <Search size={13} color={t.textDim} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Filter integrations..."
-                style={{
-                  background: "none", border: "none", outline: "none",
-                  color: t.text, fontSize: 12, flex: 1, width: "100%",
-                }}
-              />
-            </div>
-            <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap" }}>
-              {search && filtered.length !== all.length
-                ? `${filtered.length} / ${all.length}`
-                : all.length}{" "}
-              integrations
-            </span>
-          </>
+          <div
+            className="flex flex-row items-center gap-1.5 rounded-md"
+            style={{ background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, padding: "5px 10px", maxWidth: isWide ? 260 : undefined, flex: isWide ? undefined : 1 }}
+          >
+            <Search size={13} color={t.textDim} style={{ flexShrink: 0 }} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter integrations..."
+              className="bg-transparent border-none outline-none text-[12px] flex-1 w-full"
+              style={{ color: t.text }}
+            />
+            {search && (
+              <button onClick={() => setSearch("")} className="flex flex-row p-0 bg-transparent border-none cursor-pointer">
+                <X size={12} color={t.textDim} />
+              </button>
+            )}
+          </div>
         )}
-        {(!all || all.length === 0) && <div style={{ flex: 1 }} />}
+        {all && all.length > 0 && (
+          <span className="text-[11px] whitespace-nowrap" style={{ color: t.textDim }}>
+            {search && filtered.length !== all.length ? `${filtered.length} / ${all.length}` : all.length} integrations
+          </span>
+        )}
+        <div className="flex-1" />
         <button
           onClick={() => setShowGuide(true)}
           title="Integration Developer Guide"
-          style={{
-            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-            padding: "4px 8px", borderRadius: 5, border: `1px solid ${t.surfaceBorder}`,
-            background: "transparent", color: t.textMuted,
-            fontSize: 11, fontWeight: 500,
-            cursor: "pointer",
-            marginLeft: all && all.length > 0 ? undefined : "auto",
-          }}
+          className="flex flex-row items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium cursor-pointer shrink-0"
+          style={{ border: `1px solid ${t.surfaceBorder}`, background: "transparent", color: t.textMuted }}
         >
           <BookOpen size={13} />
           Dev Guide
         </button>
       </div>
 
-      {/* Status legend */}
-      {all && all.length > 0 && (
-        <div style={{
-          padding: isWide ? "4px 16px 6px" : "4px 12px 6px",
-          fontSize: 11, color: t.textDim, lineHeight: 1.5,
-        }}>
-          <strong style={{ color: t.textMuted }}>Ready</strong> = configured{" \u00b7 "}
-          <strong style={{ color: t.textMuted }}>Needs Setup</strong> = missing required vars{" \u00b7 "}
-          <strong style={{ color: t.textMuted }}>Disabled</strong> = globally off (tools unloaded, process stopped)
-        </div>
-      )}
-
-      {/* List */}
+      {/* Card grid */}
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
         style={{ flex: 1 }}
-        contentContainerStyle={{
-          padding: isWide ? 0 : 12,
-          gap: isWide ? 0 : 8,
-        }}
+        contentContainerStyle={{ padding: isWide ? "0 16px 16px" : "0 12px 12px" }}
       >
         {(!all || all.length === 0) && (
-          <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
+          <div className="p-10 text-center text-[13px]" style={{ color: t.textDim }}>
             No integrations discovered.
           </div>
         )}
 
         {all && all.length > 0 && filtered.length === 0 && (
-          <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
-            No integrations match "{search}"
+          <div className="p-10 text-center text-[13px]" style={{ color: t.textDim }}>
+            No integrations match &ldquo;{search}&rdquo;
           </div>
         )}
 
-        {renderItems.map((ri) =>
-          ri.type === "header" ? (
-            <SectionHeader key={ri.key} label={ri.label} count={ri.count} isWide={isWide} />
-          ) : (
-            <IntegrationRow key={ri.key} item={ri.item} isWide={isWide} />
-          ),
-        )}
+        <div
+          className="grid gap-2"
+          style={{ gridTemplateColumns: isWide ? "repeat(auto-fill, minmax(240px, 1fr))" : "1fr" }}
+        >
+          {renderItems.map((ri) =>
+            ri.type === "header" ? (
+              <SectionHeader key={ri.key} label={ri.label} count={ri.count} />
+            ) : (
+              <IntegrationCard key={ri.key} item={ri.item} />
+            ),
+          )}
+        </div>
       </RefreshableScrollView>
 
       {showGuide && <IntegrationGuideModal onClose={() => setShowGuide(false)} />}
