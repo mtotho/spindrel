@@ -312,11 +312,14 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
         "- A skill with 0 fetches but auto-injections is actively used — do NOT prune it",
         "",
     ]
+    all_protected = True
     for r in rows:
         age_days = (now_utc - r.enrolled_at).days if r.enrolled_at else 0
         last_fetched = r.last_fetched_at.date().isoformat() if r.last_fetched_at else "never"
         enrolled = r.enrolled_at.date().isoformat() if r.enrolled_at else "?"
         protected = r.source == "authored" or age_days < 7
+        if not protected:
+            all_protected = False
         prot_tag = " **[protected]**" if protected else ""
         last_ai = r.last_auto_injected_at.date().isoformat() if r.last_auto_injected_at else "never"
         lines.append(
@@ -325,6 +328,14 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
             f"global {r.surface_count}x, enrolled {enrolled} ({age_days}d ago), "
             f"source={r.source}{prot_tag}"
         )
+
+    if all_protected:
+        lines.append("")
+        lines.append(
+            "**All skills are protected (enrolled < 14 days or authored). "
+            "Skip pruning this cycle — focus on reflections and coverage gaps.**"
+        )
+
     lines.append("")
     lines.append(
         "To prune: `prune_enrolled_skills(skill_ids=[...])`. "
@@ -484,6 +495,93 @@ async def _build_channel_snapshot(bot_id: str, db: AsyncSession) -> str:
     return "\n".join(lines)
 
 
+async def _build_recent_activity_snapshot(bot_id: str, db: AsyncSession) -> str:
+    """Build a snapshot of recent user messages per channel.
+
+    Gives the skill review bot concrete conversation content to base
+    reflections on, instead of requiring tool calls to read_conversation_history.
+    """
+    from app.db.models import Channel, Session as SessionRow
+    from app.services.channels import bot_channel_filter
+
+    now_utc = datetime.now(timezone.utc)
+    week_ago = now_utc - timedelta(days=7)
+
+    channels = (await db.execute(
+        select(Channel.id, Channel.name, Channel.client_id)
+        .where(bot_channel_filter(bot_id))
+        .order_by(Channel.name)
+    )).all()
+
+    if not channels:
+        return "## Recent Activity\n\n_(no channels found)_"
+
+    lines = [
+        "## Recent Activity",
+        "",
+        "Recent user messages from the last 7 days (newest first, max 5 per channel):",
+        "",
+    ]
+    for ch in channels:
+        label = ch.name or ch.client_id or "unnamed"
+        recent_msgs = (await db.execute(
+            select(
+                Message.content,
+                Message.created_at,
+            )
+            .join(SessionRow, Message.session_id == SessionRow.id)
+            .where(
+                SessionRow.channel_id == ch.id,
+                Message.role == "user",
+                Message.content.is_not(None),
+                Message.created_at >= week_ago,
+            )
+            .order_by(Message.created_at.desc())
+            .limit(5)
+        )).all()
+
+        if recent_msgs:
+            lines.append(f"**{label}**:")
+            for msg in recent_msgs:
+                preview = (msg.content or "")[:150].replace("\n", " ").strip()
+                if len(msg.content or "") > 150:
+                    preview += "..."
+                ts = msg.created_at.strftime("%m-%d %H:%M") if msg.created_at else "?"
+                lines.append(f"- [{ts}] {preview}")
+        else:
+            lines.append(f"**{label}** — _(no messages last 7d)_")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+async def _build_previous_review_snapshot(bot_id: str, db: AsyncSession) -> str:
+    """Fetch the previous completed skill review result for continuity.
+
+    Gives the bot visibility into what the last review pass decided so it can
+    avoid repeating observations and check whether reflections led to action.
+    """
+    prev = (await db.execute(
+        select(Task.result, Task.completed_at)
+        .where(
+            Task.bot_id == bot_id,
+            Task.task_type == "skill_review",
+            Task.status == "completed",
+        )
+        .order_by(Task.completed_at.desc())
+        .limit(1)
+    )).first()
+
+    if not prev or not prev.result:
+        return ""
+
+    date_str = prev.completed_at.date().isoformat() if prev.completed_at else "unknown"
+    truncated = prev.result[:2000]
+    if len(prev.result) > 2000:
+        truncated += "\n\n_(truncated)_"
+    return f"## Previous Skill Review ({date_str})\n\n{truncated}"
+
+
 async def create_hygiene_task(
     bot_id: str,
     db: AsyncSession,
@@ -511,13 +609,26 @@ async def create_hygiene_task(
     except Exception:
         logger.warning("Failed to build channel snapshot for %s %s", job_type, bot_id, exc_info=True)
 
-    # Only skill_review gets the working set + inject audit samples
+    # Only skill_review gets the working set, recent activity, and previous review
     if job_type == "skill_review":
         try:
             snapshot = await _build_working_set_snapshot(bot_id, db)
             prompt = f"{prompt}\n\n{snapshot}"
         except Exception:
             logger.warning("Failed to build working-set snapshot for %s %s", job_type, bot_id, exc_info=True)
+
+        try:
+            activity = await _build_recent_activity_snapshot(bot_id, db)
+            prompt = f"{prompt}\n\n{activity}"
+        except Exception:
+            logger.warning("Failed to build activity snapshot for %s %s", job_type, bot_id, exc_info=True)
+
+        try:
+            prev_review = await _build_previous_review_snapshot(bot_id, db)
+            if prev_review:
+                prompt = f"{prompt}\n\n{prev_review}"
+        except Exception:
+            logger.warning("Failed to build previous review snapshot for %s %s", job_type, bot_id, exc_info=True)
 
     # Build execution_config with model overrides if set
     exec_cfg: dict | None = None

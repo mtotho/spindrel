@@ -753,6 +753,7 @@ async def assemble_context(
     system_preamble: str | None = None,
     budget: "ContextBudget | None" = None,
     task_mode: bool = False,
+    skip_skill_inject: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject all RAG context into messages and yield status events.
 
@@ -1345,7 +1346,7 @@ async def assemble_context(
                 # aren't already in context from @-tags, ephemeral injection, or
                 # prior get_skill() calls in conversation history.
                 # Budget-gated: if the skill content doesn't fit, stop.
-                if _ranking and settings.SKILL_ENROLLED_AUTO_INJECT_MAX > 0:
+                if _ranking and settings.SKILL_ENROLLED_AUTO_INJECT_MAX > 0 and not skip_skill_inject:
                     # Scan conversation history for skills already fetched via get_skill()
                     for _hmsg in messages:
                         if _hmsg.get("role") == "assistant" and _hmsg.get("tool_calls"):

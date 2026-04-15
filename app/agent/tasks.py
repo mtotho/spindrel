@@ -906,6 +906,10 @@ async def run_task(task: Task) -> None:
 
         _task_timeout = resolve_task_timeout(task, _task_channel)
 
+        # Suppress skill auto-inject for hygiene tasks — the review prompt
+        # text would match enrolled skills semantically, polluting inject metrics.
+        _skip_skill_inject = task.task_type in ("memory_hygiene", "skill_review")
+
         run_result = await asyncio.wait_for(
             run(
                 messages, bot, task_prompt,
@@ -922,6 +926,7 @@ async def run_task(task: Task) -> None:
                 injected_tools=_ecfg_injected_tools,
                 skip_tool_policy=_skip_tool_policy,
                 task_mode=True,
+                skip_skill_inject=_skip_skill_inject,
             ),
             timeout=_task_timeout,
         )

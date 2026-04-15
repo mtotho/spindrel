@@ -180,9 +180,17 @@ You are running a scheduled skill review pass. Your goal: generate cross-channel
 prune stale or low-value skills, improve skill triggers, create new skills for emerging patterns,
 and audit auto-inject quality.
 
+## Execution rules
+- This is an automated task with no user present. Execute all steps directly.
+- Do NOT present options, ask questions, or request approval.
+- Do NOT create skills to satisfy reflections you generate in the same pass.
+  Reflections are observations for FUTURE sessions to act on.
+- If you need skill authoring guidance, call `get_skill(skill_id="skill_authoring")`.
+- Keep your final response under 300 words. The daily log entry is the durable output.
+
 ## Step 1 — Cross-channel reflection
-Your channels (primary and member) are listed in the "## Channels" snapshot appended below.
-Review recent activity across all channels and generate 3-5 meta-observations. Look for:
+Recent user messages from your channels are in the "## Recent Activity" snapshot appended below.
+Use this data (not `read_conversation_history`) to generate 3-5 meta-observations. Look for:
 - **Recurring patterns**: Similar requests or problems appearing across channels
 - **Cross-project connections**: Information from one channel that's relevant to another
 - **Emerging themes**: New topics or interests the user is developing
@@ -195,7 +203,10 @@ Write reflections to a dedicated `## Reflections` section at the bottom of MEMOR
 - Prune reflections older than 30 days that haven't led to action.
 - Remove "resolved" reflections that led to concrete changes (skills created, facts promoted, etc.).
 - Cap at ~5-8 active reflections to prevent bloat. Drop the least actionable if over the cap.
-- Reflections should be actionable — "User frequently asks about X, consider creating a skill" rather than "User is interested in X."
+- Reflections should be actionable and cite specific evidence from the activity snapshot.
+
+If a "## Previous Skill Review" section is appended below, review it to avoid repeating
+the same observations and to check whether previous reflections led to action.
 
 ## Step 2 — Skill hygiene
 Review your complete skill list in the "## Working set" snapshot appended below. It shows ALL your enrolled skills (both authored and catalog) with per-bot fetch counts, global surface counts, source, and age.
@@ -213,8 +224,9 @@ Review your complete skill list in the "## Working set" snapshot appended below.
 4. **For catalog skills you never fetch**: safe to prune if enrolled 14+ days ago. The semantic discovery layer will resurface them if a future message is relevant.
 5. **Overlapping authored skills**: merge with `manage_bot_skill(action="merge", ...)`.
 6. **Outdated authored content**: use `action="patch"` for small fixes, `action="update"` for full rewrites.
-7. **Missing coverage**: if recent daily logs show recurring topics with no matching skill, create new skills now.
+7. **Missing coverage**: if recent activity shows recurring topics with no matching skill, create new skills now.
 8. **Auto-inject quality**: Review the sample turns in the "Auto-inject quality samples" section (if present). If a skill's samples show it being injected for unrelated conversations, its triggers are too broad — narrow them with `manage_bot_skill(action="update")`, or prune if the skill shouldn't exist.
+9. **All-protected short-circuit**: If every enrolled skill is protected (enrolled < 14 days), skip detailed pruning analysis. Note "all skills protected, skipping pruning" and move on.
 
 ### How to prune
 - Unprotected: `prune_enrolled_skills(skill_ids=["id1", "id2"])`
@@ -222,11 +234,12 @@ Review your complete skill list in the "## Working set" snapshot appended below.
 - **Do not call `manage_bot_skill(action="delete")` on catalog skills you don't own** — that archives the skill itself, not just your enrollment.
 
 ## Step 3 — Summarize
-Write a brief summary to today's daily log including:
-- Reflections generated or updated
-- Skills created / merged / pruned / updated
+Write a `## Skill Review` section to today's daily log (`memory/logs/YYYY-MM-DD.md`) using
+the `file` tool (append if the file exists, create if not). Include:
+- Reflections generated or updated (with brief rationale)
+- Skills created / merged / pruned / updated (with IDs)
 - Auto-inject quality issues found and corrected
-- Any knowledge gaps identified that couldn't be addressed"""
+- Any knowledge gaps that couldn't be addressed"""
 
 
 # ---------------------------------------------------------------------------

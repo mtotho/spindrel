@@ -1475,6 +1475,7 @@ async def run_stream(
     system_preamble: str | None = None,
     skip_tool_policy: bool = False,
     task_mode: bool = False,
+    skip_skill_inject: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -1563,6 +1564,7 @@ async def run_stream(
         system_preamble=system_preamble,
         budget=_budget,
         task_mode=task_mode,
+        skip_skill_inject=skip_skill_inject,
     ):
         yield event
 
@@ -1773,6 +1775,7 @@ async def run(
     system_preamble: str | None = None,
     skip_tool_policy: bool = False,
     task_mode: bool = False,
+    skip_skill_inject: bool = False,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -1793,6 +1796,7 @@ async def run(
         system_preamble=system_preamble,
         skip_tool_policy=skip_tool_policy,
         task_mode=task_mode,
+        skip_skill_inject=skip_skill_inject,
     ):
         if event["type"] == "assistant_text":
             _intermediate_texts.append(event["text"])
