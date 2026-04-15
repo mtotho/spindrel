@@ -80,6 +80,14 @@ class TestBotSkillHelpers:
     def test_bot_skill_id_uppercase(self):
         assert _bot_skill_id("mybot", "MySkill") == "bots/mybot/myskill"
 
+    def test_bot_skill_id_strips_prefix(self):
+        """Bot accidentally passes full ID as name — prefix should be stripped."""
+        assert _bot_skill_id("baking-bot", "bots/baking-bot/ermine-frosting") == "bots/baking-bot/ermine-frosting"
+
+    def test_bot_skill_id_strips_prefix_other_bot_ignored(self):
+        """Only strips prefix matching the current bot, not other bots."""
+        assert _bot_skill_id("mybot", "bots/other-bot/skill") == "bots/mybot/botsother-botskill"
+
     def test_bot_skill_id_rejects_empty(self):
         with pytest.raises(ValueError):
             _bot_skill_id("mybot", "!!!!")

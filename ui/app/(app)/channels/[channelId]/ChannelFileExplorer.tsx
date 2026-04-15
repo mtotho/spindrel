@@ -191,7 +191,8 @@ export function ChannelFileExplorer({
     );
   }, [channelId, channelWorkspaceEnabled, botId, sharedWorkspace]);
 
-  // Filter / search
+  // Filter / search — hidden by default to reduce chrome
+  const [showFilter, setShowFilter] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -252,8 +253,46 @@ export function ChannelFileExplorer({
       : null;
   const explorerRef = useRef<HTMLDivElement>(null);
 
+  // Multi-select: ctrl+click to toggle, shift+click for range, right-click for bulk actions
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const lastClickedRef = useRef<string | null>(null);
+
+  // Flat ordered list of all visible items (folders then files) for shift-range selection
+  const allItemPaths = useMemo(() => [
+    ...folders.map((e) => "/" + stripSlashes(e.path)),
+    ...files.map((e) => stripSlashes(e.path)),
+  ], [folders, files]);
+
+  const handleMultiSelect = useCallback((path: string, e?: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean }) => {
+    if (e?.shiftKey && lastClickedRef.current) {
+      // Range select between lastClicked and current
+      const startIdx = allItemPaths.indexOf(lastClickedRef.current);
+      const endIdx = allItemPaths.indexOf(path);
+      if (startIdx >= 0 && endIdx >= 0) {
+        const lo = Math.min(startIdx, endIdx);
+        const hi = Math.max(startIdx, endIdx);
+        setSelectedPaths((prev) => {
+          const next = new Set(prev);
+          for (let i = lo; i <= hi; i++) next.add(allItemPaths[i]);
+          return next;
+        });
+        lastClickedRef.current = path;
+        return;
+      }
+    }
+    // Ctrl/Cmd toggle
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+    lastClickedRef.current = path;
+  }, [allItemPaths]);
+
   useEffect(() => {
     setFocusedIndex(-1);
+    setSelectedPaths(new Set());
   }, [currentPath, searchQuery]);
 
   useEffect(() => {
@@ -273,6 +312,10 @@ export function ChannelFileExplorer({
         onSelectFile(stripSlashes(focusedFile.path));
       } else if (e.key === "n") {
         setNewItem("file");
+      } else if (e.key === "/") {
+        e.preventDefault();
+        setShowFilter(true);
+        setTimeout(() => searchRef.current?.focus(), 0);
       }
     };
     el.addEventListener("keydown", handler);
@@ -529,6 +572,32 @@ export function ChannelFileExplorer({
     setContextMenu({ x: e.clientX, y: e.clientY, items });
   }, [refreshAll]);
 
+  // Bulk context menu — shown when right-clicking a multi-selected item
+  const openBulkContextMenu = useCallback((e: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const count = selectedPaths.size;
+    const items: ContextMenuItem[] = [
+      {
+        label: `Delete ${count} item${count !== 1 ? "s" : ""}`,
+        danger: true,
+        action: async () => {
+          if (!window.confirm(`Delete ${count} item${count !== 1 ? "s" : ""}?`)) {
+            setContextMenu(null);
+            return;
+          }
+          for (const p of selectedPaths) {
+            try { await deleteWorkspace.mutateAsync(stripSlashes(p)); } catch {}
+          }
+          setSelectedPaths(new Set());
+          setContextMenu(null);
+          refetchTree();
+        },
+      },
+    ];
+    setContextMenu({ x: e.clientX, y: e.clientY, items });
+  }, [selectedPaths, deleteWorkspace, refetchTree]);
+
   const isMutating =
     writeWorkspace.isPending ||
     mkdirWorkspace.isPending ||
@@ -545,8 +614,12 @@ export function ChannelFileExplorer({
       ref={explorerRef}
       style={{
         ...(fullWidth ? { flex: 1 } : { width, flexShrink: 0 }),
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
         backgroundColor: t.surfaceRaised,
         position: "relative",
+        overflow: "hidden",
       }}
       {...(true
         ? {
@@ -600,6 +673,14 @@ export function ChannelFileExplorer({
         </button>
         <button type="button"
           className="header-icon-btn"
+          onClick={() => { setShowFilter((v) => !v); if (!showFilter) setTimeout(() => searchRef.current?.focus(), 0); }}
+          style={{ padding: 5, borderRadius: 3, cursor: "pointer", background: showFilter ? t.surfaceOverlay : "none", border: "none" }}
+          title="Filter files (/) "
+        >
+          <Search size={11} color={showFilter ? t.accent : t.textDim} />
+        </button>
+        <button type="button"
+          className="header-icon-btn"
           onClick={refreshAll}
           style={{ padding: 5, borderRadius: 3, cursor: "pointer", background: "none", border: "none" }}
           title="Refresh"
@@ -626,22 +707,14 @@ export function ChannelFileExplorer({
         />
       )}
 
-      {/* Scope strip */}
-      <ScopeStrip
-        currentPath={currentPath}
-        channelTarget={channelTarget}
-        memoryTarget={memoryTarget}
-        rootTarget="/"
-        onJump={setCurrentPath}
-      />
+      {/* Scope targets are now in the breadcrumb dropdown */}
 
-      {/* Filter input */}
-      {true && (
+      {/* Filter input — shown on demand via Search icon or `/` key */}
+      {showFilter && (
         <div style={{ paddingLeft: 8, paddingRight: 8, paddingBottom: 4 }}>
           <div
+            className="flex items-center"
             style={{
-              display: "flex", flexDirection: "row",
-              alignItems: "center",
               gap: 5,
               background: t.inputBg,
               borderRadius: 4,
@@ -659,10 +732,11 @@ export function ChannelFileExplorer({
               onKeyDown={(e: any) => {
                 if (e.key === "Escape") {
                   setSearchQuery("");
-                  (e.target as HTMLInputElement).blur();
+                  setShowFilter(false);
                 }
               }}
               placeholder="Filter files…"
+              autoFocus
               style={{
                 flex: 1,
                 background: "none",
@@ -685,6 +759,17 @@ export function ChannelFileExplorer({
           </div>
         </div>
       )}
+
+      {/* Scope nav — plain text links */}
+      <ScopeStrip
+        currentPath={currentPath}
+        scopeTargets={[
+          ...(channelTarget ? [{ label: "Channel", path: channelTarget }] : []),
+          ...(memoryTarget ? [{ label: "Memory", path: memoryTarget }] : []),
+          { label: "Workspace", path: "/" },
+        ]}
+        onJump={setCurrentPath}
+      />
 
       {/* Breadcrumb */}
       <Breadcrumb
@@ -715,38 +800,61 @@ export function ChannelFileExplorer({
               />
             )}
             {folders.map((entry) => {
-              // Prefer the backend-supplied display_name (read from .channel_info
-              // for any folder that has one). Fall back to the channel-name map
-              // for channel UUID dirs whose .channel_info hasn't been written.
               const displayLabel =
                 entry.display_name ||
                 (channelNameMap[entry.name] ?? null);
+              const folderPath = "/" + stripSlashes(entry.path);
               return (
                 <TreeFolderRow
                   key={entry.path}
                   name={entry.name}
                   displayLabel={displayLabel}
-                  fullPath={"/" + stripSlashes(entry.path)}
-                  onNavigate={setCurrentPath}
-                  onContextMenu={(e) => openFolderContextMenu(e, entry)}
+                  fullPath={folderPath}
+                  multiSelected={selectedPaths.has(folderPath)}
+                  onNavigate={(path, e) => {
+                    if (e?.ctrlKey || e?.metaKey || e?.shiftKey) { handleMultiSelect(path, e); return; }
+                    setSelectedPaths(new Set());
+                    setCurrentPath(path);
+                  }}
+                  onContextMenu={(e) => {
+                    if (selectedPaths.has(folderPath) && selectedPaths.size > 1) {
+                      openBulkContextMenu(e);
+                    } else {
+                      openFolderContextMenu(e, entry);
+                    }
+                  }}
                   onMoveDrop={(srcPath) => handleMoveDrop(srcPath, entry.path)}
                 />
               );
             })}
-            {files.map((entry, i) => (
-              <TreeFileRow
-                key={entry.path}
-                name={entry.name}
-                fullPath={stripSlashes(entry.path)}
-                size={entry.size}
-                modifiedAt={entry.modified_at}
-                selected={activeFile === stripSlashes(entry.path)}
-                focused={focusedIndex === i}
-                onSelect={() => onSelectFile(stripSlashes(entry.path))}
-                onDelete={() => deleteEntry(entry.name, entry.path, false)}
-                onContextMenu={(e) => openFileContextMenu(e, entry)}
-              />
-            ))}
+            {files.map((entry, i) => {
+              const filePath = stripSlashes(entry.path);
+              return (
+                <TreeFileRow
+                  key={entry.path}
+                  name={entry.name}
+                  fullPath={filePath}
+                  size={entry.size}
+                  modifiedAt={entry.modified_at}
+                  selected={activeFile === filePath}
+                  multiSelected={selectedPaths.has(filePath)}
+                  focused={focusedIndex === i}
+                  onSelect={(e) => {
+                    if (e?.ctrlKey || e?.metaKey || e?.shiftKey) { handleMultiSelect(filePath, e); return; }
+                    setSelectedPaths(new Set());
+                    onSelectFile(filePath);
+                  }}
+                  onDelete={() => deleteEntry(entry.name, entry.path, false)}
+                  onContextMenu={(e) => {
+                    if (selectedPaths.has(filePath) && selectedPaths.size > 1) {
+                      openBulkContextMenu(e);
+                    } else {
+                      openFileContextMenu(e, entry);
+                    }
+                  }}
+                />
+              );
+            })}
             {filtered.length === 0 && !newItem && (
               <span
                 style={{

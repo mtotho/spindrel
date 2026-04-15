@@ -1,6 +1,6 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ArrowLeft, Save, RotateCw, Columns2, ChevronRight } from "lucide-react";
+import { ArrowLeft, X, Save, RotateCw, Columns2, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelWorkspaceFileContent,
@@ -155,7 +155,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
   const pathSegments = filePath.split("/");
 
   return (
-    <div style={{ flex: 1, backgroundColor: t.surface }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", backgroundColor: t.surface, minHeight: 0 }}>
       {/* Header */}
       <div
         style={{
@@ -173,9 +173,9 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
           onClick={handleBack}
           style={{ padding: 6, borderRadius: 4 }}
           className="hover:bg-surface-overlay active:bg-surface-overlay"
-          {...{ title: "Back (Esc)" }}
+          {...{ title: splitMode ? "Close file" : "Back (Esc)" }}
         >
-          <ArrowLeft size={16} color={t.textMuted} />
+          {splitMode ? <X size={16} color={t.textMuted} /> : <ArrowLeft size={16} color={t.textMuted} />}
         </button>
 
         {/* Breadcrumb path */}

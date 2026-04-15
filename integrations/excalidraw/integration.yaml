@@ -11,6 +11,10 @@ settings:
     required: false
 
 dependencies:
+  system:
+    - binary: chromium
+      alternatives: [chromium-browser, google-chrome-stable, google-chrome]
+      install_hint: "apt-get install -y chromium (already in the default Dockerfile)"
   npm:
     - package: "puppeteer-core + @excalidraw/utils + mermaid"
       binary_name: excalidraw-export

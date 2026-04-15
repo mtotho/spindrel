@@ -220,6 +220,29 @@ export default function ChatScreen() {
   const toggleSplit = useUIStore((s) => s.toggleFileExplorerSplit);
   const fileDirtyRef = useRef(false);
 
+  // Keyboard shortcuts for explorer/split/file viewer
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === "b") {
+        e.preventDefault();
+        toggleExplorer();
+      }
+      if (mod && e.key === "\\") {
+        e.preventDefault();
+        toggleSplit();
+      }
+      if (e.key === "Escape" && activeFile) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag !== "INPUT" && tag !== "TEXTAREA") {
+          setActiveFile(null);
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [toggleExplorer, toggleSplit, activeFile]);
+
   // Reset file selection when switching channels
   useEffect(() => {
     setActiveFile(null);
@@ -232,6 +255,15 @@ export default function ChatScreen() {
   const showExplorer = !!workspaceId && explorerOpen;
   const showFileViewer = activeFile !== null;
   const isMobile = columns === "single";
+
+  // Auto-enable split mode on wide screens when a file is first opened.
+  const autoSplitApplied = useRef(false);
+  useEffect(() => {
+    if (showFileViewer && columns === "triple" && !splitMode && !autoSplitApplied.current) {
+      autoSplitApplied.current = true;
+      toggleSplit();
+    }
+  }, [showFileViewer, columns, splitMode, toggleSplit]);
 
   // Dirty-file guard: instead of window.confirm, use a ConfirmDialog
   type DirtyAction = { type: "select"; path: string } | { type: "close" } | { type: "closeExplorer" };
@@ -359,6 +391,9 @@ export default function ChatScreen() {
           onBrowseWorkspace={handleBrowseWorkspace}
           onOpenEditor={handleOpenEditor}
           isMobile={isMobile}
+          activeFile={activeFile}
+          splitMode={splitMode}
+          onToggleSplit={toggleSplit}
           memberBotCount={memberBotCount}
           participantsPanelOpen={participantsPanelOpen}
           toggleParticipantsPanel={() => setParticipantsPanelOpen((p) => !p)}
@@ -465,9 +500,16 @@ export default function ChatScreen() {
       ) : (
         /* ---- Desktop/tablet: side-by-side layout ---- */
         <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden" }}>
-          {/* Explorer panel + resize handle */}
-          {showExplorer && channelId && (
-            <>
+          {/* Explorer panel — always rendered when workspace exists, animated via width clip */}
+          {workspaceId && channelId && (
+            <div
+              style={{
+                width: showExplorer ? explorerWidth : 0,
+                overflow: "hidden",
+                transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
+                flexShrink: 0,
+              }}
+            >
               <ChannelFileExplorer
                 channelId={channelId}
                 botId={channel?.bot_id}
@@ -479,11 +521,13 @@ export default function ChatScreen() {
                 onClose={handleCloseExplorer}
                 width={explorerWidth}
               />
-              <ResizeHandle
-                direction="horizontal"
-                onResize={(delta) => setExplorerWidth(explorerWidth + delta)}
-              />
-            </>
+            </div>
+          )}
+          {showExplorer && channelId && (
+            <ResizeHandle
+              direction="horizontal"
+              onResize={(delta) => setExplorerWidth(explorerWidth + delta)}
+            />
           )}
 
           {/* Chat column -- messages + input stacked vertically */}

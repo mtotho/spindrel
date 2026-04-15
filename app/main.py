@@ -355,10 +355,14 @@ async def lifespan(application: FastAPI):
     await ensure_orchestrator_channel()
     from app.agent.base_prompt import load_base_prompt
     load_base_prompt()
-    logger.info("Synchronizing integration manifests (YAML seed-once, setup.py upsert)...")
+    logger.info("Synchronizing integration manifests...")
     await seed_manifests()
     logger.info("Loading integration manifests from DB...")
     await load_manifests()
+    logger.info("Auto-installing missing integration dependencies...")
+    from app.services.integration_deps import ensure_integration_deps
+    await ensure_integration_deps()
+    _t = _tlog("Integration dependency auto-install", _t)
     logger.info("Seeding MCP servers from YAML (if empty)...")
     await seed_mcp_from_yaml()
     logger.info("Seeding MCP servers from integration manifests...")

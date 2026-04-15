@@ -52,7 +52,12 @@ def _bot_skill_id(bot_id: str, name: str) -> str:
     """Build the canonical skill ID for a bot-authored skill.
 
     Raises ValueError if the name produces an empty slug.
+    Strips the bots/{bot_id}/ prefix if the caller accidentally includes it.
     """
+    # Guard against bots passing the full ID as the name
+    prefix = f"bots/{bot_id}/"
+    if name.startswith(prefix):
+        name = name[len(prefix):]
     slug = _slugify(name)
     if not slug:
         raise ValueError(f"Invalid skill name: {name!r}")

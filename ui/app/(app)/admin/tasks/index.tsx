@@ -152,7 +152,7 @@ export default function TasksScreen() {
   };
 
   const handleTaskPress = (task: TaskItem) => {
-    if (task.task_type === "workflow" || task.task_type === "pipeline") {
+    if (task.task_type === "workflow") {
       navigate(`/admin/tasks/${task.id}`);
       return;
     }

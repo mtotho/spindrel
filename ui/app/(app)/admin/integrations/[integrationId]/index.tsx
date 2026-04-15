@@ -541,6 +541,44 @@ function NpmDependencySection({ item }: { item: IntegrationItem }) {
 }
 
 // ---------------------------------------------------------------------------
+// System dependency section (binaries like chromium)
+// ---------------------------------------------------------------------------
+
+function SystemDependencySection({ item }: { item: IntegrationItem }) {
+  const deps = item.system_dependencies;
+  if (!deps || deps.length === 0) return null;
+
+  const allInstalled = deps.every((d) => d.installed);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-row flex-wrap gap-1.5">
+        {deps.map((d) => (
+          <span
+            key={d.binary}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium font-mono ${
+              d.installed
+                ? "bg-green-500/10 text-green-500"
+                : "bg-red-500/10 text-red-500"
+            }`}
+          >
+            {d.installed ? <Check size={10} /> : <X size={10} />}
+            {d.binary}
+          </span>
+        ))}
+      </div>
+      {allInstalled ? (
+        <span className="text-[11px] text-green-500">All system dependencies available</span>
+      ) : (
+        <span className="text-[11px] text-red-500">
+          {deps.filter((d) => !d.installed).map((d) => d.install_hint || `Install '${d.binary}'`).join("; ")}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // OAuth section
 // ---------------------------------------------------------------------------
 
@@ -1183,6 +1221,13 @@ export default function IntegrationDetailScreen() {
         {item.npm_dependencies && item.npm_dependencies.length > 0 && (
           <SectionBox title="npm Dependencies">
             <NpmDependencySection item={item} />
+          </SectionBox>
+        )}
+
+        {/* System dependencies */}
+        {item.system_dependencies && item.system_dependencies.length > 0 && (
+          <SectionBox title="System Dependencies">
+            <SystemDependencySection item={item} />
           </SectionBox>
         )}
 

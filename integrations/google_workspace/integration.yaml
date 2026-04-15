@@ -19,9 +19,10 @@ settings:
     label: "CLI command timeout in seconds (default: 60)"
     default: "60"
 
-npm_dependencies:
-  - package: "@googleworkspace/cli"
-    binary_name: gws
+dependencies:
+  npm:
+    - package: "@googleworkspace/cli"
+      binary_name: gws
 
 oauth:
   auth_start: /integrations/google_workspace/auth/start

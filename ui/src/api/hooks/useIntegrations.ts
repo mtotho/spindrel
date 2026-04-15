@@ -35,6 +35,12 @@ export interface NpmDependency {
   installed: boolean;
 }
 
+export interface SystemDependency {
+  binary: string;
+  install_hint: string;
+  installed: boolean;
+}
+
 export interface OAuthConfig {
   auth_start: string;
   status: string;
@@ -75,6 +81,8 @@ export interface IntegrationItem {
   deps_installed?: boolean;
   npm_dependencies?: NpmDependency[];
   npm_deps_installed?: boolean;
+  system_dependencies?: SystemDependency[];
+  system_deps_installed?: boolean;
   oauth?: OAuthConfig;
   webhook: IntegrationWebhook | null;
   api_permissions: string | string[] | null;

@@ -1,5 +1,5 @@
 /**
- * Global Memory Scheme settings section for the Chat History group.
+ * Global Memory Scheme settings section for the Memory & Learning group.
  * Enables/disables workspace-files memory mode across all bots at once.
  */
 import { useState, useCallback, useEffect } from "react";
@@ -8,6 +8,7 @@ import { Check, ChevronDown, HelpCircle, Save, X } from "lucide-react";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useMemorySchemeDefaults } from "@/src/api/hooks/useMemorySchemeDefaults";
 import { useSettings, useUpdateSettings } from "@/src/api/hooks/useSettings";
+import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { apiFetch } from "@/src/api/client";
 import { useThemeTokens } from "../../theme/tokens";
 
@@ -92,44 +93,31 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
   return (
     <div
       onClick={onClose}
-      style={{
-        position: "fixed", inset: 0, zIndex: 100,
-        background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)",
-        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
-        padding: 20,
-      }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-5"
+      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
     >
       <div
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
-        style={{
-          background: t.surface, border: `1px solid ${t.surfaceOverlay}`,
-          borderRadius: 12, maxWidth: 780, width: "100%",
-          maxHeight: "90vh", overflow: "auto",
-        }}
+        className="bg-surface rounded-xl w-full max-w-[780px] max-h-[90vh] overflow-auto"
+        style={{ border: `1px solid ${t.surfaceOverlay}` }}
       >
-        <div style={{
-          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-          padding: "14px 18px", borderBottom: `1px solid ${t.surfaceRaised}`,
-        }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
+        <div
+          className="flex items-center justify-between px-4 py-3.5"
+          style={{ borderBottom: `1px solid ${t.surfaceRaised}` }}
+        >
+          <span className="text-text text-sm font-bold">
             Workspace Files Memory — Architecture
           </span>
           <button
             onClick={onClose}
-            style={{
-              background: "none", border: "none", cursor: "pointer",
-              color: t.textDim, padding: 4,
-            }}
+            className="bg-transparent border-none cursor-pointer text-text-dim p-1"
           >
             <X size={16} />
           </button>
         </div>
-        <pre style={{
-          margin: 0, padding: "16px 20px",
-          fontSize: 11, lineHeight: 1.6, color: t.textMuted,
-          fontFamily: "monospace", whiteSpace: "pre",
-          overflowX: "auto",
-        }}>{ARCHITECTURE_DIAGRAM}</pre>
+        <pre className="m-0 px-5 py-4 text-[11px] leading-relaxed text-text-muted font-mono whitespace-pre overflow-x-auto">
+          {ARCHITECTURE_DIAGRAM}
+        </pre>
       </div>
     </div>
   );
@@ -238,7 +226,6 @@ export function MemorySchemeSection() {
 
   const handleEnableAll = useCallback(async () => {
     if (!bots?.length) return;
-    // Always re-bootstrap all bots (fixes paths for orchestrators, idempotent for others)
     await enableAll.mutateAsync(bots.map((b) => b.id));
     setJustEnabled(true);
     setJustDisabled(false);
@@ -258,21 +245,21 @@ export function MemorySchemeSection() {
   const isBusy = enableAll.isPending || disableAll.isPending;
 
   return (
-    <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="mt-4 flex flex-col gap-4">
       {/* Header with help button */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-text text-sm font-bold">
             Workspace Files Memory
           </span>
           <button
             onClick={() => setShowHelp(true)}
-            style={{ padding: 2, background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "row", alignItems: "center" }}
+            className="p-0.5 bg-transparent border-none cursor-pointer flex items-center"
           >
-            <HelpCircle size={15} color={t.textDim} />
+            <HelpCircle size={15} className="text-text-dim" />
           </button>
         </div>
-        <span style={{ fontSize: 12, color: t.textDim }}>
+        <span className="text-text-dim text-xs">
           File-based memory with daily logs, curated MEMORY.md, and reference docs.
           Replaces DB memory/knowledge tools when active.
         </span>
@@ -280,322 +267,333 @@ export function MemorySchemeSection() {
       {showHelp && <ArchitectureOverlay onClose={() => setShowHelp(false)} />}
 
       {isLoading ? (
-        <div style={{ alignSelf: "flex-start" }}>
+        <div className="self-start">
           <div className="chat-spinner" />
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {/* Status summary */}
-            <div style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
-              backgroundColor: t.inputBg, borderRadius: 8,
+        <div className="flex flex-col gap-3.5">
+          {/* Status summary */}
+          <div
+            className="flex items-center gap-3 rounded-lg p-3.5"
+            style={{
+              backgroundColor: t.inputBg,
               border: `1px solid ${t.surfaceOverlay}`,
-              padding: 14,
-            }}>
-              <div style={{
-                width: 40, height: 40, borderRadius: 20,
-                backgroundColor: allEnabled ? t.purpleSubtle : noneEnabled ? "rgba(100,100,100,0.15)" : t.purpleSubtle,
-                display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
-              }}>
-                <span style={{
-                  fontSize: 16, fontWeight: 700,
-                  color: allEnabled ? t.purple : noneEnabled ? t.textDim : t.purpleMuted,
-                }}>
-                  {enabledCount}
-                </span>
-              </div>
-              <div style={{ flex: 1 }}>
-                <span style={{ fontSize: 13, color: t.text, fontWeight: 500, display: "block" }}>
-                  {allEnabled
-                    ? "All bots using workspace files"
+            }}
+          >
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+              style={{
+                backgroundColor: allEnabled
+                  ? t.purpleSubtle
+                  : noneEnabled
+                  ? "rgba(100,100,100,0.15)"
+                  : t.purpleSubtle,
+              }}
+            >
+              <span
+                className="text-base font-bold"
+                style={{
+                  color: allEnabled
+                    ? t.purple
                     : noneEnabled
-                    ? "No bots using workspace files"
-                    : `${enabledCount} of ${totalCount} bots using workspace files`}
-                </span>
-                <span style={{ fontSize: 11, color: t.textDim, marginTop: 2, display: "block" }}>
-                  {allEnabled
-                    ? "DB memory and knowledge tools are hidden for all bots"
-                    : noneEnabled
-                    ? "All bots using database memory (legacy)"
-                    : "Mixed mode — some bots on workspace files, others on database"}
-                </span>
-              </div>
+                    ? t.textDim
+                    : t.purpleMuted,
+                }}
+              >
+                {enabledCount}
+              </span>
             </div>
+            <div className="flex-1">
+              <span className="text-text text-[13px] font-medium block">
+                {allEnabled
+                  ? "All bots using workspace files"
+                  : noneEnabled
+                  ? "No bots using workspace files"
+                  : `${enabledCount} of ${totalCount} bots using workspace files`}
+              </span>
+              <span className="text-text-dim text-[11px] mt-0.5 block">
+                {allEnabled
+                  ? "DB memory and knowledge tools are hidden for all bots"
+                  : noneEnabled
+                  ? "All bots using database memory (legacy)"
+                  : "Mixed mode — some bots on workspace files, others on database"}
+              </span>
+            </div>
+          </div>
 
-            {/* Per-bot status list */}
-            {bots && bots.length > 0 && (
-              <div style={{
-                backgroundColor: t.surface, borderRadius: 8,
+          {/* Per-bot status list */}
+          {bots && bots.length > 0 && (
+            <div
+              className="rounded-lg overflow-hidden"
+              style={{
+                backgroundColor: t.surface,
                 border: `1px solid ${t.surfaceRaised}`,
-                overflow: "hidden",
-              }}>
-                {bots.map((bot, i) => {
-                  const enabled = bot.memory_scheme === "workspace-files";
-                  return (
-                    <div
-                      key={bot.id}
-                      style={{
-                        display: "flex", flexDirection: "row", alignItems: "center",
-                        paddingTop: 8, paddingBottom: 8, paddingLeft: 14, paddingRight: 14,
-                        borderTop: i > 0 ? `1px solid ${t.surfaceRaised}` : "none",
-                      }}
-                    >
-                      <div style={{
-                        width: 8, height: 8, borderRadius: 4,
-                        backgroundColor: enabled ? t.purple : t.surfaceBorder,
-                        marginRight: 10,
-                      }} />
-                      <span style={{
-                        flex: 1, fontSize: 12,
-                        color: enabled ? t.text : t.textDim,
-                      }}>
-                        {bot.name}
-                      </span>
-                      <span style={{
-                        fontSize: 10, fontWeight: 600,
-                        color: enabled ? t.purpleMuted : t.surfaceBorder,
-                      }}>
-                        {enabled ? "workspace-files" : "database"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Action buttons */}
-            <div style={{ display: "flex", flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-              <button
-                onClick={handleEnableAll}
-                disabled={isBusy || allEnabled}
-                style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-                  backgroundColor: allEnabled ? t.surfaceRaised : t.purpleSubtle,
-                  paddingLeft: 14, paddingRight: 14, paddingTop: 8, paddingBottom: 8,
-                  borderRadius: 8, border: `1px solid ${allEnabled ? t.surfaceOverlay : t.purpleBorder}`,
-                  opacity: isBusy || allEnabled ? 0.5 : 1,
-                  cursor: isBusy || allEnabled ? "default" : "pointer",
-                }}
-              >
-                {enableAll.isPending ? (
-                  <div className="chat-spinner" />
-                ) : justEnabled ? (
-                  <Check size={14} color={t.purple} />
-                ) : null}
-                <span style={{
-                  fontSize: 12, fontWeight: 600,
-                  color: allEnabled ? t.textDim : t.purple,
-                }}>
-                  {justEnabled ? "Enabled" : "Enable All Bots"}
-                </span>
-              </button>
-
-              <button
-                onClick={handleDisableAll}
-                disabled={isBusy || noneEnabled}
-                style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-                  backgroundColor: t.surfaceRaised,
-                  paddingLeft: 14, paddingRight: 14, paddingTop: 8, paddingBottom: 8,
-                  borderRadius: 8, border: `1px solid ${t.surfaceBorder}`,
-                  opacity: isBusy || noneEnabled ? 0.5 : 1,
-                  cursor: isBusy || noneEnabled ? "default" : "pointer",
-                }}
-              >
-                {disableAll.isPending ? (
-                  <div className="chat-spinner" />
-                ) : justDisabled ? (
-                  <Check size={14} color={t.textMuted} />
-                ) : null}
-                <span style={{
-                  fontSize: 12, fontWeight: 600, color: noneEnabled ? t.surfaceBorder : t.textMuted,
-                }}>
-                  {justDisabled ? "Disabled" : "Disable All"}
-                </span>
-              </button>
-            </div>
-
-            {/* System prompt — view built-in or edit custom override */}
-            <div style={{
-              backgroundColor: t.surface, borderRadius: 8,
-              border: `1px solid ${t.surfaceRaised}`,
-              overflow: "hidden",
-            }}>
-              <button
-                onClick={() => setShowPrompt(!showPrompt)}
-                style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-                  paddingTop: 10, paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
-                  background: "none", border: "none", cursor: "pointer", width: "100%",
-                  textAlign: "left",
-                }}
-              >
-                <ChevronDown
-                  size={14}
-                  color={t.textMuted}
-                  style={{ transform: showPrompt ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}
-                />
-                <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted }}>
-                  System Prompt
-                </span>
-                <div style={{
-                  backgroundColor: useCustomPrompt ? t.warningSubtle : t.purpleSubtle,
-                  paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 3,
-                  marginLeft: 4,
-                }}>
-                  <span style={{ fontSize: 9, fontWeight: 600, color: useCustomPrompt ? t.warning : t.purpleMuted }}>
-                    {useCustomPrompt ? "custom" : "built-in"}
-                  </span>
-                </div>
-              </button>
-              {showPrompt && (
-                <div style={{ paddingLeft: 14, paddingRight: 14, paddingBottom: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                  {/* Toggle for custom override */}
-                  <button
-                    onClick={() => handleToggleCustom(!useCustomPrompt)}
+              }}
+            >
+              {bots.map((bot, i) => {
+                const enabled = bot.memory_scheme === "workspace-files";
+                return (
+                  <div
+                    key={bot.id}
+                    className="flex items-center px-3.5 py-2"
                     style={{
-                      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-                      background: "none", border: "none", cursor: "pointer", padding: 0,
-                      textAlign: "left",
+                      borderTop:
+                        i > 0 ? `1px solid ${t.surfaceRaised}` : "none",
                     }}
                   >
                     <div
+                      className="w-2 h-2 rounded-full mr-2.5 shrink-0"
                       style={{
-                        width: 44,
-                        height: 24,
-                        borderRadius: 12,
-                        backgroundColor: useCustomPrompt ? t.warningSubtle : t.surfaceBorder,
-                        position: "relative",
-                        flexShrink: 0,
-                        transition: "background-color 0.2s",
+                        backgroundColor: enabled ? t.purple : t.surfaceBorder,
+                      }}
+                    />
+                    <span
+                      className="flex-1 text-xs"
+                      style={{ color: enabled ? t.text : t.textDim }}
+                    >
+                      {bot.name}
+                    </span>
+                    <span
+                      className="text-[10px] font-semibold"
+                      style={{
+                        color: enabled ? t.purpleMuted : t.surfaceBorder,
                       }}
                     >
-                      <div
-                        style={{
-                          width: 20,
-                          height: 20,
-                          borderRadius: 10,
-                          backgroundColor: "white",
-                          position: "absolute",
-                          top: 2,
-                          left: useCustomPrompt ? 22 : 2,
-                          transition: "left 0.2s",
-                        }}
-                      />
-                    </div>
-                    <span style={{ fontSize: 11, color: useCustomPrompt ? t.warning : t.textDim }}>
-                      Use custom prompt (not recommended)
+                      {enabled ? "workspace-files" : "database"}
                     </span>
-                  </button>
-
-                  {useCustomPrompt ? (
-                    <>
-                      <textarea
-                        value={customPrompt}
-                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => { setCustomPrompt(e.target.value); setPromptDirty(true); setPromptSaved(false); }}
-                        style={{
-                          width: "100%", minHeight: 280,
-                          fontSize: 11, lineHeight: "1.7", color: t.text,
-                          fontFamily: "monospace", whiteSpace: "pre-wrap",
-                          background: t.inputBg, borderRadius: 6, padding: 12,
-                          border: `1px solid ${t.surfaceOverlay}`, resize: "vertical",
-                          boxSizing: "border-box",
-                        }}
-                      />
-                      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <button
-                          onClick={handleSavePrompt}
-                          disabled={!promptDirty || updateSettings.isPending}
-                          style={{
-                            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-                            backgroundColor: promptDirty ? t.warningSubtle : t.surfaceRaised,
-                            paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6,
-                            borderRadius: 6, opacity: promptDirty ? 1 : 0.5,
-                            border: "none", cursor: promptDirty ? "pointer" : "default",
-                          }}
-                        >
-                          {updateSettings.isPending ? (
-                            <div className="chat-spinner" />
-                          ) : promptSaved ? (
-                            <Check size={12} color={t.warning} />
-                          ) : (
-                            <Save size={12} color={t.warning} />
-                          )}
-                          <span style={{ fontSize: 11, fontWeight: 600, color: t.warning }}>
-                            {promptSaved ? "Saved" : "Save"}
-                          </span>
-                        </button>
-                        <button
-                          onClick={() => { setCustomPrompt(builtInPrompt); setPromptDirty(true); }}
-                          style={{
-                            paddingLeft: 8, paddingRight: 8, paddingTop: 4, paddingBottom: 4,
-                            background: "none", border: "none", cursor: "pointer",
-                          }}
-                        >
-                          <span style={{ fontSize: 10, color: t.textDim }}>Reset to default</span>
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <pre style={{
-                      margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
-                      fontFamily: "monospace", whiteSpace: "pre-wrap",
-                      background: t.inputBg, borderRadius: 6, padding: 12,
-                    }}>{builtInPrompt}</pre>
-                  )}
-                </div>
-              )}
+                  </div>
+                );
+              })}
             </div>
+          )}
 
-            {/* Flush prompt override notice */}
-            <div style={{
-              backgroundColor: t.surface, borderRadius: 8,
-              border: `1px solid ${t.surfaceRaised}`,
-              overflow: "hidden",
-            }}>
-              <button
-                onClick={() => setShowFlush(!showFlush)}
+          {/* Action buttons */}
+          <div className="flex flex-wrap gap-2.5">
+            <button
+              onClick={handleEnableAll}
+              disabled={isBusy || allEnabled}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg"
+              style={{
+                backgroundColor: allEnabled ? t.surfaceRaised : t.purpleSubtle,
+                border: `1px solid ${allEnabled ? t.surfaceOverlay : t.purpleBorder}`,
+                opacity: isBusy || allEnabled ? 0.5 : 1,
+                cursor: isBusy || allEnabled ? "default" : "pointer",
+              }}
+            >
+              {enableAll.isPending ? (
+                <div className="chat-spinner" />
+              ) : justEnabled ? (
+                <Check size={14} color={t.purple} />
+              ) : null}
+              <span
+                className="text-xs font-semibold"
+                style={{ color: allEnabled ? t.textDim : t.purple }}
+              >
+                {justEnabled ? "Enabled" : "Enable All Bots"}
+              </span>
+            </button>
+
+            <button
+              onClick={handleDisableAll}
+              disabled={isBusy || noneEnabled}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg"
+              style={{
+                backgroundColor: t.surfaceRaised,
+                border: `1px solid ${t.surfaceBorder}`,
+                opacity: isBusy || noneEnabled ? 0.5 : 1,
+                cursor: isBusy || noneEnabled ? "default" : "pointer",
+              }}
+            >
+              {disableAll.isPending ? (
+                <div className="chat-spinner" />
+              ) : justDisabled ? (
+                <Check size={14} color={t.textMuted} />
+              ) : null}
+              <span
+                className="text-xs font-semibold"
                 style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-                  paddingTop: 10, paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
-                  background: "none", border: "none", cursor: "pointer", width: "100%",
-                  textAlign: "left",
+                  color: noneEnabled ? t.surfaceBorder : t.textMuted,
                 }}
               >
-                <ChevronDown
-                  size={14}
-                  color={t.textMuted}
-                  style={{ transform: showFlush ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}
-                />
-                <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted }}>
-                  Memory Flush Prompt
-                </span>
-                <div style={{
-                  backgroundColor: t.warningSubtle,
-                  paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 3,
-                  marginLeft: 4,
-                }}>
-                  <span style={{ fontSize: 9, fontWeight: 600, color: t.warning }}>
-                    overridden
-                  </span>
-                </div>
-              </button>
-              {showFlush && (
-                <div style={{ paddingLeft: 14, paddingRight: 14, paddingBottom: 14 }}>
-                  <span style={{ fontSize: 11, color: t.warning, marginBottom: 8, display: "block" }}>
-                    The "Memory Flush Default Prompt" setting above is ignored for bots with
-                    workspace-files enabled. This prompt is used instead:
-                  </span>
-                  <pre style={{
-                    margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
-                    fontFamily: "monospace", whiteSpace: "pre-wrap",
-                    background: t.inputBg, borderRadius: 6, padding: 12,
-                  }}>{builtInFlushPrompt}</pre>
-                </div>
-              )}
-            </div>
+                {justDisabled ? "Disabled" : "Disable All"}
+              </span>
+            </button>
           </div>
-        )}
+
+          {/* System prompt — view built-in or edit custom override */}
+          <div
+            className="rounded-lg overflow-hidden"
+            style={{
+              backgroundColor: t.surface,
+              border: `1px solid ${t.surfaceRaised}`,
+            }}
+          >
+            <button
+              onClick={() => setShowPrompt(!showPrompt)}
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-transparent border-none cursor-pointer w-full text-left"
+            >
+              <ChevronDown
+                size={14}
+                className={`text-text-muted transition-transform duration-150 ${
+                  showPrompt ? "rotate-0" : "-rotate-90"
+                }`}
+              />
+              <span className="text-text-muted text-xs font-semibold">
+                System Prompt
+              </span>
+              <span
+                className="text-[9px] font-semibold px-1.5 py-0.5 rounded ml-1"
+                style={{
+                  backgroundColor: useCustomPrompt
+                    ? t.warningSubtle
+                    : t.purpleSubtle,
+                  color: useCustomPrompt ? t.warning : t.purpleMuted,
+                }}
+              >
+                {useCustomPrompt ? "custom" : "built-in"}
+              </span>
+            </button>
+            {showPrompt && (
+              <div className="px-3.5 pb-3.5 flex flex-col gap-2.5">
+                {/* Toggle for custom override */}
+                <button
+                  onClick={() => handleToggleCustom(!useCustomPrompt)}
+                  className="flex items-center gap-2 bg-transparent border-none cursor-pointer p-0 text-left"
+                >
+                  <div
+                    className="w-11 h-6 rounded-xl relative shrink-0 transition-colors duration-200"
+                    style={{
+                      backgroundColor: useCustomPrompt
+                        ? t.warningSubtle
+                        : t.surfaceBorder,
+                    }}
+                  >
+                    <div
+                      className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-[left] duration-200"
+                      style={{ left: useCustomPrompt ? 22 : 2 }}
+                    />
+                  </div>
+                  <span
+                    className="text-[11px]"
+                    style={{
+                      color: useCustomPrompt ? t.warning : t.textDim,
+                    }}
+                  >
+                    Use custom prompt (not recommended)
+                  </span>
+                </button>
+
+                {useCustomPrompt ? (
+                  <>
+                    <LlmPrompt
+                      value={customPrompt}
+                      onChange={(v: string) => {
+                        setCustomPrompt(v);
+                        setPromptDirty(true);
+                        setPromptSaved(false);
+                      }}
+                      placeholder="Custom workspace-files system prompt..."
+                      rows={12}
+                      fieldType="memory_scheme"
+                      generateContext="Workspace-files memory system prompt. Instructs the bot how to use file-based memory."
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleSavePrompt}
+                        disabled={!promptDirty || updateSettings.isPending}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border-none"
+                        style={{
+                          backgroundColor: promptDirty
+                            ? t.warningSubtle
+                            : t.surfaceRaised,
+                          opacity: promptDirty ? 1 : 0.5,
+                          cursor: promptDirty ? "pointer" : "default",
+                        }}
+                      >
+                        {updateSettings.isPending ? (
+                          <div className="chat-spinner" />
+                        ) : promptSaved ? (
+                          <Check size={12} color={t.warning} />
+                        ) : (
+                          <Save size={12} color={t.warning} />
+                        )}
+                        <span
+                          className="text-[11px] font-semibold"
+                          style={{ color: t.warning }}
+                        >
+                          {promptSaved ? "Saved" : "Save"}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setCustomPrompt(builtInPrompt);
+                          setPromptDirty(true);
+                        }}
+                        className="px-2 py-1 bg-transparent border-none cursor-pointer"
+                      >
+                        <span className="text-[10px] text-text-dim">
+                          Reset to default
+                        </span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <pre className="m-0 text-[11px] leading-relaxed text-text-muted font-mono whitespace-pre-wrap rounded-md p-3 bg-surface-overlay">
+                    {builtInPrompt}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Flush prompt viewer */}
+          <div
+            className="rounded-lg overflow-hidden"
+            style={{
+              backgroundColor: t.surface,
+              border: `1px solid ${t.surfaceRaised}`,
+            }}
+          >
+            <button
+              onClick={() => setShowFlush(!showFlush)}
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-transparent border-none cursor-pointer w-full text-left"
+            >
+              <ChevronDown
+                size={14}
+                className={`text-text-muted transition-transform duration-150 ${
+                  showFlush ? "rotate-0" : "-rotate-90"
+                }`}
+              />
+              <span className="text-text-muted text-xs font-semibold">
+                Memory Flush Prompt
+              </span>
+              <span
+                className="text-[9px] font-semibold px-1.5 py-0.5 rounded ml-1"
+                style={{
+                  backgroundColor: t.warningSubtle,
+                  color: t.warning,
+                }}
+              >
+                overridden
+              </span>
+            </button>
+            {showFlush && (
+              <div className="px-3.5 pb-3.5">
+                <span
+                  className="text-[11px] mb-2 block"
+                  style={{ color: t.warning }}
+                >
+                  Workspace-files bots use this flush prompt instead of the
+                  Memory Flush Default Prompt:
+                </span>
+                <pre className="m-0 text-[11px] leading-relaxed text-text-muted font-mono whitespace-pre-wrap rounded-md p-3 bg-surface-overlay">
+                  {builtInFlushPrompt}
+                </pre>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -11,7 +11,7 @@ import { X } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useTask, useCreateTask, type StepDef } from "@/src/api/hooks/useTasks";
-import { useWorkflows } from "@/src/api/hooks/useWorkflows";
+
 import { useSkills } from "@/src/api/hooks/useSkills";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { LlmPrompt } from "./LlmPrompt";
@@ -50,7 +50,7 @@ export function TaskCreateModal({
   const createMut = useCreateTask();
   const { data: bots } = useBots();
   const { data: channels } = useChannels();
-  const { data: workflows } = useWorkflows();
+
   const { data: allSkills } = useSkills();
   const { data: allTools } = useTools();
 
@@ -182,12 +182,12 @@ export function TaskCreateModal({
       className="flex fixed inset-0 z-[10000] flex-row items-center justify-center bg-black/50"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className={`flex bg-surface ${isMobile ? "w-full h-full" : "w-[min(95vw,720px)] max-h-[85vh] rounded-[14px] shadow-2xl border border-surface-border"} overflow-hidden`}>
+      <div className={`flex flex-col bg-surface ${isMobile ? "w-full h-full" : "w-[min(95vw,720px)] max-h-[85vh] rounded-[14px] shadow-2xl border border-surface-border"} overflow-hidden`}>
         {/* Header */}
         <div className="flex flex-row items-center px-5 py-3.5 border-b border-surface-border shrink-0 gap-2.5">
           <button
             onClick={onClose}
-            className="flex bg-transparent border-none cursor-pointer p-1 shrink-0 rounded-md items-center justify-center hover:bg-surface-overlay"
+            className="flex flex-row bg-transparent border-none cursor-pointer p-1 shrink-0 rounded-md items-center justify-center hover:bg-surface-overlay"
           >
             <X size={18} className="text-text-muted" />
           </button>
@@ -216,12 +216,12 @@ export function TaskCreateModal({
 
         {/* Body */}
         {cloneFromId && loadingClone ? (
-          <div className="flex flex-1 items-center justify-center p-10">
+          <div className="flex flex-col flex-1 items-center justify-center p-10">
             <div className="chat-spinner" />
           </div>
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
-            <div className="flex gap-5">
+            <div className="flex flex-col gap-5">
 
               {/* Title */}
               <FormRow label="Title">
@@ -363,34 +363,7 @@ export function TaskCreateModal({
                   />
                 </FormRow>
 
-                {!stepsMode && (
-                  <FormRow label="Workflow" description="Run a workflow instead of a prompt">
-                    <SelectInput
-                      value={workflowId || ""}
-                      onChange={(v) => {
-                        setWorkflowId(v || null);
-                        if (!v) setWorkflowSessionMode(null);
-                      }}
-                      options={[
-                        { label: "None", value: "" },
-                        ...(workflows || []).map((w) => ({ label: `${w.name} (${w.id})`, value: w.id })),
-                      ]}
-                    />
-                  </FormRow>
-                )}
-                {workflowId && !stepsMode && (
-                  <FormRow label="Session Mode">
-                    <SelectInput
-                      value={workflowSessionMode || ""}
-                      onChange={(v) => setWorkflowSessionMode(v || null)}
-                      options={[
-                        { label: "Default (from workflow)", value: "" },
-                        { label: "Shared", value: "shared" },
-                        { label: "Isolated", value: "isolated" },
-                      ]}
-                    />
-                  </FormRow>
-                )}
+                {/* Workflow trigger hidden — workflows deprecated in favor of task pipelines */}
 
                 <FormRow label="Model Override">
                   <LlmModelDropdown
@@ -458,7 +431,7 @@ export function ChipPicker({ label, items, selected, onAdd, onRemove }: {
   const selectedItems = items.filter((i) => selected.includes(i.key));
 
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-col gap-2">
       <div className="text-[11px] text-text-dim font-semibold uppercase tracking-wider">
         {label}
         {selectedItems.length > 0 && (

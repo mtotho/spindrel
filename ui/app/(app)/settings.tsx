@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, RotateCcw, Check, Sun, Moon, ChevronDown } from "lucide-react";
+import { Save, RotateCcw, Check, Sun, Moon } from "lucide-react";
 import { MemorySchemeSection } from "@/src/components/settings/MemorySchemeSection";
+import { SettingsPromptField } from "@/src/components/settings/SettingsPromptField";
+import { DreamingManagementSection } from "@/src/components/settings/DreamingManagementSection";
 import { apiFetch } from "@/src/api/client";
 import { useThemeStore } from "@/src/stores/theme";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -27,35 +28,61 @@ import { GlobalSection } from "@/src/components/settings/GlobalSection";
 import { ModelTiersSection } from "@/src/components/settings/ModelTiersSection";
 import { ChatHistoryExtras } from "@/src/components/settings/ChatHistoryExtras";
 import { BotOverridesList } from "@/src/components/settings/BotOverridesList";
-import { FlushPromptOverrideWarning } from "@/src/components/settings/FlushPromptOverrideWarning";
 import { FileModeOnlyBanner } from "@/src/components/settings/FileModeOnlyBanner";
 import { MemoryHygieneGroupBanner } from "@/src/components/settings/MemoryHygieneGroupBanner";
 import { BackupSection } from "@/src/components/settings/BackupSection";
-import { InfoBanner } from "@/src/components/shared/SettingsControls";
+
+// ---------------------------------------------------------------------------
+// Toggle switch (replaces bare checkbox)
+// ---------------------------------------------------------------------------
+
+function ToggleSwitch({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={value}
+      onClick={() => !disabled && onChange(!value)}
+      className="relative shrink-0 border-none cursor-pointer"
+      style={{
+        display: "inline-flex",
+        width: 36,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: value ? "rgb(var(--color-accent))" : "rgb(var(--color-surface-border))",
+        transition: "background-color 0.15s",
+        opacity: disabled ? 0.5 : 1,
+        cursor: disabled ? "not-allowed" : "pointer",
+      }}
+    >
+      <span
+        style={{
+          display: "block",
+          width: 16,
+          height: 16,
+          borderRadius: 8,
+          backgroundColor: "white",
+          position: "absolute",
+          top: 2,
+          left: value ? 18 : 2,
+          transition: "left 0.15s",
+        }}
+      />
+    </button>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Field renderers
 // ---------------------------------------------------------------------------
-
-function BoolField({
-  item,
-  value,
-  onChange,
-}: {
-  item: SettingItem;
-  value: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  const t = useThemeTokens();
-  return (
-    <input
-      type="checkbox"
-      checked={value}
-      onChange={(e) => onChange(e.target.checked)}
-      disabled={item.read_only}
-    />
-  );
-}
 
 function SelectField({
   item,
@@ -67,25 +94,25 @@ function SelectField({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="flex flex-row flex-wrap gap-1.5">
+    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
       {item.options!.map((opt) => (
         <button
           type="button"
           key={opt}
           onClick={() => !item.read_only && onChange(opt)}
-          className={`px-3 py-1.5 rounded border ${
-            value === opt
-              ? "bg-accent/20 border-accent"
-              : "bg-surface border-surface-border"
-          }`}
+          style={{
+            padding: "4px 10px",
+            borderRadius: 6,
+            fontSize: 11,
+            fontWeight: value === opt ? 600 : 400,
+            border: value === opt ? "1px solid rgb(var(--color-accent) / 0.4)" : "1px solid rgb(var(--color-surface-border))",
+            background: value === opt ? "rgb(var(--color-accent) / 0.12)" : "transparent",
+            color: value === opt ? "rgb(var(--color-accent))" : "rgb(var(--color-text-dim))",
+            cursor: item.read_only ? "default" : "pointer",
+            transition: "all 0.12s",
+          }}
         >
-          <span
-            className={`text-xs ${
-              value === opt ? "text-accent font-medium" : "text-text-muted"
-            }`}
-          >
-            {opt}
-          </span>
+          {opt}
         </button>
       ))}
     </div>
@@ -101,15 +128,24 @@ function NumberField({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const t = useThemeTokens();
   return (
     <input
-      className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
-      style={{ maxWidth: 200 }}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       readOnly={item.read_only}
       type="number"
-      placeholder={item.nullable ? "(none)" : undefined}
+      placeholder={item.nullable ? "—" : undefined}
+      style={{
+        width: 90,
+        padding: "5px 10px",
+        borderRadius: 6,
+        border: `1px solid ${t.surfaceBorder}`,
+        background: t.surfaceRaised,
+        color: t.text,
+        fontSize: 13,
+        outline: "none",
+      }}
     />
   );
 }
@@ -123,87 +159,25 @@ function StringField({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const t = useThemeTokens();
   return (
     <input
-      className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm flex-1"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       readOnly={item.read_only}
-      placeholder="(empty)"
+      placeholder="—"
+      style={{
+        maxWidth: 280,
+        flex: 1,
+        padding: "5px 10px",
+        borderRadius: 6,
+        border: `1px solid ${t.surfaceBorder}`,
+        background: t.surfaceRaised,
+        color: t.text,
+        fontSize: 13,
+        outline: "none",
+      }}
     />
-  );
-}
-
-function TextareaField({
-  item,
-  value,
-  onChange,
-}: {
-  item: SettingItem;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const [showBuiltin, setShowBuiltin] = useState(false);
-
-  return (
-    <div style={{ display: "flex", width: "100%", gap: 8 }}>
-      <textarea
-        className="bg-surface border border-surface-border rounded px-3 py-3 text-text text-sm"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        readOnly={item.read_only}
-        placeholder={item.builtin_default ? "(using built-in default)" : "(empty)"}
-        rows={16}
-        style={{
-          minHeight: 300,
-          width: "100%",
-          fontFamily: "monospace",
-          lineHeight: "20px",
-          resize: "vertical",
-        }}
-      />
-      {item.builtin_default && !value && (
-        <div
-          className="bg-surface border border-surface-border rounded overflow-hidden"
-        >
-          <button
-            type="button"
-            onClick={() => setShowBuiltin(!showBuiltin)}
-            className="flex flex-row items-center gap-2 px-3 py-2"
-          >
-            <ChevronDown
-              size={12}
-              color="#9ca3af"
-              style={{ transform: showBuiltin ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
-            />
-            <span className="text-text-muted text-xs font-semibold">
-              Built-in Default
-            </span>
-            <div className="bg-purple-500/20 px-1.5 py-0.5 rounded">
-              <span className="text-purple-400 text-[9px] font-medium">
-                active
-              </span>
-            </div>
-          </button>
-          {showBuiltin && (
-            <div className="px-3 pb-3">
-              <div className="bg-surface-overlay rounded p-3">
-                <span
-                  className="text-text-muted text-[11px]"
-                  style={{
-                    fontFamily: "monospace",
-                    lineHeight: "18px",
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {item.builtin_default}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -219,7 +193,7 @@ function ModelField({
   onChange: (model: string, providerId?: string | null) => void;
 }) {
   return (
-    <div style={{ maxWidth: 400 }}>
+    <div style={{ maxWidth: 300 }}>
       <LlmModelDropdown
         value={value}
         selectedProviderId={selectedProviderId}
@@ -241,7 +215,7 @@ function EmbeddingModelField({
   onChange: (v: string) => void;
 }) {
   return (
-    <div style={{ maxWidth: 400 }}>
+    <div style={{ maxWidth: 300 }}>
       <LlmModelDropdown
         value={value}
         onChange={onChange}
@@ -255,6 +229,8 @@ function EmbeddingModelField({
 
 // ---------------------------------------------------------------------------
 // Single setting row
+// Horizontal: label+desc left, field right (for bool, number, string, select)
+// Vertical: label+desc top, field below (for textarea, model)
 // ---------------------------------------------------------------------------
 
 function SettingRow({
@@ -272,13 +248,15 @@ function SettingRow({
   onReset: (key: string) => void;
   isResetting: boolean;
 }) {
+  const t = useThemeTokens();
+
   const renderField = () => {
     if (item.type === "bool") {
       return (
-        <BoolField
-          item={item}
+        <ToggleSwitch
           value={!!localValue}
           onChange={(v) => onLocalChange(item.key, v)}
+          disabled={item.read_only}
         />
       );
     }
@@ -302,16 +280,14 @@ function SettingRow({
     }
     if (item.widget === "textarea") {
       return (
-        <TextareaField
+        <SettingsPromptField
           item={item}
           value={String(localValue ?? "")}
-          onChange={(v) => onLocalChange(item.key, v)}
+          onChange={(v: string) => onLocalChange(item.key, v)}
         />
       );
     }
     if (item.widget === "model") {
-      // Derive the paired provider_id key (e.g. COMPACTION_MODEL → COMPACTION_MODEL_PROVIDER_ID)
-      // Special cases for legacy naming without _MODEL_ in the provider key
       const providerKey = item.key === "IMAGE_GENERATION_MODEL"
         ? "IMAGE_GENERATION_PROVIDER_ID"
         : item.key === "CONTEXTUAL_RETRIEVAL_MODEL"
@@ -347,98 +323,80 @@ function SettingRow({
     );
   };
 
-  return (
-    <div className="flex py-3 gap-2">
-      <div className="flex flex-row items-center gap-2 flex-wrap">
-        <span className="text-text text-sm font-medium">{item.label}</span>
-        {item.overridden && (
-          <div className="bg-accent/20 px-1.5 py-0.5 rounded">
-            <span className="text-accent text-[10px] font-medium">overridden</span>
-          </div>
-        )}
-        {item.read_only && (
-          <div className="bg-surface-overlay px-1.5 py-0.5 rounded">
-            <span className="text-text-dim text-[10px]">read-only</span>
-          </div>
-        )}
-      </div>
-      <span className="text-text-dim text-xs">{item.description}</span>
-      <div className="flex flex-row items-center gap-2">
-        {renderField()}
-        {item.overridden && !item.read_only && (
-          <button
-            type="button"
-            onClick={() => onReset(item.key)}
-            disabled={isResetting}
-            className="flex flex-row items-center gap-1 px-2 py-1.5 rounded border border-surface-border hover:bg-surface-overlay"
-          >
-            {isResetting ? (
-              <Spinner size={16} color="#9ca3af" />
-            ) : (
-              <RotateCcw size={12} color="#9ca3af" />
-            )}
-            <span className="text-text-muted text-xs">Reset</span>
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
+  const isComplex = item.widget === "textarea" || item.widget === "model" || item.widget === "embedding_model";
 
-// ---------------------------------------------------------------------------
-// Display name mapping (rebrand without changing backend keys)
-// ---------------------------------------------------------------------------
-const GROUP_DISPLAY_NAMES: Record<string, string> = {
-  "Memory Hygiene": "Dreaming",
-};
-function groupDisplayName(key: string) {
-  return GROUP_DISPLAY_NAMES[key] ?? key;
-}
+  const resetBtn = item.overridden && !item.read_only ? (
+    <button
+      type="button"
+      onClick={() => onReset(item.key)}
+      disabled={isResetting}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 4,
+        padding: "3px 8px", borderRadius: 4,
+        background: "transparent", border: "none",
+        color: t.textDim, fontSize: 10, cursor: "pointer",
+      }}
+    >
+      {isResetting ? <Spinner size={10} color={t.textDim} /> : <RotateCcw size={10} />}
+      Reset
+    </button>
+  ) : null;
 
-// ---------------------------------------------------------------------------
-// Pointer to Learning Center > Dreaming (replaces the old DreamingBotList).
-// Per-bot toggles + run history live in /admin/learning#Dreaming so there's
-// only one place to manage dreaming.
-// ---------------------------------------------------------------------------
-function DreamingLearningCenterPointer() {
-  const t = useThemeTokens();
-  const navigate = useNavigate();
-  return (
-    <div style={{ marginTop: 20 }}>
-      <InfoBanner
-        variant="info"
-        icon={<Moon size={14} color={t.purple} />}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
-            Manage per-bot dreaming in the Learning Center
-          </span>
-          <span style={{ fontSize: 11, color: t.textMuted, lineHeight: "17px" }}>
-            Toggle dreaming per bot, trigger runs on demand, and review the
-            full run history with skipped/failed details.
-          </span>
-          <button
-            onClick={() => navigate("/admin/learning#Dreaming")}
-            style={{
-              alignSelf: "flex-start",
-              marginTop: 4,
-              padding: "5px 12px",
-              borderRadius: 4,
-              fontSize: 11,
-              fontWeight: 500,
-              cursor: "pointer",
-              background: t.purpleSubtle,
-              color: t.purple,
-              border: `1px solid ${t.purpleBorder}`,
-            }}
-          >
-            Open Learning Center → Dreaming
-          </button>
+  // Vertical layout for complex fields
+  if (isComplex) {
+    return (
+      <div style={{ padding: "12px 0", display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: t.text }}>{item.label}</span>
+          {item.overridden && (
+            <span style={{ fontSize: 9, fontWeight: 600, color: t.accent, background: "rgb(var(--color-accent) / 0.1)", padding: "1px 6px", borderRadius: 3 }}>
+              overridden
+            </span>
+          )}
+          {resetBtn}
         </div>
-      </InfoBanner>
+        <span style={{ fontSize: 11, color: t.textDim, lineHeight: "1.5" }}>{item.description}</span>
+        {renderField()}
+      </div>
+    );
+  }
+
+  // Horizontal layout for simple fields
+  return (
+    <div style={{ padding: "10px 0", display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: t.text }}>{item.label}</span>
+          {item.overridden && (
+            <span style={{ fontSize: 9, fontWeight: 600, color: t.accent, background: "rgb(var(--color-accent) / 0.1)", padding: "1px 6px", borderRadius: 3 }}>
+              overridden
+            </span>
+          )}
+          {item.read_only && (
+            <span style={{ fontSize: 9, color: t.textDim, background: t.surfaceOverlay, padding: "1px 6px", borderRadius: 3 }}>
+              read-only
+            </span>
+          )}
+        </div>
+        <span style={{ fontSize: 11, color: t.textDim, lineHeight: "1.5", display: "block", marginTop: 2 }}>{item.description}</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0, paddingTop: 2 }}>
+        {renderField()}
+        {resetBtn}
+      </div>
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Sub-section headers
+// ---------------------------------------------------------------------------
+const SUB_SECTION_HEADERS: Record<string, { title: string; desc?: string }> = {
+  MEMORY_FLUSH_ENABLED: { title: "Memory Flush", desc: "Save memories before context compaction" },
+  MEMORY_HYGIENE_ENABLED: { title: "Dreaming — Memory Maintenance", desc: "Periodic background review of bot memory files" },
+  SKILL_REVIEW_ENABLED: { title: "Dreaming — Skill Review", desc: "Periodic skill curation and cross-channel reflection" },
+  MEMORY_MD_NUDGE_THRESHOLD: { title: "Memory Size" },
+};
 
 // ---------------------------------------------------------------------------
 // Group section nav
@@ -453,29 +411,34 @@ function GroupNav({
   activeGroup: string;
   onSelect: (g: string) => void;
 }) {
+  const t = useThemeTokens();
   return (
-    <div className="flex flex-col gap-0.5">
-      {groups.map((g) => (
-        <button
-          type="button"
-          key={g.group}
-          onClick={() => onSelect(g.group)}
-          className={`text-left px-3 py-2 rounded ${
-            activeGroup === g.group ? "bg-accent/15" : "hover:bg-surface-overlay"
-          }`}
-        >
-          <span
-            className={`text-sm ${
-              activeGroup === g.group
-                ? "text-accent font-medium"
-                : "text-text-muted"
-            }`}
+    <nav style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+      {groups.map((g) => {
+        const active = activeGroup === g.group;
+        return (
+          <button
+            type="button"
+            key={g.group}
+            onClick={() => onSelect(g.group)}
+            style={{
+              textAlign: "left",
+              padding: "6px 12px",
+              borderRadius: 6,
+              background: active ? "rgb(var(--color-accent) / 0.1)" : "transparent",
+              color: active ? t.accent : t.textMuted,
+              fontSize: 13,
+              fontWeight: active ? 500 : 400,
+              border: "none",
+              cursor: "pointer",
+              transition: "all 0.1s",
+            }}
           >
-            {groupDisplayName(g.group)}
-          </span>
-        </button>
-      ))}
-    </div>
+            {g.group}
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -517,33 +480,15 @@ function AppearanceSection() {
   const toggle = useThemeStore((s) => s.toggle);
   const t = useThemeTokens();
   return (
-    <Section title="Appearance" description="UI theme and display preferences">
-      <div
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "8px 4px",
-          display: "flex",
-        }}
-      >
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
-          {mode === "dark" ? (
-            <Moon size={18} color={t.textMuted} />
-          ) : (
-            <Sun size={18} color={t.textMuted} />
-          )}
-          <span className="text-text text-sm">
-            {mode === "dark" ? "Dark mode" : "Light mode"}
-          </span>
-        </div>
-        <input
-          type="checkbox"
-          checked={mode === "dark"}
-          onChange={toggle}
-        />
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: "10px 0" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
+        {mode === "dark" ? <Moon size={16} color={t.textMuted} /> : <Sun size={16} color={t.textMuted} />}
+        <span style={{ fontSize: 13, fontWeight: 500, color: t.text }}>
+          {mode === "dark" ? "Dark mode" : "Light mode"}
+        </span>
       </div>
-    </Section>
+      <ToggleSwitch value={mode === "dark"} onChange={toggle} />
+    </div>
   );
 }
 
@@ -560,7 +505,6 @@ export default function SettingsScreen() {
   const { width } = useWindowSize();
   const isDesktop = width >= 768;
 
-  // Fallback models state
   const fbQuery = useGlobalFallbackModels();
   const fbUpdateMut = useUpdateGlobalFallbackModels();
   const [fbModels, setFbModels] = useState<FallbackModelEntry[]>([]);
@@ -568,34 +512,21 @@ export default function SettingsScreen() {
   const [fbSaved, setFbSaved] = useState(false);
 
   useEffect(() => {
-    if (fbQuery.data?.models) {
-      setFbModels(fbQuery.data.models);
-      setFbDirty(false);
-    }
+    if (fbQuery.data?.models) { setFbModels(fbQuery.data.models); setFbDirty(false); }
   }, [fbQuery.data]);
 
-  const handleFbChange = useCallback((v: FallbackModelEntry[]) => {
-    setFbModels(v);
-    setFbDirty(true);
-    setFbSaved(false);
-  }, []);
+  const handleFbChange = useCallback((v: FallbackModelEntry[]) => { setFbModels(v); setFbDirty(true); setFbSaved(false); }, []);
 
   const handleFbSave = useCallback(async () => {
     const clean = fbModels.filter((m) => m.model);
     await fbUpdateMut.mutateAsync(clean);
-    setFbDirty(false);
-    setFbSaved(true);
+    setFbDirty(false); setFbSaved(true);
     setTimeout(() => setFbSaved(false), 2000);
   }, [fbModels, fbUpdateMut]);
 
-  // Settings state
   const groups = data?.groups ?? [];
   const allGroups = useMemo(
-    () => [
-      { group: GLOBAL_GROUP, settings: [] as SettingItem[] },
-      ...groups,
-      { group: BACKUP_GROUP, settings: [] as SettingItem[] },
-    ],
+    () => [{ group: GLOBAL_GROUP, settings: [] as SettingItem[] }, ...groups, { group: BACKUP_GROUP, settings: [] as SettingItem[] }],
     [groups]
   );
   const groupNames = useMemo(() => allGroups.map((g) => g.group), [allGroups]);
@@ -605,95 +536,56 @@ export default function SettingsScreen() {
   const [saved, setSaved] = useState(false);
   const [resettingKey, setResettingKey] = useState<string | null>(null);
 
-  // Initialize local values from server data
   useEffect(() => {
     if (!groups.length) return;
     const vals: Record<string, any> = {};
-    for (const g of groups) {
-      for (const s of g.settings) {
-        vals[s.key] = s.value;
-      }
-    }
-    setLocalValues(vals);
-    setDirty({});
+    for (const g of groups) for (const s of g.settings) vals[s.key] = s.value;
+    setLocalValues(vals); setDirty({});
   }, [data]);
 
-  const handleLocalChange = useCallback(
-    (key: string, value: any) => {
-      setLocalValues((prev) => ({ ...prev, [key]: value }));
-      // Find original value
-      for (const g of groups) {
-        const item = g.settings.find((s) => s.key === key);
-        if (item) {
-          const changed = value !== item.value && String(value) !== String(item.value);
-          setDirty((prev) => ({ ...prev, [key]: changed }));
-          break;
-        }
-      }
-      setSaved(false);
-    },
-    [groups]
-  );
+  const handleLocalChange = useCallback((key: string, value: any) => {
+    setLocalValues((prev) => ({ ...prev, [key]: value }));
+    for (const g of groups) {
+      const item = g.settings.find((s) => s.key === key);
+      if (item) { setDirty((prev) => ({ ...prev, [key]: value !== item.value && String(value) !== String(item.value) })); break; }
+    }
+    setSaved(false);
+  }, [groups]);
 
-  const changedKeys = useMemo(
-    () => Object.entries(dirty).filter(([, v]) => v).map(([k]) => k),
-    [dirty]
-  );
+  const changedKeys = useMemo(() => Object.entries(dirty).filter(([, v]) => v).map(([k]) => k), [dirty]);
 
   const handleSave = useCallback(() => {
     if (!changedKeys.length) return;
     const updates: Record<string, any> = {};
     for (const key of changedKeys) {
-      const schema = groups
-        .flatMap((g) => g.settings)
-        .find((s) => s.key === key);
+      const schema = groups.flatMap((g) => g.settings).find((s) => s.key === key);
       let val = localValues[key];
-      // Coerce types before sending
-      if (schema?.type === "int") {
-        val = val === "" && schema.nullable ? null : parseInt(val, 10);
-        if (!schema.nullable && isNaN(val)) continue;
-      } else if (schema?.type === "float") {
-        val = parseFloat(val);
-        if (isNaN(val)) continue;
-      }
+      if (schema?.type === "int") { val = val === "" && schema.nullable ? null : parseInt(val, 10); if (!schema.nullable && isNaN(val)) continue; }
+      else if (schema?.type === "float") { val = parseFloat(val); if (isNaN(val)) continue; }
       updates[key] = val;
     }
-    updateMutation.mutate(updates, {
-      onSuccess: () => {
-        setDirty({});
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
-      },
-    });
+    updateMutation.mutate(updates, { onSuccess: () => { setDirty({}); setSaved(true); setTimeout(() => setSaved(false), 2000); } });
   }, [changedKeys, localValues, groups, updateMutation]);
 
-  const handleReset = useCallback(
-    (key: string) => {
-      setResettingKey(key);
-      // Also reset the paired provider_id when resetting a model setting
-      const item = groups.flatMap((g) => g.settings).find((s) => s.key === key);
-      if (item?.widget === "model") {
-        const providerKey = key === "IMAGE_GENERATION_MODEL"
-          ? "IMAGE_GENERATION_PROVIDER_ID"
-          : key === "CONTEXTUAL_RETRIEVAL_MODEL"
-          ? "CONTEXTUAL_RETRIEVAL_PROVIDER_ID"
-          : key + "_PROVIDER_ID";
-        resetMutation.mutate(providerKey);
-      }
-      resetMutation.mutate(key, {
-        onSettled: () => setResettingKey(null),
-      });
-    },
-    [resetMutation, groups]
-  );
+  const handleReset = useCallback((key: string) => {
+    setResettingKey(key);
+    const item = groups.flatMap((g) => g.settings).find((s) => s.key === key);
+    if (item?.widget === "model") {
+      const pk = key === "IMAGE_GENERATION_MODEL" ? "IMAGE_GENERATION_PROVIDER_ID" : key === "CONTEXTUAL_RETRIEVAL_MODEL" ? "CONTEXTUAL_RETRIEVAL_PROVIDER_ID" : key + "_PROVIDER_ID";
+      resetMutation.mutate(pk);
+    }
+    resetMutation.mutate(key, { onSettled: () => setResettingKey(null) });
+  }, [resetMutation, groups]);
 
   const isGlobal = activeGroup === GLOBAL_GROUP;
   const isBackup = activeGroup === BACKUP_GROUP;
   const activeSettings = groups.find((g) => g.group === activeGroup)?.settings ?? [];
+  const visibleSettings = activeSettings.filter((s: any) => !s.ui_hidden);
+  const isMemoryGroup = activeGroup === "Memory & Learning";
 
   if (isLoading) {
     return (
-      <div className="flex flex-1 bg-surface items-center justify-center">
+      <div style={{ display: "flex", flex: 1, background: t.surface, alignItems: "center", justifyContent: "center" }}>
         <Spinner size={32} color={t.accent} />
       </div>
     );
@@ -701,24 +593,22 @@ export default function SettingsScreen() {
 
   if (error) {
     return (
-      <div className="flex flex-1 bg-surface items-center justify-center p-4">
-        <span className="text-red-400 text-sm">
-          Failed to load settings: {error instanceof Error ? error.message : "Unknown error"}
-        </span>
+      <div style={{ display: "flex", flex: 1, background: t.surface, alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <span style={{ color: t.danger, fontSize: 13 }}>Failed to load settings: {error instanceof Error ? error.message : "Unknown error"}</span>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: t.surface, overflow: "hidden" }}>
       <PageHeader variant="list"
         title="Settings"
         right={
-          <div className="flex flex-row items-center gap-2">
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
             {saved && (
-              <div className="flex flex-row items-center gap-1">
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                 <Check size={14} color="#22c55e" />
-                <span className="text-green-400 text-xs">Saved</span>
+                <span style={{ color: "#22c55e", fontSize: 12 }}>Saved</span>
               </div>
             )}
             {changedKeys.length > 0 && (
@@ -726,102 +616,74 @@ export default function SettingsScreen() {
                 type="button"
                 onClick={handleSave}
                 disabled={updateMutation.isPending}
-                className="flex bg-accent rounded px-3 py-1.5 flex-row items-center gap-1.5"
+                style={{
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
+                  background: t.accent, borderRadius: 6, padding: "6px 14px",
+                  border: "none", cursor: "pointer",
+                }}
               >
-                {updateMutation.isPending ? (
-                  <Spinner size={16} color="#fff" />
-                ) : (
-                  <Save size={14} color="#fff" />
-                )}
-                <span className="text-white text-sm font-medium">Save</span>
+                {updateMutation.isPending ? <Spinner size={14} color="#fff" /> : <Save size={13} color="#fff" />}
+                <span style={{ color: "#fff", fontSize: 13, fontWeight: 500 }}>
+                  Save{changedKeys.length > 1 ? ` (${changedKeys.length})` : ""}
+                </span>
               </button>
             )}
           </div>
         }
       />
 
-      {/* Server Status Bar */}
       <div style={{ padding: "12px 16px 4px 16px" }}>
         <ServerStatusBar />
       </div>
 
-      <div className="flex flex-1 flex-row min-h-0">
-        {/* Desktop group nav */}
+      <div style={{ display: "flex", flexDirection: "row", flex: 1, minHeight: 0 }}>
         {isDesktop && (
-          <div
-            className="border-r border-surface-border p-3"
-            style={{ width: 200 }}
-          >
-            <GroupNav
-              groups={allGroups}
-              activeGroup={activeGroup}
-              onSelect={setActiveGroup}
-            />
+          <div style={{ width: 200, borderRight: `1px solid ${t.surfaceBorder}`, padding: "12px 8px", overflowY: "auto", flexShrink: 0 }}>
+            <GroupNav groups={allGroups} activeGroup={activeGroup} onSelect={setActiveGroup} />
           </div>
         )}
 
-        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1 p-4" contentContainerStyle={{ maxWidth: 640 }}>
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1" contentContainerStyle={{ maxWidth: 640, padding: "16px 20px" }}>
           {/* Mobile group selector */}
           {!isDesktop && (
-            <div
-              className="mb-4 overflow-auto"
-              style={{ display: "flex", flexDirection: "row", gap: 6 }}
-            >
+            <div style={{ display: "flex", flexDirection: "row", gap: 6, overflowX: "auto", marginBottom: 16 }}>
               {allGroups.map((g) => (
                 <button
                   type="button"
                   key={g.group}
                   onClick={() => setActiveGroup(g.group)}
-                  className={`flex items-center whitespace-nowrap px-3 py-1.5 rounded-full border shrink-0 ${
-                    activeGroup === g.group
-                      ? "bg-accent/20 border-accent"
-                      : "border-surface-border"
-                  }`}
+                  style={{
+                    whiteSpace: "nowrap", padding: "6px 12px", borderRadius: 16, fontSize: 12, flexShrink: 0,
+                    background: activeGroup === g.group ? "rgb(var(--color-accent) / 0.12)" : "transparent",
+                    color: activeGroup === g.group ? t.accent : t.textMuted,
+                    fontWeight: activeGroup === g.group ? 500 : 400,
+                    border: `1px solid ${activeGroup === g.group ? "rgb(var(--color-accent) / 0.3)" : t.surfaceBorder}`,
+                    cursor: "pointer",
+                  }}
                 >
-                  <span
-                    className={`text-xs ${
-                      activeGroup === g.group
-                        ? "text-accent font-medium"
-                        : "text-text-muted"
-                    }`}
-                  >
-                    {groupDisplayName(g.group)}
-                  </span>
+                  {g.group}
                 </button>
               ))}
             </div>
           )}
 
           {/* Group title */}
-          <span className="text-text font-semibold text-lg mb-2">
-            {groupDisplayName(activeGroup)}
-          </span>
+          <h2 style={{ fontSize: 18, fontWeight: 600, color: t.text, margin: "0 0 8px 0" }}>{activeGroup}</h2>
 
-          {/* Appearance section — shown in Global group */}
           {isGlobal && <AppearanceSection />}
-
-          {/* Global section (fallback models + config state link) */}
           {isGlobal && (
             <>
-              <GlobalSection
-                fbModels={fbModels}
-                onFbChange={handleFbChange}
-                onFbSave={handleFbSave}
-                fbDirty={fbDirty}
-                fbSaving={fbUpdateMut.isPending}
-                fbSaved={fbSaved}
-                fbError={fbUpdateMut.isError}
-                fbLoading={fbQuery.isLoading}
-              />
+              <GlobalSection fbModels={fbModels} onFbChange={handleFbChange} onFbSave={handleFbSave} fbDirty={fbDirty} fbSaving={fbUpdateMut.isPending} fbSaved={fbSaved} fbError={fbUpdateMut.isError} fbLoading={fbQuery.isLoading} />
               <ModelTiersSection />
             </>
           )}
-
-          {/* Backup section */}
           {isBackup && <BackupSection />}
 
-          {/* Settings */}
-          {!isGlobal && !isBackup && activeSettings.filter((s: any) => !s.ui_hidden).map((item, idx) => {
+          {/* Memory & Learning: unified section — memory scheme at top */}
+          {isMemoryGroup && <MemorySchemeSection />}
+
+          {/* Auto-rendered settings — simple divider list, no card wrappers */}
+          {!isGlobal && !isBackup && visibleSettings.map((item, idx) => {
             const FILE_MODE_KEYS = new Set(["SECTION_INDEX_COUNT", "SECTION_INDEX_VERBOSITY"]);
             const historyMode = String(localValues["DEFAULT_HISTORY_MODE"] ?? "file");
             const isFileModeOnly = FILE_MODE_KEYS.has(item.key);
@@ -829,21 +691,33 @@ export default function SettingsScreen() {
 
             return (
               <div key={item.key} style={dimmed ? { opacity: 0.4 } : undefined}>
-                {idx > 0 && <div className="h-px bg-surface-border" />}
-                {item.key === "MEMORY_FLUSH_DEFAULT_PROMPT" && <FlushPromptOverrideWarning />}
+                {/* Sub-section header */}
+                {SUB_SECTION_HEADERS[item.key] && (
+                  <div style={{ paddingTop: idx > 0 ? 20 : 8, paddingBottom: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: t.text, letterSpacing: 0.3 }}>
+                      {SUB_SECTION_HEADERS[item.key].title}
+                    </span>
+                    {SUB_SECTION_HEADERS[item.key].desc && (
+                      <span style={{ display: "block", fontSize: 11, color: t.textDim, marginTop: 2 }}>
+                        {SUB_SECTION_HEADERS[item.key].desc}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {/* Banners */}
                 {item.key === "MEMORY_HYGIENE_ENABLED" && <MemoryHygieneGroupBanner />}
-                {item.key === "SECTION_INDEX_COUNT" && (
-                  <FileModeOnlyBanner historyMode={historyMode} />
+                {item.key === "SECTION_INDEX_COUNT" && <FileModeOnlyBanner historyMode={historyMode} />}
+                {/* Divider between items (not before first) */}
+                {idx > 0 && !SUB_SECTION_HEADERS[item.key] && (
+                  <div style={{ height: 1, background: t.surfaceBorder, opacity: 0.5 }} />
                 )}
                 <SettingRow
                   item={item}
                   localValue={localValues[item.key]}
                   providerValue={item.widget === "model" ? String(localValues[
-                    item.key === "IMAGE_GENERATION_MODEL"
-                      ? "IMAGE_GENERATION_PROVIDER_ID"
-                      : item.key === "CONTEXTUAL_RETRIEVAL_MODEL"
-                      ? "CONTEXTUAL_RETRIEVAL_PROVIDER_ID"
-                      : item.key + "_PROVIDER_ID"
+                    item.key === "IMAGE_GENERATION_MODEL" ? "IMAGE_GENERATION_PROVIDER_ID"
+                    : item.key === "CONTEXTUAL_RETRIEVAL_MODEL" ? "CONTEXTUAL_RETRIEVAL_PROVIDER_ID"
+                    : item.key + "_PROVIDER_ID"
                   ] ?? "") : undefined}
                   onLocalChange={handleLocalChange}
                   onReset={handleReset}
@@ -853,30 +727,15 @@ export default function SettingsScreen() {
             );
           })}
 
-          {/* Dreaming: memory scheme defaults + pointer to Learning Center.
-              Per-bot toggles + run history live in Learning Center > Dreaming
-              (single canonical management surface). */}
-          {activeGroup === "Memory Hygiene" && (
-            <>
-              <MemorySchemeSection />
-              <DreamingLearningCenterPointer />
-            </>
-          )}
+          {/* Memory & Learning: dreaming bot management at bottom */}
+          {isMemoryGroup && <DreamingManagementSection />}
 
-          {/* Bot overrides for Attachments / Model Elevation */}
           {(activeGroup === "Attachments" || activeGroup === "Model Elevation") && (
             <BotOverridesList group={activeGroup} />
           )}
 
-          {/* Chat History extras: section index preview + deviations (file mode only) */}
-          {activeGroup === "Chat History" && (
-            <>
-              {String(localValues["DEFAULT_HISTORY_MODE"] ?? "file") === "file" && (
-                <ChatHistoryExtras
-                  verbosity={String(localValues["SECTION_INDEX_VERBOSITY"] ?? "standard")}
-                />
-              )}
-            </>
+          {activeGroup === "Chat History" && String(localValues["DEFAULT_HISTORY_MODE"] ?? "file") === "file" && (
+            <ChatHistoryExtras verbosity={String(localValues["SECTION_INDEX_VERBOSITY"] ?? "standard")} />
           )}
         </RefreshableScrollView>
       </div>

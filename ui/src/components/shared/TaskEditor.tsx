@@ -6,7 +6,7 @@ import { ChevronLeft, Trash2, Copy, FileText } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type StepDef } from "@/src/api/hooks/useTasks";
-import { useWorkflows } from "@/src/api/hooks/useWorkflows";
+
 import { useSkills } from "@/src/api/hooks/useSkills";
 import { useTools } from "@/src/api/hooks/useTools";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
@@ -88,7 +88,7 @@ export function TaskEditor({
   const [steps, setSteps] = useState<StepDef[] | null>(null);
   const stepsMode = steps !== null;
   const [initialized, setInitialized] = useState(false);
-  const { data: workflows } = useWorkflows();
+
 
   // Populate form when existing task loads (edit mode)
   if (!isCreate && !cloneFromId && existingTask && !initialized) {
@@ -251,7 +251,7 @@ export function TaskEditor({
   const editorTitle = cloneFromId ? "New Task (Clone)" : isCreate ? "New Task" : "Edit Task";
 
   return ReactDOM.createPortal(
-    <div className="flex fixed inset-0 z-[10000] bg-surface">
+    <div className="flex flex-col fixed inset-0 z-[10000] bg-surface">
       {/* Header */}
       <div className={`flex flex-row items-center border-b border-surface-border shrink-0 gap-2 ${isWide ? "px-5 py-3" : "px-3 py-2.5"}`}>
         <button
@@ -355,7 +355,7 @@ export function TaskEditor({
         <div className={`flex flex-1 min-h-0 overflow-y-auto ${isWide ? "flex-row" : ""}`}>
           {/* Prompt + Result/Error */}
           <div className={isWide ? "flex-[3] border-r border-surface-overlay" : ""}>
-            <div className="flex px-5 py-4 gap-4">
+            <div className="flex flex-col px-5 py-4 gap-4">
               <FormRow label="Title">
                 <input
                   type="text"
@@ -469,7 +469,7 @@ export function TaskEditor({
 
           {/* Metadata fields */}
           <div className={`px-5 py-4 ${isWide ? "flex-[2]" : "border-t border-surface-overlay"}`}>
-            <div className="flex gap-4">
+            <div className="flex flex-col gap-4">
               <Section title="Configuration">
                 <FormRow label="Bot">
                   <SelectInput
@@ -506,34 +506,7 @@ export function TaskEditor({
                   />
                 </FormRow>
 
-                {!stepsMode && (
-                  <FormRow label="Workflow Trigger" description="Run a workflow instead of a prompt">
-                    <SelectInput
-                      value={workflowId || ""}
-                      onChange={(v) => {
-                        setWorkflowId(v || null);
-                        if (!v) setWorkflowSessionMode(null);
-                      }}
-                      options={[
-                        { label: "None", value: "" },
-                        ...(workflows || []).map((w) => ({ label: `${w.name} (${w.id})`, value: w.id })),
-                      ]}
-                    />
-                  </FormRow>
-                )}
-                {workflowId && !stepsMode && (
-                  <FormRow label="Session Mode" description="Workflow step session isolation">
-                    <SelectInput
-                      value={workflowSessionMode || ""}
-                      onChange={(v) => setWorkflowSessionMode(v || null)}
-                      options={[
-                        { label: "Default (from workflow)", value: "" },
-                        { label: "Shared", value: "shared" },
-                        { label: "Isolated", value: "isolated" },
-                      ]}
-                    />
-                  </FormRow>
-                )}
+                {/* Workflow trigger hidden — workflows deprecated in favor of task pipelines */}
               </Section>
 
               <Section title="Trigger">
@@ -601,7 +574,7 @@ export function TaskEditor({
               {/* Read-only timing info in edit mode */}
               {!isCreate && existingTask && (
                 <Section title="Timing">
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2">
                     <InfoRow label="Created" value={formatDateTime(existingTask.created_at)} />
                     <InfoRow label="Scheduled" value={formatDateTime(existingTask.scheduled_at)} />
                     <InfoRow label="Run At" value={formatDateTime(existingTask.run_at)} />
@@ -617,7 +590,7 @@ export function TaskEditor({
               {/* Read-only dispatch info in edit mode */}
               {!isCreate && existingTask && (
                 <Section title="Dispatch">
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2">
                     <InfoRow label="Type" value={existingTask.dispatch_type} />
                     {existingTask.delegation_session_id && (
                       <InfoRow label="Delegation Context" value={existingTask.delegation_session_id.slice(0, 8) + "..."} />

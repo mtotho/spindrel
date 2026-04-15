@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Settings, Menu, ArrowLeft, Hash, FolderOpen, Code, PanelLeft, Users, Wrench } from "lucide-react";
+import { Settings, Menu, ArrowLeft, Hash, FolderOpen, Code, PanelLeft, Columns2, Users, Wrench } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
 import { useUIStore } from "@/src/stores/ui";
@@ -26,6 +26,10 @@ export interface ChannelHeaderProps {
   memberBotCount?: number;
   participantsPanelOpen?: boolean;
   toggleParticipantsPanel?: () => void;
+  /** Split mode (chat + file side by side) */
+  activeFile?: string | null;
+  splitMode?: boolean;
+  onToggleSplit?: () => void;
   /** Context budget from last SSE stream */
   contextBudget?: { utilization: number; consumed: number; total: number } | null;
   /** Called when user clicks the context budget indicator */
@@ -51,6 +55,9 @@ export function ChannelHeader({
   memberBotCount = 0,
   participantsPanelOpen,
   toggleParticipantsPanel,
+  activeFile,
+  splitMode,
+  onToggleSplit,
   contextBudget,
   onContextBudgetClick,
 }: ChannelHeaderProps) {
@@ -160,6 +167,17 @@ export function ChannelHeader({
             title={explorerOpen ? "Hide file explorer" : "Show file explorer"}
           >
             <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
+          </button>
+        )}
+        {/* Split view toggle — visible when a file is open */}
+        {activeFile && onToggleSplit && !isMobile && (
+          <button
+            className="header-icon-btn"
+            style={{ width: 36, height: 36, backgroundColor: splitMode ? t.surfaceOverlay : "transparent" }}
+            onClick={onToggleSplit}
+            title={splitMode ? "Exit split view (⌘\\)" : "Split view — chat + file (⌘\\)"}
+          >
+            <Columns2 size={16} color={splitMode ? t.accent : t.textDim} />
           </button>
         )}
         {/* Browse workspace + VS Code editor: still gated on channel workspace

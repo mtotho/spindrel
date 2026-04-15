@@ -1,18 +1,8 @@
 """Integration manifest service: YAML-first, DB-backed, UI-editable.
 
-Integrations can be defined via integration.yaml (declarative) or setup.py (legacy).
-
-YAML manifests:
-  - Seeded on first startup. DB is source of truth after that — the YAML file on
-    disk is never overwritten and changes to it are *reported* via
-    ``check_file_drift`` but not auto-applied. The user reconciles via the UI editor.
-
-setup.py manifests:
-  - Re-synced on every startup. setup.py is the only source — there is no UI
-    editor for these rows (``yaml_content`` is NULL). When the file's content
-    hash changes, the DB row is updated in place via ``ON CONFLICT DO UPDATE``.
-    No drift reporting is needed because drift can never exist between
-    consecutive startups.
+Integrations are defined via integration.yaml (declarative).  DB is the source
+of truth after first seed — the YAML file on disk is never overwritten and
+changes to it are detected via content_hash and auto-applied.
 """
 from __future__ import annotations
 
@@ -44,8 +34,8 @@ _KNOWN_KEYS = {
     "target", "process", "capabilities", "provides", "events",
 }
 
-# Keys passed through as-is between manifest and SETUP dict formats.
-# Shared between setup_dict_to_manifest() and _manifest_to_setup() in integrations/__init__.py.
+# Keys passed through as-is when converting manifest dicts to SETUP-compatible format.
+# Used by _manifest_to_setup() in integrations/__init__.py.
 PASSTHROUGH_KEYS = (
     "activation", "oauth", "webhook", "binding", "includes",
     "mcp_servers", "docker_compose", "web_ui", "chat_hud",
@@ -89,64 +79,15 @@ def _file_hash(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Setup.py → manifest conversion
-# ---------------------------------------------------------------------------
-
-def setup_dict_to_manifest(integration_id: str, setup: dict) -> dict:
-    """Convert a legacy SETUP dict from setup.py into a manifest-shaped dict."""
-    manifest: dict = {"id": integration_id}
-
-    manifest["name"] = setup.get("name", integration_id.replace("_", " ").replace("-", " ").title())
-    manifest["icon"] = setup.get("icon", "Plug")
-    manifest["description"] = setup.get("description")
-    manifest["version"] = setup.get("version")
-
-    # Map env_vars → settings
-    if "env_vars" in setup:
-        manifest["settings"] = [
-            {
-                "key": ev["key"],
-                "type": ev.get("type", "string"),
-                "label": ev.get("description", ev["key"]),
-                "required": ev.get("required", False),
-                "secret": ev.get("secret", False),
-                "default": ev.get("default"),
-            }
-            for ev in setup["env_vars"]
-        ]
-
-    # Copy through all other known fields
-    for key in PASSTHROUGH_KEYS:
-        if key in setup:
-            manifest[key] = setup[key]
-
-    # Dependencies
-    deps = {}
-    if "python_dependencies" in setup:
-        deps["python"] = setup["python_dependencies"]
-    if "npm_dependencies" in setup:
-        deps["npm"] = setup["npm_dependencies"]
-    if deps:
-        manifest["dependencies"] = deps
-
-    return manifest
-
-
-# ---------------------------------------------------------------------------
 # DB seeding and loading
 # ---------------------------------------------------------------------------
 
 async def seed_manifests() -> None:
-    """Scan all integration dirs and synchronize manifests to DB.
+    """Scan all integration dirs and synchronize YAML manifests to DB.
 
-    YAML manifests use INSERT ON CONFLICT DO NOTHING — seeded once, then
-    edited via the UI. File-on-disk drift is *reported* via check_file_drift,
-    not auto-applied (the UI editor is the canonical edit surface).
-
-    setup.py manifests use INSERT ON CONFLICT DO UPDATE keyed on content_hash —
-    the file on disk is the only source (yaml_content is NULL, no UI editor),
-    so any change to setup.py must propagate on the next startup. Without
-    this, env_vars added to setup.py would never appear in the admin UI.
+    New manifests are inserted; existing manifests are updated when the
+    content_hash changes on disk.  Legacy setup.py rows are upgraded to
+    YAML when an integration.yaml appears alongside them.
     """
     from integrations import _iter_integration_candidates
     from app.db.engine import async_session
@@ -156,165 +97,57 @@ async def seed_manifests() -> None:
     if not candidates:
         return
 
-    yaml_seeded = 0
-    setup_seeded = 0
-    setup_refreshed = 0
+    seeded = 0
     async with async_session() as db:
         for candidate_dir, integration_id, _is_external, source in candidates:
             yaml_path = candidate_dir / "integration.yaml"
 
-            if yaml_path.exists():
-                try:
-                    data = parse_integration_yaml(yaml_path)
-                    raw_content = yaml_path.read_text()
-                    content_hash = _file_hash(yaml_path)
-                except Exception:
-                    logger.error("Failed to parse %s", yaml_path, exc_info=True)
-                    continue
+            if not yaml_path.exists():
+                continue
 
-                # Check if an existing row was seeded from setup.py — if so,
-                # the integration has migrated from setup.py to YAML and the
-                # row needs to be upgraded (otherwise ON CONFLICT DO NOTHING
-                # would keep the stale setup.py data forever).
-                existing = await db.get(IntegrationManifest, data["id"])
-                if existing and existing.source == "setup_py":
-                    existing.name = data.get("name", integration_id)
-                    existing.description = data.get("description")
-                    existing.version = data.get("version")
-                    existing.icon = data.get("icon", "Plug")
-                    existing.manifest = data
-                    existing.yaml_content = raw_content
-                    existing.source = "yaml"
-                    existing.source_path = str(yaml_path)
-                    existing.content_hash = content_hash
-                    yaml_seeded += 1
-                    logger.info(
-                        "Upgraded manifest '%s' from setup.py → YAML",
-                        data["id"],
-                    )
-                elif existing and existing.source == "yaml" and existing.content_hash != content_hash:
-                    # YAML file changed on disk — update the DB row
-                    existing.name = data.get("name", integration_id)
-                    existing.description = data.get("description")
-                    existing.version = data.get("version")
-                    existing.icon = data.get("icon", "Plug")
-                    existing.manifest = data
-                    existing.yaml_content = raw_content
-                    existing.source_path = str(yaml_path)
-                    existing.content_hash = content_hash
-                    # Preserve is_enabled — don't reset on file change
-                    yaml_seeded += 1
-                    logger.info(
-                        "Updated manifest '%s' from changed YAML",
-                        data["id"],
-                    )
-                else:
-                    stmt = pg_insert(IntegrationManifest).values(
-                        id=data["id"],
-                        name=data.get("name", integration_id),
-                        description=data.get("description"),
-                        version=data.get("version"),
-                        icon=data.get("icon", "Plug"),
-                        manifest=data,
-                        yaml_content=raw_content,
-                        is_enabled=data.get("enabled", False),
-                        source="yaml",
-                        source_path=str(yaml_path),
-                        content_hash=content_hash,
-                    ).on_conflict_do_nothing(index_elements=["id"])
-                    await db.execute(stmt)
-                    yaml_seeded += 1
-                    logger.debug("Seeded YAML manifest '%s' from %s", data["id"], yaml_path)
+            try:
+                data = parse_integration_yaml(yaml_path)
+                raw_content = yaml_path.read_text()
+                content_hash = _file_hash(yaml_path)
+            except Exception:
+                logger.error("Failed to parse %s", yaml_path, exc_info=True)
+                continue
 
-            else:
-                # Try setup.py for legacy integrations
-                setup_file = candidate_dir / "setup.py"
-                if not setup_file.exists():
-                    continue
-                try:
-                    import importlib.util
-                    mod_name = f"_seed_setup_{integration_id}"
-                    spec = importlib.util.spec_from_file_location(mod_name, setup_file)
-                    if spec is None or spec.loader is None:
-                        continue
-                    mod = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(mod)
-                    setup_dict = getattr(mod, "SETUP", None)
-                    if not setup_dict or not isinstance(setup_dict, dict):
-                        continue
-                    data = setup_dict_to_manifest(integration_id, setup_dict)
-                    content_hash = _file_hash(setup_file)
-                except Exception:
-                    logger.debug("Could not read setup.py for '%s'", integration_id, exc_info=True)
-                    continue
-
-                # Look up the existing row's hash so we can log seed-vs-refresh
-                # accurately. (The UPSERT below is idempotent regardless.)
-                existing = await db.get(IntegrationManifest, integration_id)
-                existing_hash = existing.content_hash if existing else None
-
-                base_stmt = pg_insert(IntegrationManifest).values(
-                    id=integration_id,
+            existing = await db.get(IntegrationManifest, data["id"])
+            if existing and existing.content_hash != content_hash:
+                # YAML changed on disk (or legacy setup_py row being upgraded)
+                existing.name = data.get("name", integration_id)
+                existing.description = data.get("description")
+                existing.version = data.get("version")
+                existing.icon = data.get("icon", "Plug")
+                existing.manifest = data
+                existing.yaml_content = raw_content
+                existing.source = "yaml"
+                existing.source_path = str(yaml_path)
+                existing.content_hash = content_hash
+                seeded += 1
+                logger.info("Updated manifest '%s' from YAML", data["id"])
+            elif not existing:
+                stmt = pg_insert(IntegrationManifest).values(
+                    id=data["id"],
                     name=data.get("name", integration_id),
                     description=data.get("description"),
                     version=data.get("version"),
                     icon=data.get("icon", "Plug"),
                     manifest=data,
-                    yaml_content=None,
+                    yaml_content=raw_content,
                     is_enabled=data.get("enabled", False),
-                    source="setup_py",
-                    source_path=str(setup_file),
+                    source="yaml",
+                    source_path=str(yaml_path),
                     content_hash=content_hash,
-                )
-                # ON CONFLICT DO UPDATE — but only when the file content has
-                # actually changed. The IS DISTINCT FROM filter keeps updated_at
-                # stable across no-op startups so the row's mtime is meaningful.
-                stmt = base_stmt.on_conflict_do_update(
-                    index_elements=["id"],
-                    set_={
-                        "name": base_stmt.excluded.name,
-                        "description": base_stmt.excluded.description,
-                        "version": base_stmt.excluded.version,
-                        "icon": base_stmt.excluded.icon,
-                        "manifest": base_stmt.excluded.manifest,
-                        "source": base_stmt.excluded.source,
-                        "source_path": base_stmt.excluded.source_path,
-                        "content_hash": base_stmt.excluded.content_hash,
-                        "updated_at": text("now()"),
-                    },
-                    where=IntegrationManifest.content_hash.is_distinct_from(
-                        base_stmt.excluded.content_hash
-                    ),
-                )
+                ).on_conflict_do_nothing(index_elements=["id"])
                 await db.execute(stmt)
-
-                if existing is None:
-                    setup_seeded += 1
-                    logger.info(
-                        "Seeded new setup.py manifest '%s' (hash=%s)",
-                        integration_id, content_hash[:8],
-                    )
-                elif existing_hash != content_hash:
-                    setup_refreshed += 1
-                    logger.info(
-                        "Refreshed setup.py manifest '%s' (hash %s → %s) — "
-                        "setup.py changed since last startup",
-                        integration_id,
-                        (existing_hash or "none")[:8],
-                        content_hash[:8],
-                    )
-                else:
-                    logger.debug(
-                        "setup.py manifest '%s' unchanged (hash=%s)",
-                        integration_id, content_hash[:8],
-                    )
+                seeded += 1
+                logger.debug("Seeded YAML manifest '%s' from %s", data["id"], yaml_path)
 
         await db.commit()
 
-    logger.info(
-        "Manifest seed complete: %d YAML seeded, %d setup.py seeded, %d setup.py refreshed",
-        yaml_seeded, setup_seeded, setup_refreshed,
-    )
+    logger.info("Manifest seed complete: %d manifests seeded/updated", seeded)
 
 
 async def load_manifests() -> None:

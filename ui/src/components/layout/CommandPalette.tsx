@@ -162,7 +162,7 @@ const ADMIN_ITEMS: PaletteItem[] = [
   { id: "nav-settings-embeddings", label: "Settings: Embeddings & RAG", hint: "Settings", href: "/settings#Embeddings & RAG", icon: Settings, category: "Settings" },
   { id: "nav-settings-reranking", label: "Settings: RAG Re-ranking", hint: "Settings", href: "/settings#RAG Re-ranking", icon: Settings, category: "Settings" },
   { id: "nav-settings-attachments", label: "Settings: Attachments", hint: "Settings", href: "/settings#Attachments", icon: Settings, category: "Settings" },
-  { id: "nav-settings-dreaming", label: "Settings: Dreaming", hint: "Settings", href: "/settings#Memory Hygiene", icon: Settings, category: "Settings" },
+  { id: "nav-settings-memory", label: "Settings: Memory & Learning", hint: "Settings", href: "/settings#Memory & Learning", icon: Settings, category: "Settings" },
   { id: "nav-settings-heartbeat", label: "Settings: Heartbeat", hint: "Settings", href: "/settings#Heartbeat", icon: Settings, category: "Settings" },
   { id: "nav-settings-tool-summarization", label: "Settings: Tool Summarization", hint: "Settings", href: "/settings#Tool Summarization", icon: Settings, category: "Settings" },
   { id: "nav-settings-tool-policies", label: "Settings: Tool Policies", hint: "Settings", href: "/settings#Tool Policies", icon: Settings, category: "Settings" },

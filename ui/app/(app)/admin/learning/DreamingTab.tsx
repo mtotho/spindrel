@@ -42,6 +42,17 @@ export function DreamingTab() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Settings link */}
+      <div className="flex items-center gap-2 text-[11px] text-text-dim bg-surface-overlay/50 rounded-lg px-3 py-2">
+        <Moon size={12} className="text-purple-400" />
+        <span>
+          Configure dreaming prompts, models, and intervals in{" "}
+          <a href="/settings#Memory & Learning" className="text-accent hover:underline">
+            Settings &rarr; Memory &amp; Learning
+          </a>
+        </span>
+      </div>
+
       {/* Quick Status Banner */}
       <div style={{ borderRadius: 8, padding: 12, background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}` }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11, color: t.textMuted }}>

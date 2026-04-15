@@ -54,9 +54,10 @@ webhook:
   path: /integrations/bluebubbles/webhook
   description: "BlueBubbles new-message webhook receiver (optional ?token=BB_WEBHOOK_TOKEN auth)"
 
-python_dependencies:
-  - { package: python-socketio, import_name: socketio }
-  - { package: aiohttp, import_name: aiohttp }
+dependencies:
+  python:
+    - { package: python-socketio, import_name: socketio }
+    - { package: aiohttp, import_name: aiohttp }
 
 debug_actions:
   - id: pause

@@ -86,7 +86,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
   treeVisible: true,
   expandedDirs: {} as DirMap,
   treeWidth: 220,
-  channelExplorerWidth: 260,
+  channelExplorerWidth: 300,
   channelExplorerPaths: {},
 
   setChannelExplorerPath: (channelId, path) =>
@@ -141,7 +141,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
     }),
 
   setTreeWidth: (width) => set({ treeWidth: Math.max(140, Math.min(500, width)) }),
-  setChannelExplorerWidth: (width) => set({ channelExplorerWidth: Math.max(180, Math.min(500, width)) }),
+  setChannelExplorerWidth: (width) => set({ channelExplorerWidth: Math.max(200, Math.min(600, width)) }),
 
   openFile: (path, name, pane = "left") =>
     set((s) => {
@@ -214,7 +214,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
       treeVisible: true,
       expandedDirs: {} as DirMap,
       treeWidth: 220,
-      channelExplorerWidth: 260,
+      channelExplorerWidth: 300,
       channelExplorerPaths: {},
     }),
 }));

@@ -5,8 +5,8 @@
  * reorder controls, and an "Add Step" button. Used inside TaskCreateModal
  * and TaskEditor when the user toggles from single-prompt to steps mode.
  */
-import { useState, useCallback, useMemo } from "react";
-import { ChevronUp, ChevronDown, Trash2, Terminal, Wrench, Bot, Plus, AlertCircle } from "lucide-react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { ChevronUp, ChevronDown, Trash2, Terminal, Wrench, Bot, Plus, AlertCircle, CheckCircle2, XCircle, Clock, SkipForward, ArrowDown, ChevronDown as ChevronDownIcon } from "lucide-react";
 import type { StepDef, StepType, StepState } from "@/src/api/hooks/useTasks";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { LlmModelDropdown } from "./LlmModelDropdown";
@@ -15,10 +15,10 @@ import { LlmModelDropdown } from "./LlmModelDropdown";
 // Step type metadata
 // ---------------------------------------------------------------------------
 
-const STEP_TYPES: { value: StepType; label: string; icon: typeof Terminal; color: string }[] = [
-  { value: "exec", label: "Shell", icon: Terminal, color: "text-amber-400" },
-  { value: "tool", label: "Tool", icon: Wrench, color: "text-blue-400" },
-  { value: "agent", label: "LLM", icon: Bot, color: "text-purple-400" },
+const STEP_TYPES: { value: StepType; label: string; icon: typeof Terminal; color: string; border: string; bg: string }[] = [
+  { value: "exec", label: "Shell", icon: Terminal, color: "text-amber-400", border: "border-l-amber-400/60", bg: "bg-amber-400/5" },
+  { value: "tool", label: "Tool", icon: Wrench, color: "text-blue-400", border: "border-l-blue-400/60", bg: "bg-blue-400/5" },
+  { value: "agent", label: "LLM", icon: Bot, color: "text-purple-400", border: "border-l-purple-400/60", bg: "bg-purple-400/5" },
 ];
 
 function stepMeta(type: StepType) {
@@ -38,6 +38,57 @@ function emptyStep(type: StepType): StepDef {
     prompt: "",
     on_failure: "abort",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Custom dropdown (replaces all native <select>)
+// ---------------------------------------------------------------------------
+
+function MiniDropdown({ value, options, onChange, className }: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className={`relative ${className ?? ""}`}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex flex-row items-center gap-1 bg-surface-overlay/80 border border-surface-border rounded px-2 py-1 text-xs text-text cursor-pointer hover:border-accent/40 transition-colors whitespace-nowrap"
+      >
+        <span className="truncate">{selected?.label ?? value}</span>
+        <ChevronDownIcon size={10} className="text-text-dim shrink-0" />
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-50 min-w-[140px] py-1 overflow-hidden">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`flex flex-row w-full px-3 py-1.5 text-xs border-none cursor-pointer text-left transition-colors ${
+                opt.value === value ? "bg-accent/10 text-accent font-medium" : "bg-transparent text-text hover:bg-surface-raised"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +151,16 @@ function ToolSelector({ value, tools, onChange }: {
 }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
 
   const filtered = useMemo(() => {
     const term = search.toLowerCase();
@@ -111,10 +172,10 @@ function ToolSelector({ value, tools, onChange }: {
   const selectedTool = tools.find((t) => t.tool_name === value);
 
   return (
-    <div className="relative">
+    <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className={`flex items-center gap-2 w-full px-2.5 py-1.5 text-xs rounded-md border cursor-pointer text-left transition-colors ${
+        className={`flex flex-row items-center gap-2 w-full px-2.5 py-1.5 text-xs rounded-md border cursor-pointer text-left transition-colors ${
           open ? "border-accent bg-surface" : "border-surface-border bg-input hover:border-accent/50"
         }`}
       >
@@ -127,9 +188,10 @@ function ToolSelector({ value, tools, onChange }: {
             {selectedTool.source_integration}
           </span>
         )}
+        <ChevronDownIcon size={12} className="text-text-dim shrink-0" />
       </button>
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-20 max-h-[260px] overflow-hidden flex flex-col">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-50 max-h-[260px] overflow-hidden flex flex-col">
           <div className="p-2 border-b border-surface-border shrink-0">
             <input
               type="text"
@@ -150,7 +212,7 @@ function ToolSelector({ value, tools, onChange }: {
                   onClick={() => { onChange(tool.tool_name, tool); setOpen(false); setSearch(""); }}
                   className="flex flex-col gap-0.5 w-full px-3 py-2 bg-transparent border-none cursor-pointer text-left transition-colors hover:bg-surface-raised"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-row items-center gap-2">
                     <span className="text-xs font-medium text-text">{tool.tool_name}</span>
                     {tool.source_integration && (
                       <span className="text-[10px] text-text-dim px-1.5 py-0.5 rounded bg-surface-overlay">
@@ -176,6 +238,19 @@ function ToolSelector({ value, tools, onChange }: {
 // ---------------------------------------------------------------------------
 
 type ConditionMode = "always" | "output_contains" | "output_not_contains" | "status_is";
+
+const CONDITION_OPTIONS: { value: ConditionMode; label: string }[] = [
+  { value: "always", label: "Always" },
+  { value: "output_contains", label: "If prev output contains" },
+  { value: "output_not_contains", label: "If prev output NOT contains" },
+  { value: "status_is", label: "If prev step status is" },
+];
+
+const STATUS_OPTIONS = [
+  { value: "done", label: "Done" },
+  { value: "failed", label: "Failed" },
+  { value: "skipped", label: "Skipped" },
+];
 
 function parseConditionMode(when: StepDef["when"]): { mode: ConditionMode; value: string } {
   if (!when) return { mode: "always", value: "" };
@@ -207,40 +282,30 @@ function StepConditionEditor({ step, stepIndex, steps, onChange }: {
   if (stepIndex === 0) return null;
 
   return (
-    <div className="flex flex-row items-center gap-2 text-xs">
+    <div className="flex flex-row items-center gap-2 text-xs flex-wrap">
       <span className="text-text-dim shrink-0">Run</span>
-      <select
+      <MiniDropdown
         value={mode}
-        onChange={(e) => {
-          const m = e.target.value as ConditionMode;
-          onChange(buildCondition(m, m === "status_is" ? "done" : "", prevStepId));
+        options={CONDITION_OPTIONS}
+        onChange={(m) => {
+          onChange(buildCondition(m as ConditionMode, m === "status_is" ? "done" : "", prevStepId));
         }}
-        className="bg-input border border-surface-border rounded-md px-2 py-1 text-text text-xs outline-none focus:border-accent"
-      >
-        <option value="always">Always</option>
-        <option value="output_contains">If prev output contains</option>
-        <option value="output_not_contains">If prev output does NOT contain</option>
-        <option value="status_is">If prev step status is</option>
-      </select>
+      />
       {(mode === "output_contains" || mode === "output_not_contains") && (
         <input
           type="text"
           value={value}
           onChange={(e) => onChange(buildCondition(mode, e.target.value, prevStepId))}
           placeholder="text to match..."
-          className="bg-input border border-surface-border rounded-md px-2 py-1 text-text text-xs outline-none flex-1 focus:border-accent"
+          className="bg-input border border-surface-border rounded-md px-2 py-1 text-text text-xs outline-none flex-1 min-w-[100px] focus:border-accent"
         />
       )}
       {mode === "status_is" && (
-        <select
-          value={value}
-          onChange={(e) => onChange(buildCondition(mode, e.target.value, prevStepId))}
-          className="bg-input border border-surface-border rounded-md px-2 py-1 text-text text-xs outline-none focus:border-accent"
-        >
-          <option value="done">Done</option>
-          <option value="failed">Failed</option>
-          <option value="skipped">Skipped</option>
-        </select>
+        <MiniDropdown
+          value={value || "done"}
+          options={STATUS_OPTIONS}
+          onChange={(v) => onChange(buildCondition(mode, v, prevStepId))}
+        />
       )}
     </div>
   );
@@ -251,15 +316,17 @@ function StepConditionEditor({ step, stepIndex, steps, onChange }: {
 // ---------------------------------------------------------------------------
 
 function StepResultBadge({ state }: { state: StepState }) {
-  const colors: Record<string, string> = {
-    done: "bg-success/10 text-success border-success/20",
-    failed: "bg-danger/10 text-danger border-danger/20",
-    skipped: "bg-surface-overlay text-text-dim border-surface-border",
-    running: "bg-accent/10 text-accent border-accent/20",
-    pending: "bg-surface-overlay text-text-dim border-surface-border",
+  const config: Record<string, { classes: string; Icon: typeof CheckCircle2 }> = {
+    done: { classes: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", Icon: CheckCircle2 },
+    failed: { classes: "bg-red-500/10 text-red-400 border-red-500/20", Icon: XCircle },
+    skipped: { classes: "bg-surface-overlay text-text-dim border-surface-border", Icon: SkipForward },
+    running: { classes: "bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse", Icon: Clock },
+    pending: { classes: "bg-surface-overlay text-text-dim border-surface-border", Icon: Clock },
   };
+  const { classes, Icon } = config[state.status] ?? config.pending;
   return (
-    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colors[state.status] ?? colors.pending}`}>
+    <span className={`inline-flex flex-row items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${classes}`}>
+      <Icon size={10} />
       {state.status}
     </span>
   );
@@ -286,7 +353,7 @@ function ToolArgsEditor({ step, tools, readOnly, onChange }: {
   if (!rawMode && tool && paramDescs.size > 0 && !readOnly) {
     return (
       <div className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-row items-center justify-between">
           <span className="text-[10px] text-text-dim font-semibold uppercase tracking-wider">Parameters</span>
           <button
             onClick={() => { setRawText(JSON.stringify(currentArgs, null, 2)); setRawMode(true); }}
@@ -306,7 +373,6 @@ function ToolArgsEditor({ step, tools, readOnly, onChange }: {
               onChange={(e) => {
                 const val = e.target.value;
                 const updated = { ...currentArgs };
-                // Try to preserve type from schema
                 if (val === "") {
                   updated[key] = "";
                 } else if (val === "true" || val === "false") {
@@ -330,7 +396,7 @@ function ToolArgsEditor({ step, tools, readOnly, onChange }: {
   return (
     <div className="flex flex-col gap-1">
       {paramDescs.size > 0 && !readOnly && (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-row items-center justify-between">
           <span className="text-[10px] text-text-dim font-semibold uppercase tracking-wider">Arguments (JSON)</span>
           <button
             onClick={() => setRawMode(false)}
@@ -361,6 +427,62 @@ function ToolArgsEditor({ step, tools, readOnly, onChange }: {
 }
 
 // ---------------------------------------------------------------------------
+// Step type selector (custom dropdown, no native select)
+// ---------------------------------------------------------------------------
+
+const ON_FAILURE_OPTIONS = [
+  { value: "abort", label: "Stop on fail" },
+  { value: "continue", label: "Continue on fail" },
+];
+
+function StepTypeSelector({ value, onChange }: { value: StepType; onChange: (v: StepType) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const meta = stepMeta(value);
+  const Icon = meta.icon;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex flex-row items-center gap-1 bg-transparent border-none text-xs font-semibold text-text cursor-pointer hover:text-accent transition-colors"
+      >
+        {meta.label}
+        <ChevronDownIcon size={10} className="text-text-dim" />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-50 py-1 min-w-[120px]">
+          {STEP_TYPES.map((t) => {
+            const TIcon = t.icon;
+            return (
+              <button
+                key={t.value}
+                onClick={() => { onChange(t.value); setOpen(false); }}
+                className={`flex flex-row items-center gap-2 w-full px-3 py-1.5 text-xs border-none cursor-pointer text-left transition-colors ${
+                  t.value === value ? "bg-accent/10 text-accent font-medium" : "bg-transparent text-text hover:bg-surface-raised"
+                }`}
+              >
+                <TIcon size={12} className={t.color} />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Individual step card
 // ---------------------------------------------------------------------------
 
@@ -384,41 +506,35 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
   const update = (patch: Partial<StepDef>) => onChange({ ...step, ...patch });
 
   return (
-    <div className="rounded-lg border border-surface-border bg-surface-raised overflow-hidden">
+    <div className={`rounded-lg border border-surface-border ${meta.border} border-l-2 transition-shadow hover:shadow-sm`}>
       {/* Header row */}
-      <div className="flex flex-row items-center gap-2 px-3 py-2 bg-surface-overlay/50">
+      <div className={`flex flex-row items-center gap-2 px-3 py-2 ${meta.bg} rounded-t-lg`}>
         {!readOnly && (
-          <div className="flex flex-col gap-0.5 shrink-0">
+          <div className="flex flex-col shrink-0 -my-1">
             <button
               onClick={() => onMove(-1)}
               disabled={isFirst}
-              className="p-0 bg-transparent border-none cursor-pointer text-text-dim disabled:opacity-20 hover:text-text"
+              className="p-0.5 bg-transparent border-none cursor-pointer text-text-dim disabled:opacity-20 hover:text-text transition-colors"
             >
               <ChevronUp size={12} />
             </button>
             <button
               onClick={() => onMove(1)}
               disabled={isLast}
-              className="p-0 bg-transparent border-none cursor-pointer text-text-dim disabled:opacity-20 hover:text-text"
+              className="p-0.5 bg-transparent border-none cursor-pointer text-text-dim disabled:opacity-20 hover:text-text transition-colors"
             >
               <ChevronDown size={12} />
             </button>
           </div>
         )}
-        <span className="text-text-dim text-[11px] font-mono shrink-0">{stepIndex + 1}.</span>
-        <Icon size={14} className={meta.color} />
+        <div className="flex flex-row items-center gap-1.5 shrink-0">
+          <span className="text-text-dim text-[10px] font-mono w-4 text-right">{stepIndex + 1}</span>
+          <Icon size={13} className={meta.color} />
+        </div>
         {readOnly ? (
           <span className="text-xs font-semibold text-text">{meta.label}</span>
         ) : (
-          <select
-            value={step.type}
-            onChange={(e) => update({ type: e.target.value as StepType })}
-            className="bg-transparent border-none text-xs font-semibold text-text outline-none cursor-pointer"
-          >
-            {STEP_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
-          </select>
+          <StepTypeSelector value={step.type} onChange={(v) => update({ type: v })} />
         )}
         {!readOnly && (
           <input
@@ -426,7 +542,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
             value={step.label ?? ""}
             onChange={(e) => update({ label: e.target.value })}
             placeholder="Step label (optional)"
-            className="flex-1 bg-transparent border-none text-xs text-text-muted outline-none placeholder:text-text-dim"
+            className="flex-1 bg-transparent border-none text-xs text-text-muted outline-none placeholder:text-text-dim/50 min-w-0"
           />
         )}
         {readOnly && step.label && (
@@ -434,19 +550,15 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
         )}
         {stepState && <StepResultBadge state={stepState} />}
         {!readOnly && (
-          <div className="flex items-center gap-1 ml-auto">
-            <select
+          <div className="flex flex-row items-center gap-1.5 ml-auto shrink-0">
+            <MiniDropdown
               value={step.on_failure ?? "abort"}
-              onChange={(e) => update({ on_failure: e.target.value as "abort" | "continue" })}
-              className="bg-transparent border-none text-[10px] text-text-dim outline-none cursor-pointer"
-              title="On failure"
-            >
-              <option value="abort">Stop on fail</option>
-              <option value="continue">Continue on fail</option>
-            </select>
+              options={ON_FAILURE_OPTIONS}
+              onChange={(v) => update({ on_failure: v as "abort" | "continue" })}
+            />
             <button
               onClick={onDelete}
-              className="p-1 bg-transparent border-none cursor-pointer text-text-dim hover:text-danger transition-colors"
+              className="p-1 bg-transparent border-none cursor-pointer text-text-dim hover:text-danger transition-colors rounded hover:bg-danger/5"
             >
               <Trash2 size={13} />
             </button>
@@ -550,13 +662,28 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
         )}
 
         {/* Result display for completed steps */}
-        {stepState && (stepState.result || stepState.error) && (
-          <details className="text-xs">
-            <summary className="cursor-pointer text-text-dim hover:text-text">
-              {stepState.error ? "Error" : "Result"}
+        {stepState && stepState.error && (
+          <div className="rounded-md border border-red-500/20 bg-red-500/5 p-2">
+            <div className="flex flex-row items-center gap-1.5 mb-1">
+              <XCircle size={11} className="text-red-400" />
+              <span className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">Error</span>
+            </div>
+            <pre className="text-[11px] font-mono text-red-300/80 whitespace-pre-wrap max-h-32 overflow-y-auto m-0">
+              {stepState.error}
+            </pre>
+          </div>
+        )}
+        {stepState && stepState.result && !stepState.error && (
+          <details className="group" open={stepState.status === "done" && steps.length <= 3}>
+            <summary className="flex flex-row items-center gap-1.5 cursor-pointer text-[10px] font-semibold text-emerald-400/70 uppercase tracking-wider hover:text-emerald-400 transition-colors select-none">
+              <CheckCircle2 size={11} />
+              Output
+              <span className="text-text-dim font-normal normal-case tracking-normal ml-1 truncate max-w-[200px]">
+                {stepState.result.slice(0, 60)}{stepState.result.length > 60 ? "..." : ""}
+              </span>
             </summary>
-            <pre className="mt-1 p-2 rounded bg-surface text-text-muted text-[11px] font-mono whitespace-pre-wrap max-h-40 overflow-y-auto border border-surface-border">
-              {stepState.error ?? stepState.result}
+            <pre className="mt-1.5 p-2 rounded-md bg-surface border border-surface-border text-[11px] font-mono text-text-muted whitespace-pre-wrap max-h-40 overflow-y-auto m-0">
+              {stepState.result}
             </pre>
           </details>
         )}
@@ -573,26 +700,26 @@ function AddStepButton({ onAdd }: { onAdd: (type: StepType) => void }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="relative inline-flex">
+    <div className="relative inline-flex flex-row">
       {!open ? (
         <button
           onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-text-muted bg-transparent border border-dashed border-surface-border rounded-lg cursor-pointer hover:border-accent/50 hover:text-accent transition-colors"
+          className="flex flex-row items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-text-muted bg-transparent border border-dashed border-surface-border rounded-lg cursor-pointer hover:border-accent/50 hover:text-accent transition-colors"
         >
           <Plus size={13} />
           Add Step
         </button>
       ) : (
-        <div className="flex items-center gap-1">
+        <div className="flex flex-row items-center gap-1">
           {STEP_TYPES.map((t) => {
-            const Icon = t.icon;
+            const TIcon = t.icon;
             return (
               <button
                 key={t.value}
                 onClick={() => { onAdd(t.value); setOpen(false); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-surface-raised border border-surface-border rounded-lg cursor-pointer text-text hover:border-accent/50 hover:text-accent transition-colors"
+                className="flex flex-row items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-surface-raised border border-surface-border rounded-lg cursor-pointer text-text hover:border-accent/50 hover:text-accent transition-colors"
               >
-                <Icon size={13} className={t.color} />
+                <TIcon size={13} className={t.color} />
                 {t.label}
               </button>
             );
@@ -647,31 +774,39 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
   }, [steps, onChange]);
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-0">
       {steps.length === 0 && !readOnly && (
-        <div className="flex flex-col items-center gap-2 py-6 text-text-dim">
-          <AlertCircle size={20} className="opacity-40" />
+        <div className="flex flex-col items-center gap-2 py-8 text-text-dim rounded-lg border border-dashed border-surface-border bg-surface-raised/30">
+          <AlertCircle size={20} className="opacity-30" />
           <span className="text-xs">No steps yet. Add your first step below.</span>
         </div>
       )}
       {steps.map((step, i) => (
-        <StepCard
-          key={step.id}
-          step={step}
-          stepIndex={i}
-          steps={steps}
-          stepState={stepStates?.[i]}
-          readOnly={readOnly}
-          tools={tools}
-          onChange={(updated) => updateStep(i, updated)}
-          onDelete={() => deleteStep(i)}
-          onMove={(dir) => moveStep(i, dir)}
-        />
+        <div key={step.id}>
+          {i > 0 && (
+            <div className="flex flex-row justify-center py-0.5">
+              <ArrowDown size={14} className="text-surface-border" />
+            </div>
+          )}
+          <StepCard
+            step={step}
+            stepIndex={i}
+            steps={steps}
+            stepState={stepStates?.[i]}
+            readOnly={readOnly}
+            tools={tools}
+            onChange={(updated) => updateStep(i, updated)}
+            onDelete={() => deleteStep(i)}
+            onMove={(dir) => moveStep(i, dir)}
+          />
+        </div>
       ))}
-      {!readOnly && <AddStepButton onAdd={addStep} />}
+      <div className="mt-2">
+        {!readOnly && <AddStepButton onAdd={addStep} />}
+      </div>
       {!readOnly && steps.length > 0 && (
-        <p className="text-[10px] text-text-dim mt-1">
-          Prior step results are auto-injected. Use <code className="text-accent/80">{"{{steps.<id>.result}}"}</code> for explicit references.
+        <p className="text-[10px] text-text-dim mt-2 px-1">
+          Prior step results are auto-injected. Use <code className="text-accent/80 bg-accent/5 px-1 py-0.5 rounded text-[10px]">{"{{steps.<id>.result}}"}</code> for explicit references.
         </p>
       )}
     </div>

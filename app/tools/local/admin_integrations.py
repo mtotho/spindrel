@@ -68,26 +68,30 @@ def _scaffold_integration(integration_id: str, features: list[str] | None) -> di
     # Always create __init__.py
     (integration_dir / "__init__.py").write_text("")
 
-    # Always create setup.py
+    # Always create integration.yaml
     pretty_name = integration_id.replace("_", " ").title()
-    (integration_dir / "setup.py").write_text(f'''"""Setup manifest for {pretty_name} integration."""
+    (integration_dir / "integration.yaml").write_text(f'''id: {integration_id}
+name: {pretty_name}
+icon: Plug
+description: "{pretty_name} integration."
+version: "1.0"
 
-SETUP = {{
-    "env_vars": [
-        # {{"key": "{integration_id.upper()}_API_KEY", "required": True, "description": "API key for {pretty_name}"}},
-    ],
-    "webhook": None,
-    "python_dependencies": [],
-    # "binding": {{"client_id_prefix": "{integration_id}:"}},
-    # "sidebar_section": {{
-    #     "id": "{integration_id}",
-    #     "title": "{pretty_name.upper()}",
-    #     "icon": "Plug",
-    #     "items": [
-    #         {{"label": "Dashboard", "href": "/{integration_id.replace('_', '-')}", "icon": "LayoutDashboard"}},
-    #     ],
-    # }},
-}}
+settings: []
+  # - key: {integration_id.upper()}_API_KEY
+  #   type: string
+  #   label: "API key for {pretty_name}"
+  #   required: true
+  #   secret: true
+
+# dependencies:
+#   python:
+#     - package: some-package
+#       import_name: some_package
+
+# binding:
+#   client_id_prefix: "{integration_id}:"
+
+provides: []
 ''')
 
     # Always create router.py
@@ -109,13 +113,13 @@ Custom integration scaffolded via `manage_integration(action="scaffold")`.
 
 ## Setup
 
-1. Edit `setup.py` to declare env vars, webhook, dependencies
+1. Edit `integration.yaml` to declare settings, dependencies, bindings
 2. Add tools in `tools/`, skills in `skills/`, carapaces in `carapaces/`
 3. Run `manage_integration(action="reload")` to hot-load without restart
 
 ## Files
 
-- `setup.py` — SETUP manifest (env vars, webhook, dependencies, sidebar)
+- `integration.yaml` — Declarative manifest (settings, dependencies, bindings)
 - `router.py` — FastAPI endpoints (webhooks, APIs)
 - `__init__.py` — Package marker
 ''')
@@ -645,17 +649,17 @@ async def manage_integration(
         return json.dumps({"error": "integration_id is required for this action"})
 
     if action == "get_settings":
-        from integrations import _iter_integration_candidates, _import_module
         from app.services.integration_settings import get_all_for_integration
-        # Find setup_vars for this integration
+        from app.services.integration_manifests import get_manifest
+        # Get env_vars from manifest cache
         setup_vars = []
-        for candidate, iid, is_external, source in _iter_integration_candidates():
-            if iid == integration_id:
-                setup_file = candidate / "setup.py"
-                if setup_file.exists():
-                    mod = _import_module(iid, "setup", setup_file, is_external, source)
-                    setup_vars = getattr(mod, "SETUP", {}).get("env_vars", [])
-                break
+        manifest = get_manifest(integration_id)
+        if manifest:
+            setup_vars = [
+                {"key": s["key"], "required": s.get("required", False),
+                 "secret": s.get("secret", False), "description": s.get("label", s["key"])}
+                for s in manifest.get("settings", [])
+            ]
         all_settings = get_all_for_integration(integration_id, setup_vars)
         return json.dumps({
             "integration_id": integration_id,
@@ -665,18 +669,18 @@ async def manage_integration(
     if action == "update_settings":
         if not settings:
             return json.dumps({"error": "settings dict is required for update_settings"})
-        from integrations import _iter_integration_candidates, _import_module
         from app.services.integration_settings import update_settings as _update
+        from app.services.integration_manifests import get_manifest
         from app.db.engine import async_session
-        # Find setup_vars for this integration
+        # Get env_vars from manifest cache
         setup_vars = []
-        for candidate, iid, is_external, source in _iter_integration_candidates():
-            if iid == integration_id:
-                setup_file = candidate / "setup.py"
-                if setup_file.exists():
-                    mod = _import_module(iid, "setup", setup_file, is_external, source)
-                    setup_vars = getattr(mod, "SETUP", {}).get("env_vars", [])
-                break
+        manifest = get_manifest(integration_id)
+        if manifest:
+            setup_vars = [
+                {"key": s["key"], "required": s.get("required", False),
+                 "secret": s.get("secret", False), "description": s.get("label", s["key"])}
+                for s in manifest.get("settings", [])
+            ]
         async with async_session() as db:
             await _update(integration_id, settings, setup_vars, db)
         return json.dumps({"ok": True, "message": f"Updated {len(settings)} setting(s) for '{integration_id}'"})

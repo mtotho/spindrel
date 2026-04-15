@@ -93,13 +93,13 @@ def _import_module(integration_id: str, module_name: str, file_path: Path, is_ex
 def _get_setup(
     candidate: Path, integration_id: str, is_external: bool, source: str,
 ) -> dict | None:
-    """Get the SETUP dict for an integration.
+    """Get the SETUP-compatible dict for an integration.
 
-    Checks the DB-backed manifest cache first (supports integration.yaml),
-    then falls back to loading setup.py.  Returns None if neither source
-    provides metadata.
+    Checks the DB-backed manifest cache first, then falls back to parsing
+    integration.yaml directly from disk (for unit tests where the cache
+    isn't populated).
     """
-    # Try manifest cache (populated from integration.yaml or setup.py at startup)
+    # Try manifest cache (populated from integration.yaml at startup)
     try:
         from app.services.integration_manifests import get_manifest
         manifest = get_manifest(integration_id)
@@ -108,22 +108,7 @@ def _get_setup(
     except ImportError:
         pass
 
-    # Fall back to setup.py
-    setup_file = candidate / "setup.py"
-    if setup_file.exists():
-        try:
-            module = _import_module(integration_id, "setup", setup_file, is_external, source)
-            setup = getattr(module, "SETUP", None)
-            if setup:
-                import copy
-                setup = copy.deepcopy(setup)
-                _backfill_event_filter_options(setup)
-                return setup
-        except Exception:
-            logger.exception("Failed to load setup.py for integration %r", integration_id)
-
-    # Fall back to parsing integration.yaml directly from disk (covers
-    # cases where the manifest cache isn't populated yet, e.g. unit tests)
+    # Fall back to parsing integration.yaml directly from disk
     yaml_path = candidate / "integration.yaml"
     if yaml_path.exists():
         try:
@@ -204,13 +189,15 @@ def _manifest_to_setup(manifest: dict) -> dict:
             for s in settings
         ]
 
-    # dependencies → python_dependencies / npm_dependencies
+    # dependencies → python_dependencies / npm_dependencies / system_dependencies
     deps = manifest.get("dependencies", {})
     if isinstance(deps, dict):
         if "python" in deps:
             setup["python_dependencies"] = deps["python"]
         if "npm" in deps:
             setup["npm_dependencies"] = deps["npm"]
+        if "system" in deps:
+            setup["system_dependencies"] = deps["system"]
 
     # Pass through all other known fields
     from app.services.integration_manifests import PASSTHROUGH_KEYS
@@ -726,6 +713,30 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
                 entry["npm_dependencies"] = npm_status
                 entry["npm_deps_installed"] = all_npm_installed
 
+            # System dependencies check (binaries that must be pre-installed)
+            sys_deps = setup.get("system_dependencies", [])
+            if sys_deps:
+                import shutil as _shutil
+                sys_status = []
+                all_sys_installed = True
+                for dep in sys_deps:
+                    binary = dep.get("binary", "")
+                    alternatives = dep.get("alternatives", [])
+                    found = False
+                    for candidate_bin in [binary, *alternatives]:
+                        if _shutil.which(candidate_bin):
+                            found = True
+                            break
+                    sys_status.append({
+                        "binary": binary,
+                        "install_hint": dep.get("install_hint", ""),
+                        "installed": found,
+                    })
+                    if not found:
+                        all_sys_installed = False
+                entry["system_dependencies"] = sys_status
+                entry["system_deps_installed"] = all_sys_installed
+
             # OAuth config (pass through to UI)
             oauth = setup.get("oauth")
             if oauth:
@@ -772,7 +783,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
 
         # Determine status from required env vars + python/npm dependencies
         required_vars = [v for v in entry["env_vars"] if v["required"]]
-        deps_ok = entry.get("deps_installed", True) and entry.get("npm_deps_installed", True)
+        deps_ok = entry.get("deps_installed", True) and entry.get("npm_deps_installed", True) and entry.get("system_deps_installed", True)
         if not required_vars:
             # No required vars declared — "ready" if has any capability file AND deps installed
             if entry["has_router"] or entry["has_dispatcher"] or entry["has_renderer"] or entry["has_hooks"] or entry["has_tools"] or entry["has_carapaces"]:
@@ -1204,22 +1215,7 @@ def discover_docker_compose_stacks() -> list[dict]:
                     enabled_default = var.get("default", "false")
                     break
 
-        # Optional callable in setup.py: ``is_stack_enabled() -> bool``.
-        # When present, this overrides the env-var check — lets an
-        # integration declare conditional enablement (e.g. only start
-        # containers when in a particular mode).
         enabled_callable = None
-        setup_file = candidate / "setup.py"
-        if setup_file.exists():
-            try:
-                module = _import_module(integration_id, "setup", setup_file, is_external, source)
-                fn = getattr(module, "is_stack_enabled", None)
-                if callable(fn):
-                    enabled_callable = fn
-            except Exception:
-                logger.exception(
-                    "Failed to load is_stack_enabled() for integration %r", integration_id,
-                )
 
         results.append({
             "integration_id": integration_id,
