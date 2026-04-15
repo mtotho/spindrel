@@ -861,19 +861,23 @@ async def serve_integration_ui(integration_id: str, path: str = ""):
 # ---------------------------------------------------------------------------
 # Main UI — serve built React SPA from ui-dist/ (baked into Docker image)
 # ---------------------------------------------------------------------------
-# Must be mounted LAST so /api/v1/*, /health, /integrations/* take priority.
+# Uses a Starlette Mount with a custom SPA-aware static files app.
+# Mount is checked AFTER all explicit routes, so /api/v1/*, /chat, /health
+# etc. are never shadowed.
 _UI_DIST = Path(__file__).resolve().parent.parent / "ui-dist"
 if _UI_DIST.is_dir():
-    from starlette.responses import FileResponse
     from starlette.staticfiles import StaticFiles
+    from starlette.responses import FileResponse
+    from starlette.types import Receive, Scope, Send
 
-    # Serve hashed assets directly (JS, CSS, images under /assets/)
-    app.mount("/assets", StaticFiles(directory=_UI_DIST / "assets"), name="ui-assets")
+    class SPAStaticFiles(StaticFiles):
+        """StaticFiles subclass that falls back to index.html for SPA routing."""
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+            try:
+                await super().__call__(scope, receive, send)
+            except Exception:
+                # File not found → serve index.html for client-side routing
+                scope["path"] = "/index.html"
+                await super().__call__(scope, receive, send)
 
-    # SPA fallback — any non-API, non-asset path serves index.html
-    @app.get("/{path:path}")
-    async def serve_ui(path: str = ""):
-        file_path = (_UI_DIST / path).resolve()
-        if str(file_path).startswith(str(_UI_DIST.resolve())) and file_path.is_file():
-            return FileResponse(file_path)
-        return FileResponse(_UI_DIST / "index.html", media_type="text/html")
+    app.mount("/", SPAStaticFiles(directory=_UI_DIST, html=True), name="ui")
