@@ -4,7 +4,7 @@
  * Used in TaskCreateModal and TaskEditor to configure how a task is triggered.
  */
 import { useState, useMemo } from "react";
-import { ChevronDown, ChevronRight, Zap, Server } from "lucide-react";
+import { ChevronDown, ChevronRight, Zap, Server, Radio } from "lucide-react";
 import { ScheduledAtPicker, RecurrencePicker, ScheduleSummary } from "./SchedulingPickers";
 import { useTriggerEvents, type TriggerEventSource, type TriggerEventOption } from "@/src/api/hooks/useTasks";
 import { prettyIntegrationName } from "@/src/utils/format";
@@ -38,17 +38,17 @@ const TRIGGER_TYPES: { label: string; value: TriggerType }[] = [
 // Integration color map — brand colors for visual identity
 // ---------------------------------------------------------------------------
 const INTEGRATION_COLORS: Record<string, { border: string; bg: string; dot: string }> = {
-  system:      { border: "#6b7280", bg: "rgba(107,114,128,0.06)", dot: "#6b7280" },
-  slack:       { border: "#4A154B", bg: "rgba(74,21,75,0.06)",    dot: "#E01E5A" },
-  github:      { border: "#8b949e", bg: "rgba(139,148,158,0.06)", dot: "#8b949e" },
-  discord:     { border: "#5865F2", bg: "rgba(88,101,242,0.06)",  dot: "#5865F2" },
-  wyoming:     { border: "#14b8a6", bg: "rgba(20,184,166,0.06)",  dot: "#14b8a6" },
-  gmail:       { border: "#EA4335", bg: "rgba(234,67,53,0.06)",   dot: "#EA4335" },
-  frigate:     { border: "#0ea5e9", bg: "rgba(14,165,233,0.06)",  dot: "#0ea5e9" },
-  bluebubbles: { border: "#34D399", bg: "rgba(52,211,153,0.06)",  dot: "#34D399" },
+  system:      { border: "#6b7280", bg: "rgba(107,114,128,0.08)", dot: "#6b7280" },
+  slack:       { border: "#4A154B", bg: "rgba(74,21,75,0.10)",    dot: "#E01E5A" },
+  github:      { border: "#8b949e", bg: "rgba(139,148,158,0.08)", dot: "#8b949e" },
+  discord:     { border: "#5865F2", bg: "rgba(88,101,242,0.10)",  dot: "#5865F2" },
+  wyoming:     { border: "#14b8a6", bg: "rgba(20,184,166,0.10)",  dot: "#14b8a6" },
+  gmail:       { border: "#EA4335", bg: "rgba(234,67,53,0.10)",   dot: "#EA4335" },
+  frigate:     { border: "#0ea5e9", bg: "rgba(14,165,233,0.10)",  dot: "#0ea5e9" },
+  bluebubbles: { border: "#34D399", bg: "rgba(52,211,153,0.10)",  dot: "#34D399" },
 };
 
-const DEFAULT_COLOR = { border: "#6b7280", bg: "rgba(107,114,128,0.06)", dot: "#6b7280" };
+const DEFAULT_COLOR = { border: "#6b7280", bg: "rgba(107,114,128,0.08)", dot: "#6b7280" };
 
 function getColor(intType: string) {
   return INTEGRATION_COLORS[intType] ?? DEFAULT_COLOR;
@@ -157,17 +157,24 @@ function useSourceGroups(sources: TriggerEventSource[]): SourceGroup[] {
       group.eventCount = Math.max(group.eventCount, s.events.length);
 
       if (s.source === "system" || s.source === intType) {
-        // Integration-wide or system source
         group.anySource = s;
         group.disabled = !!s.disabled;
       } else {
-        // Per-binding source
         group.bindings.push(s);
       }
     }
 
     return Array.from(groups.values());
   }, [sources]);
+}
+
+// ---------------------------------------------------------------------------
+// Check if all events in a source share the same category
+// ---------------------------------------------------------------------------
+function hasUniformCategory(events: TriggerEventOption[]): boolean {
+  if (events.length === 0) return false;
+  const first = events[0].category;
+  return events.every((e) => e.category === first);
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +200,9 @@ function EventTriggerFields({
 
   const filters = triggerConfig.event_filter ?? {};
   const filterEntries = Object.entries(filters);
+
+  // Hide category labels when every event shares the same one (e.g. all "webhook")
+  const uniformCategory = hasUniformCategory(selectedEvents);
 
   const addFilter = () => {
     if (!filterKey.trim() || !filterValue.trim()) return;
@@ -221,26 +231,19 @@ function EventTriggerFields({
     });
   };
 
-  /** Is a source currently selected? */
   const isSelected = (sourceId: string) => triggerConfig.event_source === sourceId;
 
-  /** Is any source within a group selected? */
   const isGroupSelected = (group: SourceGroup) => {
     if (group.anySource && isSelected(group.anySource.source)) return true;
     return group.bindings.some((b) => isSelected(b.source));
   };
 
-  /** Toggle group expansion, auto-expand if it has only an "any" source */
   const toggleGroup = (intType: string, group: SourceGroup) => {
     if (group.disabled) return;
-    // If system or no bindings, just select the "any" source directly
+    // System or no bindings: select the "any" source directly
     if (intType === "system" || group.bindings.length === 0) {
       if (group.anySource) {
-        if (isSelected(group.anySource.source)) {
-          selectSource("");
-        } else {
-          selectSource(group.anySource.source);
-        }
+        selectSource(isSelected(group.anySource.source) ? "" : group.anySource.source);
       }
       return;
     }
@@ -256,10 +259,10 @@ function EventTriggerFields({
   }
 
   return (
-    <div className="flex gap-3">
+    <div className="flex gap-4">
       {/* Source card picker */}
-      <div className="flex gap-1.5">
-        <div className="text-[11px] text-text-dim font-semibold uppercase tracking-wider mb-0.5">
+      <div className="flex gap-1">
+        <div className="text-[11px] text-text-dim font-semibold uppercase tracking-wider mb-1">
           Source
         </div>
 
@@ -271,95 +274,90 @@ function EventTriggerFields({
           const hasBindings = group.bindings.length > 0;
 
           return (
-            <div key={group.intType} className="flex">
-              {/* Card header */}
+            <div key={group.intType}>
+              {/* Card */}
               <button
                 onClick={() => toggleGroup(group.intType, group)}
                 disabled={group.disabled}
-                className={`flex flex-row items-center gap-2.5 w-full px-3 py-2.5 rounded-[10px] border text-left transition-all duration-150 cursor-pointer ${
+                className={`flex flex-row items-center gap-2.5 w-full px-3 py-2 rounded-lg border text-left transition-all duration-150 cursor-pointer ${
                   group.disabled
-                    ? "opacity-40 cursor-not-allowed border-surface-border bg-surface-raised"
+                    ? "opacity-30 cursor-not-allowed border-surface-border bg-surface-raised"
                     : groupSel
-                    ? "border-accent/50 bg-accent/[0.04] shadow-sm"
-                    : "border-surface-border bg-surface-raised hover:border-text-dim/30 hover:bg-surface-raised/80"
+                    ? "border-accent/40 bg-accent/[0.04]"
+                    : "border-surface-border bg-surface-raised hover:border-text-dim/20"
                 }`}
                 style={{
                   borderLeftWidth: 3,
                   borderLeftColor: group.disabled ? "transparent" : color.border,
                 }}
               >
-                {/* Icon area */}
+                {/* Icon */}
                 <div
-                  className="flex items-center justify-center w-7 h-7 rounded-md shrink-0"
+                  className="flex items-center justify-center w-6 h-6 rounded shrink-0"
                   style={{ backgroundColor: color.bg }}
                 >
                   {isSystem ? (
-                    <Server size={14} style={{ color: color.dot }} />
+                    <Server size={12} style={{ color: color.dot }} />
                   ) : (
-                    <Zap size={14} style={{ color: color.dot }} />
+                    <Zap size={12} style={{ color: color.dot }} />
                   )}
                 </div>
 
                 {/* Text */}
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-row items-center gap-2">
-                    <span className={`text-xs font-semibold truncate ${group.disabled ? "text-text-dim" : "text-text"}`}>
+                    <span className={`text-[12px] font-semibold truncate ${group.disabled ? "text-text-dim" : "text-text"}`}>
                       {group.label}
                     </span>
-                    <span className="text-[10px] text-text-dim font-medium tabular-nums shrink-0">
-                      {group.eventCount} event{group.eventCount !== 1 ? "s" : ""}
+                    <span className="text-[10px] text-text-dim/70 tabular-nums shrink-0">
+                      {group.eventCount}
                     </span>
                   </div>
-                  {group.disabled && (
-                    <div className="text-[10px] text-text-dim mt-0.5">No bindings configured</div>
-                  )}
-                  {!group.disabled && hasBindings && (
-                    <div className="text-[10px] text-text-dim mt-0.5">
+                  {group.disabled ? (
+                    <div className="text-[10px] text-text-dim mt-px">No bindings</div>
+                  ) : hasBindings ? (
+                    <div className="text-[10px] text-text-dim mt-px">
                       {group.bindings.length} binding{group.bindings.length !== 1 ? "s" : ""}
                     </div>
-                  )}
-                  {!group.disabled && isSystem && (
-                    <div className="text-[10px] text-text-dim mt-0.5">Lifecycle hooks</div>
-                  )}
+                  ) : isSystem ? (
+                    <div className="text-[10px] text-text-dim mt-px">Lifecycle hooks</div>
+                  ) : null}
                 </div>
 
-                {/* Expand chevron (only for groups with bindings) */}
-                {hasBindings && !group.disabled && (
-                  <div className="shrink-0 text-text-dim">
-                    {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                {/* Right side: chevron or selection dot */}
+                {hasBindings && !group.disabled ? (
+                  <div className="shrink-0 text-text-dim/50">
+                    {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                   </div>
-                )}
-
-                {/* Selected indicator for groups without bindings */}
-                {(!hasBindings || isSystem) && groupSel && (
+                ) : !group.disabled && groupSel ? (
                   <div className="w-2 h-2 rounded-full bg-accent shrink-0" />
-                )}
+                ) : null}
               </button>
 
-              {/* Expanded bindings list */}
+              {/* Expanded bindings */}
               {expanded && hasBindings && (
-                <div className="flex gap-0.5 ml-3 pl-3 border-l-2" style={{ borderLeftColor: color.border + "40" }}>
+                <div
+                  className="flex gap-px mt-px ml-4 pl-3 border-l"
+                  style={{ borderLeftColor: color.border + "30" }}
+                >
                   {/* "Any" option */}
                   {group.anySource && (
                     <BindingItem
-                      label={`Any ${group.label}`}
-                      sublabel="Matches all bindings"
+                      label={`Any ${group.label} binding`}
                       selected={isSelected(group.anySource.source)}
                       onClick={() => selectSource(
                         isSelected(group.anySource!.source) ? "" : group.anySource!.source
                       )}
                       color={color}
+                      isWildcard
                     />
                   )}
-
                   {/* Individual bindings */}
                   {group.bindings.map((b) => (
                     <BindingItem
                       key={b.source}
                       label={b.label}
-                      sublabel={b.activated === false ? "Not active" : undefined}
                       selected={isSelected(b.source)}
-                      dimmed={b.activated === false}
                       onClick={() => selectSource(isSelected(b.source) ? "" : b.source)}
                       color={color}
                     />
@@ -371,29 +369,26 @@ function EventTriggerFields({
         })}
       </div>
 
-      {/* Event type picker */}
+      {/* Event type selector — only after a source is picked */}
       {triggerConfig.event_source && selectedEvents.length > 0 && (
         <div className="flex gap-1.5">
-          <div className="text-[11px] text-text-dim font-semibold uppercase tracking-wider">
-            Event
+          <div className="flex flex-row items-center gap-2 mb-0.5">
+            <span className="text-[11px] text-text-dim font-semibold uppercase tracking-wider">
+              Event type
+            </span>
+            {!triggerConfig.event_type && (
+              <span className="text-[10px] text-text-dim/60 normal-case tracking-normal font-normal">
+                Listening to all events
+              </span>
+            )}
           </div>
-          <div className="flex flex-row gap-1.5 flex-wrap">
-            {/* "All events" pill */}
-            <EventPill
-              label="All events"
-              selected={!triggerConfig.event_type}
-              onClick={() => onTriggerConfigChange({
-                ...triggerConfig,
-                event_type: undefined,
-                event_action: undefined,
-              })}
-            />
+          <div className="flex flex-row gap-1 flex-wrap">
             {selectedEvents.map((e) => (
               <EventPill
                 key={e.type}
                 label={e.label}
                 description={e.description}
-                category={e.category}
+                category={uniformCategory ? undefined : e.category}
                 selected={triggerConfig.event_type === e.type}
                 onClick={() => onTriggerConfigChange({
                   ...triggerConfig,
@@ -450,7 +445,7 @@ function EventTriggerFields({
             </button>
           </div>
           {filterEntries.length === 0 && (
-            <div className="text-[11px] text-text-dim">
+            <div className="text-[11px] text-text-dim/60 italic">
               No filters — triggers on every matching event
             </div>
           )}
@@ -465,50 +460,44 @@ function EventTriggerFields({
 // ---------------------------------------------------------------------------
 function BindingItem({
   label,
-  sublabel,
   selected,
-  dimmed,
   onClick,
   color,
+  isWildcard,
 }: {
   label: string;
-  sublabel?: string;
   selected: boolean;
-  dimmed?: boolean;
   onClick: () => void;
   color: { border: string; bg: string; dot: string };
+  isWildcard?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`flex flex-row items-center gap-2.5 w-full px-3 py-2 rounded-lg border text-left transition-all duration-150 cursor-pointer ${
+      className={`flex flex-row items-center gap-2 w-full px-2.5 py-1.5 rounded-md text-left transition-all duration-100 cursor-pointer border ${
         selected
-          ? "border-accent/40 bg-accent/[0.05]"
-          : "border-transparent hover:bg-surface-raised"
-      } ${dimmed ? "opacity-50" : ""}`}
+          ? "border-accent/30 bg-accent/[0.06]"
+          : "border-transparent hover:bg-surface-overlay/50"
+      }`}
     >
-      {/* Radio indicator */}
-      <div className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
-        selected ? "border-accent" : "border-text-dim/30"
+      {/* Radio dot */}
+      <div className={`w-3 h-3 rounded-full border-[1.5px] shrink-0 flex items-center justify-center transition-colors ${
+        selected ? "border-accent" : "border-text-dim/25"
       }`}>
         {selected && <div className="w-1.5 h-1.5 rounded-full bg-accent" />}
       </div>
 
-      {/* Label */}
-      <div className="flex-1 min-w-0">
-        <span className={`text-xs truncate block ${selected ? "text-text font-medium" : "text-text-muted"}`}>
-          {label}
-        </span>
-        {sublabel && (
-          <span className="text-[10px] text-text-dim block mt-0.5">{sublabel}</span>
-        )}
-      </div>
+      {/* Icon for wildcard */}
+      {isWildcard && (
+        <Radio size={11} className={selected ? "text-accent/70" : "text-text-dim/40"} />
+      )}
 
-      {/* Dot */}
-      <div
-        className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ backgroundColor: color.dot, opacity: dimmed ? 0.4 : 0.6 }}
-      />
+      {/* Label */}
+      <span className={`text-[11px] truncate ${
+        selected ? "text-text font-medium" : isWildcard ? "text-text-dim" : "text-text-muted"
+      }`}>
+        {label}
+      </span>
     </button>
   );
 }
@@ -533,15 +522,15 @@ function EventPill({
     <button
       onClick={onClick}
       title={description}
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition-all duration-150 cursor-pointer ${
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all duration-100 cursor-pointer ${
         selected
-          ? "bg-accent/[0.10] text-accent border-accent/30"
+          ? "bg-accent/[0.12] text-accent border-accent/30"
           : "bg-transparent text-text-muted border-surface-border hover:border-text-dim/30 hover:text-text"
       }`}
     >
       {category && (
         <span className={`text-[9px] uppercase tracking-wider font-semibold ${
-          selected ? "text-accent/60" : "text-text-dim"
+          selected ? "text-accent/50" : "text-text-dim/50"
         }`}>
           {category}
         </span>

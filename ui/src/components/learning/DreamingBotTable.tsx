@@ -193,19 +193,20 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
         const maintState = cfg ? resolveState(cfg.memory_hygiene_enabled) : "inherit";
         const skillState = cfg ? resolveState(cfg.skill_review_enabled) : "inherit";
         const combined = worstStatus(bot.last_task_status, bot.skill_review_last_task_status);
-        const lastRunAt = (() => {
-          if (!bot.last_run_at && !bot.skill_review_last_run_at) return null;
-          if (!bot.last_run_at) return bot.skill_review_last_run_at;
-          if (!bot.skill_review_last_run_at) return bot.last_run_at;
+        // Track which job type ran last / runs next
+        const lastRun = (() => {
+          if (!bot.last_run_at && !bot.skill_review_last_run_at) return { at: null, type: null as string | null };
+          if (!bot.last_run_at) return { at: bot.skill_review_last_run_at, type: "skills" };
+          if (!bot.skill_review_last_run_at) return { at: bot.last_run_at, type: "maint" };
           return new Date(bot.last_run_at) > new Date(bot.skill_review_last_run_at)
-            ? bot.last_run_at : bot.skill_review_last_run_at;
+            ? { at: bot.last_run_at, type: "maint" } : { at: bot.skill_review_last_run_at, type: "skills" };
         })();
-        const nextRunAt = (() => {
-          if (!bot.next_run_at && !bot.skill_review_next_run_at) return null;
-          if (!bot.next_run_at) return bot.skill_review_next_run_at;
-          if (!bot.skill_review_next_run_at) return bot.next_run_at;
+        const nextRun = (() => {
+          if (!bot.next_run_at && !bot.skill_review_next_run_at) return { at: null, type: null as string | null };
+          if (!bot.next_run_at) return { at: bot.skill_review_next_run_at, type: "skills" };
+          if (!bot.skill_review_next_run_at) return { at: bot.next_run_at, type: "maint" };
           return new Date(bot.next_run_at) < new Date(bot.skill_review_next_run_at)
-            ? bot.next_run_at : bot.skill_review_next_run_at;
+            ? { at: bot.next_run_at, type: "maint" } : { at: bot.skill_review_next_run_at, type: "skills" };
         })();
 
         // Mobile: stacked card layout
@@ -221,27 +222,29 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
                 borderBottom: `1px solid ${t.surfaceBorder}`,
               }}
             >
-              <div className="flex items-center justify-between">
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <button
                   onClick={() => navigate(`/admin/bots/${bot.bot_id}#memory`)}
-                  className="bg-transparent border-none p-0 cursor-pointer text-left"
-                  style={{ color: t.text, fontSize: 13, fontWeight: 500 }}
+                  style={{
+                    background: "none", border: "none", padding: 0, cursor: "pointer",
+                    textAlign: "left", color: t.text, fontSize: 13, fontWeight: 500,
+                  }}
                 >
                   {bot.bot_name}
                 </button>
-                <div className="flex items-center gap-1.5">
+                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <DotIndicator enabled={bot.enabled} flavor="maint" />
                   <DotIndicator enabled={bot.skill_review_enabled} flavor="skills" />
                 </div>
               </div>
-              <div className="flex items-center gap-3" style={{ fontSize: 10, color: t.textDim }}>
-                <span>Last: {fmtRelative(lastRunAt)}</span>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12, fontSize: 10, color: t.textDim }}>
+                <span>Last: {fmtRelative(lastRun.at)}{lastRun.type && <TypeDot type={lastRun.type} />}</span>
                 {combined && <StatusBadge label={combined} variant={statusVariant(combined)} />}
-                <span>Next: {fmtRelative(nextRunAt)}</span>
+                <span>Next: {fmtRelative(nextRun.at)}{nextRun.type && <TypeDot type={nextRun.type} />}</span>
               </div>
               {isManage && (
-                <div className="flex items-center gap-3 mt-1">
-                  <div className="flex items-center gap-1.5">
+                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <DotToggle
                       state={maintState}
                       flavor="maint"
@@ -319,7 +322,7 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
               <>
                 {/* Last Run */}
                 <span style={{ fontSize: 11, color: t.textMuted }}>
-                  {fmtRelative(lastRunAt)}
+                  {fmtRelative(lastRun.at)}{lastRun.type && <TypeDot type={lastRun.type} />}
                 </span>
                 {/* Result */}
                 <span>
@@ -327,10 +330,13 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
                 </span>
                 {/* Next Run */}
                 <span style={{ fontSize: 11, color: t.textDim }}>
-                  {fmtRelative(nextRunAt)}
+                  {fmtRelative(nextRun.at)}{nextRun.type && <TypeDot type={nextRun.type} />}
                 </span>
                 {/* Maint dot toggle */}
-                <span className="flex justify-center" onClick={(e) => e.stopPropagation()}>
+                <span
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ display: "flex", justifyContent: "center" }}
+                >
                   <DotToggle
                     state={maintState}
                     flavor="maint"
@@ -343,7 +349,10 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
                   />
                 </span>
                 {/* Skills dot toggle */}
-                <span className="flex justify-center" onClick={(e) => e.stopPropagation()}>
+                <span
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ display: "flex", justifyContent: "center" }}
+                >
                   <DotToggle
                     state={skillState}
                     flavor="skills"
@@ -372,13 +381,13 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
             ) : (
               <>
                 {/* Jobs — dual dot indicators */}
-                <span className="flex items-center gap-1.5">
+                <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <DotIndicator enabled={bot.enabled} flavor="maint" />
                   <DotIndicator enabled={bot.skill_review_enabled} flavor="skills" />
                 </span>
                 {/* Last Run */}
                 <span style={{ fontSize: 11, color: t.textMuted }}>
-                  {fmtRelative(lastRunAt)}
+                  {fmtRelative(lastRun.at)}{lastRun.type && <TypeDot type={lastRun.type} />}
                 </span>
                 {/* Result — worst-of-two */}
                 <span>
@@ -386,7 +395,7 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
                 </span>
                 {/* Next Run */}
                 <span style={{ fontSize: 11, color: t.textDim }}>
-                  {fmtRelative(nextRunAt)}
+                  {fmtRelative(nextRun.at)}{nextRun.type && <TypeDot type={nextRun.type} />}
                 </span>
               </>
             )}
@@ -401,16 +410,34 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
 // Internal: Dot indicator (view mode — read-only)
 // ---------------------------------------------------------------------------
 
-function DotIndicator({ enabled, flavor }: { enabled: boolean; flavor: "maint" | "skills" }) {
-  const colorClass = flavor === "maint"
-    ? (enabled ? "bg-amber-500" : "bg-amber-500/20")
-    : (enabled ? "bg-purple-500" : "bg-purple-500/20");
-  const title = `${flavor === "maint" ? "Maintenance" : "Skill Review"}: ${enabled ? "on" : "off"}`;
+const DOT_COLORS = {
+  maint: { on: "#f59e0b", off: "rgba(245,158,11,0.2)" },
+  skills: { on: "#8b5cf6", off: "rgba(139,92,246,0.2)" },
+};
 
+/** Tiny inline color dot showing which job type a timestamp refers to */
+function TypeDot({ type }: { type: string }) {
+  const color = type === "maint" ? "#f59e0b" : "#8b5cf6";
   return (
     <span
-      className={`inline-block w-2 h-2 rounded-full ${colorClass}`}
-      title={title}
+      title={type === "maint" ? "Maintenance" : "Skill Review"}
+      style={{
+        display: "inline-block", width: 5, height: 5, borderRadius: "50%",
+        background: color, marginLeft: 4, verticalAlign: "middle",
+      }}
+    />
+  );
+}
+
+function DotIndicator({ enabled, flavor }: { enabled: boolean; flavor: "maint" | "skills" }) {
+  const c = DOT_COLORS[flavor];
+  return (
+    <span
+      title={`${flavor === "maint" ? "Maintenance" : "Skill Review"}: ${enabled ? "on" : "off"}`}
+      style={{
+        display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+        background: enabled ? c.on : c.off,
+      }}
     />
   );
 }
@@ -418,6 +445,19 @@ function DotIndicator({ enabled, flavor }: { enabled: boolean; flavor: "maint" |
 // ---------------------------------------------------------------------------
 // Internal: Dot toggle (manage mode — clickable state cycle)
 // ---------------------------------------------------------------------------
+
+const TOGGLE_STYLES = {
+  maint: {
+    on: { bg: "#f59e0b", border: "rgba(245,158,11,0.3)", inner: "#fcd34d" },
+    off: { bg: "transparent", border: "rgba(245,158,11,0.4)", inner: "rgba(245,158,11,0.5)" },
+    inherit: { bg: "rgba(245,158,11,0.4)", border: "rgba(245,158,11,0.3)", inner: "rgba(245,158,11,0.7)" },
+  },
+  skills: {
+    on: { bg: "#8b5cf6", border: "rgba(139,92,246,0.3)", inner: "#c4b5fd" },
+    off: { bg: "transparent", border: "rgba(139,92,246,0.4)", inner: "rgba(139,92,246,0.5)" },
+    inherit: { bg: "rgba(139,92,246,0.4)", border: "rgba(139,92,246,0.3)", inner: "rgba(139,92,246,0.7)" },
+  },
+};
 
 function DotToggle({
   state,
@@ -431,53 +471,39 @@ function DotToggle({
   onClick: () => void;
 }) {
   const label = flavor === "maint" ? "Maintenance" : "Skill Review";
-  const title = `${label}: ${state}${state === "inherit" ? " (click to change)" : ""} — click to cycle`;
-
-  // On = solid, Off = ring only, Inherit = half-opacity solid
-  // Static class names (no template literals — Tailwind JIT requires them)
-  const dotClass = (() => {
-    if (flavor === "maint") {
-      if (state === "on") return "bg-amber-500 ring-1 ring-amber-500/30";
-      if (state === "off") return "bg-transparent ring-1 ring-amber-500/40";
-      return "bg-amber-500/40 ring-1 ring-amber-500/30";
-    }
-    if (state === "on") return "bg-purple-500 ring-1 ring-purple-500/30";
-    if (state === "off") return "bg-transparent ring-1 ring-purple-500/40";
-    return "bg-purple-500/40 ring-1 ring-purple-500/30";
-  })();
+  const title = `${label}: ${state} — click to cycle`;
+  const s = TOGGLE_STYLES[flavor][state];
 
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       disabled={disabled}
       title={title}
-      className={`
-        relative w-5 h-5 rounded-full cursor-pointer
-        flex items-center justify-center
-        transition-all duration-150
-        disabled:opacity-50 disabled:cursor-not-allowed
-        hover:scale-110
-        ${dotClass}
-      `}
-      style={{ border: "none" }}
+      style={{
+        position: "relative", width: 22, height: 22, borderRadius: "50%",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        background: s.bg,
+        border: `1.5px solid ${s.border}`,
+        transition: "all 0.15s",
+        padding: 0,
+      }}
     >
-      {/* Inner dot for "on" state emphasis */}
+      {/* Inner dot for "on" */}
       {state === "on" && (
-        <span className={`block w-2 h-2 rounded-full ${
-          flavor === "maint" ? "bg-amber-300" : "bg-purple-300"
-        }`} />
+        <span style={{ display: "block", width: 8, height: 8, borderRadius: "50%", background: s.inner }} />
       )}
       {/* Dash for "off" */}
       {state === "off" && (
-        <span className={`block w-1.5 h-px ${
-          flavor === "maint" ? "bg-amber-500/50" : "bg-purple-500/50"
-        }`} />
+        <span style={{ display: "block", width: 6, height: 1.5, borderRadius: 1, background: s.inner }} />
       )}
       {/* Half-circle for "inherit" */}
       {state === "inherit" && (
-        <span className={`block w-2 h-2 rounded-full clip-half ${
-          flavor === "maint" ? "bg-amber-500/70" : "bg-purple-500/70"
-        }`} />
+        <span style={{
+          display: "block", width: 8, height: 8, borderRadius: "50%",
+          background: s.inner, clipPath: "inset(0 50% 0 0)",
+        }} />
       )}
     </button>
   );
@@ -513,14 +539,14 @@ function RunDropdown({
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} style={{ position: "relative" }}>
       <button
         onClick={(e) => {
           e.stopPropagation();
           if (anyEnabled) setOpen(!open);
         }}
         disabled={!anyEnabled || pending}
-        title={anyEnabled ? "Trigger a dreaming run" : "No jobs enabled for this bot"}
+        title={anyEnabled ? "Choose which job to run" : "No jobs enabled for this bot"}
         style={{
           display: "inline-flex",
           flexDirection: "row",
@@ -544,33 +570,41 @@ function RunDropdown({
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 z-50 rounded-md overflow-hidden shadow-lg"
           style={{
-            minWidth: 160,
+            position: "absolute", right: 0, top: "100%", marginTop: 4, zIndex: 50,
+            borderRadius: 6, overflow: "hidden",
+            minWidth: 170,
             background: t.surfaceRaised,
             border: `1px solid ${t.surfaceBorder}`,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
           }}
         >
           <button
             disabled={!maintEnabled || pending}
             onClick={() => { onTrigger("memory_hygiene"); setOpen(false); }}
-            className="w-full text-left px-3 py-2 text-xs flex items-center gap-2
-              disabled:opacity-40 disabled:cursor-not-allowed
-              hover:bg-white/5 transition-colors cursor-pointer"
-            style={{ color: t.text, background: "transparent", border: "none" }}
+            style={{
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
+              width: "100%", textAlign: "left", padding: "8px 12px", fontSize: 12,
+              color: t.text, background: "transparent", border: "none",
+              cursor: !maintEnabled || pending ? "not-allowed" : "pointer",
+              opacity: !maintEnabled || pending ? 0.4 : 1,
+            }}
           >
-            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#f59e0b" }} />
             Run Maintenance
           </button>
           <button
             disabled={!skillsEnabled || pending}
             onClick={() => { onTrigger("skill_review"); setOpen(false); }}
-            className="w-full text-left px-3 py-2 text-xs flex items-center gap-2
-              disabled:opacity-40 disabled:cursor-not-allowed
-              hover:bg-white/5 transition-colors cursor-pointer"
-            style={{ color: t.text, background: "transparent", border: "none" }}
+            style={{
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
+              width: "100%", textAlign: "left", padding: "8px 12px", fontSize: 12,
+              color: t.text, background: "transparent", border: "none",
+              cursor: !skillsEnabled || pending ? "not-allowed" : "pointer",
+              opacity: !skillsEnabled || pending ? 0.4 : 1,
+            }}
           >
-            <span className="inline-block w-2 h-2 rounded-full bg-purple-500" />
+            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#8b5cf6" }} />
             Run Skill Review
           </button>
         </div>
