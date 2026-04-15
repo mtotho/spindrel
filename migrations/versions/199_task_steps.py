@@ -10,6 +10,11 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
+revision = "199"
+down_revision = "198"
+branch_labels = None
+depends_on = None
+
 
 def upgrade() -> None:
     op.add_column("tasks", sa.Column("steps", JSONB, nullable=True))
