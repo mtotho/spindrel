@@ -2,6 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── RN compat reset ────────────────────────────────────── */
+/* Most pages still use inline styles that assume flex-column default.
+   Keep this until all pages are converted to Tailwind classes.
+   Sidebar components override via explicit Tailwind flex classes. */
+@layer base {
+  div, button, a {
+    display: flex;
+    flex-direction: column;
+  }
+  p a, span a, li a {
+    display: inline;
+  }
+}
+
+/* ── Sidebar component classes ──────────────────────────── */
+@layer components {
+  .sidebar-item {
+    @apply flex flex-row items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-colors duration-100 hover:bg-surface-overlay/60 active:bg-surface-overlay;
+  }
+  .sidebar-item-active {
+    @apply bg-accent/[0.08] relative before:content-[''] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-[3px] before:h-4 before:rounded-full before:bg-accent;
+  }
+  .sidebar-section-label {
+    @apply text-[10px] font-medium tracking-[0.08em] uppercase text-text-dim/70 py-2;
+  }
+  .sidebar-rail-btn {
+    @apply w-10 h-10 rounded-md flex flex-row items-center justify-center cursor-pointer transition-colors duration-100 hover:bg-surface-overlay/60 active:bg-surface-overlay;
+  }
+}
+
 /* ── Theme variables ──────────────────────────────────── */
 
 :root {
@@ -15,6 +45,11 @@
   --color-accent: 59 130 246;
   --color-accent-hover: 37 99 235;
   --color-accent-muted: 219 234 254;
+  --color-success: 34 197 94;
+  --color-warning: 234 179 8;
+  --color-danger: 239 68 68;
+  --color-purple: 168 85 247;
+  --color-skeleton: 0 0 0;
 }
 
 .dark {
@@ -28,6 +63,11 @@
   --color-accent: 59 130 246;
   --color-accent-hover: 37 99 235;
   --color-accent-muted: 30 58 95;
+  --color-success: 34 197 94;
+  --color-warning: 234 179 8;
+  --color-danger: 239 68 68;
+  --color-purple: 168 85 247;
+  --color-skeleton: 255 255 255;
 }
 
 /* ── Mobile-native feel ─────────────────────────────────── */
@@ -297,15 +337,15 @@ textarea::placeholder {
 
 /* ── Sidebar ──────────────────────────────────────────── */
 
-/* Sidebar nav items — hover effect */
+/* Hover/active transition for nav items and icon buttons.
+   Layout is handled via Tailwind classes on each element. */
 .sidebar-nav-item { transition: background-color 0.1s ease; }
-.sidebar-nav-item:hover { background-color: rgb(var(--color-surface-overlay)); }
-.sidebar-nav-item:active { background-color: rgb(var(--color-surface-border)); }
+.sidebar-nav-item:hover { background-color: rgb(var(--color-surface-overlay) / 0.6); }
+.sidebar-nav-item:active { background-color: rgb(var(--color-surface-overlay)); }
 
-/* Sidebar icon button (collapsed rail) */
 .sidebar-icon-btn { transition: background-color 0.1s ease; }
-.sidebar-icon-btn:hover { background-color: rgb(var(--color-surface-overlay)); }
-.sidebar-icon-btn:active { background-color: rgb(var(--color-surface-border)); }
+.sidebar-icon-btn:hover { background-color: rgb(var(--color-surface-overlay) / 0.6); }
+.sidebar-icon-btn:active { background-color: rgb(var(--color-surface-overlay)); }
 
 /* Skeleton pulse (explicit — survives Tailwind tree-shaking) */
 @keyframes pulse {

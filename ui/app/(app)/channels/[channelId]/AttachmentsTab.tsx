@@ -1,5 +1,5 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useRef } from "react";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { Trash2, Upload, Paperclip, FileText, Image, Music, Video, File } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
@@ -50,11 +50,11 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
   };
 
   return (
-    <View style={{ gap: 16 }}>
+    <div style={{ gap: 16 }}>
       {/* Stats bar */}
       {stats && (
         <div style={{
-          display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12, color: t.textDim,
+          display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 16, fontSize: 12, color: t.textDim,
           padding: "10px 14px", background: t.inputBg, borderRadius: 8,
           border: `1px solid ${t.surfaceRaised}`,
         }}>
@@ -105,9 +105,9 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
 
       {/* Attachment list */}
       {isLoading ? (
-        <View style={{ padding: 24, alignItems: "center" }}>
-          <ActivityIndicator color={t.accent} />
-        </View>
+        <div style={{ padding: 24, alignItems: "center" }}>
+          <Spinner color={t.accent} />
+        </div>
       ) : !filtered?.length ? (
         <div style={{ padding: 24, textAlign: "center", color: t.textDim, fontSize: 13 }}>
           No attachments in this channel.
@@ -122,12 +122,12 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
                 style={{
                   padding: "10px 12px", background: t.inputBg, borderRadius: 8,
                   border: `1px solid ${t.surfaceRaised}`,
-                  display: "flex", gap: 10, alignItems: "center",
+                  display: "flex", flexDirection: "row", gap: 10, alignItems: "center",
                 }}
               >
                 <Icon size={16} color={t.textMuted} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <span style={{
                       fontSize: 12, fontWeight: 600, color: t.text,
                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -141,24 +141,24 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
                       {att.type}
                     </span>
                   </div>
-                  <div style={{ display: "flex", gap: 10, fontSize: 10, color: t.textDim, marginTop: 2 }}>
+                  <div style={{ display: "flex", flexDirection: "row", gap: 10, fontSize: 10, color: t.textDim, marginTop: 2 }}>
                     <span>{formatBytes(att.size_bytes)}</span>
                     <span>{new Date(att.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
-                <Pressable
-                  onPress={() => handleDelete(att.id, att.filename)}
+                <button type="button"
+                  onClick={() => handleDelete(att.id, att.filename)}
                   disabled={deletingId === att.id}
                   style={{ padding: 10, borderRadius: 6, opacity: deletingId === att.id ? 0.4 : 0.7 }}
                   className="hover:bg-surface-overlay"
                 >
                   <Trash2 size={13} color={t.danger} />
-                </Pressable>
+                </button>
               </div>
             );
           })}
         </div>
       )}
-    </View>
+    </div>
   );
 }

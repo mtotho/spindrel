@@ -1,5 +1,5 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { View, Text, Pressable, ActivityIndicator, Platform } from "react-native";
 import { ArrowLeft, Save, RotateCw, Columns2, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -136,7 +136,6 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
 
   // Keyboard shortcut: Ctrl/Cmd+S to save
   useEffect(() => {
-    if (Platform.OS !== "web") return;
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
@@ -156,37 +155,36 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
   const pathSegments = filePath.split("/");
 
   return (
-    <View style={{ flex: 1, backgroundColor: t.surface }}>
+    <div style={{ flex: 1, backgroundColor: t.surface }}>
       {/* Header */}
-      <View
+      <div
         style={{
           flexDirection: "row",
           alignItems: "center",
           gap: 8,
-          paddingHorizontal: 12,
-          paddingVertical: 8,
-          borderBottomWidth: 1,
-          borderBottomColor: t.surfaceBorder,
+          paddingLeft: 12, paddingRight: 12,
+          paddingTop: 8, paddingBottom: 8,
+          borderBottom: `1px solid ${t.surfaceBorder}`,
           minHeight: 42,
         }}
       >
-        <Pressable
-          onPress={handleBack}
+        <button type="button"
+          onClick={handleBack}
           style={{ padding: 6, borderRadius: 4 }}
           className="hover:bg-surface-overlay active:bg-surface-overlay"
-          {...(Platform.OS === "web" ? { title: "Back (Esc)" } as any : {})}
+          {...{ title: "Back (Esc)" }}
         >
           <ArrowLeft size={16} color={t.textMuted} />
-        </Pressable>
+        </button>
 
         {/* Breadcrumb path */}
-        <View style={{ flex: 1, minWidth: 0 }}>
-          {Platform.OS === "web" ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0, overflow: "hidden" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {true ? (
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 2, minWidth: 0, overflow: "hidden" }}>
               {pathSegments.map((seg, i) => {
                 const isLast = i === pathSegments.length - 1;
                 return (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: isLast ? 1 : 0, minWidth: 0 }}>
+                  <div key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 2, flexShrink: isLast ? 1 : 0, minWidth: 0 }}>
                     {i > 0 && <ChevronRight size={10} color={t.textDim} style={{ flexShrink: 0 }} />}
                     <span
                       style={{
@@ -208,82 +206,81 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
             </div>
           ) : (
             <>
-              <Text
+              <span
                 style={{ color: t.text, fontSize: 13, fontWeight: "600", fontFamily: "monospace" }}
-                numberOfLines={1}
               >
                 {fileName}
-                {isDirty && <Text style={{ color: t.accent }}> *</Text>}
-              </Text>
-              <Text style={{ color: t.textDim, fontSize: 10 }} numberOfLines={1}>
+                {isDirty && <span style={{ color: t.accent }}> *</span>}
+              </span>
+              <span style={{ color: t.textDim, fontSize: 10 }}>
                 {filePath}
-              </Text>
+              </span>
             </>
           )}
-        </View>
+        </div>
 
         {savedAt && !isDirty && (
-          <Text style={{ color: t.success, fontSize: 10 }}>Saved {savedAt}</Text>
+          <span style={{ color: t.success, fontSize: 10 }}>Saved {savedAt}</span>
         )}
 
-        <Pressable
-          onPress={() => refetch()}
+        <button type="button"
+          onClick={() => refetch()}
           style={{ padding: 6, borderRadius: 4 }}
           className="hover:bg-surface-overlay active:bg-surface-overlay"
-          {...(Platform.OS === "web" ? { title: "Refresh file" } as any : {})}
+          {...{ title: "Refresh file" }}
         >
           <RotateCw size={13} color={t.textDim} />
-        </Pressable>
+        </button>
 
         {onToggleSplit && (
-          <Pressable
-            onPress={onToggleSplit}
+          <button type="button"
+            onClick={onToggleSplit}
             style={{
               padding: 6,
               borderRadius: 4,
               backgroundColor: splitMode ? t.surfaceOverlay : "transparent",
             }}
             className="hover:bg-surface-overlay active:bg-surface-overlay"
-            {...(Platform.OS === "web" ? { title: splitMode ? "Exit split view" : "Split view" } as any : {})}
+            {...{ title: splitMode ? "Exit split view" : "Split view" }}
           >
             <Columns2 size={13} color={splitMode ? t.accent : t.textDim} />
-          </Pressable>
+          </button>
         )}
 
         {!isImage && (
-          <Pressable
-            onPress={handleSave}
+          <button type="button"
+            onClick={handleSave}
             disabled={!isDirty || writeMutation.isPending}
             style={{
               flexDirection: "row",
               alignItems: "center",
               gap: 5,
-              paddingHorizontal: 10,
-              paddingVertical: 5,
+              paddingLeft: 10, paddingRight: 10,
+              paddingTop: 5, paddingBottom: 5,
               borderRadius: 5,
               backgroundColor: isDirty ? t.accent : t.surfaceOverlay,
               opacity: isDirty ? 1 : 0.4,
             }}
-            {...(Platform.OS === "web" ? { title: "Save (Ctrl+S)" } as any : {})}
+            {...{ title: "Save (Ctrl+S)" }}
           >
             <Save size={12} color={isDirty ? "#fff" : t.textDim} />
-            <Text style={{ color: isDirty ? "#fff" : t.textDim, fontSize: 11, fontWeight: "600" }}>
+            <span style={{ color: isDirty ? "#fff" : t.textDim, fontSize: 11, fontWeight: "600" }}>
               {writeMutation.isPending ? "Saving..." : "Save"}
-            </Text>
-          </Pressable>
+            </span>
+          </button>
         )}
-      </View>
+      </div>
 
       {/* Editor / Preview area */}
       {isImage ? (
         imageLoading ? (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <ActivityIndicator color={t.accent} />
-          </View>
+          <div style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <Spinner color={t.accent} />
+          </div>
         ) : imageBlobUrl ? (
           <div style={{
             flex: 1,
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             justifyContent: "center",
             overflow: "auto",
@@ -297,15 +294,15 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
             />
           </div>
         ) : (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ color: t.textDim, fontSize: 12 }}>Failed to load image</Text>
-          </View>
+          <div style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <span style={{ color: t.textDim, fontSize: 12 }}>Failed to load image</span>
+          </div>
         )
       ) : isLoading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator color={t.accent} />
-        </View>
-      ) : Platform.OS === "web" ? (
+        <div style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <Spinner color={t.accent} />
+        </div>
+      ) : true ? (
         <CodeEditor
           content={displayContent}
           onChange={setEditContent}
@@ -313,21 +310,21 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
           t={t}
         />
       ) : (
-        <View style={{ flex: 1, padding: 16 }}>
-          <Text style={{ color: t.textDim, fontSize: 12 }}>
+        <div style={{ flex: 1, padding: 16 }}>
+          <span style={{ color: t.textDim, fontSize: 12 }}>
             Editing not supported on this platform
-          </Text>
-        </View>
+          </span>
+        </div>
       )}
 
       {/* Status bar */}
       {writeMutation.isError && (
-        <View style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(239,68,68,0.1)" }}>
-          <Text style={{ color: t.danger, fontSize: 11 }}>
+        <div style={{ paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6, backgroundColor: "rgba(239,68,68,0.1)" }}>
+          <span style={{ color: t.danger, fontSize: 11 }}>
             Save failed: {(writeMutation.error as Error)?.message || "Unknown error"}
-          </Text>
-        </View>
+          </span>
+        </div>
       )}
-    </View>
+    </div>
   );
 }

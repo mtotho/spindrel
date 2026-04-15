@@ -1,9 +1,11 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useCallback } from "react";
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+
+import { useParams } from "react-router-dom";
 import { Trash2, Info } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useSkill, useCreateSkill, useUpdateSkill, useDeleteSkill } from "@/src/api/hooks/useSkills";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { FormRow, TextInput, Section } from "@/src/components/shared/FormControls";
@@ -19,7 +21,7 @@ function fmtDate(iso: string | null | undefined) {
 function InfoRow({ label, value }: { label: string; value: string }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
       <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
       <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{value}</span>
     </div>
@@ -28,8 +30,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 export default function SkillDetailScreen() {
   const t = useThemeTokens();
-  const params = useLocalSearchParams<{ skillId: string | string[] }>();
-  const skillId = Array.isArray(params.skillId) ? params.skillId.join("/") : params.skillId;
+  const { "*": skillId } = useParams();
   const isNew = skillId === "new";
   const goBack = useGoBack("/admin/skills");
   const { data: skill, isLoading } = useSkill(isNew ? undefined : skillId);
@@ -38,7 +39,7 @@ export default function SkillDetailScreen() {
   const deleteMut = useDeleteSkill();
   const { confirm, ConfirmDialogSlot } = useConfirm();
 
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   const [id, setId] = useState("");
@@ -85,17 +86,17 @@ export default function SkillDetailScreen() {
 
   if (!isNew && isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <DetailHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="detail"
         parentLabel="Skills"
-        parentHref="/admin/skills"
+        backTo="/admin/skills"
         title={isNew ? "New Skill" : "Edit Skill"}
         subtitle={!isNew ? skillId : undefined}
         right={
@@ -106,7 +107,7 @@ export default function SkillDetailScreen() {
                 disabled={deleteMut.isPending}
                 title="Delete"
                 style={{
-                  display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
                   padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
                   border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
                   background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
@@ -146,7 +147,7 @@ export default function SkillDetailScreen() {
           margin: isWide ? "16px 20px 0" : "12px 12px 0",
           padding: "12px 16px", borderRadius: 8,
           background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
-          display: "flex", alignItems: "flex-start", gap: 10,
+          display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 10,
         }}>
           <Info size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ fontSize: 12, color: t.accent, lineHeight: 1.5 }}>
@@ -158,9 +159,7 @@ export default function SkillDetailScreen() {
       )}
 
       {/* Body */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
-        ...(isWide ? { flexDirection: "row", flex: 1 } : {}),
-      }}>
+      <div style={{ flex: 1, ...(isWide ? { flexDirection: "row" as const } : {}) }}>
         {/* Content editor */}
         <div style={{
           ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),
@@ -249,7 +248,7 @@ export default function SkillDetailScreen() {
                 </Section>
                 {skill.triggers && skill.triggers.length > 0 && (
                   <Section title="Triggers">
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                       {skill.triggers.map((trigger) => (
                         <span key={trigger} style={{
                           padding: "2px 8px", borderRadius: 4, fontSize: 11,
@@ -265,8 +264,8 @@ export default function SkillDetailScreen() {
             )}
           </div>
         </div>
-      </ScrollView>
+      </div>
       <ConfirmDialogSlot />
-    </View>
+    </div>
   );
 }

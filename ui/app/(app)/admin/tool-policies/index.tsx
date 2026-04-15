@@ -1,7 +1,9 @@
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { Plus, Shield, ShieldAlert, ShieldCheck, ShieldX, AlertTriangle } from "lucide-react";
 import {
   useToolPolicies,
@@ -9,7 +11,7 @@ import {
   useUpdatePolicySettings,
   type ToolPolicyRule,
 } from "@/src/api/hooks/useToolPolicies";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Toggle } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
 
@@ -52,10 +54,10 @@ function ActionBadge({ action }: { action: string }) {
 
 function PolicyCard({
   rule,
-  onPress,
+  onClick,
 }: {
   rule: ToolPolicyRule;
-  onPress: () => void;
+  onClick: () => void;
 }) {
   const t = useThemeTokens();
   const Icon =
@@ -79,7 +81,7 @@ function PolicyCard({
 
   return (
     <button
-      onClick={onPress}
+      onClick={onClick}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -94,7 +96,7 @@ function PolicyCard({
         opacity: rule.enabled ? 1 : 0.5,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Icon size={16} color={iconColor} />
         <span
           style={{
@@ -110,7 +112,7 @@ function PolicyCard({
         <ActionBadge action={rule.action} />
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
         <span style={{ fontSize: 11, color: t.textDim }}>
           Priority: {rule.priority}
         </span>
@@ -217,7 +219,7 @@ function SettingsPanel() {
         marginBottom: 16,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
         <Shield size={18} color={iconColor} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
@@ -229,14 +231,14 @@ function SettingsPanel() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
         <Toggle
           value={policySettings.enabled}
           onChange={(v) => updateMut.mutate({ enabled: v })}
           label="Enabled"
         />
         {policySettings.enabled && (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
             <span style={{ fontSize: 12, color: t.textMuted }}>Default action:</span>
             {actions.map((a) => {
               const isActive = action === a.key;
@@ -269,11 +271,11 @@ function SettingsPanel() {
 
 export default function ToolPoliciesScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: rules, isLoading } = useToolPolicies();
   const { data: policySettings } = usePolicySettings();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   const defaultAction = policySettings?.default_action;
@@ -283,16 +285,16 @@ export default function ToolPoliciesScreen() {
   const approvalRules = rules?.filter((r) => r.action === "require_approval" && r.enabled) || [];
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Tool Policies"
         right={
           <button
             onClick={() =>
-              router.push("/admin/tool-policies/new" as any)
+              navigate("/admin/tool-policies/new")
             }
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 6,
               padding: "6px 14px",
@@ -357,7 +359,7 @@ export default function ToolPoliciesScreen() {
 
           {/* Summary badges */}
           {rules && rules.length > 0 && (
-            <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", flexDirection: "row", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, color: t.success }}>
                 {allowRules.length} allow
               </span>
@@ -374,9 +376,9 @@ export default function ToolPoliciesScreen() {
           )}
 
           {isLoading ? (
-            <View className="items-center justify-center py-20">
-              <ActivityIndicator color={t.accent} />
-            </View>
+            <div className="items-center justify-center py-20">
+              <Spinner />
+            </div>
           ) : (
             <div
               style={{
@@ -391,8 +393,8 @@ export default function ToolPoliciesScreen() {
                 <PolicyCard
                   key={r.id}
                   rule={r}
-                  onPress={() =>
-                    router.push(`/admin/tool-policies/${r.id}` as any)
+                  onClick={() =>
+                    navigate(`/admin/tool-policies/${r.id}`)
                   }
                 />
               ))}
@@ -417,6 +419,6 @@ export default function ToolPoliciesScreen() {
           )}
         </div>
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

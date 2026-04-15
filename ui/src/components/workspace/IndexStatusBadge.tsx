@@ -33,7 +33,7 @@ export function IndexStatusBadge({ entry }: IndexStatusBadgeProps) {
       <button
         onClick={() => setOpen(!open)}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 4,
           background: "rgba(20,184,166,0.12)",
@@ -105,7 +105,7 @@ export function IndexStatusBadge({ entry }: IndexStatusBadgeProps) {
 
 function DetailRow({ label, value, t }: { label: string; value: string; t: ReturnType<typeof useThemeTokens> }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+    <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
       <span style={{ color: t.textDim, fontSize: 11 }}>{label}</span>
       <span style={{ fontSize: 11, color: t.text }}>{value}</span>
     </div>

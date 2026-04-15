@@ -1,5 +1,7 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useMemo } from "react";
-import { View, Text, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
+
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useWorkflow,
@@ -13,7 +15,7 @@ import {
 import {
   X, RefreshCw, ArrowLeft, MessageSquare,
 } from "lucide-react";
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 
 import {
@@ -34,7 +36,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
   embedded?: boolean;
 }) {
   const t = useThemeTokens();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isMobile = embedded ? false : width < 768;
 
   const { data: run, isLoading } = useWorkflowRun(runId);
@@ -55,9 +57,9 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
 
   if (isLoading || !run) {
     return (
-      <View style={{ alignItems: "center", padding: 24 }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div style={{ alignItems: "center", padding: 24 }}>
+        <Spinner />
+      </div>
     );
   }
 
@@ -87,21 +89,21 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
         paddingBottom: 12, flexShrink: 0,
       }}>
         {!embedded ? (
-          <Pressable
-            onPress={onBack}
+          <button type="button"
+            onClick={onBack}
             style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
           >
             <ArrowLeft size={16} color={t.textMuted} />
-            <Text style={{ color: t.textMuted, fontSize: 13 }}>All runs</Text>
-          </Pressable>
+            <span style={{ color: t.textMuted, fontSize: 13 }}>All runs</span>
+          </button>
         ) : (
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: "monospace" }}>
               {run.id.slice(0, 8)}
             </span>
           </div>
         )}
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
           <StatusBadge status={run.status} t={t} />
           {(runDuration || runElapsed) && (
             <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
@@ -113,7 +115,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
               onClick={handleRunAgain}
               disabled={triggerMut.isPending}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 padding: "4px 10px", fontSize: 11, fontWeight: 600,
                 border: `1px solid ${t.accentBorder}`, borderRadius: 5,
                 background: t.accentSubtle, color: t.accent, cursor: "pointer",
@@ -121,7 +123,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
               }}
             >
               {triggerMut.isPending
-                ? <ActivityIndicator color={t.accent} style={{ width: 12, height: 12 }} />
+                ? <Spinner />
                 : <RefreshCw size={12} />
               }
               {triggerMut.isPending ? "Starting..." : "Run Again"}
@@ -133,7 +135,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
                 onClick={() => setShowCancelConfirm(true)}
                 disabled={cancelMut.isPending}
                 style={{
-                  display: "flex", alignItems: "center", gap: 4,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                   padding: "4px 10px", fontSize: 11, fontWeight: 600,
                   border: `1px solid ${t.dangerBorder}`, borderRadius: 5,
                   background: t.dangerSubtle, color: t.danger, cursor: "pointer",
@@ -175,7 +177,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
         {run.channel_id && (
           <div>
             <div style={{ fontSize: 10, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Channel</div>
-            <Link href={`/channels/${run.channel_id}` as any}>
+            <Link to={`/channels/${run.channel_id}` as any}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, color: t.accent, marginTop: 1 }}>
                 <MessageSquare size={11} />
                 {run.channel_id.slice(0, 8)}
@@ -191,7 +193,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
           padding: 10, borderRadius: 8, flexShrink: 0, marginBottom: 12,
           background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
           color: t.danger, fontSize: 12,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         }}>
           <span>Run Again failed: {runAgainError}</span>
           <button
@@ -223,7 +225,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
           <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
             Parameters
           </div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
             {Object.entries(run.params).map(([k, v]) => (
               <span key={k} style={{ fontSize: 12, color: t.text }}>
                 <span style={{ color: t.textDim }}>{k}:</span>{" "}
@@ -258,12 +260,12 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
                 state.status === "skipped" ? t.textDim :
                 t.inputBorder;
               return (
-                <Pressable
+                <button type="button"
                   key={i}
-                  onPress={() => setActiveStepIndex(i)}
+                  onClick={() => setActiveStepIndex(i)}
                   style={{
                     flexDirection: "row", alignItems: "center", gap: 8,
-                    paddingVertical: 8, paddingHorizontal: 12,
+                    paddingBlock: 8, paddingInline: 12,
                     borderLeftWidth: 2,
                     borderLeftColor: isActive ? t.accent : "transparent",
                     backgroundColor: isActive ? t.accentSubtle : "transparent",
@@ -275,15 +277,15 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
                     width: 8, height: 8, borderRadius: 4, flexShrink: 0,
                     background: dotColor,
                   }} />
-                  <Text style={{
+                  <span style={{
                     fontSize: 12, color: isActive ? t.text : t.textDim,
                     fontWeight: isActive ? "600" : "400",
                     flex: 1,
-                  }} numberOfLines={1}>
+                  }}>
                     {stepId}
-                  </Text>
+                  </span>
                   <StatusBadge status={state.status} t={t} />
-                </Pressable>
+                </button>
               );
             })}
           </div>
@@ -321,7 +323,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
                 stepId={steps[i]?.id || `step_${i}`}
                 state={state}
                 isActive={activeStepIndex === i}
-                onPress={() => setActiveStepIndex(i)}
+                onClick={() => setActiveStepIndex(i)}
                 t={t}
               />
             ))}

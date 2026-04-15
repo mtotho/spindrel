@@ -75,7 +75,7 @@ export function AttachmentImages({ attachments, t }: { attachments: AttachmentBr
             target="_blank"
             rel="noopener noreferrer"
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 8,
               fontSize: 13,

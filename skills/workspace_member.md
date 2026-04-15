@@ -1,7 +1,7 @@
 ---
 name: Workspace Member
-description: Operating inside your container environment — filesystem layout, permissions, write protection, cross-bot coordination
-triggers: workspace, container, /workspace/bots, write protection, shared filesystem
+description: Operating inside your container environment — filesystem layout, permissions, write protection, API access
+triggers: workspace, container, /workspace/bots, write protection, shared filesystem, call_api, list_api_endpoints
 category: workspace
 ---
 
@@ -9,23 +9,11 @@ category: workspace
 
 ## Core Principle
 
-Every bot has a container environment: a shared Docker workspace with your own working directory under `/workspace/bots/{your_bot_id}/`. Your memory, prompts, and work output live there. Other bots' directories are usually readable but not writable. Shared resources (specs, datasets, base prompts) live under `/workspace/common/`. This skill is the reference for navigating that environment effectively.
-
-You may sometimes be coordinating with an orchestrator that puts specs in `/workspace/common/` and reads your output from your directory — but most of the time you're just a bot doing work, and the container is the place where it happens.
+Every bot has a container environment: a shared Docker workspace with your own working directory under `/workspace/bots/{your_bot_id}/`. Your memory, prompts, and work output live there. Other bots' directories are usually readable but not writable. Shared resources (specs, datasets, base prompts) live under `/workspace/common/`.
 
 ---
 
-## Your Environment
-
-- **Container**: Shared Docker workspace — all bots share the same container, isolated by working directory
-- **Your cwd**: `/workspace/bots/{your_bot_id}/` (your default working directory)
-- **Shared files**: `/workspace/common/` (orchestrator places specs, datasets, configs here)
-- **Other bots**: `/workspace/bots/{other_bot_id}/` (readable, usually not writable)
-- **Container tools**: Python 3.12, Node.js 22, git, curl, jq, ripgrep, fd, tree, sqlite3
-- **Python packages**: httpx, requests, pyyaml, toml, jinja2, beautifulsoup4, lxml, pandas, markdown, python-dotenv
-- **Server interaction**: use the `call_api` / `list_api_endpoints` tools — they run in-process with your scoped key, no shell hop required.
-
-### Filesystem Layout
+## Filesystem Layout
 
 ```
 /workspace/
@@ -62,7 +50,7 @@ The workspace may have protected paths (e.g., `/workspace/common/`). If you try 
 
 ---
 
-## Discovering Your Permissions
+## API Access
 
 Your scoped API key determines what server endpoints you can call. To see what's available, use the in-process tools:
 
@@ -74,50 +62,22 @@ These tools share the same scoped key as the rest of your tooling, so you don't 
 
 ---
 
-## Channels
+## Container Tools
 
-A **channel** is a persistent conversation container. You are always operating within one. Each channel has:
+Pre-installed in the workspace container:
+- **Runtime**: Python 3.12, Node.js 22
+- **CLI**: git, curl, jq, ripgrep, fd, tree, sqlite3
+- **Python packages**: httpx, requests, pyyaml, toml, jinja2, beautifulsoup4, lxml, pandas, markdown, python-dotenv
 
-- Its own **session** (conversation history) and **channel workspace** (persistent files in `channels/{channel_id}/workspace/`)
-- Per-channel **settings** (model overrides, tool overrides, compaction config, heartbeats)
-- Optional **indexed directories** — folders in the channel workspace indexed for RAG code search
-
-Other channels exist for your bot and for other bots. You can interact with them via the API tools:
-
-```python
-call_api("GET", "/api/v1/channels")                              # List channels
-call_api("GET", "/api/v1/channels/{id}/config")                  # Get channel settings
-call_api("POST", "/api/v1/channels/{id}/messages",
-         body='{"content":"message","run_agent":true}')          # Inject + trigger processing
-```
-
-Use `list_channels` and `search_channel_workspace` to discover and search across channel workspaces. If the user references another project or channel, these tools help you find relevant content without needing to know the channel ID upfront.
+For file operations, prefer the `file` tool over shell commands — see the **workspace_files** skill. For channel workspace management, see the **channel_workspaces** skill.
 
 ---
 
-## Workspace Search
+## Cross-Bot Coordination
 
-If workspace indexing is enabled, use `search_workspace` to find relevant content across indexed workspace files:
-
-```
-search_workspace(query="authentication flow", top_k=5)
-```
-
-Returns chunks with file paths, symbols, and line numbers. Use `exec_command` with `cat <filepath>` to read full files from results.
-
----
-
-## Memory System
-
-Your memory lives on disk at `/workspace/bots/{your_bot_id}/memory/`:
-
-- **`MEMORY.md`** — Persistent cross-session memory. Updated during compaction. Contains key learnings, decisions, and context that should persist.
-- **`daily/`** — Daily activity logs with timestamped entries.
-- **`references/`** — Long-lived reference documents for stable knowledge.
-
-Memory files are indexed and searched automatically each turn. You don't need to manually read them — the system injects relevant memory into your context.
-
-For file editing safety patterns and the `file` tool reference, see the **workspace_files** skill (auto-enrolled in your starter pack).
+- Other bots' directories under `/workspace/bots/` are readable, giving you visibility into their output
+- `/workspace/common/` is the drop zone for shared resources — check it before starting work
+- Use `call_api` rather than shelling out for server interactions — your scoped key is already wired in
 
 ---
 
@@ -128,7 +88,7 @@ For file editing safety patterns and the `file` tool reference, see the **worksp
 | Writing to `/workspace/common/` | Usually write-protected for members | Write to your own dir; let orchestrator know the path |
 | Writing to another bot's directory | May be protected; disrupts their workspace | Write to your own dir |
 | Not checking `list_api_endpoints` first | You may lack scopes, causing silent 403s | Call `list_api_endpoints()` once before issuing requests in a new context |
-| Working outside your bot directory | Other bots may overwrite your files | Default to `/workspace/bots/{your_bot_id}/` |
+| Shelling out for file ops | Quoting hazards with special characters | Use the `file` tool instead |
 | Not reading `/workspace/common/` | Orchestrator placed context there for you | Always check shared resources before starting work |
 
 ---
@@ -144,12 +104,5 @@ Before starting work:
 During work:
 
 - [ ] Write output where the orchestrator expects it (your dir, or as instructed)
-- [ ] Use `search_workspace` for finding relevant workspace content
-- [ ] Reach the server via `call_api` rather than shelling out — your scoped key is already wired in
+- [ ] Reach the server via `call_api` rather than shelling out
 - [ ] For long-running work, prefer `schedule_task` and poll with `get_task_result` (5s+ intervals)
-
-After completion:
-
-- [ ] Results written to expected location
-- [ ] Report completion if a channel injection was requested
-- [ ] `integration_id` consistent across document ingestions for later filtering

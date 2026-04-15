@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
-import { ActivityIndicator, Text, Pressable } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import { EmptyState, SelectInput, FormRow } from "@/src/components/shared/FormControls";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/src/api/client";
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import {
   Loader2, CheckCircle2, XCircle, ShieldCheck, Clock, X, Minus,
   CircleDot, ChevronDown, ChevronRight, ExternalLink, Play, Link2, CalendarClock, Heart,
@@ -72,12 +72,12 @@ function fmtTime(iso: string): string {
 function ConnectionsSection({ channelId, t }: { channelId: string; t: ThemeTokens }) {
   const { data: connections, isLoading } = useChannelWorkflowConnections(channelId);
 
-  if (isLoading) return <ActivityIndicator color={t.accent} style={{ marginBottom: 12 }} />;
+  if (isLoading) return <Spinner color={t.accent} />;
 
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{
-        display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8,
       }}>
         <Link2 size={13} color={t.textMuted} />
         <span style={{ fontSize: 12, fontWeight: 700, color: t.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
@@ -103,18 +103,18 @@ function ConnectionCard({ connection: c, t }: { connection: WorkflowConnection; 
   const isHeartbeat = c.type === "heartbeat";
   const Icon = isHeartbeat ? Heart : CalendarClock;
   const label = isHeartbeat ? "Heartbeat" : (c.title || "Scheduled Task");
-  const href = isHeartbeat ? undefined : (`/admin/tasks/${c.task_id}` as any);
+  const href = isHeartbeat ? undefined : `/admin/tasks/${c.task_id}`;
   const enabled = isHeartbeat ? c.enabled : c.status === "active";
 
   return (
     <div style={{
       padding: 10, borderRadius: 8,
       background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
-      display: "flex", alignItems: "center", gap: 10,
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
     }}>
       <Icon size={14} color={enabled ? t.accent : t.textDim} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>{label}</span>
           <span style={{
             fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 4,
@@ -124,7 +124,7 @@ function ConnectionCard({ connection: c, t }: { connection: WorkflowConnection; 
             {enabled ? "active" : "disabled"}
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
           <span style={{ fontSize: 11, color: t.textDim }}>
             {c.workflow_id}
           </span>
@@ -137,7 +137,7 @@ function ConnectionCard({ connection: c, t }: { connection: WorkflowConnection; 
         </div>
       </div>
       {href && (
-        <Link href={href}>
+        <Link to={href} style={{ textDecoration: "none" }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
             <ExternalLink size={10} />
             Edit
@@ -172,14 +172,14 @@ function QuickTriggerSection({ channelId, t }: { channelId: string; t: ThemeToke
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{
-        display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8,
       }}>
         <Play size={13} color={t.textMuted} />
         <span style={{ fontSize: 12, fontWeight: 700, color: t.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
           Quick Trigger
         </span>
       </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
         <div style={{ flex: 1, maxWidth: 320 }}>
           <SelectInput value={selectedId} onChange={setSelectedId} options={options} />
         </div>
@@ -244,7 +244,7 @@ export function WorkflowsTab({ channelId }: { channelId: string }) {
 
       {/* Recent Runs */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8,
       }}>
         <Clock size={13} color={t.textMuted} />
         <span style={{ fontSize: 12, fontWeight: 700, color: t.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
@@ -254,7 +254,7 @@ export function WorkflowsTab({ channelId }: { channelId: string }) {
 
       {/* Filter pills */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 4, marginBottom: 12,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 12,
       }}>
         {(["active", "all"] as const).map((key) => {
           const active = filter === key;
@@ -277,7 +277,7 @@ export function WorkflowsTab({ channelId }: { channelId: string }) {
       </div>
 
       {isLoading ? (
-        <ActivityIndicator color={t.accent} />
+        <Spinner color={t.accent} />
       ) : !runs || runs.length === 0 ? (
         <EmptyState message={filter === "active" ? "No active workflow runs." : "No workflow runs for this channel."} />
       ) : (
@@ -310,17 +310,18 @@ function RunCard({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
       border: `1px solid ${t.surfaceBorder}`,
     }}>
       {/* Clickable header */}
-      <Pressable
-        onPress={() => setExpanded(!expanded)}
-        style={{ padding: 12 }}
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        style={{ padding: 12, background: "none", border: "none", cursor: "pointer", width: "100%", textAlign: "left" }}
       >
         {/* Top row: workflow id + status + step count */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {expanded
               ? <ChevronDown size={14} color={t.textDim} />
               : <ChevronRight size={14} color={t.textDim} />}
-            <Text style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{run.workflow_id}</Text>
+            <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{run.workflow_id}</span>
             <StatusBadge status={run.status} t={t} />
           </div>
           <span style={{ fontSize: 11, color: t.textDim }}>
@@ -329,7 +330,7 @@ function RunCard({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
         </div>
 
         {/* Meta row */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, marginLeft: 22, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6, marginLeft: 22, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
             {run.id.slice(0, 8)}
           </span>
@@ -343,7 +344,7 @@ function RunCard({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
         </div>
 
         {/* Mini step bar */}
-        <div style={{ display: "flex", gap: 2, marginTop: 8, height: 4, borderRadius: 2, overflow: "hidden" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 2, marginTop: 8, height: 4, borderRadius: 2, overflow: "hidden" }}>
           {run.step_states.map((s, i) => {
             const color =
               s.status === "done" ? t.success :
@@ -354,7 +355,7 @@ function RunCard({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
             return <div key={i} style={{ flex: 1, background: color, borderRadius: 1 }} />;
           })}
         </div>
-      </Pressable>
+      </button>
 
       {/* Expanded: step timeline */}
       {expanded && (
@@ -377,14 +378,14 @@ function RunCard({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
           ))}
 
           {/* Links row */}
-          <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
-            <Link href={`/admin/workflows/${run.workflow_id}` as any}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 12, marginTop: 4 }}>
+            <Link to={`/admin/workflows/${run.workflow_id}`} style={{ textDecoration: "none" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
                 <ExternalLink size={10} />
                 Workflow
               </span>
             </Link>
-            <Link href={`/admin/workflows/${run.workflow_id}#runs` as any}>
+            <Link to={`/admin/workflows/${run.workflow_id}#runs`} style={{ textDecoration: "none" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
                 <ExternalLink size={10} />
                 Full run details
@@ -406,16 +407,17 @@ function StepRow({ index, state, t }: { index: number; state: WorkflowStepState;
 
   return (
     <div style={{ borderRadius: 6, border: `1px solid ${s.border}`, overflow: "hidden" }}>
-      <Pressable
-        onPress={() => setShowDetail(!showDetail)}
+      <button
+        type="button"
+        onClick={() => setShowDetail(!showDetail)}
         style={{
-          flexDirection: "row", alignItems: "center", gap: 8,
-          paddingVertical: 6, paddingHorizontal: 10,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
+          padding: "6px 10px", background: "none", border: "none", cursor: "pointer", width: "100%", textAlign: "left",
         }}
       >
         <div style={{
           width: 20, height: 20, borderRadius: 10, flexShrink: 0,
-          display: "flex", alignItems: "center", justifyContent: "center",
+          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
           background: s.bg,
         }}>
           <Icon size={11} color={s.text} />
@@ -425,12 +427,12 @@ function StepRow({ index, state, t }: { index: number; state: WorkflowStepState;
         </span>
         <StatusBadge status={state.status} t={t} />
         {showDetail ? <ChevronDown size={12} color={t.textDim} /> : <ChevronRight size={12} color={t.textDim} />}
-      </Pressable>
+      </button>
 
       {showDetail && (
         <div style={{ padding: "0 10px 8px 10px", borderTop: `1px solid ${t.surfaceBorder}` }}>
           {/* Timing + links */}
-          <div style={{ display: "flex", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
             {state.started_at && (
               <span style={{ fontSize: 11, color: t.textDim }}>
                 Started: {fmtTime(state.started_at)}
@@ -447,7 +449,7 @@ function StepRow({ index, state, t }: { index: number; state: WorkflowStepState;
               </span>
             )}
             {state.task_id && (
-              <Link href={`/admin/tasks/${state.task_id}` as any}>
+              <Link to={`/admin/tasks/${state.task_id}`} style={{ textDecoration: "none" }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
                   <ExternalLink size={10} />
                   Task
@@ -455,7 +457,7 @@ function StepRow({ index, state, t }: { index: number; state: WorkflowStepState;
               </Link>
             )}
             {state.correlation_id && (
-              <Link href={`/admin/logs/${state.correlation_id}` as any}>
+              <Link to={`/admin/logs/${state.correlation_id}`} style={{ textDecoration: "none" }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
                   <ExternalLink size={10} />
                   Trace

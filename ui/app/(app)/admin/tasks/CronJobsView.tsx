@@ -11,7 +11,7 @@ export function CronJobsView() {
 
   if (isLoading) {
     return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40 }}>
         <div className="chat-spinner" />
       </div>
     );
@@ -41,7 +41,7 @@ export function CronJobsView() {
         <button
           onClick={() => qc.invalidateQueries({ queryKey: ["admin-cron-jobs"] })}
           style={{
-            display: "flex", alignItems: "center", gap: 4,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
             padding: "4px 10px", fontSize: 11, fontWeight: 600,
             border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
             background: "transparent", color: t.textMuted, cursor: "pointer",
@@ -58,7 +58,7 @@ export function CronJobsView() {
         <div style={{
           padding: "8px 12px", borderRadius: 6,
           background: "rgba(234,179,8,0.1)", border: "1px solid rgba(234,179,8,0.3)",
-          display: "flex", alignItems: "flex-start", gap: 8,
+          display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 8,
         }}>
           <AlertTriangle size={14} color="#ca8a04" style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ fontSize: 11, color: "#ca8a04" }}>
@@ -120,7 +120,7 @@ function SourceGroup({
       {/* Group header */}
       <div style={{
         padding: "8px 12px", background: t.surfaceRaised,
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
         borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
         {icon}

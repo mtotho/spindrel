@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { Shield } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 
@@ -62,7 +62,7 @@ export function ErrorBanner({ error, onDismiss, onRetry }: { error: string; onDi
 }
 
 export function SecretWarningBanner({ patterns, onDismiss }: { patterns: { type: string }[]; onDismiss: () => void }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const t = useThemeTokens();
 
   useEffect(() => {
@@ -86,7 +86,7 @@ export function SecretWarningBanner({ patterns, onDismiss }: { patterns: { type:
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#facc15", display: "flex", alignItems: "center", gap: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#facc15", display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
           <Shield size={12} />
           <span>Secret detected: {types}</span>
         </div>
@@ -94,7 +94,7 @@ export function SecretWarningBanner({ patterns, onDismiss }: { patterns: { type:
           Consider using{" "}
           <a
             href="/admin/secret-values"
-            onClick={(e) => { e.preventDefault(); router.push("/admin/secret-values" as any); }}
+            onClick={(e) => { e.preventDefault(); navigate("/admin/secret-values"); }}
             style={{ color: "inherit", textDecoration: "underline", cursor: "pointer" }}
           >
             Secrets Manager

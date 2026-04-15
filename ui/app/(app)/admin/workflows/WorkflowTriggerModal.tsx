@@ -3,7 +3,7 @@
  * Extracted from WorkflowRunsTab — same form logic (params, bot/channel/session dropdowns).
  */
 import { useState, useEffect } from "react";
-import { Text, Pressable, ActivityIndicator } from "react-native";
+
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useWorkflow,
@@ -114,13 +114,13 @@ export default function WorkflowTriggerModal({ workflowId, onTriggered, onClose 
       }}>
         {/* Header */}
         <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
           padding: "12px 16px", borderBottom: `1px solid ${t.surfaceBorder}`,
         }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Trigger Workflow</span>
-          <Pressable onPress={onClose}>
+          <button type="button" onClick={onClose}>
             <X size={18} color={t.textMuted} />
-          </Pressable>
+          </button>
         </div>
 
         {/* Body */}
@@ -234,7 +234,7 @@ export default function WorkflowTriggerModal({ workflowId, onTriggered, onClose 
 
         {/* Footer */}
         <div style={{
-          display: "flex", gap: 8, justifyContent: "flex-end",
+          display: "flex", flexDirection: "row", gap: 8, justifyContent: "flex-end",
           padding: "12px 16px", borderTop: `1px solid ${t.surfaceBorder}`,
         }}>
           <button
@@ -250,7 +250,7 @@ export default function WorkflowTriggerModal({ workflowId, onTriggered, onClose 
             onClick={handleTrigger}
             disabled={triggerMut.isPending}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "5px 12px", fontSize: 12, fontWeight: 600,
               border: "none", borderRadius: 6,
               background: t.accent, color: "#fff", cursor: "pointer",

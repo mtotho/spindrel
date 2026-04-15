@@ -165,7 +165,7 @@ export function GenerateButton({
                   padding: "6px 10px", fontSize: 12, color: t.text, outline: "none", width: "100%",
                 }}
               />
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+              <div style={{ display: "flex", flexDirection: "row", justifyContent: "flex-end", gap: 6 }}>
                 <button
                   onClick={() => { setShowGuidance(false); setGuidance(""); }}
                   style={{
@@ -254,7 +254,7 @@ export function AutocompleteMenu({
               style={{
                 padding: "6px 12px",
                 cursor: "pointer",
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 8,
                 background: i === activeIdx ? t.surfaceOverlay : "transparent",
@@ -388,14 +388,14 @@ function FullscreenEditor({
     }}>
       {/* Header */}
       <div style={{
-        display: "flex", justifyContent: "space-between", alignItems: "center",
+        display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center",
         padding: "12px 20px", borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
         <div style={{ color: t.text, fontSize: 14, fontWeight: 600 }}>
           {label || "Edit Prompt"}
           <span style={{ color: t.textDim, fontWeight: 400, fontSize: 12, marginLeft: 8 }}>(type @ to insert tags, Esc to close)</span>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
           {(generateContext || fieldType) && (
             <GenerateButton generateContext={generateContext} fieldType={fieldType} botId={botId} channelId={channelId} value={value} onChange={onChange} size="normal" />
           )}
@@ -530,12 +530,12 @@ export function LlmPrompt({
   return (
     <div>
       {label && (
-        <div style={{ color: t.textMuted, fontSize: 12, marginBottom: 4, fontWeight: 500, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ color: t.textMuted, fontSize: 12, marginBottom: 4, fontWeight: 500, display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <span>
             {label}{" "}
             <span style={{ color: t.textDim, fontWeight: 400 }}>(type @ to insert tags)</span>
           </span>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 6, alignItems: "center" }}>
             {(generateContext || fieldType) && (
               <GenerateButton generateContext={generateContext} fieldType={fieldType} botId={botId} channelId={channelId} value={value} onChange={onChange} />
             )}

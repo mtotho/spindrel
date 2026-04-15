@@ -1,5 +1,5 @@
 import { RefreshCw, FileText } from "lucide-react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { formatTime } from "@/src/utils/time";
 import {
@@ -9,18 +9,18 @@ import {
 
 export interface TaskCardRowProps {
   task: TaskItem;
-  onPress: () => void;
+  onClick: () => void;
   isPast?: boolean;
   showBotDot?: boolean;
   showBotName?: boolean;
 }
 
 export function TaskCardRow({
-  task, onPress, isPast = false,
+  task, onClick, isPast = false,
   showBotDot = true, showBotName = true,
 }: TaskCardRowProps) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const s = STATUS_CFG[task.status] || STATUS_CFG.pending;
   const Icon = s.icon;
   const time = task.scheduled_at || task.created_at;
@@ -28,7 +28,7 @@ export function TaskCardRow({
 
   return (
     <div
-      onClick={onPress}
+      onClick={onClick}
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.accent; }}
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.surfaceRaised; }}
       style={{
@@ -39,7 +39,7 @@ export function TaskCardRow({
       }}
     >
       {/* Main row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
         <Icon size={14} color={s.fg} style={{ flexShrink: 0 }} />
         {showBotDot && <BotDot botId={task.bot_id} />}
         <span style={{
@@ -84,7 +84,7 @@ export function TaskCardRow({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              router.push(`/admin/logs/${task.correlation_id}`);
+              navigate(`/admin/logs/${task.correlation_id}`);
             }}
             title="View trace"
             style={{

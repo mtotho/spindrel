@@ -1,6 +1,7 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useMemo } from "react";
-import { View, ActivityIndicator } from "react-native";
-import { useRouter } from "expo-router";
+
+import { useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useBots } from "@/src/api/hooks/useBots";
@@ -75,7 +76,7 @@ function groupByCorrelation(
 // Trace view (expanded detail for a single trace group)
 // ---------------------------------------------------------------------------
 function TraceDetail({ group }: { group: TraceGroup }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const t = useThemeTokens();
   return (
     <div style={{ background: t.surfaceRaised, borderBottom: `1px solid ${t.surfaceOverlay}` }}>
@@ -83,7 +84,7 @@ function TraceDetail({ group }: { group: TraceGroup }) {
         <div
           key={entry.id}
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             gap: 8,
             padding: "5px 12px 5px 28px",
             fontSize: 11,
@@ -162,10 +163,10 @@ function TraceDetail({ group }: { group: TraceGroup }) {
       <div
         onClick={(e) => {
           e.stopPropagation();
-          router.push(`/admin/logs/${group.correlation_id}` as any);
+          navigate(`/admin/logs/${group.correlation_id}`);
         }}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 6,
           padding: "6px 12px 6px 28px",
@@ -205,7 +206,7 @@ function TraceRow({
       <div
         onClick={onToggle}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           gap: 8,
           padding: "7px 12px",
           fontSize: 12,
@@ -298,7 +299,7 @@ function RawCallRow({ entry, botName }: { entry: UsageLogEntry; botName: string 
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         gap: 8,
         padding: "6px 12px",
         fontSize: 12,
@@ -396,9 +397,9 @@ export function LogsTab({ params }: { params: UsageParams }) {
 
   if (isLoading) {
     return (
-      <View className="items-center justify-center" style={{ padding: 40 }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="items-center justify-center" style={{ padding: 40 }}>
+        <Spinner />
+      </div>
     );
   }
 
@@ -407,7 +408,7 @@ export function LogsTab({ params }: { params: UsageParams }) {
       {/* View mode toggle */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           gap: 4,
           padding: "6px 12px",
           borderBottom: `1px solid ${t.surfaceOverlay}`,
@@ -444,7 +445,7 @@ export function LogsTab({ params }: { params: UsageParams }) {
           {/* Trace view header */}
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               gap: 8,
               padding: "6px 12px",
               fontSize: 10,
@@ -481,7 +482,7 @@ export function LogsTab({ params }: { params: UsageParams }) {
           {/* Raw call view header */}
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               gap: 8,
               padding: "6px 12px",
               fontSize: 10,
@@ -524,7 +525,7 @@ export function LogsTab({ params }: { params: UsageParams }) {
       {totalPages > 1 && (
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             justifyContent: "center",
             alignItems: "center",
             gap: 12,

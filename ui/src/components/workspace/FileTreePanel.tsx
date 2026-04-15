@@ -105,7 +105,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
       {/* Header */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 6,
           padding: "10px 12px 8px",
@@ -123,7 +123,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
       <div style={{ padding: "6px 8px", borderBottom: `1px solid ${t.surfaceBorder}`, flexShrink: 0 }}>
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 4,
             background: t.inputBg,
@@ -188,7 +188,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
             {creatingAtRoot && (
               <div
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 4,
                   paddingLeft: 8,

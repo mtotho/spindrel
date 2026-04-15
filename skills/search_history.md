@@ -55,7 +55,7 @@ Use `start_date` + `end_date`. Omit `query` to get all messages in that window.
 ## Common Mistakes
 
 - Passing `channel_id` manually — it's injected from context automatically
-- Using this to search knowledge docs or memories — wrong tool, use `search_knowledge` or `search_memories`
+- Using this to search memory — wrong tool, use `search_memory` or `get_memory_file`
 - Treating 300-char previews as complete messages — they are truncated. If full content matters, note that the preview may be cut off
 - Searching with no params and hitting the 100-result cap — always use a keyword or date range when looking for something specific
 

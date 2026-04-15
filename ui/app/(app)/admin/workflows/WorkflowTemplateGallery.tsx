@@ -2,7 +2,8 @@
  * Template gallery shown on the "new workflow" page before the blank form.
  * Displays file-based workflows as reusable starting points.
  */
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
+
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useWorkflowTemplates } from "@/src/api/hooks/useWorkflows";
 import { Zap, ClipboardPaste, Plus } from "lucide-react";
@@ -19,20 +20,20 @@ export function WorkflowTemplateGallery({ onSelectTemplate, onStartBlank, onImpo
   const { data: templates, isLoading } = useWorkflowTemplates();
 
   return (
-    <View style={{ gap: 16 }}>
-      <View style={{ gap: 4 }}>
-        <Text style={{ color: t.text, fontSize: 18, fontWeight: "700" }}>
+    <div style={{ gap: 16 }}>
+      <div style={{ gap: 4 }}>
+        <span style={{ color: t.text, fontSize: 18, fontWeight: "700" }}>
           Create a Workflow
-        </Text>
-        <Text style={{ color: t.textMuted, fontSize: 13 }}>
+        </span>
+        <span style={{ color: t.textMuted, fontSize: 13 }}>
           Start from a template, import YAML, or build from scratch.
-        </Text>
-      </View>
+        </span>
+      </div>
 
       {isLoading ? (
-        <View style={{ alignItems: "center", padding: 32 }}>
-          <ActivityIndicator color={t.accent} />
-        </View>
+        <div style={{ alignItems: "center", padding: 32 }}>
+          <Spinner />
+        </div>
       ) : (
         <div style={{
           display: "grid",
@@ -75,7 +76,7 @@ export function WorkflowTemplateGallery({ onSelectTemplate, onStartBlank, onImpo
             icon={<ClipboardPaste size={20} color={t.accent} />}
             title="Import YAML"
             description="Paste an existing workflow definition"
-            onPress={onImportYaml}
+            onClick={onImportYaml}
             t={t}
           />
 
@@ -84,12 +85,12 @@ export function WorkflowTemplateGallery({ onSelectTemplate, onStartBlank, onImpo
             icon={<Plus size={20} color={t.textMuted} />}
             title="Blank Workflow"
             description="Start from scratch with an empty definition"
-            onPress={onStartBlank}
+            onClick={onStartBlank}
             t={t}
           />
         </div>
       )}
-    </View>
+    </div>
   );
 }
 
@@ -99,8 +100,8 @@ function TemplateCard({ template, onSelect, t }: {
   t: ReturnType<typeof useThemeTokens>;
 }) {
   return (
-    <Pressable
-      onPress={onSelect}
+    <button type="button"
+      onClick={onSelect}
       style={{
         backgroundColor: t.codeBg,
         borderRadius: 10,
@@ -109,52 +110,52 @@ function TemplateCard({ template, onSelect, t }: {
         padding: 16,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <Zap size={16} color={t.accent} />
-        <Text style={{ color: t.text, fontWeight: "600", fontSize: 14, flex: 1 }} numberOfLines={1}>
+        <span style={{ color: t.text, fontWeight: "600", fontSize: 14, flex: 1 }}>
           {template.name}
-        </Text>
-      </View>
+        </span>
+      </div>
       {template.description ? (
-        <Text style={{ color: t.textMuted, fontSize: 12, marginBottom: 8 }} numberOfLines={2}>
+        <span style={{ color: t.textMuted, fontSize: 12, marginBottom: 8 }}>
           {template.description}
-        </Text>
+        </span>
       ) : null}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <Text style={{ color: t.textDim, fontSize: 11 }}>
+      <div style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ color: t.textDim, fontSize: 11 }}>
           {template.steps.length} step{template.steps.length !== 1 ? "s" : ""}
-        </Text>
+        </span>
         {template.tags.length > 0 && template.tags.map((tag) => (
-          <View key={tag} style={{
+          <div key={tag} style={{
             backgroundColor: t.purpleSubtle, borderWidth: 1,
-            borderColor: t.purpleBorder, paddingHorizontal: 5,
-            paddingVertical: 1, borderRadius: 3,
+            borderColor: t.purpleBorder, paddingInline: 5,
+            paddingBlock: 1, borderRadius: 3,
           }}>
-            <Text style={{ color: t.purple, fontSize: 10 }}>{tag}</Text>
-          </View>
+            <span style={{ color: t.purple, fontSize: 10 }}>{tag}</span>
+          </div>
         ))}
-        <View style={{
+        <div style={{
           backgroundColor: t.accentSubtle, borderWidth: 1,
-          borderColor: t.accentBorder, paddingHorizontal: 5,
-          paddingVertical: 1, borderRadius: 3,
+          borderColor: t.accentBorder, paddingInline: 5,
+          paddingBlock: 1, borderRadius: 3,
         }}>
-          <Text style={{ color: t.accent, fontSize: 10 }}>{template.source_type}</Text>
-        </View>
-      </View>
-    </Pressable>
+          <span style={{ color: t.accent, fontSize: 10 }}>{template.source_type}</span>
+        </div>
+      </div>
+    </button>
   );
 }
 
-function ActionCard({ icon, title, description, onPress, t }: {
+function ActionCard({ icon, title, description, onClick, t }: {
   icon: React.ReactNode;
   title: string;
   description: string;
-  onPress: () => void;
+  onClick: () => void;
   t: ReturnType<typeof useThemeTokens>;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
+    <button type="button"
+      onClick={onClick}
       style={{
         backgroundColor: t.codeBg,
         borderRadius: 10,
@@ -167,13 +168,13 @@ function ActionCard({ icon, title, description, onPress, t }: {
         minHeight: 100,
       }}
     >
-      <View style={{ marginBottom: 8 }}>{icon}</View>
-      <Text style={{ color: t.text, fontWeight: "600", fontSize: 14, marginBottom: 4 }}>
+      <div style={{ marginBottom: 8 }}>{icon}</div>
+      <span style={{ color: t.text, fontWeight: "600", fontSize: 14, marginBottom: 4 }}>
         {title}
-      </Text>
-      <Text style={{ color: t.textMuted, fontSize: 12, textAlign: "center" }}>
+      </span>
+      <span style={{ color: t.textMuted, fontSize: 12, textAlign: "center" }}>
         {description}
-      </Text>
-    </Pressable>
+      </span>
+    </button>
   );
 }

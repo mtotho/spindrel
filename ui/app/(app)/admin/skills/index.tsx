@@ -1,14 +1,16 @@
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import {
   Plus, RefreshCw, AlertTriangle, Search, TrendingUp, Zap,
   Trash2, Users, X, ChevronDown, Bot, Puzzle, FileText, Wrench,
 } from "lucide-react";
 import { useSkills, useFileSync, useDeleteSkill, type SkillItem, type FileSyncResult } from "@/src/api/hooks/useSkills";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useState, useMemo, useRef, useEffect } from "react";
 
@@ -168,7 +170,7 @@ function FilterDropdown({
           style={{
             position: "absolute", top: -4, right: -4,
             width: 16, height: 16, borderRadius: 8,
-            display: "flex", alignItems: "center", justifyContent: "center",
+            display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
             background: t.surfaceOverlay, border: `1px solid ${t.surfaceBorder}`,
             cursor: "pointer", color: t.textDim, padding: 0,
           }}
@@ -189,7 +191,7 @@ function FilterDropdown({
           <button
             onClick={() => { onChange(null); setOpen(false); }}
             style={{
-              display: "flex", alignItems: "center", gap: 8, width: "100%",
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%",
               padding: "7px 12px", background: !value ? t.surfaceOverlay : "transparent",
               border: "none", cursor: "pointer", color: t.text, fontSize: 12,
               textAlign: "left", fontWeight: !value ? 600 : 400,
@@ -211,7 +213,7 @@ function FilterDropdown({
                 key={item.key}
                 onClick={() => { onChange(item.filter); setOpen(false); }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 8, width: "100%",
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%",
                   padding: `6px 12px 6px ${item.indent ? 28 : 12}px`,
                   background: isActive ? t.surfaceOverlay : "transparent",
                   border: "none", cursor: "pointer",
@@ -293,7 +295,7 @@ function SectionHeader({ label, count, level, isWide, icon: Icon, color }: {
   const isSubheader = level > 0;
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 8,
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
       padding: isWide
         ? `${isSubheader ? 10 : 20}px 16px ${isSubheader ? 6 : 8}px ${isSubheader ? 32 : 16}px`
         : `${isSubheader ? 10 : 20}px 0 ${isSubheader ? 6 : 8}px ${isSubheader ? 16 : 0}px`,
@@ -330,11 +332,11 @@ function SectionHeader({ label, count, level, isWide, icon: Icon, color }: {
 
 function SkillCard({
   skill,
-  onPress,
+  onClick,
   onDelete,
 }: {
   skill: SkillItem;
-  onPress: () => void;
+  onClick: () => void;
   onDelete: () => void;
 }) {
   const t = useThemeTokens();
@@ -345,7 +347,7 @@ function SkillCard({
 
   return (
     <button
-      onClick={onPress}
+      onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -376,7 +378,7 @@ function SkillCard({
             title="Delete skill permanently"
             style={{
               position: "absolute", top: 8, right: 8,
-              display: "flex", alignItems: "center", justifyContent: "center",
+              display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
               width: 22, height: 22, borderRadius: 4,
               background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
               cursor: "pointer", color: t.danger, padding: 0,
@@ -415,7 +417,7 @@ function SkillCard({
 
         {/* Footer — activity + enrollment + date */}
         <div style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           marginTop: 4, paddingTop: 6,
           borderTop: `1px solid ${t.surfaceBorder}`,
           fontSize: 10, color: t.textDim,
@@ -477,7 +479,7 @@ function BotGroupSection({
     <div style={{ padding: isWide ? "0 16px" : 0 }}>
       {/* Bot sub-header */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
         padding: "10px 0 8px",
       }}>
         <Bot size={13} color="#059669" />
@@ -506,7 +508,7 @@ function BotGroupSection({
           <SkillCard
             key={skill.id}
             skill={skill}
-            onPress={() => onSkillPress(skill.id)}
+            onClick={() => onSkillPress(skill.id)}
             onDelete={() => onSkillDelete(skill)}
           />
         ))}
@@ -519,7 +521,7 @@ function BotGroupSection({
 /*  Table row for non-bot-authored skills                              */
 /* ------------------------------------------------------------------ */
 
-function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () => void; isWide: boolean }) {
+function SkillRow({ skill, onClick, isWide }: { skill: SkillItem; onClick: () => void; isWide: boolean }) {
   const t = useThemeTokens();
   const isBotAuthored = skill.source_type === "tool";
   const wsDetail = isBotAuthored && skill.bot_id
@@ -531,7 +533,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
     // Mobile: card layout
     return (
       <button
-        onClick={onPress}
+        onClick={onClick}
         style={{
           display: "flex", flexDirection: "column", gap: 6,
           padding: "12px 16px", background: t.surfaceRaised, borderRadius: 8,
@@ -539,7 +541,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
           width: "100%",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {skill.name}
           </span>
@@ -551,7 +553,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
             {description}
           </div>
         )}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 10, color: t.textDim }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, fontSize: 10, color: t.textDim }}>
           {skill.enrolled_bot_count > 0 && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
               <Users size={9} /> {skill.enrolled_bot_count}
@@ -570,7 +572,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
   // Desktop: table row
   return (
     <button
-      onClick={onPress}
+      onClick={onClick}
       style={{
         display: "grid", gridTemplateColumns: "1fr 90px 60px 80px 100px",
         alignItems: "center", gap: 12,
@@ -585,7 +587,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
     >
       {/* Name + description */}
       <div style={{ overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, overflow: "hidden" }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {skill.name}
           </span>
@@ -649,7 +651,7 @@ function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDis
       padding: "10px 16px", background: bg, border: `1px solid ${border}`,
       margin: "8px 12px 0", borderRadius: 8, fontSize: 12, color, lineHeight: 1.6,
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <strong>Sync complete:</strong> +{result.added} added, ~{result.updated} updated,
           {" "}{result.unchanged} unchanged, -{result.deleted} deleted
@@ -660,7 +662,7 @@ function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDis
             </div>
           )}
           {hasErrors && result.errors.map((e, i) => (
-            <div key={i} style={{ color: t.danger, marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+            <div key={i} style={{ color: t.danger, marginTop: 4, display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
               <AlertTriangle size={12} /> {e}
             </div>
           ))}
@@ -679,7 +681,7 @@ function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDis
 
 export default function SkillsScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: skills, isLoading } = useSkills();
   const syncMut = useFileSync();
   const deleteMut = useDeleteSkill();
@@ -687,7 +689,7 @@ export default function SkillsScreen() {
   const [syncResult, setSyncResult] = useState<FileSyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterValue>(null);
@@ -811,30 +813,30 @@ export default function SkillsScreen() {
   };
 
   const navigateToSkill = (id: string) => {
-    router.push(`/admin/skills/${encodeURIComponent(id)}` as any);
+    navigate(`/admin/skills/${encodeURIComponent(id)}`);
   };
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   const hasFilters = !!search || !!filter;
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Skills"
         right={
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
             <button
               onClick={handleSync}
               disabled={syncMut.isPending}
               style={{
-                display: "flex", alignItems: "center", gap: 6,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                 padding: "6px 14px", fontSize: 12, fontWeight: 600,
                 border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
                 background: "transparent", color: t.textMuted, cursor: "pointer",
@@ -844,9 +846,9 @@ export default function SkillsScreen() {
               {syncMut.isPending ? "Syncing..." : "Sync"}
             </button>
             <button
-              onClick={() => router.push("/admin/skills/new" as any)}
+              onClick={() => navigate("/admin/skills/new")}
               style={{
-                display: "flex", alignItems: "center", gap: 6,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                 padding: "6px 14px", fontSize: 12, fontWeight: 600,
                 border: "none", borderRadius: 6,
                 background: t.accent, color: "#fff", cursor: "pointer",
@@ -861,12 +863,12 @@ export default function SkillsScreen() {
 
       {/* Search + filter bar */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 10,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
         padding: isWide ? "8px 16px" : "8px 12px",
         borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
         <div style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
           borderRadius: 6, padding: "5px 10px",
           maxWidth: isWide ? 260 : undefined, flex: isWide ? undefined : 1,
@@ -884,7 +886,7 @@ export default function SkillsScreen() {
           {search && (
             <button
               onClick={() => setSearch("")}
-              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", flexDirection: "row" }}
             >
               <X size={12} color={t.textDim} />
             </button>
@@ -916,7 +918,7 @@ export default function SkillsScreen() {
           padding: "10px 16px", background: t.dangerSubtle,
           border: `1px solid ${t.dangerBorder}`,
           margin: "8px 12px 0", borderRadius: 8, fontSize: 12, color: t.danger,
-          display: "flex", justifyContent: "space-between", alignItems: "center",
+          display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center",
         }}>
           <span><AlertTriangle size={12} style={{ marginRight: 6 }} />Sync failed: {syncError}</span>
           <button onClick={() => setSyncError(null)} style={{
@@ -926,10 +928,7 @@ export default function SkillsScreen() {
       )}
 
       {/* List */}
-      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
-        padding: isWide ? 0 : 12,
-        gap: isWide ? 0 : 8,
-      }}>
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
         {(!skills || skills.length === 0) && (
           <div style={{
             padding: 40, textAlign: "center", color: t.textDim, fontSize: 13,
@@ -978,13 +977,13 @@ export default function SkillsScreen() {
               key={item.key}
               skill={item.skill}
               isWide={isWide}
-              onPress={() => navigateToSkill(item.skill.id)}
+              onClick={() => navigateToSkill(item.skill.id)}
             />
           );
         })}
       </RefreshableScrollView>
 
       <ConfirmDialogSlot />
-    </View>
+    </div>
   );
 }

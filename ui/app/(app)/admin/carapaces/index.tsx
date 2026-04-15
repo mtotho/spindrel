@@ -1,12 +1,12 @@
 import { useState, useMemo } from "react";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useCarapaces } from "@/src/api/hooks/useCarapaces";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import { Plus, Search, Layers, ChevronRight, HelpCircle } from "lucide-react";
-import { Link, useRouter } from "expo-router";
+import { Link, useNavigate } from "react-router-dom";
 import { CarapaceHelpModal } from "./CarapaceHelpModal";
 import type { Carapace } from "@/src/types/api";
 
@@ -26,7 +26,7 @@ function SectionHeader({ label, count, level }: { label: string; count: number; 
   const isSubheader = level > 0;
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 8,
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
       padding: `${isSubheader ? 8 : 14}px 0 ${isSubheader ? 4 : 6}px ${isSubheader ? 16 : 0}px`,
     }}>
       <span style={{
@@ -48,7 +48,7 @@ function SectionHeader({ label, count, level }: { label: string; count: number; 
 
 export default function CarapacesPage() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: carapaces, isLoading } = useCarapaces();
   const { refreshing, onRefresh } = usePageRefresh([["carapaces"]]);
   const [search, setSearch] = useState("");
@@ -108,16 +108,16 @@ export default function CarapacesPage() {
   }, [filtered]);
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Capabilities"
         right={
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
             <button
               onClick={() => setShowHelp(true)}
               title="What are capabilities?"
               style={{
-                display: "flex", alignItems: "center",
+                display: "flex", flexDirection: "row", alignItems: "center",
                 padding: "6px 8px", fontSize: 12,
                 border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
                 background: "transparent", color: t.textMuted, cursor: "pointer",
@@ -126,9 +126,9 @@ export default function CarapacesPage() {
               <HelpCircle size={14} />
             </button>
             <button
-              onClick={() => router.push("/admin/carapaces/new" as any)}
+              onClick={() => navigate("/admin/carapaces/new")}
               style={{
-                display: "flex", alignItems: "center", gap: 6,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                 padding: "6px 14px", fontSize: 12, fontWeight: 600,
                 border: "none", borderRadius: 6,
                 background: t.accent, color: "#fff", cursor: "pointer",
@@ -143,12 +143,12 @@ export default function CarapacesPage() {
 
       {/* Pinned search bar */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 10,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
         padding: "8px 16px",
         borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
         <div style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
           borderRadius: 6, padding: "5px 10px",
           maxWidth: 300, flex: 1,
@@ -175,26 +175,26 @@ export default function CarapacesPage() {
       </div>
 
       {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={t.accent} />
-        </View>
+        <div className="flex-1 items-center justify-center">
+          <Spinner color={t.accent} />
+        </div>
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
-          <View style={{ padding: 16, maxWidth: 960 }}>
+          <div style={{ padding: 16, maxWidth: 960 }}>
             {(!carapaces || carapaces.length === 0) && (
-              <View style={{ alignItems: "center", paddingTop: 60 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 60 }}>
                 <Layers size={32} color={t.textMuted} />
-                <Text style={{ color: t.textMuted, marginTop: 12, fontSize: 14 }}>
+                <span style={{ color: t.textMuted, marginTop: 12, fontSize: 14 }}>
                   No capabilities yet. Create one to get started.
-                </Text>
-              </View>
+                </span>
+              </div>
             )}
             {carapaces && carapaces.length > 0 && filtered.length === 0 && (
-              <View style={{ alignItems: "center", paddingTop: 60 }}>
-                <Text style={{ color: t.textDim, fontSize: 13 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 60 }}>
+                <span style={{ color: t.textDim, fontSize: 13 }}>
                   No capabilities match "{search}"
-                </Text>
-              </View>
+                </span>
+              </div>
             )}
             {renderItems.map((item) =>
               item.type === "header" ? (
@@ -202,46 +202,50 @@ export default function CarapacesPage() {
               ) : item.type === "subheader" ? (
                 <SectionHeader key={item.key} label={item.label} count={item.count} level={1} />
               ) : (
-                <View key={item.key} style={{ marginBottom: 8 }}>
+                <div key={item.key} style={{ marginBottom: 8 }}>
                   <CarapaceCard carapace={item.carapace} t={t} />
-                </View>
+                </div>
               ),
             )}
-          </View>
+          </div>
         </RefreshableScrollView>
       )}
 
       {showHelp && <CarapaceHelpModal onClose={() => setShowHelp(false)} />}
-    </View>
+    </div>
   );
 }
 
 function CarapaceCard({ carapace: c, t }: { carapace: Carapace; t: ThemeTokens }) {
   return (
-    <Link href={`/admin/carapaces/${c.id.replaceAll("/", "--")}` as any} asChild>
-      <Pressable
+    <Link
+      to={`/admin/carapaces/${c.id.replaceAll("/", "--")}`}
+      style={{ textDecoration: "none" }}
+    >
+      <div
         style={{
           backgroundColor: t.surfaceRaised,
           borderRadius: 10,
-          borderWidth: 1,
-          borderColor: t.surfaceBorder,
+          border: `1px solid ${t.surfaceBorder}`,
           padding: 14,
+          cursor: "pointer",
         }}
       >
-        <View
+        <div
           style={{
+            display: "flex",
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
           }}
         >
-          <View style={{ flex: 1 }}>
+          <div style={{ flex: 1 }}>
             {/* Name + source badge */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Layers size={16} color={t.accent} />
-              <Text style={{ color: t.text, fontWeight: "600", fontSize: 14 }}>
+              <span style={{ color: t.text, fontWeight: 600, fontSize: 14 }}>
                 {c.name}
-              </Text>
+              </span>
               {c.source_type !== "manual" && (() => {
                 const intName = c.source_type === "integration"
                   ? c.source_path?.match(/integrations\/([^/]+)\//)?.[1]
@@ -249,35 +253,36 @@ function CarapaceCard({ carapace: c, t }: { carapace: Carapace; t: ThemeTokens }
                 const label = intName ? fmtIntName(intName) : c.source_type;
                 const isInt = c.source_type === "integration";
                 return (
-                  <View
+                  <span
                     style={{
                       backgroundColor: isInt ? t.successSubtle : t.accentSubtle,
-                      borderWidth: 1,
-                      borderColor: isInt ? t.successBorder : t.accentBorder,
-                      paddingHorizontal: 6,
-                      paddingVertical: 1,
+                      border: `1px solid ${isInt ? t.successBorder : t.accentBorder}`,
+                      padding: "1px 6px",
                       borderRadius: 4,
                     }}
                   >
-                    <Text style={{ color: isInt ? t.success : t.accent, fontSize: 10 }}>{label}</Text>
-                  </View>
+                    <span style={{ color: isInt ? t.success : t.accent, fontSize: 10 }}>{label}</span>
+                  </span>
                 );
               })()}
-            </View>
+            </div>
 
             {/* Description */}
             {c.description ? (
-              <Text
-                style={{ color: t.textMuted, fontSize: 12, marginTop: 4 }}
-                numberOfLines={1}
+              <div
+                style={{
+                  color: t.textMuted, fontSize: 12, marginTop: 4,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}
               >
                 {c.description}
-              </Text>
+              </div>
             ) : null}
 
             {/* Metadata row */}
-            <View
+            <div
               style={{
+                display: "flex",
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 8,
@@ -286,39 +291,37 @@ function CarapaceCard({ carapace: c, t }: { carapace: Carapace; t: ThemeTokens }
               }}
             >
               {c.local_tools.length > 0 && (
-                <Text style={{ color: t.textDim, fontSize: 11 }}>
+                <span style={{ color: t.textDim, fontSize: 11 }}>
                   {c.local_tools.length} tool{c.local_tools.length !== 1 ? "s" : ""}
-                </Text>
+                </span>
               )}
               {c.includes.length > 0 && (
-                <Text style={{ color: t.textDim, fontSize: 11 }}>
+                <span style={{ color: t.textDim, fontSize: 11 }}>
                   includes: {c.includes.join(", ")}
-                </Text>
+                </span>
               )}
               {c.tags.length > 0 && (
-                <View style={{ flexDirection: "row", gap: 4 }}>
+                <div style={{ display: "flex", flexDirection: "row", gap: 4 }}>
                   {c.tags.map((tag) => (
-                    <View
+                    <span
                       key={tag}
                       style={{
                         backgroundColor: t.purpleSubtle,
-                        borderWidth: 1,
-                        borderColor: t.purpleBorder,
-                        paddingHorizontal: 5,
-                        paddingVertical: 1,
+                        border: `1px solid ${t.purpleBorder}`,
+                        padding: "1px 5px",
                         borderRadius: 3,
                       }}
                     >
-                      <Text style={{ color: t.purple, fontSize: 10 }}>{tag}</Text>
-                    </View>
+                      <span style={{ color: t.purple, fontSize: 10 }}>{tag}</span>
+                    </span>
                   ))}
-                </View>
+                </div>
               )}
-            </View>
-          </View>
+            </div>
+          </div>
           <ChevronRight size={16} color={t.textMuted} />
-        </View>
-      </Pressable>
+        </div>
+      </div>
     </Link>
   );
 }

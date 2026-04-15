@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
@@ -59,7 +59,7 @@ function _relativeTime(iso: string): string {
 function _detailRow(label: string, value: string | number | null | undefined, t: ReturnType<typeof useThemeTokens>) {
   if (value == null || value === "") return null;
   return (
-    <div style={{ display: "flex", gap: 8, fontSize: 10, lineHeight: "1.5" }}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 8, fontSize: 10, lineHeight: "1.5" }}>
       <span style={{ color: t.textDim, minWidth: 80, flexShrink: 0 }}>{label}</span>
       <span style={{ color: t.textMuted, fontFamily: "monospace" }}>{value}</span>
     </div>
@@ -74,7 +74,7 @@ export function CompactionActivity({ channelId }: { channelId: string }) {
     queryFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/compaction-logs?limit=20`),
   });
 
-  if (isLoading) return <ActivityIndicator size="small" />;
+  if (isLoading) return <Spinner size={16} />;
   if (isError) return <div style={{ fontSize: 12, color: "#ef4444", padding: "8px 0" }}>Failed to load compaction logs.</div>;
   const logs: CompactionLogEntry[] = data?.logs ?? [];
   if (logs.length === 0) {
@@ -94,7 +94,7 @@ export function CompactionActivity({ channelId }: { channelId: string }) {
             <button
               onClick={() => setExpandedId(isOpen ? null : log.id)}
               style={{
-                display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: "6px 10px",
                 fontSize: 11, width: "100%", background: "none", border: "none",
                 cursor: "pointer", textAlign: "left",
               }}
@@ -160,12 +160,12 @@ export function CompactionActivity({ channelId }: { channelId: string }) {
                 {_detailRow("Section ID", log.section_id, t)}
                 {_detailRow("Timestamp", log.created_at ? new Date(log.created_at).toLocaleString() : null, t)}
                 {log.correlation_id && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
                     <a
                       href={`/admin/logs/${log.correlation_id}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      style={{ fontSize: 10, color: t.accent, display: "flex", alignItems: "center", gap: 3, textDecoration: "none" }}
+                      style={{ fontSize: 10, color: t.accent, display: "flex", flexDirection: "row", alignItems: "center", gap: 3, textDecoration: "none" }}
                     >
                       <ExternalLink size={10} /> View trace
                     </a>

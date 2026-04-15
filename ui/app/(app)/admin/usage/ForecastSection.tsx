@@ -1,4 +1,5 @@
-import { View, ActivityIndicator } from "react-native";
+
+import { Spinner } from "@/src/components/shared/Spinner";
 import { AlertTriangle, X } from "lucide-react";
 import { useState } from "react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -39,7 +40,7 @@ export function LimitAlerts({ limits }: { limits: LimitForecast[] }) {
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "flex-start",
         gap: 8,
         padding: "10px 14px",
@@ -138,7 +139,7 @@ function ForecastCard({
       >
         {label}
       </div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8 }}>
         <span style={{ fontSize: 22, fontWeight: 700, color: t.text, fontFamily: "monospace" }}>
           {fmtCost(actual)}
         </span>
@@ -170,7 +171,7 @@ export function ForecastCards({ forecast }: { forecast: UsageForecast }) {
     : `${hoursElapsed.toFixed(1)}h elapsed`;
 
   return (
-    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
       <ForecastCard
         label="Today"
         actual={forecast.daily_spend}
@@ -218,7 +219,7 @@ const PERIOD_SUFFIX: Record<ForecastPeriod, string> = { daily: "/ day", monthly:
 function PeriodToggle({ period, onChange }: { period: ForecastPeriod; onChange: (p: ForecastPeriod) => void }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", gap: 2 }}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 2 }}>
       {(["daily", "monthly"] as const).map((p) => (
         <button
           key={p}
@@ -320,7 +321,7 @@ function DonutChart({ components, period }: { components: ForecastComponent[]; p
         </text>
       </svg>
       {/* Legend */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12, justifyContent: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12, justifyContent: "center" }}>
         {segments.map((seg) => (
           <div key={seg.source} style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <div style={{ width: 8, height: 8, borderRadius: 2, background: seg.color, flexShrink: 0 }} />
@@ -368,7 +369,7 @@ function SpendComparisonChart({ forecast }: { forecast: UsageForecast }) {
             <div key={g.label}>
               <div style={{ fontSize: 12, color: t.textMuted, marginBottom: 6 }}>{g.label}</div>
               {/* Actual bar */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
                 <span style={{ width: 60, fontSize: 10, color: t.textDim, textAlign: "right" }}>Actual</span>
                 <div style={{ flex: 1, height: 18, background: t.surfaceOverlay, borderRadius: 4, position: "relative" }}>
                   <div
@@ -389,7 +390,7 @@ function SpendComparisonChart({ forecast }: { forecast: UsageForecast }) {
                 </span>
               </div>
               {/* Projected bar */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 60, fontSize: 10, color: t.textDim, textAlign: "right" }}>Projected</span>
                 <div style={{ flex: 1, height: 18, background: t.surfaceOverlay, borderRadius: 4, position: "relative" }}>
                   <div
@@ -415,12 +416,12 @@ function SpendComparisonChart({ forecast }: { forecast: UsageForecast }) {
         })}
       </div>
       {/* Legend */}
-      <div style={{ display: "flex", gap: 16, marginTop: 14, justifyContent: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 16, marginTop: 14, justifyContent: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
           <div style={{ width: 12, height: 8, borderRadius: 2, background: t.accent }} />
           <span style={{ fontSize: 10, color: t.textMuted }}>Actual</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 5 }}>
           <div style={{ width: 12, height: 8, borderRadius: 2, background: t.accent, opacity: 0.4 }} />
           <span style={{ fontSize: 10, color: t.textMuted }}>Projected</span>
         </div>
@@ -445,7 +446,7 @@ function ForecastBreakdown({ components }: { components: ForecastComponent[] }) 
       <div style={{ border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8, overflow: "hidden" }}>
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             gap: 12,
             padding: "8px 12px",
             fontSize: 10,
@@ -465,7 +466,7 @@ function ForecastBreakdown({ components }: { components: ForecastComponent[] }) 
           <div
             key={c.source}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               gap: 12,
               padding: "7px 12px",
               fontSize: 12,
@@ -533,9 +534,9 @@ export function ForecastTab() {
 
   if (isLoading) {
     return (
-      <View className="items-center justify-center" style={{ padding: 40 }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="items-center justify-center" style={{ padding: 40 }}>
+        <Spinner />
+      </div>
     );
   }
 
@@ -556,13 +557,13 @@ export function ForecastTab() {
       <ForecastCards forecast={forecast} />
 
       {/* Period toggle */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 12, color: t.textDim }}>Projection period:</span>
         <PeriodToggle period={period} onChange={setPeriod} />
       </div>
 
       {/* Donut + Comparison side by side */}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
         <DonutChart components={forecast.components} period={period} />
         <SpendComparisonChart forecast={forecast} />
       </div>

@@ -1,4 +1,4 @@
-import { ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { RotateCw } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { EmptyState } from "@/src/components/shared/FormControls";
@@ -42,12 +42,12 @@ export function SessionsTab({ channelId }: { channelId: string }) {
     },
   });
 
-  if (isLoading) return <ActivityIndicator color={t.accent} />;
+  if (isLoading) return <Spinner color={t.accent} />;
 
   return (
     <>
       {/* Actions bar */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 8, marginBottom: 12 }}>
         <ActionButton
           label={resetMutation.isPending ? "Resetting..." : "Start Fresh"}
           onPress={() => resetMutation.mutate()}
@@ -70,7 +70,7 @@ export function SessionsTab({ channelId }: { channelId: string }) {
               borderRadius: 8, border: `1px solid ${s.is_active ? t.successBorder : t.surfaceOverlay}`,
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace" }}>
                     {s.id?.substring(0, 8)}
                   </span>
@@ -87,13 +87,13 @@ export function SessionsTab({ channelId }: { channelId: string }) {
                     </span>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: 8, fontSize: 11, color: t.textDim, marginTop: 3, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", flexDirection: "row", gap: 8, fontSize: 11, color: t.textDim, marginTop: 3, flexWrap: "wrap" }}>
                   <span>{s.message_count ?? 0} msgs</span>
                   {s.last_active && <span>{new Date(s.last_active).toLocaleString()}</span>}
                   {s.created_at && <span>created {new Date(s.created_at).toLocaleDateString()}</span>}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+              <div style={{ display: "flex", flexDirection: "row", gap: 4, flexShrink: 0 }}>
                 {!s.is_active && (
                   <ActionButton
                     label="Activate"

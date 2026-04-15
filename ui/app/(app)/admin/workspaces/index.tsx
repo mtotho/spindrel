@@ -1,5 +1,6 @@
-import { View, ActivityIndicator } from "react-native";
-import { useRouter } from "expo-router";
+
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { useWorkspaces } from "@/src/api/hooks/useWorkspaces";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -9,18 +10,18 @@ import { useThemeTokens } from "@/src/theme/tokens";
  */
 export default function WorkspacesScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: workspaces, isLoading } = useWorkspaces();
 
   useEffect(() => {
     if (!isLoading && workspaces?.[0]) {
-      router.replace(`/admin/workspaces/${workspaces[0].id}` as any);
+      navigate(`/admin/workspaces/${workspaces[0].id}`, { replace: true });
     }
-  }, [isLoading, workspaces, router]);
+  }, [isLoading, workspaces, navigate]);
 
   return (
-    <View className="flex-1 bg-surface items-center justify-center">
-      <ActivityIndicator color={t.accent} />
-    </View>
+    <div className="flex-1 bg-surface items-center justify-center">
+      <Spinner />
+    </div>
   );
 }

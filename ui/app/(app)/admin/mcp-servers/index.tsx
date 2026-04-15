@@ -1,11 +1,13 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState } from "react";
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { Plus, ExternalLink } from "lucide-react";
 import { useMCPServers, useTestMCPServer, type MCPServerItem } from "@/src/api/hooks/useMCPServers";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 function SourceBadge({ source }: { source: string }) {
@@ -23,7 +25,7 @@ function SourceBadge({ source }: { source: string }) {
   );
 }
 
-function ServerCard({ server, onPress, isWide }: { server: MCPServerItem; onPress: () => void; isWide: boolean }) {
+function ServerCard({ server, onClick, isWide }: { server: MCPServerItem; onClick: () => void; isWide: boolean }) {
   const t = useThemeTokens();
   const testMut = useTestMCPServer();
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string; tool_count?: number } | null>(null);
@@ -39,7 +41,7 @@ function ServerCard({ server, onPress, isWide }: { server: MCPServerItem; onPres
 
   return (
     <button
-      onClick={onPress}
+      onClick={onClick}
       style={{
         display: "flex", flexDirection: "column", gap: 10,
         padding: isWide ? "16px 20px" : "12px 14px",
@@ -50,7 +52,7 @@ function ServerCard({ server, onPress, isWide }: { server: MCPServerItem; onPres
       }}
     >
       {/* Top row: name + source + enabled */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <div style={{
           width: 8, height: 8, borderRadius: 4, flexShrink: 0,
           background: server.is_enabled ? t.success : t.danger,
@@ -62,7 +64,7 @@ function ServerCard({ server, onPress, isWide }: { server: MCPServerItem; onPres
       </div>
 
       {/* Info row */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
         <span style={{ fontFamily: "monospace" }}>{server.id}</span>
         <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
           <ExternalLink size={10} />
@@ -72,7 +74,7 @@ function ServerCard({ server, onPress, isWide }: { server: MCPServerItem; onPres
       </div>
 
       {/* Test button + result */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
         <button
           onClick={handleTest}
           disabled={testMut.isPending}
@@ -99,29 +101,29 @@ function ServerCard({ server, onPress, isWide }: { server: MCPServerItem; onPres
 
 export default function MCPServersScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: servers, isLoading } = useMCPServers();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="MCP Servers"
         right={
           <button
-            onClick={() => router.push("/admin/mcp-servers/new" as any)}
+            onClick={() => navigate("/admin/mcp-servers/new")}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", borderRadius: 6,
               background: t.accent, color: "#fff", cursor: "pointer",
@@ -133,10 +135,7 @@ export default function MCPServersScreen() {
         }
       />
 
-      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
-        padding: isWide ? 20 : 12,
-        gap: isWide ? 12 : 10,
-      }}>
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
         {(!servers || servers.length === 0) && (
           <div style={{
             padding: 40, textAlign: "center", fontSize: 13,
@@ -159,12 +158,12 @@ export default function MCPServersScreen() {
                 key={s.id}
                 server={s}
                 isWide={isWide}
-                onPress={() => router.push(`/admin/mcp-servers/${s.id}` as any)}
+                onClick={() => navigate(`/admin/mcp-servers/${s.id}`)}
               />
             ))}
           </div>
         )}
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

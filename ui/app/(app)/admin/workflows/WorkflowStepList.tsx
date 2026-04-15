@@ -3,7 +3,7 @@
  * Handles step selection, add, remove, and reorder.
  */
 import { useCallback } from "react";
-import { View, Text, Pressable } from "react-native";
+
 import { type ThemeTokens } from "@/src/theme/tokens";
 import { Plus, Bot, Zap, Terminal } from "lucide-react";
 import type { WorkflowStep } from "@/src/types/api";
@@ -62,10 +62,10 @@ export function WorkflowStepList({
   }, [steps, onChange, onSelect]);
 
   return (
-    <View style={{ gap: 4 }}>
+    <div style={{ gap: 4 }}>
       {/* Section header */}
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         padding: "4px 0",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -108,9 +108,9 @@ export function WorkflowStepList({
           padding: "20px 12px", textAlign: "center",
           borderRadius: 8, border: `1px dashed ${t.surfaceBorder}`,
         }}>
-          <Text style={{ color: t.textDim, fontSize: 12 }}>
+          <span style={{ color: t.textDim, fontSize: 12 }}>
             No steps yet. Add one to get started.
-          </Text>
+          </span>
         </div>
       )}
 
@@ -118,7 +118,7 @@ export function WorkflowStepList({
       {!disabled && (
         <AddStepButton onAdd={addStep} t={t} />
       )}
-    </View>
+    </div>
   );
 }
 
@@ -132,44 +132,44 @@ function AddStepButton({ onAdd, t }: {
 }) {
   return (
     <div style={{
-      display: "flex", gap: 4, marginTop: 4,
+      display: "flex", flexDirection: "row", gap: 4, marginTop: 4,
     }}>
-      <Pressable
-        onPress={() => onAdd("agent")}
+      <button type="button"
+        onClick={() => onAdd("agent")}
         style={{
           flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-          gap: 4, paddingVertical: 7, borderRadius: 6,
+          gap: 4, paddingBlock: 7, borderRadius: 6,
           borderWidth: 1, borderStyle: "dashed", borderColor: t.accentBorder,
           backgroundColor: t.accentSubtle,
         }}
       >
         <Bot size={12} color={t.accent} />
-        <Text style={{ color: t.accent, fontSize: 11, fontWeight: "600" }}>Agent</Text>
-      </Pressable>
-      <Pressable
-        onPress={() => onAdd("tool")}
+        <span style={{ color: t.accent, fontSize: 11, fontWeight: "600" }}>Agent</span>
+      </button>
+      <button type="button"
+        onClick={() => onAdd("tool")}
         style={{
           flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-          gap: 4, paddingVertical: 7, borderRadius: 6,
+          gap: 4, paddingBlock: 7, borderRadius: 6,
           borderWidth: 1, borderStyle: "dashed", borderColor: t.purpleBorder,
           backgroundColor: t.purpleSubtle,
         }}
       >
         <Zap size={12} color={t.purple} />
-        <Text style={{ color: t.purple, fontSize: 11, fontWeight: "600" }}>Tool</Text>
-      </Pressable>
-      <Pressable
-        onPress={() => onAdd("exec")}
+        <span style={{ color: t.purple, fontSize: 11, fontWeight: "600" }}>Tool</span>
+      </button>
+      <button type="button"
+        onClick={() => onAdd("exec")}
         style={{
           flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-          gap: 4, paddingVertical: 7, borderRadius: 6,
+          gap: 4, paddingBlock: 7, borderRadius: 6,
           borderWidth: 1, borderStyle: "dashed", borderColor: t.warningBorder,
           backgroundColor: t.warningSubtle,
         }}
       >
         <Terminal size={12} color={t.warning} />
-        <Text style={{ color: t.warning, fontSize: 11, fontWeight: "600" }}>Exec</Text>
-      </Pressable>
+        <span style={{ color: t.warning, fontSize: 11, fontWeight: "600" }}>Exec</span>
+      </button>
     </div>
   );
 }

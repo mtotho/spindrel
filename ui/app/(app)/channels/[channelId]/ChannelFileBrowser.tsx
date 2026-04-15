@@ -1,5 +1,5 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useRef, useCallback } from "react";
-import { View, Text, Pressable, ActivityIndicator, Platform } from "react-native";
 import {
   FileText, Archive, Database, Folder, FolderOpen, ChevronDown, ChevronRight,
   Trash2, Upload,
@@ -60,14 +60,14 @@ function ExplorerFileRow({
     ? file.name.substring(file.name.lastIndexOf("/") + 1)
     : file.name;
 
-  const webHover = Platform.OS === "web" ? {
+  const webHover = true ? {
     onMouseEnter: () => setHovered(true),
     onMouseLeave: () => setHovered(false),
   } : {};
 
   return (
-    <Pressable
-      onPress={() => onSelect(file.path)}
+    <button type="button"
+      onClick={() => onSelect(file.path)}
       style={{
         flexDirection: "row",
         alignItems: "center",
@@ -79,21 +79,20 @@ function ExplorerFileRow({
       }}
       {...webHover as any}
     >
-      <View style={{ marginRight: 6, flexShrink: 0 }}>{icon}</View>
-      <Text
+      <div style={{ marginRight: 6, flexShrink: 0 }}>{icon}</div>
+      <span
         style={{
           flex: 1,
           color: selected ? t.accent : t.text,
           fontSize: 13,
           fontWeight: selected ? "600" : "400",
         }}
-        numberOfLines={1}
       >
         {displayName}
-      </Text>
+      </span>
       {hovered ? (
-        <Pressable
-          onPress={(e) => {
+        <button type="button"
+          onClick={(e) => {
             e.stopPropagation();
             if (confirm(`Delete ${displayName}?`)) {
               deleteMutation.mutate(file.path);
@@ -102,13 +101,13 @@ function ExplorerFileRow({
           style={{ padding: 2, flexShrink: 0 }}
         >
           <Trash2 size={12} color={t.danger} />
-        </Pressable>
+        </button>
       ) : (
-        <Text style={{ color: t.textDim, fontSize: 11, flexShrink: 0 }}>
+        <span style={{ color: t.textDim, fontSize: 11, flexShrink: 0 }}>
           {formatSize(file.size)}
-        </Text>
+        </span>
       )}
-    </Pressable>
+    </button>
   );
 }
 
@@ -142,7 +141,7 @@ function ExplorerFolderRow({
     ? folder.name.substring(folder.name.lastIndexOf("/") + 1)
     : folder.name;
 
-  const webHover = Platform.OS === "web" ? {
+  const webHover = true ? {
     onMouseEnter: () => setHovered(true),
     onMouseLeave: () => setHovered(false),
   } : {};
@@ -150,9 +149,9 @@ function ExplorerFolderRow({
   const FolderIcon = open ? FolderOpen : Folder;
 
   return (
-    <View>
-      <Pressable
-        onPress={() => setOpen(!open)}
+    <div>
+      <button type="button"
+        onClick={() => setOpen(!open)}
         style={{
           flexDirection: "row",
           alignItems: "center",
@@ -164,39 +163,37 @@ function ExplorerFolderRow({
         }}
         {...webHover as any}
       >
-        <View style={{ marginRight: 4, flexShrink: 0 }}>
+        <div style={{ marginRight: 4, flexShrink: 0 }}>
           {open
             ? <ChevronDown size={12} color={t.textDim} />
             : <ChevronRight size={12} color={t.textDim} />}
-        </View>
-        <View style={{ marginRight: 6, flexShrink: 0 }}>
+        </div>
+        <div style={{ marginRight: 6, flexShrink: 0 }}>
           <FolderIcon size={14} color={t.textMuted} />
-        </View>
-        <Text
+        </div>
+        <span
           style={{ flex: 1, color: t.text, fontSize: 13, fontWeight: "500" }}
-          numberOfLines={1}
         >
           {basename}
-        </Text>
+        </span>
         {folder.count != null && (
-          <Text style={{ color: t.textDim, fontSize: 11 }}>
+          <span style={{ color: t.textDim, fontSize: 11 }}>
             {folder.count}
-          </Text>
+          </span>
         )}
-      </Pressable>
+      </button>
 
       {/* Children: indented container with tree line */}
       {open && (
-        <View style={{
+        <div style={{
           marginLeft: ROW_PADDING_LEFT + 5,
           paddingLeft: INDENT_SIZE - 1,
-          borderLeftWidth: 1,
-          borderLeftColor: t.surfaceBorder,
+          borderLeft: `1px solid ${t.surfaceBorder}`,
         }}>
           {isLoading && (
-            <View style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: ROW_PADDING_LEFT }}>
-              <ActivityIndicator color={t.accent} size="small" />
-            </View>
+            <div style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: ROW_PADDING_LEFT }}>
+              <Spinner color={t.accent} size={14} />
+            </div>
           )}
           {childFiles.map((f) => (
             <ExplorerFileRow
@@ -216,9 +213,9 @@ function ExplorerFolderRow({
               onSelect={onSelect}
             />
           ))}
-        </View>
+        </div>
       )}
-    </View>
+    </div>
   );
 }
 
@@ -248,7 +245,7 @@ function ExplorerSection({
   const t = useThemeTokens();
   const [open, setOpen] = useState(defaultOpen);
 
-  const dropProps = dropZone && Platform.OS === "web" ? {
+  const dropProps = dropZone && true ? {
     onDragOver: dropZone.onDragOver,
     onDragEnter: dropZone.onDragEnter,
     onDragLeave: dropZone.onDragLeave,
@@ -256,25 +253,24 @@ function ExplorerSection({
   } : {};
 
   return (
-    <View {...dropProps as any} style={{ position: "relative" }}>
+    <div {...dropProps as any} style={{ position: "relative" }}>
       {/* Section header */}
-      <Pressable
-        onPress={() => setOpen(!open)}
+      <button type="button"
+        onClick={() => setOpen(!open)}
         style={{
           flexDirection: "row",
           alignItems: "center",
           height: 24,
-          paddingHorizontal: 10,
+          paddingLeft: 10, paddingRight: 10,
           backgroundColor: t.surfaceOverlay,
-          borderBottomWidth: 1,
-          borderBottomColor: t.surfaceBorder,
+          borderBottom: `1px solid ${t.surfaceBorder}`,
           cursor: "pointer" as any,
         }}
       >
-        <View style={{ marginRight: 4 }}>
+        <div style={{ marginRight: 4 }}>
           {open ? <ChevronDown size={10} color={t.textDim} /> : <ChevronRight size={10} color={t.textDim} />}
-        </View>
-        <Text
+        </div>
+        <span
           style={{
             flex: 1,
             color: t.textMuted,
@@ -285,46 +281,45 @@ function ExplorerSection({
           }}
         >
           {title}
-        </Text>
-        <Text style={{ color: t.textDim, fontSize: 10 }}>{count}</Text>
-      </Pressable>
+        </span>
+        <span style={{ color: t.textDim, fontSize: 10 }}>{count}</span>
+      </button>
 
       {/* Section body */}
       {open && (
-        <View style={{ minHeight: dropZone ? 32 : undefined }}>
+        <div style={{ minHeight: dropZone ? 32 : undefined }}>
           {children}
-        </View>
+        </div>
       )}
 
       {/* Drop overlay */}
       {dropZone?.isDragging && open && (
-        <View
+        <div
           style={{
             position: "absolute",
             left: 0,
             right: 0,
             top: 24,
             bottom: 0,
-            borderWidth: 2,
-            borderColor: t.accent,
-            borderStyle: "dashed" as any,
+            border: `2px dashed ${t.accent}`,
             backgroundColor: `${t.accent}15`,
             borderRadius: 4,
             margin: 2,
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             justifyContent: "center",
-            pointerEvents: "none" as any,
+            pointerEvents: "none",
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <div style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Upload size={14} color={t.accent} />
-            <Text style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>
+            <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>
               Drop files to upload to data/
-            </Text>
-          </View>
-        </View>
+            </span>
+          </div>
+        </div>
       )}
-    </View>
+    </div>
   );
 }
 
@@ -410,35 +405,34 @@ export function ChannelFileBrowser({
 
   if (isLoading) {
     return (
-      <View style={{
+      <div style={{
         backgroundColor: t.surfaceRaised,
-        borderWidth: 1,
-        borderColor: t.surfaceBorder,
+        border: `1px solid ${t.surfaceBorder}`,
         borderRadius: 8,
         padding: 24,
-        alignItems: "center",
+        display: "flex", flexDirection: "row",
+        justifyContent: "center",
       }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+        <Spinner color={t.accent} />
+      </div>
     );
   }
 
   const hasNoFiles = activeFiles.length === 0 && archivedFiles.length === 0 && dataFiles.length === 0;
 
   return (
-    <View style={{
+    <div style={{
       backgroundColor: t.surfaceRaised,
-      borderWidth: 1,
-      borderColor: t.surfaceBorder,
+      border: `1px solid ${t.surfaceBorder}`,
       borderRadius: 8,
       overflow: "hidden",
     }}>
       {hasNoFiles ? (
-        <View style={{ padding: 20, alignItems: "center" }}>
-          <Text style={{ color: t.textDim, fontSize: 12 }}>
+        <div style={{ padding: 20, alignItems: "center" }}>
+          <span style={{ color: t.textDim, fontSize: 12 }}>
             No workspace files yet. The bot will create them automatically.
-          </Text>
-        </View>
+          </span>
+        </div>
       ) : (
         <>
           {/* ACTIVE section */}
@@ -453,9 +447,9 @@ export function ChannelFileBrowser({
               />
             ))}
             {activeFiles.length === 0 && (
-              <View style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: 12 }}>
-                <Text style={{ color: t.textDim, fontSize: 11, fontStyle: "italic" }}>No active files</Text>
-              </View>
+              <div style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: 12 }}>
+                <span style={{ color: t.textDim, fontSize: 11, fontStyle: "italic" }}>No active files</span>
+              </div>
             )}
           </ExplorerSection>
 
@@ -471,9 +465,9 @@ export function ChannelFileBrowser({
               />
             ))}
             {archivedFiles.length === 0 && (
-              <View style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: 12 }}>
-                <Text style={{ color: t.textDim, fontSize: 11, fontStyle: "italic" }}>No archived files</Text>
-              </View>
+              <div style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: 12 }}>
+                <span style={{ color: t.textDim, fontSize: 11, fontStyle: "italic" }}>No archived files</span>
+              </div>
             )}
           </ExplorerSection>
 
@@ -509,23 +503,23 @@ export function ChannelFileBrowser({
               />
             ))}
             {dataFiles.length === 0 && !uploadStatus && (
-              <View style={{ height: 32, justifyContent: "center", paddingLeft: 12 }}>
-                <Text style={{ color: t.textDim, fontSize: 11, fontStyle: "italic" }}>
+              <div style={{ height: 32, justifyContent: "center", paddingLeft: 12 }}>
+                <span style={{ color: t.textDim, fontSize: 11, fontStyle: "italic" }}>
                   Drag files here to upload
-                </Text>
-              </View>
+                </span>
+              </div>
             )}
             {uploadStatus && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, height: ROW_HEIGHT, paddingLeft: 12 }}>
-                <ActivityIndicator color={t.accent} size="small" />
-                <Text style={{ color: t.textMuted, fontSize: 11 }}>
+              <div style={{ flexDirection: "row", alignItems: "center", gap: 8, height: ROW_HEIGHT, paddingLeft: 12 }}>
+                <Spinner color={t.accent} size={14} />
+                <span style={{ color: t.textMuted, fontSize: 11 }}>
                   Uploading {uploadStatus.uploading}/{uploadStatus.total}...
-                </Text>
-              </View>
+                </span>
+              </div>
             )}
           </ExplorerSection>
         </>
       )}
-    </View>
+    </div>
   );
 }

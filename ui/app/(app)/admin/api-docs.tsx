@@ -1,10 +1,10 @@
 import { useState, useMemo } from "react";
-import { View, ActivityIndicator } from "react-native";
 import { useQuery } from "@tanstack/react-query";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { FileCode, Search, Copy, Check } from "lucide-react";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 
@@ -285,12 +285,12 @@ export default function ApiDocsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="API Reference"
         subtitle="Auto-generated from server routes"
         right={
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
             <div style={{
               display: "flex", alignItems: "center", gap: 6,
               background: t.inputBg, borderRadius: 6,
@@ -312,7 +312,7 @@ export default function ApiDocsScreen() {
               onClick={handleCopy}
               disabled={!markdown}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 padding: "6px 10px", fontSize: 11, fontWeight: 600,
                 border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6,
                 background: t.inputBg, color: t.textMuted, cursor: "pointer",
@@ -333,7 +333,7 @@ export default function ApiDocsScreen() {
       >
         {isLoading && (
           <div style={{ padding: 40, textAlign: "center" }}>
-            <ActivityIndicator color={t.accent} />
+            <Spinner color={t.accent} />
           </div>
         )}
 
@@ -363,6 +363,6 @@ export default function ApiDocsScreen() {
           </div>
         )}
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

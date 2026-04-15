@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { apiFetch } from "@/src/api/client";
 import { Search } from "lucide-react";
@@ -54,7 +54,7 @@ export function SectionSearch({ channelId }: { channelId: string }) {
         Search archived sections by topic, transcript content, or semantic similarity.
         This uses the same search the bot sees via <code style={{ color: t.codeText }}>read_conversation_history</code>.
       </div>
-      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 6, alignItems: "center" }}>
         <div style={{
           flex: 1, display: "flex", alignItems: "center", gap: 6,
           background: t.inputBg, border: `1px solid ${t.inputBorder}`,
@@ -82,7 +82,7 @@ export function SectionSearch({ channelId }: { channelId: string }) {
             opacity: loading || !query.trim() ? 0.5 : 1,
           }}
         >
-          {loading ? <ActivityIndicator size="small" color="#fff" /> : "Search"}
+          {loading ? <Spinner size={14} color="#fff" /> : "Search"}
         </button>
       </div>
 
@@ -108,7 +108,7 @@ export function SectionSearch({ channelId }: { channelId: string }) {
                 padding: "8px 12px", background: t.inputBg,
                 border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6,
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <span style={{ fontSize: 10, color: t.textDim }}>#{r.section.sequence}</span>
                   <span style={{ fontSize: 12, color: t.text, flex: 1 }}>{r.section.title}</span>
                   {badge && (

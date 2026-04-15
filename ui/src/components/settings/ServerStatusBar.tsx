@@ -117,7 +117,7 @@ export function ServerStatusBar() {
                     href={checkUpdate.data.latest_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ display: "flex", alignItems: "center" }}
+                    style={{ display: "flex", flexDirection: "row", alignItems: "center" }}
                   >
                     <ExternalLink size={12} color={t.accent} />
                   </a>

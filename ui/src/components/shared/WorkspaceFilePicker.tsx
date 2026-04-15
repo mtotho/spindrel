@@ -110,7 +110,7 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
                 }}
                 disabled={!entry.is_dir && !matches}
                 style={{
-                  display: "flex", alignItems: "center", gap: 8, width: "100%",
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%",
                   padding: "6px 12px",
                   background: isSelected ? t.accentSubtle : "transparent",
                   borderBottom: `1px solid ${t.surfaceBorder}`,

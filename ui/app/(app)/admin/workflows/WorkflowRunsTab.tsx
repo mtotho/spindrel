@@ -1,5 +1,7 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useMemo } from "react";
-import { View, Text, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
+
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import { useWorkflowRuns } from "@/src/api/hooks/useWorkflows";
 import { Play, ListX } from "lucide-react";
@@ -16,7 +18,7 @@ import { StatusFilterChips, filterRuns, type RunStatusFilter } from "./StatusFil
 
 export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflowId: string; initialRunId?: string }) {
   const t = useThemeTokens();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isMobile = width < 768;
 
   const { data: runs, isLoading } = useWorkflowRuns(workflowId);
@@ -52,14 +54,14 @@ export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflow
   // -- Shared pieces --
 
   const header = (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-      <Text style={{ color: t.textMuted, fontSize: 12 }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+      <span style={{ color: t.textMuted, fontSize: 12 }}>
         {runs ? `${runs.length} run${runs.length !== 1 ? "s" : ""}` : ""}
-      </Text>
+      </span>
       <button
         onClick={() => setShowTrigger(true)}
         style={{
-          display: "flex", alignItems: "center", gap: 5,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 5,
           padding: "5px 12px", fontSize: 12, fontWeight: 600,
           border: "none", borderRadius: 6,
           background: t.accent, color: "#fff", cursor: "pointer",
@@ -76,9 +78,9 @@ export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflow
   ) : null;
 
   const runList = isLoading ? (
-    <View style={{ alignItems: "center", padding: 24 }}>
-      <ActivityIndicator color={t.accent} />
-    </View>
+    <div style={{ alignItems: "center", padding: 24 }}>
+      <Spinner />
+    </div>
   ) : !runs || runs.length === 0 ? (
     <div style={{
       padding: 32, textAlign: "center", color: t.textMuted, fontSize: 13,
@@ -121,12 +123,12 @@ export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflow
   // Mobile: just list view
   if (isMobile) {
     return (
-      <View style={{ gap: 12 }}>
+      <div style={{ gap: 12 }}>
         {header}
         {filters}
         {runList}
         {triggerModal}
-      </View>
+      </div>
     );
   }
 
@@ -134,7 +136,7 @@ export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflow
   return (
     <>
       <div style={{
-        display: "flex", flex: 1, minHeight: 0, gap: 16,
+        display: "flex", flexDirection: "row", flex: 1, minHeight: 0, gap: 16,
       }}>
         {/* Left pane: header + filters + run list */}
         <div style={{
@@ -195,8 +197,8 @@ function RunCard({ run, t, selected, onSelect }: {
   const totalSteps = run.step_states.length;
 
   return (
-    <Pressable
-      onPress={onSelect}
+    <button type="button"
+      onClick={onSelect}
       style={{
         backgroundColor: selected ? t.accentSubtle : t.codeBg,
         borderRadius: 8,
@@ -207,14 +209,14 @@ function RunCard({ run, t, selected, onSelect }: {
         padding: 10,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <StatusBadge status={run.status} t={t} />
           <span style={{ fontSize: 12, color: t.textDim, fontFamily: "monospace" }}>
             {run.id.slice(0, 8)}
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
           {(duration || elapsed) && (
             <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
               {duration || elapsed}
@@ -225,7 +227,7 @@ function RunCard({ run, t, selected, onSelect }: {
           </span>
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 5 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 5 }}>
         <span style={{ fontSize: 11, color: t.textDim }}>
           {run.bot_id}
         </span>
@@ -248,7 +250,7 @@ function RunCard({ run, t, selected, onSelect }: {
         </span>
       </div>
       {/* Mini step bar */}
-      <div style={{ display: "flex", gap: 2, marginTop: 6, height: 3, borderRadius: 2, overflow: "hidden" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 2, marginTop: 6, height: 3, borderRadius: 2, overflow: "hidden" }}>
         {run.step_states.map((s, i) => {
           const color =
             s.status === "done" ? t.success :
@@ -259,7 +261,7 @@ function RunCard({ run, t, selected, onSelect }: {
           return <div key={i} style={{ flex: 1, background: color, borderRadius: 1 }} />;
         })}
       </div>
-    </Pressable>
+    </button>
   );
 }
 
@@ -274,9 +276,9 @@ function RunDetailEmptyState({ t }: { t: ThemeTokens }) {
       flex: 1, padding: 32, color: t.textDim,
     }}>
       <ListX size={28} color={t.surfaceBorder} />
-      <Text style={{ color: t.textDim, fontSize: 13, marginTop: 12, textAlign: "center" }}>
+      <span style={{ color: t.textDim, fontSize: 13, marginTop: 12, textAlign: "center" }}>
         Select a run to view its details.
-      </Text>
+      </span>
     </div>
   );
 }

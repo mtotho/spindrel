@@ -225,7 +225,7 @@ export function YamlSyntaxEditor({ value, onChange, parseError, t, minHeight = 4
       {/* Status bar */}
       {!isEmpty && (
         <div style={{
-          display: "flex", alignItems: "center", gap: 8,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
           padding: "4px 8px", borderRadius: 6,
           background: parseError ? t.dangerSubtle : t.successSubtle,
           border: `1px solid ${parseError ? t.dangerBorder : t.successBorder}`,
@@ -260,7 +260,7 @@ export function YamlSyntaxEditor({ value, onChange, parseError, t, minHeight = 4
           border: `1px solid ${parseError ? t.dangerBorder : t.inputBorder}`,
           background: t.codeBg,
           overflow: "hidden",
-          display: "flex",
+          display: "flex", flexDirection: "row",
         }}
       >
         {/* Line numbers — scrolls with content */}
@@ -360,7 +360,7 @@ export function YamlSyntaxViewer({ value, t }: YamlViewerProps) {
   const lineCount = (value || "").split("\n").length;
 
   return (
-    <div style={{ display: "flex", overflow: "auto" }}>
+    <div style={{ display: "flex", flexDirection: "row", overflow: "auto" }}>
       {/* Line numbers */}
       <div
         aria-hidden

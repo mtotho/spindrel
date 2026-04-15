@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
 import { useSubmitChat, useCancelChat, useSessionStatus } from "@/src/api/hooks/useChat";
@@ -62,7 +62,7 @@ export interface UseChannelChatReturn {
 
 export function useChannelChat({ channelId, channel, activeFile }: UseChannelChatOptions): UseChannelChatReturn {
   const queryClient = useQueryClient();
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const chatState = useChatStore((s) => s.getChannel(channelId!));
   const setMessages = useChatStore((s) => s.setMessages);
@@ -507,7 +507,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
           handleCancel();
           break;
         case "context":
-          router.push(`/channels/${channelId}/settings#context` as any);
+          navigate(`/channels/${channelId}/settings#context`);
           break;
         case "clear":
           try {
@@ -529,7 +529,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
           break;
       }
     },
-    [channelId, router, setMessages, queryClient, handleCancel],
+    [channelId, navigate, setMessages, queryClient, handleCancel],
   );
 
   // Reverse for inverted FlatList

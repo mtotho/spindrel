@@ -1,4 +1,4 @@
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import { Save, Check, Server, KeyRound, Eye } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { Section } from "@/src/components/shared/FormControls";
@@ -38,7 +38,7 @@ export function GlobalSection({
           marginBottom: 16,
         }}
       >
-        <Link href={"/admin/providers" as any} asChild>
+        <Link to="/admin/providers">
           <button
             style={{
               display: "flex",
@@ -61,7 +61,7 @@ export function GlobalSection({
             </span>
           </button>
         </Link>
-        <Link href={"/admin/api-keys" as any} asChild>
+        <Link to="/admin/api-keys">
           <button
             style={{
               display: "flex",
@@ -84,7 +84,7 @@ export function GlobalSection({
             </span>
           </button>
         </Link>
-        <Link href={"/admin/config-state" as any} asChild>
+        <Link to="/admin/config-state">
           <button
             style={{
               display: "flex",

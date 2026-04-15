@@ -1,5 +1,7 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState } from "react";
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { AlertTriangle, Clock, Wrench, ExternalLink } from "lucide-react";
@@ -9,7 +11,7 @@ import {
   type ToolCallItem,
   type ToolCallFilters,
 } from "@/src/api/hooks/useToolCalls";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import {
   Section,
   FormRow,
@@ -66,7 +68,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
         width: "100%",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         {hasError ? (
           <AlertTriangle size={14} color={t.danger} />
         ) : (
@@ -85,7 +87,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
         </span>
         <ToolTypeBadge type={call.tool_type} />
         {call.duration_ms != null && (
-          <span style={{ fontSize: 11, color: t.textDim, display: "flex", alignItems: "center", gap: 3 }}>
+          <span style={{ fontSize: 11, color: t.textDim, display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
             <Clock size={10} /> {call.duration_ms}ms
           </span>
         )}
@@ -93,7 +95,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
 
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           flexWrap: "wrap",
           gap: 8,
           alignItems: "center",
@@ -210,14 +212,14 @@ function StatsPanel({
       </div>
 
       {isLoading ? (
-        <ActivityIndicator color={t.accent} />
+        <Spinner />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {stats?.stats.map((s) => (
             <div
               key={s.key}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 12,
                 padding: "8px 12px",
@@ -249,7 +251,7 @@ function StatsPanel({
                   background: "none",
                   border: "none",
                   cursor: "pointer",
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 3,
                   padding: 0,
@@ -277,7 +279,7 @@ function StatsPanel({
                     borderRadius: 4,
                     cursor: "pointer",
                     padding: "2px 8px",
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 3,
                   }}
@@ -306,7 +308,7 @@ export default function ToolCallsScreen() {
   const [toolName, setToolName] = useState("");
   const [errorOnly, setErrorOnly] = useState(false);
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
 
   const filters: ToolCallFilters = {
     limit: 100,
@@ -324,8 +326,8 @@ export default function ToolCallsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Tool Calls" />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Tool Calls" />
 
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh}>
         <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
@@ -347,7 +349,7 @@ export default function ToolCallsScreen() {
               {/* Filters */}
               <div
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   flexWrap: "wrap",
                   gap: 12,
                   marginBottom: 16,
@@ -421,9 +423,9 @@ export default function ToolCallsScreen() {
 
               {/* Results */}
               {isLoading ? (
-                <View className="items-center justify-center py-20">
-                  <ActivityIndicator color={t.accent} />
-                </View>
+                <div className="items-center justify-center py-20">
+                  <Spinner />
+                </div>
               ) : (
                 <div
                   style={{
@@ -453,6 +455,6 @@ export default function ToolCallsScreen() {
           )}
         </div>
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

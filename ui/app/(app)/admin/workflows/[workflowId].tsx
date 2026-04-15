@@ -2,9 +2,11 @@
  * Workflow detail page — two-pane layout on desktop, accordion on mobile.
  * Shell: header + tabs + tab content routing.
  */
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { View, Text, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+
+import { useParams, useNavigate } from "react-router-dom";
 import {
   useWorkflow,
   useCreateWorkflow,
@@ -12,9 +14,8 @@ import {
   useDeleteWorkflow,
   useExportWorkflow,
 } from "@/src/api/hooks/useWorkflows";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { Platform } from "react-native";
 import { Copy, X as XIcon } from "lucide-react";
 import { TabBar } from "@/src/components/shared/FormControls";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
@@ -34,11 +35,11 @@ import yaml from "js-yaml";
 
 export default function WorkflowDetailPage() {
   const t = useThemeTokens();
-  const router = useRouter();
-  const { width } = useWindowDimensions();
+  const navigate = useNavigate();
+  const { width } = useWindowSize();
   const isMobile = width < 768;
 
-  const { workflowId, tab: tabParam, run: runParam, clone: cloneParam } = useLocalSearchParams<{
+  const { workflowId, tab: tabParam, run: runParam, clone: cloneParam } = useParams<{
     workflowId: string;
     tab?: string;
     run?: string;
@@ -129,7 +130,7 @@ export default function WorkflowDetailPage() {
     setDirty(true);
   }, []);
 
-  const goBack = () => router.push("/admin/workflows" as any);
+  const goBack = () => navigate("/admin/workflows");
 
   const handleClone = () => {
     const cloneData: Partial<Workflow> = {
@@ -144,7 +145,7 @@ export default function WorkflowDetailPage() {
       tags: draft.tags || [],
       session_mode: draft.session_mode || "isolated",
     };
-    router.push(`/admin/workflows/new?clone=${encodeURIComponent(JSON.stringify(cloneData))}` as any);
+    navigate(`/admin/workflows/new?clone=${encodeURIComponent(JSON.stringify(cloneData))}`);
   };
 
   const handleSave = async () => {
@@ -226,9 +227,9 @@ export default function WorkflowDetailPage() {
 
   if (isLoading && !isNew) {
     return (
-      <View className="flex-1 items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
@@ -250,7 +251,7 @@ export default function WorkflowDetailPage() {
 
   return (
     <div style={{ overflow: "auto", flex: 1, display: "flex", flexDirection: "column", background: t.surface }}>
-      <MobileHeader title={isNew ? "New Workflow" : draft.name || "Workflow"} />
+      <PageHeader variant="detail" title={isNew ? "New Workflow" : draft.name || "Workflow"} backTo="/admin/workflows" />
 
       {/* Header */}
       <WorkflowHeader
@@ -402,7 +403,7 @@ function DesktopDefinitionEditor({ draft, update, updateStep, deleteStep, isNew,
 }) {
   return (
     <div style={{
-      display: "flex", flex: 1, minHeight: 0,
+      display: "flex", flexDirection: "row", flex: 1, minHeight: 0,
       padding: "12px 16px",
       gap: 16,
     }}>
@@ -482,7 +483,7 @@ function MobileDefinitionEditor({ draft, update, isNew, workflowSecrets, t }: {
 
   return (
     <div style={{ padding: 16, overflow: "auto" }}>
-      <View style={{ gap: 12 }}>
+      <div style={{ gap: 12 }}>
         <WorkflowIdentitySection
           draft={draft}
           update={update}
@@ -516,7 +517,7 @@ function MobileDefinitionEditor({ draft, update, isNew, workflowSecrets, t }: {
             />
           </div>
         )}
-      </View>
+      </div>
     </div>
   );
 }
@@ -576,11 +577,11 @@ function YamlImport({ onImport, onCancel, t }: {
   };
 
   return (
-    <View style={{ gap: 12 }}>
-      <View style={{ gap: 4 }}>
-        <Text style={{ color: t.text, fontSize: 18, fontWeight: "700" }}>Import YAML</Text>
-        <Text style={{ color: t.textMuted, fontSize: 13 }}>Paste a workflow YAML definition below.</Text>
-      </View>
+    <div style={{ gap: 12 }}>
+      <div style={{ gap: 4 }}>
+        <span style={{ color: t.text, fontSize: 18, fontWeight: "700" }}>Import YAML</span>
+        <span style={{ color: t.textMuted, fontSize: 13 }}>Paste a workflow YAML definition below.</span>
+      </div>
       <YamlSyntaxEditor
         value={yamlText}
         onChange={handleChange}
@@ -588,29 +589,29 @@ function YamlImport({ onImport, onCancel, t }: {
         t={t}
         minHeight={300}
       />
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <Pressable
-          onPress={onCancel}
+      <div style={{ display: "flex", flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
+        <button type="button"
+          onClick={onCancel}
           style={{
-            paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
+            paddingInline: 12, paddingBlock: 6, borderRadius: 6,
             borderWidth: 1, borderColor: t.surfaceBorder,
           }}
         >
-          <Text style={{ color: t.textMuted, fontSize: 12 }}>Back</Text>
-        </Pressable>
-        <Pressable
-          onPress={handleImport}
+          <span style={{ color: t.textMuted, fontSize: 12 }}>Back</span>
+        </button>
+        <button type="button"
+          onClick={handleImport}
           disabled={!yamlText.trim() || !!parseError}
           style={{
-            paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
+            paddingInline: 12, paddingBlock: 6, borderRadius: 6,
             backgroundColor: yamlText.trim() && !parseError ? t.accent : t.surfaceBorder,
             opacity: yamlText.trim() && !parseError ? 1 : 0.5,
           }}
         >
-          <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>Import</Text>
-        </Pressable>
+          <span style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>Import</span>
+        </button>
       </div>
-    </View>
+    </div>
   );
 }
 
@@ -730,27 +731,27 @@ function ExportModal({ yaml, onClose, t }: {
         boxShadow: `0 20px 60px ${t.overlayLight}`,
       }}>
         <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
           padding: "12px 16px", borderBottom: `1px solid ${t.surfaceBorder}`,
         }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Export YAML</span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Pressable
-              onPress={handleCopy}
+          <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
+            <button type="button"
+              onClick={handleCopy}
               style={{
                 flexDirection: "row", alignItems: "center", gap: 4,
-                paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6,
+                paddingInline: 10, paddingBlock: 4, borderRadius: 6,
                 backgroundColor: t.accentSubtle, borderWidth: 1, borderColor: t.accentBorder,
               }}
             >
               <Copy size={12} color={t.accent} />
-              <Text style={{ color: t.accent, fontSize: 11, fontWeight: "600" }}>
+              <span style={{ color: t.accent, fontSize: 11, fontWeight: "600" }}>
                 {copied ? "Copied!" : "Copy"}
-              </Text>
-            </Pressable>
-            <Pressable onPress={onClose}>
+              </span>
+            </button>
+            <button type="button" onClick={onClose}>
               <XIcon size={18} color={t.textMuted} />
-            </Pressable>
+            </button>
           </div>
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: 16 }}>

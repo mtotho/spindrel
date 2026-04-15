@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Search, BookOpen, TrendingUp, ExternalLink } from "lucide-react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useSkills } from "@/src/api/hooks/useSkills";
 import { AdvancedSection } from "@/src/components/shared/SettingsControls";
@@ -49,7 +49,7 @@ function fmtIntName(key: string): string {
 function SectionHeader({ label, count }: { label: string; count: number }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0 4px" }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: "10px 0 4px" }}>
       <span style={{ fontSize: 10, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
         {label}
       </span>
@@ -117,7 +117,7 @@ function SelfAuthoredSkillsBanner({ botId, onNavigateToLearning }: { botId: stri
 
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: "8px 12px",
       background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)",
       borderRadius: 8, marginBottom: 8,
     }}>
@@ -145,7 +145,7 @@ export function SkillsSection({
   editorData, draft, update, onNavigateToLearning,
 }: { editorData: BotEditorData; draft: BotConfig; update: (p: Partial<BotConfig>) => void; onNavigateToLearning?: () => void }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const [filter, setFilter] = useState("");
 
   const filtered = useMemo(() => {
@@ -189,7 +189,7 @@ export function SkillsSection({
         <div style={{ paddingTop: 8 }}>
           {editorData.all_skills.length > 6 && (
             <div style={{
-              display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8,
               background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "4px 8px",
             }}>
               <Search size={12} color={t.textDim} />
@@ -213,7 +213,7 @@ export function SkillsSection({
                   background: isBotAuthored ? "rgba(16,185,129,0.06)" : "transparent",
                   borderBottom: `1px solid ${isBotAuthored ? "rgba(16,185,129,0.15)" : t.surfaceBorder}`,
                 }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
                     {isBotAuthored && (
                       <span style={{
                         display: "inline-flex", alignItems: "center", fontSize: 9, fontWeight: 600,
@@ -224,7 +224,7 @@ export function SkillsSection({
                       </span>
                     )}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                         <span style={{ fontSize: 12, fontWeight: 500, color: t.text }}>{skill.name}</span>
                         <span style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>{skill.id}</span>
                         {sourceType !== "integration" && !isBotAuthored && <SourceBadge type={sourceType} />}
@@ -242,7 +242,7 @@ export function SkillsSection({
                       )}
                     </div>
                     <button
-                      onClick={() => router.push(`/admin/skills/${encodeURIComponent(skill.id)}` as any)}
+                      onClick={() => navigate(`/admin/skills/${encodeURIComponent(skill.id)}`)}
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 3,
                         fontSize: 10, color: t.accent, background: "none",

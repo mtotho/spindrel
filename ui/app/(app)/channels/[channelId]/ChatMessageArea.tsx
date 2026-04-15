@@ -10,7 +10,7 @@ export function DateSeparator({ label }: { label: string }) {
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 16,
         padding: "12px 20px",
@@ -194,7 +194,7 @@ export function ChatMessageArea({
             within this wrapper; the reverse only applies to the outer
             container's children. */}
         {invertedData.length === 0 ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 20px", flex: 1 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 20px", flex: 1 }}>
             {isLoading ? (
               <div className="chat-spinner" />
             ) : (
@@ -220,7 +220,7 @@ export function ChatMessageArea({
         {/* DOM last == visual TOP — sentinel for loading older pages. */}
         <div ref={sentinelRef} style={{ minHeight: 1, flexShrink: 0 }}>
           {isFetchingNextPage && (
-            <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
+            <div style={{ display: "flex", flexDirection: "row", justifyContent: "center", padding: "12px 0" }}>
               <div className="chat-spinner" />
             </div>
           )}
@@ -240,7 +240,7 @@ export function ChatMessageArea({
             borderRadius: 20,
             backgroundColor: t.surfaceRaised,
             border: `1px solid ${t.surfaceBorder}`,
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             justifyContent: "center",
             boxShadow: "0 2px 8px rgba(0,0,0,0.3)",

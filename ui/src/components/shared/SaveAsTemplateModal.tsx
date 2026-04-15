@@ -72,7 +72,7 @@ export function SaveAsTemplateModal({ content, onClose, onSaved }: Props) {
           <button
             onClick={onClose}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               justifyContent: "center",
               background: "transparent",

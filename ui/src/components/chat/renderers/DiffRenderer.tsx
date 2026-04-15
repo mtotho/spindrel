@@ -82,7 +82,7 @@ export function DiffRenderer({ body, t }: Props) {
           <div
             key={i}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               minHeight: "1.5em",
               ...styles.row,
             }}

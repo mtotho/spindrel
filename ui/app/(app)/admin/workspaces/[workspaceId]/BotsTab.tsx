@@ -45,7 +45,7 @@ export function BotsTab({ workspaceId, bots, writeProtectedPaths }: BotsTabProps
                 padding: "8px 12px", background: t.surface, borderRadius: 8,
                 border: `1px solid ${t.surfaceRaised}`,
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <span style={{
                     fontSize: 13, fontWeight: 600, color: t.text, flex: 1,
                     minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -66,7 +66,7 @@ export function BotsTab({ workspaceId, bots, writeProtectedPaths }: BotsTabProps
                   </select>
                 </div>
                 {writeProtectedPaths.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, paddingLeft: 2 }}>
+                  <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, paddingLeft: 2 }}>
                     {writeProtectedPaths.map((p) => {
                       const allowed = botWriteAccess.includes(p);
                       return (

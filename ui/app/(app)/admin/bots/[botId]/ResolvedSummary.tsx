@@ -107,7 +107,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
       <div key={`${sectionLabel || ""}:${group.source}`} style={{ marginBottom: 2 }}>
         <div style={{
           fontSize: 9, color, fontWeight: 600,
-          marginBottom: 2, display: "flex", alignItems: "center", gap: 4,
+          marginBottom: 2, display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
         }}>
           <span style={{
             padding: "0 4px", borderRadius: 3, lineHeight: "14px",
@@ -119,7 +119,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
             ({group.tools.length})
           </span>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginLeft: 2 }}>
+        <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3, marginLeft: 2 }}>
           {group.tools.map((name) => renderToolChip(name))}
         </div>
       </div>
@@ -135,7 +135,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
       <div
         onClick={() => setExpanded((e) => !e)}
         style={{
-          display: "flex", alignItems: "center", gap: 8,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
           padding: "8px 12px", cursor: "pointer",
           background: t.surface,
         }}
@@ -144,7 +144,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
         <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>
           Resolved Capabilities
         </span>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+        <span style={{ marginLeft: "auto", display: "flex", flexDirection: "row", gap: 8 }}>
           {toolCount > 0 && (
             <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
               <Wrench size={9} /> {toolCount}
@@ -186,7 +186,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
               <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
                 Capabilities ({carapaces.length})
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+              <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3 }}>
                 {carapaces.map((id) => (
                   <span key={id} style={{
                     fontSize: 10, padding: "1px 6px", borderRadius: 3,
@@ -214,7 +214,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
                   </div>
                   <div style={{
                     fontSize: 9, color: t.textDim, marginBottom: 6,
-                    display: "flex", alignItems: "center", gap: 6,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                   }}>
                     All tools the bot can use.
                     {pinnedCount > 0 && (
@@ -255,7 +255,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
                   </div>
                   <div style={{
                     fontSize: 9, color: t.textDim, marginBottom: 6,
-                    display: "flex", alignItems: "center", gap: 6,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                   }}>
                     All tools the bot can use.
                     {pinnedCount > 0 && (
@@ -269,7 +269,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
                       <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
                         {group.is_core ? "Core" : group.integration} ({group.tools.length})
                       </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3 }}>
                         {group.tools.map((tool) => renderToolChip(tool.name))}
                       </div>
                     </div>
@@ -283,7 +283,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
                   <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
                     MCP Servers ({(draft.mcp_servers || []).length})
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                  <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3 }}>
                     {(draft.mcp_servers || []).map((s) => renderToolChip(s))}
                   </div>
                 </div>
@@ -297,7 +297,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
               <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
                 Skills ({skills.length})
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+              <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3 }}>
                 {skills.map((s) => (
                   <span key={s.id} style={{
                     fontSize: 10, padding: "1px 6px", borderRadius: 3,
@@ -317,7 +317,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
               <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
                 Client Tools ({clientTools.length})
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+              <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3 }}>
                 {clientTools.map((ct) => renderToolChip(ct))}
               </div>
             </div>

@@ -1,6 +1,6 @@
 import { useState, memo } from "react";
 import { ChevronRight, ExternalLink } from "lucide-react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import type { Message } from "../../types/api";
@@ -44,7 +44,7 @@ interface Props {
 export const TriggerCard = memo(function TriggerCard({ message }: Props) {
   const [expanded, setExpanded] = useState(false);
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const meta = (message.metadata ?? {}) as Record<string, any>;
   const trigger = meta.trigger as string;
@@ -70,7 +70,7 @@ export const TriggerCard = memo(function TriggerCard({ message }: Props) {
       }}
     >
       {/* Header row */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
           <span style={{ fontSize: 15, lineHeight: 1 }}>{icon}</span>
           <span style={{ fontSize: 13, fontWeight: 600, color, letterSpacing: 0.1 }}>{label}</span>
@@ -98,7 +98,7 @@ export const TriggerCard = memo(function TriggerCard({ message }: Props) {
       {/* Actions row */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
           marginTop: 8,
@@ -140,7 +140,7 @@ export const TriggerCard = memo(function TriggerCard({ message }: Props) {
         )}
         {taskId && (
           <button
-            onClick={() => router.push(`/admin/tasks/${taskId}`)}
+            onClick={() => navigate(`/admin/tasks/${taskId}`)}
             style={{
               display: "inline-flex",
               alignItems: "center",

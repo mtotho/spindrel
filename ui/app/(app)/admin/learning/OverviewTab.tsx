@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { useRouter } from "expo-router";
-import { useWindowDimensions } from "react-native";
+import { useNavigate } from "react-router-dom";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import {
   Moon, Activity, BookOpen, TrendingUp, AlertTriangle, FileText, PenLine, Zap,
   ArrowRight,
@@ -74,7 +74,7 @@ function MetricCard({ label, value, subtitle, icon, accent, onClick }: {
         background: `linear-gradient(90deg, ${accent}, transparent)`,
         opacity: 0.7,
       }} />
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
         {icon}
         <span style={{
           fontSize: 9, color: t.textDim, textTransform: "uppercase",
@@ -122,7 +122,7 @@ function ActivityHeatmap({ activity }: { activity: MemoryFileActivity[] }) {
   }, []);
 
   return (
-    <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 32 }}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 3, alignItems: "flex-end", height: 32 }}>
       {dayBuckets.map((count, i) => {
         const intensity = count / max;
         return (
@@ -201,18 +201,18 @@ function SkillActivityChart({ data }: { data: DailyActivityPoint[] }) {
       background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
     }}>
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         marginBottom: 10,
       }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
           Skill Activity
         </span>
-        <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 12 }}>
           <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: t.textDim }}>
             <span style={{ width: 8, height: 8, borderRadius: 2, background: "#f59e0b", opacity: 0.7 }} />
             Surfacings
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: t.textDim }}>
+          <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, fontSize: 9, color: t.textDim }}>
             <span style={{ width: 8, height: 8, borderRadius: 2, background: "#a855f7", opacity: 0.7 }} />
             Auto-Injects
           </span>
@@ -291,7 +291,7 @@ function SkillActivityRing({ surfacings, autoInjects, total }: {
   const injectPct = autoInjects / total;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
       <svg width={28} height={28} viewBox="0 0 28 28">
         <circle cx={14} cy={14} r={11} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={3} />
         <circle
@@ -329,8 +329,8 @@ function SkillActivityRing({ surfacings, autoInjects, total }: {
 
 export function OverviewTab({ days }: { days: number }) {
   const t = useThemeTokens();
-  const router = useRouter();
-  const { width } = useWindowDimensions();
+  const navigate = useNavigate();
+  const { width } = useWindowSize();
   const isMobile = width < 768;
   const { data, isLoading } = useLearningOverview(days);
   const chartDays = days === 0 ? 60 : Math.max(days, 14);
@@ -373,7 +373,7 @@ export function OverviewTab({ days }: { days: number }) {
 
   if (isLoading) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+      <div style={{ display: "flex", flexDirection: "row", justifyContent: "center", padding: 40 }}>
         <div style={{ color: t.textDim, fontSize: 12 }}>Loading learning data...</div>
       </div>
     );
@@ -404,7 +404,7 @@ export function OverviewTab({ days }: { days: number }) {
           value={data.total_bot_skills}
           icon={<BookOpen size={13} color="#059669" />}
           accent="#059669"
-          onClick={() => router.push("/admin/learning#Skills" as any)}
+          onClick={() => navigate("/admin/learning#Skills")}
         />
         <MetricCard
           label="Surfacings"
@@ -423,7 +423,7 @@ export function OverviewTab({ days }: { days: number }) {
       {/* --- Skill usage breakdown --- */}
       {(data.surfacings > 0 || data.auto_injects > 0) && (
         <div style={{
-          display: "flex", alignItems: "center", gap: 16,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 16,
           padding: "12px 16px", borderRadius: 10,
           background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
         }}>
@@ -452,7 +452,7 @@ export function OverviewTab({ days }: { days: number }) {
           padding: "12px 16px", borderRadius: 10,
           background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
             <AlertTriangle size={14} color={t.danger} />
             <span style={{ fontSize: 13, fontWeight: 600, color: t.danger }}>
               {botsWithFailures.length} bot{botsWithFailures.length !== 1 ? "s" : ""} failed last dreaming run
@@ -464,9 +464,9 @@ export function OverviewTab({ days }: { days: number }) {
               return (
                 <button
                   key={bot.bot_id}
-                  onClick={() => router.push(`/admin/bots/${bot.bot_id}#memory` as any)}
+                  onClick={() => navigate(`/admin/bots/${bot.bot_id}#memory`)}
                   style={{
-                    display: "flex", alignItems: "center", gap: 8,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
                     padding: "6px 10px", borderRadius: 6,
                     background: "rgba(239,68,68,0.06)", border: `1px solid ${t.dangerBorder}`,
                     cursor: "pointer", textAlign: "left", width: "100%",
@@ -499,7 +499,7 @@ export function OverviewTab({ days }: { days: number }) {
         {/* Left: Dreaming status table */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
+            display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
             marginBottom: 10,
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -507,7 +507,7 @@ export function OverviewTab({ days }: { days: number }) {
               <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Dreaming by Bot</span>
             </div>
             <button
-              onClick={() => router.push("/admin/learning#Dreaming" as any)}
+              onClick={() => navigate("/admin/learning#Dreaming")}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 4,
                 fontSize: 10, color: t.textMuted, background: "none", border: "none",
@@ -523,7 +523,7 @@ export function OverviewTab({ days }: { days: number }) {
         {/* Right: Memory Activity Feed */}
         <div style={{ flex: 1, minWidth: 0, maxWidth: isMobile ? undefined : 420 }}>
           <div style={{
-            display: "flex", alignItems: "center", gap: 6, marginBottom: 10,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10,
           }}>
             <PenLine size={14} color={t.textMuted} />
             <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Memory Activity</span>
@@ -567,7 +567,7 @@ export function OverviewTab({ days }: { days: number }) {
                     <div
                       key={`${item.created_at}-${i}`}
                       style={{
-                        display: "flex", alignItems: "center", gap: 8,
+                        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
                         padding: "7px 12px",
                         borderBottom: `1px solid ${t.surfaceBorder}`,
                       }}
@@ -577,7 +577,7 @@ export function OverviewTab({ days }: { days: number }) {
                         background: item.is_hygiene ? "#8b5cf6" : t.surfaceBorder,
                       }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                           <span style={{
                             fontSize: 11, fontWeight: 500, color: t.text,
                             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",

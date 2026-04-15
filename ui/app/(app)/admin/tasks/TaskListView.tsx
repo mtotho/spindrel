@@ -65,7 +65,7 @@ export function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
             <TaskCardRow
               key={tk.id}
               task={tk}
-              onPress={() => onTaskPress(tk)}
+              onClick={() => onTaskPress(tk)}
             />
           ))}
         </>
@@ -81,7 +81,7 @@ export function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
             <TaskCardRow
               key={tk.id}
               task={tk}
-              onPress={() => onTaskPress(tk)}
+              onClick={() => onTaskPress(tk)}
               isPast={getTaskTime(tk) < now && tk.status !== "running"}
             />
           ))}

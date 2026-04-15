@@ -1,6 +1,8 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState } from "react";
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useRouter } from "expo-router";
+
+import { useNavigate } from "react-router-dom";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { Lock, Plus, Trash2, Edit2, Check, X, ArrowLeft } from "lucide-react";
@@ -11,7 +13,7 @@ import {
   useUpdateSecretValue,
   type SecretValueItem,
 } from "@/src/api/hooks/useSecretValues";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDraftsStore } from "@/src/stores/drafts";
 
@@ -42,7 +44,7 @@ function SecretCard({
         width: "100%",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Lock size={14} color={t.accent} />
         <span
           style={{
@@ -55,7 +57,7 @@ function SecretCard({
         >
           {secret.name}
         </span>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 4 }}>
           <button
             onClick={onEdit}
             style={{
@@ -64,7 +66,7 @@ function SecretCard({
               border: `1px solid ${t.surfaceOverlay}`,
               background: "transparent",
               cursor: "pointer",
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
             }}
           >
@@ -78,7 +80,7 @@ function SecretCard({
               border: `1px solid ${t.surfaceOverlay}`,
               background: "transparent",
               cursor: "pointer",
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
             }}
           >
@@ -91,7 +93,7 @@ function SecretCard({
         <div style={{ fontSize: 12, color: t.textDim }}>{secret.description}</div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <span
           style={{
             padding: "1px 6px",
@@ -152,7 +154,7 @@ function CreateDialog({
         position: "fixed",
         inset: 0,
         background: "rgba(0,0,0,0.5)",
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         zIndex: 1000,
@@ -210,7 +212,7 @@ function CreateDialog({
           />
         </div>
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
           <button
             onClick={onClose}
             style={{
@@ -221,7 +223,7 @@ function CreateDialog({
               color: t.text,
               cursor: "pointer",
               fontSize: 13,
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 6,
             }}
@@ -242,7 +244,7 @@ function CreateDialog({
               opacity: isPending || !name || (!initial && !value) ? 0.5 : 1,
               fontSize: 13,
               fontWeight: 600,
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 6,
             }}
@@ -258,10 +260,10 @@ function CreateDialog({
 
 export default function SecretValuesScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: secrets, isLoading } = useSecretValues();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
   const [showCreate, setShowCreate] = useState(false);
   const [editingSecret, setEditingSecret] = useState<SecretValueItem | null>(null);
@@ -314,7 +316,7 @@ export default function SecretValuesScreen() {
             }
             setPrefillValue(undefined);
             setPrefillType(undefined);
-            router.push(returnTo as any);
+            navigate(returnTo);
           } else {
             setPrefillValue(undefined);
             setPrefillType(undefined);
@@ -357,14 +359,14 @@ export default function SecretValuesScreen() {
   };
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Secret Values"
         right={
           <button
             onClick={() => setShowCreate(true)}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 6,
               padding: "6px 14px",
@@ -407,9 +409,9 @@ export default function SecretValuesScreen() {
           </div>
 
           {isLoading ? (
-            <View className="items-center justify-center py-20">
-              <ActivityIndicator color={t.accent} />
-            </View>
+            <div className="items-center justify-center py-20">
+              <Spinner />
+            </div>
           ) : (
             <div
               style={{
@@ -479,7 +481,7 @@ export default function SecretValuesScreen() {
             color: t.success,
             zIndex: 1001,
             maxWidth: 460,
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 12,
           }}
@@ -494,7 +496,7 @@ export default function SecretValuesScreen() {
           </div>
           {returnTo && (
             <button
-              onClick={() => { setSavedName(null); router.push(returnTo as any); }}
+              onClick={() => { setSavedName(null); navigate(returnTo); }}
               style={{
                 padding: "6px 12px",
                 borderRadius: 6,
@@ -504,7 +506,7 @@ export default function SecretValuesScreen() {
                 cursor: "pointer",
                 fontSize: 12,
                 fontWeight: 600,
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 4,
                 whiteSpace: "nowrap",
@@ -522,7 +524,7 @@ export default function SecretValuesScreen() {
             position: "fixed",
             inset: 0,
             background: "rgba(0,0,0,0.5)",
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             justifyContent: "center",
             zIndex: 1000,
@@ -547,7 +549,7 @@ export default function SecretValuesScreen() {
             <div style={{ fontSize: 13, color: t.textDim }}>
               This cannot be undone. The secret will be removed from all workspace containers.
             </div>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <div style={{ display: "flex", flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
               <button
                 onClick={() => setDeleteConfirm(null)}
                 style={{
@@ -604,6 +606,6 @@ export default function SecretValuesScreen() {
           initial={editingSecret}
         />
       )}
-    </View>
+    </div>
   );
 }

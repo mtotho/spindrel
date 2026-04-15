@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, usePathname } from "expo-router";
+import { Link, useLocation } from "react-router-dom";
 import {
   MessageSquare,
   ChevronLeft,
@@ -52,24 +52,24 @@ import { useChannelReadStore } from "../../stores/channelRead";
 import { useChatStore } from "../../stores/chat";
 import { useShallow } from "zustand/react/shallow";
 import { useUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
-import { useThemeTokens } from "../../theme/tokens";
 import { SpindrelLogo } from "./SpindrelLogo";
 import { useVersion } from "../../api/hooks/useVersion";
+import { cn } from "../../lib/cn";
 
 // Sub-components
 import { ChannelList } from "./sidebar/ChannelList";
 import { ALL_NAV_ITEMS, AdminSections, NavLink, RailIcon } from "./sidebar/AdminNav";
-import { ThemeToggleIcon, SidebarFooterCollapsed, SidebarFooterExpanded } from "./sidebar/SidebarFooter";
+import { SidebarFooterCollapsed, SidebarFooterExpanded } from "./sidebar/SidebarFooter";
 
 /** Resolve a lucide icon name string to a component. Falls back to Plug. */
-const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
+const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   LayoutDashboard, Columns, BookOpen, Brain, HelpCircle, Settings, Zap, Plug, Filter,
   Bot, Layers, FileText, Paperclip, ClipboardCheck, ClipboardList, Key, Shield, ShieldCheck,
   Activity, Server, Wrench, BarChart3, Users, HardDrive, Code2, Hash, Home,
   MessageSquare, Container, Clock, Heart, Lock, Sun, Moon,
   Mail, Camera, MessageCircle, Terminal,
 };
-function resolveIcon(name: string): React.ComponentType<{ size: number; color: string }> {
+function resolveIcon(name: string): React.ComponentType<{ size?: number; className?: string }> {
   return ICON_MAP[name] || Plug;
 }
 
@@ -130,7 +130,6 @@ function IntegrationSidebarSection({
 }) {
   const hiddenSections = useUIStore((s) => s.hiddenSidebarSections);
   const { data: modulesData } = useMCModules();
-  const t = useThemeTokens();
   const [collapsed, setCollapsed] = useState(() => {
     const saved = loadIntegrationCollapsed();
     return saved[section.id] ?? false;
@@ -169,33 +168,25 @@ function IntegrationSidebarSection({
   };
 
   return (
-    <div style={{ padding: "6px 8px" }}>
+    <div className="px-3 pt-4 pb-1">
       <button
         onClick={toggle}
-        className="sidebar-nav-item"
-        style={{
-          display: "flex", alignItems: "center", gap: 6,
-          padding: "6px 12px", borderRadius: 4,
-          background: "none", border: "none", cursor: "pointer",
-          width: "100%", textAlign: "left",
-        }}
+        className="sidebar-nav-item flex flex-row items-center gap-1.5 px-3 py-1.5 rounded bg-transparent border-none cursor-pointer w-full text-left"
       >
-        <SectionIcon size={12} color={hasActive ? t.accent : t.textDim} />
-        <span style={{
-          flex: 1,
-          fontSize: mobile ? 12 : 11, fontWeight: 600,
-          letterSpacing: 0.5,
-          color: hasActive ? t.accent : t.textDim,
-        }}>
+        <SectionIcon size={12} className={hasActive ? "text-accent" : "text-text-dim"} />
+        <span className={cn(
+          "flex-1 font-semibold tracking-wide",
+          mobile ? "text-xs" : "text-[11px]",
+          hasActive ? "text-accent" : "text-text-dim",
+        )}>
           {section.title}
         </span>
         <ChevronRight
           size={10}
-          color={t.textDim}
-          style={{
-            transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
-            transition: "transform 0.15s",
-          }}
+          className={cn(
+            "text-text-dim transition-transform duration-150",
+            !collapsed && "rotate-90",
+          )}
         />
       </button>
       {!collapsed && (
@@ -234,12 +225,10 @@ function IntegrationRailIcons({
   sections,
   pathname,
   closeMobile,
-  t,
 }: {
   sections: SidebarSection[];
   pathname: string;
   closeMobile: () => void;
-  t: ReturnType<typeof useThemeTokens>;
 }) {
   const hiddenSections = useUIStore((s) => s.hiddenSidebarSections);
   return (
@@ -256,18 +245,12 @@ function IntegrationRailIcons({
               : `/${segs[0] || ""}`;
           const active = seg !== "/" && (pathname === seg || pathname.startsWith(seg + "/"));
           return (
-            <Link key={section.id} href={homeHref as any} onPress={closeMobile}>
+            <Link key={section.id} to={homeHref} onClick={closeMobile}>
               <div
-                className="sidebar-icon-btn"
+                className={cn("sidebar-rail-btn", active && "bg-accent/15")}
                 title={section.title}
-                style={{
-                  width: 44, height: 44, borderRadius: 8,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  cursor: "pointer",
-                  backgroundColor: active ? "rgba(59,130,246,0.15)" : undefined,
-                }}
               >
-                <Icon size={18} color={active ? t.accent : t.textDim} />
+                <Icon size={18} className={active ? "text-accent" : "text-text-dim"} />
               </div>
             </Link>
           );
@@ -277,7 +260,7 @@ function IntegrationRailIcons({
 }
 
 export function Sidebar({ mobile = false }: { mobile?: boolean }) {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
@@ -290,7 +273,6 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const sidebarSections = sidebarSectionsData?.sections || [];
   const { data: iconsData } = useIntegrationIcons();
   const integrationIcons = iconsData?.icons || {};
-  const t = useThemeTokens();
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
   const isUnread = useChannelReadStore((s) => s.isUnread);
   const streamingChannelIds = useChatStore(
@@ -309,120 +291,77 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   // -----------------------------------------------------------------------
   if (collapsed) {
     return (
-      <div style={{
-        width: 56, flexShrink: 0, height: "100%",
-        display: "flex", flexDirection: "column",
-        alignItems: "center",
-        backgroundColor: t.surface,
-        borderRight: `1px solid ${t.surfaceBorder}`,
-      }}>
-        <div style={{
-          flex: 1, overflowY: "auto", overflowX: "hidden",
-          display: "flex", flexDirection: "column", alignItems: "center",
-          paddingTop: 10, paddingBottom: 10, gap: 2,
-        }}>
+      <div className="w-14 shrink-0 h-full flex flex-col items-center bg-surface">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col items-center pt-2.5 pb-2.5 gap-1">
           {/* Logo */}
-          <div style={{ width: 44, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <SpindrelLogo size={22} color={t.text} />
+          <div className="w-10 h-10 mb-1 flex flex-row items-center justify-center text-text">
+            <SpindrelLogo size={22} />
           </div>
 
           {/* Expand toggle */}
           <button
             onClick={toggleSidebar}
-            className="sidebar-icon-btn"
-            style={{
-              width: 44, height: 44, borderRadius: 8,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: "none", border: "none", cursor: "pointer", padding: 0,
-            }}
+            className="sidebar-rail-btn bg-transparent border-none p-0"
             aria-label="Expand sidebar"
           >
-            <ChevronRight size={16} color={t.textDim} />
+            <ChevronRight size={16} className="text-text-dim" />
           </button>
 
           {/* Home (orchestrator) icon */}
           {orchestratorChannel && (() => {
             const orchActive = pathname.includes(orchestratorChannel.id);
             return (
-              <Link href={`/channels/${orchestratorChannel.id}` as any} onPress={closeMobile}>
+              <Link to={`/channels/${orchestratorChannel.id}`} onClick={closeMobile}>
                 <div
-                  className="sidebar-icon-btn"
+                  className={cn("sidebar-rail-btn", orchActive && "bg-accent/15")}
                   title="Home"
-                  style={{
-                    width: 44, height: 44, borderRadius: 8,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    cursor: "pointer",
-                    backgroundColor: orchActive ? "rgba(59,130,246,0.15)" : undefined,
-                  }}
                 >
-                  <Home size={18} color={orchActive ? t.accent : t.textDim} />
+                  <Home size={18} className={orchActive ? "text-accent" : "text-text-dim"} />
                 </div>
               </Link>
             );
           })()}
 
           {/* Channels icon */}
-          <Link href={"/" as any} onPress={closeMobile}>
+          <Link to="/" onClick={closeMobile}>
             <div
-              className="sidebar-icon-btn"
+              className={cn("sidebar-rail-btn", pathname === "/" && "bg-accent/15")}
               title="Channels"
-              style={{
-                width: 44, height: 44, borderRadius: 8,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: "pointer",
-                backgroundColor: pathname === "/" ? "rgba(59,130,246,0.15)" : undefined,
-              }}
             >
-              <div style={{ position: "relative" }}>
-                <MessageSquare size={18} color={pathname === "/" ? t.accent : t.textDim} />
+              <div className="relative">
+                <MessageSquare size={18} className={pathname === "/" ? "text-accent" : "text-text-dim"} />
                 {channels?.filter((ch) => ch.client_id !== "orchestrator:home").some((ch) => !pathname.includes(ch.id) && isUnread(ch.id, ch.updated_at)) && (
-                  <span style={{
-                    position: "absolute", top: -2, right: -2,
-                    width: 7, height: 7, borderRadius: 4,
-                    backgroundColor: t.accent, display: "inline-block",
-                  }} />
+                  <span className="absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full bg-accent inline-block" />
                 )}
               </div>
             </div>
           </Link>
 
           {/* Workspace icon */}
-          <Link href={(workspaces?.[0] ? `/admin/workspaces/${workspaces[0].id}` : "/admin/workspaces") as any} onPress={closeMobile}>
+          <Link to={workspaces?.[0] ? `/admin/workspaces/${workspaces[0].id}` : "/admin/workspaces"} onClick={closeMobile}>
             <div
-              className="sidebar-icon-btn"
+              className={cn("sidebar-rail-btn", pathname.startsWith("/admin/workspaces") && "bg-accent/15")}
               title="Workspaces"
-              style={{
-                width: 44, height: 44, borderRadius: 8,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: "pointer",
-                backgroundColor: pathname.startsWith("/admin/workspaces") ? "rgba(59,130,246,0.15)" : undefined,
-              }}
             >
-              <Container size={18} color={pathname.startsWith("/admin/workspaces") ? t.accent : t.textDim} />
+              <Container size={18} className={pathname.startsWith("/admin/workspaces") ? "text-accent" : "text-text-dim"} />
             </div>
           </Link>
 
           {/* Upcoming icon */}
-          <Link href={"/admin/upcoming" as any} onPress={closeMobile}>
+          <Link to="/admin/upcoming" onClick={closeMobile}>
             <div
-              className="sidebar-icon-btn"
+              className={cn("sidebar-rail-btn", pathname.startsWith("/admin/upcoming") && "bg-accent/15")}
               title="Upcoming Activity"
-              style={{
-                width: 44, height: 44, borderRadius: 8,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: "pointer",
-                backgroundColor: pathname.startsWith("/admin/upcoming") ? "rgba(59,130,246,0.15)" : undefined,
-              }}
             >
-              <Clock size={18} color={pathname.startsWith("/admin/upcoming") ? t.accent : t.textDim} />
+              <Clock size={18} className={pathname.startsWith("/admin/upcoming") ? "text-accent" : "text-text-dim"} />
             </div>
           </Link>
 
           {/* Integration sidebar section icons */}
-          <IntegrationRailIcons sections={sidebarSections} pathname={pathname} closeMobile={closeMobile} t={t} />
+          <IntegrationRailIcons sections={sidebarSections} pathname={pathname} closeMobile={closeMobile} />
 
           {/* Divider */}
-          <div style={{ height: 1, width: 32, backgroundColor: t.surfaceBorder, margin: "6px 0" }} />
+          <div className="h-px w-5 bg-text-dim/20 my-3" />
 
           {/* Admin nav icons */}
           {ALL_NAV_ITEMS.map((item) => (
@@ -442,37 +381,25 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   // -----------------------------------------------------------------------
   // Expanded sidebar (260px desktop, flex on mobile)
   // -----------------------------------------------------------------------
-  const channelPy = mobile ? "py-3" : "py-2";
-
   return (
-    <div style={{
-      width: mobile ? "100%" : 260, flexShrink: 0, height: "100%",
-      display: "flex", flexDirection: "column",
-      backgroundColor: t.surface,
-      borderRight: `1px solid ${t.surfaceBorder}`,
-    }}>
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", paddingBottom: 8 }}>
+    <div className={cn(
+      "shrink-0 h-full flex flex-col bg-surface",
+      mobile ? "w-full" : "w-[260px]",
+    )}>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2">
         {/* Header */}
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "16px 16px",
-        }}>
-          <Link href={"/" as any}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-              <SpindrelLogo size={22} color={t.text} />
-              <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: 1.5, color: t.text }}>SPINDREL</span>
+        <div className="flex flex-row items-center justify-between px-4 pt-5 pb-3 group">
+          <Link to="/">
+            <div className="flex flex-row items-center gap-2 cursor-pointer text-text">
+              <SpindrelLogo size={22} />
+              <span className="text-[13px] font-semibold tracking-[0.15em] text-text/80">SPINDREL</span>
             </div>
           </Link>
           <button
             onClick={toggleSidebar}
-            className="sidebar-icon-btn"
-            style={{
-              width: 32, height: 32, borderRadius: 4,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: "none", border: "none", cursor: "pointer", padding: 0,
-            }}
+            className="sidebar-icon-btn w-8 h-8 rounded flex flex-row items-center justify-center bg-transparent border-none cursor-pointer p-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
           >
-            <ChevronLeft size={16} color={t.textDim} />
+            <ChevronLeft size={16} className="text-text-dim" />
           </button>
         </div>
 
@@ -483,7 +410,6 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           botMap={botMap}
           integrationIcons={integrationIcons}
           mobile={mobile}
-          channelPy={channelPy}
           streamingSet={streamingSet}
         />
 
@@ -491,44 +417,33 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
         {workspaces && workspaces.length > 0 && (() => {
           const ws = workspaces[0];
           return (
-            <div style={{ padding: "6px 8px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", marginBottom: 4 }}>
-                <span style={{ fontSize: mobile ? 12 : 11, fontWeight: 600, letterSpacing: 0.5, color: t.textDim, padding: "6px 0" }}>
+            <div className="px-3 pt-4 pb-1">
+              <div className="flex flex-row items-center justify-between px-3 mb-1">
+                <span className={cn(
+                  "font-semibold tracking-wide text-text-dim py-1.5",
+                  mobile ? "text-xs" : "text-[11px]",
+                )}>
                   WORKSPACE
                 </span>
-                <Link href={`/admin/workspaces/${ws.id}` as any} onPress={closeMobile}>
-                  <div
-                    className="sidebar-icon-btn"
-                    style={{
-                      width: 28, height: 28, borderRadius: 4,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <Settings size={12} color={t.textDim} />
+                <Link to={`/admin/workspaces/${ws.id}`} onClick={closeMobile}>
+                  <div className="sidebar-icon-btn w-7 h-7 rounded flex flex-row items-center justify-center cursor-pointer">
+                    <Settings size={12} className="text-text-dim" />
                   </div>
                 </Link>
               </div>
-              <div style={{ margin: "0 4px" }}>
-                <Link href={`/admin/workspaces/${ws.id}/files` as any} onPress={closeMobile}>
-                  <div
-                    className="sidebar-nav-item"
-                    style={{
-                      display: "flex", alignItems: "center", gap: 10,
-                      padding: "8px 12px", cursor: "pointer",
-                      borderRadius: 8, border: `1px solid ${t.surfaceBorder}`,
-                    }}
-                  >
-                    <span style={{
-                      width: 8, height: 8, borderRadius: 4,
-                      backgroundColor: ws.status === "running" ? "#22c55e" : t.textDim,
-                      display: "inline-block", flexShrink: 0,
-                    }} />
-                    <span style={{
-                      flex: 1, fontSize: mobile ? 15 : 14,
-                      color: t.accent, fontWeight: 500,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    }}>
+              <div className="mx-1">
+                <Link to={`/admin/workspaces/${ws.id}/files`} onClick={closeMobile}>
+                  <div className="sidebar-nav-item flex flex-row items-center gap-2.5 px-3 py-2 cursor-pointer rounded-lg">
+                    <span
+                      className={cn(
+                        "w-2 h-2 rounded-full inline-block shrink-0",
+                        ws.status === "running" ? "bg-green-500" : "bg-text-dim",
+                      )}
+                    />
+                    <span className={cn(
+                      "flex-1 font-medium text-accent overflow-hidden text-ellipsis whitespace-nowrap",
+                      mobile ? "text-[15px]" : "text-sm",
+                    )}>
                       {ws.name}
                     </span>
                   </div>
@@ -539,43 +454,32 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
         })()}
 
         {/* Upcoming activity */}
-        <div style={{ padding: "6px 8px" }}>
-          <Link href={"/admin/upcoming" as any} onPress={closeMobile}>
-            <div
-              className="sidebar-nav-item"
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "0 12px", marginBottom: 4, borderRadius: 4, cursor: "pointer",
-              }}
-            >
-              <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.5, color: t.textDim, padding: "6px 0" }}>
+        <div className="px-3 pt-4 pb-1">
+          <Link to="/admin/upcoming" onClick={closeMobile}>
+            <div className="sidebar-nav-item flex flex-row items-center justify-between px-3 mb-1 rounded cursor-pointer">
+              <span className="sidebar-section-label">
                 UPCOMING
               </span>
-              <Clock size={12} color={t.textDim} />
+              <Clock size={12} className="text-text-dim" />
             </div>
           </Link>
 
           {upcomingLoading ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div className="flex flex-col gap-1">
               {[1, 2].map((i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 12px" }}>
-                  <div style={{
-                    width: 14, height: 14, borderRadius: 4,
-                    backgroundColor: t.skeletonBg,
-                    animation: "pulse 2s ease-in-out infinite",
-                  }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{
-                      height: 12, width: `${50 + i * 15}%`, borderRadius: 4,
-                      backgroundColor: t.skeletonBg,
-                      animation: "pulse 2s ease-in-out infinite",
-                    }} />
+                <div key={i} className="flex flex-row items-center gap-2.5 px-3 py-1.5">
+                  <div className="w-3.5 h-3.5 rounded bg-skeleton/[0.04] animate-pulse" />
+                  <div className="flex-1">
+                    <div
+                      className="h-3 rounded bg-skeleton/[0.04] animate-pulse"
+                      style={{ width: `${50 + i * 15}%` }}
+                    />
                   </div>
                 </div>
               ))}
             </div>
           ) : !upcomingItems?.length ? (
-            <span style={{ fontSize: 12, color: t.textDim, padding: "4px 12px", display: "block" }}>
+            <span className="text-xs text-text-dim px-3 py-1 block">
               No upcoming activity
             </span>
           ) : (
@@ -584,31 +488,24 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                 ? `/channels/${item.channel_id}/settings#heartbeat`
                 : "/admin/tasks";
               return (
-                <Link key={`${item.type}-${idx}`} href={href as any} onPress={closeMobile}>
-                  <div
-                    className="sidebar-nav-item"
-                    style={{
-                      display: "flex", alignItems: "center", gap: 8,
-                      borderRadius: 6, padding: "6px 12px", cursor: "pointer",
-                    }}
-                  >
+                <Link key={`${item.type}-${idx}`} to={href} onClick={closeMobile}>
+                  <div className="sidebar-nav-item flex flex-row items-center gap-2 rounded-md px-3 py-1.5 cursor-pointer">
                     {item.type === "heartbeat" ? (
-                      <Heart size={13} color={item.in_quiet_hours ? t.textDim : t.warning} style={item.in_quiet_hours ? { opacity: 0.4 } : undefined} />
+                      <Heart
+                        size={13}
+                        className={item.in_quiet_hours ? "text-text-dim opacity-40" : "text-warning"}
+                      />
                     ) : (
-                      <ClipboardList size={13} color={t.accent} />
+                      <ClipboardList size={13} className="text-accent" />
                     )}
-                    <span style={{
-                      width: 6, height: 6, borderRadius: 3,
-                      backgroundColor: botDotColor(item.bot_id),
-                      flexShrink: 0, display: "inline-block",
-                    }} />
-                    <span style={{
-                      flex: 1, fontSize: 12, color: t.textMuted,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    }}>
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0 inline-block"
+                      style={{ backgroundColor: botDotColor(item.bot_id) }}
+                    />
+                    <span className="flex-1 text-xs text-text-muted overflow-hidden text-ellipsis whitespace-nowrap">
                       {item.type === "heartbeat" && item.channel_name ? `#${item.channel_name}` : item.title}
                     </span>
-                    <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0 }}>
+                    <span className="text-[10px] text-text-dim shrink-0">
                       {item.scheduled_at ? relativeTime(item.scheduled_at) : ""}
                     </span>
                   </div>

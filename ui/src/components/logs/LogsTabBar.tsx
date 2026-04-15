@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 const TABS = [
@@ -12,12 +12,12 @@ type TabKey = (typeof TABS)[number]["key"];
 
 export function LogsTabBar({ active }: { active: TabKey }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
 
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         gap: 4,
         padding: "8px 20px",
         borderBottom: `1px solid ${t.surfaceRaised}`,
@@ -28,7 +28,7 @@ export function LogsTabBar({ active }: { active: TabKey }) {
         return (
           <button
             key={tab.key}
-            onClick={() => router.push(tab.href as any)}
+            onClick={() => navigate(tab.href)}
             style={{
               padding: "6px 14px",
               fontSize: 13,

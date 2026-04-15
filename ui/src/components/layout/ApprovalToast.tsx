@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { useRouter, usePathname } from "expo-router";
+import { useNavigate, useLocation } from "react-router-dom";
 import { ShieldCheck } from "lucide-react";
 import { usePendingApprovalCount } from "../../api/hooks/useApprovals";
 import { useThemeTokens } from "../../theme/tokens";
 
 export function ApprovalToast() {
   const { data: count = 0 } = usePendingApprovalCount();
-  const pathname = usePathname();
-  const router = useRouter();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
   const t = useThemeTokens();
 
   const prevCountRef = useRef(count);
@@ -74,7 +74,7 @@ export function ApprovalToast() {
       <button
         onClick={() => {
           setShowToast(false);
-          router.push("/admin/approvals" as any);
+          navigate("/admin/approvals");
         }}
         style={{
           pointerEvents: "auto",

@@ -97,7 +97,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
               onMouseEnter={(e) => (e.currentTarget.style.background = t.surfaceOverlay)}
               onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 <Pencil size={isMobile ? 13 : 11} color={t.accent} />
                 <span style={{ fontSize: isMobile ? 14 : 12, fontWeight: 600, color: t.text }}>
                   {tpl.name}
@@ -163,7 +163,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
   );
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
       {linked ? (
         <>
           <div
@@ -262,7 +262,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
                     }}
                   >
                     <div style={{
-                      display: "flex",
+                      display: "flex", flexDirection: "row",
                       alignItems: "center",
                       gap: 8,
                       padding: "12px 16px",
@@ -273,7 +273,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
                       <button
                         onClick={close}
                         style={{
-                          display: "flex",
+                          display: "flex", flexDirection: "row",
                           alignItems: "center",
                           justifyContent: "center",
                           width: 36,

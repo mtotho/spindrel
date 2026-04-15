@@ -1,5 +1,6 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useRef, useCallback, useEffect } from "react";
-import { View, ActivityIndicator } from "react-native";
+
 import { BellOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Send } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -48,9 +49,9 @@ function StatusBanner() {
 
   if (statusLoading || !status) {
     return (
-      <View className="items-center justify-center" style={{ padding: 20 }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="items-center justify-center" style={{ padding: 20 }}>
+        <Spinner />
+      </div>
     );
   }
 
@@ -58,7 +59,7 @@ function StatusBanner() {
     return (
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 10,
           padding: "12px 16px",
@@ -92,7 +93,7 @@ function StatusBanner() {
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 12,
         padding: "12px 16px",
@@ -193,9 +194,9 @@ function ConfigForm() {
 
   if (isLoading || !config) {
     return (
-      <View className="items-center justify-center" style={{ padding: 20 }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="items-center justify-center" style={{ padding: 20 }}>
+        <Spinner />
+      </div>
     );
   }
 
@@ -297,7 +298,7 @@ function ConfigForm() {
         borderRadius: 8,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Configuration</div>
         {updateConfig.isPending && (
           <span style={{ fontSize: 10, color: t.textDim }}>Saving...</span>
@@ -305,7 +306,7 @@ function ConfigForm() {
       </div>
 
       {/* Enable toggle */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
         <label style={{ ...labelStyle, marginBottom: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
           <input
             type="checkbox"
@@ -321,7 +322,7 @@ function ConfigForm() {
       {config.enabled && (
         <>
           {/* Threshold fields */}
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 16, flexWrap: "wrap" }}>
             <div>
               <div style={labelStyle}>Window (minutes)</div>
               <DebouncedNumberInput
@@ -382,7 +383,7 @@ function ConfigForm() {
 
             {/* Currently configured targets */}
             {(config.targets || []).length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
                 {(config.targets || []).map((tgt, i) => (
                   <span
                     key={i}
@@ -422,7 +423,7 @@ function ConfigForm() {
 
             {/* Available targets from channels/bindings */}
             {availableOptions.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
                 {availableOptions
                   .filter((opt) => !isTargetSelected(opt))
                   .map((opt, i) => (
@@ -448,7 +449,7 @@ function ConfigForm() {
 
             {/* Add custom integration target */}
             {availableIntegrations.length > 0 && !addingIntegration && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
                 {availableIntegrations.map((integ) => (
                   <button
                     key={integ.integration_type}
@@ -474,7 +475,7 @@ function ConfigForm() {
 
             {/* Custom target input */}
             {addingIntegration && (
-              <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4 }}>
+              <div style={{ display: "flex", flexDirection: "row", gap: 6, alignItems: "center", marginTop: 4 }}>
                 <span style={{ fontSize: 12, color: t.textMuted, fontWeight: 600 }}>
                   {addingIntegration.integration_type}:
                 </span>
@@ -535,12 +536,12 @@ function ConfigForm() {
           </div>
 
           {/* Test alert button */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
             <button
               onClick={() => testAlert.mutate()}
               disabled={testAlert.isPending || (config.targets || []).length === 0}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
                 padding: "7px 14px",
@@ -585,9 +586,9 @@ function AlertHistory() {
 
   if (isLoading) {
     return (
-      <View className="items-center justify-center" style={{ padding: 20 }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="items-center justify-center" style={{ padding: 20 }}>
+        <Spinner />
+      </div>
     );
   }
 
@@ -617,7 +618,7 @@ function AlertHistory() {
       {/* Header */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           gap: 8,
           padding: "8px 16px",
           fontSize: 10,
@@ -642,7 +643,7 @@ function AlertHistory() {
           <div
             onClick={() => setExpanded(expanded === alert.id ? null : alert.id)}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               gap: 8,
               padding: "8px 16px",
               fontSize: 12,
@@ -728,7 +729,7 @@ function AlertHistory() {
       {totalPages > 1 && (
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             justifyContent: "center",
             alignItems: "center",
             gap: 12,

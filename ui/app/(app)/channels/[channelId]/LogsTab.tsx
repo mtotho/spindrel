@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
-import { Text, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useRouter } from "expo-router";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
+import { useNavigate } from "react-router-dom";
 import { ExternalLink, Search, AlertTriangle, Wrench, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { EmptyState } from "@/src/components/shared/FormControls";
@@ -11,8 +12,8 @@ const PAGE_SIZE = 20;
 
 export function LogsTab({ channelId }: { channelId: string }) {
   const t = useThemeTokens();
-  const router = useRouter();
-  const { width } = useWindowDimensions();
+  const navigate = useNavigate();
+  const { width } = useWindowSize();
   const isMobile = width < 768;
 
   const [searchText, setSearchText] = useState("");
@@ -47,13 +48,13 @@ export function LogsTab({ channelId }: { channelId: string }) {
     }
   }, [data]);
 
-  if (isLoading && !data) return <ActivityIndicator color={t.accent} />;
+  if (isLoading && !data) return <Spinner color={t.accent} />;
 
   return (
     <>
       {/* Compact filter bar */}
       <div style={{
-        display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center",
+        display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap", alignItems: "center",
         marginBottom: 12,
       }}>
         <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 0 auto" }}>
@@ -73,7 +74,7 @@ export function LogsTab({ channelId }: { channelId: string }) {
         <button
           onClick={() => { setErrorOnly(!errorOnly); setBeforeCursor(undefined); }}
           style={{
-            display: "flex", alignItems: "center", gap: 4,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
             background: errorOnly ? t.dangerSubtle : t.surfaceRaised,
             border: `1px solid ${errorOnly ? t.danger : t.surfaceBorder}`,
             borderRadius: 6, padding: "5px 10px", fontSize: 12,
@@ -86,7 +87,7 @@ export function LogsTab({ channelId }: { channelId: string }) {
         <button
           onClick={() => { setToolCallsOnly(!toolCallsOnly); setBeforeCursor(undefined); }}
           style={{
-            display: "flex", alignItems: "center", gap: 4,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
             background: toolCallsOnly ? t.purpleSubtle : t.surfaceRaised,
             border: `1px solid ${toolCallsOnly ? t.purple : t.surfaceBorder}`,
             borderRadius: 6, padding: "5px 10px", fontSize: 12,
@@ -100,7 +101,7 @@ export function LogsTab({ channelId }: { channelId: string }) {
           <button
             onClick={clearFilters}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               background: "none", border: "none", color: t.textDim, cursor: "pointer",
               fontSize: 12,
             }}
@@ -126,7 +127,7 @@ export function LogsTab({ channelId }: { channelId: string }) {
             key={turn.correlation_id}
             turn={turn}
             isMobile={isMobile}
-            onPress={(cid) => router.push(`/admin/logs/${cid}` as any)}
+            onPress={(cid) => navigate(`/admin/logs/${cid}`)}
             showBotBadge={false}
             showChannelBadge={false}
           />
@@ -138,7 +139,7 @@ export function LogsTab({ channelId }: { channelId: string }) {
 
       {/* Load more */}
       {data && data.turns.length >= PAGE_SIZE && (
-        <div style={{ display: "flex", justifyContent: "center", padding: "16px 0" }}>
+        <div style={{ display: "flex", flexDirection: "row", justifyContent: "center", padding: "16px 0" }}>
           <button
             onClick={handleLoadMore}
             style={{
@@ -153,16 +154,17 @@ export function LogsTab({ channelId }: { channelId: string }) {
       )}
 
       {/* Link to admin logs */}
-      <Pressable
-        onPress={() => router.push(`/admin/logs?channel_id=${channelId}` as any)}
+      <button
+        type="button"
+        onClick={() => navigate(`/admin/logs?channel_id=${channelId}`)}
         style={{
           display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-          alignSelf: "flex-start", marginTop: 4,
+          alignSelf: "flex-start", marginTop: 4, background: "none", border: "none", cursor: "pointer", padding: 0,
         }}
       >
-        <Text style={{ fontSize: 13, color: t.accent }}>View all in Logs</Text>
+        <span style={{ fontSize: 13, color: t.accent }}>View all in Logs</span>
         <ExternalLink size={12} color={t.accent} />
-      </Pressable>
+      </button>
     </>
   );
 }

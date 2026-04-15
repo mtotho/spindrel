@@ -16,7 +16,7 @@ export function SuggestionsPicker({
 
   if (isLoading) {
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: "8px 0" }}>
         <span
           style={{
             width: 12,

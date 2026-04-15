@@ -6,9 +6,10 @@
  * For shared workspace bots, segments = "Indexed Directories" and are
  * editable inline (add/delete) without navigating to the bot edit page.
  */
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useMemo } from "react";
-import { View, Text, ActivityIndicator } from "react-native";
-import { useRouter } from "expo-router";
+
+import { useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronRight, Database, ExternalLink, EyeOff, FileText, Folder, HelpCircle, Plus, RefreshCw, X } from "lucide-react";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
@@ -88,7 +89,7 @@ function DirGroup({ dir }: {
       <button
         onClick={() => setOpen(!open)}
         style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           width: "100%", padding: "5px 0",
           background: "none", border: "none", cursor: "pointer", textAlign: "left",
         }}
@@ -115,7 +116,7 @@ function DirGroup({ dir }: {
           {dir.files.map((f) => {
             const name = f.rel.split("/").pop() || f.rel;
             return (
-              <div key={f.rel} style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 0" }}>
+              <div key={f.rel} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "2px 0" }}>
                 <FileText size={10} color={t.textDim} />
                 <span style={{ fontSize: 11, fontFamily: "monospace", color: t.textMuted, flex: 1 }}>
                   {name}
@@ -186,7 +187,7 @@ function SegmentEditor({
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
         <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase" }}>
           Indexed Directories
         </div>
@@ -218,7 +219,7 @@ function SegmentEditor({
       </div>
       {segments.map((seg: any, i: number) => (
         <div key={i} style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4,
           opacity: isInherited ? 0.75 : 1,
         }}>
@@ -245,7 +246,7 @@ function SegmentEditor({
           No directories configured — only memory files are indexed.
         </div>
       )}
-      <div style={{ display: "flex", gap: 4, marginTop: 4, alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4, alignItems: "center" }}>
         <input
           type="text" value={newPrefix} onChange={(e) => setNewPrefix(e.target.value)}
           placeholder={isInherited ? "add override (e.g. extra/)" : "directory (e.g. common/)"}
@@ -267,7 +268,7 @@ function SegmentEditor({
           onClick={addSegment}
           disabled={!newPrefix.trim() || updateIndexing.isPending}
           style={{
-            display: "flex", alignItems: "center", gap: 4,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
             padding: "4px 10px", fontSize: 11, fontWeight: 600,
             background: newPrefix.trim() ? t.surfaceRaised : t.inputBg,
             border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
@@ -302,7 +303,7 @@ function BotIndexCard({
   workspaceSegments?: any[];
 }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
   const r = bot.resolved;
@@ -344,7 +345,7 @@ function BotIndexCard({
       <button
         onClick={() => setExpanded(!expanded)}
         style={{
-          display: "flex", alignItems: "center", gap: 8,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
           width: "100%", padding: "10px 14px",
           background: "none", border: "none", cursor: "pointer", textAlign: "left",
         }}
@@ -362,7 +363,7 @@ function BotIndexCard({
         }} />
         {/* Clickable bot name → bot edit page */}
         <span
-          onClick={(e) => { e.stopPropagation(); router.push(`/admin/bots/${bot.bot_id}` as any); }}
+          onClick={(e) => { e.stopPropagation(); navigate(`/admin/bots/${bot.bot_id}`); }}
           style={{
             fontSize: 13, fontWeight: 600, color: t.text, flex: 1,
             cursor: "pointer", textDecoration: "none",
@@ -381,7 +382,7 @@ function BotIndexCard({
           {bot.role}
         </span>
         {(bot.indexing_enabled || bot.memory_scheme === "workspace-files") && totalChunks > 0 && (
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Database size={11} color={t.textDim} />
             <span style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>
               {totalFiles} files / {totalChunks} chunks
@@ -404,7 +405,7 @@ function BotIndexCard({
           </span>
         )}
         {!bot.indexing_enabled && bot.memory_scheme !== "workspace-files" && (
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+          <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
             <EyeOff size={11} color={t.textDim} />
             <span style={{ fontSize: 10, color: t.textDim }}>disabled</span>
           </span>
@@ -428,7 +429,7 @@ function BotIndexCard({
 
           {/* Config chips */}
           {bot.indexing_enabled && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
               <ConfigChip label="top_k" value={r.top_k} overridden={!!bot.explicit_overrides.top_k} />
               <ConfigChip label="threshold" value={r.similarity_threshold} overridden={!!bot.explicit_overrides.similarity_threshold} />
               <ConfigChip label="cooldown" value={`${r.cooldown_seconds}s`} overridden={!!bot.explicit_overrides.cooldown_seconds} />
@@ -454,7 +455,7 @@ function BotIndexCard({
                   <span style={{ fontWeight: 400, color: t.textDim, textTransform: "none", marginLeft: 6 }}>inherited from defaults</span>
                 )}
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                 {(r.patterns || []).map((pat, i) => (
                   <span key={i} style={{
                     padding: "2px 8px", borderRadius: 4, fontSize: 11,
@@ -473,7 +474,7 @@ function BotIndexCard({
           {/* Segments for standalone bots (read-only) */}
           {!isSharedWs && r.segments && r.segments.length > 0 && (
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
                 <span style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase" }}>
                   Segments
                 </span>
@@ -490,7 +491,7 @@ function BotIndexCard({
               </div>
               {r.segments.map((seg: any, i: number) => (
                 <div key={i} style={{
-                  display: "flex", alignItems: "center", gap: 6,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                   padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4,
                 }}>
                   <span style={{ fontFamily: "monospace", color: "#60a5fa" }}>{seg.path_prefix}</span>
@@ -514,7 +515,7 @@ function BotIndexCard({
               <button
                 onClick={() => setShowFiles(!showFiles)}
                 style={{
-                  display: "flex", alignItems: "center", gap: 6,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                   padding: "6px 10px", background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
                   borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600, color: t.textMuted,
                 }}
@@ -578,7 +579,7 @@ function IndexingHelpPanel() {
       <button
         onClick={() => setOpen(!open)}
         style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           width: "100%", padding: "8px 14px",
           background: "none", border: "none", cursor: "pointer", textAlign: "left",
         }}
@@ -658,11 +659,11 @@ export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
   };
 
   if (isLoading) {
-    return <ActivityIndicator color="#14b8a6" style={{ alignSelf: "flex-start", marginVertical: 8 }} />;
+    return <Spinner />;
   }
 
   if (!data?.bots?.length) {
-    return <Text style={{ color: t.textDim, fontSize: 12 }}>No bots connected to this workspace.</Text>;
+    return <span style={{ color: t.textDim, fontSize: 12 }}>No bots connected to this workspace.</span>;
   }
 
   const enabledCount = data.bots.filter((b) => b.indexing_enabled).length;
@@ -687,7 +688,7 @@ export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
           )}
         </span>
         {totalChunks > 0 && (
-          <span style={{ display: "flex", alignItems: "center", gap: 4, color: t.textMuted }}>
+          <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, color: t.textMuted }}>
             <Database size={12} color={t.textDim} />
             {totalFiles} files / {totalChunks.toLocaleString()} chunks
           </span>
@@ -701,7 +702,7 @@ export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
           onClick={handleReindex}
           disabled={reindex.isPending}
           style={{
-            display: "flex", alignItems: "center", gap: 5,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 5,
             padding: "4px 12px", borderRadius: 5, fontSize: 11, fontWeight: 600,
             background: reindex.isPending ? t.inputBg : t.surfaceRaised,
             border: `1px solid ${t.surfaceBorder}`, cursor: reindex.isPending ? "default" : "pointer",

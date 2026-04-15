@@ -1,5 +1,5 @@
 import { Puzzle, Plus, X as XIcon, Layers } from "lucide-react";
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { prettyIntegrationName } from "@/src/utils/format";
 import { StatusBadge } from "@/src/components/shared/SettingsControls";
@@ -8,10 +8,10 @@ import { ActivationConfigFields } from "./ActivationConfigFields";
 import { HudPresetPicker } from "./HudPresetPicker";
 
 function CarapacePill({ id, t }: { id: string; t: any }) {
-  const href = `/admin/carapaces/${id.replaceAll("/", "--")}` as any;
+  const href = `/admin/carapaces/${id.replaceAll("/", "--")}`;
   return (
-    <Link href={href} asChild>
-      <a
+    <Link to={href}>
+      <span
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -29,7 +29,7 @@ function CarapacePill({ id, t }: { id: string; t: any }) {
       >
         <Layers size={10} color={t.accent} />
         <span style={{ fontSize: 10, fontWeight: 600, color: t.accent }}>{id}</span>
-      </a>
+      </span>
     </Link>
   );
 }
@@ -61,7 +61,7 @@ function InjectionDetails({ ig, t }: { ig: ActivatableIntegration; t: any }) {
   return (
     <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${t.surfaceBorder}` }}>
       {ig.carapaces.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
           {ig.carapaces.map((id) => (
             <CarapacePill key={id} id={id} t={t} />
           ))}
@@ -110,7 +110,7 @@ export function ActivationCard({
       {/* Header row */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 12,
           padding: "12px 14px",
@@ -122,7 +122,7 @@ export function ActivationCard({
             height: 34,
             borderRadius: 8,
             background: ig.activated ? t.accent : t.surfaceOverlay,
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             justifyContent: "center",
             flexShrink: 0,
@@ -136,7 +136,7 @@ export function ActivationCard({
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
               {prettyIntegrationName(ig.integration_type)}
             </span>
@@ -174,7 +174,7 @@ export function ActivationCard({
           onClick={() => !disabled && !toggling && onToggle()}
           disabled={disabled || toggling}
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 6,
             padding: "6px 14px",

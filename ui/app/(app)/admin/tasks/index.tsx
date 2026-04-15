@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +10,7 @@ import { AlertCircle } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useBots } from "@/src/api/hooks/useBots";
 import { TaskEditor } from "@/src/components/shared/TaskEditor";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { formatDate } from "@/src/utils/time";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -38,7 +38,7 @@ export default function TasksScreen() {
   const [botFilter, setBotFilter] = useState<string>("");
   const [editorState, setEditorState] = useState<EditorState>({ mode: "closed" });
   const qc = useQueryClient();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { refreshing, onRefresh } = usePageRefresh();
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
@@ -153,7 +153,7 @@ export default function TasksScreen() {
   const handleTaskPress = (task: TaskItem) => {
     // Workflow tasks -> navigate to task detail page (has WorkflowRunLink)
     if (task.task_type === "workflow") {
-      router.push(`/admin/tasks/${task.id}` as any);
+      navigate(`/admin/tasks/${task.id}`);
       return;
     }
     const taskId = task.is_virtual && task._schedule_id ? task._schedule_id : task.id;
@@ -178,16 +178,16 @@ export default function TasksScreen() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, background: t.surface, overflow: "hidden" }}>
-      <MobileHeader
+      <PageHeader variant="list"
         title="Tasks"
         subtitle={subtitle}
         right={
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <button
               onClick={() => setEditorState({ mode: "create" })}
               title="New Task"
               style={{
-                display: "flex", alignItems: "center", gap: 6,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                 padding: "5px 14px", fontSize: 12, fontWeight: 600,
                 border: "none", cursor: "pointer", borderRadius: 6, background: t.accent, color: "#fff",
               }}
@@ -212,7 +212,7 @@ export default function TasksScreen() {
               ))}
             </select>
 
-            <div style={{ display: "flex", background: t.surfaceRaised, borderRadius: 6, overflow: "hidden" }}>
+            <div style={{ display: "flex", flexDirection: "row", background: t.surfaceRaised, borderRadius: 6, overflow: "hidden" }}>
               {(["schedule", "day", "week", "list", "cron"] as ViewMode[]).map((m) => (
                 <button
                   key={m}
@@ -223,7 +223,7 @@ export default function TasksScreen() {
                     background: viewMode === m ? t.accent : "transparent",
                     color: viewMode === m ? "#fff" : t.textMuted,
                     textTransform: "capitalize",
-                    display: "flex", alignItems: "center", gap: 4,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                   }}
                 >
                   {m === "schedule" && <Calendar size={12} />}
@@ -274,7 +274,7 @@ export default function TasksScreen() {
       {/* Invalid schedule warning */}
       {invalidSchedules.length > 0 && (
         <div style={{
-          display: "flex", alignItems: "flex-start", gap: 8,
+          display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 8,
           padding: "10px 16px",
           background: t.dangerSubtle,
           borderBottom: `1px solid ${t.dangerBorder}`,
@@ -309,7 +309,7 @@ export default function TasksScreen() {
           <CronJobsView />
         </RefreshableScrollView>
       ) : isLoading ? (
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
           <div className="chat-spinner" />
         </div>
       ) : viewMode === "schedule" ? (
@@ -333,9 +333,9 @@ export default function TasksScreen() {
           />
         </RefreshableScrollView>
       ) : (
-        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1" contentContainerStyle={{ minHeight: 1500 }}>
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
           <div style={{
-            display: "flex", flex: 1, minHeight: 1500,
+            display: "flex", flexDirection: "row", flex: 1, minHeight: 1500,
             borderLeft: `1px solid ${t.surfaceOverlay}`,
           }}>
             {Object.entries(tasksByDay).map(([dayStr, tasks]) => (

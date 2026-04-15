@@ -63,7 +63,7 @@ export function WriteProtection({ paths, onChange }: WriteProtectionProps) {
           <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>Protected paths:</div>
           {paths.map((p) => (
             <div key={p} style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: "4px 8px", background: t.surface, borderRadius: 6,
               border: `1px solid ${t.surfaceRaised}`, fontSize: 12,
             }}>
@@ -84,7 +84,7 @@ export function WriteProtection({ paths, onChange }: WriteProtectionProps) {
       )}
 
       {/* Add custom path */}
-      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 6, alignItems: "center" }}>
         <input
           value={newPath}
           onChange={(e) => setNewPath(e.target.value)}
@@ -100,7 +100,7 @@ export function WriteProtection({ paths, onChange }: WriteProtectionProps) {
           onClick={handleAdd}
           disabled={!newPath.trim()}
           style={{
-            display: "flex", alignItems: "center", gap: 4,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
             padding: "5px 10px", fontSize: 11, fontWeight: 600,
             border: "none", borderRadius: 6,
             background: newPath.trim() ? t.accent : t.surfaceBorder,

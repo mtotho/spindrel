@@ -1,12 +1,14 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+
+import { useParams } from "react-router-dom";
 import {
   Trash2, Play, Square, RefreshCw, Download,
   FileText, AlertCircle,
 } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import {
   useWorkspace, useCreateWorkspace, useUpdateWorkspace, useDeleteWorkspace,
   useStartWorkspace, useStopWorkspace, useRecreateWorkspace,
@@ -79,7 +81,7 @@ function ContainerControls({ workspaceId, status }: { workspaceId: string; statu
   };
 
   const btnStyle = (active: boolean): React.CSSProperties => ({
-    display: "flex", alignItems: "center", gap: 6,
+    display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
     padding: "6px 14px", fontSize: 12, fontWeight: 600,
     border: `1px solid ${active ? t.surfaceBorder : t.surfaceOverlay}`, borderRadius: 6,
     background: "transparent",
@@ -146,7 +148,7 @@ function ContainerControls({ workspaceId, status }: { workspaceId: string; statu
           <button
             onClick={() => { setShowLogs(!showLogs); if (!showLogs) refetchLogs(); }}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               background: "none", border: "none", cursor: "pointer",
               color: t.textMuted, fontSize: 12, padding: 0,
             }}
@@ -197,7 +199,7 @@ const NEW_TABS = [
 // ---------------------------------------------------------------------------
 export default function WorkspaceDetailScreen() {
   const t = useThemeTokens();
-  const { workspaceId } = useLocalSearchParams<{ workspaceId: string }>();
+  const { workspaceId } = useParams<{ workspaceId: string }>();
   const isNew = workspaceId === "new";
   const goBack = useGoBack("/admin/workspaces");
   const { data: workspace, isLoading } = useWorkspace(isNew ? undefined : workspaceId);
@@ -208,7 +210,7 @@ export default function WorkspaceDetailScreen() {
   const updateMut = useUpdateWorkspace(workspaceId!);
   const deleteMut = useDeleteWorkspace();
 
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   const [activeTab, setActiveTab] = useState("overview");
@@ -350,19 +352,19 @@ export default function WorkspaceDetailScreen() {
 
   if (!isNew && isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   const activeTabs = isNew ? NEW_TABS : TABS;
 
   return (
-    <View className="flex-1 bg-surface">
-      <DetailHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="detail"
         parentLabel="Workspaces"
-        parentHref="/admin/workspaces"
+        backTo="/admin/workspaces"
         title={isNew ? "New Workspace" : "Edit Workspace"}
         subtitle={!isNew ? workspaceId?.slice(0, 8) : undefined}
         right={
@@ -374,7 +376,7 @@ export default function WorkspaceDetailScreen() {
                 disabled={deleteMut.isPending}
                 title="Delete"
                 style={{
-                  display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
                   padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
                   border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
                   background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
@@ -430,7 +432,7 @@ export default function WorkspaceDetailScreen() {
       {/* Validation warnings bar */}
       {hasWarnings && (
         <div style={{
-          display: "flex", alignItems: "center", gap: 8,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
           padding: "6px 20px", background: t.warningSubtle,
           borderBottom: `1px solid ${t.warningBorder}`,
           fontSize: 12, color: t.warningMuted,
@@ -453,11 +455,7 @@ export default function WorkspaceDetailScreen() {
       )}
 
       {/* Body */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
-        paddingVertical: isWide ? 20 : 12,
-        paddingHorizontal: isWide ? 24 : 12,
-        maxWidth: 800,
-      }}>
+      <div style={{ flex: 1 }}>
         {/* ---- Overview Tab ---- */}
         {activeTab === "overview" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -486,7 +484,7 @@ export default function WorkspaceDetailScreen() {
                     <span style={{ color: t.text, fontFamily: "monospace" }}>{workspace.id}</span>
                   </div>
                   {workspace.container_id && (
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                       <span style={{ color: t.textDim }}>Container</span>
                       <span style={{ color: t.textMuted, fontFamily: "monospace" }}>
                         {workspace.container_name || workspace.container_id.slice(0, 12)}
@@ -494,26 +492,26 @@ export default function WorkspaceDetailScreen() {
                     </div>
                   )}
                   {workspace.image_id && (
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                       <span style={{ color: t.textDim }}>Image ID</span>
                       <span style={{ color: t.textMuted, fontFamily: "monospace" }}>{workspace.image_id.slice(0, 16)}</span>
                     </div>
                   )}
                   {workspace.last_started_at && (
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                       <span style={{ color: t.textDim }}>Last Started</span>
                       <span style={{ color: t.textMuted }}>
                         {new Date(workspace.last_started_at).toLocaleString()}
                       </span>
                     </div>
                   )}
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                     <span style={{ color: t.textDim }}>Created</span>
                     <span style={{ color: t.textMuted }}>
                       {new Date(workspace.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                     </span>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                     <span style={{ color: t.textDim }}>Updated</span>
                     <span style={{ color: t.textMuted }}>
                       {new Date(workspace.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
@@ -581,7 +579,7 @@ export default function WorkspaceDetailScreen() {
         {activeTab === "editor" && !isNew && workspace && (
           <EditorTab workspace={workspace} currentStatus={currentStatus} />
         )}
-      </ScrollView>
-    </View>
+      </div>
+    </div>
   );
 }

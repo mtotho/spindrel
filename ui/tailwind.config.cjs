@@ -5,7 +5,7 @@ module.exports = {
     "./src/**/*.{js,jsx,ts,tsx}",
     "./components/**/*.{js,jsx,ts,tsx}",
   ],
-  presets: [require("nativewind/preset")],
+  // presets removed — NativeWind no longer needed
   darkMode: "class",
   theme: {
     extend: {
@@ -26,6 +26,11 @@ module.exports = {
           muted: "rgb(var(--color-text-muted) / <alpha-value>)",
           dim: "rgb(var(--color-text-dim) / <alpha-value>)",
         },
+        success: "rgb(var(--color-success) / <alpha-value>)",
+        warning: "rgb(var(--color-warning) / <alpha-value>)",
+        danger: "rgb(var(--color-danger) / <alpha-value>)",
+        purple: "rgb(var(--color-purple) / <alpha-value>)",
+        skeleton: "rgb(var(--color-skeleton) / <alpha-value>)",
       },
     },
   },

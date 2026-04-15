@@ -3,7 +3,7 @@ import {
   BookOpen, TrendingUp, AlertTriangle, Clock,
   ChevronUp, ChevronDown, Flame, Zap,
 } from "lucide-react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useSkills, type SkillItem } from "@/src/api/hooks/useSkills";
 
@@ -111,7 +111,7 @@ export function StatCard({ label, value, icon, color }: {
       flex: 1, minWidth: 120, padding: "10px 12px", borderRadius: 8,
       background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
         {icon}
         <span style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", fontWeight: 600, letterSpacing: 0.5 }}>
           {label}
@@ -132,7 +132,7 @@ type SortKey = "name" | "surface_count" | "total_auto_injects" | "last_surfaced_
 // ---------------------------------------------------------------------------
 export function LearningSection({ botId }: { botId: string }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: skills, isLoading } = useSkills({ bot_id: botId, source_type: "tool", sort: "recent" });
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
   const [sortAsc, setSortAsc] = useState(false);
@@ -210,7 +210,7 @@ export function LearningSection({ botId }: { botId: string }) {
       {totalSkills > 0 && (
         <>
           {/* Stats row */}
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
             <StatCard label="Total Skills" value={totalSkills} icon={<BookOpen size={12} color="#059669" />} />
             <StatCard label="Total Surfacings" value={totalSurfacings} icon={<TrendingUp size={12} color="#3b82f6" />} />
             <StatCard label="Auto-Injects" value={totalAutoInjects} icon={<Zap size={12} color="#a855f7" />} />
@@ -225,7 +225,7 @@ export function LearningSection({ botId }: { botId: string }) {
           {/* Health callouts */}
           {neverSurfaced > 0 && (
             <div style={{
-              display: "flex", alignItems: "center", gap: 8,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
               padding: "8px 12px", borderRadius: 6,
               background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.2)",
             }}>
@@ -237,7 +237,7 @@ export function LearningSection({ botId }: { botId: string }) {
           )}
           {dormantSkills > 0 && (
             <div style={{
-              display: "flex", alignItems: "center", gap: 8,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
               padding: "8px 12px", borderRadius: 6,
               background: t.surfaceOverlay, border: `1px solid ${t.surfaceBorder}`,
             }}>
@@ -291,7 +291,7 @@ export function LearningSection({ botId }: { botId: string }) {
                     {/* Name + created date */}
                     <td style={{ padding: "8px 8px", maxWidth: 200 }}>
                       <button
-                        onClick={() => router.push(`/admin/skills/${encodeURIComponent(s.id)}` as any)}
+                        onClick={() => navigate(`/admin/skills/${encodeURIComponent(s.id)}`)}
                         style={{
                           background: "none", border: "none", cursor: "pointer", padding: 0,
                           color: t.accent, fontWeight: 500, fontSize: 11, textAlign: "left",

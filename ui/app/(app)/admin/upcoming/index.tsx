@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { View, Text, Pressable } from "react-native";
-import { Link } from "expo-router";
+
+import { Link } from "react-router-dom";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import {
@@ -13,7 +13,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useUpcomingActivity, type UpcomingItem } from "@/src/api/hooks/useUpcomingActivity";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { formatTimeShort } from "@/src/utils/time";
 import { useThemeTokens } from "@/src/theme/tokens";
 
@@ -124,86 +124,85 @@ export default function UpcomingActivityPage() {
   ];
 
   return (
-    <View style={{ flex: 1, backgroundColor: t.surface }}>
-      <MobileHeader title="Upcoming Activity" />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Upcoming Activity" />
 
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ paddingBottom: 40 }}
       >
         {/* Header */}
-        <View style={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 12 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <div style={{ paddingInline: 24, paddingTop: 24, paddingBottom: 12 }}>
+          <div style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <div style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
               <Clock size={20} color={t.text} />
-              <Text style={{ fontSize: 20, fontWeight: "700", color: t.text }}>
+              <span style={{ fontSize: 20, fontWeight: "700", color: t.text }}>
                 Upcoming Activity
-              </Text>
-            </View>
-            <Link href={"/admin/tasks" as any} asChild>
-              <Pressable
+              </span>
+            </div>
+            <Link to={"/admin/tasks"}>
+              <button type="button"
                 className="hover:bg-surface-overlay active:bg-surface-overlay"
-                style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6 }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 6, paddingInline: 12, paddingBlock: 6 }}
               >
-                <Text style={{ fontSize: 14, color: t.accent }}>Tasks</Text>
+                <span style={{ fontSize: 14, color: t.accent }}>Tasks</span>
                 <ArrowRight size={14} color={t.accent} />
-              </Pressable>
+              </button>
             </Link>
-          </View>
+          </div>
 
           {/* Type filter */}
-          <View style={{ flexDirection: "row", gap: 8 }}>
+          <div style={{ flexDirection: "row", gap: 8 }}>
             {FILTERS.map((f) => (
-              <Pressable
+              <button type="button"
                 key={f.key}
-                onPress={() => setTypeFilter(f.key)}
+                onClick={() => setTypeFilter(f.key)}
                 style={{
                   borderRadius: 999,
-                  paddingHorizontal: 12,
-                  paddingVertical: 4,
+                  paddingInline: 12,
+                  paddingBlock: 4,
                   backgroundColor: typeFilter === f.key ? t.accentMuted : t.surfaceOverlay,
                 }}
               >
-                <Text style={{
+                <span style={{
                   fontSize: 12,
                   fontWeight: "500",
                   color: typeFilter === f.key ? t.accent : t.textMuted,
                 }}>
                   {f.label}
-                </Text>
-              </Pressable>
+                </span>
+              </button>
             ))}
-          </View>
-        </View>
+          </div>
+        </div>
 
         {/* Content */}
         {isLoading ? (
-          <View style={{ paddingHorizontal: 24, gap: 12, paddingTop: 8 }}>
+          <div style={{ paddingInline: 24, gap: 12, paddingTop: 8 }}>
             {[1, 2, 3, 4].map((i) => (
-              <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 }}>
-                <View className="animate-pulse" style={{ width: 18, height: 18, borderRadius: 4, backgroundColor: t.skeletonBg }} />
-                <View style={{ flex: 1, gap: 6 }}>
-                  <View className="animate-pulse" style={{ height: 14, width: `${40 + i * 12}%`, borderRadius: 4, backgroundColor: t.skeletonBg }} />
-                  <View className="animate-pulse" style={{ height: 11, width: `${25 + i * 8}%`, borderRadius: 4, backgroundColor: t.skeletonBg }} />
-                </View>
-              </View>
+              <div key={i} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingBlock: 12 }}>
+                <div className="animate-pulse" style={{ width: 18, height: 18, borderRadius: 4, backgroundColor: t.skeletonBg }} />
+                <div style={{ flex: 1, gap: 6 }}>
+                  <div className="animate-pulse" style={{ height: 14, width: `${40 + i * 12}%`, borderRadius: 4, backgroundColor: t.skeletonBg }} />
+                  <div className="animate-pulse" style={{ height: 11, width: `${25 + i * 8}%`, borderRadius: 4, backgroundColor: t.skeletonBg }} />
+                </div>
+              </div>
             ))}
-          </View>
+          </div>
         ) : !groups.length ? (
-          <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 64, paddingHorizontal: 24 }}>
+          <div style={{ alignItems: "center", justifyContent: "center", paddingBlock: 64, paddingInline: 24 }}>
             <Clock size={32} color={t.textDim} style={{ opacity: 0.3, marginBottom: 12 }} />
-            <Text style={{ fontSize: 14, color: t.textDim }}>No upcoming activity</Text>
-          </View>
+            <span style={{ fontSize: 14, color: t.textDim }}>No upcoming activity</span>
+          </div>
         ) : (
           groups.map((group) => (
-            <View key={group.label} style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+            <div key={group.label} style={{ paddingInline: 16, marginBottom: 8 }}>
               {/* Date header */}
-              <View style={{ paddingHorizontal: 8, paddingVertical: 8, marginBottom: 4 }}>
-                <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim, letterSpacing: 0.5 }}>
+              <div style={{ paddingInline: 8, paddingBlock: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: "600", color: t.textDim, letterSpacing: 0.5 }}>
                   {group.label.toUpperCase()}
-                </Text>
-              </View>
+                </span>
+              </div>
 
               {/* Items */}
               {group.items.map((item, idx) => {
@@ -222,16 +221,16 @@ export default function UpcomingActivityPage() {
                       : "/admin/tasks";
 
                 return (
-                  <Link key={`${item.type}-${idx}`} href={href as any} asChild>
-                    <Pressable
+                  <Link key={`${item.type}-${idx}`} to={href}>
+                    <button type="button"
                       className="hover:bg-surface-overlay active:bg-surface-overlay"
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
                         gap: 12,
                         borderRadius: 8,
-                        paddingHorizontal: 12,
-                        paddingVertical: 12,
+                        paddingInline: 12,
+                        paddingBlock: 12,
                       }}
                     >
                       {/* Type icon */}
@@ -248,77 +247,77 @@ export default function UpcomingActivityPage() {
                       )}
 
                       {/* Bot dot */}
-                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: bc.dot, flexShrink: 0 }} />
+                      <div style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: bc.dot, flexShrink: 0 }} />
 
                       {/* Title + meta */}
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={{ fontSize: 14, color: t.text }} numberOfLines={1}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ fontSize: 14, color: t.text }}>
                           {item.type === "heartbeat" && item.channel_name
                             ? `Heartbeat — #${item.channel_name}`
                             : item.title}
-                        </Text>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
-                          <Text style={{ fontSize: 12, color: t.textMuted }} numberOfLines={1}>
+                        </span>
+                        <div style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
+                          <span style={{ fontSize: 12, color: t.textMuted }}>
                             {item.bot_name}
-                          </Text>
+                          </span>
                           {item.type === "heartbeat" && item.interval_minutes && (
-                            <Text style={{ fontSize: 12, color: t.textDim }}>
+                            <span style={{ fontSize: 12, color: t.textDim }}>
                               every {item.interval_minutes}m
-                            </Text>
+                            </span>
                           )}
                           {item.type === "memory_hygiene" && item.interval_hours && (
-                            <Text style={{ fontSize: 12, color: t.textDim }}>
+                            <span style={{ fontSize: 12, color: t.textDim }}>
                               every {item.interval_hours}h
-                            </Text>
+                            </span>
                           )}
                           {item.type === "task" && item.channel_name && (
-                            <Text style={{ fontSize: 12, color: t.textDim }} numberOfLines={1}>
+                            <span style={{ fontSize: 12, color: t.textDim }}>
                               #{item.channel_name}
-                            </Text>
+                            </span>
                           )}
                           {item.in_quiet_hours && (
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                            <div style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
                               <Moon size={10} color={t.textDim} style={{ opacity: 0.5 }} />
-                              <Text style={{ fontSize: 10, color: t.textDim }}>quiet</Text>
-                            </View>
+                              <span style={{ fontSize: 10, color: t.textDim }}>quiet</span>
+                            </div>
                           )}
-                        </View>
-                      </View>
+                        </div>
+                      </div>
 
                       {/* Recurring indicator + Type badge */}
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <div style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                         {(item.recurrence || item.interval_minutes || item.interval_hours) && (
                           <RefreshCw size={12} color={t.textDim} />
                         )}
-                        <View style={{
+                        <div style={{
                           borderRadius: 999,
-                          paddingHorizontal: 8,
-                          paddingVertical: 2,
+                          paddingInline: 8,
+                          paddingBlock: 2,
                           backgroundColor: badge.bg,
                         }}>
-                          <Text style={{ fontSize: 10, fontWeight: "600", color: badge.fg }}>
+                          <span style={{ fontSize: 10, fontWeight: "600", color: badge.fg }}>
                             {badge.label}
-                          </Text>
-                        </View>
-                      </View>
+                          </span>
+                        </div>
+                      </div>
 
                       {/* Time */}
-                      <View style={{ alignItems: "flex-end", minWidth: 52 }}>
-                        <Text style={{ fontSize: 12, color: t.textMuted }}>
+                      <div style={{ alignItems: "flex-end", minWidth: 52 }}>
+                        <span style={{ fontSize: 12, color: t.textMuted }}>
                           {item.scheduled_at ? formatTimeShort(item.scheduled_at) : "\u2014"}
-                        </Text>
-                        <Text style={{ fontSize: 10, color: t.textDim }}>
+                        </span>
+                        <span style={{ fontSize: 10, color: t.textDim }}>
                           {item.scheduled_at ? relativeTime(item.scheduled_at) : ""}
-                        </Text>
-                      </View>
-                    </Pressable>
+                        </span>
+                      </div>
+                    </button>
                   </Link>
                 );
               })}
-            </View>
+            </div>
           ))
         )}
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

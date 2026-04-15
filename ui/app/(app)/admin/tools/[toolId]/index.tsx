@@ -1,6 +1,8 @@
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams } from "expo-router";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
+import { useParams } from "react-router-dom";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useTool } from "@/src/api/hooks/useTools";
 import { Section } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -15,7 +17,7 @@ function fmtDate(iso: string | null | undefined) {
 function InfoRow({ label, value }: { label: string; value: string }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
       <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
       <span style={{
         fontSize: 11, color: t.text, fontFamily: "monospace",
@@ -62,11 +64,11 @@ function ParamRow({ name, param, required }: { name: string; param: any; require
   const type = param.type || (param.enum ? "enum" : "any");
   return (
     <div style={{
-      display: "flex", gap: 8, padding: "6px 0",
+      display: "flex", flexDirection: "row", gap: 8, padding: "6px 0",
       borderBottom: `1px solid ${t.surfaceBorder}`,
       alignItems: "flex-start",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 140, flexShrink: 0 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, minWidth: 140, flexShrink: 0 }}>
         <span style={{ fontSize: 12, fontFamily: "monospace", color: t.text, fontWeight: 600 }}>
           {name}
         </span>
@@ -89,24 +91,24 @@ function ParamRow({ name, param, required }: { name: string; param: any; require
 
 export default function ToolDetailScreen() {
   const t = useThemeTokens();
-  const { toolId } = useLocalSearchParams<{ toolId: string }>();
+  const { toolId } = useParams<{ toolId: string }>();
   const { data: tool, isLoading } = useTool(toolId);
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   if (!tool) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
+      <div className="flex-1 bg-surface items-center justify-center">
         <span style={{ color: t.textDim, fontSize: 13 }}>Tool not found</span>
-      </View>
+      </div>
     );
   }
 
@@ -116,18 +118,16 @@ export default function ToolDetailScreen() {
   const fullSchema = tool.schema_ || {};
 
   return (
-    <View className="flex-1 bg-surface">
-      <DetailHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="detail"
         parentLabel="Tools"
-        parentHref="/admin/tools"
+        backTo="/admin/tools"
         title={tool.tool_name}
         right={<TypeBadge tool={tool} />}
       />
 
       {/* Body */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
-        ...(isWide ? { flexDirection: "row" } : {}),
-      }}>
+      <div style={{ flex: 1, ...(isWide ? { flexDirection: "row" as const } : {}) }}>
         {/* Main content */}
         <div style={{
           ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),
@@ -202,7 +202,7 @@ export default function ToolDetailScreen() {
             </div>
           </Section>
         </div>
-      </ScrollView>
-    </View>
+      </div>
+    </div>
   );
 }

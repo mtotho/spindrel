@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -24,7 +24,7 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
     }>; total: number; stats: SectionsStats }>(`/api/v1/admin/channels/${channelId}/sections`),
   });
 
-  if (isLoading) return <ActivityIndicator size="small" color={t.textDim} style={{ marginTop: 8 }} />;
+  if (isLoading) return <Spinner size={16} color={t.textDim} />;
   if (!data?.sections?.length) return (
     <div style={{ fontSize: 11, color: t.textDim, padding: "8px 0" }}>
       No sections yet. Use backfill or let compaction create them automatically.
@@ -44,7 +44,7 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
 
   return (
     <div style={{ marginTop: 4 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted }}>
           Archived Sections ({data.total})
         </div>
@@ -80,7 +80,7 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
               <button
                 onClick={() => setExpandedId(isOpen ? null : s.id)}
                 style={{
-                  display: "flex", alignItems: "center", gap: 8, width: "100%",
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%",
                   padding: "8px 12px", background: "none", border: "none",
                   cursor: "pointer", textAlign: "left", minHeight: 36,
                 }}
@@ -92,7 +92,7 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
                 }} />
                 <span style={{ fontSize: 12, color: t.text, flex: 1 }}>{s.title}</span>
                 {s.tags?.length > 0 && (
-                  <span style={{ display: "flex", gap: 3, flexShrink: 0 }}>
+                  <span style={{ display: "flex", flexDirection: "row", gap: 3, flexShrink: 0 }}>
                     {s.tags.slice(0, 3).map((tag, i) => (
                       <span key={i} style={{
                         fontSize: 9, color: t.accent, background: t.accentSubtle,
@@ -125,7 +125,7 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
                   <div style={{ fontSize: 11, color: t.textMuted, padding: "6px 0 4px", fontWeight: 600 }}>Summary</div>
                   <div style={{ fontSize: 11, color: t.textMuted, lineHeight: "1.5", whiteSpace: "pre-wrap" }}>{s.summary}</div>
                   {s.tags?.length > 0 && (
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                    <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
                       {s.tags.map((tag, i) => (
                         <span key={i} style={{
                           fontSize: 10, color: t.accent, background: t.accentSubtle,
@@ -138,7 +138,7 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
                   <div style={{
                     marginTop: 8, padding: "6px 10px", background: t.codeBg,
                     border: `1px solid ${t.codeBorder}`, borderRadius: 6,
-                    display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap",
                   }}>
                     {s.has_transcript ? (
                       <span style={{

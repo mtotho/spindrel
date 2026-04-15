@@ -1,10 +1,10 @@
 import { useState, useCallback } from "react";
-import { View, ScrollView, ActivityIndicator, Pressable } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useParams } from "react-router-dom";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { Trash2, Copy, Check, AlertTriangle, Info } from "lucide-react";
 import { writeToClipboard } from "@/src/utils/clipboard";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import {
   useApiKey,
   useApiKeyScopes,
@@ -65,7 +65,7 @@ function ScopeCheckboxGroup({
           <div style={{ fontSize: 10, color: t.textDim, marginBottom: 6 }}>
             {groupInfo.description}
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {groupInfo.scopes.map((scope) => {
               const checked = set.has(scope);
               const isAdmin = scope === "admin";
@@ -76,7 +76,7 @@ function ScopeCheckboxGroup({
                   onClick={() => toggle(scope)}
                   title={desc}
                   style={{
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 6,
                     padding: "4px 10px",
@@ -114,7 +114,7 @@ function ScopeCheckboxGroup({
                           ? t.danger
                           : t.accent
                         : "transparent",
-                      display: "flex",
+                      display: "flex", flexDirection: "row",
                       alignItems: "center",
                       justifyContent: "center",
                     }}
@@ -136,7 +136,7 @@ function ScopeCheckboxGroup({
 
 export default function ApiKeyDetailScreen() {
   const t = useThemeTokens();
-  const { keyId } = useLocalSearchParams<{ keyId: string }>();
+  const { keyId } = useParams<{ keyId: string }>();
   const isNew = keyId === "new";
   const goBack = useGoBack("/admin/api-keys");
 
@@ -226,19 +226,19 @@ export default function ApiKeyDetailScreen() {
 
   if (!isNew && isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner color={t.accent} />
+      </div>
     );
   }
 
   const hasAdminScope = scopes.includes("admin");
 
   return (
-    <View className="flex-1 bg-surface">
-      <DetailHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="detail"
         parentLabel="API Keys"
-        parentHref="/admin/api-keys"
+        backTo="/admin/api-keys"
         title={isNew ? "New API Key" : "Edit API Key"}
         right={
           <>
@@ -246,7 +246,7 @@ export default function ApiKeyDetailScreen() {
               <button
                 onClick={handleDelete}
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 4,
                   padding: "6px 12px",
@@ -283,7 +283,7 @@ export default function ApiKeyDetailScreen() {
         }
       />
 
-      <ScrollView style={{ flex: 1 }}>
+      <div style={{ flex: 1, overflow: "auto" }}>
         <div
           style={{ padding: 20, maxWidth: 800, margin: "0 auto", width: "100%" }}
         >
@@ -300,7 +300,7 @@ export default function ApiKeyDetailScreen() {
             >
               <div
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 8,
                   marginBottom: 8,
@@ -315,7 +315,7 @@ export default function ApiKeyDetailScreen() {
               </div>
               <div
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 8,
                 }}
@@ -342,7 +342,7 @@ export default function ApiKeyDetailScreen() {
                     background: t.surfaceOverlay,
                     border: `1px solid ${t.surfaceBorder}`,
                     cursor: "pointer",
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 4,
                     fontSize: 12,
@@ -396,7 +396,7 @@ export default function ApiKeyDetailScreen() {
             <Section title="Quick Start">
               <div
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   flexWrap: "wrap",
                   gap: 8,
                 }}
@@ -485,7 +485,7 @@ export default function ApiKeyDetailScreen() {
             >
               <div
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 6,
                   marginBottom: 8,
@@ -536,7 +536,7 @@ export default function ApiKeyDetailScreen() {
                 onChange={setScopes}
               />
             ) : (
-              <ActivityIndicator color={t.accent} />
+              <Spinner color={t.accent} />
             )}
           </Section>
 
@@ -570,7 +570,7 @@ export default function ApiKeyDetailScreen() {
             </Section>
           )}
         </div>
-      </ScrollView>
-    </View>
+      </div>
+    </div>
   );
 }

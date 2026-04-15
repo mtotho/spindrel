@@ -51,7 +51,7 @@ export function BindingsSection({ channelId }: { channelId: string }) {
   if (isLoading) {
     return (
       <Section title="Dispatcher Bindings" description="Connect this channel to external messaging services. When the bot responds, its messages are forwarded to the bound service (e.g. a Slack channel or iMessage chat).">
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: 12 }}>
           <span
             style={{
               width: 14,
@@ -109,7 +109,7 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                 <div
                   key={b.id}
                   style={{
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 10,
                     padding: "10px 14px",
@@ -142,7 +142,7 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                       cursor: "pointer",
                       padding: 6,
                       borderRadius: 6,
-                      display: "flex",
+                      display: "flex", flexDirection: "row",
                       alignItems: "center",
                       transition: "background 0.1s",
                     }}
@@ -159,7 +159,7 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                       cursor: "pointer",
                       padding: 6,
                       borderRadius: 6,
-                      display: "flex",
+                      display: "flex", flexDirection: "row",
                       alignItems: "center",
                       transition: "background 0.1s",
                     }}

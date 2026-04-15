@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useWindowDimensions } from "react-native";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { Search, X, Info, AlertTriangle, Plus, Pin } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
@@ -82,12 +82,12 @@ function PinnedToolsPicker({
             : "No pinned tools. Enable tools below, then pin any that must be available every turn."}
         </div>
       )}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
         {pinnedTools.map((name) => {
           const tool = allToolsByName.get(name);
           return (
             <div key={name} style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "3px 8px", borderRadius: 4, fontSize: 11,
               background: discovery ? t.warningSubtle : t.accentSubtle,
               border: `1px solid ${discovery ? t.warningBorder : t.accentBorder}`,
@@ -97,7 +97,7 @@ function PinnedToolsPicker({
                 title={tool?.description || name}>{name}</span>
               <button
                 onClick={() => removePin(name)}
-                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", flexDirection: "row" }}
                 title="Unpin"
               >
                 <X size={10} color={t.textDim} />
@@ -109,7 +109,7 @@ function PinnedToolsPicker({
           <button
             onClick={() => setAdding(true)}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "3px 8px", borderRadius: 4, fontSize: 11,
               background: "transparent", border: `1px dashed ${t.surfaceBorder}`,
               color: t.textDim, cursor: "pointer",
@@ -125,7 +125,7 @@ function PinnedToolsPicker({
           border: `1px solid ${t.surfaceBorder}`, background: t.inputBg,
           marginBottom: 8,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
             <Search size={12} color={t.textDim} />
             <input
               type="text" value={search}
@@ -191,7 +191,7 @@ function McpServersSection({
   filter: string;
 }) {
   const t = useThemeTokens();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const mobile = width < MOBILE_NAV_BREAKPOINT;
 
   const toggleMcp = (name: string) => {
@@ -209,7 +209,7 @@ function McpServersSection({
           const on = (draft.mcp_servers || []).includes(srv);
           return (
             <label key={srv} style={{
-              display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 8px",
               borderRadius: 4, cursor: "pointer", fontSize: 11,
               background: on ? t.accentSubtle : "transparent",
               border: `1px solid ${on ? t.accentBorder : "transparent"}`,
@@ -235,7 +235,7 @@ function ClientToolsSection({
   filter: string;
 }) {
   const t = useThemeTokens();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const mobile = width < MOBILE_NAV_BREAKPOINT;
 
   const toggleClient = (name: string) => {
@@ -253,7 +253,7 @@ function ClientToolsSection({
           const on = (draft.client_tools || []).includes(tool);
           return (
             <label key={tool} style={{
-              display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 8px",
               borderRadius: 4, cursor: "pointer", fontSize: 11,
               background: on ? t.accentSubtle : "transparent",
               border: `1px solid ${on ? t.accentBorder : "transparent"}`,
@@ -381,7 +381,7 @@ function FullToolList({
   };
 
   const t = useThemeTokens();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const toolsMobile = width < MOBILE_NAV_BREAKPOINT;
   const q = toolFilter.toLowerCase();
 
@@ -390,7 +390,7 @@ function FullToolList({
       {/* Search bar + counts */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{
-          display: "flex", alignItems: "center", gap: 6, flex: 1,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flex: 1,
           background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "5px 10px",
         }}>
           <Search size={12} color={t.textDim} />
@@ -414,7 +414,7 @@ function FullToolList({
       </div>
 
       {/* Legend */}
-      <div style={{ display: "flex", gap: 12, fontSize: 10, color: t.textDim, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 12, fontSize: 10, color: t.textDim, flexWrap: "wrap", alignItems: "center" }}>
         {discovery ? (
           <>
             <span>Click badge to cycle:</span>
@@ -462,7 +462,7 @@ function FullToolList({
             {/* Integration header */}
             <div style={{
               padding: "6px 10px", background: t.surface,
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             }}>
               {group.is_core ? (
                 <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>Core</span>
@@ -520,7 +520,7 @@ function FullToolList({
                 <div key={metaKey}>
                   <div
                     style={{
-                      display: "flex", alignItems: "center", gap: 6,
+                      display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                       padding: "5px 10px", background: `${t.surface}aa`,
                       borderTop: `1px solid ${t.surfaceRaised}`, cursor: "pointer",
                     }}
@@ -571,7 +571,7 @@ function FullToolList({
                   {group.packs.length > 1 && (
                     <div
                       style={{
-                        display: "flex", alignItems: "center", gap: 6,
+                        display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                         padding: "4px 10px", background: `${t.surface}66`, cursor: "pointer",
                         borderTop: `1px solid ${t.inputBg}`,
                       }}
@@ -603,7 +603,7 @@ function FullToolList({
 
                   {pack.warning && (
                     <div style={{
-                      display: "flex", alignItems: "center", gap: 6,
+                      display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                       padding: "3px 10px", fontSize: 10,
                       background: t.warningSubtle, color: t.warningMuted,
                       borderTop: `1px solid ${t.inputBg}`,
@@ -655,7 +655,7 @@ function FullToolList({
                           <div
                             key={tool.name}
                             style={{
-                              display: "flex", alignItems: "center", gap: discovery ? 6 : 4,
+                              display: "flex", flexDirection: "row", alignItems: "center", gap: discovery ? 6 : 4,
                               padding: "3px 6px", borderRadius: 3, fontSize: 11,
                               background: rowBg,
                               border: `1px solid ${rowBorder}`,
@@ -705,7 +705,7 @@ function FullToolList({
                               title="View tool schema"
                               style={{
                                 background: "none", border: "none", cursor: "pointer",
-                                padding: 0, display: "flex", alignItems: "center",
+                                padding: 0, display: "flex", flexDirection: "row", alignItems: "center",
                                 opacity: 0.3, color: t.textDim,
                               }}
                               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.8"; }}

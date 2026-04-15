@@ -1,9 +1,10 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useCallback } from "react";
-import { View, ScrollView, ActivityIndicator } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+
+import { useParams } from "react-router-dom";
 import { Trash2, Play } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import {
   useToolPolicies,
   useCreateToolPolicy,
@@ -28,7 +29,7 @@ const ACTION_OPTIONS = [
 
 export default function ToolPolicyDetailScreen() {
   const t = useThemeTokens();
-  const params = useLocalSearchParams<{ ruleId: string; bot_id?: string }>();
+  const params = useParams<{ ruleId: string; bot_id?: string }>();
   const ruleId = params.ruleId;
   const isNew = ruleId === "new";
   const goBack = useGoBack("/admin/tool-policies");
@@ -141,17 +142,17 @@ export default function ToolPolicyDetailScreen() {
 
   if (!isNew && isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <DetailHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="detail"
         parentLabel="Tool Policies"
-        parentHref="/admin/tool-policies"
+        backTo="/admin/tool-policies"
         title={isNew ? "New Policy Rule" : "Edit Policy Rule"}
         right={
           <>
@@ -159,7 +160,7 @@ export default function ToolPolicyDetailScreen() {
               <button
                 onClick={handleDelete}
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 4,
                   padding: "6px 12px",
@@ -195,7 +196,7 @@ export default function ToolPolicyDetailScreen() {
         }
       />
 
-      <ScrollView style={{ flex: 1 }}>
+      <div style={{ flex: 1 }}>
         <div
           style={{
             padding: 20,
@@ -332,7 +333,7 @@ export default function ToolPolicyDetailScreen() {
               onClick={handleTest}
               disabled={testMut.isPending}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
                 padding: "8px 16px",
@@ -390,7 +391,7 @@ export default function ToolPolicyDetailScreen() {
             </Section>
           )}
         </div>
-      </ScrollView>
-    </View>
+      </div>
+    </div>
   );
 }

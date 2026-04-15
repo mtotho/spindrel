@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo } from "react";
 import { X, Bot, Wrench, Puzzle, Server, Shield, ExternalLink } from "lucide-react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "../../theme/tokens";
 import { useBot } from "../../api/hooks/useBots";
 import { useChannel, useChannelEffectiveTools, useChannelConfigOverhead } from "../../api/hooks/useChannels";
@@ -44,7 +44,7 @@ function ToolGroupSection({
       }}>
         {label} ({tools.length})
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3 }}>
         {tools.map((name) => (
           <span key={name} style={{
             fontSize: 10, fontFamily: "monospace",
@@ -65,7 +65,7 @@ function ToolGroupSection({
 
 function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: bot } = useBot(botId);
   const { data: channel } = useChannel(channelId);
   const isMemberBot = !!channel && channel.bot_id !== botId;
@@ -129,7 +129,7 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props
         position: "fixed",
         inset: 0,
         background: "rgba(0,0,0,0.5)",
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         zIndex: 10000,
@@ -152,22 +152,22 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props
       >
         {/* Header */}
         <div style={{
-          display: "flex", alignItems: "center", gap: 10,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
           padding: "12px 16px",
           borderBottom: `1px solid ${t.surfaceBorder}`,
         }}>
           <Bot size={18} color={t.accent} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>
                 {bot?.display_name || bot?.name || botId}
               </span>
               <button
-                onClick={() => { onClose(); router.push(`/admin/bots/${botId}` as any); }}
+                onClick={() => { onClose(); navigate(`/admin/bots/${botId}`); }}
                 title="Edit bot settings"
                 style={{
                   background: "none", border: "none", cursor: "pointer",
-                  padding: 2, display: "flex", alignItems: "center",
+                  padding: 2, display: "flex", flexDirection: "row", alignItems: "center",
                   opacity: 0.4, color: t.textDim,
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.9"; }}
@@ -206,7 +206,7 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props
           )}
 
           {/* Summary badges */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             {toolCount > 0 && <CountBadge icon={<Wrench size={10} />} label={`${toolCount} tools`} />}
             {carapaceCount > 0 && <CountBadge icon={<Shield size={10} />} label={`${carapaceCount} capabilities`} />}
             {skillCount > 0 && <CountBadge icon={<Puzzle size={10} />} label={`${skillCount} skills`} />}
@@ -222,7 +222,7 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props
               }}>
                 Context Usage
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
                 <div style={{
                   flex: 1, height: 6, borderRadius: 3,
                   background: t.surfaceOverlay, overflow: "hidden",
@@ -311,15 +311,15 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props
         <div style={{
           padding: "10px 16px",
           borderTop: `1px solid ${t.surfaceBorder}`,
-          display: "flex",
+          display: "flex", flexDirection: "row",
           justifyContent: "center",
         }}>
           <button
-            onClick={() => { onClose(); router.push(`/channels/${channelId}/settings#context` as any); }}
+            onClick={() => { onClose(); navigate(`/channels/${channelId}/settings#context`); }}
             style={{
               background: "none", border: "none", cursor: "pointer",
               fontSize: 11, color: t.accent, fontWeight: 500,
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
             }}
             onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
             onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
@@ -397,7 +397,7 @@ function ConfigOverhead({ estimate, t }: { estimate: ContextEstimate; t: any }) 
         Configuration Overhead
       </div>
       {/* Bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <div style={{
           flex: 1, height: 6, borderRadius: 3,
           background: t.surfaceOverlay, overflow: "hidden",

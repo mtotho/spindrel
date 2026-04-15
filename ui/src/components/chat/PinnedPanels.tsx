@@ -138,7 +138,7 @@ function PinnedPanelView({ panel, workspaceId, channelId }: PinnedPanelViewProps
           gap: 4,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0, flex: 1 }}>
           <Pin size={12} color={t.textDim} style={{ flexShrink: 0 }} />
           <span
             style={{
@@ -154,7 +154,7 @@ function PinnedPanelView({ panel, workspaceId, channelId }: PinnedPanelViewProps
             {fileName(panel.path)}
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 2, flexShrink: 0 }}>
           <button
             onClick={handleUnpin}
             aria-label="Unpin"
@@ -165,7 +165,7 @@ function PinnedPanelView({ panel, workspaceId, channelId }: PinnedPanelViewProps
               cursor: "pointer",
               padding: 4,
               borderRadius: 4,
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
             }}
           >
@@ -180,7 +180,7 @@ function PinnedPanelView({ panel, workspaceId, channelId }: PinnedPanelViewProps
               cursor: "pointer",
               padding: 4,
               borderRadius: 4,
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
             }}
           >
@@ -192,7 +192,7 @@ function PinnedPanelView({ panel, workspaceId, channelId }: PinnedPanelViewProps
       {/* Content */}
       <div style={{ flex: 1, overflow: "auto", padding: 12 }}>
         {isLoading && !data ? (
-          <div style={{ padding: 16, display: "flex", justifyContent: "center" }}>
+          <div style={{ padding: 16, display: "flex", flexDirection: "row", justifyContent: "center" }}>
             <div className="chat-spinner" />
           </div>
         ) : error ? (

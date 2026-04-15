@@ -3,7 +3,7 @@
  * Uses portal pattern consistent with CarapaceHelpModal.
  */
 import { useEffect } from "react";
-import { Pressable, ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
@@ -65,7 +65,7 @@ export function IntegrationGuideModal({ onClose }: Props) {
         {/* Header */}
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
             padding: "16px 20px",
@@ -76,9 +76,9 @@ export function IntegrationGuideModal({ onClose }: Props) {
           <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>
             Integration Guide
           </span>
-          <Pressable onPress={onClose} hitSlop={8}>
+          <button type="button" onClick={onClose}>
             <X size={16} color={t.textDim} />
-          </Pressable>
+          </button>
         </div>
 
         {/* Scrollable body */}
@@ -86,12 +86,12 @@ export function IntegrationGuideModal({ onClose }: Props) {
           {isLoading && (
             <div
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 justifyContent: "center",
                 padding: 40,
               }}
             >
-              <ActivityIndicator color={t.accent} />
+              <Spinner color={t.accent} />
             </div>
           )}
           {isError && (

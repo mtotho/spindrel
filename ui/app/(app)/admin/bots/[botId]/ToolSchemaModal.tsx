@@ -28,7 +28,7 @@ function ToolSchemaModalContent({
         position: "fixed",
         inset: 0,
         background: "rgba(0,0,0,0.5)",
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         zIndex: 10000,
@@ -52,7 +52,7 @@ function ToolSchemaModalContent({
         {/* Header */}
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
             padding: "12px 16px",
@@ -112,7 +112,7 @@ function ToolSchemaModalContent({
               {/* Source info */}
               <div
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   gap: 12,
                   fontSize: 10,
                   color: t.textDim,

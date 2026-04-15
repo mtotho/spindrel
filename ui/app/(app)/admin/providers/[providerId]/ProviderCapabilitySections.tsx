@@ -29,12 +29,12 @@ function SyncModelsSection({ providerId }: { providerId: string }) {
 
   return (
     <Section title="Sync Models" description="Pull model list from provider API into local database">
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
         <button
           onClick={handleSync}
           disabled={syncMut.isPending}
           style={{
-            display: "flex", alignItems: "center", gap: 6,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             padding: "6px 14px", fontSize: 12, fontWeight: 600,
             border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
             background: "transparent", color: t.textMuted, cursor: "pointer",
@@ -152,7 +152,7 @@ function PullModelSection({ providerId }: { providerId: string }) {
 
   return (
     <Section title="Pull Model" description="Download a model from the registry">
-      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "flex-end" }}>
         <div style={{ flex: 1 }}>
           <input
             value={modelName}
@@ -171,7 +171,7 @@ function PullModelSection({ providerId }: { providerId: string }) {
           onClick={handlePull}
           disabled={pulling || !modelName.trim()}
           style={{
-            display: "flex", alignItems: "center", gap: 6,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             padding: "6px 16px", fontSize: 12, fontWeight: 600,
             border: "none", borderRadius: 6, flexShrink: 0,
             background: !modelName.trim() ? t.surfaceOverlay : t.accent,
@@ -223,12 +223,12 @@ function RunningModelsSection({ providerId }: { providerId: string }) {
 
   return (
     <Section title="Running Models" description="Models currently loaded in memory">
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <button
           onClick={() => refetch()}
           disabled={isLoading}
           style={{
-            display: "flex", alignItems: "center", gap: 4,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
             padding: "4px 10px", fontSize: 11, fontWeight: 600,
             border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
             background: "transparent", color: t.textMuted, cursor: "pointer",
@@ -249,7 +249,7 @@ function RunningModelsSection({ providerId }: { providerId: string }) {
             <div
               key={m.digest || i}
               style={{
-                display: "flex", alignItems: "center", gap: 10,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
                 padding: "8px 10px", background: t.surfaceRaised, borderRadius: 6,
                 fontSize: 12,
               }}

@@ -1,3 +1,4 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 /**
  * ChannelFileExplorer — unified left-panel explorer for a channel.
  *
@@ -28,7 +29,6 @@
  * the project's 1000-line split rule.
  */
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { View, Text, Pressable, ActivityIndicator, ScrollView, Platform } from "react-native";
 import { X, Plus, FolderPlus, Search, Upload, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -250,14 +250,13 @@ export function ChannelFileExplorer({
     focusedIndex >= 0 && focusedIndex < focusableFiles.length
       ? focusableFiles[focusedIndex]
       : null;
-  const explorerRef = useRef<View>(null);
+  const explorerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setFocusedIndex(-1);
   }, [currentPath, searchQuery]);
 
   useEffect(() => {
-    if (Platform.OS !== "web") return;
     const el = explorerRef.current as unknown as HTMLElement | null;
     if (!el) return;
     const handler = (e: KeyboardEvent) => {
@@ -542,14 +541,14 @@ export function ChannelFileExplorer({
   // ── Render ────────────────────────────────────────────────────────────
 
   return (
-    <View
+    <div
       ref={explorerRef}
       style={{
         ...(fullWidth ? { flex: 1 } : { width, flexShrink: 0 }),
         backgroundColor: t.surfaceRaised,
         position: "relative",
       }}
-      {...(Platform.OS === "web"
+      {...(true
         ? {
             tabIndex: 0,
             onDragEnter: handleDragEnter,
@@ -560,7 +559,7 @@ export function ChannelFileExplorer({
         : {})}
     >
       {/* Title bar */}
-      <View
+      <div
         style={{
           flexDirection: "row",
           alignItems: "center",
@@ -570,7 +569,7 @@ export function ChannelFileExplorer({
           gap: 2,
         }}
       >
-        <Text
+        <span
           style={{
             flex: 1,
             color: t.textMuted,
@@ -581,55 +580,39 @@ export function ChannelFileExplorer({
           }}
         >
           Explorer
-        </Text>
-        <Pressable
-          onPress={() => setNewItem("file")}
-          style={({ hovered }: any) => ({
-            padding: 5,
-            borderRadius: 3,
-            backgroundColor: hovered ? `${t.text}10` : "transparent",
-            cursor: "pointer",
-          } as any)}
-          {...(Platform.OS === "web" ? { title: "New file in current folder" } as any : {})}
+        </span>
+        <button type="button"
+          className="header-icon-btn"
+          onClick={() => setNewItem("file")}
+          style={{ padding: 5, borderRadius: 3, cursor: "pointer", background: "none", border: "none" }}
+          title="New file in current folder"
         >
           <Plus size={13} color={t.textDim} />
-        </Pressable>
-        <Pressable
-          onPress={() => setNewItem("folder")}
-          style={({ hovered }: any) => ({
-            padding: 5,
-            borderRadius: 3,
-            backgroundColor: hovered ? `${t.text}10` : "transparent",
-            cursor: "pointer",
-          } as any)}
-          {...(Platform.OS === "web" ? { title: "New folder in current folder" } as any : {})}
+        </button>
+        <button type="button"
+          className="header-icon-btn"
+          onClick={() => setNewItem("folder")}
+          style={{ padding: 5, borderRadius: 3, cursor: "pointer", background: "none", border: "none" }}
+          title="New folder in current folder"
         >
           <FolderPlus size={13} color={t.textDim} />
-        </Pressable>
-        <Pressable
-          onPress={refreshAll}
-          style={({ hovered }: any) => ({
-            padding: 5,
-            borderRadius: 3,
-            backgroundColor: hovered ? `${t.text}10` : "transparent",
-            cursor: "pointer",
-          } as any)}
-          {...(Platform.OS === "web" ? { title: "Refresh" } as any : {})}
+        </button>
+        <button type="button"
+          className="header-icon-btn"
+          onClick={refreshAll}
+          style={{ padding: 5, borderRadius: 3, cursor: "pointer", background: "none", border: "none" }}
+          title="Refresh"
         >
           <RefreshCw size={11} color={t.textDim} />
-        </Pressable>
-        <Pressable
-          onPress={onClose}
-          style={({ hovered }: any) => ({
-            padding: 5,
-            borderRadius: 3,
-            backgroundColor: hovered ? `${t.text}10` : "transparent",
-            cursor: "pointer",
-          } as any)}
+        </button>
+        <button type="button"
+          className="header-icon-btn"
+          onClick={onClose}
+          style={{ padding: 5, borderRadius: 3, cursor: "pointer", background: "none", border: "none" }}
         >
           <X size={13} color={t.textDim} />
-        </Pressable>
-      </View>
+        </button>
+      </div>
 
       {/* IN CONTEXT card (channel-scoped) */}
       {channelWorkspaceEnabled && (
@@ -652,11 +635,11 @@ export function ChannelFileExplorer({
       />
 
       {/* Filter input */}
-      {Platform.OS === "web" && (
-        <View style={{ paddingHorizontal: 8, paddingBottom: 4 }}>
+      {true && (
+        <div style={{ paddingLeft: 8, paddingRight: 8, paddingBottom: 4 }}>
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 5,
               background: t.inputBg,
@@ -699,7 +682,7 @@ export function ChannelFileExplorer({
               />
             )}
           </div>
-        </View>
+        </div>
       )}
 
       {/* Breadcrumb */}
@@ -712,12 +695,12 @@ export function ChannelFileExplorer({
       />
 
       {/* Tree */}
-      <ScrollView
+      <div className="overflow-auto"
         style={{ flex: 1 }}
-        {...(Platform.OS === "web" ? { onContextMenu: openBackgroundContextMenu } as any : {})}
+        {...{ onContextMenu: openBackgroundContextMenu }}
       >
         {treeLoading ? (
-          <ActivityIndicator color={t.accent} style={{ padding: 16 }} />
+          <div style={{ padding: 16, display: "flex", flexDirection: "row", justifyContent: "center" }}><Spinner color={t.accent} /></div>
         ) : (
           <>
             {newItem && (
@@ -764,7 +747,7 @@ export function ChannelFileExplorer({
               />
             ))}
             {filtered.length === 0 && !newItem && (
-              <Text
+              <span
                 style={{
                   color: t.textDim,
                   fontSize: 11,
@@ -774,53 +757,52 @@ export function ChannelFileExplorer({
                 }}
               >
                 {searchQuery ? "No matching files" : "Empty directory"}
-              </Text>
+              </span>
             )}
             {uploadStatus && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, padding: 8 }}>
-                <ActivityIndicator color={t.accent} size="small" />
-                <Text style={{ color: t.textMuted, fontSize: 11 }}>
+              <div style={{ flexDirection: "row", alignItems: "center", gap: 6, padding: 8 }}>
+                <Spinner color={t.accent} size={14} />
+                <span style={{ color: t.textMuted, fontSize: 11 }}>
                   Uploading {uploadStatus.current}/{uploadStatus.total}…
-                </Text>
-              </View>
+                </span>
+              </div>
             )}
           </>
         )}
-      </ScrollView>
+      </div>
 
       {/* Mutation status strip */}
       {isMutating && (
-        <View style={{ height: 2, backgroundColor: t.accentSubtle }}>
-          <View style={{ height: 2, width: "100%", backgroundColor: t.accent, opacity: 0.6 }} />
-        </View>
+        <div style={{ height: 2, backgroundColor: t.accentSubtle }}>
+          <div style={{ height: 2, width: "100%", backgroundColor: t.accent, opacity: 0.6 }} />
+        </div>
       )}
 
       {/* OS drag overlay */}
       {osDragging && (
-        <View
+        <div
           style={{
             position: "absolute",
             left: 4,
             right: 4,
             top: 4,
             bottom: 4,
-            borderWidth: 2,
-            borderColor: t.accent,
-            borderStyle: "dashed" as any,
+            border: `2px dashed ${t.accent}`,
             backgroundColor: `${t.accent}15`,
             borderRadius: 6,
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             justifyContent: "center",
-            pointerEvents: "none" as any,
+            pointerEvents: "none",
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <div style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Upload size={14} color={t.accent} />
-            <Text style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>
+            <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>
               Drop to upload to {currentPath}
-            </Text>
-          </View>
-        </View>
+            </span>
+          </div>
+        </div>
       )}
 
       {contextMenu && (
@@ -834,6 +816,6 @@ export function ChannelFileExplorer({
 
       {/* Move-confirmation modal (rendered via portal — see useConfirm). */}
       <ConfirmDialogSlot />
-    </View>
+    </div>
   );
 }

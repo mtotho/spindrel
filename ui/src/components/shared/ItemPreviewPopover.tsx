@@ -5,7 +5,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ExternalLink } from "lucide-react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "../../theme/tokens";
 
 interface PopoverProps {
@@ -101,13 +101,13 @@ export interface CapabilityPreviewData {
 
 export function CapabilityPreview({ data }: { data: CapabilityPreviewData }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const totalTools = data.local_tools.length + data.mcp_tools.length + data.pinned_tools.length;
   const adminPath = `/admin/carapaces/${data.id.replaceAll("/", "--")}`;
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: t.text, flex: 1 }}>{data.name}</span>
         <span style={{
           fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 4,
@@ -124,7 +124,7 @@ export function CapabilityPreview({ data }: { data: CapabilityPreviewData }) {
       )}
 
       {/* Stats */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         {totalTools > 0 && (
           <Stat label="tools" value={totalTools} />
         )}
@@ -139,7 +139,7 @@ export function CapabilityPreview({ data }: { data: CapabilityPreviewData }) {
           <div style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>
             Tools
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+          <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3 }}>
             {[...data.local_tools, ...data.pinned_tools].slice(0, 8).map((name) => (
               <span key={name} style={{
                 fontSize: 9, fontFamily: "monospace",
@@ -162,10 +162,10 @@ export function CapabilityPreview({ data }: { data: CapabilityPreviewData }) {
       <button
         onClick={(e) => {
           e.stopPropagation();
-          router.push(adminPath as any);
+          navigate(adminPath);
         }}
         style={{
-          display: "flex", alignItems: "center", gap: 4,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
           background: "none", border: "none", cursor: "pointer",
           fontSize: 11, color: t.accent, fontWeight: 500,
           padding: 0, marginTop: 2,
@@ -195,12 +195,12 @@ export interface SkillPreviewData {
 
 export function SkillPreview({ data }: { data: SkillPreviewData }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const adminPath = `/admin/skills/${data.id}`;
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: t.text, flex: 1 }}>{data.name || data.id}</span>
         {data.source_type && (
           <span style={{
@@ -220,7 +220,7 @@ export function SkillPreview({ data }: { data: SkillPreviewData }) {
       )}
 
       {data.chunk_count != null && data.chunk_count > 0 && (
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
           <Stat label="chunks" value={data.chunk_count} />
         </div>
       )}
@@ -228,10 +228,10 @@ export function SkillPreview({ data }: { data: SkillPreviewData }) {
       <button
         onClick={(e) => {
           e.stopPropagation();
-          router.push(adminPath as any);
+          navigate(adminPath);
         }}
         style={{
-          display: "flex", alignItems: "center", gap: 4,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
           background: "none", border: "none", cursor: "pointer",
           fontSize: 11, color: t.accent, fontWeight: 500,
           padding: 0, marginTop: 2,
@@ -260,12 +260,12 @@ export interface ToolPreviewData {
 
 export function ToolPreview({ data }: { data: ToolPreviewData }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const adminPath = `/admin/tools/${data.name}`;
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: t.text, fontFamily: "monospace" }}>{data.name}</span>
       </div>
 
@@ -276,7 +276,7 @@ export function ToolPreview({ data }: { data: ToolPreviewData }) {
       )}
 
       {(data.source_integration || data.fromCapability) && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
           {data.source_integration && (
             <span style={{
               fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 4,
@@ -299,10 +299,10 @@ export function ToolPreview({ data }: { data: ToolPreviewData }) {
       <button
         onClick={(e) => {
           e.stopPropagation();
-          router.push(adminPath as any);
+          navigate(adminPath);
         }}
         style={{
-          display: "flex", alignItems: "center", gap: 4,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
           background: "none", border: "none", cursor: "pointer",
           fontSize: 11, color: t.accent, fontWeight: 500,
           padding: 0, marginTop: 2,

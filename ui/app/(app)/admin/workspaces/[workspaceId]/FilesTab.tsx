@@ -146,7 +146,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
         <button
           onClick={() => { setCreating("file"); setNewName(""); }}
           style={{
-            display: "flex", alignItems: "center", gap: 3,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 3,
             background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
             cursor: "pointer", color: t.textMuted, fontSize: 10, padding: "2px 8px",
           }}
@@ -156,7 +156,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
         <button
           onClick={() => { setCreating("folder"); setNewName(""); }}
           style={{
-            display: "flex", alignItems: "center", gap: 3,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 3,
             background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
             cursor: "pointer", color: t.textMuted, fontSize: 10, padding: "2px 8px",
           }}
@@ -166,7 +166,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
         <button
           onClick={() => refetch()}
           style={{
-            display: "flex", alignItems: "center", gap: 3,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 3,
             background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
             cursor: "pointer", color: t.textMuted, fontSize: 10, padding: "2px 8px",
           }}
@@ -178,7 +178,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
       {/* Create inline form */}
       {creating && (
         <div style={{
-          display: "flex", gap: 6, alignItems: "center",
+          display: "flex", flexDirection: "row", gap: 6, alignItems: "center",
           padding: "6px 10px", background: t.inputBg, borderRadius: 6, border: `1px solid ${t.surfaceBorder}`,
         }}>
           <span style={{ fontSize: 11, color: t.textMuted }}>
@@ -232,7 +232,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             <div
               key={entry.path}
               style={{
-                display: "flex", alignItems: "center", gap: 8,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
                 padding: "6px 12px",
                 background: viewingFile === entry.path ? t.accentSubtle : "transparent",
                 borderBottom: `1px solid ${t.inputBg}`,
@@ -248,7 +248,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                   }
                 }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 8, flex: 1,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flex: 1,
                   background: "none", border: "none", cursor: "pointer",
                   textAlign: "left", padding: 0,
                 }}
@@ -293,7 +293,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
         }}>
           {/* File header */}
           <div style={{
-            display: "flex", alignItems: "center", gap: 8,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
             padding: "8px 12px", borderBottom: `1px solid ${t.surfaceRaised}`,
             background: t.inputBg,
           }}>
@@ -305,7 +305,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
               <button
                 onClick={() => { setEditing(true); setEditContent(fileData.content); }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 4,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                   padding: "3px 10px", fontSize: 11, fontWeight: 600,
                   background: "transparent", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
                   color: t.textMuted, cursor: "pointer",
@@ -320,7 +320,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                   onClick={handleSaveFile}
                   disabled={writeMut.isPending}
                   style={{
-                    display: "flex", alignItems: "center", gap: 4,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                     padding: "3px 10px", fontSize: 11, fontWeight: 600,
                     background: t.accent, border: "none", borderRadius: 4,
                     color: "#fff", cursor: "pointer",
@@ -411,7 +411,7 @@ export function FilesTab({ workspaceId, currentStatus }: FilesTabProps) {
               onClick={() => reindexMut.mutate()}
               disabled={reindexMut.isPending}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 padding: "4px 10px", fontSize: 11, fontWeight: 600,
                 border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
                 background: "transparent", color: t.textMuted, cursor: "pointer",

@@ -740,8 +740,9 @@ app = FastAPI(
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 _cors_origins: list[str] = [
+    "http://localhost:5173",   # Vite dev server
     "http://localhost:8081",
-    "http://localhost:19006",  # Expo dev server
+    "http://localhost:19006",  # Expo dev server (legacy)
 ]
 _cors_origins.extend(
     o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()

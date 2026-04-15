@@ -98,7 +98,7 @@ export function ConfirmDialog({
             <button
               onClick={onCancel}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "center",
                 background: "transparent",

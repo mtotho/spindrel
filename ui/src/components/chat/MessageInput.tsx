@@ -224,7 +224,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
         {pendingFiles.length > 0 && (
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               gap: 8,
               padding: "8px 20px 0",
               flexWrap: "wrap",
@@ -256,7 +256,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                     style={{
                       width: 64,
                       height: 64,
-                      display: "flex",
+                      display: "flex", flexDirection: "row",
                       alignItems: "center",
                       justifyContent: "center",
                       background: t.surfaceRaised,
@@ -281,7 +281,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                     borderRadius: 9,
                     background: "rgba(0,0,0,0.7)",
                     border: "none",
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "center",
                     cursor: "pointer",
@@ -300,7 +300,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           <div
             className="queue-bar"
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
               padding: isMobile ? "3px 8px" : "3px 20px",
@@ -311,7 +311,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           >
             {isQueued && !hasContent ? (
               <>
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                   <Check size={12} color={t.success} />
                   <span>Message queued</span>
                 </span>
@@ -332,7 +332,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               </>
             ) : (
               <>
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                   <span className="typing-dot" style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
                   <span>Responding — message will be queued</span>
                 </span>
@@ -407,7 +407,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               border: "none",
               boxShadow: `inset 0 0 0 1px ${t.overlayLight}`,
               overflow: "hidden",
-              display: "flex",
+              display: "flex", flexDirection: "row",
             }}
           >
             {recorder.isRecording ? (
@@ -436,11 +436,11 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
           {/* Per-turn model picker — hidden on mobile to save space */}
           {onModelOverrideChange && !isMobile && (
-            <div ref={modelPickerRef} style={{ position: "relative", display: "flex", alignItems: "center" }}>
+            <div ref={modelPickerRef} style={{ position: "relative", display: "flex", flexDirection: "row", alignItems: "center" }}>
               {modelOverride ? (
                 <div
                   style={{
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 4,
                     background: t.purpleSubtle,
@@ -538,7 +538,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             }
             disabled={!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               justifyContent: "center",
               width: isMobile ? 36 : 44,

@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
-import { View, Text, Pressable } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { Trash2, AlertTriangle, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDeleteChannel, useChannelCategories } from "@/src/api/hooks/useChannels";
@@ -69,12 +68,12 @@ function TagEditor({
   };
 
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
       {tags.map((tag) => (
         <div
           key={tag}
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 4,
             padding: "3px 8px",
@@ -84,9 +83,9 @@ function TagEditor({
           }}
         >
           <span style={{ fontSize: 11, color: t.textMuted }}>{tag}</span>
-          <Pressable onPress={() => onChange(tags.filter((x) => x !== tag))}>
+          <button type="button" onClick={() => onChange(tags.filter((x) => x !== tag))}>
             <X size={11} color={t.textDim} />
-          </Pressable>
+          </button>
         </div>
       ))}
       <input
@@ -191,7 +190,7 @@ function GeneralAdvancedSection({
       </Section>
 
       {/* Metadata */}
-      <div style={{ opacity: 0.4, fontSize: 11, color: t.textDim, display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ opacity: 0.4, fontSize: 11, color: t.textDim, display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         <span>ID: {settings.id}</span>
         {settings.client_id && <span>client_id: {settings.client_id}</span>}
         {settings.integration && <span>integration: {settings.integration}</span>}
@@ -213,7 +212,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
 }) {
   const t = useThemeTokens();
   const isMobile = useIsMobile();
-  const router = useRouter();
+  const navigate = useNavigate();
   const deleteMutation = useDeleteChannel();
   const { data: existingCategories } = useChannelCategories();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -226,8 +225,8 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
 
   const handleDelete = useCallback(async () => {
     await deleteMutation.mutateAsync(channelId);
-    router.replace("/channels" as any);
-  }, [channelId, deleteMutation, router]);
+    navigate("/channels", { replace: true });
+  }, [channelId, deleteMutation, navigate]);
 
   return (
     <>
@@ -269,24 +268,23 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
                 placeholder="e.g. Work, Personal"
               />
               {categorySuggestions.length > 0 && categoryValue.length > 0 && (
-                <View className="flex-row flex-wrap gap-1" style={{ marginTop: 4 }}>
+                <div className="flex-row flex-wrap gap-1" style={{ marginTop: 4 }}>
                   {categorySuggestions.slice(0, 4).map((cat) => (
-                    <Pressable
+                    <button type="button"
                       key={cat}
-                      onPress={() => patch("category", cat)}
+                      onClick={() => patch("category", cat)}
                       style={{
                         backgroundColor: t.surfaceOverlay,
-                        paddingHorizontal: 6,
-                        paddingVertical: 2,
+                        padding: "2px 6px",
                         borderRadius: 4,
-                        borderWidth: 1,
-                        borderColor: t.surfaceBorder,
+                        border: `1px solid ${t.surfaceBorder}`,
+                        cursor: "pointer",
                       }}
                     >
-                      <Text style={{ fontSize: 10, color: t.textMuted }}>{cat}</Text>
-                    </Pressable>
+                      <span style={{ fontSize: 10, color: t.textMuted }}>{cat}</span>
+                    </button>
                   ))}
-                </View>
+                </div>
               )}
             </FormRow>
           </Col>
@@ -380,21 +378,21 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
           background: t.dangerSubtle,
           borderBottom: `1px solid ${t.dangerBorder}`,
         }}>
-          <Text style={{ fontSize: 13, fontWeight: "700", color: t.danger }}>Danger Zone</Text>
+          <span style={{ fontSize: 13, fontWeight: "700", color: t.danger }}>Danger Zone</span>
         </div>
         <div style={{ padding: 16 }}>
           {!showDeleteConfirm ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
               <div style={{ flex: 1, minWidth: 180 }}>
-                <Text style={{ fontSize: 13, color: t.text, fontWeight: "600" }}>Delete this channel</Text>
-                <Text style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
+                <span style={{ fontSize: 13, color: t.text, fontWeight: "600" }}>Delete this channel</span>
+                <span style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
                   Permanently removes the channel, its integrations, and heartbeat config. Sessions and tasks will be unlinked.
-                </Text>
+                </span>
               </div>
               <button
                 onClick={() => setShowDeleteConfirm(true)}
                 style={{
-                  display: "flex", alignItems: "center", gap: 6,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                   padding: "8px 16px", fontSize: 12, fontWeight: 600,
                   border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
                   background: "transparent", color: t.danger, cursor: "pointer",
@@ -412,13 +410,13 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
                 padding: "10px 14px", background: t.dangerSubtle, borderRadius: 6,
               }}>
                 <AlertTriangle size={16} color={t.danger} />
-                <Text style={{ fontSize: 12, color: t.danger, fontWeight: "600" }}>
+                <span style={{ fontSize: 12, color: t.danger, fontWeight: "600" }}>
                   This action cannot be undone.
-                </Text>
+                </span>
               </div>
-              <Text style={{ fontSize: 12, color: t.textMuted }}>
-                Type <Text style={{ fontFamily: "monospace", color: t.danger, fontWeight: "600" }}>delete</Text> to confirm:
-              </Text>
+              <span style={{ fontSize: 12, color: t.textMuted }}>
+                Type <span style={{ fontFamily: "monospace", color: t.danger, fontWeight: "600" }}>delete</span> to confirm:
+              </span>
               <input
                 type="text"
                 value={deleteConfirmText}
@@ -430,12 +428,12 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
                   color: t.text, outline: "none",
                 }}
               />
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
                 <button
                   onClick={handleDelete}
                   disabled={deleteConfirmText !== "delete" || deleteMutation.isPending}
                   style={{
-                    display: "flex", alignItems: "center", gap: 6,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                     padding: "8px 20px", fontSize: 12, fontWeight: 700,
                     border: "none", borderRadius: 6, cursor: "pointer",
                     background: deleteConfirmText === "delete" ? t.danger : t.surfaceBorder,
@@ -458,9 +456,9 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
                 </button>
               </div>
               {deleteMutation.isError && (
-                <Text style={{ fontSize: 11, color: t.danger }}>
+                <span style={{ fontSize: 11, color: t.danger }}>
                   {deleteMutation.error instanceof Error ? deleteMutation.error.message : "Failed to delete channel"}
-                </Text>
+                </span>
               )}
             </div>
           )}

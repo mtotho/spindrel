@@ -1,11 +1,12 @@
 import { useState, useMemo, useCallback } from "react";
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { TurnCard } from "@/src/components/shared/TurnCard";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useRouter, useLocalSearchParams } from "expo-router";
 import { X, Search, AlertTriangle, Wrench } from "lucide-react";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { LogsTabBar } from "@/src/components/logs/LogsTabBar";
 import { useTurns } from "@/src/api/hooks/useTurns";
 import { useBots } from "@/src/api/hooks/useBots";
@@ -37,7 +38,7 @@ function FilterBar({
 }) {
   return (
     <div style={{
-      display: "flex", gap: 8, padding: isMobile ? "8px 12px" : "8px 20px",
+      display: "flex", flexDirection: "row", gap: 8, padding: isMobile ? "8px 12px" : "8px 20px",
       borderBottom: `1px solid ${t.surfaceRaised}`, flexWrap: "wrap", alignItems: "center",
     }}>
       {/* Search */}
@@ -89,7 +90,7 @@ function FilterBar({
       <button
         onClick={() => setErrorOnly(!errorOnly)}
         style={{
-          display: "flex", alignItems: "center", gap: 4,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
           background: errorOnly ? t.dangerSubtle : t.surfaceRaised,
           border: `1px solid ${errorOnly ? t.danger : t.surfaceBorder}`,
           borderRadius: 6, padding: "5px 10px", fontSize: 12,
@@ -103,7 +104,7 @@ function FilterBar({
       <button
         onClick={() => setToolCallsOnly(!toolCallsOnly)}
         style={{
-          display: "flex", alignItems: "center", gap: 4,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
           background: toolCallsOnly ? t.purpleSubtle : t.surfaceRaised,
           border: `1px solid ${toolCallsOnly ? t.purple : t.surfaceBorder}`,
           borderRadius: 6, padding: "5px 10px", fontSize: 12,
@@ -117,7 +118,7 @@ function FilterBar({
         <button
           onClick={clearFilters}
           style={{
-            display: "flex", alignItems: "center", gap: 4,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
             background: "none", border: "none", color: t.textDim, cursor: "pointer",
             fontSize: 12,
           }}
@@ -134,10 +135,11 @@ function FilterBar({
 // ---------------------------------------------------------------------------
 export default function LogsScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
-  const { channel_id: channelIdParam } = useLocalSearchParams<{ channel_id?: string }>();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const channelIdParam = searchParams.get("channel_id") ?? undefined;
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isMobile = width < 768;
 
   const PAGE_SIZE = 30;
@@ -187,8 +189,8 @@ export default function LogsScreen() {
   }, [data]);
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Logs"
         subtitle={data ? `${data.turns.length} turns` : "Loading..."}
       />
@@ -215,9 +217,9 @@ export default function LogsScreen() {
       />
 
       {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={t.accent} />
-        </View>
+        <div className="flex-1 items-center justify-center">
+          <Spinner />
+        </div>
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
           <div style={{ display: "flex", flexDirection: "column" }}>
@@ -227,7 +229,7 @@ export default function LogsScreen() {
                 turn={turn}
                 isMobile={isMobile}
                 bots={bots}
-                onPress={(cid) => router.push(`/admin/logs/${cid}` as any)}
+                onPress={(cid) => navigate(`/admin/logs/${cid}`)}
               />
             ))}
             {data?.turns.length === 0 && (
@@ -239,7 +241,7 @@ export default function LogsScreen() {
 
           {/* Load more */}
           {data && data.turns.length >= PAGE_SIZE && (
-            <div style={{ display: "flex", justifyContent: "center", padding: "16px 20px" }}>
+            <div style={{ display: "flex", flexDirection: "row", justifyContent: "center", padding: "16px 20px" }}>
               <button
                 onClick={handleLoadMore}
                 style={{
@@ -254,6 +256,6 @@ export default function LogsScreen() {
           )}
         </RefreshableScrollView>
       )}
-    </View>
+    </div>
   );
 }

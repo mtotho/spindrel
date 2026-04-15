@@ -1,8 +1,8 @@
 import { useState, useMemo } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { LogsTabBar } from "@/src/components/logs/LogsTabBar";
 import { useFallbackEvents, useFallbackCooldowns, useClearCooldown } from "@/src/api/hooks/useFallbacks";
 import { useBots } from "@/src/api/hooks/useBots";
@@ -31,7 +31,7 @@ function CooldownsSection({ t }: { t: ReturnType<typeof useThemeTokens> }) {
   const { data, isLoading } = useFallbackCooldowns();
   const clearMutation = useClearCooldown();
 
-  if (isLoading) return <ActivityIndicator color={t.accent} />;
+  if (isLoading) return <Spinner />;
 
   const cooldowns = data?.cooldowns ?? [];
 
@@ -44,7 +44,7 @@ function CooldownsSection({ t }: { t: ReturnType<typeof useThemeTokens> }) {
   }
 
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "12px 20px" }}>
+    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 12, padding: "12px 20px" }}>
       {cooldowns.map((cd) => (
         <div
           key={cd.model}
@@ -53,7 +53,7 @@ function CooldownsSection({ t }: { t: ReturnType<typeof useThemeTokens> }) {
             borderRadius: 8, padding: "12px 16px", minWidth: 280, flex: "0 1 auto",
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{cd.model}</div>
               <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>
@@ -71,7 +71,7 @@ function CooldownsSection({ t }: { t: ReturnType<typeof useThemeTokens> }) {
               <X size={14} />
             </button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: t.warningMuted }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 11, color: t.warningMuted }}>
             <Clock size={11} />
             <span>{fmtRemaining(cd.remaining_seconds)} remaining</span>
           </div>
@@ -109,14 +109,14 @@ export default function FallbacksScreen() {
   }, [data]);
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Logs" subtitle="Fallbacks" />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Logs" subtitle="Fallbacks" />
       <LogsTabBar active="fallbacks" />
 
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
         {/* Active Cooldowns */}
         <div style={{ padding: "16px 20px 8px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
             <AlertTriangle size={16} color={t.warningMuted} />
             <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Active Cooldowns</span>
           </div>
@@ -125,7 +125,7 @@ export default function FallbacksScreen() {
 
         {/* Filter bar */}
         <div style={{
-          display: "flex", gap: 8, padding: "12px 20px",
+          display: "flex", flexDirection: "row", gap: 8, padding: "12px 20px",
           borderTop: `1px solid ${t.surfaceRaised}`, borderBottom: `1px solid ${t.surfaceRaised}`,
           alignItems: "center", flexWrap: "wrap",
         }}>
@@ -156,7 +156,7 @@ export default function FallbacksScreen() {
           <button
             onClick={() => refetch()}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
               borderRadius: 6, padding: "5px 10px", fontSize: 12,
               color: t.textMuted, cursor: "pointer",
@@ -175,16 +175,16 @@ export default function FallbacksScreen() {
 
         {/* Events table */}
         {isLoading ? (
-          <View className="flex-1 items-center justify-center" style={{ padding: 40 }}>
-            <ActivityIndicator color={t.accent} />
-          </View>
+          <div className="flex-1 items-center justify-center" style={{ padding: 40 }}>
+            <Spinner />
+          </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column" }}>
             {data?.events.map((ev) => (
               <div
                 key={ev.id}
                 style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center",
                   padding: "10px 20px", borderBottom: `1px solid ${t.surfaceRaised}`,
                 }}
               >
@@ -245,6 +245,6 @@ export default function FallbacksScreen() {
           </div>
         )}
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

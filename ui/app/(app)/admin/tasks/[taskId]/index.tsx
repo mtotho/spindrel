@@ -1,13 +1,13 @@
 import { useCallback, useState, useEffect } from "react";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useParams, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useTask, useUpdateTask, useDeleteTask } from "@/src/api/hooks/useTasks";
 import { useWorkflowRun, useWorkflows } from "@/src/api/hooks/useWorkflows";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { Trash2, Zap } from "lucide-react";
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
@@ -37,7 +37,7 @@ function WorkflowRunLink({ runId, stepIndex, t }: { runId: string; stepIndex?: n
   const href = run ? `/admin/workflows/${run.workflow_id}` : undefined;
   return (
     <div>
-      <div style={{ fontSize: 11, color: t.textDim, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+      <div style={{ fontSize: 11, color: t.textDim, marginBottom: 6, display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
         <Zap size={11} color="#ea580c" />
         Workflow Step
       </div>
@@ -46,10 +46,10 @@ function WorkflowRunLink({ runId, stepIndex, t }: { runId: string; stepIndex?: n
         padding: 8, borderRadius: 6, background: "rgba(249,115,22,0.06)",
         border: "1px solid rgba(249,115,22,0.15)",
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 11, color: t.textDim }}>Run</span>
           {href ? (
-            <Link href={href as any} style={{ fontSize: 11, color: t.accent, fontFamily: "monospace" } as any}>
+            <Link to={href} style={{ fontSize: 11, color: t.accent, fontFamily: "monospace" } as any}>
               {runId.slice(0, 8)}...
             </Link>
           ) : (
@@ -57,7 +57,7 @@ function WorkflowRunLink({ runId, stepIndex, t }: { runId: string; stepIndex?: n
           )}
         </div>
         {stepIndex != null && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 11, color: t.textDim }}>Step Index</span>
             <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{stepIndex}</span>
           </div>
@@ -69,8 +69,8 @@ function WorkflowRunLink({ runId, stepIndex, t }: { runId: string; stepIndex?: n
 
 export default function TaskDetailScreen() {
   const t = useThemeTokens();
-  const { taskId } = useLocalSearchParams<{ taskId: string }>();
-  const router = useRouter();
+  const { taskId } = useParams<{ taskId: string }>();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: task, isLoading } = useTask(taskId);
   const updateMut = useUpdateTask(taskId);
@@ -169,14 +169,14 @@ export default function TaskDetailScreen() {
     if (!taskId || !confirm("Delete this task?")) return;
     await deleteMut.mutateAsync(taskId);
     qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
-    router.push("/admin/tasks" as any);
-  }, [taskId, deleteMut, qc, router]);
+    navigate("/admin/tasks");
+  }, [taskId, deleteMut, qc, navigate]);
 
   const botOptions = (bots || []).map((b) => ({ label: b.name || b.id, value: b.id }));
 
   if (isLoading) {
     return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: t.surface }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: t.surface }}>
         <div className="chat-spinner" />
       </div>
     );
@@ -185,9 +185,9 @@ export default function TaskDetailScreen() {
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, background: t.surface, overflow: "hidden" }}>
       {/* Header */}
-      <DetailHeader
+      <PageHeader variant="detail"
         parentLabel="Tasks"
-        parentHref="/admin/tasks"
+        backTo="/admin/tasks"
         title="Edit Task"
         subtitle={taskId?.slice(0, 8)}
         right={<>
@@ -196,7 +196,7 @@ export default function TaskDetailScreen() {
             disabled={deleteMut.isPending}
             title="Delete"
             style={{
-              display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
               border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
               background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
@@ -331,8 +331,7 @@ export default function TaskDetailScreen() {
 
               <FormRow label="Channel">
                 {task?.channel_id ? (
-                  <Link
-                    href={`/channels/${task.channel_id}` as any}
+                  <Link to={`/channels/${task.channel_id}` as any}
                     style={{ fontSize: 13, color: t.accent, padding: "7px 0" } as any}
                   >
                     {channels?.find((c: any) => String(c.id) === String(task.channel_id))?.display_name

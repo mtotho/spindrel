@@ -107,7 +107,7 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
       style={{
         position: "fixed", inset: 0, zIndex: 100,
         background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)",
-        display: "flex", alignItems: "center", justifyContent: "center",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
         padding: 20,
       }}
     >
@@ -120,7 +120,7 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
         }}
       >
         <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
           padding: "14px 18px", borderBottom: `1px solid ${t.surfaceRaised}`,
         }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
@@ -162,7 +162,7 @@ function BuiltinPromptCollapsible({ label, content }: { label: string; content: 
       <button
         onClick={() => setOpen(!open)}
         style={{
-          display: "flex", alignItems: "center", gap: 8, width: "100%",
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%",
           padding: "8px 12px", background: "none", border: "none",
           cursor: "pointer", color: t.textMuted,
         }}
@@ -225,7 +225,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
       background: t.surface, border: `1px solid ${t.surfaceRaised}`,
       borderRadius: 8, padding: "14px 16px",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <Clock size={14} color={t.purple} />
         <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
           Dreaming
@@ -247,7 +247,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
 
       {/* Enable selector */}
       <FormRow label="Enable">
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
           {([undefined, true, false] as const).map((val) => {
             const isSelected =
               val === undefined
@@ -294,7 +294,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
             label="Only if active"
             description="Skip when no user messages have landed in this bot's channels (primary or member) since the last run. Bot-to-bot delegation, heartbeats, and assistant replies don't count as activity — a bot whose channels only see bot traffic will never dream unless this is set to No."
           >
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
               {([undefined, true, false] as const).map((val) => {
                 const isSelected =
                   val === undefined
@@ -370,7 +370,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
         <button
           onClick={() => setShowPrompt(!showPrompt)}
           style={{
-            display: "flex", alignItems: "center", gap: 6, width: "100%",
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6, width: "100%",
             padding: "6px 0", background: "none", border: "none",
             cursor: "pointer", color: t.textMuted, fontSize: 11, fontWeight: 600,
           }}
@@ -423,7 +423,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
         <div style={{
           marginTop: 12, paddingTop: 10,
           borderTop: `1px solid ${t.surfaceOverlay}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         }}>
           <div style={{ fontSize: 10, color: t.textDim, lineHeight: 1.6 }}>
             Last run: {fmtTime(status.last_run_at)}
@@ -443,7 +443,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
             onClick={() => botId && triggerMut.mutate(botId)}
             disabled={triggerMut.isPending}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "5px 10px", borderRadius: 5, fontSize: 11,
               background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`,
               color: t.purple, cursor: "pointer", fontWeight: 500,
@@ -488,7 +488,7 @@ export function MemorySection({ draft, update, botId }: {
           onClick={() => setShowHelp(true)}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            color: t.textDim, padding: 2, display: "flex", alignItems: "center",
+            color: t.textDim, padding: 2, display: "flex", flexDirection: "row", alignItems: "center",
           }}
           title="How workspace files memory works"
         >
@@ -519,7 +519,7 @@ export function MemorySection({ draft, update, botId }: {
         <button
           onClick={() => setShowPrompt(!showPrompt)}
           style={{
-            display: "flex", alignItems: "center", gap: 8, width: "100%",
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%",
             padding: "10px 16px", background: "none", border: "none",
             cursor: "pointer", color: t.textMuted,
           }}
@@ -565,7 +565,7 @@ export function KnowledgeSection() {
         background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`,
         borderRadius: 8, padding: "14px 16px",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: t.purple }}>
             Managed by Workspace Files
           </span>

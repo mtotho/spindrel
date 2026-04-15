@@ -1,4 +1,4 @@
-import { Link, usePathname } from "expo-router";
+import { Link, useLocation } from "react-router-dom";
 import {
   Plus,
   Hash,
@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
 import { useChannelReadStore } from "../../../stores/channelRead";
-import { useThemeTokens } from "../../../theme/tokens";
+import { cn } from "../../../lib/cn";
 import type { Channel } from "../../../types/api";
 import type { BotConfig } from "../../../types/api";
 import { useCallback, useMemo, useState } from "react";
@@ -46,37 +46,30 @@ function saveCategoryCollapsed(state: Record<string, boolean>) {
 }
 
 /** Resolve a lucide icon name to a component. */
-const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
+const ICON_MAP: Record<string, React.ComponentType<{ size: number; className?: string }>> = {
   Container, Plug, Lock, Hash, Home, Shield, Moon,
   MessageSquare, Code2, Mail, Camera, LayoutDashboard, Tv, Terminal, MessageCircle,
 };
-function resolveIcon(name: string): React.ComponentType<{ size: number; color: string }> {
+function resolveIcon(name: string): React.ComponentType<{ size: number; className?: string }> {
   return ICON_MAP[name] || Plug;
 }
 
 /** Skeleton loading rows for channels */
 export function ChannelSkeletons() {
-  const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+    <div className="flex flex-col gap-1">
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px" }}>
-          <div style={{
-            width: 18, height: 18, borderRadius: 4,
-            backgroundColor: t.skeletonBg,
-            animation: "pulse 2s ease-in-out infinite",
-          }} />
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{
-              height: 13, width: `${50 + i * 10}%`, borderRadius: 4,
-              backgroundColor: t.skeletonBg,
-              animation: "pulse 2s ease-in-out infinite",
-            }} />
-            <div style={{
-              height: 10, width: `${30 + i * 8}%`, borderRadius: 4,
-              backgroundColor: t.skeletonBg,
-              animation: "pulse 2s ease-in-out infinite",
-            }} />
+        <div key={i} className="flex flex-row items-center gap-3 px-3 py-2.5">
+          <div className="w-[18px] h-[18px] rounded bg-skeleton/[0.04] animate-pulse" />
+          <div className="flex-1 flex flex-col gap-1.5">
+            <div
+              className="h-[13px] rounded bg-skeleton/[0.04] animate-pulse"
+              style={{ width: `${50 + i * 10}%` }}
+            />
+            <div
+              className="h-[10px] rounded bg-skeleton/[0.04] animate-pulse"
+              style={{ width: `${30 + i * 8}%` }}
+            />
           </div>
         </div>
       ))}
@@ -88,137 +81,125 @@ interface ChannelItemProps {
   channel: Channel;
   bot?: BotConfig;
   mobile?: boolean;
-  channelPy: string;
   isStreaming: boolean;
   integrationIcons: Record<string, string>;
 }
 
-function ChannelItem({ channel, bot, mobile, channelPy, isStreaming, integrationIcons }: ChannelItemProps) {
-  const pathname = usePathname();
+function ChannelItem({ channel, bot, mobile, isStreaming, integrationIcons }: ChannelItemProps) {
+  const { pathname } = useLocation();
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
   const isUnread = useChannelReadStore((s) => s.isUnread);
-  const t = useThemeTokens();
 
   const isActive = pathname.includes(channel.id);
   const unread = !isActive && isUnread(channel.id, channel.updated_at);
   const displayName = channel.display_name || channel.name || channel.client_id;
-  const py = channelPy === "py-3" ? "12px" : "8px";
+
+  const IconComp = channel.private ? Lock : Hash;
 
   return (
-    <Link href={`/channels/${channel.id}` as any} onPress={closeMobile}>
+    <Link to={`/channels/${channel.id}`} onClick={closeMobile}>
       <div
-        className="sidebar-nav-item"
-        style={{
-          display: "flex", alignItems: "center", gap: 10,
-          padding: `${py} 12px`, borderRadius: 6, cursor: "pointer",
-          backgroundColor: isActive ? "rgba(59,130,246,0.1)" : undefined,
-        }}
-      >
-        {channel.private ? (
-          <Lock size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
-        ) : (
-          <Hash size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
+        className={cn(
+          "sidebar-nav-item flex flex-row items-center gap-2.5 px-3 rounded-md cursor-pointer relative",
+          mobile ? "py-3" : "py-2",
+          isActive && "sidebar-item-active",
         )}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-          <span style={{
-            fontSize: mobile ? 15 : 14,
-            color: isActive ? t.accent : unread ? t.text : t.textMuted,
-            fontWeight: isActive ? 500 : unread ? 600 : 400,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}>
+      >
+        <IconComp
+          size={mobile ? 18 : 14}
+          className={isActive ? "text-accent" : "text-text-dim"}
+        />
+        <div className="flex-1 min-w-0 flex flex-col">
+          <span
+            className={cn(
+              "truncate",
+              mobile ? "text-[15px]" : "text-[13px]",
+              isActive ? "text-text font-medium" : unread ? "text-text font-semibold" : "text-text-muted font-normal",
+            )}
+          >
             {displayName}
           </span>
           {bot && (
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{
-                fontSize: mobile ? 12 : 11, color: t.textDim,
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}>
+            <div className="flex flex-row items-center gap-1">
+              <span
+                className={cn(
+                  "text-text-dim truncate",
+                  mobile ? "text-xs" : "text-[11px]",
+                )}
+              >
                 {bot.name}
               </span>
               {channel.channel_workspace_enabled && (
-                <Container size={11} color={t.textDim} style={{ opacity: 0.5 }} />
+                <Container size={11} className="text-text-dim opacity-50" />
               )}
               {channel.integrations?.map((binding) => {
                 const IIcon = resolveIcon(integrationIcons[binding.integration_type] || "Plug");
-                return <span key={binding.id} style={{ opacity: 0.6 }}><IIcon size={11} color={t.textDim} /></span>;
+                return (
+                  <span key={binding.id} className="opacity-60">
+                    <IIcon size={11} className="text-text-dim" />
+                  </span>
+                );
               })}
             </div>
           )}
           {channel.tags && channel.tags.length > 0 && (
-            <span style={{ fontSize: 10, color: t.textDim, opacity: 0.6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span className="text-[10px] text-text-dim opacity-60 truncate">
               {channel.tags.slice(0, 2).join(", ")}
             </span>
           )}
         </div>
         {isStreaming && (
-          <span style={{
-            width: 8, height: 8, borderRadius: 4,
-            backgroundColor: t.accent, flexShrink: 0,
-            animation: "pulse 2s ease-in-out infinite",
-            display: "inline-block",
-          }} />
+          <span className="w-2 h-2 rounded-full bg-accent shrink-0 animate-pulse inline-block" />
         )}
         {channel.heartbeat_enabled && !channel.heartbeat_in_quiet_hours && !isStreaming && (
-          <span style={{
-            width: 6, height: 6, borderRadius: 3,
-            backgroundColor: "#22c55e", flexShrink: 0, opacity: 0.8,
-            display: "inline-block",
-          }} />
+          <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0 opacity-80 inline-block" />
         )}
         {channel.heartbeat_in_quiet_hours && !isStreaming && (
-          <Moon size={12} color={t.textDim} style={{ flexShrink: 0, opacity: 0.5 }} />
+          <Moon size={12} className="text-text-dim shrink-0 opacity-50" />
         )}
         {unread && !isStreaming && (
-          <span style={{
-            width: 8, height: 8, borderRadius: 4,
-            backgroundColor: t.accent, flexShrink: 0,
-            display: "inline-block",
-          }} />
+          <span className="w-2 h-2 rounded-full bg-accent shrink-0 inline-block" />
         )}
       </div>
     </Link>
   );
 }
 
-function OrchestratorItem({ channel, mobile, channelPy }: { channel: Channel; mobile?: boolean; channelPy: string }) {
-  const pathname = usePathname();
+function OrchestratorItem({ channel, mobile }: { channel: Channel; mobile?: boolean }) {
+  const { pathname } = useLocation();
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
   const isUnread = useChannelReadStore((s) => s.isUnread);
-  const t = useThemeTokens();
 
   const isActive = pathname.includes(channel.id);
   const unread = !isActive && isUnread(channel.id, channel.updated_at);
-  const py = channelPy === "py-3" ? "12px" : "8px";
 
   return (
-    <div style={{ padding: "6px 8px 2px" }}>
-      <Link href={`/channels/${channel.id}` as any} onPress={closeMobile}>
+    <div className="px-3 pt-2 pb-1">
+      <Link to={`/channels/${channel.id}`} onClick={closeMobile}>
         <div
-          className="sidebar-nav-item"
-          style={{
-            display: "flex", alignItems: "center", gap: 10,
-            padding: `${py} 12px`, borderRadius: 8, cursor: "pointer",
-            backgroundColor: isActive ? "rgba(59,130,246,0.15)" : `${t.accent}08`,
-          }}
+          className={cn(
+            "sidebar-nav-item flex flex-row items-center gap-2.5 px-3 rounded-lg cursor-pointer",
+            mobile ? "py-3" : "py-2",
+            isActive && "bg-accent/15",
+          )}
         >
-          <Home size={mobile ? 20 : 16} color={isActive ? t.accent : t.text} />
-          <span style={{
-            flex: 1,
-            fontSize: mobile ? 15 : 14,
-            color: isActive ? t.accent : unread ? t.text : t.text,
-            fontWeight: isActive || !unread ? 500 : 600,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}>
+          <Home
+            size={mobile ? 18 : 14}
+            className={isActive ? "text-accent" : "text-text"}
+          />
+          <span
+            className={cn(
+              "flex-1 truncate",
+              mobile ? "text-[15px]" : "text-sm",
+              isActive || !unread ? "font-medium" : "font-semibold",
+              isActive ? "text-accent" : "text-text",
+            )}
+          >
             Orchestrator
           </span>
-          <Shield size={12} color={t.textDim} style={{ opacity: 0.6, flexShrink: 0 }} />
+          <Shield size={12} className="text-text-dim opacity-60 shrink-0" />
           {unread && (
-            <span style={{
-              width: 8, height: 8, borderRadius: 4,
-              backgroundColor: t.accent, flexShrink: 0,
-              display: "inline-block",
-            }} />
+            <span className="w-2 h-2 rounded-full bg-accent shrink-0 inline-block" />
           )}
         </div>
       </Link>
@@ -232,7 +213,6 @@ interface CategoryGroupProps {
   botMap: Map<string, BotConfig>;
   integrationIcons: Record<string, string>;
   mobile?: boolean;
-  channelPy: string;
   streamingSet: Set<string>;
   collapsed: boolean;
   onToggle: () => void;
@@ -244,40 +224,27 @@ function CategoryGroup({
   botMap,
   integrationIcons,
   mobile,
-  channelPy,
   streamingSet,
   collapsed,
   onToggle,
 }: CategoryGroupProps) {
-  const t = useThemeTokens();
-
   if (channels.length === 0) return null;
 
   return (
     <div>
       <button
         onClick={onToggle}
-        className="sidebar-nav-item"
-        style={{
-          display: "flex", alignItems: "center", gap: 6,
-          padding: "6px 12px", marginTop: 4, borderRadius: 4,
-          background: "none", border: "none", cursor: "pointer",
-          width: "100%", textAlign: "left",
-        }}
+        className="sidebar-nav-item flex flex-row items-center gap-1.5 px-3 py-2 mt-2 rounded w-full text-left bg-transparent border-none cursor-pointer"
       >
         {collapsed ? (
-          <ChevronRight size={12} color={t.textDim} />
+          <ChevronRight size={12} className="text-text-dim" />
         ) : (
-          <ChevronDown size={12} color={t.textDim} />
+          <ChevronDown size={12} className="text-text-dim" />
         )}
-        <span style={{
-          flex: 1, fontSize: 11, fontWeight: 600,
-          letterSpacing: 0.5, color: t.textDim,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>
+        <span className="sidebar-section-label flex-1 truncate py-0 my-0">
           {category.toUpperCase()}
         </span>
-        <span style={{ fontSize: 10, color: t.textDim, opacity: 0.6 }}>
+        <span className="text-[10px] text-text-dim opacity-60">
           {channels.length}
         </span>
       </button>
@@ -288,7 +255,6 @@ function CategoryGroup({
             channel={channel}
             bot={botMap.get(channel.bot_id)}
             mobile={mobile}
-            channelPy={channelPy}
             isStreaming={streamingSet.has(channel.id)}
             integrationIcons={integrationIcons}
           />
@@ -303,7 +269,6 @@ export interface ChannelListProps {
   botMap: Map<string, BotConfig>;
   integrationIcons: Record<string, string>;
   mobile?: boolean;
-  channelPy: string;
   streamingSet: Set<string>;
 }
 
@@ -313,11 +278,9 @@ export function ChannelList({
   botMap,
   integrationIcons,
   mobile,
-  channelPy,
   streamingSet,
 }: ChannelListProps) {
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
-  const t = useThemeTokens();
 
   const orchestratorChannel = channels?.find((ch) => ch.client_id === "orchestrator:home");
   const regularChannels = useMemo(
@@ -366,25 +329,18 @@ export function ChannelList({
     <>
       {/* Orchestrator */}
       {!channelsLoading && orchestratorChannel && (
-        <OrchestratorItem channel={orchestratorChannel} mobile={mobile} channelPy={channelPy} />
+        <OrchestratorItem channel={orchestratorChannel} mobile={mobile} />
       )}
 
       {/* Channels */}
-      <div style={{ padding: "6px 8px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", marginBottom: 4 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.5, color: t.textDim, padding: "6px 0" }}>
+      <div className="px-3 pt-4 pb-1">
+        <div className="flex flex-row items-center justify-between px-0 mb-2 group">
+          <span className="sidebar-section-label">
             CHANNELS
           </span>
-          <Link href={"/channels/new" as any} onPress={closeMobile}>
-            <div
-              className="sidebar-icon-btn"
-              style={{
-                width: 28, height: 28, borderRadius: 4,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: "pointer",
-              }}
-            >
-              <Plus size={14} color={t.textDim} />
+          <Link to={"/channels/new"} onClick={closeMobile}>
+            <div className="sidebar-icon-btn w-7 h-7 rounded flex flex-row items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              <Plus size={14} className="text-text-dim" />
             </div>
           </Link>
         </div>
@@ -392,18 +348,10 @@ export function ChannelList({
         {channelsLoading ? (
           <ChannelSkeletons />
         ) : !hasAnyChannels ? (
-          <Link href={"/channels/new" as any}>
-            <div
-              className="sidebar-nav-item"
-              style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "6px 8px", margin: "4px 8px",
-                border: `1px dashed ${t.surfaceBorder}`,
-                borderRadius: 6, cursor: "pointer",
-              }}
-            >
-              <Plus size={12} color={t.textDim} />
-              <span style={{ fontSize: 11, color: t.textDim }}>Create a channel</span>
+          <Link to={"/channels/new"}>
+            <div className="sidebar-nav-item flex flex-row items-center gap-1.5 px-2 py-1.5 mx-2 my-1 border border-dashed border-surface-border rounded-md cursor-pointer">
+              <Plus size={12} className="text-text-dim" />
+              <span className="text-[11px] text-text-dim">Create a channel</span>
             </div>
           </Link>
         ) : (
@@ -416,20 +364,12 @@ export function ChannelList({
                 channel={channel}
                 bot={botMap.get(channel.bot_id)}
                 mobile={mobile}
-                channelPy={channelPy}
                 isStreaming={streamingSet.has(channel.id)}
                 integrationIcons={integrationIcons}
               />
             ))}
             {showDivider && (
-              <div
-                style={{
-                  height: 1,
-                  backgroundColor: t.surfaceBorder,
-                  opacity: 0.6,
-                  margin: "8px 12px 4px",
-                }}
-              />
+              <div className="hidden" />
             )}
             {namedGroups.map((group) => (
               <CategoryGroup
@@ -439,7 +379,6 @@ export function ChannelList({
                 botMap={botMap}
                 integrationIcons={integrationIcons}
                 mobile={mobile}
-                channelPy={channelPy}
                 streamingSet={streamingSet}
                 collapsed={categoryCollapsed[group.category] ?? false}
                 onToggle={() => toggleCategory(group.category)}

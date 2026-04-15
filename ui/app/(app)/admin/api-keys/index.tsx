@@ -1,10 +1,11 @@
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { Plus, Key } from "lucide-react";
 import { useApiKeys, type ApiKeyItem } from "@/src/api/hooks/useApiKeys";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 function ScopeBadge({ scope }: { scope: string }) {
@@ -55,7 +56,7 @@ function ApiKeyCard({
         width: "100%",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Key size={14} color={t.accent} />
         <span
           style={{
@@ -90,7 +91,7 @@ function ApiKeyCard({
 
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           flexWrap: "wrap",
           gap: 4,
         }}
@@ -112,21 +113,21 @@ function ApiKeyCard({
 
 export default function ApiKeysScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: apiKeys, isLoading } = useApiKeys();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="API Keys"
         right={
           <button
-            onClick={() => router.push("/admin/api-keys/new" as any)}
+            onClick={() => navigate("/admin/api-keys/new")}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 6,
               padding: "6px 14px",
@@ -147,9 +148,9 @@ export default function ApiKeysScreen() {
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh}>
         <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
           {isLoading ? (
-            <View className="items-center justify-center py-20">
-              <ActivityIndicator color={t.accent} />
-            </View>
+            <div className="items-center justify-center py-20">
+              <Spinner color={t.accent} />
+            </div>
           ) : (
             <div
               style={{
@@ -165,7 +166,7 @@ export default function ApiKeysScreen() {
                   key={k.id}
                   apiKey={k}
                   onPress={() =>
-                    router.push(`/admin/api-keys/${k.id}` as any)
+                    navigate(`/admin/api-keys/${k.id}`)
                   }
                 />
               ))}
@@ -185,6 +186,6 @@ export default function ApiKeysScreen() {
           )}
         </div>
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

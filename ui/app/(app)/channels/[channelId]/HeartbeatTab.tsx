@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { Play, RotateCcw, Pencil, FileText, Workflow as WorkflowIcon } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -143,7 +143,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
     },
   });
 
-  if (isLoading || !hbForm) return <ActivityIndicator color={t.accent} />;
+  if (isLoading || !hbForm) return <Spinner color={t.accent} />;
 
   const enabled = data?.config?.enabled ?? false;
   const isWorkflowMode = !!hbForm.workflow_id;
@@ -154,15 +154,15 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
   return (
     <>
       {/* Enable toggle + save */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         <Section title="Heartbeat">
           <div />
         </Section>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
           <button
             onClick={() => toggleMutation.mutate()}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: "6px 14px", borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer",
               background: enabled ? t.successSubtle : t.surfaceBorder,
               color: enabled ? t.success : t.textMuted,
@@ -196,7 +196,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         {/* ---- Action: Workflow or Prompt ---- */}
         <Section title="Action">
           {/* Mode toggle: Prompt (default) vs Workflow */}
-          <div style={{ display: "flex", gap: 2, marginBottom: 12 }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 2, marginBottom: 12 }}>
             {[
               { key: "prompt", label: "Prompt", icon: <FileText size={12} /> },
               { key: "workflow", label: "Workflow", icon: <WorkflowIcon size={12} /> },
@@ -214,7 +214,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                     }
                   }}
                   style={{
-                    display: "flex", alignItems: "center", gap: 5,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 5,
                     padding: "6px 14px", borderRadius: 6, cursor: "pointer",
                     fontSize: 12, fontWeight: isActive ? 600 : 400,
                     border: `1px solid ${isActive ? t.accent : t.surfaceBorder}`,
@@ -313,7 +313,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                     <>
                       {/* "Customized" badge with reset option */}
                       {customizedFromTemplateId && (
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
                           <div style={{
                             display: "flex", alignItems: "center", gap: 4,
                             fontSize: 10, fontWeight: 600, color: t.warning,
@@ -394,7 +394,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         )}
 
         {/* Save + Fire */}
-        <div style={{ marginTop: 20, display: "flex", gap: 8 }}>
+        <div style={{ marginTop: 20, display: "flex", flexDirection: "row", gap: 8 }}>
           <ActionButton
             label={hbSaved ? "Saved!" : saveMutation.isPending ? "Saving..." : "Save Heartbeat"}
             onPress={() => saveMutation.mutate(hbForm)}
@@ -490,7 +490,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
       {/* Status + History */}
       {data?.config && (
         <div style={{ marginTop: 24, borderTop: `1px solid ${t.surfaceBorder}`, paddingTop: 16 }}>
-          <div style={{ fontSize: 12, color: t.textDim, display: "flex", gap: 16, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: t.textDim, display: "flex", flexDirection: "row", gap: 16, marginBottom: 12 }}>
             {data.config.last_run_at && (
               <span>Last run: <span style={{ color: t.textMuted }}>{new Date(data.config.last_run_at).toLocaleString()}</span></span>
             )}

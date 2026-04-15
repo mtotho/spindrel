@@ -3,7 +3,6 @@
  * Extracted to keep the main file under the 1000-line split rule.
  */
 import { useState, useEffect, useMemo } from "react";
-import { View, Text, Pressable, Platform } from "react-native";
 import { Plus, Trash2, Archive, ChevronRight, Folder } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -35,7 +34,7 @@ export function stripSlashes(p: string): string {
 export const DRAG_MIME = "application/x-spindrel-move-path";
 
 // ---------------------------------------------------------------------------
-// IN CONTEXT card — pinned active section
+// IN CONTEXT card -- pinned active section
 // ---------------------------------------------------------------------------
 
 const TOKEN_BUDGET = 8000;
@@ -107,42 +106,33 @@ export function InContextCard({
     );
   };
 
-  // Note: we intentionally render the card even on first load (no early return).
-  // Hiding it during the initial fetch makes the entire affordance disappear,
-  // so the user can't see the "Add active file" button until the network
-  // round-trip completes. Render the chrome immediately and let the body show
-  // a placeholder while loading.
-
   return (
-    <View
+    <div
       style={{
         marginTop: 6,
-        marginHorizontal: 6,
-        marginBottom: 4,
+        margin: "6px 6px 4px",
         backgroundColor: t.accentSubtle,
         borderRadius: 6,
-        borderLeftWidth: 2,
-        borderLeftColor: t.accent,
+        borderLeft: `2px solid ${t.accent}`,
         overflow: "hidden",
       }}
     >
       {/* Title row */}
-      <View
+      <div
         style={{
+          display: "flex",
           flexDirection: "row",
           alignItems: "center",
-          paddingHorizontal: 8,
-          paddingTop: 6,
-          paddingBottom: 4,
+          padding: "6px 8px 4px",
           gap: 6,
         }}
       >
-        <View style={{
+        <div style={{
           width: 6, height: 6, borderRadius: 3,
           backgroundColor: isStreaming ? "#14b8a6" : t.accent,
           opacity: isStreaming ? 1 : 0.5,
         }} />
-        <Text
+        <span
           style={{
             flex: 1,
             color: t.textMuted,
@@ -153,8 +143,8 @@ export function InContextCard({
           }}
         >
           In Context
-        </Text>
-        <Text
+        </span>
+        <span
           style={{
             color: tokenColor,
             fontSize: 10,
@@ -162,35 +152,35 @@ export function InContextCard({
           }}
         >
           {tokenStr} tok
-        </Text>
-      </View>
+        </span>
+      </div>
 
       {/* Token bar */}
-      <View style={{ height: 2, backgroundColor: `${t.text}10`, marginHorizontal: 8, borderRadius: 1 }}>
-        <View
+      <div style={{ height: 2, backgroundColor: `${t.text}10`, margin: "0 8px", borderRadius: 1 }}>
+        <div
           style={{
-            width: `${Math.round(tokenPct * 100)}%` as any,
+            width: `${Math.round(tokenPct * 100)}%`,
             height: 2,
             backgroundColor: tokenColor,
             borderRadius: 1,
           }}
         />
-      </View>
+      </div>
 
       {/* File rows */}
-      <View style={{ paddingVertical: 4 }}>
+      <div style={{ padding: "4px 0" }}>
         {activeFiles.length === 0 && !creating && (
-          <Text
+          <span
             style={{
+              display: "block",
               color: t.textDim,
               fontSize: 11,
               fontStyle: "italic",
-              paddingHorizontal: 10,
-              paddingVertical: 4,
+              padding: "4px 10px",
             }}
           >
-            {isLoading ? "Loading…" : "No active files yet"}
-          </Text>
+            {isLoading ? "Loading\u2026" : "No active files yet"}
+          </span>
         )}
         {activeFiles.map((f) => (
           <ActiveFileRow
@@ -204,7 +194,7 @@ export function InContextCard({
         ))}
 
         {creating ? (
-          <View style={{ paddingHorizontal: 10, paddingVertical: 2 }}>
+          <div style={{ padding: "2px 10px" }}>
             <input
               autoFocus
               value={newName}
@@ -230,132 +220,101 @@ export function InContextCard({
                 fontFamily: "inherit",
               }}
             />
-          </View>
+          </div>
         ) : (
-          <Pressable
-            onPress={() => setCreating(true)}
-            style={({ hovered }: any) => ({
+          <button type="button"
+            onClick={() => setCreating(true)}
+            style={{
+              display: "flex",
               flexDirection: "row",
               alignItems: "center",
               gap: 5,
-              paddingHorizontal: 10,
-              paddingVertical: 3,
-              opacity: hovered ? 1 : 0.55,
+              padding: "3px 10px",
+              opacity: 0.55,
               cursor: "pointer",
-            } as any)}
+              background: "none",
+              border: "none",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.55"; }}
           >
             <Plus size={11} color={t.accent} />
-            <Text
-              style={{
-                color: t.accent,
-                fontSize: 10.5,
-                fontWeight: "500",
-              }}
-            >
+            <span style={{ color: t.accent, fontSize: 10.5, fontWeight: "500" }}>
               Add active file
-            </Text>
-          </Pressable>
+            </span>
+          </button>
         )}
-      </View>
-    </View>
+      </div>
+    </div>
   );
 }
 
 function ActiveFileRow({
-  file,
-  selected,
-  onSelect,
-  onArchive,
-  onDelete,
+  file, selected, onSelect, onArchive, onDelete,
 }: {
-  file: ChannelWorkspaceFile;
-  selected: boolean;
-  onSelect: () => void;
-  onArchive: () => void;
-  onDelete: () => void;
+  file: ChannelWorkspaceFile; selected: boolean; onSelect: () => void;
+  onArchive: () => void; onDelete: () => void;
 }) {
   const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
-
   const displayName = file.name.includes("/")
-    ? file.name.substring(file.name.lastIndexOf("/") + 1)
-    : file.name;
-
-  // Use accent-tinted icon to mark as "live"
+    ? file.name.substring(file.name.lastIndexOf("/") + 1) : file.name;
   const icon = getFileIcon(displayName, t.accent, t.textDim);
   const modified = formatRelativeTime(file.modified_at);
 
   return (
-    <Pressable
-      onPress={onSelect}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
+    <button type="button"
+      onClick={onSelect}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        flexDirection: "row",
-        alignItems: "center",
-        height: 22,
-        paddingLeft: 10,
-        paddingRight: 8,
-        gap: 6,
-        backgroundColor: selected ? `${t.accent}25` : hovered ? `${t.accent}12` : "transparent",
-        cursor: "pointer",
-      } as any}
+        display: "flex", flexDirection: "row", alignItems: "center",
+        height: 22, paddingLeft: 10, paddingRight: 8, gap: 6, width: "100%",
+        background: selected ? `${t.accent}25` : hovered ? `${t.accent}12` : "transparent",
+        cursor: "pointer", border: "none",
+      }}
     >
       {icon}
-      <Text
-        style={{
-          flex: 1,
-          color: selected ? t.text : t.accent,
-          fontSize: 11.5,
-          lineHeight: 22,
-          minWidth: 0,
-        }}
-        numberOfLines={1}
-      >
+      <span style={{
+        flex: 1, color: selected ? t.text : t.accent, fontSize: 11.5,
+        lineHeight: "22px", minWidth: 0, overflow: "hidden",
+        textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left",
+      }}>
         {displayName}
-      </Text>
+      </span>
       {hovered ? (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 1 }}>
-          <Pressable
-            onPress={(e) => { e.stopPropagation(); onArchive(); }}
-            style={{ padding: 2, opacity: 0.7 }}
-            {...(Platform.OS === "web" ? { title: "Archive" } as any : {})}
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 1 }}>
+          <button type="button"
+            onClick={(e) => { e.stopPropagation(); onArchive(); }}
+            style={{ padding: 2, opacity: 0.7, background: "none", border: "none", cursor: "pointer" }}
+            title="Archive"
           >
             <Archive size={11} color={t.textMuted} />
-          </Pressable>
-          <Pressable
-            onPress={(e) => { e.stopPropagation(); onDelete(); }}
-            style={{ padding: 2, opacity: 0.7 }}
-            {...(Platform.OS === "web" ? { title: "Delete" } as any : {})}
+          </button>
+          <button type="button"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            style={{ padding: 2, opacity: 0.7, background: "none", border: "none", cursor: "pointer" }}
+            title="Delete"
           >
             <Trash2 size={11} color={t.textMuted} />
-          </Pressable>
-        </View>
-      ) : (
-        modified ? (
-          <Text style={{ color: t.textDim, fontSize: 9, flexShrink: 0 }}>{modified}</Text>
-        ) : null
-      )}
-    </Pressable>
+          </button>
+        </div>
+      ) : modified ? (
+        <span style={{ color: t.textDim, fontSize: 9, flexShrink: 0 }}>{modified}</span>
+      ) : null}
+    </button>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Scope strip — quick-jump chips
+// Scope strip -- quick-jump chips
 // ---------------------------------------------------------------------------
 
 export function ScopeStrip({
-  currentPath,
-  channelTarget,
-  memoryTarget,
-  rootTarget,
-  onJump,
+  currentPath, channelTarget, memoryTarget, rootTarget, onJump,
 }: {
-  currentPath: string;
-  channelTarget: string | null;
-  memoryTarget: string | null;
-  rootTarget: string;
-  onJump: (path: string) => void;
+  currentPath: string; channelTarget: string | null; memoryTarget: string | null;
+  rootTarget: string; onJump: (path: string) => void;
 }) {
   const t = useThemeTokens();
   const chips: { label: string; path: string }[] = [];
@@ -364,79 +323,44 @@ export function ScopeStrip({
   chips.push({ label: "Workspace", path: rootTarget });
 
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        gap: 4,
-        paddingHorizontal: 8,
-        paddingTop: 4,
-        paddingBottom: 4,
-      }}
-    >
+    <div style={{ display: "flex", flexDirection: "row", gap: 4, padding: "4px 8px" }}>
       {chips.map((c) => {
-        const active =
-          currentPath === c.path ||
-          (c.path !== "/" && currentPath.startsWith(c.path + "/"));
+        const active = currentPath === c.path || (c.path !== "/" && currentPath.startsWith(c.path + "/"));
         return (
-          <Pressable
-            key={c.label}
-            onPress={() => onJump(c.path)}
-            style={({ hovered }: any) => ({
-              paddingHorizontal: 8,
-              paddingVertical: 2,
-              borderRadius: 10,
-              backgroundColor: active
-                ? t.accentSubtle
-                : hovered
-                  ? `${t.text}08`
-                  : "transparent",
-              borderWidth: 1,
-              borderColor: active ? t.accentBorder : "transparent",
-              cursor: "pointer",
-            } as any)}
+          <button type="button" key={c.label} onClick={() => onJump(c.path)}
+            style={{
+              padding: "2px 8px", borderRadius: 10, cursor: "pointer",
+              backgroundColor: active ? t.accentSubtle : "transparent",
+              border: active ? `1px solid ${t.accentBorder}` : "1px solid transparent",
+            }}
+            onMouseEnter={(e) => { if (!active) e.currentTarget.style.backgroundColor = `${t.text}08`; }}
+            onMouseLeave={(e) => { if (!active) e.currentTarget.style.backgroundColor = active ? t.accentSubtle : "transparent"; }}
           >
-            <Text
-              style={{
-                color: active ? t.accent : t.textMuted,
-                fontSize: 10,
-                fontWeight: active ? "600" : "500",
-                letterSpacing: 0.2,
-              }}
-            >
+            <span style={{
+              color: active ? t.accent : t.textMuted, fontSize: 10,
+              fontWeight: active ? "600" : "500", letterSpacing: 0.2,
+            }}>
               {c.label}
-            </Text>
-          </Pressable>
+            </span>
+          </button>
         );
       })}
-    </View>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Breadcrumb — clickable path segments
+// Breadcrumb -- clickable path segments
 // ---------------------------------------------------------------------------
 
 export function Breadcrumb({
-  path,
-  channelId,
-  channelDisplayName,
-  channelNameMap,
-  onNavigate,
+  path, channelId, channelDisplayName, channelNameMap, onNavigate,
 }: {
-  path: string;
-  channelId: string;
-  channelDisplayName: string | null | undefined;
-  /** Optional id→display_name lookup so any channel UUID in the breadcrumb
-   *  (not just the current channel) renders as a friendly name. */
-  channelNameMap?: Record<string, string> | null;
-  onNavigate: (p: string) => void;
+  path: string; channelId: string; channelDisplayName: string | null | undefined;
+  channelNameMap?: Record<string, string> | null; onNavigate: (p: string) => void;
 }) {
   const t = useThemeTokens();
   const segments = path === "/" ? [] : stripSlashes(path).split("/");
-
-  // Replace channel UUID segments with display name. Lookup order:
-  //   1. channelNameMap[seg]   — works for any channel
-  //   2. channelDisplayName    — fallback for the current channel
   const labelFor = (seg: string, i: number) => {
     if (i > 0 && segments[i - 1] === "channels") {
       const mapped = channelNameMap?.[seg];
@@ -447,111 +371,68 @@ export function Breadcrumb({
   };
 
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 10,
-        paddingVertical: 3,
-        flexWrap: "nowrap",
-        minHeight: 20,
-      }}
-    >
-      <Pressable
-        onPress={() => onNavigate("/")}
-        style={({ hovered }: any) => ({ cursor: "pointer", opacity: hovered ? 1 : 0.85 } as any)}
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", padding: "3px 10px", flexWrap: "nowrap", minHeight: 20 }}>
+      <button type="button" onClick={() => onNavigate("/")}
+        style={{ cursor: "pointer", opacity: 0.85, background: "none", border: "none", padding: 0 }}
+        onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.85"; }}
       >
-        <Text
-          style={{
-            color: path === "/" ? t.text : t.accent,
-            fontSize: 10.5,
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-          }}
-        >
+        <span style={{ color: path === "/" ? t.text : t.accent, fontSize: 10.5, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
           /ws
-        </Text>
-      </Pressable>
+        </span>
+      </button>
       {segments.map((seg, i) => {
         const segPath = "/" + segments.slice(0, i + 1).join("/");
         const isLast = i === segments.length - 1;
         const label = labelFor(seg, i);
         return (
-          <View key={segPath} style={{ flexDirection: "row", alignItems: "center", minWidth: 0 }}>
-            <Text style={{ color: t.textDim, fontSize: 10.5, marginHorizontal: 3 }}>
-              ›
-            </Text>
-            <Pressable
-              onPress={() => !isLast && onNavigate(segPath)}
-              style={({ hovered }: any) => ({
-                cursor: isLast ? "default" : "pointer",
-                opacity: hovered && !isLast ? 1 : 0.85,
-                minWidth: 0,
-              } as any)}
+          <div key={segPath} style={{ display: "flex", flexDirection: "row", alignItems: "center", minWidth: 0 }}>
+            <span style={{ color: t.textDim, fontSize: 10.5, margin: "0 3px" }}>&rsaquo;</span>
+            <button type="button" onClick={() => !isLast && onNavigate(segPath)}
+              style={{ cursor: isLast ? "default" : "pointer", opacity: 0.85, minWidth: 0, background: "none", border: "none", padding: 0 }}
+              onMouseEnter={(e) => { if (!isLast) e.currentTarget.style.opacity = "1"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.85"; }}
             >
-              <Text
-                numberOfLines={1}
-                style={{
-                  color: isLast ? t.text : t.accent,
-                  fontSize: 10.5,
-                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                  maxWidth: 140,
-                }}
-              >
+              <span style={{
+                color: isLast ? t.text : t.accent, fontSize: 10.5,
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block",
+              }}>
                 {label}
-              </Text>
-            </Pressable>
-          </View>
+              </span>
+            </button>
+          </div>
         );
       })}
-    </View>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Tree row — folder or file in current directory
+// Tree row -- folder or file in current directory
 // ---------------------------------------------------------------------------
 
 export function TreeFolderRow({
-  name,
-  displayLabel,
-  fullPath,
-  onNavigate,
-  onContextMenu,
-  onMoveDrop,
-  focused,
+  name, displayLabel, fullPath, onNavigate, onContextMenu, onMoveDrop, focused,
 }: {
-  name: string;
-  /** Optional friendly label (e.g. channel display_name from .channel_info).
-   *  When set, shown instead of `name`; the raw `name` becomes a tooltip. */
-  displayLabel?: string | null;
-  fullPath: string;
-  onNavigate: (p: string) => void;
-  onContextMenu?: (e: any) => void;
-  /** Called when an in-app file drag (mime DRAG_MIME) is dropped on this row. */
-  onMoveDrop?: (sourcePath: string) => void;
-  focused?: boolean;
+  name: string; displayLabel?: string | null; fullPath: string;
+  onNavigate: (p: string) => void; onContextMenu?: (e: any) => void;
+  onMoveDrop?: (sourcePath: string) => void; focused?: boolean;
 }) {
   const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const label = displayLabel || name;
 
-  // Drop-target handlers — only react to our custom in-app mime so we don't
-  // hijack OS-file drops (those keep flowing to the explorer's upload path).
-  const dropProps = Platform.OS === "web" && onMoveDrop ? {
+  const dropProps = onMoveDrop ? {
     onDragOver: (e: any) => {
       if (e.dataTransfer?.types?.includes(DRAG_MIME)) {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         e.dataTransfer.dropEffect = "move";
         if (!dragOver) setDragOver(true);
       }
     },
     onDragLeave: (e: any) => {
-      // HTML5 dragleave fires whenever the cursor crosses from the row into
-      // one of its child elements (icon, text, chevron), which would flicker
-      // the highlight off. Only clear when the cursor truly leaves the row —
-      // i.e. relatedTarget is not a descendant of currentTarget.
       const next = e.relatedTarget as Node | null;
       if (next && e.currentTarget.contains(next)) return;
       setDragOver(false);
@@ -559,160 +440,100 @@ export function TreeFolderRow({
     onDrop: (e: any) => {
       const src = e.dataTransfer?.getData(DRAG_MIME);
       if (!src) return;
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       setDragOver(false);
       onMoveDrop(src);
     },
   } : {};
 
   return (
-    <Pressable
-      onPress={() => onNavigate(fullPath)}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
+    <button type="button" onClick={() => onNavigate(fullPath)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        flexDirection: "row",
-        alignItems: "center",
-        height: 22,
-        paddingLeft: 12,
-        paddingRight: 8,
-        gap: 6,
-        backgroundColor: dragOver
-          ? `${t.accent}25`
-          : hovered || focused
-            ? `${t.text}08`
-            : "transparent",
-        outline: dragOver
-          ? `1px solid ${t.accent}`
-          : focused
-            ? `1px dotted ${t.textDim}`
-            : "none",
-        outlineOffset: -1,
-        cursor: "pointer",
-      } as any}
-      {...(Platform.OS === "web" && onContextMenu ? { onContextMenu } as any : {})}
-      {...(Platform.OS === "web" && displayLabel ? { title: name } as any : {})}
-      {...(dropProps as any)}
+        display: "flex", flexDirection: "row", alignItems: "center",
+        height: 22, paddingLeft: 12, paddingRight: 8, gap: 6, width: "100%",
+        background: dragOver ? `${t.accent}25` : hovered || focused ? `${t.text}08` : "transparent",
+        outline: dragOver ? `1px solid ${t.accent}` : focused ? `1px dotted ${t.textDim}` : "none",
+        outlineOffset: -1, cursor: "pointer", border: "none",
+      }}
+      {...(onContextMenu ? { onContextMenu } : {})}
+      {...(displayLabel ? { title: name } : {})}
+      {...dropProps}
     >
       <Folder size={13} color={dragOver ? t.accent : "#dcb67a"} />
-      <Text
-        style={{
-          flex: 1,
-          color: t.text,
-          fontSize: 12,
-          lineHeight: 22,
-          minWidth: 0,
-        }}
-        numberOfLines={1}
-      >
+      <span style={{
+        flex: 1, color: t.text, fontSize: 12, lineHeight: "22px", minWidth: 0,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left",
+      }}>
         {label}
-      </Text>
+      </span>
       <ChevronRight size={11} color={t.textDim} />
-    </Pressable>
+    </button>
   );
 }
 
 export function TreeFileRow({
-  name,
-  fullPath,
-  size,
-  modifiedAt,
-  selected,
-  focused,
-  onSelect,
-  onContextMenu,
-  onDelete,
-  draggable = true,
+  name, fullPath, size, modifiedAt, selected, focused, onSelect, onContextMenu, onDelete, draggable = true,
 }: {
-  name: string;
-  fullPath: string;
-  size: number | null | undefined;
-  modifiedAt: number | null | undefined;
-  selected: boolean;
-  focused?: boolean;
-  onSelect: () => void;
-  onContextMenu?: (e: any) => void;
-  onDelete: () => void;
-  /** When true (default on web), the row can be dragged onto a folder row to move it. */
+  name: string; fullPath: string; size: number | null | undefined;
+  modifiedAt: number | null | undefined; selected: boolean; focused?: boolean;
+  onSelect: () => void; onContextMenu?: (e: any) => void; onDelete: () => void;
   draggable?: boolean;
 }) {
   const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
   const [dragging, setDragging] = useState(false);
-
   const icon = name === "MEMORY.md" || fullPath.endsWith("/archive")
-    ? getArchiveIcon(t.textDim)
-    : getFileIcon(name, null, t.textDim);
+    ? getArchiveIcon(t.textDim) : getFileIcon(name, null, t.textDim);
   const sizeStr = formatSize(size);
   const modified = formatRelativeTime(modifiedAt);
 
-  // Drag-source handlers — sets the custom mime so folder drop targets pick
-  // it up. We avoid setting "Files" so OS upload handlers stay quiet.
-  const dragProps = Platform.OS === "web" && draggable ? {
+  const dragProps = draggable ? {
     draggable: true,
     onDragStart: (e: any) => {
-      try {
-        e.dataTransfer.setData(DRAG_MIME, fullPath);
-        e.dataTransfer.effectAllowed = "move";
-      } catch {}
+      try { e.dataTransfer.setData(DRAG_MIME, fullPath); e.dataTransfer.effectAllowed = "move"; } catch {}
       setDragging(true);
     },
     onDragEnd: () => setDragging(false),
   } : {};
 
   return (
-    <Pressable
-      onPress={onSelect}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
+    <button type="button" onClick={onSelect}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        flexDirection: "row",
-        alignItems: "center",
-        height: 22,
-        paddingLeft: 12,
-        paddingRight: 8,
-        gap: 6,
-        backgroundColor: selected
-          ? t.accentSubtle
-          : hovered || focused
-            ? `${t.text}08`
-            : "transparent",
+        display: "flex", flexDirection: "row", alignItems: "center",
+        height: 22, paddingLeft: 12, paddingRight: 8, gap: 6, width: "100%",
+        background: selected ? t.accentSubtle : hovered || focused ? `${t.text}08` : "transparent",
         outline: focused && !selected ? `1px dotted ${t.textDim}` : "none",
-        outlineOffset: -1,
-        cursor: dragging ? "grabbing" : "pointer",
-        opacity: dragging ? 0.5 : 1,
-      } as any}
-      {...(Platform.OS === "web" && onContextMenu ? { onContextMenu } as any : {})}
-      {...(dragProps as any)}
+        outlineOffset: -1, cursor: dragging ? "grabbing" : "pointer",
+        opacity: dragging ? 0.5 : 1, border: "none",
+      }}
+      {...(onContextMenu ? { onContextMenu } : {})}
+      {...dragProps}
     >
       {icon}
-      <Text
-        style={{
-          flex: 1,
-          color: t.text,
-          fontSize: 12,
-          lineHeight: 22,
-          minWidth: 0,
-        }}
-        numberOfLines={1}
-      >
+      <span style={{
+        flex: 1, color: t.text, fontSize: 12, lineHeight: "22px", minWidth: 0,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left",
+      }}>
         {name}
-      </Text>
+      </span>
       {hovered ? (
-        <Pressable
-          onPress={(e) => { e.stopPropagation(); onDelete(); }}
-          style={{ padding: 2, opacity: 0.7 }}
-          {...(Platform.OS === "web" ? { title: "Delete" } as any : {})}
+        <button type="button"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          style={{ padding: 2, opacity: 0.7, background: "none", border: "none", cursor: "pointer" }}
+          title="Delete"
         >
           <Trash2 size={11} color={t.textMuted} />
-        </Pressable>
+        </button>
       ) : (
-        <Text style={{ color: t.textDim, fontSize: 9, flexShrink: 0 }}>
+        <span style={{ color: t.textDim, fontSize: 9, flexShrink: 0 }}>
           {modified || sizeStr}
-        </Text>
+        </span>
       )}
-    </Pressable>
+    </button>
   );
 }
 
@@ -721,34 +542,18 @@ export function TreeFileRow({
 // ---------------------------------------------------------------------------
 
 export function NewItemRow({
-  kind,
-  onSubmit,
-  onCancel,
+  kind, onSubmit, onCancel,
 }: {
-  kind: "file" | "folder";
-  onSubmit: (name: string) => void;
-  onCancel: () => void;
+  kind: "file" | "folder"; onSubmit: (name: string) => void; onCancel: () => void;
 }) {
   const t = useThemeTokens();
   const [name, setName] = useState("");
 
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        height: 24,
-        paddingLeft: 12,
-        paddingRight: 8,
-        gap: 6,
-      }}
-    >
-      {kind === "folder"
-        ? <Folder size={13} color="#dcb67a" />
-        : <Plus size={13} color={t.accent} />}
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", height: 24, paddingLeft: 12, paddingRight: 8, gap: 6 }}>
+      {kind === "folder" ? <Folder size={13} color="#dcb67a" /> : <Plus size={13} color={t.accent} />}
       <input
-        autoFocus
-        value={name}
+        autoFocus value={name}
         onChange={(e: any) => setName(e.target.value)}
         onKeyDown={(e: any) => {
           if (e.key === "Enter" && name.trim()) onSubmit(name.trim());
@@ -757,19 +562,11 @@ export function NewItemRow({
         onBlur={() => { if (!name.trim()) onCancel(); else onSubmit(name.trim()); }}
         placeholder={kind === "folder" ? "folder-name" : "filename.md"}
         style={{
-          flex: 1,
-          background: t.inputBg,
-          border: `1px solid ${t.accent}`,
-          borderRadius: 3,
-          padding: "0px 6px",
-          fontSize: 12,
-          color: t.text,
-          outline: "none",
-          height: 20,
-          fontFamily: "inherit",
-          minWidth: 0,
+          flex: 1, background: t.inputBg, border: `1px solid ${t.accent}`, borderRadius: 3,
+          padding: "0px 6px", fontSize: 12, color: t.text, outline: "none", height: 20,
+          fontFamily: "inherit", minWidth: 0,
         }}
       />
-    </View>
+    </div>
   );
 }

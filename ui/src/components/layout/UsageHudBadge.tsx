@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, forwardRef } from "react";
 import { createPortal } from "react-dom";
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import { DollarSign } from "lucide-react";
 import { useUsageForecast } from "../../api/hooks/useUsageForecast";
 import { useSpikeStatus } from "../../api/hooks/useSpikeAlerts";
@@ -89,11 +89,11 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
     if (collapsed) {
       return (
         <div>
-          <Link href={"/admin/usage" as any} asChild>
+          <Link to="/admin/usage">
             <button
               className="sidebar-icon-btn"
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "center",
                 width: 44,
@@ -129,7 +129,7 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
     }
     return (
       <div>
-        <Link href={"/admin/usage" as any} asChild>
+        <Link to="/admin/usage">
           <button
             className="sidebar-nav-item"
             style={{
@@ -201,7 +201,7 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
             className="sidebar-icon-btn"
             onClick={() => (open ? setOpen(false) : openPopover())}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               justifyContent: "center",
               width: 44,
@@ -354,7 +354,7 @@ const PopoverContent = forwardRef<
       {/* Header */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "center",
           marginBottom: 10,
@@ -400,7 +400,7 @@ const PopoverContent = forwardRef<
         <div style={{ margin: "8px 0" }}>
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               justifyContent: "space-between",
               marginBottom: 3,
             }}
@@ -432,7 +432,7 @@ const PopoverContent = forwardRef<
           </div>
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               justifyContent: "space-between",
               marginTop: 2,
             }}
@@ -460,7 +460,7 @@ const PopoverContent = forwardRef<
         <div
           key={c.source}
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
             padding: "2px 0",
@@ -494,7 +494,7 @@ const PopoverContent = forwardRef<
           paddingTop: 8,
         }}
       >
-        <Link href={"/admin/usage" as any} asChild>
+        <Link to="/admin/usage">
           <button
             onClick={onClose}
             style={{
@@ -528,7 +528,7 @@ function SpikeIndicator({ t }: { t: ReturnType<typeof useThemeTokens> }) {
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 6,
         padding: "4px 0",
@@ -586,7 +586,7 @@ function ForecastRow({
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         justifyContent: "space-between",
         padding: "2px 0",
       }}

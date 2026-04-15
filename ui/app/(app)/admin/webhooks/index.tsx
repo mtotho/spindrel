@@ -1,10 +1,12 @@
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { Plus, Webhook } from "lucide-react";
 import { useWebhooks, type WebhookEndpointItem } from "@/src/api/hooks/useWebhooks";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 function EventBadge({ event }: { event: string }) {
@@ -28,10 +30,10 @@ function EventBadge({ event }: { event: string }) {
 
 function WebhookCard({
   webhook,
-  onPress,
+  onClick,
 }: {
   webhook: WebhookEndpointItem;
-  onPress: () => void;
+  onClick: () => void;
 }) {
   const t = useThemeTokens();
   const truncatedUrl =
@@ -39,7 +41,7 @@ function WebhookCard({
 
   return (
     <button
-      onClick={onPress}
+      onClick={onClick}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -53,7 +55,7 @@ function WebhookCard({
         width: "100%",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Webhook size={14} color={t.accent} />
         <span
           style={{
@@ -88,7 +90,7 @@ function WebhookCard({
 
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           flexWrap: "wrap",
           gap: 4,
         }}
@@ -116,21 +118,21 @@ function WebhookCard({
 
 export default function WebhooksScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: webhooks, isLoading } = useWebhooks();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Webhooks"
         right={
           <button
-            onClick={() => router.push("/admin/webhooks/new" as any)}
+            onClick={() => navigate("/admin/webhooks/new")}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 6,
               padding: "6px 14px",
@@ -151,9 +153,9 @@ export default function WebhooksScreen() {
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh}>
         <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
           {isLoading ? (
-            <View className="items-center justify-center py-20">
-              <ActivityIndicator color={t.accent} />
-            </View>
+            <div className="items-center justify-center py-20">
+              <Spinner />
+            </div>
           ) : (
             <div
               style={{
@@ -168,8 +170,8 @@ export default function WebhooksScreen() {
                 <WebhookCard
                   key={w.id}
                   webhook={w}
-                  onPress={() =>
-                    router.push(`/admin/webhooks/${w.id}` as any)
+                  onClick={() =>
+                    navigate(`/admin/webhooks/${w.id}`)
                   }
                 />
               ))}
@@ -190,6 +192,6 @@ export default function WebhooksScreen() {
           )}
         </div>
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

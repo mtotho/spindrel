@@ -22,7 +22,7 @@ export function SecretWarningDialog({
     borderRadius: 6,
     cursor: "pointer",
     fontSize: 13,
-    display: "flex",
+    display: "flex", flexDirection: "row",
     alignItems: "center",
     gap: 6,
   };
@@ -33,7 +33,7 @@ export function SecretWarningDialog({
         position: "fixed",
         inset: 0,
         background: "rgba(0,0,0,0.5)",
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         zIndex: 1000,
@@ -53,7 +53,7 @@ export function SecretWarningDialog({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
           <AlertTriangle size={20} color={t.warning} />
           <span style={{ fontSize: 16, fontWeight: 600, color: t.text }}>
             Possible secret detected
@@ -99,7 +99,7 @@ export function SecretWarningDialog({
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
           <button
             onClick={onCancel}
             style={{

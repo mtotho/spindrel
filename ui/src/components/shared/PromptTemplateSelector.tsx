@@ -177,7 +177,7 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
                           onMouseEnter={(e) => (e.currentTarget.style.background = t.surfaceOverlay)}
                           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                         >
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
                             <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
                               {tpl.name}
                             </span>

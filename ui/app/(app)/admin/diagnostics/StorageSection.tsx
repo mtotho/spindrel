@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useStorageBreakdown, usePurgeStorage } from "@/src/api/hooks/useStorage";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { BarChart } from "@/src/components/shared/SimpleCharts";
@@ -43,9 +43,9 @@ export function StorageSection() {
 
   if (isLoading) {
     return (
-      <View className="items-center justify-center" style={{ padding: 40 }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="items-center justify-center" style={{ padding: 40 }}>
+        <Spinner color={t.accent} />
+      </div>
     );
   }
 
@@ -61,7 +61,7 @@ export function StorageSection() {
       {data.retention_days == null && totalRows > 0 && (
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 10,
             padding: "12px 16px",
@@ -96,7 +96,7 @@ export function StorageSection() {
       )}
 
       {/* Summary cards */}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
         <SummaryCard label="Total Rows" value={fmtNum(totalRows)} t={t} />
         <SummaryCard
           label="Disk Usage"
@@ -146,7 +146,7 @@ export function StorageSection() {
           {/* Header */}
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               gap: 8,
               padding: "8px 12px",
               fontSize: 10,
@@ -169,7 +169,7 @@ export function StorageSection() {
             <div
               key={tb.table}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 gap: 8,
                 padding: "7px 12px",
                 fontSize: 12,
@@ -209,7 +209,7 @@ export function StorageSection() {
 
       {/* Purge button */}
       {data.retention_days != null && totalPurgeable > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
           {!showConfirm ? (
             <button
               onClick={() => {
@@ -217,7 +217,7 @@ export function StorageSection() {
                 setShowConfirm(true);
               }}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
                 padding: "8px 16px",
@@ -281,7 +281,7 @@ export function StorageSection() {
       {purge.isSuccess && !showConfirm && (
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 8,
             padding: "10px 14px",

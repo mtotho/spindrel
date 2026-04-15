@@ -2,7 +2,7 @@
  * Compact step card for the workflow step list (left pane).
  * Shows step number, ID, type badge, one-line preview, and indicator dots.
  */
-import { Pressable, Text } from "react-native";
+
 import { type ThemeTokens } from "@/src/theme/tokens";
 import {
   Zap, Terminal, Bot, ShieldAlert, GitBranch, RotateCcw,
@@ -55,8 +55,8 @@ export function WorkflowStepCard({
   const hasRetry = step.on_failure?.startsWith("retry:");
 
   return (
-    <Pressable
-      onPress={onSelect}
+    <button type="button"
+      onClick={onSelect}
       style={{
         borderRadius: 8,
         borderWidth: 1,
@@ -68,14 +68,14 @@ export function WorkflowStepCard({
       }}
     >
       <div style={{
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
         padding: "8px 10px",
         cursor: "pointer", userSelect: "none",
       }}>
         {/* Step number */}
         <span style={{
           width: 20, height: 20, borderRadius: 10, flexShrink: 0,
-          display: "flex", alignItems: "center", justifyContent: "center",
+          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
           background: typeStyle.bg, border: `1px solid ${typeStyle.border}`,
           fontSize: 10, fontWeight: 700, color: typeStyle.text,
         }}>
@@ -112,19 +112,19 @@ export function WorkflowStepCard({
         </span>
 
         {/* Indicator dots */}
-        <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 3, flexShrink: 0 }}>
           {hasCondition && (
             <span title="Conditional" style={{ display: "flex" }}>
               <GitBranch size={11} color={t.purple} />
             </span>
           )}
           {hasApproval && (
-            <span title="Requires approval" style={{ display: "flex" }}>
+            <span title="Requires approval" style={{ display: "flex", flexDirection: "row" }}>
               <ShieldAlert size={11} color={t.warning} />
             </span>
           )}
           {hasRetry && (
-            <span title={step.on_failure || "Retry"} style={{ display: "flex" }}>
+            <span title={step.on_failure || "Retry"} style={{ display: "flex", flexDirection: "row" }}>
               <RotateCcw size={11} color={t.textMuted} />
             </span>
           )}
@@ -133,7 +133,7 @@ export function WorkflowStepCard({
         {/* Reorder + delete buttons */}
         {!disabled && onMove && onRemove && (
           <div
-            style={{ display: "flex", gap: 1, flexShrink: 0 }}
+            style={{ display: "flex", flexDirection: "row", gap: 1, flexShrink: 0 }}
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -142,7 +142,7 @@ export function WorkflowStepCard({
               style={{
                 background: "none", border: "none", padding: 3, borderRadius: 3,
                 cursor: isFirst ? "default" : "pointer", opacity: isFirst ? 0.2 : 0.6,
-                display: "flex", alignItems: "center",
+                display: "flex", flexDirection: "row", alignItems: "center",
               }}
             >
               <ArrowUp size={11} color={t.textDim} />
@@ -153,7 +153,7 @@ export function WorkflowStepCard({
               style={{
                 background: "none", border: "none", padding: 3, borderRadius: 3,
                 cursor: isLast ? "default" : "pointer", opacity: isLast ? 0.2 : 0.6,
-                display: "flex", alignItems: "center",
+                display: "flex", flexDirection: "row", alignItems: "center",
               }}
             >
               <ArrowDown size={11} color={t.textDim} />
@@ -163,7 +163,7 @@ export function WorkflowStepCard({
               style={{
                 background: "none", border: "none", padding: 3, borderRadius: 3,
                 cursor: "pointer", opacity: 0.6,
-                display: "flex", alignItems: "center",
+                display: "flex", flexDirection: "row", alignItems: "center",
               }}
             >
               <X size={11} color={t.danger} />
@@ -171,6 +171,6 @@ export function WorkflowStepCard({
           </div>
         )}
       </div>
-    </Pressable>
+    </button>
   );
 }

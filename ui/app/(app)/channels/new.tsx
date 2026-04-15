@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -16,7 +16,7 @@ import { IntegrationActivationList } from "@/src/components/channels/Integration
 type WizardStep = "basics" | "integrations";
 
 export default function NewChannelScreen() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const goBack = useGoBack("/");
   const theme = useThemeTokens();
   const { data: bots } = useBots();
@@ -81,7 +81,7 @@ export default function NewChannelScreen() {
     if (!name.trim() || createChannel.isPending) return;
     try {
       const channel = await createChannel.mutateAsync(buildBody());
-      router.push(`/channels/${channel.id}` as any);
+      navigate(`/channels/${channel.id}`);
     } catch {
       // mutation error handled by react-query
     }
@@ -102,7 +102,7 @@ export default function NewChannelScreen() {
         body.activate_integrations = enabledIntegrations;
       }
       const channel = await createChannel.mutateAsync(body);
-      router.push(`/channels/${channel.id}` as any);
+      navigate(`/channels/${channel.id}`);
     } catch {
       // mutation error handled by react-query
     }
@@ -211,7 +211,7 @@ export default function NewChannelScreen() {
                     placeholder="e.g. Work, Personal, Projects"
                   />
                   {categorySuggestions.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
                       {categorySuggestions.slice(0, 5).map((cat) => (
                         <button
                           type="button"
@@ -306,7 +306,7 @@ export default function NewChannelScreen() {
                     backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
                     padding: "12px 20px",
                     borderRadius: 8,
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "center",
                     gap: 8,
@@ -330,7 +330,7 @@ export default function NewChannelScreen() {
                     backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
                     padding: "12px 20px",
                     borderRadius: 8,
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "center",
                     gap: 8,
@@ -436,7 +436,7 @@ export default function NewChannelScreen() {
                   backgroundColor: theme.accent,
                   padding: "12px 20px",
                   borderRadius: 8,
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 8,

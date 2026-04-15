@@ -3,7 +3,7 @@
  * Extracted from WorkflowFormParts.tsx.
  */
 import { useState, useCallback, useEffect } from "react";
-import { View, Text } from "react-native";
+
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useBots } from "@/src/api/hooks/useBots";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
@@ -50,7 +50,7 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
     let isValid = true;
     try { JSON.parse(rawText); } catch { isValid = false; }
     return (
-      <View style={{ gap: 8 }}>
+      <div style={{ gap: 8 }}>
         <textarea
           value={rawText}
           onChange={(e) => {
@@ -67,7 +67,7 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
           disabled={disabled}
         />
         {!isValid && rawText.trim() && (
-          <Text style={{ color: t.danger, fontSize: 11 }}>Invalid JSON</Text>
+          <span style={{ color: t.danger, fontSize: 11 }}>Invalid JSON</span>
         )}
         <button
           onClick={() => setShowRaw(false)}
@@ -78,12 +78,12 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
         >
           Form mode
         </button>
-      </View>
+      </div>
     );
   }
 
   return (
-    <View style={{ gap: 14 }}>
+    <div style={{ gap: 14 }}>
       <FormRow label="Bot" description="Default bot for all steps">
         <select
           value={value.bot_id || ""}
@@ -178,6 +178,6 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
       >
         Raw JSON
       </button>
-    </View>
+    </div>
   );
 }

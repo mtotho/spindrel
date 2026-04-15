@@ -1,8 +1,10 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useEffect, useMemo } from "react";
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+
+import { useParams, useNavigate } from "react-router-dom";
 import { Play } from "lucide-react";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useWorkspace, useStartWorkspace, useWorkspaceIndexStatus } from "@/src/api/hooks/useWorkspaces";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -15,8 +17,8 @@ const MOBILE_BREAKPOINT = 768;
 
 export default function WorkspaceFileBrowser() {
   const t = useThemeTokens();
-  const router = useRouter();
-  const { workspaceId } = useLocalSearchParams<{ workspaceId: string }>();
+  const navigate = useNavigate();
+  const { workspaceId } = useParams<{ workspaceId: string }>();
   const { data: workspace, isLoading } = useWorkspace(workspaceId);
   const startMutation = useStartWorkspace(workspaceId!);
   const reset = useFileBrowserStore((s) => s.reset);
@@ -24,7 +26,7 @@ export default function WorkspaceFileBrowser() {
   const treeVisible = useFileBrowserStore((s) => s.treeVisible);
   const hideTree = useFileBrowserStore((s) => s.hideTree);
 
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth } = useWindowSize();
   const isMobile = windowWidth < MOBILE_BREAKPOINT;
 
   const [showUpload, setShowUpload] = useState(false);
@@ -60,9 +62,9 @@ export default function WorkspaceFileBrowser() {
 
   if (isLoading || !workspace) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.surface }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.surface }}>
+        <Spinner />
+      </div>
     );
   }
 
@@ -72,7 +74,7 @@ export default function WorkspaceFileBrowser() {
   if (!isRunning) {
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", background: t.surface, height: "100%" }}>
-        {isMobile && <MobileHeader title="Workspace" onBack={() => router.back()} />}
+        {isMobile && <PageHeader variant="detail" title="Workspace" backTo={`/admin/workspaces/${workspaceId}`} />}
         <BrowserToolbar workspace={workspace} onUpload={() => setShowUpload(true)} isMobile={isMobile} />
         <div
           style={{
@@ -90,7 +92,7 @@ export default function WorkspaceFileBrowser() {
               height: 64,
               borderRadius: 32,
               background: "rgba(100,100,100,0.1)",
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               justifyContent: "center",
             }}
@@ -131,7 +133,7 @@ export default function WorkspaceFileBrowser() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", background: t.surface, height: "100%" }}>
-      {isMobile && <MobileHeader title="Workspace" onBack={() => router.back()} />}
+      {isMobile && <PageHeader variant="detail" title="Workspace" backTo={`/admin/workspaces/${workspaceId}`} />}
       <BrowserToolbar workspace={workspace} onUpload={() => setShowUpload(true)} isMobile={isMobile} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", position: "relative" }}>

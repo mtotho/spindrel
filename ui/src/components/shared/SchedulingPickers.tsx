@@ -109,7 +109,7 @@ export function ScheduledAtPicker({ value, onChange }: { value: string; onChange
           placeholder="Pick a date & time..."
         />
         {isRelative && resolvedTime && (
-          <div style={{ fontSize: 11, color: t.textDim, display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ fontSize: 11, color: t.textDim, display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
             <span style={{ color: t.accent, fontWeight: 600 }}>{value}</span>
             <span>&rarr;</span>
             <span style={{ fontFamily: "monospace" }}>
@@ -292,7 +292,7 @@ export function ScheduleSummary({
             Next runs
           </span>
           {nextRuns.map((d, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
               <span style={{
                 width: 4, height: 4, borderRadius: 2,
                 background: i === 0 ? t.accent : t.textDim,
@@ -326,7 +326,7 @@ export function EnableToggle({ enabled, onChange, compact }: {
       onClick={() => onChange(!enabled)}
       title={enabled ? "Enabled" : "Disabled"}
       style={{
-        display: "flex", alignItems: "center", gap: compact ? 0 : 6,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: compact ? 0 : 6,
         padding: compact ? "5px 6px" : "5px 12px", fontSize: 12, fontWeight: 600,
         border: "none", cursor: "pointer", borderRadius: 6, flexShrink: 0,
         background: enabled ? t.successSubtle : t.dangerSubtle,
@@ -356,7 +356,7 @@ export function EnableToggle({ enabled, onChange, compact }: {
 export function InfoRow({ label, value }: { label: string; value: string }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
       <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
       <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{value}</span>
     </div>

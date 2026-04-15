@@ -1,9 +1,9 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState } from "react";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import {
   ExternalLink, Code, Plus, X, RefreshCw, FolderSearch,
 } from "lucide-react";
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -33,24 +33,24 @@ function FileViewer({ channelId, path }: { channelId: string; path: string }) {
   const t = useThemeTokens();
   const { data, isLoading } = useChannelWorkspaceFileContent(channelId, path);
 
-  if (isLoading) return <ActivityIndicator color={t.accent} style={{ padding: 16 }} />;
-  if (!data) return <Text style={{ color: t.textDim, padding: 16, fontSize: 12 }}>File not found</Text>;
+  if (isLoading) return <div style={{ padding: 16, display: "flex", flexDirection: "row", justifyContent: "center" }}><Spinner color={t.accent} /></div>;
+  if (!data) return <span style={{ color: t.textDim, padding: 16, fontSize: 12 }}>File not found</span>;
 
   return (
-    <View style={{
+    <div style={{
       backgroundColor: t.surfaceOverlay,
       borderRadius: 6,
       padding: 12,
       maxHeight: 400,
       overflow: "scroll" as any,
     }}>
-      <Text style={{ color: t.textDim, fontSize: 11, marginBottom: 8, fontWeight: "600" }}>
+      <span style={{ color: t.textDim, fontSize: 11, marginBottom: 8, fontWeight: "600" }}>
         {path}
-      </Text>
+      </span>
       <pre style={{ color: t.text, fontSize: 12, fontFamily: "monospace", margin: 0, whiteSpace: "pre-wrap" }}>
         {data.content}
       </pre>
-    </View>
+    </div>
   );
 }
 
@@ -87,48 +87,46 @@ function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; chann
   };
 
   return (
-    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8}}>
-      <Link href={`/admin/workspaces/${workspaceId}/files` as any} asChild>
-        <Pressable
-          onPress={handleBrowse}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            borderRadius: 6,
-            borderWidth: 1,
-            borderColor: t.surfaceBorder,
-            backgroundColor: t.surfaceOverlay,
-          }}
-        >
-          <ExternalLink size={13} color={t.accent} />
-          <Text style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>Browse in Workspace</Text>
-        </Pressable>
+    <div style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8}}>
+      <Link
+        to={`/admin/workspaces/${workspaceId}/files`}
+        onClick={handleBrowse}
+        style={{
+          display: "inline-flex",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          padding: "8px 12px",
+          borderRadius: 6,
+          border: `1px solid ${t.surfaceBorder}`,
+          backgroundColor: t.surfaceOverlay,
+          textDecoration: "none",
+        }}
+      >
+        <ExternalLink size={13} color={t.accent} />
+        <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>Browse in Workspace</span>
       </Link>
-      <Pressable
-        onPress={handleOpenEditor}
+      <button type="button"
+        onClick={handleOpenEditor}
         disabled={editorOpening || enableEditorMutation.isPending}
         style={{
           flexDirection: "row",
           alignItems: "center",
           gap: 6,
-          paddingHorizontal: 12,
-          paddingVertical: 8,
+          paddingLeft: 12, paddingRight: 12,
+          paddingTop: 8, paddingBottom: 8,
           borderRadius: 6,
-          borderWidth: 1,
-          borderColor: t.surfaceBorder,
+          border: `1px solid ${t.surfaceBorder}`,
           backgroundColor: t.surfaceOverlay,
           opacity: editorOpening ? 0.5 : 1,
         }}
       >
         <Code size={13} color={t.accent} />
-        <Text style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>
+        <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>
           {editorOpening ? "Opening..." : "Open in Editor"}
-        </Text>
-      </Pressable>
-    </View>
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -140,9 +138,9 @@ function DefaultHint({ value, defaultValue, label }: { value: string | undefined
   const t = useThemeTokens();
   if (value) return null;
   return (
-    <Text style={{ color: t.textDim, fontSize: 10, fontStyle: "italic" }}>
+    <span style={{ color: t.textDim, fontSize: 10, fontStyle: "italic" }}>
       {label ? `${label}: ` : ""}{defaultValue}
-    </Text>
+    </span>
   );
 }
 
@@ -215,27 +213,27 @@ function IndexedDirectoriesSection({
       title="Indexed Directories"
       description="Additional folders to index for semantic search. Contents are automatically retrieved and injected into context when relevant to the conversation."
       action={
-        <View style={{ flexDirection: "row", gap: 6 }}>
-          <Pressable
-            onPress={() => reindexMutation.mutate()}
+        <div style={{ flexDirection: "row", gap: 6 }}>
+          <button type="button"
+            onClick={() => reindexMutation.mutate()}
             disabled={reindexMutation.isPending || segments.length === 0}
             style={{
               flexDirection: "row",
               alignItems: "center",
               gap: 4,
-              paddingHorizontal: 8,
-              paddingVertical: 4,
+              paddingLeft: 8, paddingRight: 8,
+              paddingTop: 4, paddingBottom: 4,
               borderRadius: 4,
               backgroundColor: t.surfaceOverlay,
               opacity: reindexMutation.isPending || segments.length === 0 ? 0.5 : 1,
             }}
           >
             <RefreshCw size={12} color={t.accent} />
-            <Text style={{ color: t.accent, fontSize: 11, fontWeight: "600" }}>
+            <span style={{ color: t.accent, fontSize: 11, fontWeight: "600" }}>
               {reindexMutation.isPending ? "Reindexing..." : "Reindex"}
-            </Text>
-          </Pressable>
-        </View>
+            </span>
+          </button>
+        </div>
       }
     >
       {segments.length === 0 && !adding && (
@@ -243,25 +241,25 @@ function IndexedDirectoriesSection({
       )}
 
       {segments.map((seg, i) => (
-        <View
+        <div
           key={i}
           style={{
             flexDirection: "row",
             alignItems: "center",
             gap: 8,
-            paddingVertical: 6,
-            paddingHorizontal: 10,
+            paddingTop: 6, paddingBottom: 6,
+            paddingLeft: 10, paddingRight: 10,
             borderRadius: 6,
             backgroundColor: t.surfaceOverlay,
             marginBottom: 4,
           }}
         >
           <FolderSearch size={14} color={t.accent} />
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ color: t.text, fontSize: 13, fontFamily: "monospace", fontWeight: "500" }} numberOfLines={1}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ color: t.text, fontSize: 13, fontFamily: "monospace", fontWeight: "500" }}>
               {seg.path_prefix}
-            </Text>
-            <Text style={{ color: t.textDim, fontSize: 11 }}>
+            </span>
+            <span style={{ color: t.textDim, fontSize: 11 }}>
               patterns: {seg.patterns?.join(", ") || defaultPatterns}
               {" "}&middot;{" "}
               model: {seg.embedding_model || defaultModel}
@@ -269,21 +267,20 @@ function IndexedDirectoriesSection({
               top_k: {seg.top_k ?? defaultTopK}
               {" "}&middot;{" "}
               threshold: {seg.similarity_threshold ?? defaultThreshold}
-            </Text>
-          </View>
-          <Pressable onPress={() => handleRemove(i)} style={{ padding: 4 }}>
+            </span>
+          </div>
+          <button type="button" onClick={() => handleRemove(i)} style={{ padding: 4 }}>
             <X size={13} color={t.danger} />
-          </Pressable>
-        </View>
+          </button>
+        </div>
       ))}
 
       {adding ? (
-        <View style={{
+        <div style={{
           gap: 8,
           padding: 10,
           borderRadius: 6,
-          borderWidth: 1,
-          borderColor: t.surfaceBorder,
+          border: `1px solid ${t.surfaceBorder}`,
         }}>
           <FormRow label="Path prefix" description="Relative to channel workspace, e.g. data/repo">
             <TextInput
@@ -310,8 +307,8 @@ function IndexedDirectoriesSection({
             />
             <DefaultHint value={newModel} defaultValue={defaultModel} label="Inherited" />
           </FormRow>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <View style={{ flex: 1 }}>
+          <div style={{ flexDirection: "row", gap: 8 }}>
+            <div style={{ flex: 1 }}>
               <FormRow label="Top K (optional)" description="Max results returned">
                 <TextInput
                   value={newTopK}
@@ -320,8 +317,8 @@ function IndexedDirectoriesSection({
                 />
                 <DefaultHint value={newTopK} defaultValue={String(defaultTopK)} label="Inherited" />
               </FormRow>
-            </View>
-            <View style={{ flex: 1 }}>
+            </div>
+            <div style={{ flex: 1 }}>
               <FormRow label="Similarity threshold (optional)" description="Min cosine similarity (0-1)">
                 <TextInput
                   value={newThreshold}
@@ -330,63 +327,63 @@ function IndexedDirectoriesSection({
                 />
                 <DefaultHint value={newThreshold} defaultValue={String(defaultThreshold)} label="Inherited" />
               </FormRow>
-            </View>
-          </View>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <Pressable
-              onPress={handleAdd}
+            </div>
+          </div>
+          <div style={{ flexDirection: "row", gap: 8 }}>
+            <button type="button"
+              onClick={handleAdd}
               disabled={!newPath.trim()}
               style={{
-                paddingHorizontal: 12,
-                paddingVertical: 6,
+                paddingLeft: 12, paddingRight: 12,
+                paddingTop: 6, paddingBottom: 6,
                 borderRadius: 6,
                 backgroundColor: t.accent,
                 opacity: newPath.trim() ? 1 : 0.5,
               }}
             >
-              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>Add</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => { setAdding(false); setNewPath(""); setNewPatterns(""); setNewModel(""); setNewTopK(""); setNewThreshold(""); }}
-              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+              <span style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>Add</span>
+            </button>
+            <button type="button"
+              onClick={() => { setAdding(false); setNewPath(""); setNewPatterns(""); setNewModel(""); setNewTopK(""); setNewThreshold(""); }}
+              style={{ paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6, borderRadius: 6 }}
             >
-              <Text style={{ color: t.textMuted, fontSize: 12 }}>Cancel</Text>
-            </Pressable>
-          </View>
-        </View>
+              <span style={{ color: t.textMuted, fontSize: 12 }}>Cancel</span>
+            </button>
+          </div>
+        </div>
       ) : (
-        <Pressable
-          onPress={() => setAdding(true)}
+        <button type="button"
+          onClick={() => setAdding(true)}
           style={{
             flexDirection: "row",
             alignItems: "center",
             gap: 6,
-            paddingVertical: 8,
-            paddingHorizontal: 10,
+            paddingTop: 8, paddingBottom: 8,
+            paddingLeft: 10, paddingRight: 10,
           }}
         >
           <Plus size={14} color={t.accent} />
-          <Text style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>Add Directory</Text>
-        </Pressable>
+          <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>Add Directory</span>
+        </button>
       )}
 
       {defaults && segments.length === 0 && !adding && (
-        <View style={{ marginTop: 4, paddingHorizontal: 4 }}>
-          <Text style={{ color: t.textDim, fontSize: 10, lineHeight: 16 }}>
+        <div style={{ marginTop: 4, paddingLeft: 4, paddingRight: 4 }}>
+          <span style={{ color: t.textDim, fontSize: 10, lineHeight: 16 }}>
             Defaults from bot workspace config: top_k={defaultTopK}, threshold={defaultThreshold}, model={defaultModel}
-          </Text>
-        </View>
+          </span>
+        </div>
       )}
 
       {reindexMutation.isSuccess && (
-        <Text style={{ color: t.success, fontSize: 11, marginTop: 4 }}>
+        <span style={{ color: t.success, fontSize: 11, marginTop: 4 }}>
           Reindex complete
-        </Text>
+        </span>
       )}
       {reindexMutation.isError && (
-        <Text style={{ color: t.danger, fontSize: 11, marginTop: 4 }}>
+        <span style={{ color: t.danger, fontSize: 11, marginTop: 4 }}>
           Reindex failed: {(reindexMutation.error as Error)?.message || "Unknown error"}
-        </Text>
+        </span>
       )}
     </Section>
   );

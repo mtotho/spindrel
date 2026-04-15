@@ -105,7 +105,7 @@ export function ActionButton({
       onClick={disabled ? undefined : onPress}
       disabled={disabled}
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         gap: 6,
@@ -237,7 +237,7 @@ export function InfoBanner({
         fontSize: 11,
         lineHeight: "1.5",
         color: v.color,
-        display: "flex",
+        display: "flex", flexDirection: "row",
         gap: 8,
         alignItems: "flex-start",
       }}

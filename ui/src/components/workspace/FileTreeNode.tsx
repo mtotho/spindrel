@@ -270,7 +270,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 4,
           paddingLeft: depth * 16 + 8,
@@ -335,7 +335,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 4,
             }}
@@ -368,7 +368,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
           {creatingChild && (
             <div
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 4,
                 paddingLeft: (depth + 1) * 16 + 8,

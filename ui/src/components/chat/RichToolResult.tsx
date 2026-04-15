@@ -60,7 +60,7 @@ export function RichToolResult({ envelope, sessionId, t }: Props) {
           background: t.overlayLight,
           fontSize: 11,
           color: t.textMuted,
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 8,
         }}

@@ -39,7 +39,7 @@ function ThinkingBlock({ text, borderColor, textColor, labelColor }: { text: str
     >
       {/* Label */}
       <div style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 6,
         paddingBottom: 4,
@@ -132,7 +132,7 @@ function groupToolCalls(toolCalls: ToolCallItem[]): { name: string; calls: ToolC
 /** Mini status dots for a group of tool calls */
 function StatusDots({ calls, t }: { calls: ToolCallItem[]; t: ReturnType<typeof useThemeTokens> }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
       {calls.map((tc, i) => {
         const color = tc.status === "denied" ? t.danger
           : tc.status === "awaiting_approval" ? t.warning
@@ -192,7 +192,7 @@ function SingleToolCallCard({
       <div
         onClick={hasExpandableContent ? onToggle : undefined}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 8,
           padding: "6px 10px",
@@ -246,7 +246,7 @@ function SingleToolCallCard({
           style={{
             borderTop: `1px solid ${borderColor}`,
             padding: "8px 10px",
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 8,
             flexWrap: "wrap",
@@ -275,7 +275,7 @@ function SingleToolCallCard({
                 fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 4,
                 border: "none", cursor: isDeciding ? "default" : "pointer",
                 backgroundColor: t.purple, color: "#fff", opacity: isDeciding ? 0.6 : 1,
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               }}
             >
               <Pin size={11} />
@@ -371,7 +371,7 @@ function ToolCallCards({ toolCalls, t, botId }: { toolCalls: Props["toolCalls"];
               <div
                 onClick={() => toggleGroup(gi)}
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 8,
                   padding: "7px 12px",
@@ -471,7 +471,7 @@ function SkillPills({ skills, t }: { skills: AutoInjectedSkillDisplay[]; t: Retu
     <div style={{ marginBottom: 6 }}>
       {/* Section label — mirrors ThinkingBlock pattern */}
       <div style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 5,
         paddingBottom: 4,
@@ -488,7 +488,7 @@ function SkillPills({ skills, t }: { skills: AutoInjectedSkillDisplay[]; t: Retu
         </span>
       </div>
       {/* Pills */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
         {skills.map((s, i) => (
           <div
             key={s.skillId}

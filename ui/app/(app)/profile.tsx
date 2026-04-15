@@ -1,18 +1,10 @@
 import { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  Pressable,
-  ScrollView,
-  TextInput,
-  ActivityIndicator,
-  Image,
-} from "react-native";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { User, Link2, Lock, Check, X, Eye, EyeOff } from "lucide-react";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { apiFetch } from "@/src/api/client";
 import { useAuthStore, AuthUser } from "@/src/stores/auth";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 interface IntegrationField {
@@ -72,72 +64,72 @@ function AccountSection({ user }: { user: AuthUser }) {
   });
 
   return (
-    <View className="gap-4">
-      <Text className="text-text font-semibold text-base">Account</Text>
+    <div className="gap-4">
+      <span className="text-text font-semibold text-base">Account</span>
 
       {/* Avatar preview */}
-      <View className="flex-row items-center gap-4">
-        <View className="w-16 h-16 rounded-full bg-accent/20 items-center justify-center overflow-hidden">
+      <div className="flex-row items-center gap-4">
+        <div className="w-16 h-16 rounded-full bg-accent/20 items-center justify-center overflow-hidden">
           {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={{ width: 64, height: 64 }} />
+            <img src={avatarUrl} style={{ width: 64, height: 64 }} alt="Avatar" />
           ) : (
             <User size={28} color={t.accent} />
           )}
-        </View>
-        <View>
-          <Text className="text-text font-medium">{user.display_name}</Text>
-          <Text className="text-text-muted text-xs">{user.email}</Text>
-          <View className="flex-row gap-2 mt-1">
-            <View className="bg-surface-overlay px-1.5 py-0.5 rounded">
-              <Text className="text-text-dim text-[10px]">{user.auth_method}</Text>
-            </View>
+        </div>
+        <div>
+          <span className="text-text font-medium">{user.display_name}</span>
+          <span className="text-text-muted text-xs">{user.email}</span>
+          <div className="flex-row gap-2 mt-1">
+            <div className="bg-surface-overlay px-1.5 py-0.5 rounded">
+              <span className="text-text-dim text-[10px]">{user.auth_method}</span>
+            </div>
             {user.is_admin && (
-              <View className="bg-amber-500/20 px-1.5 py-0.5 rounded">
-                <Text className="text-amber-400 text-[10px] font-medium">Admin</Text>
-              </View>
+              <div className="bg-amber-500/20 px-1.5 py-0.5 rounded">
+                <span className="text-amber-400 text-[10px] font-medium">Admin</span>
+              </div>
             )}
-          </View>
-        </View>
-      </View>
+          </div>
+        </div>
+      </div>
 
       {/* Fields */}
-      <View className="gap-2">
-        <Text className="text-text-dim text-xs">Display Name</Text>
-        <TextInput
+      <div className="gap-2">
+        <span className="text-text-dim text-xs">Display Name</span>
+        <input
           className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
           value={displayName}
-          onChangeText={setDisplayName}
+          onChange={(e) => setDisplayName(e.target.value)}
         />
-      </View>
-      <View className="gap-2">
-        <Text className="text-text-dim text-xs">Avatar URL</Text>
-        <TextInput
+      </div>
+      <div className="gap-2">
+        <span className="text-text-dim text-xs">Avatar URL</span>
+        <input
           className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
           value={avatarUrl}
-          onChangeText={setAvatarUrl}
+          onChange={(e) => setAvatarUrl(e.target.value)}
           placeholder="https://..."
-          placeholderTextColor={t.textDim}
         />
-      </View>
+      </div>
 
       {dirty && (
-        <Pressable
-          onPress={() => saveMutation.mutate()}
+        <button
+          type="button"
+          onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending}
           className="bg-accent rounded px-4 py-2 self-start flex-row items-center gap-2"
         >
           {saveMutation.isPending ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <Spinner size={16} color="#fff" />
           ) : (
             <Check size={14} color="#fff" />
           )}
-          <Text className="text-white text-sm font-medium">Save</Text>
-        </Pressable>
+          <span className="text-white text-sm font-medium">Save</span>
+        </button>
       )}
       {saved && (
-        <Text className="text-green-400 text-xs">Saved</Text>
+        <span className="text-green-400 text-xs">Saved</span>
       )}
-    </View>
+    </div>
   );
 }
 
@@ -205,71 +197,71 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
 
   if (isLoading) {
     return (
-      <View className="gap-4">
-        <Text className="text-text font-semibold text-base">Integrations</Text>
-        <ActivityIndicator size="small" color={t.accent} />
-      </View>
+      <div className="gap-4">
+        <span className="text-text font-semibold text-base">Integrations</span>
+        <Spinner size={16} color={t.accent} />
+      </div>
     );
   }
 
   if (!integrations?.length) {
     return (
-      <View className="gap-4">
-        <Text className="text-text font-semibold text-base">Integrations</Text>
-        <Text className="text-text-muted text-sm">No integrations configured.</Text>
-      </View>
+      <div className="gap-4">
+        <span className="text-text font-semibold text-base">Integrations</span>
+        <span className="text-text-muted text-sm">No integrations configured.</span>
+      </div>
     );
   }
 
   return (
-    <View className="gap-4">
-      <View className="flex-row items-center gap-2">
+    <div className="gap-4">
+      <div className="flex-row items-center gap-2">
         <Link2 size={16} color="#9ca3af" />
-        <Text className="text-text font-semibold text-base">Integrations</Text>
-      </View>
-      <Text className="text-text-muted text-xs">
+        <span className="text-text font-semibold text-base">Integrations</span>
+      </div>
+      <span className="text-text-muted text-xs">
         Link your accounts so the server can associate integration messages with your user.
-      </Text>
+      </span>
 
       {integrations.map((integration) => (
-        <View
+        <div
           key={integration.id}
           className="bg-surface-raised border border-surface-border rounded-lg p-4 gap-3"
         >
-          <Text className="text-text font-medium">{integration.name}</Text>
+          <span className="text-text font-medium">{integration.name}</span>
           {integration.fields.map((field) => (
-            <View key={field.key} className="gap-1">
-              <Text className="text-text-dim text-xs">{field.label}</Text>
-              <TextInput
+            <div key={field.key} className="gap-1">
+              <span className="text-text-dim text-xs">{field.label}</span>
+              <input
                 className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
                 value={values[integration.id]?.[field.key] || ""}
-                onChangeText={(v) => updateField(integration.id, field.key, v)}
+                onChange={(e) => updateField(integration.id, field.key, e.target.value)}
                 placeholder={field.description}
-                placeholderTextColor={t.textDim}
               />
-            </View>
+            </div>
           ))}
-        </View>
+        </div>
       ))}
 
       {dirty && (
-        <Pressable
-          onPress={() => saveMutation.mutate()}
+        <button
+          type="button"
+          onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending}
           className="bg-accent rounded px-4 py-2 self-start flex-row items-center gap-2"
         >
           {saveMutation.isPending ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <Spinner size={16} color="#fff" />
           ) : (
             <Check size={14} color="#fff" />
           )}
-          <Text className="text-white text-sm font-medium">Save</Text>
-        </Pressable>
+          <span className="text-white text-sm font-medium">Save</span>
+        </button>
       )}
       {saved && (
-        <Text className="text-green-400 text-xs">Saved</Text>
+        <span className="text-green-400 text-xs">Saved</span>
       )}
-    </View>
+    </div>
   );
 }
 
@@ -324,39 +316,40 @@ function SecuritySection({ user }: { user: AuthUser }) {
 
   if (user.auth_method !== "local") {
     return (
-      <View className="gap-4">
-        <View className="flex-row items-center gap-2">
+      <div className="gap-4">
+        <div className="flex-row items-center gap-2">
           <Lock size={16} color="#9ca3af" />
-          <Text className="text-text font-semibold text-base">Security</Text>
-        </View>
-        <Text className="text-text-muted text-sm">
+          <span className="text-text font-semibold text-base">Security</span>
+        </div>
+        <span className="text-text-muted text-sm">
           Password management is not available for {user.auth_method} authentication.
-        </Text>
-      </View>
+        </span>
+      </div>
     );
   }
 
   return (
-    <View className="gap-4">
-      <View className="flex-row items-center gap-2">
+    <div className="gap-4">
+      <div className="flex-row items-center gap-2">
         <Lock size={16} color="#9ca3af" />
-        <Text className="text-text font-semibold text-base">Security</Text>
-      </View>
+        <span className="text-text font-semibold text-base">Security</span>
+      </div>
 
-      <View className="bg-surface-raised border border-surface-border rounded-lg p-4 gap-3">
-        <Text className="text-text font-medium text-sm">Change Password</Text>
+      <div className="bg-surface-raised border border-surface-border rounded-lg p-4 gap-3">
+        <span className="text-text font-medium text-sm">Change Password</span>
 
-        <View className="gap-1">
-          <Text className="text-text-dim text-xs">Current Password</Text>
-          <View className="flex-row items-center">
-            <TextInput
+        <div className="gap-1">
+          <span className="text-text-dim text-xs">Current Password</span>
+          <div className="flex-row items-center">
+            <input
               className="flex-1 bg-surface border border-surface-border rounded-l px-3 py-2 text-text text-sm"
               value={currentPassword}
-              onChangeText={setCurrentPassword}
-              secureTextEntry={!showCurrent}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              type={showCurrent ? "text" : "password"}
             />
-            <Pressable
-              onPress={() => setShowCurrent(!showCurrent)}
+            <button
+              type="button"
+              onClick={() => setShowCurrent(!showCurrent)}
               className="bg-surface border border-l-0 border-surface-border rounded-r px-3 py-2"
             >
               {showCurrent ? (
@@ -364,21 +357,22 @@ function SecuritySection({ user }: { user: AuthUser }) {
               ) : (
                 <Eye size={14} color={t.textMuted} />
               )}
-            </Pressable>
-          </View>
-        </View>
+            </button>
+          </div>
+        </div>
 
-        <View className="gap-1">
-          <Text className="text-text-dim text-xs">New Password</Text>
-          <View className="flex-row items-center">
-            <TextInput
+        <div className="gap-1">
+          <span className="text-text-dim text-xs">New Password</span>
+          <div className="flex-row items-center">
+            <input
               className="flex-1 bg-surface border border-surface-border rounded-l px-3 py-2 text-text text-sm"
               value={newPassword}
-              onChangeText={setNewPassword}
-              secureTextEntry={!showNew}
+              onChange={(e) => setNewPassword(e.target.value)}
+              type={showNew ? "text" : "password"}
             />
-            <Pressable
-              onPress={() => setShowNew(!showNew)}
+            <button
+              type="button"
+              onClick={() => setShowNew(!showNew)}
               className="bg-surface border border-l-0 border-surface-border rounded-r px-3 py-2"
             >
               {showNew ? (
@@ -386,25 +380,26 @@ function SecuritySection({ user }: { user: AuthUser }) {
               ) : (
                 <Eye size={14} color={t.textMuted} />
               )}
-            </Pressable>
-          </View>
-        </View>
+            </button>
+          </div>
+        </div>
 
-        <View className="gap-1">
-          <Text className="text-text-dim text-xs">Confirm New Password</Text>
-          <TextInput
+        <div className="gap-1">
+          <span className="text-text-dim text-xs">Confirm New Password</span>
+          <input
             className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
             value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry={!showNew}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            type={showNew ? "text" : "password"}
           />
-        </View>
+        </div>
 
-        {error && <Text className="text-red-400 text-xs">{error}</Text>}
-        {success && <Text className="text-green-400 text-xs">Password changed successfully</Text>}
+        {error && <span className="text-red-400 text-xs">{error}</span>}
+        {success && <span className="text-green-400 text-xs">Password changed successfully</span>}
 
-        <Pressable
-          onPress={handleSubmit}
+        <button
+          type="button"
+          onClick={handleSubmit}
           disabled={changeMutation.isPending || !currentPassword || !newPassword}
           className="bg-accent rounded px-4 py-2 self-start flex-row items-center gap-2"
           style={{
@@ -412,14 +407,14 @@ function SecuritySection({ user }: { user: AuthUser }) {
           }}
         >
           {changeMutation.isPending ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <Spinner size={16} color="#fff" />
           ) : (
             <Lock size={14} color="#fff" />
           )}
-          <Text className="text-white text-sm font-medium">Change Password</Text>
-        </Pressable>
-      </View>
-    </View>
+          <span className="text-white text-sm font-medium">Change Password</span>
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -433,39 +428,40 @@ export default function ProfileScreen() {
 
   if (!user) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <Text className="text-text-muted">Not logged in</Text>
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <span className="text-text-muted">Not logged in</span>
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Profile" />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Profile" />
 
-      <ScrollView className="flex-1 p-6">
-        <View className="gap-8 max-w-lg">
+      <div className="flex-1 p-6 overflow-auto">
+        <div className="gap-8 max-w-lg">
           <AccountSection user={user} />
 
-          <View className="h-px bg-surface-border" />
+          <div className="h-px bg-surface-border" />
 
           <IntegrationsSection user={user} />
 
-          <View className="h-px bg-surface-border" />
+          <div className="h-px bg-surface-border" />
 
           <SecuritySection user={user} />
 
-          <View className="h-px bg-surface-border" />
+          <div className="h-px bg-surface-border" />
 
           {/* Sign out */}
-          <Pressable
-            onPress={clear}
+          <button
+            type="button"
+            onClick={clear}
             className="bg-red-500/10 border border-red-500/30 rounded px-4 py-2 self-start"
           >
-            <Text className="text-red-400 text-sm font-medium">Sign Out</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
-    </View>
+            <span className="text-red-400 text-sm font-medium">Sign Out</span>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

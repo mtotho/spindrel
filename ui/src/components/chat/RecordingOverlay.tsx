@@ -27,7 +27,7 @@ export function RecordingOverlay({ durationMs, onCancel, isMobile }: Props) {
     <div
       style={{
         flex: 1,
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 12,
         padding: isMobile ? "8px 12px" : "10px 16px",
@@ -70,7 +70,7 @@ export function RecordingOverlay({ durationMs, onCancel, isMobile }: Props) {
           width: 28,
           height: 28,
           borderRadius: 14,
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
           flexShrink: 0,

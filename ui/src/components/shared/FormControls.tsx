@@ -134,7 +134,7 @@ export function Toggle({ value, onChange, label, description }: {
       onClick={() => onChange(!value)}
       onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onChange(!value); } }}
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "flex-start",
         gap: 10,
         padding: "8px 0",
@@ -190,7 +190,7 @@ export function Slider({ value, onChange, min, max, step, disabled, defaultValue
 }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, opacity: disabled ? 0.4 : 1 }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, opacity: disabled ? 0.4 : 1 }}>
       <span style={{ fontSize: 11, color: t.textDim, minWidth: 24, textAlign: "right" }}>{min}</span>
       <input
         type="range"
@@ -254,7 +254,7 @@ export function TabBar({ tabs, active, onChange }: {
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         gap: 4,
         overflowX: "auto",
         WebkitOverflowScrolling: "touch",

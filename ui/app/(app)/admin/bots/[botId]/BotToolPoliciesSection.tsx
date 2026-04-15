@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { ActivityIndicator } from "react-native";
-import { useRouter } from "expo-router";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useToolPolicies,
@@ -9,7 +9,7 @@ import {
 
 export function BotToolPoliciesSection({ botId }: { botId: string }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: allRules, isLoading } = useToolPolicies();
   const { data: policySettings } = usePolicySettings();
 
@@ -58,7 +58,7 @@ export function BotToolPoliciesSection({ botId }: { botId: string }) {
 
       {/* Summary */}
       {applicableRules.length > 0 && (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: t.success }}>{allowCount} allow</span>
           <span style={{ fontSize: 12, color: t.danger }}>{denyCount} deny</span>
           <span style={{ fontSize: 12, color: t.warning }}>{approvalCount} require approval</span>
@@ -70,7 +70,7 @@ export function BotToolPoliciesSection({ botId }: { botId: string }) {
 
       {/* Rule list */}
       {isLoading ? (
-        <ActivityIndicator color={t.accent} />
+        <Spinner color={t.accent} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {applicableRules
@@ -80,9 +80,9 @@ export function BotToolPoliciesSection({ botId }: { botId: string }) {
               return (
                 <button
                   key={r.id}
-                  onClick={() => router.push(`/admin/tool-policies/${r.id}` as any)}
+                  onClick={() => navigate(`/admin/tool-policies/${r.id}` as any)}
                   style={{
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 10,
                     padding: "8px 12px",
@@ -122,11 +122,11 @@ export function BotToolPoliciesSection({ botId }: { botId: string }) {
       )}
 
       {/* Actions */}
-      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 8, marginTop: 4 }}>
         <button
-          onClick={() => router.push(`/admin/tool-policies/new?bot_id=${botId}` as any)}
+          onClick={() => navigate(`/admin/tool-policies/new?bot_id=${botId}` as any)}
           style={{
-            display: "flex", alignItems: "center", gap: 6,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             padding: "8px 14px", borderRadius: 6,
             background: t.accent, border: "none",
             cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#fff",
@@ -135,9 +135,9 @@ export function BotToolPoliciesSection({ botId }: { botId: string }) {
           Add Rule for This Bot
         </button>
         <button
-          onClick={() => router.push("/admin/tool-policies" as any)}
+          onClick={() => navigate("/admin/tool-policies" as any)}
           style={{
-            display: "flex", alignItems: "center", gap: 6,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             padding: "8px 14px", borderRadius: 6,
             background: t.surfaceOverlay, border: `1px solid ${t.surfaceBorder}`,
             cursor: "pointer", fontSize: 12, color: t.textMuted,

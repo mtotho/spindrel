@@ -1,5 +1,4 @@
-import { View, Text, Pressable } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import { apiFetch } from "@/src/api/client";
@@ -9,7 +8,7 @@ import type { HudItem, HudOnClick } from "@/src/types/api";
 import { useState, useCallback } from "react";
 
 function useOnClickHandler(onClick: HudOnClick | undefined, hudQueryKey?: string[]) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +39,7 @@ function useOnClickHandler(onClick: HudOnClick | undefined, hudQueryKey?: string
   const handler = async () => {
     setError(null);
     if (onClick.type === "link" && onClick.href) {
-      router.push(onClick.href as any);
+      navigate(onClick.href);
     } else if (onClick.type === "action" && onClick.endpoint) {
       if (onClick.confirm) {
         setPendingConfirm(onClick.confirm);
@@ -65,31 +64,31 @@ export function HudBadge({ item, hudQueryKey }: { item: HudItem; hudQueryKey?: s
   const { handler } = useOnClickHandler(item.on_click, hudQueryKey);
 
   const content = (
-    <View style={{
+    <div style={{
+      display: "flex",
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
-      paddingHorizontal: 8,
-      paddingVertical: 2,
+      padding: "2px 8px",
       borderRadius: 10,
       backgroundColor: bg,
     }}>
       <Icon size={11} color={color} />
       {item.label && (
-        <Text style={{ fontSize: 11, color: t.textDim, fontWeight: "500" }}>
+        <span style={{ fontSize: 11, color: t.textDim, fontWeight: "500" }}>
           {item.label}
-        </Text>
+        </span>
       )}
       {item.value && (
-        <Text style={{ fontSize: 11, color, fontWeight: "600", fontVariant: ["tabular-nums"] }}>
+        <span style={{ fontSize: 11, color, fontWeight: "600", fontVariantNumeric: "tabular-nums" }}>
           {item.value}
-        </Text>
+        </span>
       )}
-    </View>
+    </div>
   );
 
   if (handler) {
-    return <Pressable onPress={handler}>{content}</Pressable>;
+    return <button type="button" onClick={handler}>{content}</button>;
   }
   return content;
 }
@@ -103,30 +102,30 @@ export function HudAction({ item, hudQueryKey }: { item: HudItem; hudQueryKey?: 
     useOnClickHandler(item.on_click, hudQueryKey);
 
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-      <Pressable
-        onPress={handler}
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
+      <button type="button"
+        onClick={handler}
         disabled={busy}
         style={{
+          display: "flex",
           flexDirection: "row",
           alignItems: "center",
           gap: 4,
-          paddingHorizontal: 8,
-          paddingVertical: 2,
+          padding: "2px 8px",
           borderRadius: 10,
           backgroundColor: bg,
-          borderWidth: 1,
-          borderColor: color + "33",
+          border: `1px solid ${color}33`,
           opacity: busy ? 0.5 : 1,
+          cursor: busy ? "wait" : "pointer",
         }}
       >
         <Icon size={11} color={color} />
-        <Text style={{ fontSize: 11, color, fontWeight: "600" }}>
+        <span style={{ fontSize: 11, color, fontWeight: "600" }}>
           {busy ? "Working..." : item.label}
-        </Text>
-      </Pressable>
+        </span>
+      </button>
       {error && (
-        <Text style={{ fontSize: 10, color: t.danger }}>Failed</Text>
+        <span style={{ fontSize: 10, color: t.danger }}>Failed</span>
       )}
       <ConfirmDialog
         open={pendingConfirm !== null}
@@ -140,7 +139,7 @@ export function HudAction({ item, hudQueryKey }: { item: HudItem; hudQueryKey?: 
         }}
         onCancel={() => setPendingConfirm(null)}
       />
-    </View>
+    </div>
   );
 }
 
@@ -148,19 +147,19 @@ export function HudDivider({ vertical }: { vertical?: boolean }) {
   const t = useThemeTokens();
   if (vertical) {
     return (
-      <View style={{
+      <div style={{
         height: 1,
         backgroundColor: t.surfaceBorder,
-        marginVertical: 4,
+        margin: "4px 0",
       }} />
     );
   }
   return (
-    <View style={{
+    <div style={{
       width: 1,
       height: 14,
       backgroundColor: t.surfaceBorder,
-      marginHorizontal: 2,
+      margin: "0 2px",
     }} />
   );
 }
@@ -169,9 +168,9 @@ export function HudText({ item }: { item: HudItem }) {
   const t = useThemeTokens();
   const color = variantColor(item.variant, t);
   return (
-    <Text style={{ fontSize: 11, color }}>
+    <span style={{ fontSize: 11, color }}>
       {item.value}
-    </Text>
+    </span>
   );
 }
 
@@ -183,50 +182,50 @@ export function HudProgress({ item }: { item: HudItem }) {
   const pct = Math.min(100, Math.max(0, (current / max) * 100));
 
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
       {item.label && (
-        <Text style={{ fontSize: 11, color: t.textDim, fontWeight: "500" }}>
+        <span style={{ fontSize: 11, color: t.textDim, fontWeight: "500" }}>
           {item.label}
-        </Text>
+        </span>
       )}
-      <View style={{
+      <div style={{
         width: 60,
         height: 4,
         borderRadius: 2,
         backgroundColor: t.surfaceOverlay,
         overflow: "hidden",
       }}>
-        <View style={{
+        <div style={{
           width: `${pct}%`,
           height: "100%",
           backgroundColor: color,
           borderRadius: 2,
         }} />
-      </View>
-      <Text style={{ fontSize: 10, color: t.textDim, fontVariant: ["tabular-nums"] }}>
+      </div>
+      <span style={{ fontSize: 10, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
         {current}/{max}
-      </Text>
-    </View>
+      </span>
+    </div>
   );
 }
 
 export function HudGroup({ item, hudQueryKey }: { item: HudItem; hudQueryKey?: string[] }) {
   const t = useThemeTokens();
   return (
-    <View style={{ gap: 4 }}>
+    <div style={{ gap: 4 }}>
       {item.label && (
-        <Text style={{ fontSize: 11, fontWeight: "600", color: t.text }} numberOfLines={1}>
+        <span style={{ fontSize: 11, fontWeight: "600", color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {item.label}
-        </Text>
+        </span>
       )}
       {item.items && item.items.length > 0 && (
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
+        <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
           {item.items.map((child, i) => (
             <HudItemRenderer key={i} item={child} hudQueryKey={hudQueryKey} />
           ))}
-        </View>
+        </div>
       )}
-    </View>
+    </div>
   );
 }
 

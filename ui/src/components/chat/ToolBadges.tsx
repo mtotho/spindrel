@@ -337,7 +337,7 @@ export function ToolBadges({
                       <div
                         onClick={() => toggleResult(i)}
                         style={{
-                          display: "flex",
+                          display: "flex", flexDirection: "row",
                           alignItems: "center",
                           gap: 6,
                           padding: "6px 12px",
@@ -421,7 +421,7 @@ export function ToolBadges({
                                 right: 0,
                                 height: 48,
                                 background: `linear-gradient(transparent, ${t.surfaceOverlay})`,
-                                display: "flex",
+                                display: "flex", flexDirection: "row",
                                 alignItems: "flex-end",
                                 justifyContent: "center",
                                 paddingBottom: 6,

@@ -1,12 +1,6 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  Pressable,
-  ActivityIndicator,
-  TextInput,
-  Image,
-} from "react-native";
+
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -20,7 +14,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 interface UserRecord {
@@ -88,8 +82,8 @@ function IntegrationFieldsEditor({
   return (
     <>
       {integrations.map((integration) => (
-        <View key={integration.id} className="gap-2">
-          <Text className="text-text-dim text-xs font-medium">{integration.name}</Text>
+        <div key={integration.id} className="gap-2">
+          <span className="text-text-dim text-xs font-medium">{integration.name}</span>
           {integration.fields.map((field) => (
             <IntegrationFieldInput
               key={field.key}
@@ -99,7 +93,7 @@ function IntegrationFieldsEditor({
               onChange={(v) => onChange(integration.id, field.key, v)}
             />
           ))}
-        </View>
+        </div>
       ))}
     </>
   );
@@ -121,42 +115,41 @@ function IntegrationFieldInput({
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   return (
-    <View className="gap-1">
-      <Text className="text-text-dim text-[11px]">{field.label}</Text>
-      <View>
-        <TextInput
+    <div className="gap-1">
+      <span className="text-text-dim text-[11px]">{field.label}</span>
+      <div>
+        <input
           className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
           value={value}
-          onChangeText={(v) => {
-            onChange(v);
+          onChange={(e) => {
+            onChange(e.target.value);
             if (isUserIdField) setShowSuggestions(true);
           }}
           onFocus={() => { if (isUserIdField && suggestions?.length) setShowSuggestions(true); }}
           onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
           placeholder={field.description}
-          placeholderTextColor="#666666"
         />
         {isUserIdField && showSuggestions && suggestions && suggestions.length > 0 && (
-          <View className="bg-surface-raised border border-surface-border rounded mt-1 overflow-hidden" style={{ maxHeight: 150 }}>
+          <div className="bg-surface-raised border border-surface-border rounded mt-1 overflow-hidden" style={{ maxHeight: 150 }}>
             {suggestions
               .filter((s) => !value || s.toLowerCase().includes(value.toLowerCase()))
               .slice(0, 8)
               .map((suggestion) => (
-                <Pressable
+                <button type="button"
                   key={suggestion}
-                  onPress={() => {
+                  onClick={() => {
                     onChange(suggestion);
                     setShowSuggestions(false);
                   }}
                   className="px-3 py-2 hover:bg-surface-overlay"
                 >
-                  <Text className="text-text text-sm">{suggestion}</Text>
-                </Pressable>
+                  <span className="text-text text-sm">{suggestion}</span>
+                </button>
               ))}
-          </View>
+          </div>
         )}
-      </View>
-    </View>
+      </div>
+    </div>
   );
 }
 
@@ -233,36 +226,35 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
 
   if (editing) {
     return (
-      <View className="bg-surface-raised border border-accent/30 rounded-lg p-4 gap-3">
-        <View className="flex-row items-center justify-between">
-          <Text className="text-text font-medium">{user.email}</Text>
-          <View className="flex-row gap-2">
-            <Pressable onPress={handleSave} className="p-1.5 rounded bg-accent/20">
+      <div className="bg-surface-raised border border-accent/30 rounded-lg p-4 gap-3">
+        <div className="flex-row items-center justify-between">
+          <span className="text-text font-medium">{user.email}</span>
+          <div className="flex-row gap-2">
+            <button type="button" onClick={handleSave} className="p-1.5 rounded bg-accent/20">
               <Check size={14} color={t.accent} />
-            </Pressable>
-            <Pressable onPress={() => setEditing(false)} className="p-1.5 rounded bg-surface-overlay">
+            </button>
+            <button type="button" onClick={() => setEditing(false)} className="p-1.5 rounded bg-surface-overlay">
               <X size={14} color={t.textMuted} />
-            </Pressable>
-          </View>
-        </View>
-        <View className="gap-2">
-          <Text className="text-text-dim text-xs">Display Name</Text>
-          <TextInput
+            </button>
+          </div>
+        </div>
+        <div className="gap-2">
+          <span className="text-text-dim text-xs">Display Name</span>
+          <input
             className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
             value={displayName}
-            onChangeText={setDisplayName}
+            onChange={(e) => setDisplayName(e.target.value)}
           />
-        </View>
-        <View className="gap-2">
-          <Text className="text-text-dim text-xs">Avatar URL</Text>
-          <TextInput
+        </div>
+        <div className="gap-2">
+          <span className="text-text-dim text-xs">Avatar URL</span>
+          <input
             className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
             value={avatarUrl}
-            onChangeText={setAvatarUrl}
+            onChange={(e) => setAvatarUrl(e.target.value)}
             placeholder="https://..."
-            placeholderTextColor="#666666"
           />
-        </View>
+        </div>
         {integrations && (
           <IntegrationFieldsEditor
             user={user}
@@ -271,51 +263,51 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
             onChange={updateIntegrationField}
           />
         )}
-      </View>
+      </div>
     );
   }
 
   return (
-    <Pressable className="bg-surface-raised border border-surface-border rounded-lg p-4 flex-row items-center gap-4 hover:border-accent/50">
-      <View className="w-10 h-10 rounded-full bg-accent/20 items-center justify-center overflow-hidden">
+    <button type="button" className="bg-surface-raised border border-surface-border rounded-lg p-4 flex-row items-center gap-4 hover:border-accent/50">
+      <div className="w-10 h-10 rounded-full bg-accent/20 items-center justify-center overflow-hidden">
         {user.avatar_url ? (
-          <Image source={{ uri: user.avatar_url }} style={{ width: 40, height: 40 }} />
+          <img src={user.avatar_url} style={{ width: 40, height: 40 }} alt="" />
         ) : (
           <Users size={20} color={t.accent} />
         )}
-      </View>
-      <View className="flex-1 min-w-0">
-        <View className="flex-row items-center gap-2">
-          <Text className="text-text font-medium">{user.display_name}</Text>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex-row items-center gap-2">
+          <span className="text-text font-medium">{user.display_name}</span>
           {user.is_admin && (
-            <View className="bg-amber-500/20 px-1.5 py-0.5 rounded">
-              <Text className="text-amber-400 text-[10px] font-medium">Admin</Text>
-            </View>
+            <div className="bg-amber-500/20 px-1.5 py-0.5 rounded">
+              <span className="text-amber-400 text-[10px] font-medium">Admin</span>
+            </div>
           )}
-          <View className="bg-surface-overlay px-1.5 py-0.5 rounded">
-            <Text className="text-text-dim text-[10px]">{user.auth_method}</Text>
-          </View>
+          <div className="bg-surface-overlay px-1.5 py-0.5 rounded">
+            <span className="text-text-dim text-[10px]">{user.auth_method}</span>
+          </div>
           {!user.is_active && (
-            <View className="bg-red-500/20 px-1.5 py-0.5 rounded">
-              <Text className="text-red-400 text-[10px]">Inactive</Text>
-            </View>
+            <div className="bg-red-500/20 px-1.5 py-0.5 rounded">
+              <span className="text-red-400 text-[10px]">Inactive</span>
+            </div>
           )}
-        </View>
-        <Text className="text-text-muted text-xs mt-0.5">{user.email}</Text>
-      </View>
-      <View className="flex-row gap-2">
-        <Pressable onPress={() => setEditing(true)} className="p-2 rounded hover:bg-surface-overlay">
+        </div>
+        <span className="text-text-muted text-xs mt-0.5">{user.email}</span>
+      </div>
+      <div className="flex-row gap-2">
+        <button type="button" onClick={() => setEditing(true)} className="p-2 rounded hover:bg-surface-overlay">
           <Pencil size={14} color={t.textMuted} />
-        </Pressable>
-        <Pressable onPress={toggleAdmin} className="p-2 rounded hover:bg-surface-overlay">
+        </button>
+        <button type="button" onClick={toggleAdmin} className="p-2 rounded hover:bg-surface-overlay">
           {user.is_admin ? (
             <ShieldOff size={14} color="#f59e0b" />
           ) : (
             <Shield size={14} color={t.textMuted} />
           )}
-        </Pressable>
-      </View>
-    </Pressable>
+        </button>
+      </div>
+    </button>
   );
 }
 
@@ -354,67 +346,64 @@ export default function UsersScreen() {
   });
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Users"
         subtitle={`${data?.length ?? 0} users`}
         right={
-          <Pressable
-            onPress={() => setShowCreate(!showCreate)}
+          <button type="button"
+            onClick={() => setShowCreate(!showCreate)}
             className="flex-row items-center gap-2 bg-accent px-4 py-2 rounded-lg"
           >
             <UserPlus size={14} color="#fff" />
-            <Text className="text-white text-sm font-medium">New User</Text>
-          </Pressable>
+            <span className="text-white text-sm font-medium">New User</span>
+          </button>
         }
       />
 
       {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={t.accent} />
-        </View>
+        <div className="flex-1 items-center justify-center">
+          <Spinner />
+        </div>
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1 p-4">
-          <View className="gap-2 max-w-3xl">
+          <div className="gap-2 max-w-3xl">
             {/* Create form */}
             {showCreate && (
-              <View className="bg-surface-raised border border-accent/30 rounded-lg p-4 gap-3 mb-2">
-                <Text className="text-text font-medium">Create Local User</Text>
-                <TextInput
+              <div className="bg-surface-raised border border-accent/30 rounded-lg p-4 gap-3 mb-2">
+                <span className="text-text font-medium">Create Local User</span>
+                <input
                   className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
                   placeholder="Email"
-                  placeholderTextColor="#666666"
                   value={newEmail}
-                  onChangeText={setNewEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
                   autoCapitalize="none"
-                  keyboardType="email-address"
+                  type="email"
                 />
-                <TextInput
+                <input
                   className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
                   placeholder="Display name (optional)"
-                  placeholderTextColor="#666666"
                   value={newName}
-                  onChangeText={setNewName}
+                  onChange={(e) => setNewName(e.target.value)}
                 />
-                <TextInput
+                <input
                   className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
                   placeholder="Password"
-                  placeholderTextColor="#666666"
                   value={newPassword}
-                  onChangeText={setNewPassword}
-                  secureTextEntry
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  type="password"
                 />
                 {createError && (
-                  <Text className="text-red-400 text-xs">{createError}</Text>
+                  <span className="text-red-400 text-xs">{createError}</span>
                 )}
-                <Pressable
-                  onPress={() => createMutation.mutate()}
+                <button type="button"
+                  onClick={() => createMutation.mutate()}
                   disabled={createMutation.isPending}
                   className="bg-accent rounded px-4 py-2 items-center"
                 >
-                  <Text className="text-white text-sm font-medium">Create</Text>
-                </Pressable>
-              </View>
+                  <span className="text-white text-sm font-medium">Create</span>
+                </button>
+              </div>
             )}
 
             {/* User list */}
@@ -427,9 +416,9 @@ export default function UsersScreen() {
                 }
               />
             ))}
-          </View>
+          </div>
         </RefreshableScrollView>
       )}
-    </View>
+    </div>
   );
 }

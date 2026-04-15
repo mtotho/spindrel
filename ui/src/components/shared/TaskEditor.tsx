@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
+import ReactDOM from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Trash2, Copy, FileText } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
@@ -201,10 +202,9 @@ export function TaskEditor({
     onSaved();
   }, [taskId, deleteMut, onSaved, invalidateExtra]);
 
-  const router = useRouter();
+  const navigate = useNavigate();
 
   if (typeof document === "undefined") return null;
-  const ReactDOM = require("react-dom");
   const selectedBot = bots?.find((b) => b.id === botId);
   const botOptions = (bots || []).map((b) => ({ label: b.name || b.id, value: b.id }));
   const channelOptions = [
@@ -224,7 +224,7 @@ export function TaskEditor({
     }}>
       {/* Header */}
       <div style={{
-        display: "flex", alignItems: "center",
+        display: "flex", flexDirection: "row", alignItems: "center",
         padding: isWide ? "12px 20px" : "10px 12px", borderBottom: `1px solid ${t.surfaceBorder}`, flexShrink: 0,
         gap: 8,
       }}>
@@ -259,11 +259,11 @@ export function TaskEditor({
           <button
             onClick={() => {
               onClose();
-              router.push(`/admin/logs/${existingTask.correlation_id}`);
+              navigate(`/admin/logs/${existingTask.correlation_id}`);
             }}
             title="View Logs"
             style={{
-              display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
               border: `1px solid ${t.accentMuted}`, borderRadius: 6,
               background: "transparent", color: t.accent, cursor: "pointer", flexShrink: 0,
@@ -280,7 +280,7 @@ export function TaskEditor({
             onClick={() => onClone(taskId)}
             title="Clone"
             style={{
-              display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
               border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
               background: "transparent", color: t.textMuted, cursor: "pointer", flexShrink: 0,
@@ -297,7 +297,7 @@ export function TaskEditor({
             disabled={deleteMut.isPending}
             title="Delete"
             style={{
-              display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
               border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
               background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
@@ -342,7 +342,7 @@ export function TaskEditor({
 
       {/* Body */}
       {(((!isCreate && !cloneFromId) || cloneFromId) && loadingTask) ? (
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
           <div className="chat-spinner" />
         </div>
       ) : (

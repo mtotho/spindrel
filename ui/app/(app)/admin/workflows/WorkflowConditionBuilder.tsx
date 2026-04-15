@@ -4,7 +4,7 @@
  * Expression mode: raw JSON textarea for power users.
  */
 import { useState, useCallback, useEffect } from "react";
-import { View, Text, Pressable } from "react-native";
+
 import { type ThemeTokens } from "@/src/theme/tokens";
 import { Plus, X, GitBranch, Code } from "lucide-react";
 
@@ -141,7 +141,7 @@ export function WorkflowConditionBuilder({
         background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
       }}>
         <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
           marginBottom: 8,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -192,7 +192,7 @@ export function WorkflowConditionBuilder({
           disabled={disabled}
         />
         {!isValid && jsonText.trim() && (
-          <Text style={{ color: t.danger, fontSize: 10, marginTop: 4 }}>Invalid JSON</Text>
+          <span style={{ color: t.danger, fontSize: 10, marginTop: 4 }}>Invalid JSON</span>
         )}
       </div>
     );
@@ -205,7 +205,7 @@ export function WorkflowConditionBuilder({
       background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
     }}>
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         marginBottom: conditions.length > 0 ? 8 : 0,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -219,7 +219,7 @@ export function WorkflowConditionBuilder({
             </span>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
           {hasCondition && !disabled && (
             <button
               onClick={() => { onChange(null); setConditions([]); }}
@@ -249,7 +249,7 @@ export function WorkflowConditionBuilder({
           {/* AND/OR combinator between conditions */}
           {i > 0 && (
             <div style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
+              display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
               padding: "4px 0",
             }}>
               <button
@@ -270,7 +270,7 @@ export function WorkflowConditionBuilder({
           )}
 
           <div style={{
-            display: "flex", gap: 6, alignItems: "center",
+            display: "flex", flexDirection: "row", gap: 6, alignItems: "center",
           }}>
             <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0 }}>Step</span>
             <select
@@ -308,7 +308,7 @@ export function WorkflowConditionBuilder({
                 onClick={() => removeCondition(i)}
                 style={{
                   background: "none", border: "none", padding: 2,
-                  cursor: "pointer", display: "flex", opacity: 0.5,
+                  cursor: "pointer", display: "flex", flexDirection: "row", opacity: 0.5,
                 }}
               >
                 <X size={12} color={t.textDim} />
@@ -320,24 +320,24 @@ export function WorkflowConditionBuilder({
 
       {/* Add condition button */}
       {!disabled && priorStepIds.length > 0 && (
-        <Pressable
-          onPress={addCondition}
+        <button type="button"
+          onClick={addCondition}
           style={{
             flexDirection: "row", alignItems: "center", gap: 4,
-            paddingVertical: 6, paddingTop: conditions.length > 0 ? 8 : 4,
+            paddingBlock: 6, paddingTop: conditions.length > 0 ? 8 : 4,
           }}
         >
           <Plus size={11} color={t.accent} />
-          <Text style={{ color: t.accent, fontSize: 11 }}>
+          <span style={{ color: t.accent, fontSize: 11 }}>
             {conditions.length === 0 ? "Add condition" : "Add another"}
-          </Text>
-        </Pressable>
+          </span>
+        </button>
       )}
 
       {priorStepIds.length === 0 && conditions.length === 0 && (
-        <Text style={{ color: t.textDim, fontSize: 11, fontStyle: "italic", marginTop: 4 }}>
+        <span style={{ color: t.textDim, fontSize: 11, fontStyle: "italic", marginTop: 4 }}>
           Conditions require prior steps to reference.
-        </Text>
+        </span>
       )}
     </div>
   );

@@ -1,6 +1,5 @@
 import React from "react";
-import { View, Text, Pressable, Platform } from "react-native";
-import { Link, useRouter } from "expo-router";
+import { Link, useNavigate } from "react-router-dom";
 import { Settings, Menu, ArrowLeft, Hash, FolderOpen, Code, PanelLeft, Users, Wrench } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
@@ -55,7 +54,7 @@ export function ChannelHeader({
   onContextBudgetClick,
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const [compact, setCompact] = useToolResultCompact(channelId);
 
   const fmtTokens = (n: number) => {
@@ -64,10 +63,8 @@ export function ChannelHeader({
     return String(n);
   };
 
-  // ── Web path ──
-  if (Platform.OS === "web") {
-    const modelShort = (channelModelOverride || bot?.model || "").split("/").pop();
-    return (
+  const modelShort = (channelModelOverride || bot?.model || "").split("/").pop();
+  return (
       <header
         style={{
           display: "flex",
@@ -100,7 +97,7 @@ export function ChannelHeader({
             <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2, minWidth: 0 }}>
               <a
                 className="header-bot-link"
-                onClick={(e) => { e.preventDefault(); router.push(`/admin/bots/${bot.id}` as any); }}
+                onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}
                 href={`/admin/bots/${bot.id}`}
                 style={{ fontSize: 12, color: t.textMuted, textDecoration: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
               >
@@ -168,7 +165,7 @@ export function ChannelHeader({
             <button
               className="header-icon-btn"
               style={{ width: 36, height: 36 }}
-              onClick={() => { onBrowseWorkspace(); router.push(`/admin/workspaces/${workspaceId}/files` as any); }}
+              onClick={() => { onBrowseWorkspace(); navigate(`/admin/workspaces/${workspaceId}/files`); }}
               title="Browse workspace"
             >
               <FolderOpen size={16} color={t.textDim} />
@@ -220,7 +217,7 @@ export function ChannelHeader({
           <button
             className="header-icon-btn"
             style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44 }}
-            onClick={() => router.push(`/channels/${channelId}/settings` as any)}
+            onClick={() => navigate(`/channels/${channelId}/settings`)}
             title="Channel settings"
           >
             <Settings size={isMobile ? 16 : 18} color={t.textDim} />
@@ -228,99 +225,4 @@ export function ChannelHeader({
         )}
       </header>
     );
-  }
-
-  // ── Native path ──
-  return (
-    <View
-      className={`flex-row items-center ${isMobile ? "gap-2 px-3" : "gap-3 px-4"} bg-surface`}
-      style={{
-        flexShrink: 0,
-        zIndex: 10,
-        minHeight: 52,
-      }}
-    >
-      {columns === "single" && (
-        <Pressable
-          onPress={goBack}
-          className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-          style={{ width: 44, height: 44 }}
-        >
-          <ArrowLeft size={20} color={t.textMuted} />
-        </Pressable>
-      )}
-      {showHamburger && columns !== "single" && (
-        <Pressable
-          onPress={toggleSidebar}
-          className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-          style={{ width: 44, height: 44 }}
-        >
-          <Menu size={20} color={t.textMuted} />
-        </Pressable>
-      )}
-      <Hash size={18} color={t.textDim} style={{ marginLeft: 2 }} />
-      <View className="flex-1 min-w-0 py-2">
-        <Text style={{ fontSize: 16, fontWeight: "700", color: t.text }} numberOfLines={1}>
-          {displayName}
-        </Text>
-        {bot && (
-          <View className="flex-row items-center gap-1.5 mt-0.5 min-w-0">
-            <Link href={`/admin/bots/${bot.id}` as any}>
-              <Text style={{ fontSize: 12, color: t.textMuted }} numberOfLines={1}>{bot.name}</Text>
-            </Link>
-            <Text style={{ fontSize: 11, color: t.textDim, flexShrink: 1 }} numberOfLines={1}>
-              {(channelModelOverride || bot?.model || "").split("/").pop()}
-            </Text>
-            {contextBudget && contextBudget.total > 0 && (
-              <Text style={{
-                fontSize: 10,
-                fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-                color: contextBudget.utilization > 0.8 ? "#f87171" : contextBudget.utilization > 0.5 ? "#fbbf24" : t.textDim,
-              }}>
-                {fmtTokens(contextBudget.consumed)}/{fmtTokens(contextBudget.total)}
-              </Text>
-            )}
-          </View>
-        )}
-      </View>
-      {/* Explorer toggle: available whenever the channel resolves to a workspace
-          (mirrors the web path — even if channel-level workspace is disabled,
-          the explorer can still show bot memory and other workspace files). */}
-      {workspaceId && (
-        <Pressable
-          onPress={toggleExplorer}
-          className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-          style={{
-            width: 36,
-            height: 36,
-            backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent",
-            borderRadius: 6,
-          }}
-        >
-          <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
-        </Pressable>
-      )}
-      {workspaceEnabled && workspaceId && !isMobile && (
-        <Link href={`/admin/workspaces/${workspaceId}/files` as any} asChild>
-          <Pressable
-            onPress={onBrowseWorkspace}
-            className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: 36, height: 36 }}
-          >
-            <FolderOpen size={16} color={t.textDim} />
-          </Pressable>
-        </Link>
-      )}
-      {channelId && (
-        <Link href={`/channels/${channelId}/settings` as any} asChild>
-          <Pressable
-            className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: 44, height: 44 }}
-          >
-            <Settings size={18} color={t.textDim} />
-          </Pressable>
-        </Link>
-      )}
-    </View>
-  );
 }

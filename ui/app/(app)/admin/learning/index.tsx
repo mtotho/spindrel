@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { View, useWindowDimensions } from "react-native";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { OverviewTab } from "./OverviewTab";
 import { DreamingTab } from "./DreamingTab";
@@ -24,7 +24,7 @@ const TIME_RANGES = [
 export default function LearningCenterPage() {
   const t = useThemeTokens();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isMobile = width < 768;
   const [tab, setTab] = useHashTab<Tab>("Overview", TABS);
   const [days, setDays] = useState(7);
@@ -32,16 +32,16 @@ export default function LearningCenterPage() {
   const showTimeRange = tab === "Overview" || tab === "Skills";
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Learning Center" subtitle="Memory, dreaming & skills" />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Learning Center" subtitle="Memory, dreaming & skills" />
 
       {/* Tab bar + time range */}
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         borderBottom: `1px solid ${t.surfaceOverlay}`,
         padding: isMobile ? "0 12px" : "0 20px",
       }}>
-        <div style={{ display: "flex", gap: 0 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 0 }}>
           {TABS.map((tabName) => (
             <button
               key={tabName}
@@ -65,7 +65,7 @@ export default function LearningCenterPage() {
         {/* Time range pills */}
         {showTimeRange && (
           <div style={{
-            display: "flex", gap: 2, padding: "2px",
+            display: "flex", flexDirection: "row", gap: 2, padding: "2px",
             borderRadius: 6, background: t.surfaceOverlay,
           }}>
             {TIME_RANGES.map((r) => (
@@ -99,6 +99,6 @@ export default function LearningCenterPage() {
           {tab === "Skills" && <SkillsTab days={days} />}
         </div>
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { View, Text, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useParams } from "react-router-dom";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useTrace, type TraceEvent } from "@/src/api/hooks/useLogs";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { writeToClipboard } from "@/src/utils/clipboard";
@@ -118,8 +119,8 @@ function formatTraceForCopy(data: import("@/src/api/hooks/useLogs").TraceDetailR
 // ---------------------------------------------------------------------------
 export default function TraceScreen() {
   const t = useThemeTokens();
-  const { correlationId } = useLocalSearchParams<{ correlationId: string }>();
-  const { width } = useWindowDimensions();
+  const { correlationId } = useParams<{ correlationId: string }>();
+  const { width } = useWindowSize();
   const isMobile = width < 768;
   const { data, isLoading } = useTrace(correlationId);
   const [copied, setCopied] = useState(false);
@@ -134,33 +135,33 @@ export default function TraceScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   if (!data) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <Text className="text-text-muted">Trace not found.</Text>
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <span className="text-text-muted">Trace not found.</span>
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
       {/* Header */}
-      <DetailHeader
+      <PageHeader variant="detail"
         parentLabel="Logs"
-        parentHref="/admin/logs"
+        backTo="/admin/logs"
         title="Request Trace"
         subtitle={correlationId}
         right={
           <button
             onClick={handleCopy}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer",
               background: copied ? t.successSubtle : t.surfaceRaised,
               color: copied ? t.success : t.textMuted, fontSize: 12,
@@ -174,7 +175,7 @@ export default function TraceScreen() {
 
       {/* Metadata bar */}
       <div style={{
-        display: "flex", gap: 16, padding: isMobile ? "8px 12px" : "8px 20px",
+        display: "flex", flexDirection: "row", gap: 16, padding: isMobile ? "8px 12px" : "8px 20px",
         borderBottom: `1px solid ${t.surfaceRaised}`, flexWrap: "wrap", fontSize: 12,
       }}>
         {data.bot_id && (
@@ -194,7 +195,7 @@ export default function TraceScreen() {
       </div>
 
       {/* Timeline */}
-      <ScrollView className="flex-1" contentContainerStyle={{ padding: isMobile ? 12 : 20 }}>
+      <div className="flex-1 overflow-auto" style={{ padding: isMobile ? 12 : 20 }}>
         <div style={{
           position: "relative", paddingLeft: 24,
           borderLeft: `2px solid ${t.surfaceOverlay}`, marginLeft: 8,
@@ -203,8 +204,8 @@ export default function TraceScreen() {
             <TimelineEvent key={i} event={ev} isMobile={isMobile} />
           ))}
         </div>
-      </ScrollView>
-    </View>
+      </div>
+    </div>
   );
 }
 
@@ -238,7 +239,7 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
           border: `1px solid ${isUser ? t.purpleBorder : t.successBorder}`,
           borderRadius: 8, padding: "10px 14px",
         }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: isUser ? t.purple : t.success }}>
               {isUser ? "User" : "Assistant"}
             </span>
@@ -281,7 +282,7 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
         <div
           onClick={() => isExpandable && setExpanded(!expanded)}
           style={{
-            display: "flex", alignItems: "center", gap: 8,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
             padding: "8px 12px", cursor: isExpandable ? "pointer" : "default",
           }}
         >
@@ -313,7 +314,7 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
           </span>
 
           {/* Duration + time */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 }}>
             {ev.duration_ms != null && (
               <span style={{ fontSize: 10, color: t.textDim }}>{fmtDuration(ev.duration_ms)}</span>
             )}

@@ -5,7 +5,7 @@
  * reflects changes immediately (full round-trip).
  */
 import { useState, useCallback, useEffect, useRef } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import {
   Server, CheckCircle, XCircle,
   Copy, Check, AlertTriangle, RefreshCw,
@@ -42,7 +42,7 @@ function ViewToggle({
   ];
 
   return (
-    <div style={{ display: "flex", gap: 0, borderRadius: 6, overflow: "hidden", border: `1px solid ${t.surfaceBorder}` }}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 0, borderRadius: 6, overflow: "hidden", border: `1px solid ${t.surfaceBorder}` }}>
       {tabs.map((tab) => (
         <button
           key={tab.key}
@@ -118,7 +118,7 @@ function MCPServerCard({ server }: { server: MCPServerInfo }) {
       }}
     >
       {/* Header row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Server size={14} color={t.textDim} />
         <span style={{ fontSize: 12, fontWeight: 600, color: t.text, flex: 1 }}>
           {server.display_name || server.id}
@@ -156,14 +156,14 @@ function MCPServerCard({ server }: { server: MCPServerInfo }) {
             gap: 6,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
             <AlertTriangle size={12} color="#f59e0b" />
             <span style={{ fontSize: 11, fontWeight: 600, color: "#f59e0b" }}>
               This MCP server needs to be running
             </span>
           </div>
           {dockerCmd && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
               <code
                 style={{
                   fontSize: 10,
@@ -186,7 +186,7 @@ function MCPServerCard({ server }: { server: MCPServerInfo }) {
                   border: "none",
                   cursor: "pointer",
                   padding: 4,
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   flexShrink: 0,
                 }}
                 title="Copy command"
@@ -203,7 +203,7 @@ function MCPServerCard({ server }: { server: MCPServerInfo }) {
       )}
 
       {/* Test button */}
-      <div style={{ display: "flex", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
         <button
           onClick={handleTest}
           disabled={testMut.isPending || !server.url}
@@ -217,7 +217,7 @@ function MCPServerCard({ server }: { server: MCPServerInfo }) {
             color: t.textDim,
             cursor: !server.url ? "not-allowed" : "pointer",
             opacity: !server.url ? 0.5 : 1,
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 4,
           }}
@@ -226,12 +226,12 @@ function MCPServerCard({ server }: { server: MCPServerInfo }) {
           Test Connection
         </button>
         {testMut.isSuccess && (
-          <span style={{ fontSize: 10, color: "#22c55e", display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: 10, color: "#22c55e", display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
             <CheckCircle size={10} /> Connected
           </span>
         )}
         {testMut.isError && (
-          <span style={{ fontSize: 10, color: "#ef4444", display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: 10, color: "#ef4444", display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
             <XCircle size={10} /> Failed
           </span>
         )}
@@ -317,8 +317,8 @@ function YamlEditorTab({
 
   if (isLoading) {
     return (
-      <div style={{ padding: 20, display: "flex", justifyContent: "center" }}>
-        <ActivityIndicator color={t.accent} />
+      <div style={{ padding: 20, display: "flex", flexDirection: "row", justifyContent: "center" }}>
+        <Spinner color={t.accent} />
       </div>
     );
   }
@@ -345,7 +345,7 @@ function YamlEditorTab({
           {updateMut.isPending ? "Saving..." : "Save"}
         </button>
         {saved && (
-          <span style={{ fontSize: 11, color: "#22c55e", display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: 11, color: "#22c55e", display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
             <CheckCircle size={12} /> Saved
           </span>
         )}
@@ -389,7 +389,7 @@ export function ManifestEditor({ integrationId }: { integrationId: string }) {
         {fileDrift?.drifted && (
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 4,
               fontSize: 10,

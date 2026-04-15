@@ -2,18 +2,18 @@
  * Docker Stacks list page — view all agent-managed Docker Compose stacks.
  */
 import { useState, useMemo } from "react";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useNavigate } from "react-router-dom";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useDockerStacks, useStartDockerStack, useStopDockerStack, useDestroyDockerStack } from "@/src/api/hooks/useDockerStacks";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
   Boxes, Search, Play, Square, Trash2,
   CheckCircle2, XCircle, Loader2, AlertTriangle, Minus, Plug,
 } from "lucide-react";
-import { useRouter } from "expo-router";
 import type { DockerStack } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
@@ -41,15 +41,15 @@ function StatusBadge({ status, t }: { status: string; t: ThemeTokens }) {
   const style = getStatusStyle(status, t);
   const Icon = style.icon;
   return (
-    <View
+    <div
       className="flex-row items-center gap-1 rounded-full px-2 py-0.5"
-      style={{ backgroundColor: style.bg, borderWidth: 1, borderColor: style.border }}
+      style={{ backgroundColor: style.bg, border: `1px solid ${style.border}` }}
     >
       <Icon size={12} color={style.color} />
-      <Text className="text-xs font-medium" style={{ color: style.color }}>
+      <span className="text-xs font-medium" style={{ color: style.color }}>
         {style.label}
-      </Text>
-    </View>
+      </span>
+    </div>
   );
 }
 
@@ -70,103 +70,109 @@ function StackCard({
   onStop: (id: string) => void;
   onDestroy: (id: string) => void;
 }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const serviceCount = Object.keys(stack.container_ids || {}).length;
   const isIntegration = stack.source === "integration";
 
   return (
-    <Pressable
-      onPress={() => router.push(`/admin/docker-stacks/${stack.id}` as any)}
+    <button
+      type="button"
+      onClick={() => navigate(`/admin/docker-stacks/${stack.id}`)}
       className="rounded-lg p-4 hover:bg-surface-overlay active:bg-surface-overlay"
       style={{
         backgroundColor: t.surfaceRaised,
-        borderWidth: 1,
-        borderColor: t.surfaceBorder,
+        border: `1px solid ${t.surfaceBorder}`,
+        textAlign: "left",
+        width: "100%",
+        cursor: "pointer",
       }}
     >
-      <View className="flex-row items-start justify-between">
-        <View className="flex-1 gap-1">
-          <View className="flex-row items-center gap-2">
+      <div className="flex-row items-start justify-between">
+        <div className="flex-1 gap-1">
+          <div className="flex-row items-center gap-2">
             <Boxes size={16} color={t.accent} />
-            <Text className="text-base font-semibold" style={{ color: t.text }}>
+            <span className="text-base font-semibold" style={{ color: t.text }}>
               {stack.name}
-            </Text>
+            </span>
             {isIntegration && (
-              <View
+              <div
                 className="flex-row items-center gap-1 rounded-full px-2 py-0.5"
-                style={{ backgroundColor: t.accentSubtle, borderWidth: 1, borderColor: t.accentBorder }}
+                style={{ backgroundColor: t.accentSubtle, border: `1px solid ${t.accentBorder}` }}
               >
                 <Plug size={10} color={t.accent} />
-                <Text className="text-xs font-medium" style={{ color: t.accent }}>
+                <span className="text-xs font-medium" style={{ color: t.accent }}>
                   Integration
-                </Text>
-              </View>
+                </span>
+              </div>
             )}
-          </View>
+          </div>
           {stack.description ? (
-            <Text className="text-sm" style={{ color: t.textMuted }} numberOfLines={1}>
+            <span className="text-sm" style={{ color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
               {stack.description}
-            </Text>
+            </span>
           ) : null}
-          <View className="flex-row items-center gap-3 mt-1">
-            <Text className="text-xs" style={{ color: t.textDim }}>
+          <div className="flex-row items-center gap-3 mt-1">
+            <span className="text-xs" style={{ color: t.textDim }}>
               {isIntegration ? `Integration: ${stack.integration_id}` : `Bot: ${stack.created_by_bot}`}
-            </Text>
+            </span>
             {serviceCount > 0 && (
-              <Text className="text-xs" style={{ color: t.textDim }}>
+              <span className="text-xs" style={{ color: t.textDim }}>
                 {serviceCount} service{serviceCount !== 1 ? "s" : ""}
-              </Text>
+              </span>
             )}
             {stack.created_at && (
-              <Text className="text-xs" style={{ color: t.textDim }}>
+              <span className="text-xs" style={{ color: t.textDim }}>
                 {new Date(stack.created_at).toLocaleDateString()}
-              </Text>
+              </span>
             )}
-          </View>
-        </View>
-        <View className="items-end gap-2">
+          </div>
+        </div>
+        <div className="items-end gap-2">
           <StatusBadge status={stack.status} t={t} />
-          <View className="flex-row gap-1">
+          <div className="flex-row gap-1">
             {stack.status === "stopped" && (
-              <Pressable
-                onPress={(e) => {
+              <button
+                type="button"
+                onClick={(e) => {
                   e.stopPropagation();
                   onStart(stack.id);
                 }}
                 className="rounded p-1.5 hover:bg-surface-overlay"
-                style={{ borderWidth: 1, borderColor: t.surfaceBorder }}
+                style={{ border: `1px solid ${t.surfaceBorder}`, background: "none", cursor: "pointer" }}
               >
                 <Play size={14} color={t.success} />
-              </Pressable>
+              </button>
             )}
             {stack.status === "running" && (
-              <Pressable
-                onPress={(e) => {
+              <button
+                type="button"
+                onClick={(e) => {
                   e.stopPropagation();
                   onStop(stack.id);
                 }}
                 className="rounded p-1.5 hover:bg-surface-overlay"
-                style={{ borderWidth: 1, borderColor: t.surfaceBorder }}
+                style={{ border: `1px solid ${t.surfaceBorder}`, background: "none", cursor: "pointer" }}
               >
                 <Square size={14} color={t.warning} />
-              </Pressable>
+              </button>
             )}
             {!isIntegration && stack.status === "stopped" && (
-              <Pressable
-                onPress={(e) => {
+              <button
+                type="button"
+                onClick={(e) => {
                   e.stopPropagation();
                   onDestroy(stack.id);
                 }}
                 className="rounded p-1.5 hover:bg-surface-overlay"
-                style={{ borderWidth: 1, borderColor: t.surfaceBorder }}
+                style={{ border: `1px solid ${t.surfaceBorder}`, background: "none", cursor: "pointer" }}
               >
                 <Trash2 size={14} color={t.danger} />
-              </Pressable>
+              </button>
             )}
-          </View>
-        </View>
-      </View>
-    </Pressable>
+          </div>
+        </div>
+      </div>
+    </button>
   );
 }
 
@@ -211,40 +217,39 @@ export default function DockerStacksPage() {
   };
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Docker Stacks" />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Docker Stacks" />
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
         contentContainerStyle={{ padding: 16, paddingBottom: 80, gap: 16 }}
       >
         {/* Header */}
-        <View className="flex-row items-center justify-between">
-          <View className="flex-row items-center gap-2">
+        <div className="flex-row items-center justify-between">
+          <div className="flex-row items-center gap-2">
             <Boxes size={22} color={t.accent} />
-            <Text className="text-xl font-bold" style={{ color: t.text }}>
+            <span className="text-xl font-bold" style={{ color: t.text }}>
               Docker Stacks
-            </Text>
+            </span>
             {stacks && (
-              <View
+              <div
                 className="rounded-full px-2 py-0.5"
                 style={{ backgroundColor: t.accentSubtle }}
               >
-                <Text className="text-xs font-medium" style={{ color: t.accent }}>
+                <span className="text-xs font-medium" style={{ color: t.accent }}>
                   {stacks.length}
-                </Text>
-              </View>
+                </span>
+              </div>
             )}
-          </View>
-        </View>
+          </div>
+        </div>
 
         {/* Search */}
-        <View
+        <div
           className="flex-row items-center gap-2 rounded-lg px-3 py-2"
           style={{
             backgroundColor: t.surfaceRaised,
-            borderWidth: 1,
-            borderColor: t.surfaceBorder,
+            border: `1px solid ${t.surfaceBorder}`,
           }}
         >
           <Search size={16} color={t.textDim} />
@@ -262,22 +267,22 @@ export default function DockerStacksPage() {
               fontSize: 14,
             }}
           />
-        </View>
+        </div>
 
         {isLoading ? (
-          <View className="items-center py-12">
-            <ActivityIndicator size="large" color={t.accent} />
-          </View>
+          <div className="items-center py-12">
+            <Spinner />
+          </div>
         ) : filtered.length === 0 ? (
-          <View className="items-center py-12 gap-2">
+          <div className="items-center py-12 gap-2">
             <Boxes size={40} color={t.textDim} />
-            <Text className="text-base" style={{ color: t.textMuted }}>
+            <span className="text-base" style={{ color: t.textMuted }}>
               {search ? "No stacks match your search" : "No Docker stacks yet"}
-            </Text>
-            <Text className="text-sm" style={{ color: t.textDim }}>
+            </span>
+            <span className="text-sm" style={{ color: t.textDim }}>
               Bots with docker_stacks.enabled can create stacks via the manage_docker_stack tool.
-            </Text>
-          </View>
+            </span>
+          </div>
         ) : (
           <>
             {running.length > 0 && (
@@ -305,7 +310,7 @@ export default function DockerStacksPage() {
         )}
       </RefreshableScrollView>
       <ConfirmDialogSlot />
-    </View>
+    </div>
   );
 }
 
@@ -321,16 +326,16 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <View className="gap-2">
-      <View className="flex-row items-center gap-2">
-        <Text className="text-sm font-semibold" style={{ color: t.textMuted }}>
+    <div className="gap-2">
+      <div className="flex-row items-center gap-2">
+        <span className="text-sm font-semibold" style={{ color: t.textMuted }}>
           {title}
-        </Text>
-        <Text className="text-xs" style={{ color: t.textDim }}>
+        </span>
+        <span className="text-xs" style={{ color: t.textDim }}>
           ({count})
-        </Text>
-      </View>
+        </span>
+      </div>
       {children}
-    </View>
+    </div>
   );
 }

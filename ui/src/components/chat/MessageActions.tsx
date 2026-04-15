@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { Copy, Check, Activity } from "lucide-react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { writeToClipboard } from "../../utils/clipboard";
 import type { ThemeTokens } from "../../theme/tokens";
 
@@ -27,10 +27,10 @@ export function MessageActions({
   t: ThemeTokens;
 }) {
   const [copied, setCopied] = useState<"single" | "full" | false>(false);
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const btnStyle = (active?: boolean): React.CSSProperties => ({
-    display: "flex",
+    display: "flex", flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     width: 28,
@@ -57,7 +57,7 @@ export function MessageActions({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            router.push(`/admin/logs/${correlationId}` as any);
+            navigate(`/admin/logs/${correlationId}`);
           }}
           title="View trace"
           style={btnStyle()}
@@ -96,7 +96,7 @@ export function Avatar({ name, isUser, onClick }: { name: string; isUser: boolea
         height: 36,
         borderRadius: 6,
         backgroundColor: bg,
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,

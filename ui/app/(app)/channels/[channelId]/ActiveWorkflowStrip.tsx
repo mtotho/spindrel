@@ -4,7 +4,7 @@ import {
   useChannelWorkflowRuns, useCancelWorkflowRun,
   useApproveWorkflowStep, useSkipWorkflowStep,
 } from "@/src/api/hooks/useWorkflows";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, CheckCircle2, XCircle, ShieldCheck, ExternalLink, X,
@@ -98,7 +98,7 @@ function getCurrentStepId(run: WorkflowRun): string | null {
 }
 
 function RunStrip({ run, t, onDismiss }: { run: WorkflowRun; t: ThemeTokens; onDismiss: () => void }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const cancelMut = useCancelWorkflowRun();
   const approveMut = useApproveWorkflowStep();
   const skipMut = useSkipWorkflowStep();
@@ -130,7 +130,7 @@ function RunStrip({ run, t, onDismiss }: { run: WorkflowRun; t: ThemeTokens; onD
 
   return (
     <div style={{
-      display: "flex",
+      display: "flex", flexDirection: "row",
       alignItems: "center",
       gap: 10,
       padding: "6px 12px",
@@ -153,7 +153,7 @@ function RunStrip({ run, t, onDismiss }: { run: WorkflowRun; t: ThemeTokens; onD
 
       {/* Mini step bar */}
       <div style={{
-        display: "flex", gap: 1, height: 4, borderRadius: 2,
+        display: "flex", flexDirection: "row", gap: 1, height: 4, borderRadius: 2,
         overflow: "hidden", flex: 1, maxWidth: 120,
       }}>
         {run.step_states.map((s, i) => {
@@ -179,7 +179,7 @@ function RunStrip({ run, t, onDismiss }: { run: WorkflowRun; t: ThemeTokens; onD
             onClick={() => approveMut.mutate({ runId: run.id, stepIndex: run.current_step_index })}
             disabled={approvalBusy}
             style={{
-              display: "flex", alignItems: "center",
+              display: "flex", flexDirection: "row", alignItems: "center",
               padding: "6px 12px", borderRadius: 10,
               backgroundColor: t.successSubtle, border: `1px solid ${t.successBorder}`,
               color: t.success, fontSize: 11, fontWeight: 600,
@@ -193,7 +193,7 @@ function RunStrip({ run, t, onDismiss }: { run: WorkflowRun; t: ThemeTokens; onD
             onClick={() => skipMut.mutate({ runId: run.id, stepIndex: run.current_step_index })}
             disabled={approvalBusy}
             style={{
-              display: "flex", alignItems: "center",
+              display: "flex", flexDirection: "row", alignItems: "center",
               padding: "6px 12px", borderRadius: 10,
               backgroundColor: t.surfaceOverlay, border: `1px solid ${t.surfaceBorder}`,
               color: t.textDim, fontSize: 11, fontWeight: 600,
@@ -207,9 +207,9 @@ function RunStrip({ run, t, onDismiss }: { run: WorkflowRun; t: ThemeTokens; onD
       )}
 
       <button
-        onClick={() => router.push(`/admin/workflows/${run.workflow_id}?tab=runs&run=${run.id}` as any)}
+        onClick={() => navigate(`/admin/workflows/${run.workflow_id}?tab=runs&run=${run.id}`)}
         style={{
-          display: "flex", alignItems: "center", gap: 3,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 3,
           background: "none", border: "none", cursor: "pointer",
           padding: "6px 8px", borderRadius: 4,
         }}
@@ -225,7 +225,7 @@ function RunStrip({ run, t, onDismiss }: { run: WorkflowRun; t: ThemeTokens; onD
           onClick={() => cancelMut.mutate(run.id)}
           disabled={cancelMut.isPending}
           style={{
-            display: "flex", alignItems: "center", gap: 3,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 3,
             padding: "6px 10px", borderRadius: 4,
             backgroundColor: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
             color: t.danger, fontSize: 11, fontWeight: 600,

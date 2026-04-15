@@ -23,7 +23,7 @@ function OperationCard({ op }: { op: Operation }) {
       padding: "12px 16px", background: t.inputBg, borderRadius: 8,
       border: `1px solid ${borderColor}`,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
         {isRunning && (
           <Loader size={14} color={t.accent} style={{ animation: "spin 1s linear infinite" }} />
         )}
@@ -54,7 +54,7 @@ function OperationCard({ op }: { op: Operation }) {
         </div>
       )}
 
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+      <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", fontSize: 11 }}>
         {op.total > 0 && (
           <span style={{ color: t.textDim }}>
             {op.current}/{op.total} ({pct}%)

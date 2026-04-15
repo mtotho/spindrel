@@ -45,7 +45,7 @@ export function HudPresetPicker({
               onClick={() => handleSelect(key)}
               disabled={configMut.isPending}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "flex-start",
                 gap: 10,
                 padding: "8px 10px",
@@ -60,7 +60,7 @@ export function HudPresetPicker({
               <div style={{
                 width: 16, height: 16, borderRadius: 8, flexShrink: 0, marginTop: 1,
                 border: `2px solid ${isSelected ? t.accent : t.surfaceBorder}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
+                display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
                 transition: "border-color 0.12s",
               }}>
                 {isSelected && (
@@ -69,7 +69,7 @@ export function HudPresetPicker({
               </div>
 
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
                     {preset.label}
                   </span>
@@ -83,7 +83,7 @@ export function HudPresetPicker({
                   </div>
                 )}
                 {preset.widgets.length > 0 && (
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>
+                  <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap", marginTop: 5 }}>
                     {preset.widgets.map((wid: string) => (
                       <span
                         key={wid}

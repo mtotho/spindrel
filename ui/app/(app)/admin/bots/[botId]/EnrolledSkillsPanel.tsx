@@ -108,13 +108,13 @@ function RemoveAuthoredSkillModal({
         {/* Header */}
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
             marginBottom: 12,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
             <AlertTriangle size={15} color={t.danger} />
             <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
               Remove authored skill
@@ -124,7 +124,7 @@ function RemoveAuthoredSkillModal({
             <button
               onClick={onCancel}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "center",
                 background: "transparent",
@@ -152,7 +152,7 @@ function RemoveAuthoredSkillModal({
         {otherBots > 0 && (
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 6,
               padding: "8px 10px",
@@ -173,7 +173,7 @@ function RemoveAuthoredSkillModal({
         )}
 
         {/* Actions */}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
           <button
             onClick={onCancel}
             disabled={busy}
@@ -342,7 +342,7 @@ export function EnrolledSkillsPanel({
           <>
             <div
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
                 background: t.inputBg,
@@ -372,7 +372,7 @@ export function EnrolledSkillsPanel({
               <div key={source}>
                 <div
                   style={{
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 8,
                     padding: "10px 0 4px",
@@ -398,7 +398,7 @@ export function EnrolledSkillsPanel({
                     style={{
                       padding: "8px 4px",
                       borderBottom: `1px solid ${t.surfaceBorder}`,
-                      display: "flex",
+                      display: "flex", flexDirection: "row",
                       alignItems: "flex-start",
                       gap: 8,
                     }}
@@ -406,7 +406,7 @@ export function EnrolledSkillsPanel({
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div
                         style={{
-                          display: "flex",
+                          display: "flex", flexDirection: "row",
                           alignItems: "center",
                           gap: 6,
                           flexWrap: "wrap",
@@ -442,7 +442,7 @@ export function EnrolledSkillsPanel({
                       )}
                       <div
                         style={{
-                          display: "flex",
+                          display: "flex", flexDirection: "row",
                           alignItems: "center",
                           gap: 8,
                           marginTop: 3,
@@ -536,7 +536,7 @@ export function EnrolledSkillsPanel({
             >
               <div
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 6,
                   background: t.inputBg,
@@ -619,7 +619,7 @@ export function EnrolledSkillsPanel({
                     >
                       <div
                         style={{
-                          display: "flex",
+                          display: "flex", flexDirection: "row",
                           alignItems: "center",
                           gap: 6,
                           fontSize: 12,

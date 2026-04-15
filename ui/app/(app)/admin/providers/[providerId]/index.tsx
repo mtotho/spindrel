@@ -1,9 +1,11 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useCallback } from "react";
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+
+import { useParams } from "react-router-dom";
 import { Trash2, Zap, Plus, X } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useProvider, useCreateProvider, useUpdateProvider, useDeleteProvider, useTestProvider, useTestProviderInline,
@@ -31,7 +33,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
       onClick={() => onChange(!enabled)}
       title={enabled ? "Enabled" : "Disabled"}
       style={{
-        display: "flex", alignItems: "center", gap: compact ? 0 : 6,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: compact ? 0 : 6,
         padding: compact ? "5px 6px" : "5px 12px", fontSize: 12, fontWeight: 600,
         border: "none", cursor: "pointer", borderRadius: 6, flexShrink: 0,
         background: enabled ? t.successSubtle : t.dangerSubtle,
@@ -57,7 +59,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
 
 export default function ProviderDetailScreen() {
   const t = useThemeTokens();
-  const { providerId } = useLocalSearchParams<{ providerId: string }>();
+  const { providerId } = useParams<{ providerId: string }>();
   const isNew = providerId === "new";
   const goBack = useGoBack("/admin/providers");
   const qc = useQueryClient();
@@ -68,7 +70,7 @@ export default function ProviderDetailScreen() {
   const testMut = useTestProvider();
   const testInlineMut = useTestProviderInline();
 
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   const [id, setId] = useState("");
@@ -162,7 +164,7 @@ export default function ProviderDetailScreen() {
         base_url: baseUrl || undefined,
       }, { onSuccess, onError });
     } else {
-      testMut.mutate(providerId, { onSuccess, onError });
+      testMut.mutate(providerId!, { onSuccess, onError });
     }
   }, [providerId, isNew, providerType, apiKey, baseUrl, testMut, testInlineMut]);
 
@@ -178,17 +180,17 @@ export default function ProviderDetailScreen() {
 
   if (!isNew && isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <DetailHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="detail"
         parentLabel="Providers"
-        parentHref="/admin/providers"
+        backTo="/admin/providers"
         title={isNew ? "New Provider" : "Edit Provider"}
         subtitle={!isNew ? providerId : undefined}
         right={
@@ -197,7 +199,7 @@ export default function ProviderDetailScreen() {
               onClick={handleTest}
               disabled={testMut.isPending || testInlineMut.isPending}
               style={{
-                display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
                 padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
                 border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
                 background: "transparent", color: t.textMuted, cursor: "pointer", flexShrink: 0,
@@ -212,7 +214,7 @@ export default function ProviderDetailScreen() {
                 disabled={deleteMut.isPending}
                 title="Delete"
                 style={{
-                  display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
                   padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
                   border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
                   background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
@@ -260,11 +262,7 @@ export default function ProviderDetailScreen() {
       )}
 
       {/* Body */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
-        paddingVertical: isWide ? 20 : 12,
-        paddingHorizontal: isWide ? 24 : 12,
-        maxWidth: 700,
-      }}>
+      <div style={{ flex: 1 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <Section title="Identity">
             {isNew && (
@@ -378,7 +376,7 @@ export default function ProviderDetailScreen() {
                     <div
                       key={m.id}
                       style={{
-                        display: "flex", alignItems: "center", gap: 8,
+                        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
                         padding: "6px 8px", background: t.surfaceRaised, borderRadius: 6,
                         fontSize: 12,
                       }}
@@ -449,7 +447,7 @@ export default function ProviderDetailScreen() {
               )}
 
               {/* Add model form */}
-              <div style={{ display: "flex", gap: 6, marginTop: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", flexDirection: "row", gap: 6, marginTop: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
                 <div style={{ flex: 2, minWidth: 160 }}>
                   <div style={{ color: t.textDim, fontSize: 10, marginBottom: 2 }}>Model ID *</div>
                   <input
@@ -521,7 +519,7 @@ export default function ProviderDetailScreen() {
                   />
                 </div>
                 <label style={{
-                  display: "flex", alignItems: "center", gap: 4,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                   fontSize: 10, color: t.textMuted, cursor: "pointer",
                   flexShrink: 0, alignSelf: "flex-end", paddingBottom: 6,
                 }}>
@@ -534,7 +532,7 @@ export default function ProviderDetailScreen() {
                   No system msgs
                 </label>
                 <label style={{
-                  display: "flex", alignItems: "center", gap: 4,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                   fontSize: 10, color: t.textMuted, cursor: "pointer",
                   flexShrink: 0, alignSelf: "flex-end", paddingBottom: 6,
                 }}>
@@ -568,7 +566,7 @@ export default function ProviderDetailScreen() {
                   }}
                   disabled={!newModelId.trim() || addModelMut.isPending}
                   style={{
-                    display: "flex", alignItems: "center", gap: 4,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                     padding: "6px 12px", fontSize: 12, fontWeight: 600,
                     border: "none", borderRadius: 4, flexShrink: 0,
                     background: !newModelId.trim() ? t.surfaceOverlay : t.accent,
@@ -585,7 +583,7 @@ export default function ProviderDetailScreen() {
 
           {!isNew && caps && (
             <ProviderCapabilitySections
-              providerId={providerId}
+              providerId={providerId!}
               capabilities={caps}
             />
           )}
@@ -597,19 +595,19 @@ export default function ProviderDetailScreen() {
                   <span style={{ color: t.textDim }}>ID</span>
                   <span style={{ color: t.text, fontFamily: "monospace" }}>{provider.id}</span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                   <span style={{ color: t.textDim }}>API Key</span>
                   <span style={{ color: provider.has_api_key ? t.success : t.textDim }}>
                     {provider.has_api_key ? "Set" : "Not set"}
                   </span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                   <span style={{ color: t.textDim }}>Created</span>
                   <span style={{ color: t.textMuted }}>
                     {new Date(provider.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                   </span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                   <span style={{ color: t.textDim }}>Updated</span>
                   <span style={{ color: t.textMuted }}>
                     {new Date(provider.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
@@ -619,7 +617,7 @@ export default function ProviderDetailScreen() {
             </Section>
           )}
         </div>
-      </ScrollView>
-    </View>
+      </div>
+    </div>
   );
 }

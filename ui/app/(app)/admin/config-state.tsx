@@ -1,11 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { View, Text, ActivityIndicator, Pressable, Platform, Animated } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Check, ChevronDown, ChevronRight, Download, Upload, ShieldAlert } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { writeToClipboard } from "@/src/utils/clipboard";
 
@@ -46,16 +46,18 @@ function countRedacted(original: any, redacted: any): number {
 
 function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   const t = useThemeTokens();
-  const opacity = useRef(new Animated.Value(0)).current;
+  const [visible, setVisible] = useState(false);
   useEffect(() => {
-    Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+    // Trigger fade-in on next frame
+    requestAnimationFrame(() => setVisible(true));
     const timer = setTimeout(() => {
-      Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => onDismiss());
+      setVisible(false);
+      setTimeout(onDismiss, 300);
     }, 4000);
     return () => clearTimeout(timer);
-  }, [onDismiss, opacity]);
+  }, [onDismiss]);
   return (
-    <Animated.View
+    <div
       style={{
         position: "absolute",
         bottom: 24,
@@ -63,10 +65,12 @@ function Toast({ message, onDismiss }: { message: string; onDismiss: () => void 
         right: 16,
         maxWidth: 480,
         alignSelf: "center",
-        opacity,
+        opacity: visible ? 1 : 0,
+        transition: "opacity 0.3s ease",
         backgroundColor: t.warning,
         borderRadius: 8,
         padding: 12,
+        display: "flex",
         flexDirection: "row",
         alignItems: "center",
         gap: 8,
@@ -74,8 +78,8 @@ function Toast({ message, onDismiss }: { message: string; onDismiss: () => void 
       }}
     >
       <ShieldAlert size={16} color="#000" />
-      <Text style={{ fontSize: 12, color: "#000", flex: 1 }}>{message}</Text>
-    </Animated.View>
+      <span style={{ fontSize: 12, color: "#000", flex: 1 }}>{message}</span>
+    </div>
   );
 }
 
@@ -101,25 +105,26 @@ function CollapsibleSection({
   const [open, setOpen] = useState(defaultOpen);
   const Icon = open ? ChevronDown : ChevronRight;
   return (
-    <View style={{ marginBottom: 2 }}>
-      <Pressable
-        onPress={() => setOpen((p) => !p)}
+    <div style={{ marginBottom: 2 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
         className="flex-row items-center gap-2 rounded-md px-3 py-2.5 hover:bg-surface-overlay active:bg-surface-overlay"
       >
         <Icon size={14} color={t.textMuted} />
-        <Text style={{ fontSize: 13, fontWeight: "600", color: t.text }}>
+        <span style={{ fontSize: 13, fontWeight: "600", color: t.text }}>
           {title}
-        </Text>
+        </span>
         {badge ? (
-          <Text style={{ fontSize: 11, color: t.textDim, marginLeft: 4 }}>
+          <span style={{ fontSize: 11, color: t.textDim, marginLeft: 4 }}>
             {badge}
-          </Text>
+          </span>
         ) : null}
-      </Pressable>
+      </button>
       {open ? (
-        <View style={{ paddingLeft: 24, paddingBottom: 8 }}>{children}</View>
+        <div style={{ paddingLeft: 24, paddingBottom: 8 }}>{children}</div>
       ) : null}
-    </View>
+    </div>
   );
 }
 
@@ -136,30 +141,35 @@ function KV({ k, v }: { k: string; v: any }) {
           ? JSON.stringify(v)
           : String(v);
   return (
-    <View className="flex-row" style={{ paddingVertical: 1 }}>
-      <Text
+    <div className="flex-row" style={{ paddingTop: 1, paddingBottom: 1 } as any}>
+      <span
         style={{
           fontSize: 12,
           color: t.textMuted,
           fontFamily: "monospace",
           minWidth: 200,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
         }}
-        numberOfLines={1}
       >
         {k}
-      </Text>
-      <Text
+      </span>
+      <span
         style={{
           fontSize: 12,
           color: t.text,
           fontFamily: "monospace",
           flex: 1,
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
         }}
-        numberOfLines={2}
       >
         {display}
-      </Text>
-    </View>
+      </span>
+    </div>
   );
 }
 
@@ -168,22 +178,21 @@ function DetailJSON({ data }: { data: any }) {
   const [expanded, setExpanded] = useState(false);
   if (!expanded) {
     return (
-      <Pressable onPress={() => setExpanded(true)}>
-        <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
+      <button type="button" onClick={() => setExpanded(true)}>
+        <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
           {"{ ... }"}
-        </Text>
-      </Pressable>
+        </span>
+      </button>
     );
   }
   return (
-    <Pressable onPress={() => setExpanded(false)}>
-      <Text
-        style={{ fontSize: 11, color: "#777", fontFamily: "monospace" }}
-        selectable
+    <button type="button" onClick={() => setExpanded(false)}>
+      <span
+        style={{ fontSize: 11, color: "#777", fontFamily: "monospace", userSelect: "text" }}
       >
         {JSON.stringify(data, null, 2)}
-      </Text>
-    </Pressable>
+      </span>
+    </button>
   );
 }
 
@@ -216,23 +225,23 @@ function ProvidersSection({ data }: { data: any[] }) {
   return (
     <>
       {data.map((p) => (
-        <View key={p.id} style={{ marginBottom: 4 }}>
-          <View className="flex-row items-center gap-2" style={{ paddingVertical: 2 }}>
-            <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
+        <div key={p.id} style={{ marginBottom: 4 }}>
+          <div className="flex-row items-center gap-2" style={{ paddingTop: 2, paddingBottom: 2 }}>
+            <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {p.display_name}
-            </Text>
-            <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
+            </span>
+            <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
               {p.provider_type}
-            </Text>
-            <Text style={{ fontSize: 11, color: p.is_enabled ? t.success : t.danger, fontFamily: "monospace" }}>
+            </span>
+            <span style={{ fontSize: 11, color: p.is_enabled ? t.success : t.danger, fontFamily: "monospace" }}>
               {p.is_enabled ? "enabled" : "disabled"}
-            </Text>
-            <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
+            </span>
+            <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
               {p.models.length} models
-            </Text>
-          </View>
+            </span>
+          </div>
           <DetailJSON data={p} />
-        </View>
+        </div>
       ))}
     </>
   );
@@ -243,25 +252,25 @@ function BotsSection({ data }: { data: any[] }) {
   return (
     <>
       {data.map((b) => (
-        <View key={b.id} style={{ marginBottom: 6 }}>
-          <View className="flex-row items-center gap-2 flex-wrap" style={{ paddingVertical: 2 }}>
-            <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
+        <div key={b.id} style={{ marginBottom: 6 }}>
+          <div className="flex-row items-center gap-2 flex-wrap" style={{ paddingTop: 2, paddingBottom: 2 }}>
+            <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {b.name}
-            </Text>
-            <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
+            </span>
+            <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
               {b.model}
-            </Text>
-          </View>
-          <View className="flex-row flex-wrap gap-x-3" style={{ paddingVertical: 1 }}>
+            </span>
+          </div>
+          <div className="flex-row flex-wrap gap-x-3" style={{ paddingTop: 1, paddingBottom: 1 }}>
             <Tag label="tools" value={b.local_tools?.length ?? 0} />
             <Tag label="mcp" value={b.mcp_servers?.length ?? 0} />
             <Tag label="skills" value={b.skills?.length ?? 0} />
             <Tag label="memory" value={b.memory_config?.enabled ? "on" : "off"} on={b.memory_config?.enabled} />
             <Tag label="knowledge" value={b.knowledge_config?.enabled ? "on" : "off"} on={b.knowledge_config?.enabled} />
             <Tag label="compaction" value={b.context_compaction ? "on" : "off"} on={b.context_compaction} />
-          </View>
+          </div>
           <DetailJSON data={b} />
-        </View>
+        </div>
       ))}
     </>
   );
@@ -270,9 +279,9 @@ function BotsSection({ data }: { data: any[] }) {
 function Tag({ label, value, on }: { label: string; value: any; on?: boolean }) {
   const t = useThemeTokens();
   return (
-    <Text style={{ fontSize: 11, color: on ? t.accent : t.textDim, fontFamily: "monospace" }}>
+    <span style={{ fontSize: 11, color: on ? t.accent : t.textDim, fontFamily: "monospace" }}>
       {label}:{String(value)}
-    </Text>
+    </span>
   );
 }
 
@@ -281,22 +290,22 @@ function ChannelsSection({ data }: { data: any[] }) {
   return (
     <>
       {data.map((ch) => (
-        <View key={ch.id} style={{ marginBottom: 4 }}>
-          <View className="flex-row items-center gap-2" style={{ paddingVertical: 2 }}>
-            <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
+        <div key={ch.id} style={{ marginBottom: 4 }}>
+          <div className="flex-row items-center gap-2" style={{ paddingTop: 2, paddingBottom: 2 }}>
+            <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {ch.name}
-            </Text>
-            <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
+            </span>
+            <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
               bot:{ch.bot_id}
-            </Text>
+            </span>
             {ch.integration && (
-              <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
+              <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
                 {ch.integration}
-              </Text>
+              </span>
             )}
-          </View>
+          </div>
           <DetailJSON data={ch} />
-        </View>
+        </div>
       ))}
     </>
   );
@@ -307,15 +316,15 @@ function WorkspacesSection({ data }: { data: any[] }) {
   return (
     <>
       {data.map((ws) => (
-        <View key={ws.id} style={{ marginBottom: 4 }}>
-          <View className="flex-row items-center gap-2" style={{ paddingVertical: 2 }}>
-            <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
+        <div key={ws.id} style={{ marginBottom: 4 }}>
+          <div className="flex-row items-center gap-2" style={{ paddingTop: 2, paddingBottom: 2 }}>
+            <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {ws.name}
-            </Text>
-            <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
+            </span>
+            <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
               {ws.image}
-            </Text>
-            <Text
+            </span>
+            <span
               style={{
                 fontSize: 11,
                 color: ws.status === "running" ? t.success : t.textDim,
@@ -323,13 +332,13 @@ function WorkspacesSection({ data }: { data: any[] }) {
               }}
             >
               {ws.status}
-            </Text>
-            <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
+            </span>
+            <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
               {ws.bots?.length ?? 0} bots
-            </Text>
-          </View>
+            </span>
+          </div>
           <DetailJSON data={ws} />
-        </View>
+        </div>
       ))}
     </>
   );
@@ -340,17 +349,17 @@ function SkillsSection({ data }: { data: any[] }) {
   return (
     <>
       {data.map((s) => (
-        <View key={s.id} className="flex-row items-center gap-3" style={{ paddingVertical: 2 }}>
-          <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600", minWidth: 160 }}>
+        <div key={s.id} className="flex-row items-center gap-3" style={{ paddingTop: 2, paddingBottom: 2 }}>
+          <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600", minWidth: 160 }}>
             {s.name}
-          </Text>
-          <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
+          </span>
+          <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
             {s.source_type}
-          </Text>
-          <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
+          </span>
+          <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
             {s.chunk_count} chunks
-          </Text>
-        </View>
+          </span>
+        </div>
       ))}
     </>
   );
@@ -359,24 +368,24 @@ function SkillsSection({ data }: { data: any[] }) {
 function TasksSection({ data }: { data: any[] }) {
   const tk = useThemeTokens();
   if (data.length === 0) {
-    return <Text style={{ fontSize: 12, color: tk.textDim, fontFamily: "monospace" }}>No recurring tasks</Text>;
+    return <span style={{ fontSize: 12, color: tk.textDim, fontFamily: "monospace" }}>No recurring tasks</span>;
   }
   return (
     <>
       {data.map((t) => (
-        <View key={t.id} className="flex-row items-center gap-3" style={{ paddingVertical: 2 }}>
-          <Text style={{ fontSize: 12, color: tk.text, fontFamily: "monospace", fontWeight: "600" }}>
+        <div key={t.id} className="flex-row items-center gap-3" style={{ paddingTop: 2, paddingBottom: 2 }}>
+          <span style={{ fontSize: 12, color: tk.text, fontFamily: "monospace", fontWeight: "600" }}>
             {t.title || t.bot_id}
-          </Text>
-          <Text style={{ fontSize: 11, color: tk.textMuted, fontFamily: "monospace" }}>
+          </span>
+          <span style={{ fontSize: 11, color: tk.textMuted, fontFamily: "monospace" }}>
             {t.task_type}
-          </Text>
+          </span>
           {t.recurrence && (
-            <Text style={{ fontSize: 11, color: tk.accent, fontFamily: "monospace" }}>
+            <span style={{ fontSize: 11, color: tk.accent, fontFamily: "monospace" }}>
               every {t.recurrence}
-            </Text>
+            </span>
           )}
-          <Text
+          <span
             style={{
               fontSize: 11,
               color: t.status === "running" ? tk.success : t.status === "pending" ? tk.warning : tk.textDim,
@@ -384,8 +393,8 @@ function TasksSection({ data }: { data: any[] }) {
             }}
           >
             {t.status}
-          </Text>
-        </View>
+          </span>
+        </div>
       ))}
     </>
   );
@@ -396,22 +405,22 @@ function UsersSection({ data }: { data: any[] }) {
   return (
     <>
       {data.map((u) => (
-        <View key={u.id} className="flex-row items-center gap-3" style={{ paddingVertical: 2 }}>
-          <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
+        <div key={u.id} className="flex-row items-center gap-3" style={{ paddingTop: 2, paddingBottom: 2 }}>
+          <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
             {u.display_name}
-          </Text>
-          <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
+          </span>
+          <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
             {u.email}
-          </Text>
-          <Text style={{ fontSize: 11, color: u.is_admin ? t.accent : t.textDim, fontFamily: "monospace" }}>
+          </span>
+          <span style={{ fontSize: 11, color: u.is_admin ? t.accent : t.textDim, fontFamily: "monospace" }}>
             {u.is_admin ? "admin" : "user"}
-          </Text>
+          </span>
           {!u.is_active && (
-            <Text style={{ fontSize: 11, color: t.danger, fontFamily: "monospace" }}>
+            <span style={{ fontSize: 11, color: t.danger, fontFamily: "monospace" }}>
               inactive
-            </Text>
+            </span>
           )}
-        </View>
+        </div>
       ))}
     </>
   );
@@ -420,14 +429,14 @@ function UsersSection({ data }: { data: any[] }) {
 function GenericListSection({ data }: { data: any[] }) {
   const t = useThemeTokens();
   if (data.length === 0) {
-    return <Text style={{ fontSize: 12, color: t.textDim, fontFamily: "monospace" }}>None</Text>;
+    return <span style={{ fontSize: 12, color: t.textDim, fontFamily: "monospace" }}>None</span>;
   }
   return (
     <>
       {data.map((item, i) => (
-        <View key={item.id ?? item.bot_id ?? i} style={{ marginBottom: 4 }}>
+        <div key={item.id ?? item.bot_id ?? i} style={{ marginBottom: 4 }}>
           <DetailJSON data={item} />
-        </View>
+        </div>
       ))}
     </>
   );
@@ -484,7 +493,6 @@ export default function ConfigStatePage() {
   }, [data]);
 
   const handleFileSelect = useCallback(() => {
-    if (Platform.OS !== "web") return;
     fileInputRef.current?.click();
   }, []);
 
@@ -531,35 +539,38 @@ export default function ConfigStatePage() {
   }, []);
 
   const HeaderButtons = (
-    <View className="flex-row items-center gap-1">
-      <Pressable
-        onPress={handleBackup}
+    <div className="flex-row items-center gap-1">
+      <button
+        type="button"
+        onClick={handleBackup}
         disabled={!data}
         className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
         style={{ opacity: data ? 1 : 0.4 }}
       >
         <Download size={14} color={t.accent} />
-        <Text style={{ fontSize: 12, color: t.accent }}>Backup</Text>
-      </Pressable>
-      <Pressable
-        onPress={handleFileSelect}
+        <span style={{ fontSize: 12, color: t.accent }}>Backup</span>
+      </button>
+      <button
+        type="button"
+        onClick={handleFileSelect}
         className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
       >
         <Upload size={14} color={t.warning} />
-        <Text style={{ fontSize: 12, color: t.warning }}>Restore</Text>
-      </Pressable>
-      <Pressable
-        onPress={handleCopy}
+        <span style={{ fontSize: 12, color: t.warning }}>Restore</span>
+      </button>
+      <button
+        type="button"
+        onClick={handleCopy}
         disabled={!data}
         className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
         style={{ opacity: data ? 1 : 0.4 }}
       >
         {copied ? <Check size={14} color={t.success} /> : <Copy size={14} color={t.textMuted} />}
-        <Text style={{ fontSize: 12, color: copied ? t.success : t.textMuted }}>
+        <span style={{ fontSize: 12, color: copied ? t.success : t.textMuted }}>
           {copied ? "Copied" : "Copy"}
-        </Text>
-      </Pressable>
-    </View>
+        </span>
+      </button>
+    </div>
   );
 
   // Count sections in confirm payload
@@ -570,19 +581,17 @@ export default function ConfigStatePage() {
     : [];
 
   return (
-    <View style={{ flex: 1, backgroundColor: t.surface }}>
+    <div style={{ flex: 1, backgroundColor: t.surface }}>
       {/* Hidden file input for restore */}
-      {Platform.OS === "web" && (
-        <input
-          ref={fileInputRef as any}
-          type="file"
-          accept=".json"
-          style={{ display: "none" }}
-          onChange={handleFileChange as any}
-        />
-      )}
+      <input
+        ref={fileInputRef as any}
+        type="file"
+        accept=".json"
+        style={{ display: "none" }}
+        onChange={handleFileChange as any}
+      />
 
-      <MobileHeader title="Config State" right={HeaderButtons} />
+      <PageHeader variant="list" title="Config State" right={HeaderButtons} />
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
@@ -591,7 +600,7 @@ export default function ConfigStatePage() {
       >
         {/* Restore confirmation dialog */}
         {confirmPayload && (
-          <View
+          <div
             style={{
               backgroundColor: t.surfaceRaised,
               borderRadius: 8,
@@ -601,53 +610,55 @@ export default function ConfigStatePage() {
               borderColor: t.warning,
             }}
           >
-            <Text style={{ fontSize: 14, fontWeight: "600", color: t.warning, marginBottom: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: "600", color: t.warning, marginBottom: 8 }}>
               Confirm Restore
-            </Text>
-            <Text style={{ fontSize: 12, color: t.text, marginBottom: 8 }}>
+            </span>
+            <span style={{ fontSize: 12, color: t.text, marginBottom: 8 }}>
               This will upsert the following sections:
-            </Text>
+            </span>
             {confirmSections.map((s) => (
-              <Text key={s} style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace", paddingLeft: 8 }}>
+              <span key={s} style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace", paddingLeft: 8 }}>
                 {s}
-              </Text>
+              </span>
             ))}
-            <View className="flex-row gap-3" style={{ marginTop: 12 }}>
-              <Pressable
-                onPress={handleRestore}
+            <div className="flex-row gap-3" style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                onClick={handleRestore}
                 disabled={restoring}
                 style={{
                   backgroundColor: t.warning,
                   paddingHorizontal: 16,
-                  paddingVertical: 6,
+                  paddingTop: 6, paddingBottom: 6,
                   borderRadius: 6,
                   opacity: restoring ? 0.5 : 1,
-                }}
+                } as any}
               >
-                <Text style={{ fontSize: 12, fontWeight: "600", color: "#000" }}>
+                <span style={{ fontSize: 12, fontWeight: "600", color: "#000" }}>
                   {restoring ? "Restoring..." : "Confirm Restore"}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={handleCancelRestore}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelRestore}
                 disabled={restoring}
                 style={{
                   paddingHorizontal: 16,
-                  paddingVertical: 6,
+                  paddingTop: 6, paddingBottom: 6,
                   borderRadius: 6,
                   borderWidth: 1,
                   borderColor: t.textDim,
-                }}
+                } as any}
               >
-                <Text style={{ fontSize: 12, color: t.textMuted }}>Cancel</Text>
-              </Pressable>
-            </View>
-          </View>
+                <span style={{ fontSize: 12, color: t.textMuted }}>Cancel</span>
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Restore result */}
         {restoreResult && (
-          <View
+          <div
             style={{
               backgroundColor: t.successSubtle,
               borderRadius: 8,
@@ -657,23 +668,23 @@ export default function ConfigStatePage() {
               borderColor: t.success,
             }}
           >
-            <Text style={{ fontSize: 13, fontWeight: "600", color: t.success, marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: "600", color: t.success, marginBottom: 8 }}>
               Restore Complete
-            </Text>
+            </span>
             {Object.entries(restoreResult.summary).map(([section, counts]) => (
-              <Text key={section} style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace", paddingLeft: 8 }}>
+              <span key={section} style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace", paddingLeft: 8 }}>
                 {section}: {(counts as any).updated ?? 0} upserted
-              </Text>
+              </span>
             ))}
-            <Pressable onPress={() => setRestoreResult(null)} style={{ marginTop: 8 }}>
-              <Text style={{ fontSize: 11, color: t.textDim }}>Dismiss</Text>
-            </Pressable>
-          </View>
+            <button type="button" onClick={() => setRestoreResult(null)} style={{ marginTop: 8 }}>
+              <span style={{ fontSize: 11, color: t.textDim }}>Dismiss</span>
+            </button>
+          </div>
         )}
 
         {/* Restore error */}
         {restoreError && (
-          <View
+          <div
             style={{
               backgroundColor: t.dangerSubtle,
               borderRadius: 8,
@@ -683,23 +694,23 @@ export default function ConfigStatePage() {
               borderColor: t.danger,
             }}
           >
-            <Text style={{ fontSize: 12, color: t.danger }}>{restoreError}</Text>
-            <Pressable onPress={() => setRestoreError(null)} style={{ marginTop: 4 }}>
-              <Text style={{ fontSize: 11, color: t.textDim }}>Dismiss</Text>
-            </Pressable>
-          </View>
+            <span style={{ fontSize: 12, color: t.danger }}>{restoreError}</span>
+            <button type="button" onClick={() => setRestoreError(null)} style={{ marginTop: 4 }}>
+              <span style={{ fontSize: 11, color: t.textDim }}>Dismiss</span>
+            </button>
+          </div>
         )}
 
         {isLoading ? (
-          <View style={{ padding: 40, alignItems: "center" }}>
-            <ActivityIndicator color={t.accent} />
-          </View>
+          <div style={{ padding: 40, alignItems: "center" }}>
+            <Spinner color={t.accent} />
+          </div>
         ) : error ? (
-          <Text style={{ color: t.danger, fontSize: 13 }}>
+          <span style={{ color: t.danger, fontSize: 13 }}>
             Failed to load config state
-          </Text>
+          </span>
         ) : data ? (
-          <View style={{ gap: 2 }}>
+          <div style={{ gap: 2 }}>
             <CollapsibleSection title="System" defaultOpen>
               <SystemSection data={data.system} />
             </CollapsibleSection>
@@ -709,9 +720,9 @@ export default function ConfigStatePage() {
               badge={`${data.global_fallback_models?.length ?? 0}`}
             >
               {(data.global_fallback_models || []).length === 0 ? (
-                <Text style={{ fontSize: 12, color: t.textDim, fontFamily: "monospace" }}>
+                <span style={{ fontSize: 12, color: t.textDim, fontFamily: "monospace" }}>
                   None configured
-                </Text>
+                </span>
               ) : (
                 data.global_fallback_models.map((m: any, i: number) => (
                   <KV key={i} k={`[${i}]`} v={m.model || JSON.stringify(m)} />
@@ -781,10 +792,10 @@ export default function ConfigStatePage() {
             <CollapsibleSection title="Channel Heartbeats" badge={`${data.channel_heartbeats?.length ?? 0}`}>
               <GenericListSection data={data.channel_heartbeats || []} />
             </CollapsibleSection>
-          </View>
+          </div>
         ) : null}
       </RefreshableScrollView>
       {toastMessage && <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />}
-    </View>
+    </div>
   );
 }

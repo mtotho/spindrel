@@ -1,11 +1,13 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState } from "react";
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { Plus, ExternalLink, Server } from "lucide-react";
 import { useProviders, useTestProvider, type ProviderItem } from "@/src/api/hooks/useProviders";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
@@ -37,7 +39,7 @@ function EnvFallbackCard({ baseUrl, hasKey }: { baseUrl?: string | null; hasKey:
       padding: "16px 20px", background: t.inputBg, borderRadius: 10,
       border: `1px solid ${t.accentBorder}`,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Server size={14} color={t.accent} />
         <span style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1 }}>
           LiteLLM (.env fallback)
@@ -50,7 +52,7 @@ function EnvFallbackCard({ baseUrl, hasKey }: { baseUrl?: string | null; hasKey:
         </span>
         <span style={{ fontSize: 11, fontWeight: 600, color: t.success }}>active</span>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
         {baseUrl && (
           <span style={{ fontFamily: "monospace", color: t.textMuted }}>{baseUrl}</span>
         )}
@@ -65,7 +67,7 @@ function EnvFallbackCard({ baseUrl, hasKey }: { baseUrl?: string | null; hasKey:
   );
 }
 
-function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; onPress: () => void; isWide: boolean }) {
+function ProviderCard({ provider, onClick, isWide }: { provider: ProviderItem; onClick: () => void; isWide: boolean }) {
   const t = useThemeTokens();
   const testMut = useTestProvider();
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -81,7 +83,7 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
 
   return (
     <button
-      onClick={onPress}
+      onClick={onClick}
       style={{
         display: "flex", flexDirection: "column", gap: 10,
         padding: isWide ? "16px 20px" : "12px 14px",
@@ -92,7 +94,7 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
       }}
     >
       {/* Top row: name + type + enabled */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <div style={{
           width: 8, height: 8, borderRadius: 4, flexShrink: 0,
           background: provider.is_enabled ? t.success : t.danger,
@@ -104,7 +106,7 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
       </div>
 
       {/* Info row */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
         <span style={{ fontFamily: "monospace" }}>{provider.id}</span>
         {provider.base_url && (
           <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
@@ -117,14 +119,14 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
 
       {/* Rate limits */}
       {(provider.tpm_limit || provider.rpm_limit) && (
-        <div style={{ display: "flex", gap: 12, fontSize: 11, color: t.textDim }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 12, fontSize: 11, color: t.textDim }}>
           {provider.tpm_limit && <span>TPM: {provider.tpm_limit.toLocaleString()}</span>}
           {provider.rpm_limit && <span>RPM: {provider.rpm_limit.toLocaleString()}</span>}
         </div>
       )}
 
       {/* Test button + result */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
         <button
           onClick={handleTest}
           disabled={testMut.isPending}
@@ -151,10 +153,10 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
 
 export default function ProvidersScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data, isLoading } = useProviders();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   const providers = data?.providers;
@@ -163,21 +165,21 @@ export default function ProvidersScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Providers"
         right={
           <button
-            onClick={() => router.push("/admin/providers/new" as any)}
+            onClick={() => navigate("/admin/providers/new")}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", borderRadius: 6,
               background: t.accent, color: "#fff", cursor: "pointer",
@@ -190,10 +192,7 @@ export default function ProvidersScreen() {
       />
 
       {/* Cards */}
-      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
-        padding: isWide ? 20 : 12,
-        gap: isWide ? 12 : 10,
-      }}>
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
         {/* .env fallback card — always show when URL is set */}
         {envBaseUrl && (
           <EnvFallbackCard baseUrl={envBaseUrl} hasKey={envHasKey} />
@@ -222,7 +221,7 @@ export default function ProvidersScreen() {
                 key={p.id}
                 provider={p}
                 isWide={isWide}
-                onPress={() => router.push(`/admin/providers/${p.id}` as any)}
+                onClick={() => navigate(`/admin/providers/${p.id}`)}
               />
             ))}
           </div>
@@ -238,6 +237,6 @@ export default function ProvidersScreen() {
           </div>
         )}
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

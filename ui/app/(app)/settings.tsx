@@ -1,16 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useHashTab } from "@/src/hooks/useHashTab";
-import {
-  View,
-  Text,
-  Pressable,
-  ScrollView,
-  TextInput,
-  ActivityIndicator,
-  Switch,
-  useWindowDimensions,
-} from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +11,7 @@ import { MemorySchemeSection } from "@/src/components/settings/MemorySchemeSecti
 import { apiFetch } from "@/src/api/client";
 import { useThemeStore } from "@/src/stores/theme";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { type FallbackModelEntry } from "@/src/components/shared/FallbackModelList";
 import { Section } from "@/src/components/shared/FormControls";
@@ -56,12 +48,11 @@ function BoolField({
 }) {
   const t = useThemeTokens();
   return (
-    <Switch
-      value={value}
-      onValueChange={onChange}
+    <input
+      type="checkbox"
+      checked={value}
+      onChange={(e) => onChange(e.target.checked)}
       disabled={item.read_only}
-      trackColor={{ false: t.surfaceBorder, true: t.accent }}
-      thumbColor="#e5e5e5"
     />
   );
 }
@@ -76,27 +67,28 @@ function SelectField({
   onChange: (v: string) => void;
 }) {
   return (
-    <View className="flex-row flex-wrap gap-1.5">
+    <div className="flex-row flex-wrap gap-1.5">
       {item.options!.map((opt) => (
-        <Pressable
+        <button
+          type="button"
           key={opt}
-          onPress={() => !item.read_only && onChange(opt)}
+          onClick={() => !item.read_only && onChange(opt)}
           className={`px-3 py-1.5 rounded border ${
             value === opt
               ? "bg-accent/20 border-accent"
               : "bg-surface border-surface-border"
           }`}
         >
-          <Text
+          <span
             className={`text-xs ${
               value === opt ? "text-accent font-medium" : "text-text-muted"
             }`}
           >
             {opt}
-          </Text>
-        </Pressable>
+          </span>
+        </button>
       ))}
-    </View>
+    </div>
   );
 }
 
@@ -110,15 +102,14 @@ function NumberField({
   onChange: (v: string) => void;
 }) {
   return (
-    <TextInput
+    <input
       className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
       style={{ maxWidth: 200 }}
       value={value}
-      onChangeText={onChange}
-      editable={!item.read_only}
-      keyboardType="numeric"
+      onChange={(e) => onChange(e.target.value)}
+      readOnly={item.read_only}
+      type="number"
       placeholder={item.nullable ? "(none)" : undefined}
-      placeholderTextColor="#737373"
     />
   );
 }
@@ -133,13 +124,12 @@ function StringField({
   onChange: (v: string) => void;
 }) {
   return (
-    <TextInput
+    <input
       className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm flex-1"
       value={value}
-      onChangeText={onChange}
-      editable={!item.read_only}
+      onChange={(e) => onChange(e.target.value)}
+      readOnly={item.read_only}
       placeholder="(empty)"
-      placeholderTextColor="#737373"
     />
   );
 }
@@ -156,32 +146,29 @@ function TextareaField({
   const [showBuiltin, setShowBuiltin] = useState(false);
 
   return (
-    <View style={{ width: "100%", gap: 8 }}>
-      <TextInput
+    <div style={{ width: "100%", gap: 8 }}>
+      <textarea
         className="bg-surface border border-surface-border rounded px-3 py-3 text-text text-sm"
         value={value}
-        onChangeText={onChange}
-        editable={!item.read_only}
+        onChange={(e) => onChange(e.target.value)}
+        readOnly={item.read_only}
         placeholder={item.builtin_default ? "(using built-in default)" : "(empty)"}
-        placeholderTextColor="#737373"
-        multiline
-        numberOfLines={16}
+        rows={16}
         style={{
           minHeight: 300,
           width: "100%",
-          textAlignVertical: "top",
           fontFamily: "monospace",
-          lineHeight: 20,
-          // @ts-ignore — web-only resize property
+          lineHeight: "20px",
           resize: "vertical",
         }}
       />
       {item.builtin_default && !value && (
-        <View
+        <div
           className="bg-surface border border-surface-border rounded overflow-hidden"
         >
-          <Pressable
-            onPress={() => setShowBuiltin(!showBuiltin)}
+          <button
+            type="button"
+            onClick={() => setShowBuiltin(!showBuiltin)}
             className="flex-row items-center gap-2 px-3 py-2"
           >
             <ChevronDown
@@ -189,35 +176,34 @@ function TextareaField({
               color="#9ca3af"
               style={{ transform: showBuiltin ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
             />
-            <Text className="text-text-muted text-xs font-semibold">
+            <span className="text-text-muted text-xs font-semibold">
               Built-in Default
-            </Text>
-            <View className="bg-purple-500/20 px-1.5 py-0.5 rounded">
-              <Text className="text-purple-400 text-[9px] font-medium">
+            </span>
+            <div className="bg-purple-500/20 px-1.5 py-0.5 rounded">
+              <span className="text-purple-400 text-[9px] font-medium">
                 active
-              </Text>
-            </View>
-          </Pressable>
+              </span>
+            </div>
+          </button>
           {showBuiltin && (
-            <View className="px-3 pb-3">
-              <View className="bg-surface-overlay rounded p-3">
-                <Text
+            <div className="px-3 pb-3">
+              <div className="bg-surface-overlay rounded p-3">
+                <span
                   className="text-text-muted text-[11px]"
                   style={{
                     fontFamily: "monospace",
-                    lineHeight: 18,
-                    // @ts-ignore — web-only
+                    lineHeight: "18px",
                     whiteSpace: "pre-wrap",
                   }}
                 >
                   {item.builtin_default}
-                </Text>
-              </View>
-            </View>
+                </span>
+              </div>
+            </div>
           )}
-        </View>
+        </div>
       )}
-    </View>
+    </div>
   );
 }
 
@@ -233,7 +219,7 @@ function ModelField({
   onChange: (model: string, providerId?: string | null) => void;
 }) {
   return (
-    <View style={{ maxWidth: 400 }}>
+    <div style={{ maxWidth: 400 }}>
       <LlmModelDropdown
         value={value}
         selectedProviderId={selectedProviderId}
@@ -241,7 +227,7 @@ function ModelField({
         placeholder="Select model..."
         allowClear
       />
-    </View>
+    </div>
   );
 }
 
@@ -255,7 +241,7 @@ function EmbeddingModelField({
   onChange: (v: string) => void;
 }) {
   return (
-    <View style={{ maxWidth: 400 }}>
+    <div style={{ maxWidth: 400 }}>
       <LlmModelDropdown
         value={value}
         onChange={onChange}
@@ -263,7 +249,7 @@ function EmbeddingModelField({
         allowClear
         variant="embedding"
       />
-    </View>
+    </div>
   );
 }
 
@@ -362,39 +348,40 @@ function SettingRow({
   };
 
   return (
-    <View className="py-3 gap-2">
-      <View className="flex-row items-center gap-2 flex-wrap">
-        <Text className="text-text text-sm font-medium">{item.label}</Text>
+    <div className="py-3 gap-2">
+      <div className="flex-row items-center gap-2 flex-wrap">
+        <span className="text-text text-sm font-medium">{item.label}</span>
         {item.overridden && (
-          <View className="bg-accent/20 px-1.5 py-0.5 rounded">
-            <Text className="text-accent text-[10px] font-medium">overridden</Text>
-          </View>
+          <div className="bg-accent/20 px-1.5 py-0.5 rounded">
+            <span className="text-accent text-[10px] font-medium">overridden</span>
+          </div>
         )}
         {item.read_only && (
-          <View className="bg-surface-overlay px-1.5 py-0.5 rounded">
-            <Text className="text-text-dim text-[10px]">read-only</Text>
-          </View>
+          <div className="bg-surface-overlay px-1.5 py-0.5 rounded">
+            <span className="text-text-dim text-[10px]">read-only</span>
+          </div>
         )}
-      </View>
-      <Text className="text-text-dim text-xs">{item.description}</Text>
-      <View className="flex-row items-center gap-2">
+      </div>
+      <span className="text-text-dim text-xs">{item.description}</span>
+      <div className="flex-row items-center gap-2">
         {renderField()}
         {item.overridden && !item.read_only && (
-          <Pressable
-            onPress={() => onReset(item.key)}
+          <button
+            type="button"
+            onClick={() => onReset(item.key)}
             disabled={isResetting}
             className="flex-row items-center gap-1 px-2 py-1.5 rounded border border-surface-border hover:bg-surface-overlay"
           >
             {isResetting ? (
-              <ActivityIndicator size="small" color="#9ca3af" />
+              <Spinner size={16} color="#9ca3af" />
             ) : (
               <RotateCcw size={12} color="#9ca3af" />
             )}
-            <Text className="text-text-muted text-xs">Reset</Text>
-          </Pressable>
+            <span className="text-text-muted text-xs">Reset</span>
+          </button>
         )}
-      </View>
-    </View>
+      </div>
+    </div>
   );
 }
 
@@ -415,7 +402,7 @@ function groupDisplayName(key: string) {
 // ---------------------------------------------------------------------------
 function DreamingLearningCenterPointer() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   return (
     <div style={{ marginTop: 20 }}>
       <InfoBanner
@@ -431,7 +418,7 @@ function DreamingLearningCenterPointer() {
             full run history with skipped/failed details.
           </span>
           <button
-            onClick={() => router.push("/admin/learning#Dreaming" as any)}
+            onClick={() => navigate("/admin/learning#Dreaming")}
             style={{
               alignSelf: "flex-start",
               marginTop: 4,
@@ -467,16 +454,17 @@ function GroupNav({
   onSelect: (g: string) => void;
 }) {
   return (
-    <View className="gap-0.5">
+    <div className="gap-0.5">
       {groups.map((g) => (
-        <Pressable
+        <button
+          type="button"
           key={g.group}
-          onPress={() => onSelect(g.group)}
+          onClick={() => onSelect(g.group)}
           className={`px-3 py-2 rounded ${
             activeGroup === g.group ? "bg-accent/15" : "hover:bg-surface-overlay"
           }`}
         >
-          <Text
+          <span
             className={`text-sm ${
               activeGroup === g.group
                 ? "text-accent font-medium"
@@ -484,10 +472,10 @@ function GroupNav({
             }`}
           >
             {groupDisplayName(g.group)}
-          </Text>
-        </Pressable>
+          </span>
+        </button>
       ))}
-    </View>
+    </div>
   );
 }
 
@@ -530,32 +518,31 @@ function AppearanceSection() {
   const t = useThemeTokens();
   return (
     <Section title="Appearance" description="UI theme and display preferences">
-      <View
+      <div
         style={{
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
-          paddingVertical: 8,
-          paddingHorizontal: 4,
+          padding: "8px 4px",
+          display: "flex",
         }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
           {mode === "dark" ? (
             <Moon size={18} color={t.textMuted} />
           ) : (
             <Sun size={18} color={t.textMuted} />
           )}
-          <Text className="text-text text-sm">
+          <span className="text-text text-sm">
             {mode === "dark" ? "Dark mode" : "Light mode"}
-          </Text>
-        </View>
-        <Switch
-          value={mode === "dark"}
-          onValueChange={toggle}
-          trackColor={{ false: t.surfaceBorder, true: t.accent }}
-          thumbColor="#fff"
+          </span>
+        </div>
+        <input
+          type="checkbox"
+          checked={mode === "dark"}
+          onChange={toggle}
         />
-      </View>
+      </div>
     </Section>
   );
 }
@@ -570,7 +557,7 @@ export default function SettingsScreen() {
   const { refreshing, onRefresh } = usePageRefresh();
   const updateMutation = useUpdateSettings();
   const resetMutation = useResetSetting();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isDesktop = width >= 768;
 
   // Fallback models state
@@ -706,61 +693,62 @@ export default function SettingsScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator size="large" color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner size={32} color={t.accent} />
+      </div>
     );
   }
 
   if (error) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center p-4">
-        <Text className="text-red-400 text-sm">
+      <div className="flex-1 bg-surface items-center justify-center p-4">
+        <span className="text-red-400 text-sm">
           Failed to load settings: {error instanceof Error ? error.message : "Unknown error"}
-        </Text>
-      </View>
+        </span>
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Settings"
         right={
-          <View className="flex-row items-center gap-2">
+          <div className="flex-row items-center gap-2">
             {saved && (
-              <View className="flex-row items-center gap-1">
+              <div className="flex-row items-center gap-1">
                 <Check size={14} color="#22c55e" />
-                <Text className="text-green-400 text-xs">Saved</Text>
-              </View>
+                <span className="text-green-400 text-xs">Saved</span>
+              </div>
             )}
             {changedKeys.length > 0 && (
-              <Pressable
-                onPress={handleSave}
+              <button
+                type="button"
+                onClick={handleSave}
                 disabled={updateMutation.isPending}
                 className="bg-accent rounded px-3 py-1.5 flex-row items-center gap-1.5"
               >
                 {updateMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <Spinner size={16} color="#fff" />
                 ) : (
                   <Save size={14} color="#fff" />
                 )}
-                <Text className="text-white text-sm font-medium">Save</Text>
-              </Pressable>
+                <span className="text-white text-sm font-medium">Save</span>
+              </button>
             )}
-          </View>
+          </div>
         }
       />
 
       {/* Server Status Bar */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
+      <div style={{ padding: "12px 16px 4px 16px" }}>
         <ServerStatusBar />
-      </View>
+      </div>
 
-      <View className="flex-1 flex-row">
+      <div className="flex-1 flex-row">
         {/* Desktop group nav */}
         {isDesktop && (
-          <View
+          <div
             className="border-r border-surface-border p-3"
             style={{ width: 200 }}
           >
@@ -769,29 +757,28 @@ export default function SettingsScreen() {
               activeGroup={activeGroup}
               onSelect={setActiveGroup}
             />
-          </View>
+          </div>
         )}
 
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1 p-4" contentContainerStyle={{ maxWidth: 640 }}>
           {/* Mobile group selector */}
           {!isDesktop && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              className="mb-4"
-              contentContainerStyle={{ gap: 6 }}
+            <div
+              className="mb-4 overflow-auto"
+              style={{ display: "flex", flexDirection: "row", gap: 6 }}
             >
               {allGroups.map((g) => (
-                <Pressable
+                <button
+                  type="button"
                   key={g.group}
-                  onPress={() => setActiveGroup(g.group)}
+                  onClick={() => setActiveGroup(g.group)}
                   className={`px-3 py-1.5 rounded-full border ${
                     activeGroup === g.group
                       ? "bg-accent/20 border-accent"
                       : "border-surface-border"
                   }`}
                 >
-                  <Text
+                  <span
                     className={`text-xs ${
                       activeGroup === g.group
                         ? "text-accent font-medium"
@@ -799,16 +786,16 @@ export default function SettingsScreen() {
                     }`}
                   >
                     {groupDisplayName(g.group)}
-                  </Text>
-                </Pressable>
+                  </span>
+                </button>
               ))}
-            </ScrollView>
+            </div>
           )}
 
           {/* Group title */}
-          <Text className="text-text font-semibold text-lg mb-2">
+          <span className="text-text font-semibold text-lg mb-2">
             {groupDisplayName(activeGroup)}
-          </Text>
+          </span>
 
           {/* Appearance section — shown in Global group */}
           {isGlobal && <AppearanceSection />}
@@ -841,8 +828,8 @@ export default function SettingsScreen() {
             const dimmed = isFileModeOnly && historyMode !== "file";
 
             return (
-              <View key={item.key} style={dimmed ? { opacity: 0.4 } : undefined}>
-                {idx > 0 && <View className="h-px bg-surface-border" />}
+              <div key={item.key} style={dimmed ? { opacity: 0.4 } : undefined}>
+                {idx > 0 && <div className="h-px bg-surface-border" />}
                 {item.key === "MEMORY_FLUSH_DEFAULT_PROMPT" && <FlushPromptOverrideWarning />}
                 {item.key === "MEMORY_HYGIENE_ENABLED" && <MemoryHygieneGroupBanner />}
                 {item.key === "SECTION_INDEX_COUNT" && (
@@ -862,7 +849,7 @@ export default function SettingsScreen() {
                   onReset={handleReset}
                   isResetting={resettingKey === item.key}
                 />
-              </View>
+              </div>
             );
           })}
 
@@ -892,7 +879,7 @@ export default function SettingsScreen() {
             </>
           )}
         </RefreshableScrollView>
-      </View>
-    </View>
+      </div>
+    </div>
   );
 }

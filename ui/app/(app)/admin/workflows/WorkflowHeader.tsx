@@ -2,7 +2,7 @@
  * Sticky header bar for workflow detail page.
  * Back button, workflow name, source badge, action buttons.
  */
-import { Text, Pressable } from "react-native";
+
 import { type ThemeTokens } from "@/src/theme/tokens";
 import {
   ArrowLeft, Save, Trash2, Download, Copy, Unlink,
@@ -38,18 +38,18 @@ export function WorkflowHeader({
       padding: "10px 16px",
     }}>
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         maxWidth: 1200,
       }}>
         {/* Left: back + name */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
-          <Pressable
-            onPress={onBack}
+          <button type="button"
+            onClick={onBack}
             style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
           >
             <ArrowLeft size={16} color={t.textMuted} />
-            <Text style={{ color: t.textMuted, fontSize: 12 }}>Workflows</Text>
-          </Pressable>
+            <span style={{ color: t.textMuted, fontSize: 12 }}>Workflows</span>
+          </button>
           <span style={{
             fontSize: 15, fontWeight: 700, color: t.text,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -81,7 +81,7 @@ export function WorkflowHeader({
         </div>
 
         {/* Right: action buttons */}
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 6, alignItems: "center", flexShrink: 0 }}>
           {!isNew && (
             <HeaderButton onClick={onClone} t={t} subtle>
               <Copy size={13} color={t.textMuted} />
@@ -100,21 +100,21 @@ export function WorkflowHeader({
             </HeaderButton>
           )}
           {!showingPicker && (
-            <Pressable
-              onPress={onSave}
+            <button type="button"
+              onClick={onSave}
               disabled={(!dirty && !isNew) || saving}
               style={{
                 flexDirection: "row", alignItems: "center", gap: 4,
-                paddingHorizontal: 14, paddingVertical: 6, borderRadius: 6,
+                paddingInline: 14, paddingBlock: 6, borderRadius: 6,
                 backgroundColor: dirty || isNew ? t.accent : t.surfaceBorder,
                 opacity: (dirty || isNew) && !saving ? 1 : 0.5,
               }}
             >
               <Save size={13} color="#fff" />
-              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+              <span style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
                 {saving ? "Saving..." : isNew ? "Create" : isFileBased && dirty ? "Detach & Save" : "Save"}
-              </Text>
-            </Pressable>
+              </span>
+            </button>
           )}
         </div>
       </div>
@@ -122,7 +122,7 @@ export function WorkflowHeader({
       {/* File-managed info banner */}
       {isFileBased && !isNew && (
         <div style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           marginTop: 8, padding: "6px 10px", borderRadius: 6,
           background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
           fontSize: 11, color: t.accent,
@@ -153,7 +153,7 @@ function HeaderButton({ onClick, children, t, subtle, danger }: {
     <button
       onClick={onClick}
       style={{
-        display: "flex", alignItems: "center", gap: 4,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
         padding: "5px 10px", borderRadius: 6, border: "none",
         background: danger ? t.dangerSubtle : t.codeBg,
         color: danger ? t.danger : t.textMuted,

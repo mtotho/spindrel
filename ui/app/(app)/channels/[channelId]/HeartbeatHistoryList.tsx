@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { ExternalLink, ChevronDown, ChevronRight, Clock, Zap, AlertTriangle } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -19,7 +19,7 @@ function fmtTokens(n: number): string {
 
 export function HeartbeatHistoryList({ history, isWide }: { history: HeartbeatHistoryRun[]; isWide?: boolean }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
@@ -36,7 +36,7 @@ export function HeartbeatHistoryList({ history, isWide }: { history: HeartbeatHi
               <div
                 onClick={() => hasContent && setExpandedId(isExpanded ? null : hb.id)}
                 style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center",
                   padding: "8px 12px", background: isExpanded ? t.surfaceOverlay : t.surfaceRaised,
                   borderRadius: isExpanded ? "6px 6px 0 0" : 6,
                   border: `1px solid ${isExpanded ? t.accent : t.surfaceOverlay}`,
@@ -44,7 +44,7 @@ export function HeartbeatHistoryList({ history, isWide }: { history: HeartbeatHi
                   transition: "background 0.1s, border-color 0.1s",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                   {hasContent && (
                     isExpanded
                       ? <ChevronDown size={12} color={t.textDim} />
@@ -99,16 +99,16 @@ export function HeartbeatHistoryList({ history, isWide }: { history: HeartbeatHi
                   )}
                   {(hb.iterations > 0 || hb.total_tokens > 0 || hb.duration_ms != null) && (
                     <div style={{
-                      display: "flex", alignItems: "center", gap: 12,
+                      display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
                       marginTop: 8, fontSize: 10, color: t.textDim,
                     }}>
                       {hb.duration_ms != null && (
-                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                        <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
                           <Clock size={10} /> {fmtDuration(hb.duration_ms)}
                         </span>
                       )}
                       {hb.total_tokens > 0 && (
-                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                        <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
                           <Zap size={10} /> {fmtTokens(hb.total_tokens)} tokens
                         </span>
                       )}
@@ -122,7 +122,7 @@ export function HeartbeatHistoryList({ history, isWide }: { history: HeartbeatHi
                   )}
                   {hb.correlation_id && (
                     <div
-                      onClick={() => router.push(`/admin/logs/${hb.correlation_id}`)}
+                      onClick={() => navigate(`/admin/logs/${hb.correlation_id}`)}
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 5,
                         marginTop: 8, fontSize: 11, color: t.accent, cursor: "pointer",

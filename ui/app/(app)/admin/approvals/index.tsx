@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import {
@@ -19,7 +20,7 @@ import {
   type ToolApproval,
   type RuleSuggestion,
 } from "@/src/api/hooks/useApprovals";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { TabBar } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
 
@@ -89,7 +90,7 @@ function SuggestionButton({
       disabled={disabled}
       title={suggestion.description}
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 6,
         padding: "6px 12px",
@@ -142,7 +143,7 @@ function ApprovalCard({
         width: "100%",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <StatusIcon status={approval.status} />
         <span
           style={{
@@ -160,7 +161,7 @@ function ApprovalCard({
 
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           flexWrap: "wrap",
           gap: 8,
           alignItems: "center",
@@ -227,7 +228,7 @@ function ApprovalCard({
               }
               disabled={deciding}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
                 padding: "8px 16px",
@@ -247,7 +248,7 @@ function ApprovalCard({
               onClick={() => onDecide(approval.id, true)}
               disabled={deciding}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
                 padding: "8px 16px",
@@ -267,7 +268,7 @@ function ApprovalCard({
               onClick={() => onDecide(approval.id, false)}
               disabled={deciding}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
                 padding: "8px 16px",
@@ -286,7 +287,7 @@ function ApprovalCard({
           </div>
           {/* Smart suggestions (broadest-first from API) */}
           {suggestions && suggestions.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
               <span style={{ fontSize: 11, color: t.textDim, alignSelf: "center" }}>
                 Approve & create rule:
               </span>
@@ -320,7 +321,7 @@ export default function ApprovalsScreen() {
     statusFilter === "all" ? undefined : statusFilter
   );
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
   const decideMut = useDecideApproval();
 
@@ -348,8 +349,8 @@ export default function ApprovalsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Approvals"
         subtitle={pendingCount > 0 ? `${pendingCount} pending` : undefined}
       />
@@ -365,9 +366,9 @@ export default function ApprovalsScreen() {
           </div>
 
           {isLoading ? (
-            <View className="items-center justify-center py-20">
-              <ActivityIndicator color={t.accent} />
-            </View>
+            <div className="items-center justify-center py-20">
+              <Spinner color={t.accent} />
+            </div>
           ) : (
             <div
               style={{
@@ -403,6 +404,6 @@ export default function ApprovalsScreen() {
           )}
         </div>
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

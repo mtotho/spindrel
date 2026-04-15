@@ -79,7 +79,7 @@ function BackupConfigForm() {
       border: `1px solid ${t.surfaceRaised}`,
     }}>
       <div style={{
-        display: "flex", alignItems: "center", gap: 8, marginBottom: 14,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14,
         fontSize: 12, fontWeight: 600, color: t.textMuted,
         textTransform: "uppercase", letterSpacing: 1,
       }}>
@@ -110,12 +110,12 @@ function BackupConfigForm() {
       </div>
 
       {(dirty || updateMut.isError) && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 }}>
           <button
             onClick={handleSave}
             disabled={updateMut.isPending}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", borderRadius: 6,
               background: t.accent, color: "#fff", cursor: "pointer",
@@ -150,7 +150,7 @@ function BackupActions() {
       border: `1px solid ${t.surfaceRaised}`,
     }}>
       <div style={{
-        display: "flex", alignItems: "center", gap: 8, marginBottom: 14,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14,
         fontSize: 12, fontWeight: 600, color: t.textMuted,
         textTransform: "uppercase", letterSpacing: 1,
       }}>
@@ -158,12 +158,12 @@ function BackupActions() {
         Run Backup
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
         <button
           onClick={() => triggerMut.mutate()}
           disabled={triggerMut.isPending}
           style={{
-            display: "flex", alignItems: "center", gap: 6,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             padding: "8px 18px", fontSize: 13, fontWeight: 600,
             border: "none", borderRadius: 6,
             background: t.accent, color: "#fff", cursor: "pointer",
@@ -207,7 +207,7 @@ function BackupHistory() {
       border: `1px solid ${t.surfaceRaised}`,
     }}>
       <div style={{
-        display: "flex", alignItems: "center", gap: 8, marginBottom: 14,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14,
         fontSize: 12, fontWeight: 600, color: t.textMuted,
         textTransform: "uppercase", letterSpacing: 1,
       }}>

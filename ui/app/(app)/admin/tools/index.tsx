@@ -1,11 +1,13 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useMemo } from "react";
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { Search } from "lucide-react";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 function TypeBadge({ tool }: { tool: ToolItem }) {
@@ -63,7 +65,7 @@ function SectionHeader({ label, count, level, isWide }: { label: string; count: 
   const isSubheader = level > 0;
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 8,
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
       padding: isWide
         ? `${isSubheader ? 8 : 14}px 16px ${isSubheader ? 4 : 6}px ${isSubheader ? 32 : 16}px`
         : `${isSubheader ? 8 : 14}px 0 ${isSubheader ? 4 : 6}px ${isSubheader ? 16 : 0}px`,
@@ -85,7 +87,7 @@ function SectionHeader({ label, count, level, isWide }: { label: string; count: 
   );
 }
 
-function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => void; isWide: boolean }) {
+function ToolRow({ tool, onClick, isWide }: { tool: ToolItem; onClick: () => void; isWide: boolean }) {
   const t = useThemeTokens();
   const desc = tool.description || "";
   const source = tool.server_name || tool.source_file || tool.source_dir || "";
@@ -93,7 +95,7 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
   if (!isWide) {
     return (
       <button
-        onClick={onPress}
+        onClick={onClick}
         style={{
           display: "flex", flexDirection: "column", gap: 6,
           padding: "12px 16px", background: t.inputBg, borderRadius: 8,
@@ -101,7 +103,7 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
           width: "100%",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1, fontFamily: "monospace" }}>
             {tool.tool_name}
           </span>
@@ -126,7 +128,7 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
 
   return (
     <button
-      onClick={onPress}
+      onClick={onClick}
       style={{
         display: "grid", gridTemplateColumns: "200px 1fr 90px 120px",
         alignItems: "center", gap: 12,
@@ -172,10 +174,10 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
 
 export default function ToolsScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: tools, isLoading } = useTools();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
   const [search, setSearch] = useState("");
 
@@ -248,24 +250,24 @@ export default function ToolsScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Tool Index" />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Tool Index" />
 
       {/* Pinned search bar */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 10,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
         padding: isWide ? "8px 16px" : "8px 12px",
         borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
         <div style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
           borderRadius: 6, padding: "5px 10px",
           maxWidth: isWide ? 300 : undefined, flex: isWide ? undefined : 1,
@@ -292,10 +294,7 @@ export default function ToolsScreen() {
       </div>
 
       {/* List */}
-      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
-        padding: isWide ? 0 : 12,
-        gap: isWide ? 0 : 8,
-      }}>
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
         {(!tools || tools.length === 0) && (
           <div style={{
             padding: 40, textAlign: "center", color: t.textDim, fontSize: 13,
@@ -318,11 +317,11 @@ export default function ToolsScreen() {
               key={item.key}
               tool={item.tool}
               isWide={isWide}
-              onPress={() => router.push(`/admin/tools/${encodeURIComponent(item.tool.server_name ? item.tool.tool_key : item.tool.tool_name)}` as any)}
+              onClick={() => navigate(`/admin/tools/${encodeURIComponent(item.tool.server_name ? item.tool.tool_key : item.tool.tool_name)}`)}
             />
           ),
         )}
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

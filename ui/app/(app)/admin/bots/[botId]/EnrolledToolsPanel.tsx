@@ -91,7 +91,7 @@ export function EnrolledToolsPanel({ botId }: { botId: string }) {
           <>
             <div
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
                 background: t.inputBg,
@@ -121,7 +121,7 @@ export function EnrolledToolsPanel({ botId }: { botId: string }) {
               <div key={source}>
                 <div
                   style={{
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 8,
                     padding: "10px 0 4px",
@@ -147,7 +147,7 @@ export function EnrolledToolsPanel({ botId }: { botId: string }) {
                     style={{
                       padding: "6px 4px",
                       borderBottom: `1px solid ${t.surfaceBorder}`,
-                      display: "flex",
+                      display: "flex", flexDirection: "row",
                       alignItems: "center",
                       gap: 8,
                     }}
@@ -155,7 +155,7 @@ export function EnrolledToolsPanel({ botId }: { botId: string }) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div
                         style={{
-                          display: "flex",
+                          display: "flex", flexDirection: "row",
                           alignItems: "center",
                           gap: 6,
                           flexWrap: "wrap",

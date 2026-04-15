@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
-import { Link, useRouter } from "expo-router";
+import { Link, useNavigate } from "react-router-dom";
 import { useChannels, useEnsureOrchestrator } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useProviders } from "@/src/api/hooks/useProviders";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { prettyIntegrationName } from "@/src/utils/format";
 import { useAuthStore } from "@/src/stores/auth";
@@ -35,7 +35,7 @@ function ChannelCard({ channel, bot, t, isOrchestrator }: {
 }) {
   const Icon = isOrchestrator ? Home : channel.private ? Lock : Hash;
   return (
-    <Link href={`/channels/${channel.id}` as any} style={{ textDecoration: "none", color: "inherit" } as any}>
+    <Link to={`/channels/${channel.id}` as any} style={{ textDecoration: "none", color: "inherit" } as any}>
       <div
         style={{
           display: "flex",
@@ -55,7 +55,7 @@ function ChannelCard({ channel, bot, t, isOrchestrator }: {
         <div style={{
           width: 44, height: 44, borderRadius: 8,
           backgroundColor: isOrchestrator ? t.accent + "20" : t.accentSubtle,
-          display: "flex", alignItems: "center", justifyContent: "center",
+          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
           flexShrink: 0,
         }}>
           <Icon size={22} color={t.accent} />
@@ -120,7 +120,7 @@ function OnboardingCards({ t }: { t: ReturnType<typeof useThemeTokens> }) {
         </span>
       </div>
 
-      <Link href={"/channels/new" as any} style={{ textDecoration: "none", color: "inherit" } as any}>
+      <Link to={"/channels/new"} style={{ textDecoration: "none", color: "inherit" } as any}>
         <div
           style={{
             padding: 16,
@@ -199,7 +199,7 @@ export default function HomeScreen() {
   const columns = useResponsiveColumns();
   const { refreshing, onRefresh } = usePageRefresh();
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const ensureOrchestrator = useEnsureOrchestrator();
   const botMap = useMemo(() => new Map(bots?.map((b) => [b.id, b]) ?? []), [bots]);
@@ -241,11 +241,11 @@ export default function HomeScreen() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", backgroundColor: t.surface }}>
-      <MobileHeader
+      <PageHeader variant="list"
         title="Channels"
         subtitle="Select a channel to start chatting"
         right={
-          <Link href={"/channels/new" as any} style={{ textDecoration: "none" } as any}>
+          <Link to={"/channels/new"} style={{ textDecoration: "none" } as any}>
             <div style={{
               display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               backgroundColor: t.accent, borderRadius: 8,
@@ -272,7 +272,7 @@ export default function HomeScreen() {
 
         {/* Orchestrator hero */}
         {!channelsLoading && orchestratorChannel && (
-          <Link href={`/channels/${orchestratorChannel.id}` as any} style={{ textDecoration: "none", color: "inherit" } as any}>
+          <Link to={`/channels/${orchestratorChannel.id}` as any} style={{ textDecoration: "none", color: "inherit" } as any}>
             <div
               style={{
                 padding: 20,
@@ -287,7 +287,7 @@ export default function HomeScreen() {
                 <div style={{
                   width: 48, height: 48, borderRadius: 12,
                   backgroundColor: t.accent + "20",
-                  display: "flex", alignItems: "center", justifyContent: "center",
+                  display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
                   flexShrink: 0,
                 }}>
                   <Home size={24} color={t.accent} />
@@ -308,7 +308,7 @@ export default function HomeScreen() {
 
         {/* No provider banner — shown when no DB providers and no orchestrator */}
         {!channelsLoading && !orchestratorChannel && isAdmin && !hasProviders && (
-          <Link href={"/admin/providers" as any} style={{ textDecoration: "none", color: "inherit" } as any}>
+          <Link to={"/admin/providers"} style={{ textDecoration: "none", color: "inherit" } as any}>
             <div
               style={{
                 padding: 16,
@@ -344,7 +344,7 @@ export default function HomeScreen() {
             onClick={() => {
               ensureOrchestrator.mutate(undefined, {
                 onSuccess: (data) => {
-                  router.push(`/channels/${data.id}` as any);
+                  navigate(`/channels/${data.id}`);
                 },
               });
             }}
@@ -365,7 +365,7 @@ export default function HomeScreen() {
               <div style={{
                 width: 48, height: 48, borderRadius: 12,
                 backgroundColor: t.accent + "20",
-                display: "flex", alignItems: "center", justifyContent: "center",
+                display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
                 flexShrink: 0,
               }}>
                 <Home size={24} color={t.accent} />
@@ -397,7 +397,7 @@ export default function HomeScreen() {
             </span>
           </div>
         ) : channelsLoading ? (
-          <div style={{ display: "flex", justifyContent: "center", padding: "48px 0" }}>
+          <div style={{ display: "flex", flexDirection: "row", justifyContent: "center", padding: "48px 0" }}>
             <div className="chat-spinner" />
           </div>
         ) : !hasChannels || otherChannels.length === 0 ? (

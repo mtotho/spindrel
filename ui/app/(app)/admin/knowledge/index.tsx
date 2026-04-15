@@ -1,13 +1,12 @@
-import { View, Text } from "react-native";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 
 export default function KnowledgeScreen() {
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Knowledge" />
-      <View className="p-6">
-        <Text className="text-text-muted text-sm">Coming soon</Text>
-      </View>
-    </View>
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Knowledge" />
+      <div className="p-6">
+        <span className="text-text-muted text-sm">Coming soon</span>
+      </div>
+    </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useRouter, usePathname } from "expo-router";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { Loader2 } from "lucide-react";
 import { useChatStore } from "../../stores/chat";
@@ -15,8 +15,8 @@ export function StreamingToast() {
     ),
   );
   const { data: channels } = useChannels();
-  const pathname = usePathname();
-  const router = useRouter();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
   const t = useThemeTokens();
 
   // Track visibility for CSS transition
@@ -63,7 +63,7 @@ export function StreamingToast() {
         bottom: 16,
         left: 0,
         right: 0,
-        display: "flex",
+        display: "flex", flexDirection: "row",
         justifyContent: "center",
         zIndex: 50,
         pointerEvents: "none",
@@ -73,7 +73,7 @@ export function StreamingToast() {
         className="streaming-toast-btn"
         onClick={() => {
           if (shownId) {
-            router.push(`/channels/${shownId}` as any);
+            navigate(`/channels/${shownId}`);
           }
         }}
         style={{

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Pressable } from "react-native";
+
 import { type ThemeTokens } from "@/src/theme/tokens";
 import {
   Clock,
@@ -142,12 +142,12 @@ function dotColor(status: string, t: ThemeTokens): string {
 }
 
 export function StepNavItem({
-  stepId, state, isActive, onPress, t,
+  stepId, state, isActive, onClick, t,
 }: {
   stepId: string;
   state: WorkflowStepState;
   isActive: boolean;
-  onPress: () => void;
+  onClick: () => void;
   t: ThemeTokens;
 }) {
   const isRunning = state.status === "running";
@@ -155,11 +155,11 @@ export function StepNavItem({
   const color = dotColor(state.status, t);
 
   return (
-    <Pressable
-      onPress={onPress}
+    <button type="button"
+      onClick={onClick}
       style={{
         flexDirection: "row", alignItems: "center", gap: 8,
-        paddingVertical: 6, paddingHorizontal: 10,
+        paddingBlock: 6, paddingInline: 10,
         borderLeftWidth: 2,
         borderLeftColor: isActive ? t.accent : color + "40",
         backgroundColor: isActive ? t.accentSubtle : "transparent",
@@ -185,7 +185,7 @@ export function StepNavItem({
           </div>
         )}
       </div>
-    </Pressable>
+    </button>
   );
 }
 

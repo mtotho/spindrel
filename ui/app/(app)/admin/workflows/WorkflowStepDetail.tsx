@@ -4,7 +4,7 @@
  * Fields shown/hidden based on step type.
  */
 import { useState, useCallback, useEffect } from "react";
-import { View, Text, Pressable } from "react-native";
+
 import { type ThemeTokens } from "@/src/theme/tokens";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FormRow, Toggle } from "@/src/components/shared/FormControls";
@@ -55,11 +55,11 @@ export function WorkflowStepDetail({
     }}>
       {/* Step header */}
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         padding: "8px 0",
         borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
           <span style={{
             display: "inline-flex", alignItems: "center", gap: 4,
             fontSize: 11, padding: "2px 8px", borderRadius: 4,
@@ -77,7 +77,7 @@ export function WorkflowStepDetail({
           <button
             onClick={onDelete}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "4px 8px", borderRadius: 5,
               background: "none", border: `1px solid ${t.dangerBorder}`,
               color: t.danger, fontSize: 11, cursor: "pointer",
@@ -90,7 +90,7 @@ export function WorkflowStepDetail({
       </div>
 
       {/* Step ID + Type */}
-      <div style={{ display: "flex", gap: 12 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 12 }}>
         <div style={{ flex: 1 }}>
           <FormRow label="Step ID">
             <input
@@ -169,7 +169,7 @@ export function WorkflowStepDetail({
 
         {/* Exec-specific: working_directory + args */}
         {stepType === "exec" && (
-          <div style={{ display: "flex", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 12 }}>
             <div style={{ flex: 1 }}>
               <FormRow label="Working Directory">
                 <input
@@ -268,7 +268,7 @@ export function WorkflowStepDetail({
             />
           </FormRow>
 
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 16, flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 180 }}>
               <Toggle
                 value={!!step.inject_prior_results}
@@ -298,7 +298,7 @@ export function WorkflowStepDetail({
       {/* Control Flow group */}
       <FieldGroup title="Control Flow" defaultOpen={false} t={t}>
         {/* Approval + On Failure */}
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 16, flexWrap: "wrap" }}>
           {stepType !== "tool" && (
             <div style={{ flex: 1, minWidth: 180 }}>
               <Toggle
@@ -363,24 +363,24 @@ function FieldGroup({ title, defaultOpen, children, t }: {
       background: t.surfaceRaised,
       overflow: "hidden",
     }}>
-      <Pressable
-        onPress={() => setOpen(!open)}
+      <button type="button"
+        onClick={() => setOpen(!open)}
         style={{
           flexDirection: "row", alignItems: "center", gap: 6,
-          paddingVertical: 8, paddingHorizontal: 12,
+          paddingBlock: 8, paddingInline: 12,
         }}
       >
         {open
           ? <ChevronDown size={12} color={t.textMuted} />
           : <ChevronRight size={12} color={t.textMuted} />
         }
-        <Text style={{
+        <span style={{
           fontSize: 11, fontWeight: 700, color: t.textMuted,
           textTransform: "uppercase", letterSpacing: 0.5,
         }}>
           {title}
-        </Text>
-      </Pressable>
+        </span>
+      </button>
       {open && (
         <div style={{
           padding: "4px 12px 12px",
@@ -477,9 +477,9 @@ export function StepDetailEmptyState({ t }: { t: ThemeTokens }) {
       flex: 1, padding: 32, color: t.textDim,
     }}>
       <Bot size={28} color={t.surfaceBorder} />
-      <Text style={{ color: t.textDim, fontSize: 13, marginTop: 12, textAlign: "center" }}>
+      <span style={{ color: t.textDim, fontSize: 13, marginTop: 12, textAlign: "center" }}>
         Select a step from the list to edit its configuration.
-      </Text>
+      </span>
     </div>
   );
 }

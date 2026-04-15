@@ -37,7 +37,7 @@ export function SystemPauseBanner({ behavior }: Props) {
         className="banner-btn"
         onClick={() => setDismissed(true)}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
           width: 28,

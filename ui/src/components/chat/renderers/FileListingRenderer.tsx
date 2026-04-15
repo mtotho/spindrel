@@ -103,7 +103,7 @@ function DirListing({ data, t }: { data: ListingShape; t: ThemeTokens }) {
         <div
           key={i}
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 6,
             padding: "3px 12px",
@@ -144,7 +144,7 @@ function GlobListing({ data, t }: { data: ListingShape; t: ThemeTokens }) {
         <div
           key={i}
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 6,
             padding: "3px 12px",
@@ -187,7 +187,7 @@ function GrepListing({ data, t }: { data: ListingShape; t: ThemeTokens }) {
         <div key={file}>
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 4,
               padding: "4px 12px 2px",
@@ -203,7 +203,7 @@ function GrepListing({ data, t }: { data: ListingShape; t: ThemeTokens }) {
             <div
               key={i}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 gap: 8,
                 padding: "1px 12px 1px 24px",
                 color: t.contentText,

@@ -2,7 +2,7 @@
  * Workflow parameter editor — compact key-value table.
  * Extracted from WorkflowFormParts.tsx.
  */
-import { View, Text, Pressable } from "react-native";
+
 import { useThemeTokens } from "@/src/theme/tokens";
 import { Plus, X } from "lucide-react";
 
@@ -52,25 +52,25 @@ export function ParamsEditor({ value, onChange, disabled }: ParamsEditorProps) {
 
   if (entries.length === 0) {
     return (
-      <View style={{ gap: 8 }}>
-        <Text style={{ color: t.textDim, fontSize: 12, fontStyle: "italic" }}>
+      <div style={{ gap: 8 }}>
+        <span style={{ color: t.textDim, fontSize: 12, fontStyle: "italic" }}>
           No parameters defined
-        </Text>
+        </span>
         {!disabled && (
-          <Pressable
-            onPress={addParam}
-            style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4 }}
+          <button type="button"
+            onClick={addParam}
+            style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingBlock: 4 }}
           >
             <Plus size={12} color={t.accent} />
-            <Text style={{ color: t.accent, fontSize: 12 }}>Add Parameter</Text>
-          </Pressable>
+            <span style={{ color: t.accent, fontSize: 12 }}>Add Parameter</span>
+          </button>
         )}
-      </View>
+      </div>
     );
   }
 
   return (
-    <View style={{ gap: 6 }}>
+    <div style={{ gap: 6 }}>
       {/* Header */}
       <div style={{
         display: "grid",
@@ -126,22 +126,22 @@ export function ParamsEditor({ value, onChange, disabled }: ParamsEditorProps) {
             disabled={disabled}
           />
           {!disabled && (
-            <Pressable onPress={() => removeParam(name)} style={{ opacity: 0.5 }}>
+            <button type="button" onClick={() => removeParam(name)} style={{ opacity: 0.5 }}>
               <X size={14} color={t.textDim} />
-            </Pressable>
+            </button>
           )}
         </div>
       ))}
 
       {!disabled && (
-        <Pressable
-          onPress={addParam}
-          style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 6 }}
+        <button type="button"
+          onClick={addParam}
+          style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingBlock: 6 }}
         >
           <Plus size={12} color={t.accent} />
-          <Text style={{ color: t.accent, fontSize: 12 }}>Add Parameter</Text>
-        </Pressable>
+          <span style={{ color: t.accent, fontSize: 12 }}>Add Parameter</span>
+        </button>
       )}
-    </View>
+    </div>
   );
 }

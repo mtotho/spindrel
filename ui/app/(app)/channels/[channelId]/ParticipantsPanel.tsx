@@ -42,13 +42,13 @@ export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onC
     }}>
       {/* Header */}
       <div style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         padding: "8px 12px",
         borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
           <Users size={13} color={t.textDim} />
           <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
             Participants ({totalCount})
@@ -64,7 +64,7 @@ export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onC
               cursor: "pointer",
               padding: 6,
               borderRadius: 4,
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
             }}
           >
@@ -77,7 +77,7 @@ export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onC
       <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
         {/* Primary bot */}
         <div style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 8,
           padding: "7px 12px",
@@ -137,7 +137,7 @@ export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onC
                     }}
                     disabled={addMember.isPending}
                     style={{
-                      display: "flex",
+                      display: "flex", flexDirection: "row",
                       alignItems: "center",
                       gap: 8,
                       width: "100%",
@@ -177,7 +177,7 @@ export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onC
               <button
                 onClick={() => setShowPicker(true)}
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 6,
                   width: "100%",
@@ -259,7 +259,7 @@ function MemberRow({
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 8,
         padding: "7px 12px",
@@ -287,7 +287,7 @@ function MemberRow({
           background: "transparent",
           cursor: "pointer",
           padding: 2,
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           opacity: hovered ? 0.8 : 0,
           transition: "opacity 0.15s",

@@ -1,27 +1,23 @@
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import { Sun, Moon, Search } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
 import { useAuthStore } from "../../../stores/auth";
 import { useThemeStore } from "../../../stores/theme";
-import { useThemeTokens } from "../../../theme/tokens";
 import { UsageHudBadge } from "../UsageHudBadge";
+import { cn } from "../../../lib/cn";
 
 export function ThemeToggleIcon() {
   const mode = useThemeStore((s) => s.mode);
   const toggle = useThemeStore((s) => s.toggle);
-  const t = useThemeTokens();
   return (
     <button
       onClick={toggle}
-      className="sidebar-icon-btn"
-      style={{
-        width: 44, height: 44, borderRadius: 8,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        background: "none", border: "none", cursor: "pointer", padding: 0,
-      }}
+      className="sidebar-rail-btn bg-transparent border-none p-0"
       aria-label="Toggle theme"
     >
-      {mode === "dark" ? <Sun size={16} color={t.textDim} /> : <Moon size={16} color={t.textDim} />}
+      {mode === "dark"
+        ? <Sun size={16} className="text-text-dim" />
+        : <Moon size={16} className="text-text-dim" />}
     </button>
   );
 }
@@ -29,20 +25,15 @@ export function ThemeToggleIcon() {
 function ThemeToggleRow() {
   const mode = useThemeStore((s) => s.mode);
   const toggle = useThemeStore((s) => s.toggle);
-  const t = useThemeTokens();
   return (
     <button
       onClick={toggle}
-      className="sidebar-nav-item"
-      style={{
-        display: "flex", alignItems: "center", gap: 12,
-        padding: "8px 12px", borderRadius: 6,
-        background: "none", border: "none", cursor: "pointer",
-        width: "100%", textAlign: "left",
-      }}
+      className="sidebar-item w-full bg-transparent border-none text-left"
     >
-      {mode === "dark" ? <Sun size={16} color={t.textDim} /> : <Moon size={16} color={t.textDim} />}
-      <span style={{ fontSize: 14, color: t.textMuted }}>
+      {mode === "dark"
+        ? <Sun size={16} className="text-text-dim" />
+        : <Moon size={16} className="text-text-dim" />}
+      <span className="text-sm text-text-muted">
         {mode === "dark" ? "Light mode" : "Dark mode"}
       </span>
     </button>
@@ -52,38 +43,22 @@ function ThemeToggleRow() {
 export function SidebarFooterCollapsed({ version }: { version?: string }) {
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
   const user = useAuthStore((s) => s.user);
-  const t = useThemeTokens();
 
   return (
-    <footer style={{
-      borderTop: `1px solid ${t.surfaceBorder}`,
-      display: "flex", flexDirection: "column", alignItems: "center",
-      padding: "10px 0", gap: 4,
-    }}>
+    <footer className="flex flex-col items-center py-3 gap-1.5">
       <UsageHudBadge collapsed />
       <ThemeToggleIcon />
-      <Link href={"/(app)/profile" as any} onPress={closeMobile}>
-        <div
-          className="sidebar-icon-btn"
-          style={{
-            width: 44, height: 44, borderRadius: 8,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer",
-          }}
-        >
-          <div style={{
-            width: 28, height: 28, borderRadius: 4,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            backgroundColor: "rgba(99,102,241,0.2)",
-          }}>
-            <span style={{ fontSize: 11, color: "#6366f1", fontWeight: 700 }}>
+      <Link to="/profile" onClick={closeMobile}>
+        <div className="sidebar-rail-btn">
+          <div className="w-7 h-7 rounded flex flex-row items-center justify-center bg-indigo-500/20">
+            <span className="text-[11px] font-bold text-indigo-500">
               {user?.display_name?.charAt(0)?.toUpperCase() || "?"}
             </span>
           </div>
         </div>
       </Link>
       {version && (
-        <span style={{ fontSize: 9, color: t.textDim, opacity: 0.6 }}>
+        <span className="text-[9px] text-text-dim/30">
           v{version}
         </span>
       )}
@@ -92,26 +67,15 @@ export function SidebarFooterCollapsed({ version }: { version?: string }) {
 }
 
 function SearchShortcutHint() {
-  const t = useThemeTokens();
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
   return (
     <button
       onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: !isMac, metaKey: isMac }))}
-      className="sidebar-nav-item"
-      style={{
-        display: "flex", alignItems: "center", gap: 12,
-        padding: "8px 12px", borderRadius: 6,
-        background: "none", border: "none", cursor: "pointer",
-        width: "100%", textAlign: "left",
-      }}
+      className="sidebar-item w-full bg-transparent border-none text-left"
     >
-      <Search size={16} color={t.textDim} />
-      <span style={{ flex: 1, fontSize: 14, color: t.textDim }}>Search</span>
-      <kbd style={{
-        fontSize: 10, color: t.textDim, background: t.surface,
-        border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-        padding: "2px 6px", fontFamily: "inherit",
-      }}>
+      <Search size={16} className="text-text-dim" />
+      <span className="flex-1 text-sm text-text-dim">Search</span>
+      <kbd className="text-[10px] text-text-dim bg-surface border border-surface-border rounded px-1.5 py-0.5 font-[inherit]">
         {isMac ? "\u2318" : "Ctrl"}+K
       </kbd>
     </button>
@@ -121,49 +85,43 @@ function SearchShortcutHint() {
 export function SidebarFooterExpanded({ pathname, mobile, version }: { pathname: string; mobile?: boolean; version?: string }) {
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
   const user = useAuthStore((s) => s.user);
-  const t = useThemeTokens();
   const isProfileActive = pathname === "/profile";
 
   return (
-    <footer style={{
-      borderTop: `1px solid ${t.surfaceBorder}`,
-      padding: 10, display: "flex", flexDirection: "column", gap: 2,
-    }}>
+    <footer className="px-3 pt-3 pb-4 flex flex-col gap-1">
       <UsageHudBadge collapsed={false} />
       {!mobile && <SearchShortcutHint />}
       <ThemeToggleRow />
-      <Link href={"/(app)/profile" as any} onPress={closeMobile}>
+      <Link to="/profile" onClick={closeMobile}>
         <div
-          className="sidebar-nav-item"
-          style={{
-            display: "flex", alignItems: "center", gap: 12,
-            padding: mobile ? "14px 12px" : "10px 12px",
-            borderRadius: 6, cursor: "pointer",
-            backgroundColor: isProfileActive ? "rgba(59,130,246,0.1)" : undefined,
-          }}
+          className={cn(
+            "sidebar-item",
+            mobile ? "py-3.5 px-3" : "py-2.5 px-3",
+            isProfileActive && "sidebar-item-active",
+          )}
         >
-          <div style={{
-            width: mobile ? 36 : 32, height: mobile ? 36 : 32, borderRadius: 4,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            backgroundColor: "rgba(99,102,241,0.2)",
-          }}>
-            <span style={{ fontSize: mobile ? 14 : 12, color: "#6366f1", fontWeight: 700 }}>
+          <div className={cn(
+            "rounded flex flex-row items-center justify-center bg-indigo-500/20",
+            mobile ? "w-9 h-9" : "w-8 h-8",
+          )}>
+            <span className={cn(
+              "font-bold text-indigo-500",
+              mobile ? "text-sm" : "text-xs",
+            )}>
               {user?.display_name?.charAt(0)?.toUpperCase() || "?"}
             </span>
           </div>
-          <span style={{
-            flex: 1,
-            fontSize: mobile ? 15 : 14,
-            color: isProfileActive ? t.accent : t.textMuted,
-            fontWeight: isProfileActive ? 500 : 400,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}>
+          <span className={cn(
+            "flex-1 truncate",
+            mobile ? "text-[15px]" : "text-sm",
+            isProfileActive ? "text-accent font-medium" : "text-text-muted",
+          )}>
             {user?.display_name || "Profile"}
           </span>
         </div>
       </Link>
       {version && (
-        <span style={{ fontSize: 10, color: t.textDim, opacity: 0.5, textAlign: "center" }}>
+        <span className="text-[10px] text-text-dim/30 text-center">
           v{version}
         </span>
       )}

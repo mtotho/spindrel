@@ -1,5 +1,6 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState } from "react";
-import { View, ActivityIndicator } from "react-native";
+
 import { ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 import { useWorkspaceCronJobs } from "@/src/api/hooks/useWorkspaces";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -35,7 +36,7 @@ export function CronJobs({ workspaceId, status }: CronJobsProps) {
       <button
         onClick={() => setExpanded(!expanded)}
         style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           background: "none", border: "none", cursor: "pointer",
           padding: 0, color: t.textMuted, fontSize: 12,
         }}
@@ -53,14 +54,14 @@ export function CronJobs({ workspaceId, status }: CronJobsProps) {
       {expanded && (
         <>
           {isLoading ? (
-            <View style={{ padding: 12, alignItems: "center" }}>
-              <ActivityIndicator size="small" color={t.accent} />
-            </View>
+            <div style={{ padding: 12, alignItems: "center" }}>
+              <Spinner />
+            </div>
           ) : (
             <>
               {error && (
                 <div style={{
-                  display: "flex", alignItems: "center", gap: 6,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                   padding: "6px 10px", borderRadius: 5,
                   background: "rgba(234,179,8,0.1)", fontSize: 11, color: "#ca8a04",
                 }}>

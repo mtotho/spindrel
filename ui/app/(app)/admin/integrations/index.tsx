@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useRouter } from "expo-router";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useNavigate } from "react-router-dom";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { Search, Play, Square, RefreshCw, BookOpen } from "lucide-react";
 import { IntegrationGuideModal } from "./IntegrationGuideModal";
@@ -24,7 +25,7 @@ function SectionHeader({ label, count, isWide }: { label: string; count: number;
   const t = useThemeTokens();
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 8,
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
       padding: isWide ? "14px 16px 6px 16px" : "14px 0 6px 0",
     }}>
       <span style={{
@@ -56,7 +57,7 @@ function InlineProcessControls({ item }: { item: IntegrationItem }) {
   const anyPending = startMut.isPending || stopMut.isPending || restartMut.isPending;
 
   const btnStyle = (bg: string, fg: string): React.CSSProperties => ({
-    display: "flex", alignItems: "center", gap: 3,
+    display: "flex", flexDirection: "row", alignItems: "center", gap: 3,
     padding: "2px 8px", borderRadius: 4, border: "none",
     background: bg, color: fg,
     fontSize: 10, fontWeight: 600,
@@ -69,7 +70,7 @@ function InlineProcessControls({ item }: { item: IntegrationItem }) {
   const start = (e: React.MouseEvent) => { e.stopPropagation(); startMut.mutate(); };
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
       <span style={{
         width: 7, height: 7, borderRadius: 4,
         background: isRunning ? "#22c55e" : "#6b7280", flexShrink: 0,
@@ -81,7 +82,7 @@ function InlineProcessControls({ item }: { item: IntegrationItem }) {
         <span style={{ fontSize: 10, color: t.textDim, whiteSpace: "nowrap" }}>{formatUptime(ps.uptime_seconds)}</span>
       )}
       {isRunning ? (
-        <div style={{ display: "flex", gap: 3 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 3 }}>
           <button onClick={stop} disabled={anyPending} title="Stop" style={btnStyle("rgba(239,68,68,0.15)", "#ef4444")}>
             <Square size={9} />
           </button>
@@ -104,7 +105,7 @@ function InlineProcessControls({ item }: { item: IntegrationItem }) {
 
 function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boolean }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const isDisabled = item.disabled;
 
   const envSetCount = item.env_vars.filter((v) => v.is_set).length;
@@ -124,7 +125,7 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
     // Mobile: card layout (matches skills/tools mobile pattern)
     return (
       <button
-        onClick={() => router.push(`/admin/integrations/${item.id}` as any)}
+        onClick={() => navigate(`/admin/integrations/${item.id}`)}
         style={{
           display: "flex", flexDirection: "column", gap: 6,
           padding: "12px 16px", background: t.inputBg, borderRadius: 8,
@@ -133,11 +134,11 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
           opacity: rowOpacity,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>{item.name}</span>
           <StatusBadge status={effectiveStatus} />
         </div>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
           {activeCaps.map((c) => <CapBadge key={c} label={c} active />)}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: t.textDim }}>
@@ -164,9 +165,9 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
   // Desktop: table row (matches skills/tools desktop pattern)
   return (
     <button
-      onClick={() => router.push(`/admin/integrations/${item.id}` as any)}
+      onClick={() => navigate(`/admin/integrations/${item.id}`)}
       style={{
-        display: "flex", alignItems: "center", gap: 12,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
         padding: "10px 16px", background: "transparent",
         border: "none",
         borderBottom: `1px solid ${t.surfaceBorder}`,
@@ -179,14 +180,14 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
     >
       {/* Name + meta */}
       <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{item.name}</span>
           <StatusBadge status={effectiveStatus} />
           <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
             {activeCaps.map((c) => <CapBadge key={c} label={c} active />)}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
           <span style={{
             fontSize: 9, fontWeight: 600, padding: "1px 5px", borderRadius: 3,
             background: "rgba(107,114,128,0.08)", color: t.textDim,
@@ -225,7 +226,7 @@ export default function IntegrationsScreen() {
   const t = useThemeTokens();
   const { data, isLoading } = useIntegrations();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
   const [search, setSearch] = useState("");
   const [showGuide, setShowGuide] = useState(false);
@@ -284,26 +285,26 @@ export default function IntegrationsScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner color={t.accent} />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Integrations" />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Integrations" />
 
       {/* Toolbar: search bar (when items exist) + guide button (always) */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 10,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
         padding: isWide ? "8px 16px" : "8px 12px",
         borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
         {all && all.length > 0 && (
           <>
             <div style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
               borderRadius: 6, padding: "5px 10px",
               maxWidth: isWide ? 300 : undefined, flex: isWide ? undefined : 1,
@@ -332,7 +333,7 @@ export default function IntegrationsScreen() {
           onClick={() => setShowGuide(true)}
           title="Integration Developer Guide"
           style={{
-            display: "flex", alignItems: "center", gap: 4,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
             padding: "4px 8px", borderRadius: 5, border: `1px solid ${t.surfaceBorder}`,
             background: "transparent", color: t.textMuted,
             fontSize: 11, fontWeight: 500,
@@ -389,6 +390,6 @@ export default function IntegrationsScreen() {
       </RefreshableScrollView>
 
       {showGuide && <IntegrationGuideModal onClose={() => setShowGuide(false)} />}
-    </View>
+    </div>
   );
 }

@@ -248,7 +248,7 @@ export function CodeEditor({ content, onChange, filePath, t }: CodeEditorProps) 
     <div
       style={{
         flex: 1,
-        display: "flex",
+        display: "flex", flexDirection: "row",
         overflow: "hidden",
         backgroundColor: t.surfaceRaised,
         position: "relative",

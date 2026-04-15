@@ -3,7 +3,7 @@
  * Fuzzy-searches channels, bots, admin screens, skills, and integration pages.
  */
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import ReactDOM from "react-dom";
 import {
   Search,
@@ -247,7 +247,7 @@ export function useCommandPaletteShortcut() {
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
@@ -390,7 +390,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     el?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  const navigate = useCallback(
+  const go = useCallback(
     (href: string) => {
       onClose();
       closeMobileSidebar();
@@ -399,15 +399,15 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         const path = href.slice(0, hashIdx);
         const hash = href.slice(hashIdx);
         // Navigate to the path first, then set the hash so useHashTab picks it up
-        router.push(path as any);
+        navigate(path);
         requestAnimationFrame(() => {
           window.location.hash = hash;
         });
       } else {
-        router.push(href as any);
+        navigate(href);
       }
     },
-    [onClose, closeMobileSidebar, router],
+    [onClose, closeMobileSidebar, navigate],
   );
 
   const totalCount = groupedResults.totalCount;
@@ -426,10 +426,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       } else if (e.key === "Enter") {
         e.preventDefault();
         const scored = scoredResults[selectedIndex];
-        if (scored) navigate(scored.item.href);
+        if (scored) go(scored.item.href);
       }
     },
-    [onClose, scoredResults, selectedIndex, navigate, totalCount],
+    [onClose, scoredResults, selectedIndex, go, totalCount],
   );
 
   if (!mounted || typeof document === "undefined") return null;
@@ -483,14 +483,14 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         {/* Search input */}
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 10,
             padding: "14px 16px",
             borderBottom: `1px solid ${t.surfaceBorder}`,
           }}
         >
-          <span style={{ flexShrink: 0, display: "flex" }}><Search size={16} color={t.textDim} /></span>
+          <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}><Search size={16} color={t.textDim} /></span>
           <input
             ref={inputRef}
             autoFocus
@@ -570,10 +570,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                   <div
                     key={item.id}
                     data-idx={flatIndex}
-                    onClick={() => navigate(item.href)}
+                    onClick={() => go(item.href)}
                     onMouseEnter={() => setSelectedIndex(flatIndex)}
                     style={{
-                      display: "flex",
+                      display: "flex", flexDirection: "row",
                       alignItems: "center",
                       gap: 10,
                       padding: "7px 14px",
@@ -584,7 +584,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                       transition: "background-color 80ms ease",
                     }}
                   >
-                    <span style={{ flexShrink: 0, display: "flex" }}>
+                    <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
                       <Icon size={16} color={selected ? t.accent : t.textDim} />
                     </span>
                     <span
@@ -618,7 +618,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                       </span>
                     )}
                     {selected && (
-                      <span style={{ flexShrink: 0, display: "flex" }}>
+                      <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
                         <CornerDownLeft size={12} color={t.textDim} />
                       </span>
                     )}
@@ -632,7 +632,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         {/* Footer hint */}
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 16,
             padding: "8px 16px",
@@ -641,16 +641,16 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             color: t.textDim,
           }}
         >
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Kbd t={t}>&uarr;</Kbd>
             <Kbd t={t}>&darr;</Kbd>
             navigate
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Kbd t={t}>&crarr;</Kbd>
             open
           </span>
-          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ marginLeft: "auto", display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Kbd t={t}>{modKey}+K</Kbd>
             toggle
           </span>

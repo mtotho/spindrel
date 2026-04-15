@@ -1,10 +1,11 @@
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useMemo } from "react";
 import { useHashTab } from "@/src/hooks/useHashTab";
-import { View, useWindowDimensions } from "react-native";
+
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { X, Eye, EyeOff } from "lucide-react";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useUsageSummary, type UsageParams } from "@/src/api/hooks/useUsage";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -28,7 +29,7 @@ function HudToggle() {
     <button
       onClick={() => setEnabled(!enabled)}
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 5,
         padding: "4px 10px",
@@ -82,7 +83,7 @@ function FilterBar({
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         gap: 8,
         padding: isMobile ? "8px 12px" : "10px 20px",
         borderBottom: `1px solid ${t.surfaceRaised}`,
@@ -91,7 +92,7 @@ function FilterBar({
       }}
     >
       {/* Time presets */}
-      <div style={{ display: "flex", gap: 2 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 2 }}>
         {TIME_PRESETS.map((p) => (
           <button
             key={p.value}
@@ -163,7 +164,7 @@ function FilterBar({
             setProviderFilter("");
           }}
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 4,
             padding: "4px 10px",
@@ -192,7 +193,7 @@ function FilterBar({
 export default function UsageScreen() {
   const t = useThemeTokens();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isMobile = width < 768;
 
   const [tab, setTab] = useHashTab<Tab>("Overview", TABS);
@@ -230,8 +231,8 @@ export default function UsageScreen() {
   }), [timePreset, botFilter, modelFilter, providerFilter]);
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Usage & Costs" subtitle="LLM cost analytics" />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Usage & Costs" subtitle="LLM cost analytics" />
 
       {/* Filter bar -- only shown on tabs that use time/filter params */}
       {tab !== "Forecast" && tab !== "Limits" && tab !== "Alerts" && (
@@ -253,7 +254,7 @@ export default function UsageScreen() {
       {/* Tab bar */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           gap: 0,
           borderBottom: `1px solid ${t.surfaceOverlay}`,
           padding: isMobile ? "0 12px" : "0 20px",
@@ -290,6 +291,6 @@ export default function UsageScreen() {
           {tab === "Alerts" && <AlertsTab />}
         </div>
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

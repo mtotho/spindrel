@@ -1,12 +1,6 @@
 import { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  ActivityIndicator,
-} from "react-native";
 import { User, Mail, Lock, ArrowRight } from "lucide-react";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useAuthStore } from "@/src/stores/auth";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { TokenResponse } from "@/src/types/api";
@@ -56,92 +50,87 @@ export default function SetupScreen() {
   };
 
   return (
-    <View className="flex-1 bg-surface items-center justify-center p-6">
-      <View className="w-full max-w-sm gap-6">
+    <div className="flex-1 bg-surface items-center justify-center p-6">
+      <div className="w-full max-w-sm gap-6">
         {/* Header */}
-        <View className="items-center gap-2 mb-4">
-          <Text className="text-text text-2xl font-bold">Welcome to Spindrel</Text>
-          <Text className="text-text-muted text-sm text-center">
+        <div className="items-center gap-2 mb-4">
+          <span className="text-text text-2xl font-bold">Welcome to Spindrel</span>
+          <span className="text-text-muted text-sm text-center">
             Create your admin account to get started
-          </Text>
-        </View>
+          </span>
+        </div>
 
         {/* Display Name */}
-        <View className="gap-2">
-          <View className="flex-row items-center gap-2">
+        <div className="gap-2">
+          <div className="flex-row items-center gap-2">
             <User size={16} color={t.textMuted} />
-            <Text className="text-text-muted text-sm">Display Name</Text>
-          </View>
-          <TextInput
+            <span className="text-text-muted text-sm">Display Name</span>
+          </div>
+          <input
             className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
             placeholder="Alice"
-            placeholderTextColor={t.textDim}
             value={displayName}
-            onChangeText={setDisplayName}
-            autoCapitalize="words"
+            onChange={(e) => setDisplayName(e.target.value)}
           />
-        </View>
+        </div>
 
         {/* Email */}
-        <View className="gap-2">
-          <View className="flex-row items-center gap-2">
+        <div className="gap-2">
+          <div className="flex-row items-center gap-2">
             <Mail size={16} color={t.textMuted} />
-            <Text className="text-text-muted text-sm">Email</Text>
-          </View>
-          <TextInput
+            <span className="text-text-muted text-sm">Email</span>
+          </div>
+          <input
             className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
             placeholder="admin@example.com"
-            placeholderTextColor={t.textDim}
             value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
+            onChange={(e) => setEmail(e.target.value)}
+            autoCorrect="off"
+            type="email"
           />
-        </View>
+        </div>
 
         {/* Password */}
-        <View className="gap-2">
-          <View className="flex-row items-center gap-2">
+        <div className="gap-2">
+          <div className="flex-row items-center gap-2">
             <Lock size={16} color={t.textMuted} />
-            <Text className="text-text-muted text-sm">Password</Text>
-          </View>
-          <TextInput
+            <span className="text-text-muted text-sm">Password</span>
+          </div>
+          <input
             className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
             placeholder="Choose a password"
-            placeholderTextColor={t.textDim}
             value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
           />
-        </View>
+        </div>
 
         {/* Error */}
         {error && (
-          <Text className="text-red-400 text-sm text-center">{error}</Text>
+          <span className="text-red-400 text-sm text-center">{error}</span>
         )}
 
         {/* Create Account button */}
-        <Pressable
-          onPress={handleLocalSetup}
+        <button
+          type="button"
+          onClick={handleLocalSetup}
           disabled={loading}
           className="bg-accent rounded-lg px-4 py-3 flex-row items-center justify-center gap-2 active:bg-accent-hover"
         >
           {loading ? (
-            <ActivityIndicator color="white" size="small" />
+            <Spinner color="white" size={16} />
           ) : (
             <>
-              <Text className="text-white font-semibold">Create Account</Text>
+              <span className="text-white font-semibold">Create Account</span>
               <ArrowRight size={16} color="white" />
             </>
           )}
-        </Pressable>
+        </button>
 
-        <Text className="text-text-dim text-xs text-center">
+        <span className="text-text-dim text-xs text-center">
           This will create the first admin account on this server.
-        </Text>
-      </View>
-    </View>
+        </span>
+      </div>
+    </div>
   );
 }

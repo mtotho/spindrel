@@ -18,7 +18,7 @@ type AutoInjectedSkillMeta = { skillId?: string; skill_id?: string; skillName?: 
 function SkillBadges({ skills, t }: { skills: AutoInjectedSkillMeta[]; t: ThemeTokens }) {
   if (!skills.length) return null;
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4, marginBottom: 2 }}>
+    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4, marginBottom: 2 }}>
       {skills.map((s, i) => {
         const name = s.skillName ?? s.skill_name ?? "skill";
         const sim = s.similarity ?? 0;

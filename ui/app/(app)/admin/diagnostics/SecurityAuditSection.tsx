@@ -1,4 +1,4 @@
-import { ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { Shield, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -45,7 +45,7 @@ function CheckRow({ check }: { check: SecurityCheck }) {
       }}
       onClick={() => hasDetails && setExpanded(!expanded)}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         {/* Status badge */}
         <span style={{
           padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700,
@@ -102,8 +102,8 @@ export function SecurityAuditSection() {
 
   if (isLoading) {
     return (
-      <div style={{ padding: 16, display: "flex", justifyContent: "center" }}>
-        <ActivityIndicator color={t.accent} />
+      <div style={{ padding: 16, display: "flex", flexDirection: "row", justifyContent: "center" }}>
+        <Spinner color={t.accent} />
       </div>
     );
   }
@@ -129,7 +129,7 @@ export function SecurityAuditSection() {
         background: t.inputBg,
         borderRadius: 8,
         border: `1px solid ${t.surfaceRaised}`,
-        display: "flex", alignItems: "center", gap: 16,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 16,
       }}>
         <Shield size={24} color={scoreColor(data.score, t)} />
         <div>
@@ -139,7 +139,7 @@ export function SecurityAuditSection() {
           <div style={{ fontSize: 11, color: t.textDim }}>Security Score</div>
         </div>
         <div style={{ flex: 1 }} />
-        <div style={{ display: "flex", gap: 12, fontSize: 11, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 12, fontSize: 11, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {(data.summary.fail ?? 0) > 0 && (
             <span style={{ color: t.danger, fontWeight: 600 }}>
               {data.summary.fail} failed
@@ -221,7 +221,7 @@ function PassedSection({ checks }: { checks: SecurityCheck[] }) {
         style={{
           fontSize: 11, fontWeight: 600, color: t.success,
           marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5,
-          cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+          cursor: "pointer", display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
           userSelect: "none",
         }}
       >

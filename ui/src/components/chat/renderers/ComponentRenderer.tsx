@@ -332,7 +332,7 @@ function PropertiesBlock({
     return (
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           flexWrap: "wrap",
           gap: "4px 12px",
           fontSize: 12,
@@ -454,7 +454,7 @@ function LinksBlock({ node, t }: { node: LinksNode; t: ThemeTokens }) {
             target="_blank"
             rel="noopener noreferrer"
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "flex-start",
               gap: 8,
               padding: "6px 8px",
@@ -479,7 +479,7 @@ function LinksBlock({ node, t }: { node: LinksNode; t: ThemeTokens }) {
                 style={{
                   fontSize: 12,
                   color: t.linkColor,
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 4,
                 }}
@@ -626,7 +626,7 @@ function DividerBlock({ node, t }: { node: DividerNode; t: ThemeTokens }) {
     return (
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 8,
           margin: "4px 0",
@@ -703,7 +703,7 @@ function SectionBlock({
       <div
         onClick={() => setOpen(!open)}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 4,
           cursor: "pointer",

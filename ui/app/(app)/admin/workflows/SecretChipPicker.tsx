@@ -42,7 +42,7 @@ export function SecretChipPicker({
   }
 
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
       {available.map((name) => {
         const isSelected = selected.includes(name);
         return (

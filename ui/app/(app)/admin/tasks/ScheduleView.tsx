@@ -165,7 +165,7 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
             <div
               onClick={() => toggleBot(botId)}
               style={{
-                display: "flex", alignItems: "center", gap: 10,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
                 padding: "12px 20px",
                 borderLeft: `3px solid ${c.border}`,
                 background: c.bg,
@@ -246,7 +246,7 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
                     <Fragment key={tk.id}>
                       {showNowDivider && (
                         <div style={{
-                          display: "flex", alignItems: "center", gap: 8,
+                          display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
                           padding: "6px 20px 6px 36px",
                           borderLeft: `3px solid ${c.border}`,
                         }}>
@@ -259,7 +259,7 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
                       <div
                         onClick={() => onTaskPress(tk)}
                         style={{
-                          display: "flex", alignItems: "center", gap: 10,
+                          display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
                           padding: "10px 20px 10px 36px",
                           borderLeft: `3px solid ${isCancelled ? t.surfaceBorder : c.border}`,
                           borderBottom: `1px solid ${t.surfaceRaised}`,
@@ -311,7 +311,7 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
                   getTaskTime(tk) < now && tk.status !== "running" && tk.status !== "active"
                 ) && (
                   <div style={{
-                    display: "flex", alignItems: "center", gap: 8,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
                     padding: "6px 20px 6px 36px",
                     borderLeft: `3px solid ${c.border}`,
                   }}>

@@ -3,7 +3,7 @@
  * Collapsible sections: Identity, Execution, Parameters, Defaults, Triggers.
  */
 import { useState, useMemo } from "react";
-import { View, Text, Pressable } from "react-native";
+
 import { type ThemeTokens } from "@/src/theme/tokens";
 import { useSecretValues } from "@/src/api/hooks/useSecretValues";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -38,7 +38,7 @@ export function WorkflowIdentitySection({
   const defaultsCount = Object.keys(draft.defaults || {}).length;
 
   return (
-    <View style={{ gap: 4 }}>
+    <div style={{ gap: 4 }}>
       {/* Identity section — always open */}
       <CollapsibleSection title="Identity" defaultOpen t={t}>
         {isNew && (
@@ -124,9 +124,9 @@ export function WorkflowIdentitySection({
         defaultOpen={false}
         t={t}
       >
-        <Text style={{ color: t.textDim, fontSize: 11, marginBottom: 8, fontStyle: "italic" }}>
+        <span style={{ color: t.textDim, fontSize: 11, marginBottom: 8, fontStyle: "italic" }}>
           Apply to all steps unless overridden.
-        </Text>
+        </span>
         <DefaultsEditor
           value={draft.defaults || {}}
           onChange={(v) => update({ defaults: v })}
@@ -141,7 +141,7 @@ export function WorkflowIdentitySection({
           onChange={(v) => update({ triggers: v })}
         />
       </CollapsibleSection>
-    </View>
+    </div>
   );
 }
 
@@ -165,23 +165,23 @@ function CollapsibleSection({ title, badge, defaultOpen, children, t }: {
       background: t.codeBg,
       overflow: "hidden",
     }}>
-      <Pressable
-        onPress={() => setOpen(!open)}
+      <button type="button"
+        onClick={() => setOpen(!open)}
         style={{
           flexDirection: "row", alignItems: "center", gap: 6,
-          paddingVertical: 8, paddingHorizontal: 10,
+          paddingBlock: 8, paddingInline: 10,
         }}
       >
         {open
           ? <ChevronDown size={12} color={t.textMuted} />
           : <ChevronRight size={12} color={t.textMuted} />
         }
-        <Text style={{
+        <span style={{
           fontSize: 11, fontWeight: 700, color: t.textMuted,
           textTransform: "uppercase", letterSpacing: 0.5,
         }}>
           {title}
-        </Text>
+        </span>
         {badge && (
           <span style={{
             fontSize: 10, fontWeight: 600, color: t.textDim,
@@ -191,7 +191,7 @@ function CollapsibleSection({ title, badge, defaultOpen, children, t }: {
             {badge}
           </span>
         )}
-      </Pressable>
+      </button>
       {open && (
         <div style={{
           padding: "4px 10px 10px",
@@ -216,11 +216,11 @@ function TriggersEditor({ value, onChange }: {
   const update = (key: string, v: boolean) => onChange({ ...value, [key]: v });
 
   return (
-    <View style={{ gap: 4 }}>
+    <div style={{ gap: 4 }}>
       <Toggle value={!!value.tool} onChange={(v) => update("tool", v)} label="Tool" description="Via manage_workflow tool" />
       <Toggle value={!!value.api} onChange={(v) => update("api", v)} label="API" description="Via admin API" />
       <Toggle value={!!value.heartbeat} onChange={(v) => update("heartbeat", v)} label="Heartbeat" description="From heartbeat prompts" />
       <Toggle value={!!value.task} onChange={(v) => update("task", v)} label="Scheduled Task" description="By scheduled tasks" />
-    </View>
+    </div>
   );
 }

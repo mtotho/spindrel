@@ -25,12 +25,12 @@ export function TaskFilters({
 
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 6,
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
       padding: "8px 20px", borderBottom: `1px solid ${t.surfaceRaised}`,
       overflowX: "auto", flexWrap: "wrap",
     }}>
       {/* Type filter pills */}
-      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
         <span style={{ fontSize: 10, color: t.textDim, fontWeight: 600, marginRight: 2 }}>TYPE</span>
         {TASK_TYPE_FILTERS.map((f) => (
           <button
@@ -53,7 +53,7 @@ export function TaskFilters({
       <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
 
       {/* Status filter pills */}
-      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
         <span style={{ fontSize: 10, color: t.textDim, fontWeight: 600, marginRight: 2 }}>STATUS</span>
         {STATUS_FILTERS.map((f) => (
           <button

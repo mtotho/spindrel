@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Slot } from "expo-router";
+import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { DetailPanel } from "./DetailPanel";
 import { SystemPauseBanner } from "./SystemPauseBanner";
@@ -10,8 +10,8 @@ import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
 import { useChatStore } from "../../stores/chat";
 import { useSystemStatus } from "../../api/hooks/useSystemStatus";
-import { useThemeTokens } from "../../theme/tokens";
 import { CommandPalette, useCommandPaletteShortcut } from "./CommandPalette";
+import { cn } from "../../lib/cn";
 
 export function AppShell() {
   const columns = useResponsiveColumns();
@@ -20,7 +20,6 @@ export function AppShell() {
   const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
   const { data: status } = useSystemStatus();
-  const t = useThemeTokens();
   const anyStreaming = useChatStore(
     (s) => Object.values(s.channels).some((ch) => Object.keys(ch.turns).length > 0),
   );
@@ -61,15 +60,15 @@ export function AppShell() {
   }, [mobileSidebarOpen]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface, overflow: "hidden", height: "100%" }}>
+    <div className="flex flex-col flex-1 bg-surface overflow-hidden h-full">
       {status?.paused && <SystemPauseBanner behavior={status.pause_behavior} />}
-      <div style={{ display: "flex", flexDirection: "row", flex: 1, overflow: "hidden" }}>
+      <div className="flex flex-row flex-1 overflow-hidden">
         {/* Sidebar — hidden on single column (mobile), shown as overlay when toggled */}
         {columns !== "single" && <Sidebar />}
 
         {/* Center content — always visible */}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-          <Slot />
+        <div className="flex-1 min-w-0 flex flex-col">
+          <Outlet />
         </div>
 
         {/* Detail panel — only on triple column when active */}
@@ -87,32 +86,26 @@ export function AppShell() {
         {/* Mobile sidebar drawer */}
         {columns === "single" && mounted && (
           <div
-            style={{
-              position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-              zIndex: 100, display: "flex", flexDirection: "row",
-              pointerEvents: visible ? "auto" : "none",
-            }}
+            className={cn(
+              "absolute inset-0 z-[100] flex flex-row",
+              visible ? "pointer-events-auto" : "pointer-events-none",
+            )}
           >
             {/* Backdrop */}
             <div
               onClick={closeMobileSidebar}
-              style={{
-                position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-                backgroundColor: "rgba(0,0,0,0.6)",
-                backdropFilter: "blur(2px)",
-                WebkitBackdropFilter: "blur(2px)",
-                opacity: visible ? 1 : 0,
-                transition: "opacity 250ms ease-out",
-              }}
+              className={cn(
+                "absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-250",
+                visible ? "opacity-100" : "opacity-0",
+              )}
             />
             {/* Sidebar panel — slides from left */}
-            <div style={{
-              flex: 1, zIndex: 1,
-              transform: visible ? "translateX(0)" : "translateX(-300px)",
-              transition: visible
-                ? "transform 280ms cubic-bezier(0.0, 0.0, 0.2, 1)"
-                : "transform 280ms cubic-bezier(0.4, 0.0, 1, 1)",
-            }}>
+            <div className={cn(
+              "flex-1 z-[1] shadow-2xl transition-transform duration-300",
+              visible
+                ? "translate-x-0 ease-out"
+                : "-translate-x-full ease-in",
+            )}>
               <Sidebar mobile />
             </div>
           </div>

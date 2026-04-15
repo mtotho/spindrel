@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { ExternalLink, ChevronDown, ChevronRight, Clock, Zap, FileText } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -28,7 +28,7 @@ function fmtTokens(n: number): string {
 
 export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[]; showBotName?: boolean }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
@@ -70,7 +70,7 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                   transition: "background 0.1s, border-color 0.1s",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     {hasContent && (
                       isExpanded
@@ -97,7 +97,7 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                 {!isExpanded && (
                   <>
                     {run.files_affected && run.files_affected.length > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginLeft: hasContent ? 20 : 0 }}>
+                      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3, marginLeft: hasContent ? 20 : 0 }}>
                         {run.files_affected.slice(0, 5).map((f) => (
                           <span key={f} style={{
                             fontSize: 9, color: "#8b5cf6", fontWeight: 500,
@@ -150,13 +150,13 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                   )}
                   {run.files_affected && run.files_affected.length > 0 && (
                     <div style={{
-                      display: "flex", alignItems: "flex-start", gap: 6,
+                      display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 6,
                       marginBottom: 8, padding: "6px 8px",
                       background: "rgba(139,92,246,0.06)", borderRadius: 4,
                       border: "1px solid rgba(139,92,246,0.15)",
                     }}>
                       <FileText size={11} color="#8b5cf6" style={{ marginTop: 1, flexShrink: 0 }} />
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                         {run.files_affected.map((f) => (
                           <span key={f} style={{
                             fontSize: 10, color: "#8b5cf6", fontWeight: 500,
@@ -180,16 +180,16 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                   )}
                   {(run.iterations > 0 || run.total_tokens > 0 || run.duration_ms != null) && (
                     <div style={{
-                      display: "flex", alignItems: "center", gap: 12,
+                      display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
                       marginTop: 8, fontSize: 10, color: t.textDim,
                     }}>
                       {run.duration_ms != null && (
-                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                        <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
                           <Clock size={10} /> {fmtDuration(run.duration_ms)}
                         </span>
                       )}
                       {run.total_tokens > 0 && (
-                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                        <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
                           <Zap size={10} /> {fmtTokens(run.total_tokens)} tokens
                         </span>
                       )}
@@ -203,7 +203,7 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                   )}
                   {run.correlation_id && (
                     <div
-                      onClick={() => router.push(`/admin/logs/${run.correlation_id}`)}
+                      onClick={() => navigate(`/admin/logs/${run.correlation_id}`)}
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 5,
                         marginTop: 8, fontSize: 11, color: t.accent, cursor: "pointer",

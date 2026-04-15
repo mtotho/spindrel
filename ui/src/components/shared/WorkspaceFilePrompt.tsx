@@ -147,7 +147,7 @@ function BrowseButton({
                 </>
               )}
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+              <div style={{ display: "flex", flexDirection: "row", justifyContent: "flex-end", gap: 6 }}>
                 <button
                   onClick={() => { setOpen(false); setSelected(""); }}
                   style={{
@@ -242,7 +242,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
     }}>
       {/* Toolbar */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
         padding: "4px 12px",
         borderBottom: `1px solid ${t.surfaceOverlay}`,
         background: t.surface,
@@ -263,7 +263,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
               onClick={handleSave}
               disabled={writeMutation.isPending}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 background: t.success, color: "#000", border: "none",
                 borderRadius: 4, padding: "3px 10px", fontSize: 11,
                 cursor: "pointer", fontWeight: 600,
@@ -274,7 +274,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
             <button
               onClick={handleCancel}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 background: "none", color: t.textMuted, border: `1px solid ${t.surfaceBorder}`,
                 borderRadius: 4, padding: "3px 10px", fontSize: 11,
                 cursor: "pointer",
@@ -288,7 +288,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
             onClick={handleStartEdit}
             disabled={isLoading || !!error}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               background: "none", color: t.textMuted, border: `1px solid ${t.surfaceBorder}`,
               borderRadius: 4, padding: "3px 10px", fontSize: 11,
               cursor: "pointer",
@@ -301,7 +301,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
           onClick={onUnlink}
           title="Unlink workspace file"
           style={{
-            display: "flex", alignItems: "center", gap: 3,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 3,
             padding: "3px 8px", fontSize: 10,
             border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
             background: "transparent", color: t.textMuted, cursor: "pointer",
@@ -313,11 +313,11 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
 
       {/* Content */}
       {isLoading ? (
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: t.textDim, fontSize: 12 }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: t.textDim, fontSize: 12 }}>
           Loading...
         </div>
       ) : error ? (
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: t.danger, padding: 24, fontSize: 12 }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", color: t.danger, padding: 24, fontSize: 12 }}>
           {(error as any)?.body ? JSON.parse((error as any).body)?.detail : error.message}
         </div>
       ) : editing ? (
@@ -354,7 +354,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
             color: t.contentText,
           }}>
             {lines.map((line, i) => (
-              <div key={i} style={{ display: "flex", minHeight: 20 }}>
+              <div key={i} style={{ display: "flex", flexDirection: "row", minHeight: 20 }}>
                 <span style={{
                   display: "inline-block",
                   width: 48,

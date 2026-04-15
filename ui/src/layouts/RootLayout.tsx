@@ -1,12 +1,10 @@
-import "../global.css";
-import { useEffect } from "react";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { useEffect, Suspense } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuthStore } from "@/src/stores/auth";
 import { useThemeStore } from "@/src/stores/theme";
 import { useHydrated } from "@/src/hooks/useHydrated";
-
-export { ErrorBoundary } from "expo-router";
+import { Spinner } from "@/src/components/shared/Spinner";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,7 +25,6 @@ function useApplyThemeClass() {
     } else {
       el.classList.remove("dark");
     }
-    // Also update theme-color meta tag (created by useWebViewportFix if missing)
     let meta = document.querySelector('meta[name="theme-color"]');
     if (!meta) {
       meta = document.createElement("meta");
@@ -41,25 +38,20 @@ function useApplyThemeClass() {
 /**
  * Fix mobile-web viewport, safe areas, and iOS keyboard behavior.
  *
- * +html.tsx customizations don't survive `expo export --output single`, so the
- * production HTML uses Expo's default template which lacks viewport-fit=cover,
- * safe area padding, and the visualViewport keyboard handler.  We inject all
- * of that client-side here so it works regardless of how the HTML is generated.
+ * Production HTML may lack viewport-fit=cover, safe area padding, and the
+ * visualViewport keyboard handler. We inject all of that client-side here
+ * so it works regardless of how the HTML is generated.
  */
 function useWebViewportFix() {
   useEffect(() => {
-    // 1. Fix viewport meta — add viewport-fit=cover so env(safe-area-inset-*)
-    //    returns real values, disable user zoom to prevent iOS double-tap zoom.
     const vp = document.querySelector('meta[name="viewport"]');
     if (vp) {
       vp.setAttribute(
         "content",
-        "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+        "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
       );
     }
 
-    // 2. Ensure all required meta tags and links exist.
-    //    +html.tsx provides these for the dev server but expo export drops them.
     const ensureMeta = (name: string, content: string) => {
       if (!document.querySelector(`meta[name="${name}"]`)) {
         const m = document.createElement("meta");
@@ -83,7 +75,6 @@ function useWebViewportFix() {
     ensureLink("manifest", "/manifest.json");
     ensureLink("apple-touch-icon", "/assets/images/icon-192.png");
 
-    // 3. Style #root: fixed position, safe area padding, full viewport height.
     const root = document.getElementById("root");
     if (root) {
       Object.assign(root.style, {
@@ -100,10 +91,6 @@ function useWebViewportFix() {
       });
     }
 
-    // 4. VisualViewport handler — the only reliable way to handle the iOS
-    //    keyboard.  CSS dvh doesn't shrink for the keyboard, only for the
-    //    address bar.  And on iOS, focusing an input scrolls the layout
-    //    viewport, shifting fixed elements out of view (offsetTop > 0).
     const vv = window.visualViewport;
     if (!vv || !root) return;
 
@@ -113,13 +100,8 @@ function useWebViewportFix() {
     function sync() {
       pending = false;
       if (!root || !vv) return;
-      // Track visual viewport position — iOS scrolls the layout viewport
-      // when the keyboard opens, pushing fixed elements behind the status bar.
       root.style.top = vv.offsetTop + "px";
       root.style.height = vv.height + "px";
-
-      // When keyboard is open (viewport significantly smaller than initial),
-      // clear bottom safe area — the keyboard replaces the home indicator.
       if (vv.height < initialHeight * 0.85) {
         root.style.paddingBottom = "0px";
       } else {
@@ -144,12 +126,14 @@ function useWebViewportFix() {
   }, []);
 }
 
+const AUTH_PATHS = ["/login", "/setup"];
+
 function AuthGate({ children }: { children: React.ReactNode }) {
   const isConfigured = useAuthStore((s) => s.isConfigured);
   const mode = useThemeStore((s) => s.mode);
   const hydrated = useHydrated();
-  const segments = useSegments();
-  const router = useRouter();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   useApplyThemeClass();
   useWebViewportFix();
@@ -157,23 +141,30 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!hydrated) return;
 
-    const inAuthGroup = segments[0] === "(auth)";
+    const inAuth = AUTH_PATHS.some((p) => location.pathname.startsWith(p));
 
-    if (!isConfigured && !inAuthGroup) {
-      router.replace("/(auth)/login");
-    } else if (isConfigured && inAuthGroup) {
-      router.replace("/(app)");
+    if (!isConfigured && !inAuth) {
+      navigate("/login", { replace: true });
+    } else if (isConfigured && inAuth) {
+      navigate("/", { replace: true });
     }
-  }, [isConfigured, hydrated, segments]);
+  }, [isConfigured, hydrated, location.pathname, navigate]);
 
   if (!hydrated) {
     const bg = mode === "dark" ? "#111111" : "#fafafa";
-    const spinnerColor = "#3b82f6";
-    const textColor = mode === "dark" ? "#666666" : "#a3a3a3";
     return (
-      <div style={{ display: "flex", flex: 1, backgroundColor: bg, alignItems: "center", justifyContent: "center", height: "100%" }}>
-        <div className="chat-spinner" style={{ width: 24, height: 24, borderColor: spinnerColor, borderTopColor: "transparent" }} />
-        <span style={{ color: textColor, marginTop: 8, fontSize: 12 }}>Loading...</span>
+      <div
+        style={{
+          display: "flex", flexDirection: "column",
+          flex: 1,
+          backgroundColor: bg,
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100%",
+        }}
+      >
+        <Spinner size={24} />
+        <span style={{ color: mode === "dark" ? "#666666" : "#a3a3a3", marginTop: 8, fontSize: 12 }}>Loading...</span>
       </div>
     );
   }
@@ -181,14 +172,27 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export default function RootLayout() {
+export function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthGate>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="(app)" />
-        </Stack>
+        <Suspense
+          fallback={
+            <div
+              style={{
+                display: "flex", flexDirection: "column",
+                flex: 1,
+                alignItems: "center",
+                justifyContent: "center",
+                height: "100%",
+              }}
+            >
+              <Spinner size={24} />
+            </div>
+          }
+        >
+          <Outlet />
+        </Suspense>
       </AuthGate>
     </QueryClientProvider>
   );

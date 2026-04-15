@@ -1,6 +1,7 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useCallback } from "react";
-import { View, ScrollView, ActivityIndicator } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+
+import { useParams } from "react-router-dom";
 import {
   Trash2,
   Copy,
@@ -13,7 +14,7 @@ import {
 } from "lucide-react";
 import { writeToClipboard } from "@/src/utils/clipboard";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import {
   useWebhook,
   useWebhookEvents,
@@ -58,7 +59,7 @@ function EventCheckboxGrid({
       <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>
         Leave all unchecked to receive all events.
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {events.map((ev) => {
           const checked = set.has(ev.event);
           return (
@@ -67,7 +68,7 @@ function EventCheckboxGrid({
               onClick={() => toggle(ev.event)}
               title={ev.description}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
                 padding: "4px 10px",
@@ -89,7 +90,7 @@ function EventCheckboxGrid({
                   borderRadius: 3,
                   border: checked ? "none" : `1px solid ${t.surfaceBorder}`,
                   background: checked ? t.accent : "transparent",
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "center",
                 }}
@@ -127,7 +128,7 @@ function DeliveryRow({ delivery }: { delivery: WebhookDeliveryItem }) {
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 10,
         padding: "8px 0",
@@ -177,7 +178,7 @@ function DeliveryRow({ delivery }: { delivery: WebhookDeliveryItem }) {
 
 export default function WebhookDetailScreen() {
   const t = useThemeTokens();
-  const { webhookId } = useLocalSearchParams<{ webhookId: string }>();
+  const { webhookId } = useParams<{ webhookId: string }>();
   const isNew = webhookId === "new";
   const goBack = useGoBack("/admin/webhooks");
 
@@ -272,19 +273,19 @@ export default function WebhookDetailScreen() {
 
   if (!isNew && isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   const displaySecret = createdSecret || rotatedSecret;
 
   return (
-    <View className="flex-1 bg-surface">
-      <DetailHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="detail"
         parentLabel="Webhooks"
-        parentHref="/admin/webhooks"
+        backTo="/admin/webhooks"
         title={isNew ? "New Webhook" : "Edit Webhook"}
         right={
           <>
@@ -292,7 +293,7 @@ export default function WebhookDetailScreen() {
               <button
                 onClick={handleDelete}
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 4,
                   padding: "6px 12px",
@@ -335,7 +336,7 @@ export default function WebhookDetailScreen() {
         }
       />
 
-      <ScrollView style={{ flex: 1 }}>
+      <div style={{ flex: 1 }}>
         <div style={{ padding: 20, maxWidth: 800, margin: "0 auto", width: "100%" }}>
           {/* Secret reveal */}
           {displaySecret && (
@@ -350,7 +351,7 @@ export default function WebhookDetailScreen() {
             >
               <div
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 8,
                   marginBottom: 8,
@@ -363,7 +364,7 @@ export default function WebhookDetailScreen() {
                     : "New signing secret generated. Save it now."}
                 </span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <code
                   style={{
                     flex: 1,
@@ -386,7 +387,7 @@ export default function WebhookDetailScreen() {
                     background: t.surfaceOverlay,
                     border: `1px solid ${t.surfaceBorder}`,
                     cursor: "pointer",
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 4,
                     fontSize: 12,
@@ -433,7 +434,7 @@ export default function WebhookDetailScreen() {
           {/* Secret management (edit only) */}
           {!isNew && !rotatedSecret && (
             <Section title="Signing Secret">
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 13, color: t.textDim, flex: 1 }}>
                   The signing secret is used to verify webhook payloads via HMAC-SHA256.
                 </span>
@@ -441,7 +442,7 @@ export default function WebhookDetailScreen() {
                   onClick={handleRotate}
                   disabled={rotateMut.isPending}
                   style={{
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 4,
                     padding: "6px 12px",
@@ -469,19 +470,19 @@ export default function WebhookDetailScreen() {
                 onChange={setEvents}
               />
             ) : (
-              <ActivityIndicator color={t.accent} />
+              <Spinner />
             )}
           </Section>
 
           {/* Test section (edit only) */}
           {!isNew && (
             <Section title="Test">
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <button
                   onClick={handleTest}
                   disabled={testMut.isPending}
                   style={{
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 6,
                     padding: "6px 14px",
@@ -507,7 +508,7 @@ export default function WebhookDetailScreen() {
                     borderRadius: 8,
                     background: testResult.success ? t.successSubtle : t.dangerSubtle,
                     border: `1px solid ${testResult.success ? t.successBorder : t.dangerBorder}`,
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 8,
                     fontSize: 12,
@@ -534,14 +535,14 @@ export default function WebhookDetailScreen() {
           {!isNew && (
             <Section title="Recent Deliveries">
               {deliveriesLoading ? (
-                <View className="items-center py-4">
-                  <ActivityIndicator color={t.accent} />
-                </View>
+                <div className="items-center py-4">
+                  <Spinner />
+                </div>
               ) : deliveries && deliveries.length > 0 ? (
                 <div>
                   <div
                     style={{
-                      display: "flex",
+                      display: "flex", flexDirection: "row",
                       alignItems: "center",
                       gap: 10,
                       padding: "6px 0",
@@ -588,7 +589,7 @@ export default function WebhookDetailScreen() {
             </Section>
           )}
         </div>
-      </ScrollView>
-    </View>
+      </div>
+    </div>
   );
 }

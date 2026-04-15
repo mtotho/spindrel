@@ -1,9 +1,10 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from "react";
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useParams, useNavigate } from "react-router-dom";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { AlertTriangle, Save, Search, Trash2, X } from "lucide-react";
 import { useBotEditorData, useUpdateBot, useCreateBot, useDeleteBot } from "@/src/api/hooks/useBots";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { CarapacesSection } from "./CarapacesSection";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
@@ -35,16 +36,16 @@ import { HistoryModeSection } from "./HistoryModeSection";
 // ---------------------------------------------------------------------------
 export default function BotEditorScreen() {
   const t = useThemeTokens();
-  const { botId } = useLocalSearchParams<{ botId: string }>();
+  const { botId } = useParams<{ botId: string }>();
   const isNew = botId === "new";
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: editorData, isLoading } = useBotEditorData(botId);
   const updateMutation = useUpdateBot(isNew ? undefined : botId);
   const createMutation = useCreateBot();
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const systemPromptRef = useRef<HTMLTextAreaElement>(null);
 
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth } = useWindowSize();
   const isMobile = windowWidth < MOBILE_NAV_BREAKPOINT;
 
   const [activeSection, setActiveSection] = useHashTab<SectionKey>("identity", SECTION_KEYS);
@@ -85,7 +86,7 @@ export default function BotEditorScreen() {
       if (isNew) {
         if (!payload.id || !payload.name || !payload.model) return;
         await createMutation.mutateAsync(payload);
-        router.push(`/admin/bots/${payload.id}` as any);
+        navigate(`/admin/bots/${payload.id}`);
       } else {
         await updateMutation.mutateAsync(payload);
       }
@@ -93,7 +94,7 @@ export default function BotEditorScreen() {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (_) { /* handled by mutation state */ }
-  }, [draft, isNew, createMutation, updateMutation, router]);
+  }, [draft, isNew, createMutation, updateMutation, navigate]);
 
   const matchingSections = useMemo(() => {
     if (!filter) return new Set<SectionKey>(SECTIONS.map((s) => s.key));
@@ -127,18 +128,18 @@ export default function BotEditorScreen() {
 
   if (isLoading || !editorData || !draft) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner color={t.accent} />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
       {/* Header */}
-      <DetailHeader
+      <PageHeader variant="detail"
         parentLabel="Bots"
-        parentHref="/admin/bots"
+        backTo="/admin/bots"
         title={isNew ? "New Bot" : draft.name}
         subtitle={isNew ? undefined : draft.id}
         hideTitle={isMobile && searchOpen}
@@ -146,25 +147,25 @@ export default function BotEditorScreen() {
           {isMobile ? (
             searchOpen ? (
               <div style={{
-                display: "flex", alignItems: "center", gap: 6, flex: 1,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flex: 1,
                 background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "4px 10px", minHeight: 36,
               }}>
                 <Search size={14} color={t.textDim} />
                 <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find setting..."
                   autoFocus
                   style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 16 }} />
-                <button onClick={() => { setFilter(""); setSearchOpen(false); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, minWidth: 24, minHeight: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <button onClick={() => { setFilter(""); setSearchOpen(false); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, minWidth: 24, minHeight: 24, display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
                   <X size={14} color={t.textDim} />
                 </button>
               </div>
             ) : (
-              <button onClick={() => setSearchOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 8, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <button onClick={() => setSearchOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 8, minWidth: 44, minHeight: 44, display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
                 <Search size={16} color={t.textMuted} />
               </button>
             )
           ) : (
             <div style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "4px 10px", width: 180,
             }}>
               <Search size={12} color={t.textDim} />
@@ -181,7 +182,7 @@ export default function BotEditorScreen() {
             onClick={handleSave}
             disabled={!dirty || saveMutation.isPending}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: isMobile ? "6px 12px" : "6px 16px", borderRadius: 6, border: "none",
               background: dirty ? t.accent : t.surfaceRaised,
               color: dirty ? "#fff" : t.textDim,
@@ -208,12 +209,12 @@ export default function BotEditorScreen() {
       )}
 
       {/* Body */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+      <div style={{ display: "flex", flexDirection: "row", flex: 1, overflow: "hidden" }}>
         {!isMobile && (
           <SectionNav active={activeSection} onSelect={setActiveSection} filter={filter} matchingSections={matchingSections} isMobile={false} />
         )}
 
-        <ScrollView ref={scrollRef} className="flex-1" contentContainerStyle={{ padding: isMobile ? 12 : 20, maxWidth: 800, width: "100%" }}>
+        <div ref={scrollRef} className="flex-1" style={{ overflow: "auto", padding: isMobile ? 12 : 20, maxWidth: 800, width: "100%" }}>
 
           {activeSection === "identity" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -292,7 +293,7 @@ export default function BotEditorScreen() {
               )}
               {draft.system_prompt_workspace_file && draft.shared_workspace_id ? (
                 <>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
                     <span style={{ fontSize: 10, color: t.textDim, background: t.accentSubtle, padding: "2px 8px", borderRadius: 4 }}>
                       workspace file
                     </span>
@@ -338,7 +339,7 @@ export default function BotEditorScreen() {
                   <div style={{ opacity: 0.6, pointerEvents: "none" }}>
                     <Toggle value={true} onChange={() => {}} label="Enable Persona" />
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
                     <span style={{ fontSize: 10, color: t.textDim, background: t.accentSubtle, padding: "2px 8px", borderRadius: 4 }}>
                       workspace file
                     </span>
@@ -402,7 +403,7 @@ export default function BotEditorScreen() {
               <SkillsSection editorData={editorData} draft={draft} update={update} onNavigateToLearning={() => setActiveSection("learning")} />
               {draft.api_permissions && draft.api_permissions.length > 0 && (
                 <div style={{ marginTop: 20 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: t.accent }}>API Access Tools</span>
                     <span style={{ fontSize: 10, color: t.textDim, background: t.accentSubtle, padding: "2px 8px", borderRadius: 4 }}>
                       from permissions
@@ -413,7 +414,7 @@ export default function BotEditorScreen() {
                     background: t.accentSubtle,
                     border: `1px solid ${t.accentBorder}`,
                   }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
                       <span style={{ fontSize: 12, fontWeight: 500, color: t.accent }}>list_api_endpoints + call_api</span>
                       <span style={{
                         fontSize: 9, padding: "1px 6px", borderRadius: 3,
@@ -549,7 +550,7 @@ export default function BotEditorScreen() {
                       const on = (draft.delegation_config?.delegate_bots || draft.delegate_bots || []).includes(b.id);
                       return (
                         <label key={b.id} style={{
-                          display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
+                          display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 8px",
                           borderRadius: 4, cursor: "pointer", fontSize: 11,
                           background: on ? t.purpleSubtle : "transparent",
                         }}>
@@ -655,7 +656,7 @@ export default function BotEditorScreen() {
               </div>
               <div style={{ padding: 16 }}>
                 {!showDeleteConfirm ? (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
                     <div style={{ flex: 1, minWidth: 180 }}>
                       <div style={{ fontSize: 13, color: t.text, fontWeight: 600 }}>Delete this bot</div>
                       <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
@@ -665,7 +666,7 @@ export default function BotEditorScreen() {
                     <button
                       onClick={() => setShowDeleteConfirm(true)}
                       style={{
-                        display: "flex", alignItems: "center", gap: 6,
+                        display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                         padding: "8px 16px", fontSize: 12, fontWeight: 600,
                         border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
                         background: "transparent", color: t.danger, cursor: "pointer",
@@ -701,7 +702,7 @@ export default function BotEditorScreen() {
                         color: t.text, outline: "none",
                       }}
                     />
-                    <div style={{ display: "flex", gap: 8 }}>
+                    <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
                       <button
                         onClick={async () => {
                           try {
@@ -709,7 +710,7 @@ export default function BotEditorScreen() {
                             if (!deleteChannelWarning) {
                               try {
                                 await deleteMutation.mutateAsync({ botId: botId! });
-                                router.replace("/admin/bots" as any);
+                                navigate("/admin/bots", { replace: true });
                                 return;
                               } catch (err: any) {
                                 if (err?.status === 409 || err?.message?.includes("active channel")) {
@@ -722,12 +723,12 @@ export default function BotEditorScreen() {
                               }
                             }
                             await deleteMutation.mutateAsync({ botId: botId!, force: true });
-                            router.replace("/admin/bots" as any);
+                            navigate("/admin/bots", { replace: true });
                           } catch (_) { /* handled by mutation state */ }
                         }}
                         disabled={deleteConfirmText !== "delete" || deleteMutation.isPending}
                         style={{
-                          display: "flex", alignItems: "center", gap: 6,
+                          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                           padding: "8px 20px", fontSize: 12, fontWeight: 700,
                           border: "none", borderRadius: 6, cursor: "pointer",
                           background: deleteConfirmText === "delete" ? t.danger : t.surfaceBorder,
@@ -751,7 +752,7 @@ export default function BotEditorScreen() {
                     </div>
                     {deleteChannelWarning && (
                       <div style={{
-                        display: "flex", alignItems: "center", gap: 8,
+                        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
                         padding: "8px 12px", background: t.dangerSubtle, borderRadius: 6,
                       }}>
                         <AlertTriangle size={14} color={t.danger} />
@@ -774,7 +775,7 @@ export default function BotEditorScreen() {
             <div style={{
               marginTop: 32, padding: "10px 14px",
               background: t.surfaceOverlay, borderRadius: 8,
-              display: "flex", alignItems: "center", gap: 8,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
             }}>
               <div style={{ fontSize: 11, color: t.textDim, fontWeight: 600 }}>
                 System bot — cannot be deleted
@@ -782,9 +783,9 @@ export default function BotEditorScreen() {
             </div>
           )}
 
-        </ScrollView>
+        </div>
       </div>
-    </View>
+    </div>
   );
 }
 

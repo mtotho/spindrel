@@ -55,7 +55,7 @@ function ProvenanceBadge({ source, detail }: { source: ProvenanceSource; detail?
 function SectionLabel({ icon, label, count }: { icon: React.ReactNode; label: string; count?: number }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "14px 0 6px" }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "14px 0 6px" }}>
       {icon}
       <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>
         {label}
@@ -97,7 +97,7 @@ function ResolvedCapabilityRow({
   );
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 8,
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
       padding: "6px 8px", borderRadius: 4,
       background: t.purpleSubtle,
       border: `1px solid ${t.purpleBorder}`,
@@ -116,7 +116,7 @@ function ResolvedCapabilityRow({
           onClick={onRemove}
           title="Remove this capability from the channel"
           style={{
-            display: "flex", alignItems: "center", justifyContent: "center",
+            display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
             width: 20, height: 20, borderRadius: 4,
             cursor: "pointer", border: "none",
             background: "transparent", color: t.textDim,
@@ -158,7 +158,7 @@ function ResolvedSkillRow({
   );
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 6,
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
       padding: "4px 8px", borderRadius: 4,
       background: t.accentSubtle,
     }}>
@@ -192,7 +192,7 @@ function ToolGroupRow({
       }}>
         {label} ({tools.length})
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3 }}>
         {tools.map((name) => (
           <ToolChipWithPreview key={name} name={name} fromCapability={toolCapName} />
         ))}
@@ -235,7 +235,7 @@ function AddCapabilityRow({
   return (
     <div
       style={{
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
         padding: "6px 8px", borderRadius: 4,
         border: `1px dashed ${t.surfaceBorder}`,
         transition: "background 0.15s, border-color 0.15s",
@@ -281,7 +281,7 @@ function CollapsibleSection({
       <button
         onClick={() => setOpen(!open)}
         style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           background: "none", border: "none", cursor: "pointer",
           padding: "6px 0", width: "100%",
         }}
@@ -430,7 +430,7 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
   return (
     <>
       {/* Top bar — resolved counts + save indicator */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
         {effective && (
           <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
             {effective.local_tools.length} tools &middot; {effective.carapaces.length} capabilities &middot; {effective.skills.length} skills
@@ -438,7 +438,7 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
         )}
         <div style={{ flex: 1 }} />
         {saved && (
-          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.success, whiteSpace: "nowrap" }}>
+          <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, fontSize: 11, color: t.success, whiteSpace: "nowrap" }}>
             <Check size={12} /> Saved
           </span>
         )}
@@ -523,7 +523,7 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
             label="MCP Servers"
             count={effective.mcp_servers.length}
           />
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+          <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3 }}>
             {effective.mcp_servers.map((name) => (
               <span key={name} style={{
                 fontSize: 10, fontFamily: "monospace",
@@ -545,7 +545,7 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
         <div style={{ paddingTop: 4 }}>
           {/* Filter */}
           <div style={{
-            display: "flex", alignItems: "center", gap: 6,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
             borderRadius: 6, padding: "6px 10px", marginBottom: 8,
           }}>
@@ -558,7 +558,7 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
               style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 12 }}
             />
             {filter && (
-              <button onClick={() => setFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
+              <button onClick={() => setFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", flexDirection: "row" }}>
                 <X size={10} color={t.textDim} />
               </button>
             )}

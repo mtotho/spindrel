@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "expo-router";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Activity, X, ChevronDown, ChevronUp } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import {
@@ -38,8 +38,8 @@ function statusColor(
 export function ActiveWorkflowsHud() {
   const { data: runs } = useActiveWorkflowRuns();
   const cancelMut = useCancelWorkflowRun();
-  const router = useRouter();
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const t = useThemeTokens();
 
   const [expanded, setExpanded] = useState(false);
@@ -146,7 +146,7 @@ export function ActiveWorkflowsHud() {
         {!expanded && (
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               gap: 3,
               padding: "0 12px 8px",
             }}
@@ -201,8 +201,8 @@ export function ActiveWorkflowsHud() {
                 run={run}
                 t={t}
                 onNavigate={() => {
-                  router.push(
-                    `/admin/workflows/${run.workflow_id}?runId=${run.id}` as any,
+                  navigate(
+                    `/admin/workflows/${run.workflow_id}?runId=${run.id}`,
                   );
                   setExpanded(false);
                 }}
@@ -245,7 +245,7 @@ function RunRow({
     <button
       type="button"
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 8,
         padding: "8px 12px",
@@ -289,7 +289,7 @@ function RunRow({
         >
           {run.workflow_id}
         </div>
-        <div style={{ display: "flex", gap: 8, fontSize: 11, color: t.textDim }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, fontSize: 11, color: t.textDim }}>
           <span>{stepProgress(run)} steps</span>
           <span>{elapsed(run.created_at)}</span>
           {run.status === "awaiting_approval" && (
@@ -303,7 +303,7 @@ function RunRow({
       {/* Step mini bar */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           gap: 2,
           width: 48,
           flexShrink: 0,
@@ -347,7 +347,7 @@ function RunRow({
           border: "none",
           background: "transparent",
           cursor: "pointer",
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
         }}

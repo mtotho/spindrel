@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { View, useWindowDimensions } from "react-native";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { LogsTabBar } from "@/src/components/logs/LogsTabBar";
 import { useServerLogs, useLogLevel, useSetLogLevel, type ServerLogEntry } from "@/src/api/hooks/useServerLogs";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -26,7 +26,7 @@ const LEVEL_OPTIONS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"];
 // ---------------------------------------------------------------------------
 export default function ServerLogsScreen() {
   const t = useThemeTokens();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isMobile = width < 768;
 
   // Filters
@@ -124,14 +124,14 @@ export default function ServerLogsScreen() {
   }, []);
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Server Logs" subtitle={`${entries.length} entries`} />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Server Logs" subtitle={`${entries.length} entries`} />
       <LogsTabBar active="server" />
 
       {/* Toolbar */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           gap: 8,
           padding: isMobile ? "8px 12px" : "8px 20px",
           borderBottom: `1px solid ${t.surfaceRaised}`,
@@ -185,7 +185,7 @@ export default function ServerLogsScreen() {
           <button
             onClick={() => setShowVerbosity(!showVerbosity)}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 4,
               background: t.surfaceRaised,
@@ -284,7 +284,7 @@ export default function ServerLogsScreen() {
             position: "absolute",
             bottom: 20,
             right: 20,
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 4,
             background: t.surfaceRaised,
@@ -301,6 +301,6 @@ export default function ServerLogsScreen() {
           <ArrowDown size={12} /> Jump to bottom
         </button>
       )}
-    </View>
+    </div>
   );
 }

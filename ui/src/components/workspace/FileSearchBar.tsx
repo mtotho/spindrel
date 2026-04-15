@@ -37,7 +37,7 @@ export function FileSearchBar({
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 6,
         padding: "4px 12px",
@@ -78,7 +78,7 @@ export function FileSearchBar({
         title="Previous (Shift+Enter)"
         style={{
           background: "none", border: "none", padding: 2, cursor: matchCount ? "pointer" : "default",
-          color: matchCount ? t.textMuted : t.textDim, display: "flex",
+          color: matchCount ? t.textMuted : t.textDim, display: "flex", flexDirection: "row",
         }}
       >
         <ChevronUp size={14} />
@@ -89,7 +89,7 @@ export function FileSearchBar({
         title="Next (Enter)"
         style={{
           background: "none", border: "none", padding: 2, cursor: matchCount ? "pointer" : "default",
-          color: matchCount ? t.textMuted : t.textDim, display: "flex",
+          color: matchCount ? t.textMuted : t.textDim, display: "flex", flexDirection: "row",
         }}
       >
         <ChevronDown size={14} />
@@ -99,7 +99,7 @@ export function FileSearchBar({
         title="Close (Esc)"
         style={{
           background: "none", border: "none", padding: 2, cursor: "pointer",
-          color: t.textMuted, display: "flex",
+          color: t.textMuted, display: "flex", flexDirection: "row",
         }}
       >
         <X size={14} />

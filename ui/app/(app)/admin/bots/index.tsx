@@ -1,8 +1,9 @@
 import { useState, useMemo } from "react";
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import {
   Plus,
   Search,
@@ -14,7 +15,7 @@ import {
 } from "lucide-react";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useUsageSummary, type CostByDimension } from "@/src/api/hooks/useUsage";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { BotConfig } from "@/src/types/api";
 
@@ -140,7 +141,7 @@ function SortHeader({
     <button
       onClick={() => onSort(sortKey)}
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 4,
         background: "none",
@@ -210,7 +211,7 @@ function BotCard({
       }}
     >
       {/* Row 1: Name + model badge */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
         <span
           style={{
             fontSize: 15,
@@ -259,7 +260,7 @@ function BotCard({
 
       {/* Row 3: Feature badges — subtle, uniform */}
       {badges.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+        <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
           {badges.map((label) => (
             <span
               key={label}
@@ -281,7 +282,7 @@ function BotCard({
       {/* Row 4: Stats bar — capabilities + usage */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "center",
           borderTop: `1px solid ${t.overlayBorder}`,
@@ -292,18 +293,18 @@ function BotCard({
         <span style={{ fontSize: 11, color: t.textDim }}>{caps}</span>
 
         {/* Usage stats */}
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "center" }}>
           {usage && usage.calls > 0 && (
             <>
               <span
-                style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: t.textDim }}
+                style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.textDim }}
                 title="Total calls"
               >
                 <MessageSquare size={10} color={t.textDim} />
                 {usage.calls.toLocaleString()}
               </span>
               <span
-                style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: t.textDim }}
+                style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.textDim }}
                 title="Total tokens"
               >
                 <Zap size={10} color={t.textDim} />
@@ -312,7 +313,7 @@ function BotCard({
               {usage.cost != null && usage.cost > 0 && (
                 <span
                   style={{
-                    display: "flex",
+                    display: "flex", flexDirection: "row",
                     alignItems: "center",
                     gap: 2,
                     fontSize: 11,
@@ -342,10 +343,10 @@ function BotCard({
 // ---------------------------------------------------------------------------
 export default function BotsScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: bots, isLoading } = useAdminBots();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   // Usage data for the past 30 days
@@ -401,22 +402,22 @@ export default function BotsScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner color={t.accent} />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Bots"
         subtitle={`${bots?.length ?? 0} configured`}
         right={
           <button
-            onClick={() => router.push("/admin/bots/new" as any)}
+            onClick={() => navigate("/admin/bots/new")}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 6,
               padding: "6px 14px",
@@ -438,7 +439,7 @@ export default function BotsScreen() {
       {/* Toolbar: search + sort + summary stats */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           gap: 10,
           padding: isWide ? "10px 20px" : "8px 12px",
           borderBottom: `1px solid ${t.surfaceRaised}`,
@@ -449,7 +450,7 @@ export default function BotsScreen() {
         {/* Search */}
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 6,
             background: t.surfaceRaised,
@@ -477,7 +478,7 @@ export default function BotsScreen() {
         </div>
 
         {/* Sort controls */}
-        <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 2, alignItems: "center" }}>
           <SortHeader label="Name" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
           <SortHeader label="Model" sortKey="model" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
           <SortHeader label="Calls" sortKey="calls" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
@@ -492,7 +493,7 @@ export default function BotsScreen() {
         {totalCalls > 0 && (
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               gap: 14,
               alignItems: "center",
               fontSize: 11,
@@ -502,7 +503,7 @@ export default function BotsScreen() {
             <span title="30-day totals" style={{ color: t.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 10 }}>
               30d
             </span>
-            <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
               <MessageSquare size={11} color={t.textDim} /> {totalCalls.toLocaleString()} calls
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
@@ -511,7 +512,7 @@ export default function BotsScreen() {
             {totalCost != null && totalCost > 0 && (
               <span
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 2,
                   color: t.textMuted,
@@ -561,12 +562,12 @@ export default function BotsScreen() {
                 key={bot.id}
                 bot={bot}
                 usage={usage}
-                onPress={() => router.push(`/admin/bots/${bot.id}` as any)}
+                onPress={() => navigate(`/admin/bots/${bot.id}`)}
               />
             ))}
           </div>
         )}
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

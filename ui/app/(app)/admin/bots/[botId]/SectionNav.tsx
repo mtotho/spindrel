@@ -26,7 +26,7 @@ export function SectionNav({
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
           style={{
-            display: "flex", alignItems: "center", gap: 8, width: "100%",
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%",
             padding: "12px 16px", background: t.surface, border: "none",
             color: t.text, fontSize: 15, fontWeight: 600, cursor: "pointer",
             minHeight: 48,

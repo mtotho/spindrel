@@ -1,4 +1,5 @@
-import { View, ActivityIndicator } from "react-native";
+
+import { Spinner } from "@/src/components/shared/Spinner";
 import { AlertTriangle } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -58,7 +59,7 @@ function CostTable({
         {/* Header */}
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             gap: 12,
             padding: "8px 12px",
             fontSize: 10,
@@ -80,7 +81,7 @@ function CostTable({
             key={i}
             onClick={() => onClickItem?.(item.label)}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               gap: 12,
               padding: "7px 12px",
               fontSize: 12,
@@ -145,9 +146,9 @@ export function OverviewTab({
 
   if (isLoading) {
     return (
-      <View className="items-center justify-center" style={{ padding: 40 }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="items-center justify-center" style={{ padding: 40 }}>
+        <Spinner />
+      </div>
     );
   }
   if (!data) return null;
@@ -164,7 +165,7 @@ export function OverviewTab({
       {forecast && <ForecastCards forecast={forecast} />}
 
       {/* Stat cards */}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
         <StatCard label="Total Calls" value={fmtTokens(data.total_calls)} />
         <StatCard
           label="Total Tokens"
@@ -179,7 +180,7 @@ export function OverviewTab({
       {data.models_without_cost_data.length > 0 && (
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "flex-start",
             gap: 8,
             padding: "10px 14px",

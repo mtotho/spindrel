@@ -62,7 +62,7 @@ function WorkspaceSegmentEditor({
       </div>
       {segments.map((seg, i) => (
         <div key={i} style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4,
         }}>
           <span style={{ fontFamily: "monospace", color: "#60a5fa", flex: 1 }}>{seg.path_prefix}</span>
@@ -86,7 +86,7 @@ function WorkspaceSegmentEditor({
           No workspace-level segments — bots must define their own.
         </div>
       )}
-      <div style={{ display: "flex", gap: 4, marginTop: 4, alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4, alignItems: "center" }}>
         <input
           type="text" value={newPrefix} onChange={(e) => setNewPrefix(e.target.value)}
           placeholder="directory (e.g. repos/vault/)"
@@ -108,7 +108,7 @@ function WorkspaceSegmentEditor({
           onClick={addSegment}
           disabled={!newPrefix.trim()}
           style={{
-            display: "flex", alignItems: "center", gap: 4,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
             padding: "4px 10px", fontSize: 11, fontWeight: 600,
             background: newPrefix.trim() ? t.surfaceRaised : t.inputBg,
             border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
@@ -142,7 +142,7 @@ function FieldRow({
 }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 32 }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, minHeight: 32 }}>
       <span style={{ fontSize: 11, color: t.textMuted, minWidth: 110, fontWeight: 500 }}>{label}</span>
       <div style={{ flex: 1 }}>{children}</div>
       {placeholder && !isSet && (
@@ -154,7 +154,7 @@ function FieldRow({
           title="Reset to global default"
           style={{
             background: "none", border: "none", cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 3,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 3,
             padding: "2px 6px", borderRadius: 3,
             fontSize: 10, color: t.textDim,
           }}
@@ -192,7 +192,7 @@ function PatternTagInput({
 
   return (
     <div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: value.length > 0 ? 4 : 0 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, marginBottom: value.length > 0 ? 4 : 0 }}>
         {value.map((pat, i) => (
           <span key={i} style={{
             display: "inline-flex", alignItems: "center", gap: 3,
@@ -294,7 +294,7 @@ export function WorkspaceDefaultsEditor({ workspaceId }: { workspaceId: string }
       <button
         onClick={() => setExpanded(!expanded)}
         style={{
-          display: "flex", alignItems: "center", gap: 8,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
           width: "100%", padding: "10px 14px",
           background: "none", border: "none", cursor: "pointer", textAlign: "left",
         }}
@@ -332,7 +332,7 @@ export function WorkspaceDefaultsEditor({ workspaceId }: { workspaceId: string }
           </FieldRow>
 
           <FieldRow label="Threshold" placeholder={String(globalDefaults.similarity_threshold)} isSet={threshold !== null} onReset={() => { setThreshold(null); markDirty(); }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <Slider
                   value={threshold ?? globalDefaults.similarity_threshold ?? 0.3}
@@ -390,7 +390,7 @@ export function WorkspaceDefaultsEditor({ workspaceId }: { workspaceId: string }
 
           {/* Save / Discard */}
           {dirty && (
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+            <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center", marginTop: 4 }}>
               <button
                 onClick={save}
                 disabled={updateWorkspace.isPending}

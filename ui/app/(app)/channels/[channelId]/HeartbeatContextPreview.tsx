@@ -80,7 +80,7 @@ export function ContextPreview({ form, data }: { form: any; data: any }) {
       <div
         onClick={() => setExpanded((v) => !v)}
         style={{
-          display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6, cursor: "pointer",
           fontSize: 11, fontWeight: 600, color: t.textDim,
           letterSpacing: "0.05em", textTransform: "uppercase",
         }}
@@ -139,7 +139,7 @@ export function HeartbeatTemplatePreview({
         padding: 12,
       }}>
         <div style={{
-          display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8,
         }}>
           <FileText size={12} color={t.textDim} />
           <span style={{
@@ -167,7 +167,7 @@ export function HeartbeatTemplatePreview({
             {expanded ? "Show less" : `Show all (${lines.length} lines)`}
           </button>
         )}
-        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 6, marginTop: 10 }}>
           <button
             onClick={onCustomize}
             style={{

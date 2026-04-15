@@ -337,11 +337,35 @@ class SatelliteConnection:
             logger.debug("Sent reset to satellite")
 
     async def _speak(self, text: str):
-        """Synthesize text and send audio to the satellite."""
+        """Synthesize text and send audio to the satellite.
+
+        After sending all audio events, waits for the estimated playback
+        duration so the satellite finishes playing before we send Transcript
+        (which re-arms wake word detection).
+        """
         assert self._client is not None
         events = await synthesize_speech(self.piper_uri, text, self.voice)
+        audio_bytes = 0
+        audio_rate = 22050
+        audio_width = 2
         for event in events:
             await self._client.write_event(event)
+            if AudioChunk.is_type(event.type):
+                chunk = AudioChunk.from_event(event)
+                audio_bytes += len(chunk.audio)
+                audio_rate = chunk.rate
+                audio_width = chunk.width
+
+        # Wait for playback to finish on the satellite before returning.
+        # The satellite plays audio asynchronously via its snd-command,
+        # so events we send after _speak() arrive while audio is still
+        # coming out of the speaker.
+        if audio_bytes > 0:
+            duration = audio_bytes / (audio_rate * audio_width)
+            # Add buffer for snd-command startup + speaker decay
+            wait = duration + 1.5
+            logger.info("Waiting %.1fs for TTS playback (%0.1fs audio)", wait, duration)
+            await asyncio.sleep(wait)
 
     async def _speak_error(self, message: str):
         """Speak an error message to the satellite."""

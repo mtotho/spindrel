@@ -1,11 +1,11 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 /**
  * ParticipantsTab — self-managing tab for multi-bot channel member configuration.
  * Handles its own mutations; no parent Save button needed.
  */
 import { useState, useCallback } from "react";
-import { View, Text, ActivityIndicator } from "react-native";
 import { Bot, ChevronDown, ChevronRight, Plus, X, ExternalLink } from "lucide-react";
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelBotMembers,
@@ -48,9 +48,9 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
 
   if (isLoading) {
     return (
-      <View style={{ padding: 32, alignItems: "center" }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div style={{ padding: 32, display: "flex", flexDirection: "row", justifyContent: "center" }}>
+        <Spinner color={t.accent} />
+      </div>
     );
   }
 
@@ -58,16 +58,14 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
     <>
       {/* Primary bot */}
       <Section title="Participants">
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, padding: "8px 0" }}>
           <Bot size={16} color={t.accent} />
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>
             {primaryBot?.name || primaryBotId}
           </span>
-          <Link href={`/admin/bots/${primaryBotId}` as any} asChild>
-            <a style={{ display: "flex", alignItems: "center", gap: 3, textDecoration: "none" }}>
-              <ExternalLink size={10} color={t.accent} />
-              <span style={{ fontSize: 11, color: t.accent }}>config</span>
-            </a>
+          <Link to={`/admin/bots/${primaryBotId}`} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3, textDecoration: "none" }}>
+            <ExternalLink size={10} color={t.accent} />
+            <span style={{ fontSize: 11, color: t.accent }}>config</span>
           </Link>
           <StatusBadge label="primary" variant="info" />
         </div>
@@ -82,7 +80,7 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
             <button
               onClick={() => setShowPicker(true)}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 5,
                 padding: "5px 10px",
@@ -180,7 +178,7 @@ function BotPicker({
           onClick={() => onSelect(b.id)}
           disabled={isPending}
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 8,
             width: "100%",
@@ -256,7 +254,7 @@ function MemberCard({
       {/* Collapsed header */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 8,
           padding: "8px 12px",
@@ -275,7 +273,7 @@ function MemberCard({
         </span>
         {/* Config badges */}
         {!expanded && badges.length > 0 && (
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
             {badges.map((b) => (
               <span
                 key={b}
@@ -293,14 +291,13 @@ function MemberCard({
           </div>
         )}
         {/* Bot config link */}
-        <Link href={`/admin/bots/${member.bot_id}` as any} asChild>
-          <a
-            onClick={(e) => e.stopPropagation()}
-            style={{ display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}
-            title="Bot settings"
-          >
-            <ExternalLink size={12} color={t.accent} />
-          </a>
+        <Link
+          to={`/admin/bots/${member.bot_id}`}
+          onClick={(e) => e.stopPropagation()}
+          style={{ display: "flex", flexDirection: "row", alignItems: "center", padding: 4, flexShrink: 0 }}
+          title="Bot settings"
+        >
+          <ExternalLink size={12} color={t.accent} />
         </Link>
         <button
           onClick={(e) => {
@@ -314,7 +311,7 @@ function MemberCard({
             background: "transparent",
             cursor: "pointer",
             padding: 4,
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             opacity: 0.5,
             flexShrink: 0,

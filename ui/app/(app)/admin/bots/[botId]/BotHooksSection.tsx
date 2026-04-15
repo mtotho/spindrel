@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { Plus, Pencil, Trash2, Zap, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -183,7 +183,7 @@ function HookForm({
         </Col>
       </Row>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 8, marginTop: 2 }}>
         <ActionButton
           label={submitLabel}
           onPress={() => onSubmit(form)}
@@ -221,7 +221,7 @@ function HookRow({
 
   return (
     <div style={{
-      display: "flex", alignItems: "flex-start", gap: 12,
+      display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 12,
       padding: "12px 14px", borderRadius: 8,
       background: t.inputBg, border: `1px solid ${t.surfaceRaised}`,
       opacity: hook.enabled ? 1 : 0.45,
@@ -241,7 +241,7 @@ function HookRow({
 
       {/* Center: content */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{hook.name}</span>
           <StatusBadge label={badge.label} variant={badge.variant} />
           {hook.on_failure === "block" && (
@@ -272,12 +272,12 @@ function HookRow({
       </div>
 
       {/* Right: actions */}
-      <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 4, flexShrink: 0, marginTop: 2 }}>
         <button
           onClick={onEdit}
           title="Edit hook"
           style={{
-            display: "flex", alignItems: "center", justifyContent: "center",
+            display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
             width: 30, height: 30, borderRadius: 6,
             background: "transparent", border: `1px solid ${t.surfaceBorder}`,
             cursor: "pointer", transition: "background 0.12s",
@@ -291,7 +291,7 @@ function HookRow({
           onClick={onDelete}
           title="Delete hook"
           style={{
-            display: "flex", alignItems: "center", justifyContent: "center",
+            display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
             width: 30, height: 30, borderRadius: 6,
             background: "transparent", border: `1px solid ${t.surfaceBorder}`,
             cursor: "pointer", transition: "background 0.12s",
@@ -380,7 +380,7 @@ export function BotHooksSection({ botId }: { botId: string }) {
       {/* Hook list */}
       {isLoading ? (
         <div style={{ padding: 32, textAlign: "center" }}>
-          <ActivityIndicator color={t.accent} />
+          <Spinner color={t.accent} />
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

@@ -50,7 +50,7 @@ export function ProcessLogsSection({
       <button
         onClick={() => setExpanded(!expanded)}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 6,
           background: "none",

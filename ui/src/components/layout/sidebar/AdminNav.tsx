@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import {
   Bot,
   BookOpen,
@@ -30,13 +30,13 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
-import { useThemeTokens } from "../../../theme/tokens";
 import { usePendingApprovalCount } from "../../../api/hooks/useApprovals";
+import { cn } from "../../../lib/cn";
 
 interface NavItem {
   label: string;
   href: string;
-  icon: React.ComponentType<{ size: number; color: string }>;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   badge?: React.ReactNode;
 }
 
@@ -107,26 +107,25 @@ export const ALL_NAV_ITEMS: NavItem[] = ADMIN_SECTIONS.flatMap((s) => s.items);
 export function NavLink({ item, active, mobile }: { item: NavItem; active: boolean; mobile?: boolean }) {
   const Icon = item.icon;
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
-  const t = useThemeTokens();
   return (
-    <Link href={item.href as any} onPress={closeMobile}>
+    <Link to={item.href} onClick={closeMobile}>
       <div
-        className="sidebar-nav-item"
-        style={{
-          display: "flex", alignItems: "center", gap: 12,
-          padding: mobile ? "12px 12px" : "8px 12px",
-          borderRadius: 6, cursor: "pointer",
-          backgroundColor: active ? "rgba(59,130,246,0.15)" : undefined,
-        }}
+        className={cn(
+          "sidebar-item",
+          mobile && "py-3",
+          active && "sidebar-item-active",
+        )}
       >
-        <Icon size={mobile ? 20 : 16} color={active ? t.accent : t.textDim} />
-        <span style={{
-          flex: 1,
-          fontSize: mobile ? 15 : 14,
-          color: active ? t.accent : t.textMuted,
-          fontWeight: active ? 500 : 400,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>
+        <span className={cn(active ? "text-accent/70" : "text-text-dim/60")}>
+          <Icon size={mobile ? 18 : 14} />
+        </span>
+        <span
+          className={cn(
+            "flex-1 truncate",
+            mobile ? "text-[15px]" : "text-[13px]",
+            active ? "text-text font-medium" : "text-text-muted",
+          )}
+        >
           {item.label}
         </span>
         {item.badge}
@@ -138,23 +137,20 @@ export function NavLink({ item, active, mobile }: { item: NavItem; active: boole
 export function RailIcon({ item, active }: { item: NavItem; active: boolean }) {
   const Icon = item.icon;
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
-  const t = useThemeTokens();
   return (
-    <Link href={item.href as any} onPress={closeMobile}>
+    <Link to={item.href} onClick={closeMobile}>
       <div
-        className="sidebar-icon-btn"
+        className={cn(
+          "sidebar-rail-btn relative",
+          active && "bg-accent/15",
+        )}
         title={item.label}
-        style={{
-          position: "relative",
-          width: 44, height: 44, borderRadius: 8,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          cursor: "pointer",
-          backgroundColor: active ? "rgba(59,130,246,0.15)" : undefined,
-        }}
       >
-        <Icon size={18} color={active ? t.accent : t.textDim} />
+        <span className={cn(active ? "text-accent" : "text-text-dim")}>
+          <Icon size={18} />
+        </span>
         {item.badge && (
-          <span style={{ position: "absolute", top: 4, right: 4 }}>
+          <span className="absolute top-1 right-1">
             {item.badge}
           </span>
         )}
@@ -190,29 +186,13 @@ function saveCollapsed(state: Record<string, boolean>) {
 function PendingBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        minWidth: 18,
-        height: 18,
-        borderRadius: 9,
-        backgroundColor: "#ef4444",
-        color: "#fff",
-        fontSize: 11,
-        fontWeight: 600,
-        padding: "0 5px",
-        lineHeight: 1,
-      }}
-    >
+    <span className="inline-flex flex-row items-center justify-center min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[11px] font-semibold px-[5px] leading-none">
       {count > 99 ? "99+" : count}
     </span>
   );
 }
 
 export function AdminSections({ pathname, mobile }: { pathname: string; mobile?: boolean }) {
-  const t = useThemeTokens();
   const { data: pendingCount = 0 } = usePendingApprovalCount();
 
   // Inject badge into the Approvals nav item
@@ -270,35 +250,30 @@ export function AdminSections({ pathname, mobile }: { pathname: string; mobile?:
         const isCollapsed = collapsed[section.title] ?? false;
         const hasActive = sectionHasActive(section, pathname);
         return (
-          <div key={section.title} style={{ padding: "6px 8px" }}>
+          <div key={section.title} className="px-3 pt-4 pb-0">
             <button
               onClick={() => toggle(section.title)}
-              className="sidebar-nav-item"
-              style={{
-                display: "flex", alignItems: "center", gap: 4,
-                padding: "6px 12px", borderRadius: 4,
-                background: "none", border: "none", cursor: "pointer",
-                width: "100%", textAlign: "left",
-              }}
+              className="sidebar-section-label flex flex-row items-center gap-1 w-full text-left bg-transparent border-none cursor-pointer px-3"
             >
               <ChevronRight
                 size={10}
-                color={hasActive ? t.accent : t.textDim}
-                style={{
-                  transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)",
-                  transition: "transform 0.15s",
-                }}
+                color="currentColor"
+                className={cn(
+                  "transition-transform duration-150",
+                  hasActive ? "text-accent" : "text-text-dim",
+                  !isCollapsed && "rotate-90",
+                )}
               />
-              <span style={{
-                flex: 1,
-                fontSize: mobile ? 12 : 11, fontWeight: 600,
-                letterSpacing: 0.5,
-                color: hasActive ? t.accent : t.textDim,
-              }}>
+              <span
+                className={cn(
+                  "flex-1",
+                  hasActive ? "text-accent" : "text-text-dim",
+                )}
+              >
                 {section.title}
               </span>
               {isCollapsed && hasActive && (
-                <span style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: t.accent, display: "inline-block" }} />
+                <span className="inline-block w-[5px] h-[5px] rounded-full bg-accent" />
               )}
             </button>
             {!isCollapsed &&

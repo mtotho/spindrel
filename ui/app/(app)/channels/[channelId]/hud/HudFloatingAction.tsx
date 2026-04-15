@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { apiFetch } from "@/src/api/client";
@@ -12,7 +12,7 @@ import type { ActiveHud } from "@/src/api/hooks/useChatHud";
  */
 export function HudFloatingAction({ hud }: { hud: ActiveHud }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const Icon = resolveHudIcon(hud.widget.icon);
 
   const { data: badgeData } = useQuery({
@@ -28,7 +28,7 @@ export function HudFloatingAction({ hud }: { hud: ActiveHud }) {
   const onClick = hud.widget.on_click;
   const handleClick = () => {
     if (onClick?.type === "link" && onClick.href) {
-      router.push(onClick.href as any);
+      navigate(onClick.href as string);
     }
   };
 
@@ -45,7 +45,7 @@ export function HudFloatingAction({ hud }: { hud: ActiveHud }) {
         height: 44,
         borderRadius: 22,
         backgroundColor: t.accent,
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         border: "none",
@@ -65,7 +65,7 @@ export function HudFloatingAction({ hud }: { hud: ActiveHud }) {
           height: 18,
           borderRadius: 9,
           backgroundColor: t.danger,
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
           padding: "0 4px",

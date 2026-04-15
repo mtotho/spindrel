@@ -47,7 +47,7 @@ export function CollapsedHeartbeat({
         type="button"
         onClick={() => setExpanded((v) => !v)}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 6,
           cursor: "pointer",
@@ -155,7 +155,7 @@ export function CollapsedWorkflow({
         type="button"
         onClick={() => setExpanded((v) => !v)}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 6,
           cursor: "pointer",

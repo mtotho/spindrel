@@ -53,7 +53,7 @@ function ModelStatusBadge({
     return (
       <span
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 4,
           fontSize: 11,
@@ -69,7 +69,7 @@ function ModelStatusBadge({
 
   // not_downloaded
   return (
-    <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+    <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
       {model.size_mb != null && (
         <span style={{ fontSize: 10, color: t.textDim }}>{model.size_mb} MB</span>
       )}
@@ -88,7 +88,7 @@ function ModelStatusBadge({
           color: t.accent,
           fontSize: 12,
           lineHeight: 1,
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           opacity: isDownloadPending ? 0.5 : 1,
         }}
@@ -197,7 +197,7 @@ export function LlmModelDropdown({
         ref={triggerRef}
         onClick={openDropdown}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           background: t.inputBg,
           border: `1px solid ${t.inputBorder}`,
@@ -321,7 +321,7 @@ export function LlmModelDropdown({
                                 cursor: isDownloading ? "default" : "pointer",
                                 background: isSelected ? t.accentSubtle : "transparent",
                                 opacity: isDownloading ? 0.6 : 1,
-                                display: "flex",
+                                display: "flex", flexDirection: "row",
                                 alignItems: "center",
                                 gap: 8,
                               }}

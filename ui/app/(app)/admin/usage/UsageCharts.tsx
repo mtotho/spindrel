@@ -1,4 +1,5 @@
-import { View, ActivityIndicator } from "react-native";
+
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useUsageBreakdown,
@@ -21,9 +22,9 @@ export function ChartsTab({ params }: { params: UsageParams }) {
 
   if (breakdownLoading || tsLoading) {
     return (
-      <View className="items-center justify-center" style={{ padding: 40 }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="items-center justify-center" style={{ padding: 40 }}>
+        <Spinner />
+      </div>
     );
   }
 

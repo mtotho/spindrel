@@ -1,19 +1,20 @@
 /**
  * Workflow list page — searchable, grouped by source type, with recent runs feed.
  */
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useMemo } from "react";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
+
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useWorkflows, useRecentWorkflowRuns } from "@/src/api/hooks/useWorkflows";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
   Plus, Search, Zap, ChevronRight,
   Loader2, CheckCircle2, XCircle, ShieldCheck, Clock, Minus,
   Bot, Terminal,
 } from "lucide-react";
-import { Link, useRouter } from "expo-router";
+import { Link, useNavigate } from "react-router-dom";
 import type { Workflow, WorkflowRun } from "@/src/types/api";
 import { fmtTime } from "./WorkflowRunHelpers";
 import { StatusFilterChips, filterRuns, type RunStatusFilter } from "./StatusFilterChips";
@@ -60,7 +61,7 @@ function RecentRunsFeed({ runs, t }: { runs: WorkflowRun[]; t: ThemeTokens }) {
   return (
     <div style={{ marginBottom: 20 }}>
       <div style={{
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
         marginBottom: 10,
       }}>
         <Clock size={13} color={t.textMuted} />
@@ -101,8 +102,8 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
   const totalSteps = run.step_states.length;
 
   return (
-    <Link href={`/admin/workflows/${run.workflow_id}?tab=runs&run=${run.id}` as any} asChild>
-      <Pressable
+    <Link to={`/admin/workflows/${run.workflow_id}?tab=runs&run=${run.id}` as any}>
+      <button type="button"
         style={{
           backgroundColor: t.codeBg,
           borderRadius: 8,
@@ -111,11 +112,11 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
           padding: 10,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
           {/* Status icon */}
           <div style={{
             width: 26, height: 26, borderRadius: 13, flexShrink: 0,
-            display: "flex", alignItems: "center", justifyContent: "center",
+            display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
             background: s.bg, border: `1px solid ${s.border}`,
           }}>
             <Icon size={13} color={s.color} />
@@ -123,7 +124,7 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
 
           {/* Main content */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
                 {run.workflow_id}
               </span>
@@ -135,7 +136,7 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
                 {run.status.replace(/_/g, " ")}
               </span>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3 }}>
               <span style={{ fontSize: 11, color: t.textMuted }}>{run.bot_id}</span>
               {run.triggered_by && (
                 <span style={{ fontSize: 11, color: t.textMuted }}>via {run.triggered_by}</span>
@@ -145,7 +146,7 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
           </div>
 
           {/* Step progress */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 }}>
             <div style={{
               display: "flex", gap: 2, height: 4, borderRadius: 2,
               overflow: "hidden", width: 60,
@@ -166,7 +167,7 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
             <ChevronRight size={14} color={t.textDim} />
           </div>
         </div>
-      </Pressable>
+      </button>
     </Link>
   );
 }
@@ -179,7 +180,7 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
   const t = useThemeTokens();
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 8,
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
       padding: "14px 0 6px 0",
     }}>
       <span style={{
@@ -204,7 +205,7 @@ type RenderItem =
 
 export default function WorkflowsPage() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: workflows, isLoading } = useWorkflows();
   const { data: recentRuns } = useRecentWorkflowRuns();
   const { refreshing, onRefresh } = usePageRefresh([["workflows"], ["workflow-runs-recent"]]);
@@ -251,15 +252,15 @@ export default function WorkflowsPage() {
   }, [filtered]);
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Workflows"
         right={
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
             <button
-              onClick={() => router.push("/admin/workflows/new" as any)}
+              onClick={() => navigate("/admin/workflows/new")}
               style={{
-                display: "flex", alignItems: "center", gap: 6,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                 padding: "6px 14px", fontSize: 12, fontWeight: 600,
                 border: "none", borderRadius: 6,
                 background: t.accent, color: "#fff", cursor: "pointer",
@@ -274,12 +275,12 @@ export default function WorkflowsPage() {
 
       {/* Search bar */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 10,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
         padding: "8px 16px",
         borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
         <div style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
           borderRadius: 6, padding: "5px 10px",
           maxWidth: 300, flex: 1,
@@ -306,59 +307,59 @@ export default function WorkflowsPage() {
       </div>
 
       {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={t.accent} />
-        </View>
+        <div className="flex-1 items-center justify-center">
+          <Spinner />
+        </div>
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
-          <View style={{ padding: 16, maxWidth: 960 }}>
+          <div style={{ padding: 16, maxWidth: 960 }}>
             {/* Recent Runs */}
             {recentRuns && recentRuns.length > 0 && !search && (
               <RecentRunsFeed runs={recentRuns} t={t} />
             )}
 
             {(!workflows || workflows.length === 0) && (
-              <View style={{ alignItems: "center", paddingTop: 60, gap: 12 }}>
+              <div style={{ alignItems: "center", paddingTop: 60, gap: 12 }}>
                 <Zap size={36} color={t.surfaceBorder} />
-                <Text style={{ color: t.textMuted, fontSize: 15, fontWeight: "600" }}>
+                <span style={{ color: t.textMuted, fontSize: 15, fontWeight: "600" }}>
                   No workflows yet
-                </Text>
-                <Text style={{ color: t.textDim, fontSize: 13, textAlign: "center", maxWidth: 300 }}>
+                </span>
+                <span style={{ color: t.textDim, fontSize: 13, textAlign: "center", maxWidth: 300 }}>
                   Create a workflow to automate multi-step tasks, or add YAML files to the workflows/ directory.
-                </Text>
-                <Pressable
-                  onPress={() => router.push("/admin/workflows/new" as any)}
+                </span>
+                <button type="button"
+                  onClick={() => navigate("/admin/workflows/new")}
                   style={{
                     flexDirection: "row", alignItems: "center", gap: 6,
-                    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8,
+                    paddingInline: 16, paddingBlock: 8, borderRadius: 8,
                     backgroundColor: t.accent, marginTop: 8,
                   }}
                 >
                   <Plus size={14} color="#fff" />
-                  <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>Create Workflow</Text>
-                </Pressable>
-              </View>
+                  <span style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>Create Workflow</span>
+                </button>
+              </div>
             )}
             {workflows && workflows.length > 0 && filtered.length === 0 && (
-              <View style={{ alignItems: "center", paddingTop: 60 }}>
-                <Text style={{ color: t.textDim, fontSize: 13 }}>
+              <div style={{ alignItems: "center", paddingTop: 60 }}>
+                <span style={{ color: t.textDim, fontSize: 13 }}>
                   No workflows match &quot;{search}&quot;
-                </Text>
-              </View>
+                </span>
+              </div>
             )}
             {renderItems.map((item) =>
               item.type === "header" ? (
                 <SectionHeader key={item.key} label={item.label} count={item.count} />
               ) : (
-                <View key={item.key} style={{ marginBottom: 8 }}>
+                <div key={item.key} style={{ marginBottom: 8 }}>
                   <WorkflowCard workflow={item.workflow} recentRuns={recentRuns} t={t} />
-                </View>
+                </div>
               ),
             )}
-          </View>
+          </div>
         </RefreshableScrollView>
       )}
-    </View>
+    </div>
   );
 }
 
@@ -388,8 +389,8 @@ function WorkflowCard({ workflow: w, recentRuns, t }: {
   }, [w.steps]);
 
   return (
-    <Link href={`/admin/workflows/${w.id}` as any} asChild>
-      <Pressable
+    <Link to={`/admin/workflows/${w.id}` as any}>
+      <button type="button"
         style={{
           backgroundColor: t.codeBg,
           borderRadius: 10,
@@ -398,43 +399,43 @@ function WorkflowCard({ workflow: w, recentRuns, t }: {
           padding: 14,
         }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <View style={{ flex: 1 }}>
+        <div style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ flex: 1 }}>
             {/* Name + badges */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Zap size={16} color={t.accent} />
-              <Text style={{ color: t.text, fontWeight: "600", fontSize: 14 }}>
+              <span style={{ color: t.text, fontWeight: "600", fontSize: 14 }}>
                 {w.name}
-              </Text>
+              </span>
               {w.source_type !== "manual" && (
-                <View style={{
+                <div style={{
                   backgroundColor: t.accentSubtle, borderWidth: 1,
-                  borderColor: t.accentBorder, paddingHorizontal: 6,
-                  paddingVertical: 1, borderRadius: 4,
+                  borderColor: t.accentBorder, paddingInline: 6,
+                  paddingBlock: 1, borderRadius: 4,
                 }}>
-                  <Text style={{ color: t.accent, fontSize: 10 }}>{w.source_type}</Text>
-                </View>
+                  <span style={{ color: t.accent, fontSize: 10 }}>{w.source_type}</span>
+                </div>
               )}
               {w.session_mode === "shared" && (
-                <View style={{
+                <div style={{
                   backgroundColor: t.purpleSubtle, borderWidth: 1,
-                  borderColor: t.purpleBorder, paddingHorizontal: 6,
-                  paddingVertical: 1, borderRadius: 4,
+                  borderColor: t.purpleBorder, paddingInline: 6,
+                  paddingBlock: 1, borderRadius: 4,
                 }}>
-                  <Text style={{ color: t.purple, fontSize: 10 }}>shared</Text>
-                </View>
+                  <span style={{ color: t.purple, fontSize: 10 }}>shared</span>
+                </div>
               )}
-            </View>
+            </div>
 
             {/* Description */}
             {w.description ? (
-              <Text style={{ color: t.textMuted, fontSize: 12, marginTop: 4 }} numberOfLines={1}>
+              <span style={{ color: t.textMuted, fontSize: 12, marginTop: 4 }}>
                 {w.description}
-              </Text>
+              </span>
             ) : null}
 
             {/* Metadata row */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+            <div style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
               {/* Step type summary */}
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 {stepTypeSummary.map(([type, count]) => {
@@ -452,27 +453,27 @@ function WorkflowCard({ workflow: w, recentRuns, t }: {
                 })}
               </div>
               {Object.keys(w.params).length > 0 && (
-                <Text style={{ color: t.textDim, fontSize: 11 }}>
+                <span style={{ color: t.textDim, fontSize: 11 }}>
                   {Object.keys(w.params).length} param{Object.keys(w.params).length !== 1 ? "s" : ""}
-                </Text>
+                </span>
               )}
               {/* Tags */}
               {w.tags.length > 0 && (
-                <View style={{ flexDirection: "row", gap: 4 }}>
+                <div style={{ flexDirection: "row", gap: 4 }}>
                   {w.tags.map((tag) => (
-                    <View key={tag} style={{
+                    <div key={tag} style={{
                       backgroundColor: t.purpleSubtle, borderWidth: 1,
-                      borderColor: t.purpleBorder, paddingHorizontal: 5,
-                      paddingVertical: 1, borderRadius: 3,
+                      borderColor: t.purpleBorder, paddingInline: 5,
+                      paddingBlock: 1, borderRadius: 3,
                     }}>
-                      <Text style={{ color: t.purple, fontSize: 10 }}>{tag}</Text>
-                    </View>
+                      <span style={{ color: t.purple, fontSize: 10 }}>{tag}</span>
+                    </div>
                   ))}
-                </View>
+                </div>
               )}
               {/* Mini run status dots */}
               {myRuns.length > 0 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 3, marginLeft: 4 }}>
+                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 4 }}>
                   {myRuns.map((run) => {
                     const rs = getRunStatusStyle(run.status, t);
                     return (
@@ -486,11 +487,11 @@ function WorkflowCard({ workflow: w, recentRuns, t }: {
                   })}
                 </div>
               )}
-            </View>
-          </View>
+            </div>
+          </div>
           <ChevronRight size={16} color={t.textMuted} />
-        </View>
-      </Pressable>
+        </div>
+      </button>
     </Link>
   );
 }

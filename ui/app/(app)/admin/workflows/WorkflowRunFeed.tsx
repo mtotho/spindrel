@@ -1,12 +1,12 @@
 import { useRef, useEffect, useState, useMemo, useCallback, forwardRef } from "react";
-import { Pressable } from "react-native";
+
 import { type ThemeTokens } from "@/src/theme/tokens";
 import {
   Check, SkipForward, RotateCcw,
   ExternalLink, AlertTriangle, ArrowDown,
   Copy, Zap, Terminal,
 } from "lucide-react";
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import type { WorkflowStepState } from "@/src/types/api";
 import {
   getStatusStyle, StatusBadge, describeCondition, useElapsed,
@@ -121,23 +121,22 @@ export default function WorkflowRunFeed({
 
       {/* Jump to active pill */}
       {showJumpPill && (
-        <Pressable
-          onPress={jumpToActive}
+        <button type="button"
+          onClick={jumpToActive}
           style={{
             position: "sticky", bottom: 12,
             alignSelf: "center",
             flexDirection: "row", alignItems: "center", gap: 5,
-            paddingVertical: 6, paddingHorizontal: 14, borderRadius: 20,
+            paddingBlock: 6, paddingInline: 14, borderRadius: 20,
             backgroundColor: t.accent,
-            shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
-            elevation: 4,
+            boxShadow: "0px 2px 8px rgba(0,0,0,0.15)",
           }}
         >
           <ArrowDown size={13} color="#fff" />
           <span style={{ fontSize: 12, fontWeight: 600, color: "#fff" }}>
             Jump to active step
           </span>
-        </Pressable>
+        </button>
       )}
     </div>
   );
@@ -284,7 +283,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
     >
       {/* Step header */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 8, marginBottom: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8,
         padding: "4px 8px", borderRadius: 4,
         background: isPending && !isAwaitingApproval ? "transparent" : s.bg,
       }}>
@@ -321,7 +320,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
       {/* Stuck warning */}
       {isStuck && (
         <div style={{
-          display: "flex", alignItems: "center", gap: 6,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           marginBottom: 8, padding: 8, borderRadius: 6,
           background: t.warningSubtle, border: `1px solid ${t.warningBorder}`,
         }}>
@@ -390,7 +389,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
               onClick={onApprove}
               disabled={isApproving}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 padding: "5px 12px", fontSize: 12, fontWeight: 600,
                 border: "none", borderRadius: 6,
                 background: t.success, color: "#fff", cursor: "pointer",
@@ -404,7 +403,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
               onClick={onSkip}
               disabled={isSkipping}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 padding: "5px 12px", fontSize: 12, fontWeight: 600,
                 border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
                 background: "transparent", color: t.textMuted, cursor: "pointer",
@@ -432,7 +431,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
             onClick={onRetry}
             disabled={isRetrying}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "5px 12px", fontSize: 12, fontWeight: 600,
               border: `1px solid ${t.accentBorder}`, borderRadius: 6,
               background: t.accentSubtle, color: t.accent, cursor: "pointer",
@@ -478,7 +477,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
       )}
 
       {/* Metadata row */}
-      <div style={{ display: "flex", gap: 10, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 10, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
         {state.started_at && (
           <span style={{ fontSize: 10, color: t.textMuted }}>
             Started {fmtTime(state.started_at)}
@@ -524,7 +523,7 @@ function TaskLink({ taskId, correlationId, t }: { taskId: string; correlationId?
 
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-      <Link href={href as any}>
+      <Link to={href}>
         <span style={{
           display: "inline-flex", alignItems: "center", gap: 3,
           fontSize: 10, color: t.accent, fontFamily: "monospace",
@@ -536,9 +535,9 @@ function TaskLink({ taskId, correlationId, t }: { taskId: string; correlationId?
           Task: {taskId.slice(0, 8)}
         </span>
       </Link>
-      <Pressable onPress={handleCopy as any} style={{ padding: 2 }}>
+      <button type="button" onClick={handleCopy as any} style={{ padding: 2 }}>
         <Copy size={9} color={copied ? t.success : t.textMuted} />
-      </Pressable>
+      </button>
     </span>
   );
 }

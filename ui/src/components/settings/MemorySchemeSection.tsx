@@ -95,7 +95,7 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
       style={{
         position: "fixed", inset: 0, zIndex: 100,
         background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)",
-        display: "flex", alignItems: "center", justifyContent: "center",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
         padding: 20,
       }}
     >
@@ -108,7 +108,7 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
         }}
       >
         <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
           padding: "14px 18px", borderBottom: `1px solid ${t.surfaceRaised}`,
         }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
@@ -267,7 +267,7 @@ export function MemorySchemeSection() {
           </span>
           <button
             onClick={() => setShowHelp(true)}
-            style={{ padding: 2, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center" }}
+            style={{ padding: 2, background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "row", alignItems: "center" }}
           >
             <HelpCircle size={15} color={t.textDim} />
           </button>
@@ -295,7 +295,7 @@ export function MemorySchemeSection() {
               <div style={{
                 width: 40, height: 40, borderRadius: 20,
                 backgroundColor: allEnabled ? t.purpleSubtle : noneEnabled ? "rgba(100,100,100,0.15)" : t.purpleSubtle,
-                display: "flex", alignItems: "center", justifyContent: "center",
+                display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
               }}>
                 <span style={{
                   fontSize: 16, fontWeight: 700,

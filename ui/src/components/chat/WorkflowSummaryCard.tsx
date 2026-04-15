@@ -44,7 +44,7 @@ export function WorkflowSummaryCard({
 
   if (isLoading || !run) {
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 0" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "8px 0" }}>
         <Loader2 size={12} color={t.textDim} className="animate-spin" />
         <span style={{ fontSize: 12, color: t.textDim }}>Loading workflow results…</span>
       </div>
@@ -76,7 +76,7 @@ export function WorkflowSummaryCard({
     <div style={{ padding: "4px 0" }}>
       {/* Header line */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
         paddingBottom: 6,
       }}>
         <span style={{ color: headerColor, fontWeight: 700 }}>{headerIcon}</span>
@@ -140,7 +140,7 @@ export function WorkflowSummaryCard({
                 onMouseEnter={(e) => { if (resultText) (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 8,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
                   padding: "5px 10px",
                   cursor: resultText ? "pointer" : "default",
                   borderTop: idx > 0 ? `1px solid ${t.surfaceBorder}` : undefined,

@@ -19,7 +19,7 @@ export function ToolCallsList({ toolCalls, isWide }: ToolCallsListProps) {
       <button
         onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
         style={{
-          display: "flex", alignItems: "center", gap: 4,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
           background: t.purpleSubtle, border: "none", borderRadius: 4,
           padding: "3px 8px", fontSize: 11, color: t.purple, cursor: "pointer",
         }}
@@ -34,7 +34,7 @@ export function ToolCallsList({ toolCalls, isWide }: ToolCallsListProps) {
         }}>
           {toolCalls.map((tc, i) => (
             <div key={i} style={{
-              display: "flex", alignItems: "flex-start", gap: 8,
+              display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 8,
               padding: "3px 0", fontSize: 11, color: t.textMuted,
               flexWrap: isWide ? "nowrap" : "wrap",
             }}>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Eye, ChevronRight } from "lucide-react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/src/api/client";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -46,7 +46,7 @@ interface ChatHistoryDeviation {
 }
 
 export function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const t = useThemeTokens();
   const [showDeviations, setShowDeviations] = useState(false);
   const { data, isLoading } = useQuery({
@@ -131,8 +131,8 @@ export function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
               <button
                 key={ch.channel_id}
                 onClick={() =>
-                  router.push(
-                    `/channels/${ch.channel_id}/settings` as any
+                  navigate(
+                    `/channels/${ch.channel_id}/settings`
                   )
                 }
                 style={{

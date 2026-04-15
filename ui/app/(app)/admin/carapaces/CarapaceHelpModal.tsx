@@ -2,7 +2,6 @@
  * In-depth help modal explaining the carapace system.
  * Uses portal pattern (web-only) consistent with SaveAsTemplateModal.
  */
-import { View, Text, Pressable, ScrollView } from "react-native";
 import { X } from "lucide-react";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 
@@ -52,7 +51,7 @@ export function CarapaceHelpModal({ onClose }: Props) {
         {/* Header */}
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
             padding: "16px 20px",
@@ -63,9 +62,9 @@ export function CarapaceHelpModal({ onClose }: Props) {
           <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>
             Understanding Capabilities
           </span>
-          <Pressable onPress={onClose} hitSlop={8}>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
             <X size={16} color={t.textDim} />
-          </Pressable>
+          </button>
         </div>
 
         {/* Scrollable body */}

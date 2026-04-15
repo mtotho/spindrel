@@ -78,7 +78,7 @@ export function EditorTab({ workspace, currentStatus }: EditorTabProps) {
                 onClick={handleOpen}
                 disabled={opening}
                 style={{
-                  display: "flex", alignItems: "center", gap: 6,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                   padding: "6px 14px", fontSize: 12, fontWeight: 600,
                   border: `1px solid ${t.accent}`, borderRadius: 6,
                   background: `${t.accent}15`, color: t.accent,

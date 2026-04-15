@@ -1821,27 +1821,15 @@ async def assemble_context(
         messages.append({"role": "system", "content": system_preamble})
         _inject_chars["system_preamble"] = len(system_preamble)
 
-    # --- current-turn marker (helps models distinguish injected context from the live message) ---
-    if task_mode:
-        # Heartbeat or other system-initiated task — frame as executable task, not conversation
-        messages.append({
-            "role": "system",
-            "content": "Everything above is background context. Your TASK PROMPT follows — execute it now.",
-        })
-    else:
-        messages.append({
-            "role": "system",
-            "content": "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
-        })
-
     # --- bot system_prompt reinforcement (recency bias) ---
     # bot.system_prompt is already included in messages[0] via _effective_system_prompt,
     # but buried under GLOBAL_BASE_PROMPT + base_prompt + memory_scheme_prompt (~12KB of
     # framework text). Gemini Flash and other models drown out small instructions when
-    # buried in the middle of a large system prompt. Repeating it as the LAST system
-    # message — after the "Everything above is context" marker, immediately before the
-    # user message — gives the bot's actual instructions recency bias so they're
-    # actually followed. Position-sensitive: must be after the marker, not before.
+    # buried in the middle of a large system prompt. Repeating it here gives the bot's
+    # actual instructions recency bias so they're actually followed.
+    # In task_mode this goes BEFORE the marker so the task prompt is the very last thing
+    # the model sees — otherwise 8KB of personality drowns out the heartbeat instructions.
+    # In normal mode it goes AFTER the marker for maximum recency on conversational turns.
     _bot_sys_prompt = bot.system_prompt or ""
     if getattr(bot, "system_prompt_workspace_file", False):
         try:
@@ -1855,7 +1843,28 @@ async def assemble_context(
                 _bot_sys_prompt = _ws_prompt
         except Exception:
             pass
-    if _bot_sys_prompt.strip():
+    _has_reinforce = _bot_sys_prompt.strip()
+    if _has_reinforce and task_mode:
+        # Task mode: reinforce BEFORE the marker so task prompt has final-position recency
+        _reinforce = f"## Your Role (these are your active instructions — follow them)\n\n{_bot_sys_prompt.rstrip()}"
+        messages.append({"role": "system", "content": _reinforce})
+        _inject_chars["bot_system_prompt_reinforce"] = len(_reinforce)
+
+    # --- current-turn marker (helps models distinguish injected context from the live message) ---
+    if task_mode:
+        # Heartbeat or other system-initiated task — frame as executable task, not conversation
+        messages.append({
+            "role": "system",
+            "content": "Everything above is background context. Your TASK PROMPT follows — execute it now.",
+        })
+    else:
+        messages.append({
+            "role": "system",
+            "content": "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
+        })
+
+    if _has_reinforce and not task_mode:
+        # Normal mode: reinforce AFTER the marker for maximum recency on conversational turns
         _reinforce = f"## Your Role (these are your active instructions — follow them)\n\n{_bot_sys_prompt.rstrip()}"
         messages.append({"role": "system", "content": _reinforce})
         _inject_chars["bot_system_prompt_reinforce"] = len(_reinforce)

@@ -1,19 +1,13 @@
 import { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  ActivityIndicator,
-} from "react-native";
 import { Server, Mail, Lock, Key, ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useAuthStore } from "@/src/stores/auth";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { AuthStatus, TokenResponse } from "@/src/types/api";
 
 export default function LoginScreen() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const t = useThemeTokens();
   const setServer = useAuthStore((s) => s.setServer);
   const setAuth = useAuthStore((s) => s.setAuth);
@@ -59,7 +53,7 @@ export default function LoginScreen() {
         if (status.setup_required) {
           // Temporarily store serverUrl so setup screen can use it
           useAuthStore.setState({ serverUrl: url });
-          router.replace("/(auth)/setup" as any);
+          navigate("/setup", { replace: true });
           return;
         }
       }
@@ -131,177 +125,174 @@ export default function LoginScreen() {
   // Step 1: Server URL input
   if (!serverChecked) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center p-6">
-        <View className="w-full max-w-sm gap-6">
-          <View className="items-center gap-2 mb-4">
-            <Text className="text-text text-2xl font-bold">Spindrel</Text>
-            <Text className="text-text-muted text-sm">
+      <div className="flex-1 bg-surface items-center justify-center p-6">
+        <div className="w-full max-w-sm gap-6">
+          <div className="items-center gap-2 mb-4">
+            <span className="text-text text-2xl font-bold">Spindrel</span>
+            <span className="text-text-muted text-sm">
               Enter your server URL to get started
-            </Text>
-          </View>
+            </span>
+          </div>
 
-          <View className="gap-2">
-            <View className="flex-row items-center gap-2">
+          <div className="gap-2">
+            <div className="flex-row items-center gap-2">
               <Server size={16} color={t.textMuted} />
-              <Text className="text-text-muted text-sm">Server URL</Text>
-            </View>
-            <TextInput
+              <span className="text-text-muted text-sm">Server URL</span>
+            </div>
+            <input
               className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
               placeholder="http://localhost:8000"
-              placeholderTextColor={t.textDim}
               value={serverUrl}
-              onChangeText={setServerUrl}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              onSubmitEditing={handleCheckServer}
+              onChange={(e) => setServerUrl(e.target.value)}
+              autoCorrect="off"
+              type="url"
+              onKeyDown={(e) => { if (e.key === "Enter") handleCheckServer(); }}
             />
-          </View>
+          </div>
 
           {error && (
-            <Text className="text-red-400 text-sm text-center">{error}</Text>
+            <span className="text-red-400 text-sm text-center">{error}</span>
           )}
 
-          <Pressable
-            onPress={handleCheckServer}
+          <button
+            type="button"
+            onClick={handleCheckServer}
             disabled={loading}
             className="bg-accent rounded-lg px-4 py-3 flex-row items-center justify-center gap-2 active:bg-accent-hover"
           >
             {loading ? (
-              <ActivityIndicator color="white" size="small" />
+              <Spinner color="white" size={16} />
             ) : (
               <>
-                <Text className="text-white font-semibold">Continue</Text>
+                <span className="text-white font-semibold">Continue</span>
                 <ArrowRight size={16} color="white" />
               </>
             )}
-          </Pressable>
-        </View>
-      </View>
+          </button>
+        </div>
+      </div>
     );
   }
 
   // Step 2: Login form
   return (
-    <View className="flex-1 bg-surface items-center justify-center p-6">
-      <View className="w-full max-w-sm gap-6">
-        <View className="items-center gap-2 mb-4">
-          <Text className="text-text text-2xl font-bold">Sign In</Text>
-          <Text className="text-text-muted text-sm">
+    <div className="flex-1 bg-surface items-center justify-center p-6">
+      <div className="w-full max-w-sm gap-6">
+        <div className="items-center gap-2 mb-4">
+          <span className="text-text text-2xl font-bold">Sign In</span>
+          <span className="text-text-muted text-sm">
             {serverUrl.replace(/^https?:\/\//, "")}
-          </Text>
-        </View>
+          </span>
+        </div>
 
         {/* Email */}
-        <View className="gap-2">
-          <View className="flex-row items-center gap-2">
+        <div className="gap-2">
+          <div className="flex-row items-center gap-2">
             <Mail size={16} color={t.textMuted} />
-            <Text className="text-text-muted text-sm">Email</Text>
-          </View>
-          <TextInput
+            <span className="text-text-muted text-sm">Email</span>
+          </div>
+          <input
             className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
             placeholder="you@example.com"
-            placeholderTextColor={t.textDim}
             value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
+            onChange={(e) => setEmail(e.target.value)}
+            autoCorrect="off"
+            type="email"
           />
-        </View>
+        </div>
 
         {/* Password */}
-        <View className="gap-2">
-          <View className="flex-row items-center gap-2">
+        <div className="gap-2">
+          <div className="flex-row items-center gap-2">
             <Lock size={16} color={t.textMuted} />
-            <Text className="text-text-muted text-sm">Password</Text>
-          </View>
-          <TextInput
+            <span className="text-text-muted text-sm">Password</span>
+          </div>
+          <input
             className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
             placeholder="Password"
-            placeholderTextColor={t.textDim}
             value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
-            onSubmitEditing={handleLogin}
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
+            onKeyDown={(e) => { if (e.key === "Enter") handleLogin(); }}
           />
-        </View>
+        </div>
 
         {error && (
-          <Text className="text-red-400 text-sm text-center">{error}</Text>
+          <span className="text-red-400 text-sm text-center">{error}</span>
         )}
 
         {/* Sign In button */}
-        <Pressable
-          onPress={handleLogin}
+        <button
+          type="button"
+          onClick={handleLogin}
           disabled={loading}
           className="bg-accent rounded-lg px-4 py-3 flex-row items-center justify-center gap-2 active:bg-accent-hover"
         >
           {loading ? (
-            <ActivityIndicator color="white" size="small" />
+            <Spinner color="white" size={16} />
           ) : (
             <>
-              <Text className="text-white font-semibold">Sign In</Text>
+              <span className="text-white font-semibold">Sign In</span>
               <ArrowRight size={16} color="white" />
             </>
           )}
-        </Pressable>
+        </button>
 
         {/* API Key fallback */}
-        <Pressable
-          onPress={() => setShowApiKey(!showApiKey)}
+        <button
+          type="button"
+          onClick={() => setShowApiKey(!showApiKey)}
           className="flex-row items-center justify-center gap-1"
         >
-          <Text className="text-text-dim text-xs">Use API Key instead</Text>
+          <span className="text-text-dim text-xs">Use API Key instead</span>
           {showApiKey ? (
             <ChevronUp size={12} color={t.textDim} />
           ) : (
             <ChevronDown size={12} color={t.textDim} />
           )}
-        </Pressable>
+        </button>
 
         {showApiKey && (
-          <View className="gap-4">
-            <View className="gap-2">
-              <View className="flex-row items-center gap-2">
+          <div className="gap-4">
+            <div className="gap-2">
+              <div className="flex-row items-center gap-2">
                 <Key size={16} color={t.textMuted} />
-                <Text className="text-text-muted text-sm">API Key</Text>
-              </View>
-              <TextInput
+                <span className="text-text-muted text-sm">API Key</span>
+              </div>
+              <input
                 className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
                 placeholder="Bearer token"
-                placeholderTextColor={t.textDim}
                 value={apiKey}
-                onChangeText={setApiKey}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
+                onChange={(e) => setApiKey(e.target.value)}
+                type="password"
+                autoCorrect="off"
               />
-            </View>
-            <Pressable
-              onPress={handleApiKeyConnect}
+            </div>
+            <button
+              type="button"
+              onClick={handleApiKeyConnect}
               disabled={loading}
               className="border border-surface-border rounded-lg px-4 py-3 flex-row items-center justify-center gap-2"
             >
-              <Text className="text-text-muted font-semibold">
+              <span className="text-text-muted font-semibold">
                 Connect with API Key
-              </Text>
-            </Pressable>
-          </View>
+              </span>
+            </button>
+          </div>
         )}
 
         {/* Back */}
-        <Pressable
-          onPress={() => {
+        <button
+          type="button"
+          onClick={() => {
             setServerChecked(false);
             setError(null);
           }}
           className="items-center"
         >
-          <Text className="text-text-dim text-xs">Change server</Text>
-        </Pressable>
-      </View>
-    </View>
+          <span className="text-text-dim text-xs">Change server</span>
+        </button>
+      </div>
+    </div>
   );
 }

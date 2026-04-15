@@ -111,7 +111,7 @@ export function QuietHoursPicker({ start, end, timezone, onChangeStart, onChange
           <button
             onClick={clear}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "5px 10px", borderRadius: 6, cursor: "pointer",
               fontSize: 11, fontWeight: 600, border: "none",
               background: "none", color: t.textDim,

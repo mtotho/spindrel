@@ -77,7 +77,7 @@ export function HudSidePanel({ hud }: { hud: ActiveHud }) {
         padding: "8px 12px",
         borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
           <LabelIcon size={13} color={t.textDim} />
           <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
             {hud.widget.label ?? hud.widget.id}
@@ -97,7 +97,7 @@ export function HudSidePanel({ hud }: { hud: ActiveHud }) {
       {isIframe ? (
         <IframeContent integrationId={hud.integrationId} iframePath={hud.widget.iframe_path!} />
       ) : isLoading && !data ? (
-        <div style={{ padding: 16, display: "flex", justifyContent: "center" }}>
+        <div style={{ padding: 16, display: "flex", flexDirection: "row", justifyContent: "center" }}>
           <div className="chat-spinner" />
         </div>
       ) : data?.visible ? (

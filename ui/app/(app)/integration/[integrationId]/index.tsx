@@ -1,5 +1,5 @@
-import { View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+
+import { useParams } from "react-router-dom";
 import { useAuthStore } from "@/src/stores/auth";
 import { IntegrationFrame } from "@/src/components/integration/IntegrationFrame";
 
@@ -8,14 +8,14 @@ import { IntegrationFrame } from "@/src/components/integration/IntegrationFrame"
  * Handles /integration/{integrationId} (no sub-path).
  */
 export default function IntegrationIndex() {
-  const { integrationId } = useLocalSearchParams<{ integrationId: string }>();
+  const { integrationId } = useParams<{ integrationId: string }>();
   const serverUrl = useAuthStore((s) => s.serverUrl);
 
   const src = `${serverUrl}/integrations/${integrationId}/ui/`;
 
   return (
-    <View style={{ flex: 1 }}>
+    <div style={{ flex: 1 }}>
       <IntegrationFrame src={src} />
-    </View>
+    </div>
   );
 }

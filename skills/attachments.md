@@ -96,9 +96,7 @@ Save an attachment's file data to the filesystem. Use when you need to process a
 
 ### generate_image — create or edit images
 
-See the **generate-image** skill for full details on provider differences, Gemini limitations, and prompt best practices.
-
-Generated images are automatically saved as attachments and delivered to the channel.
+See the **generate_image** skill for full details on parameters, provider differences (OpenAI vs Gemini), and prompt best practices.
 
 ## Auto-visible attachments
 
@@ -121,31 +119,8 @@ send_file(path="/workspace/data/results.csv")
 2. send_file(attachment_id="<uuid>")
 ```
 
-### Generate an image from scratch
-```
-generate_image(prompt="A watercolor sunset over mountains")
-```
-
-### Edit an existing image
-```
-1. list_attachments(type_filter="image", limit=5)
-2. generate_image(prompt="Make the sky purple", attachment_ids=["<uuid>"])
-```
-Note: Direct editing works with OpenAI models. Gemini models auto-fall back to generating a new image using descriptions of the reference images — see the **generate-image** skill for details.
-
-### Combine multiple images
-```
-1. list_attachments(type_filter="image", limit=10)
-2. generate_image(prompt="Merge both images into a panorama", attachment_ids=["<uuid1>", "<uuid2>"])
-```
-
-### Iterative editing (chain edits)
-Generated images become attachments immediately:
-```
-1. generate_image(prompt="A red sports car")
-2. list_attachments(type_filter="image", limit=1)  → get the UUID
-3. generate_image(prompt="Add rain and dramatic clouds", attachment_ids=["<uuid>"])
-```
+### Image generation and editing
+See the **generate_image** skill for generation, editing, combining, and iterative workflows.
 
 ### Save an uploaded file to disk for processing
 ```
@@ -176,8 +151,6 @@ No UUID lookup needed for the delete — it cleans up all recent images in the c
 
 | Wrong | Right | Why |
 |---|---|---|
-| `get_attachment` then pass base64 to `generate_image` | `generate_image(attachment_ids=[id])` | generate_image fetches bytes directly |
-| Passing `n=3` with a Gemini model | Omit `n` or set `n=1` | Only OpenAI models support n>1 |
 | Guessing attachment UUIDs | Call `list_attachments` first | UUIDs are random; you must look them up |
 | Using `list_attachments(channel_id="C06RY3YBSLE")` | Omit channel_id | Slack IDs aren't UUIDs; current channel is used automatically |
 | Using `send_file` to re-show an attachment from the same turn | Just reference it in your response text | Attachments are auto-visible on the message that created them |

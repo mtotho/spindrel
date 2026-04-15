@@ -65,7 +65,7 @@ function TaskStats({ stats }: { stats: Record<string, number> }) {
     return <span style={{ fontSize: 12, color: t.textDim }}>No tasks</span>;
   }
   return (
-    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
       {entries.map(([status, count]) => (
         <span
           key={status}
@@ -129,7 +129,7 @@ function ActionButton({
           disabled={mut.isPending}
           title={action.description}
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 4,
             padding: "4px 12px",
@@ -159,7 +159,7 @@ function ActionButton({
               border: "none",
               cursor: "pointer",
               padding: 0,
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 2,
               fontSize: 11,
@@ -208,7 +208,7 @@ function TaskRow({ task }: { task: IntegrationTaskItem }) {
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 8,
         padding: "5px 0",
@@ -337,13 +337,13 @@ export function IntegrationDebugSection({
 
           {pendingCount > 0 && (
             <div
-              style={{ display: "flex", alignItems: "center", gap: 8 }}
+              style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}
             >
               <button
                 onClick={handleCancel}
                 disabled={cancelMut.isPending}
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 4,
                   padding: "4px 12px",
@@ -403,7 +403,7 @@ export function IntegrationDebugSection({
           >
             Actions
           </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 6, flexWrap: "wrap", alignItems: "flex-start" }}>
             {debugActions.map((action) => (
               <ActionButton
                 key={action.id}
@@ -451,7 +451,7 @@ export function IntegrationDebugSection({
       {pendingCount > 20 && (
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 6,
             padding: "6px 10px",

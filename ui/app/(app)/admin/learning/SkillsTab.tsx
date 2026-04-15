@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import {
   BookOpen, TrendingUp, AlertTriangle, Flame, Zap,
   ChevronUp, ChevronDown, Sparkles,
@@ -36,7 +36,7 @@ function ActivityBar({ surfacings, autoInjects, maxActivity }: {
         <div style={{
           position: "absolute", left: 0, top: 0, bottom: 0,
           width: `${widthPct}%`, borderRadius: 3, overflow: "hidden",
-          display: "flex",
+          display: "flex", flexDirection: "row",
         }}>
           {surfacings > 0 && (
             <div style={{ width: `${surfPct}%`, height: "100%", background: "#f59e0b" }} />
@@ -57,7 +57,7 @@ function ActivityBar({ surfacings, autoInjects, maxActivity }: {
 
 export function SkillsTab({ days }: { days: number }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: skills, isLoading } = useSkills({ source_type: "tool", sort: "recent", days });
   const { data: bots } = useAdminBots();
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
@@ -120,7 +120,7 @@ export function SkillsTab({ days }: { days: number }) {
 
   if (isLoading) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+      <div style={{ display: "flex", flexDirection: "row", justifyContent: "center", padding: 40 }}>
         <div style={{ color: t.textDim, fontSize: 12 }}>Loading skills...</div>
       </div>
     );
@@ -154,7 +154,7 @@ export function SkillsTab({ days }: { days: number }) {
       {totalSkills > 0 && (
         <>
           {/* Stats row */}
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
             <StatCard label="Total Skills" value={totalSkills} icon={<BookOpen size={12} color="#059669" />} />
             <StatCard label="Surfacings" value={totalSurfacings} icon={<TrendingUp size={12} color="#f59e0b" />} />
             <StatCard label="Auto-Injects" value={totalAutoInjects} icon={<Zap size={12} color="#a855f7" />} />
@@ -165,7 +165,7 @@ export function SkillsTab({ days }: { days: number }) {
           {/* Health callouts */}
           {neverSurfaced > 0 && (
             <div style={{
-              display: "flex", alignItems: "center", gap: 8,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
               padding: "8px 12px", borderRadius: 8,
               background: "rgba(234,179,8,0.06)", border: "1px solid rgba(234,179,8,0.15)",
             }}>
@@ -227,7 +227,7 @@ export function SkillsTab({ days }: { days: number }) {
                     {/* Name */}
                     <td style={{ padding: "8px 8px", maxWidth: 200 }}>
                       <button
-                        onClick={() => router.push(`/admin/skills/${encodeURIComponent(s.id)}` as any)}
+                        onClick={() => navigate(`/admin/skills/${encodeURIComponent(s.id)}`)}
                         style={{
                           background: "none", border: "none", cursor: "pointer", padding: 0,
                           color: t.accent, fontWeight: 500, fontSize: 11, textAlign: "left",
@@ -260,7 +260,7 @@ export function SkillsTab({ days }: { days: number }) {
                     </td>
                     {/* Activity bar */}
                     <td style={{ padding: "8px 8px", textAlign: "right" }}>
-                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <div style={{ display: "flex", flexDirection: "row", justifyContent: "flex-end" }}>
                         <ActivityBar
                           surfacings={s.surface_count}
                           autoInjects={s.total_auto_injects ?? 0}

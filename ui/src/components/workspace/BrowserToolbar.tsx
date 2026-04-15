@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import {
   Columns2, FilePlus, FolderPlus, Upload, Settings, Play, Square, ChevronRight,
   PanelLeft, Code,
@@ -24,7 +24,7 @@ interface BrowserToolbarProps {
 
 export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbarProps) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const splitMode = useFileBrowserStore((s) => s.splitMode);
   const toggleSplit = useFileBrowserStore((s) => s.toggleSplit);
   const treeVisible = useFileBrowserStore((s) => s.treeVisible);
@@ -91,7 +91,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: isMobile ? 4 : 8,
         padding: isMobile ? "6px 8px" : "6px 12px",
@@ -112,7 +112,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
       />
 
       {/* Workspace name + status */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: isMobile ? 1 : 0, minWidth: 0 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexShrink: isMobile ? 1 : 0, minWidth: 0 }}>
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
         <span
           style={{
@@ -130,7 +130,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
 
       {/* Breadcrumb — hide on mobile */}
       {!isMobile && leftActive && (
-        <div style={{ display: "flex", alignItems: "center", gap: 2, color: t.textDim, fontSize: 12, overflow: "hidden" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 2, color: t.textDim, fontSize: 12, overflow: "hidden" }}>
           <ChevronRight size={12} color={t.textDim} />
           <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {leftActive}
@@ -142,7 +142,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
 
       {/* Inline new file/folder input */}
       {creating && (
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
           {!isMobile && (
             <span style={{ fontSize: 11, color: t.textDim }}>
               New {creating}:
@@ -211,7 +211,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
         disabled={!isRunning || editorOpening || enableEditorMutation.isPending}
         title={workspace.editor_enabled ? "Open VS Code in new tab" : "Enable editor & open in new tab"}
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 5,
           padding: "4px 10px",
@@ -233,7 +233,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
       <ToolbarButton
         icon={<Settings size={14} />}
         title="Settings"
-        onClick={() => router.push(`/admin/workspaces/${workspace.id}` as any)}
+        onClick={() => navigate(`/admin/workspaces/${workspace.id}`)}
       />
     </div>
   );
@@ -259,7 +259,7 @@ function ToolbarButton({
       disabled={disabled}
       title={title}
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         width: 28,

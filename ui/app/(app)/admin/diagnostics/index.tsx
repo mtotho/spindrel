@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { RefreshCw, AlertTriangle, CheckCircle, Cpu, HardDrive, BookOpen } from "lucide-react";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useIndexingDiagnostics,
@@ -54,7 +54,7 @@ function EmbeddingSection({ data }: { data: { healthy: boolean; model: string; l
       padding: "14px 16px", background: t.inputBg, borderRadius: 8,
       border: `1px solid ${t.surfaceRaised}`,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <Cpu size={14} color={t.textMuted} />
         <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Embedding Service</span>
         <StatusDot ok={data.healthy} />
@@ -62,7 +62,7 @@ function EmbeddingSection({ data }: { data: { healthy: boolean; model: string; l
           {data.healthy ? "Healthy" : "DOWN"}
         </span>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12, color: t.textDim }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 16, fontSize: 12, color: t.textDim }}>
         <span>Model: <span style={{ color: t.textMuted, fontFamily: "monospace" }}>{data.model}</span></span>
         <span>URL: <span style={{ color: t.textMuted, fontFamily: "monospace" }}>{data.litellm_base_url}</span></span>
       </div>
@@ -87,7 +87,7 @@ function BotIndexCard({ bot }: { bot: FsIndexDiag }) {
       padding: "14px 16px", background: t.inputBg, borderRadius: 8,
       border: `1px solid ${borderColor}`,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <HardDrive size={14} color={t.textMuted} />
         <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: "monospace" }}>
           {bot.bot_id}
@@ -156,7 +156,7 @@ function ReindexResultBanner({ result, onDismiss }: { result: ReindexResult; onD
       border: `1px solid ${hasErrors ? t.dangerBorder : t.success}33`,
       borderRadius: 8, fontSize: 12, lineHeight: 1.6,
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div style={{ color: hasErrors ? t.danger : t.success }}>
           <strong>Reindex complete:</strong> {totalIndexed} files indexed
           {result.filesystem.map((f, i) => (
@@ -191,15 +191,15 @@ export default function DiagnosticsScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner color={t.accent} />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Diagnostics"
         subtitle={data ? (data.healthy ? "All systems healthy" : `${data.issues.length} indexing issue(s)`) : undefined}
         right={
@@ -207,7 +207,7 @@ export default function DiagnosticsScreen() {
             onClick={handleReindex}
             disabled={reindexMut.isPending}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", borderRadius: 6,
               background: t.accent, color: "#fff", cursor: "pointer",
@@ -244,7 +244,7 @@ export default function DiagnosticsScreen() {
               <div style={{
                 padding: "12px 16px", background: t.successSubtle,
                 border: `1px solid ${t.success}33`, borderRadius: 8,
-                display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: t.success,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 8, fontSize: 12, color: t.success,
               }}>
                 <CheckCircle size={14} /> All indexing systems healthy
               </div>
@@ -301,7 +301,7 @@ export default function DiagnosticsScreen() {
               <div style={{
                 padding: "14px 16px", background: t.inputBg, borderRadius: 8,
                 border: `1px solid ${t.surfaceRaised}`,
-                display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12, color: t.textDim,
+                display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 16, fontSize: 12, color: t.textDim,
               }}>
                 <span>{data.systems.file_skills.files_on_disk} files on disk</span>
                 <span>{data.systems.file_skills.skills_in_db_total} skills in DB ({data.systems.file_skills.skills_in_db_file_sourced} file-sourced)</span>
@@ -312,6 +312,6 @@ export default function DiagnosticsScreen() {
           </>
         )}
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

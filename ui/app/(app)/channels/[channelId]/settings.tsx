@@ -1,10 +1,9 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useCallback, useState, useEffect, useRef } from "react";
 import { useHashTab } from "@/src/hooks/useHashTab";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useLocalSearchParams, Link, useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { ArrowLeft, Check, ExternalLink, Zap } from "lucide-react";
@@ -58,9 +57,8 @@ const ALL_TABS: { key: string; label: string; separator?: boolean }[] = [
 export default function ChannelSettingsScreen() {
   const t = useThemeTokens();
   const isMobile = useIsMobile();
-  const router = useRouter();
-  const { channelId } = useLocalSearchParams<{ channelId: string }>();
-  const insets = useSafeAreaInsets();
+  const navigate = useNavigate();
+  const { channelId } = useParams<{ channelId: string }>();
   const goBack = useGoBack(`/channels/${channelId}`);
   const { refreshing, onRefresh } = usePageRefresh();
   const { data: channel } = useChannel(channelId);
@@ -221,19 +219,19 @@ export default function ChannelSettingsScreen() {
 
   if (isLoading || !settings) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", backgroundColor: t.surface }}>
+        <Spinner color={t.accent} />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", backgroundColor: t.surface }}>
       {/* Header */}
       <div
         style={{
           flexShrink: 0,
-          paddingTop: Math.max(insets.top, 12),
+          paddingTop: 12,
           borderBottom: `1px solid ${t.surfaceBorder}`,
           backdropFilter: "blur(12px)",
           WebkitBackdropFilter: "blur(12px)",
@@ -260,7 +258,7 @@ export default function ChannelSettingsScreen() {
                 <a
                   className="header-bot-link"
                   href={`/admin/bots/${settings.bot_id}`}
-                  onClick={(e) => { e.preventDefault(); router.push(`/admin/bots/${settings.bot_id}` as any); }}
+                  onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${settings.bot_id}`); }}
                   style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent, textDecoration: "none", cursor: "pointer" }}
                 >
                   <ExternalLink size={10} color={t.accent} />
@@ -277,13 +275,13 @@ export default function ChannelSettingsScreen() {
           </div>
           {/* Auto-save status indicator */}
           {updateMutation.isPending && (
-            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-              <ActivityIndicator size={10} color={t.textDim} />
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 }}>
+              <Spinner size={10} color={t.textDim} />
               <span style={{ fontSize: 11, color: t.textDim }}>Saving</span>
             </div>
           )}
           {saved && !updateMutation.isPending && (
-            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 }}>
               <Check size={12} color={t.success} />
               <span style={{ fontSize: 11, color: t.success }}>Saved</span>
             </div>
@@ -299,12 +297,12 @@ export default function ChannelSettingsScreen() {
           No "More" dropdown — every tab is reachable in one place.
           Vertical mouse wheel is translated into horizontal scroll, and
           edge fades indicate when more tabs are off-screen. */}
-      <View style={{ flexShrink: 0, width: "100%", minWidth: 0, position: "relative" }}>
+      <div style={{ flexShrink: 0, width: "100%", minWidth: 0, position: "relative" }}>
         <div
           ref={tabBarRef}
           className="hide-scrollbar"
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "stretch",
             gap: 0,
             overflowX: "auto",
@@ -319,7 +317,7 @@ export default function ChannelSettingsScreen() {
           {ALL_TABS.map((tb) => {
             const isActive = tb.key === tab;
             return (
-              <div key={tb.key} style={{ display: "flex", alignItems: "stretch", flexShrink: 0 }}>
+              <div key={tb.key} style={{ display: "flex", flexDirection: "row", alignItems: "stretch", flexShrink: 0 }}>
                 {tb.separator && (
                   <div
                     aria-hidden
@@ -401,14 +399,14 @@ export default function ChannelSettingsScreen() {
             }}
           />
         )}
-      </View>
+      </div>
 
       {/* Tab content */}
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
         className="flex-1"
-        contentContainerStyle={{ padding: isMobile ? 12 : 16, paddingBottom: Math.max(insets.bottom, 20) + 16, gap: isMobile ? 16 : 20, maxWidth: (["logs", "tasks", "context", "workflows"] as string[]).includes(tab) ? 1200 : (["capabilities"] as string[]).includes(tab) ? 960 : 680, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
+        contentContainerStyle={{ padding: isMobile ? 12 : 16, paddingBottom: 36, gap: isMobile ? 16 : 20, maxWidth: (["logs", "tasks", "context", "workflows"] as string[]).includes(tab) ? 1200 : (["capabilities"] as string[]).includes(tab) ? 960 : 680, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
         key={tab}
       >
         {tab === "general" && (
@@ -440,6 +438,6 @@ export default function ChannelSettingsScreen() {
         {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "logs" && <LogsTab channelId={channelId!} />}
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

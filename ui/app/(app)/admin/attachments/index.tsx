@@ -1,14 +1,14 @@
 import { useState, useMemo } from "react";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
+import { Spinner } from "@/src/components/shared/Spinner";
 import {
   Trash2, Paperclip, FileText, Image, Music, Video, File,
   AlertTriangle, Settings, ChevronLeft, ChevronRight, ChevronDown,
   Eye, Download, X, Layers, List,
 } from "lucide-react";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { useChannels } from "@/src/api/hooks/useChannels";
@@ -129,8 +129,9 @@ function ViewToggle({
 }) {
   const t = useThemeTokens();
   return (
-    <Pressable
-      onPress={onToggle}
+    <button
+      type="button"
+      onClick={onToggle}
       style={{
         display: "flex",
         flexDirection: "row",
@@ -145,8 +146,8 @@ function ViewToggle({
       className="hover:bg-surface-overlay"
     >
       {grouped ? <Layers size={12} color={t.textMuted} /> : <List size={12} color={t.textMuted} />}
-      <Text style={{ fontSize: 11, color: t.textMuted }}>{grouped ? "Grouped" : "Flat"}</Text>
-    </Pressable>
+      <span style={{ fontSize: 11, color: t.textMuted }}>{grouped ? "Grouped" : "Flat"}</span>
+    </button>
   );
 }
 
@@ -190,14 +191,14 @@ function AttachmentRow({
       style={{
         padding: "10px 12px", background: t.inputBg, borderRadius: 8,
         border: `1px solid ${t.surfaceRaised}`,
-        display: "flex", gap: 10, alignItems: "center",
+        display: "flex", flexDirection: "row", gap: 10, alignItems: "center",
         position: "relative",
       }}
       {...(att.description ? { title: att.description } : {})}
     >
       <Icon size={18} color={t.textMuted} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{
             fontSize: 13, fontWeight: 600, color: t.text,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -214,10 +215,10 @@ function AttachmentRow({
             </span>
           )}
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontSize: 11, color: t.textDim, marginTop: 3 }}>
+        <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 8, fontSize: 11, color: t.textDim, marginTop: 3 }}>
           <span style={{ fontFamily: "monospace", fontSize: 10 }}>{formatBytes(att.size_bytes)}</span>
           {showChannel && att.channel_name && (
-            <Link href={`/channels/${att.channel_id}` as any}>
+            <Link to={`/channels/${att.channel_id}`}>
               <span style={{ color: t.accent, cursor: "pointer" }}>#{att.channel_name}</span>
             </Link>
           )}
@@ -235,27 +236,30 @@ function AttachmentRow({
           )}
         </div>
       </div>
-      <div style={{ display: "flex", gap: 1, flexShrink: 0 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 1, flexShrink: 0 }}>
         {att.has_file_data && canPreview(att.mime_type) && (
-          <Pressable
-            onPress={() => handlePreviewOrOpen(att, onPreview)}
+          <button
+            type="button"
+            onClick={() => handlePreviewOrOpen(att, onPreview)}
             style={{ padding: 7, borderRadius: 6, opacity: 0.7 }}
             className="hover:bg-surface-overlay"
           >
             <Eye size={14} color={t.accent} />
-          </Pressable>
+          </button>
         )}
         {att.has_file_data && (
-          <Pressable
-            onPress={() => handleDownload(att)}
+          <button
+            type="button"
+            onClick={() => handleDownload(att)}
             style={{ padding: 7, borderRadius: 6, opacity: 0.7 }}
             className="hover:bg-surface-overlay"
           >
             <Download size={14} color={t.textMuted} />
-          </Pressable>
+          </button>
         )}
-        <Pressable
-          onPress={() => onDelete(att.id, att.filename)}
+        <button
+          type="button"
+          onClick={() => onDelete(att.id, att.filename)}
           disabled={deletingId === att.id}
           style={{
             padding: 7, borderRadius: 6,
@@ -264,7 +268,7 @@ function AttachmentRow({
           className="hover:bg-surface-overlay"
         >
           <Trash2 size={14} color={t.danger} />
-        </Pressable>
+        </button>
       </div>
     </div>
   );
@@ -288,11 +292,11 @@ function ChannelGroupHeader({
   const t = useThemeTokens();
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 8,
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
       padding: "8px 4px 4px",
     }}>
       {channelId ? (
-        <Link href={`/channels/${channelId}` as any}>
+        <Link to={`/channels/${channelId}`}>
           <span style={{ fontSize: 13, fontWeight: 700, color: t.accent, cursor: "pointer" }}>
             #{channelName || "unknown"}
           </span>
@@ -322,7 +326,7 @@ function PreviewModal({ att, onClose }: { att: AttachmentAdmin; onClose: () => v
     <div
       style={{
         position: "fixed", inset: 0, zIndex: 999,
-        display: "flex", alignItems: "center", justifyContent: "center",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
         background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)",
       }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
@@ -340,18 +344,19 @@ function PreviewModal({ att, onClose }: { att: AttachmentAdmin; onClose: () => v
           }}>
             {att.filename}
           </span>
-          <Pressable
-            onPress={() => handleDownload(att)}
+          <button
+            type="button"
+            onClick={() => handleDownload(att)}
             style={{ padding: 6, borderRadius: 6 }}
             className="hover:bg-surface-overlay"
           >
             <Download size={14} color={t.accent} />
-          </Pressable>
-          <Pressable onPress={onClose} style={{ padding: 6, borderRadius: 6 }} className="hover:bg-surface-overlay">
+          </button>
+          <button type="button" onClick={onClose} style={{ padding: 6, borderRadius: 6 }} className="hover:bg-surface-overlay">
             <X size={14} color={t.textMuted} />
-          </Pressable>
+          </button>
         </div>
-        <div style={{ flex: 1, overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
           {att.mime_type.startsWith("image/") && (
             <img
               src={url}
@@ -419,7 +424,7 @@ function PurgeModal({
     <div
       style={{
         position: "fixed", inset: 0, zIndex: 999,
-        display: "flex", alignItems: "center", justifyContent: "center",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
         background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)",
       }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
@@ -429,7 +434,7 @@ function PurgeModal({
         width: "90%", maxWidth: 420,
         border: `1px solid ${t.surfaceRaised}`,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 16 }}>
           <AlertTriangle size={18} color={t.danger} />
           <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>Purge Attachments</span>
         </div>
@@ -457,28 +462,29 @@ function PurgeModal({
               ))}
             </select>
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: t.textMuted, cursor: "pointer" }}>
+          <label style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, fontSize: 12, color: t.textMuted, cursor: "pointer" }}>
             <input type="checkbox" checked={fileDataOnly} onChange={(e) => setFileDataOnly(e.target.checked)} />
             Purge file data only (keep metadata)
           </label>
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
-          <Pressable onPress={onClose} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 6 }}>
-            <Text style={{ color: t.textMuted, fontSize: 13 }}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            onPress={handlePurge}
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+          <button type="button" onClick={onClose} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 6 } as any}>
+            <span style={{ color: t.textMuted, fontSize: 13 }}>Cancel</span>
+          </button>
+          <button
+            type="button"
+            onClick={handlePurge}
             disabled={purge.isPending}
             style={{
               paddingHorizontal: 14, paddingVertical: 8, borderRadius: 6,
               backgroundColor: t.danger, opacity: purge.isPending ? 0.6 : 1,
-            }}
+            } as any}
           >
-            <Text style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>
+            <span style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>
               {purge.isPending ? "Purging..." : "Purge"}
-            </Text>
-          </Pressable>
+            </span>
+          </button>
         </div>
       </div>
     </div>
@@ -554,20 +560,21 @@ export default function AttachmentsPage() {
   const showGrouped = groupByChannel && !filterChannel;
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Attachments"
         subtitle={stats ? `${stats.total_count} total - ${formatBytes(stats.total_size_bytes)}` : undefined}
         right={
-          <Pressable
-            onPress={() => setShowPurge(true)}
+          <button
+            type="button"
+            onClick={() => setShowPurge(true)}
             style={{
               paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6,
               backgroundColor: t.danger,
-            }}
+            } as any}
           >
-            <Text style={{ color: "#fff", fontSize: 12, fontWeight: 600 }}>Purge</Text>
-          </Pressable>
+            <span style={{ color: "#fff", fontSize: 12, fontWeight: 600 }}>Purge</span>
+          </button>
         }
       />
 
@@ -580,7 +587,7 @@ export default function AttachmentsPage() {
         {/* Stats row */}
         {stats && (
           <div style={{
-            display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center",
+            display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center",
             padding: "10px 14px", background: t.inputBg, borderRadius: 8,
             border: `1px solid ${t.surfaceRaised}`,
           }}>
@@ -593,7 +600,7 @@ export default function AttachmentsPage() {
             <div style={{ fontSize: 12, color: t.textDim }}>
               Size: <span style={{ color: t.text, fontWeight: 600, fontFamily: "monospace" }}>{formatBytes(stats.total_size_bytes)}</span>
             </div>
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
               {Object.entries(stats.by_type).map(([type, count]) => (
                 <TypeBadge key={type} type={`${type}: ${count}`} />
               ))}
@@ -602,7 +609,7 @@ export default function AttachmentsPage() {
         )}
 
         {/* Filters */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <FilterSelect
             value={filterChannel}
             onChange={(v) => { setFilterChannel(v); setPage(0); }}
@@ -620,8 +627,8 @@ export default function AttachmentsPage() {
             <span style={{ fontSize: 11, color: t.textDim }}>{data.total} results</span>
           )}
           <div style={{ flex: 1 }} />
-          <Link href={"/settings#Attachments" as any}>
-            <div style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+          <Link to="/settings#Attachments">
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, cursor: "pointer" }}>
               <Settings size={12} color={t.accent} />
               <span style={{ fontSize: 11, color: t.accent }}>Settings</span>
             </div>
@@ -630,9 +637,9 @@ export default function AttachmentsPage() {
 
         {/* List */}
         {isLoading ? (
-          <View style={{ padding: 24, alignItems: "center" }}>
-            <ActivityIndicator color={t.accent} />
-          </View>
+          <div style={{ padding: 24, alignItems: "center" }}>
+            <Spinner color={t.accent} />
+          </div>
         ) : !data?.attachments.length ? (
           <div style={{ padding: 24, textAlign: "center", color: t.textDim, fontSize: 13 }}>
             No attachments found.
@@ -681,24 +688,26 @@ export default function AttachmentsPage() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12 }}>
-            <Pressable
-              onPress={() => setPage((p) => Math.max(0, p - 1))}
+          <div style={{ display: "flex", flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 12 }}>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
               disabled={page === 0}
               style={{ padding: 8, borderRadius: 6, opacity: page === 0 ? 0.3 : 1 }}
             >
               <ChevronLeft size={16} color={t.textMuted} />
-            </Pressable>
+            </button>
             <span style={{ fontSize: 12, color: t.textDim }}>
               {page + 1} / {totalPages}
             </span>
-            <Pressable
-              onPress={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
               disabled={page >= totalPages - 1}
               style={{ padding: 8, borderRadius: 6, opacity: page >= totalPages - 1 ? 0.3 : 1 }}
             >
               <ChevronRight size={16} color={t.textMuted} />
-            </Pressable>
+            </button>
           </div>
         )}
       </RefreshableScrollView>
@@ -713,6 +722,6 @@ export default function AttachmentsPage() {
       {previewAtt && (
         <PreviewModal att={previewAtt} onClose={() => setPreviewAtt(null)} />
       )}
-    </View>
+    </div>
   );
 }

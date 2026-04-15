@@ -46,7 +46,7 @@ function DeviceRow({ device }: { device: DeviceStatusInfo }) {
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 10,
         padding: "8px 0",
@@ -76,7 +76,7 @@ function DeviceRow({ device }: { device: DeviceStatusInfo }) {
       </div>
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 4,
           fontSize: 11,
@@ -134,7 +134,7 @@ export function DeviceStatusSection({
     >
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 8,
         }}
@@ -164,7 +164,7 @@ export function DeviceStatusSection({
       {data.stale && (
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 6,
             padding: "4px 8px",

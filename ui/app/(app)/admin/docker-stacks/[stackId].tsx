@@ -2,7 +2,7 @@
  * Docker Stack detail page — stack info, services, logs, and actions.
  */
 import { useState } from "react";
-import { View, Text, Pressable, ActivityIndicator, ScrollView } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import {
@@ -14,14 +14,14 @@ import {
   useDestroyDockerStack,
 } from "@/src/api/hooks/useDockerStacks";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
   Boxes, ArrowLeft, Play, Square, Trash2,
   CheckCircle2, XCircle, Loader2, AlertTriangle, Minus,
   Server, FileCode, ScrollText, Plug,
 } from "lucide-react";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useParams, useNavigate } from "react-router-dom";
 import type { DockerStackServiceStatus } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
@@ -49,15 +49,15 @@ function StatusBadge({ status, t }: { status: string; t: ThemeTokens }) {
   const style = getStatusStyle(status, t);
   const Icon = style.icon;
   return (
-    <View
+    <div
       className="flex-row items-center gap-1 rounded-full px-2.5 py-1"
-      style={{ backgroundColor: style.bg, borderWidth: 1, borderColor: style.border }}
+      style={{ backgroundColor: style.bg, border: `1px solid ${style.border }`}}
     >
       <Icon size={14} color={style.color} />
-      <Text className="text-sm font-medium" style={{ color: style.color }}>
+      <span className="text-sm font-medium" style={{ color: style.color }}>
         {status}
-      </Text>
-    </View>
+      </span>
+    </div>
   );
 }
 
@@ -71,30 +71,30 @@ function TabButton({
   label,
   icon: Icon,
   active,
-  onPress,
+  onClick,
   t,
 }: {
   label: string;
   icon: React.ComponentType<{ size: number; color: string }>;
   active: boolean;
-  onPress: () => void;
+  onClick: () => void;
   t: ThemeTokens;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
+    <button type="button"
+      onClick={onClick}
       className={`flex-row items-center gap-1.5 px-3 py-2 rounded-lg ${
         active ? "bg-accent/15" : "hover:bg-surface-overlay"
       }`}
     >
       <Icon size={14} color={active ? t.accent : t.textDim} />
-      <Text
+      <span
         className="text-sm font-medium"
         style={{ color: active ? t.accent : t.textMuted }}
       >
         {label}
-      </Text>
-    </Pressable>
+      </span>
+    </button>
   );
 }
 
@@ -113,64 +113,63 @@ function ServicesTab({
 }) {
   if (isLoading) {
     return (
-      <View className="items-center py-8">
-        <ActivityIndicator size="small" color={t.accent} />
-      </View>
+      <div className="items-center py-8">
+        <Spinner color={t.accent} />
+      </div>
     );
   }
   if (!services || services.length === 0) {
     return (
-      <View className="items-center py-8">
-        <Text className="text-sm" style={{ color: t.textDim }}>
+      <div className="items-center py-8">
+        <span className="text-sm" style={{ color: t.textDim }}>
           No services running
-        </Text>
-      </View>
+        </span>
+      </div>
     );
   }
   return (
-    <View className="gap-2">
+    <div className="gap-2">
       {services.map((svc) => {
         const stStyle = getStatusStyle(svc.state, t);
         return (
-          <View
+          <div
             key={svc.name}
             className="rounded-lg p-3 flex-row items-center justify-between"
             style={{
               backgroundColor: t.surfaceRaised,
-              borderWidth: 1,
-              borderColor: t.surfaceBorder,
+              border: `1px solid ${t.surfaceBorder}`,
             }}
           >
-            <View className="flex-row items-center gap-2">
+            <div className="flex-row items-center gap-2">
               <Server size={14} color={t.accent} />
-              <Text className="text-sm font-medium" style={{ color: t.text }}>
+              <span className="text-sm font-medium" style={{ color: t.text }}>
                 {svc.name}
-              </Text>
-            </View>
-            <View className="flex-row items-center gap-3">
+              </span>
+            </div>
+            <div className="flex-row items-center gap-3">
               {svc.ports.length > 0 && (
-                <Text className="text-xs" style={{ color: t.textDim }}>
+                <span className="text-xs" style={{ color: t.textDim }}>
                   {svc.ports.map((p) => `${p.host_port}:${p.container_port}`).join(", ")}
-                </Text>
+                </span>
               )}
               {svc.health && (
-                <Text className="text-xs" style={{ color: t.textDim }}>
+                <span className="text-xs" style={{ color: t.textDim }}>
                   {svc.health}
-                </Text>
+                </span>
               )}
-              <View
+              <div
                 className="rounded-full px-2 py-0.5"
-                style={{ backgroundColor: stStyle.bg, borderWidth: 1, borderColor: stStyle.border }}
+                style={{ backgroundColor: stStyle.bg, border: `1px solid ${stStyle.border }`}}
               >
-                <Text className="text-xs font-medium" style={{ color: stStyle.color }}>
+                <span className="text-xs font-medium" style={{ color: stStyle.color }}>
                   {svc.state}
-                </Text>
-              </View>
-            </View>
-          </View>
+                </span>
+              </div>
+            </div>
+          </div>
         );
       })}
-    </View>
+    </div>
   );
 }
 
@@ -180,24 +179,22 @@ function ServicesTab({
 
 function ComposeTab({ definition, t }: { definition: string; t: ThemeTokens }) {
   return (
-    <View
+    <div
       className="rounded-lg p-4"
       style={{
         backgroundColor: t.surfaceRaised,
-        borderWidth: 1,
-        borderColor: t.surfaceBorder,
+        border: `1px solid ${t.surfaceBorder}`,
       }}
     >
-      <ScrollView horizontal>
-        <Text
+      <div className="overflow-x-auto">
+        <span
           className="text-xs font-mono"
           style={{ color: t.text, whiteSpace: "pre" } as any}
-          selectable
         >
           {definition}
-        </Text>
-      </ScrollView>
-    </View>
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -218,71 +215,67 @@ function LogsTab({
   const { data: logsData, isLoading } = useDockerStackLogs(stackId, selectedService);
 
   return (
-    <View className="gap-3">
+    <div className="gap-3">
       {/* Service filter */}
       {services && services.length > 0 && (
-        <View className="flex-row flex-wrap gap-1.5">
-          <Pressable
-            onPress={() => setSelectedService(undefined)}
+        <div className="flex-row flex-wrap gap-1.5">
+          <button type="button"
+            onClick={() => setSelectedService(undefined)}
             className={`rounded-full px-3 py-1 ${!selectedService ? "bg-accent/15" : ""}`}
             style={{
-              borderWidth: 1,
-              borderColor: !selectedService ? t.accentBorder : t.surfaceBorder,
+              border: `1px solid ${!selectedService ? t.accentBorder : t.surfaceBorder}`,
             }}
           >
-            <Text
+            <span
               className="text-xs font-medium"
               style={{ color: !selectedService ? t.accent : t.textMuted }}
             >
               All
-            </Text>
-          </Pressable>
+            </span>
+          </button>
           {services.map((svc) => (
-            <Pressable
+            <button type="button"
               key={svc.name}
-              onPress={() => setSelectedService(svc.name)}
+              onClick={() => setSelectedService(svc.name)}
               className={`rounded-full px-3 py-1 ${selectedService === svc.name ? "bg-accent/15" : ""}`}
               style={{
-                borderWidth: 1,
-                borderColor: selectedService === svc.name ? t.accentBorder : t.surfaceBorder,
+                border: `1px solid ${selectedService === svc.name ? t.accentBorder : t.surfaceBorder}`,
               }}
             >
-              <Text
+              <span
                 className="text-xs font-medium"
                 style={{ color: selectedService === svc.name ? t.accent : t.textMuted }}
               >
                 {svc.name}
-              </Text>
-            </Pressable>
+              </span>
+            </button>
           ))}
-        </View>
+        </div>
       )}
 
       {/* Logs output */}
-      <View
+      <div
         className="rounded-lg p-3"
         style={{
           backgroundColor: t.surfaceRaised,
-          borderWidth: 1,
-          borderColor: t.surfaceBorder,
+          border: `1px solid ${t.surfaceBorder}`,
           maxHeight: 500,
         }}
       >
         {isLoading ? (
-          <ActivityIndicator size="small" color={t.accent} />
+          <Spinner color={t.accent} />
         ) : (
-          <ScrollView>
-            <Text
+          <div className="overflow-auto">
+            <span
               className="text-xs font-mono"
               style={{ color: t.text, whiteSpace: "pre-wrap" } as any}
-              selectable
-            >
+                >
               {logsData?.logs || "No logs available"}
-            </Text>
-          </ScrollView>
+            </span>
+          </div>
         )}
-      </View>
-    </View>
+      </div>
+    </div>
   );
 }
 
@@ -292,8 +285,8 @@ function LogsTab({
 
 export default function DockerStackDetailPage() {
   const t = useThemeTokens();
-  const router = useRouter();
-  const { stackId } = useLocalSearchParams<{ stackId: string }>();
+  const navigate = useNavigate();
+  const { stackId } = useParams<{ stackId: string }>();
   const { data: stack, isLoading } = useDockerStack(stackId);
   const { data: services } = useDockerStackStatus(
     stackId,
@@ -308,69 +301,68 @@ export default function DockerStackDetailPage() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator size="large" color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner color={t.accent} />
+      </div>
     );
   }
 
   if (!stack) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center gap-2">
-        <Text className="text-base" style={{ color: t.textMuted }}>
+      <div className="flex-1 bg-surface items-center justify-center gap-2">
+        <span className="text-base" style={{ color: t.textMuted }}>
           Stack not found
-        </Text>
-        <Pressable onPress={() => router.back()}>
-          <Text className="text-sm" style={{ color: t.accent }}>
+        </span>
+        <button type="button" onClick={() => navigate(-1)}>
+          <span className="text-sm" style={{ color: t.accent }}>
             Go back
-          </Text>
-        </Pressable>
-      </View>
+          </span>
+        </button>
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title={stack.name} />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="detail" title={stack.name} backTo="/admin/docker-stacks" />
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
         contentContainerStyle={{ padding: 16, paddingBottom: 80, gap: 16 }}
       >
         {/* Back + Title */}
-        <View className="flex-row items-center gap-3">
-          <Pressable onPress={() => router.push("/admin/docker-stacks" as any)} className="p-1">
+        <div className="flex-row items-center gap-3">
+          <button type="button" onClick={() => navigate("/admin/docker-stacks")} className="p-1">
             <ArrowLeft size={20} color={t.textMuted} />
-          </Pressable>
+          </button>
           <Boxes size={22} color={t.accent} />
-          <Text className="text-xl font-bold flex-1" style={{ color: t.text }}>
+          <span className="text-xl font-bold flex-1" style={{ color: t.text }}>
             {stack.name}
-          </Text>
+          </span>
           <StatusBadge status={stack.status} t={t} />
-        </View>
+        </div>
 
         {/* Info bar */}
-        <View
+        <div
           className="rounded-lg p-4 gap-2"
           style={{
             backgroundColor: t.surfaceRaised,
-            borderWidth: 1,
-            borderColor: t.surfaceBorder,
+            border: `1px solid ${t.surfaceBorder}`,
           }}
         >
-          <View className="flex-row flex-wrap gap-4">
+          <div className="flex-row flex-wrap gap-4">
             {stack.source === "integration" ? (
-              <View className="flex-row items-center gap-1.5">
-                <View>
-                  <Text className="text-xs" style={{ color: t.textDim }}>Integration</Text>
-                  <View className="flex-row items-center gap-1">
+              <div className="flex-row items-center gap-1.5">
+                <div>
+                  <span className="text-xs" style={{ color: t.textDim }}>Integration</span>
+                  <div className="flex-row items-center gap-1">
                     <Plug size={12} color={t.accent} />
-                    <Text className="text-sm font-medium" style={{ color: t.text }}>
+                    <span className="text-sm font-medium" style={{ color: t.text }}>
                       {stack.integration_id}
-                    </Text>
-                  </View>
-                </View>
-              </View>
+                    </span>
+                  </div>
+                </div>
+              </div>
             ) : (
               <InfoItem label="Bot" value={stack.created_by_bot} t={t} />
             )}
@@ -383,29 +375,29 @@ export default function DockerStackDetailPage() {
                 t={t}
               />
             )}
-          </View>
+          </div>
           {stack.error_message && (
-            <View className="rounded p-2 mt-1" style={{ backgroundColor: t.dangerSubtle }}>
-              <Text className="text-xs" style={{ color: t.danger }}>
+            <div className="rounded p-2 mt-1" style={{ backgroundColor: t.dangerSubtle }}>
+              <span className="text-xs" style={{ color: t.danger }}>
                 {stack.error_message}
-              </Text>
-            </View>
+              </span>
+            </div>
           )}
           {stack.description && (
-            <Text className="text-sm" style={{ color: t.textMuted }}>
+            <span className="text-sm" style={{ color: t.textMuted }}>
               {stack.description}
-            </Text>
+            </span>
           )}
-        </View>
+        </div>
 
         {/* Actions */}
-        <View className="flex-row gap-2">
+        <div className="flex-row gap-2">
           {(stack.status === "stopped" || stack.status === "error") && (
             <ActionButton
               label="Start"
               icon={Play}
               color={t.success}
-              onPress={() => startMutation.mutate(stack.id)}
+              onClick={() => startMutation.mutate(stack.id)}
               loading={startMutation.isPending}
               t={t}
             />
@@ -415,7 +407,7 @@ export default function DockerStackDetailPage() {
               label="Stop"
               icon={Square}
               color={t.warning}
-              onPress={() => stopMutation.mutate(stack.id)}
+              onClick={() => stopMutation.mutate(stack.id)}
               loading={stopMutation.isPending}
               t={t}
             />
@@ -425,14 +417,14 @@ export default function DockerStackDetailPage() {
               label="Destroy"
               icon={Trash2}
               color={t.danger}
-              onPress={async () => {
+              onClick={async () => {
                 const ok = await confirm(
                   "This will permanently destroy the stack and all its data volumes. This cannot be undone.",
                   { title: "Destroy Stack?", confirmLabel: "Destroy", variant: "danger" },
                 );
                 if (ok) {
                   destroyMutation.mutate(stack.id, {
-                    onSuccess: () => router.push("/admin/docker-stacks" as any),
+                    onSuccess: () => navigate("/admin/docker-stacks"),
                   });
                 }
               }}
@@ -440,32 +432,32 @@ export default function DockerStackDetailPage() {
               t={t}
             />
           )}
-        </View>
+        </div>
 
         {/* Tabs */}
-        <View className="flex-row gap-1">
+        <div className="flex-row gap-1">
           <TabButton
             label="Services"
             icon={Server}
             active={activeTab === "services"}
-            onPress={() => setActiveTab("services")}
+            onClick={() => setActiveTab("services")}
             t={t}
           />
           <TabButton
             label="Compose"
             icon={FileCode}
             active={activeTab === "compose"}
-            onPress={() => setActiveTab("compose")}
+            onClick={() => setActiveTab("compose")}
             t={t}
           />
           <TabButton
             label="Logs"
             icon={ScrollText}
             active={activeTab === "logs"}
-            onPress={() => setActiveTab("logs")}
+            onClick={() => setActiveTab("logs")}
             t={t}
           />
-        </View>
+        </div>
 
         {/* Tab content */}
         {activeTab === "services" && (
@@ -479,7 +471,7 @@ export default function DockerStackDetailPage() {
         )}
       </RefreshableScrollView>
       <ConfirmDialogSlot />
-    </View>
+    </div>
   );
 }
 
@@ -489,14 +481,14 @@ export default function DockerStackDetailPage() {
 
 function InfoItem({ label, value, t }: { label: string; value: string; t: ThemeTokens }) {
   return (
-    <View>
-      <Text className="text-xs" style={{ color: t.textDim }}>
+    <div>
+      <span className="text-xs" style={{ color: t.textDim }}>
         {label}
-      </Text>
-      <Text className="text-sm font-medium" style={{ color: t.text }}>
+      </span>
+      <span className="text-sm font-medium" style={{ color: t.text }}>
         {value}
-      </Text>
-    </View>
+      </span>
+    </div>
   );
 }
 
@@ -504,36 +496,35 @@ function ActionButton({
   label,
   icon: Icon,
   color,
-  onPress,
+  onClick,
   loading,
   t,
 }: {
   label: string;
   icon: React.ComponentType<{ size: number; color: string }>;
   color: string;
-  onPress: () => void;
+  onClick: () => void;
   loading?: boolean;
   t: ThemeTokens;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
+    <button type="button"
+      onClick={onClick}
       disabled={loading}
       className="flex-row items-center gap-1.5 rounded-lg px-3 py-2 hover:opacity-80"
       style={{
-        borderWidth: 1,
-        borderColor: color,
+        border: `1px solid ${color}`,
         opacity: loading ? 0.6 : 1,
       }}
     >
       {loading ? (
-        <ActivityIndicator size={14} color={color} />
+        <Spinner color={color} />
       ) : (
         <Icon size={14} color={color} />
       )}
-      <Text className="text-sm font-medium" style={{ color }}>
+      <span className="text-sm font-medium" style={{ color }}>
         {label}
-      </Text>
-    </Pressable>
+      </span>
+    </button>
   );
 }

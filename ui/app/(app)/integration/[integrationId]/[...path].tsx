@@ -1,5 +1,5 @@
-import { View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+
+import { useParams } from "react-router-dom";
 import { useAuthStore } from "@/src/stores/auth";
 import { IntegrationFrame } from "@/src/components/integration/IntegrationFrame";
 
@@ -11,24 +11,14 @@ import { IntegrationFrame } from "@/src/components/integration/IntegrationFrame"
  *   /integrations/{integrationId}/ui/{path}
  */
 export default function IntegrationCatchAll() {
-  const params = useLocalSearchParams();
-  const integrationId = params.integrationId as string;
+  const { integrationId, "*": subPath } = useParams();
   const serverUrl = useAuthStore((s) => s.serverUrl);
-
-  // path can be string, string[], or undefined depending on Expo Router
-  const rawPath = params.path;
-  let subPath = "";
-  if (Array.isArray(rawPath)) {
-    subPath = rawPath.join("/");
-  } else if (typeof rawPath === "string") {
-    subPath = rawPath;
-  }
 
   const src = `${serverUrl}/integrations/${integrationId}/ui/${subPath}`;
 
   return (
-    <View style={{ flex: 1 }}>
+    <div style={{ flex: 1 }}>
       <IntegrationFrame src={src} />
-    </View>
+    </div>
   );
 }

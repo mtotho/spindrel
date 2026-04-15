@@ -34,7 +34,7 @@ export function TurnCard({
     >
       {/* Header line: time + bot + channel + error badge */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
         fontSize: 11, color: t.textDim, marginBottom: 4,
       }}>
         <span>{formatDateShort(turn.created_at)} {formatTimeCompact(turn.created_at)}</span>
@@ -55,7 +55,7 @@ export function TurnCard({
         )}
         {turn.has_error && (
           <span style={{
-            display: "flex", alignItems: "center", gap: 3,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 3,
             background: t.dangerSubtle, color: t.danger,
             padding: "1px 6px", borderRadius: 3, fontSize: 10, fontWeight: 600,
           }}>
@@ -110,16 +110,16 @@ export function TurnCard({
 
       {/* Stats line */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 12,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
         marginTop: 6, fontSize: 10, color: t.textDim,
       }}>
         {turn.duration_ms != null && (
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+          <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
             <Clock size={10} /> {formatDuration(turn.duration_ms)}
           </span>
         )}
         {turn.total_tokens > 0 && (
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+          <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
             <Zap size={10} /> {formatTokens(turn.total_tokens)} tokens
           </span>
         )}

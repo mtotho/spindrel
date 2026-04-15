@@ -128,7 +128,7 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
             </div>
           )}
           {stats.periods_missing > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: t.warningMuted, marginTop: 2 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 11, color: t.warningMuted, marginTop: 2 }}>
               <AlertTriangle size={10} style={{ flexShrink: 0 }} />
               <span>
                 {stats.periods_missing} section{stats.periods_missing !== 1 ? "s" : ""} missing timestamps
@@ -156,13 +156,13 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
       )}
 
       {/* Buttons */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         {existingSections > 0 && stats && stats.estimated_remaining > 0 && (
           <button
             onClick={() => runBackfill(false)}
             disabled={running}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", cursor: running ? "default" : "pointer", borderRadius: 6,
               background: running ? t.surfaceBorder : t.warningSubtle,
@@ -180,7 +180,7 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
             onClick={() => runBackfill(true)}
             disabled={running}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: `1px solid ${t.surfaceBorder}`, cursor: running ? "default" : "pointer", borderRadius: 6,
               background: "transparent",
@@ -197,7 +197,7 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
             onClick={() => runBackfill(false)}
             disabled={running}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", cursor: running ? "default" : "pointer", borderRadius: 6,
               background: running ? t.surfaceBorder : t.warningSubtle,

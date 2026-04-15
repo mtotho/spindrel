@@ -1,10 +1,12 @@
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useState, useMemo } from "react";
 import type { PromptTemplate } from "@/src/types/api";
@@ -73,7 +75,7 @@ function SectionHeader({ label, count, level, isWide }: { label: string; count: 
   const isSubheader = level > 0;
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 8,
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
       padding: isWide
         ? `${isSubheader ? 8 : 14}px 16px ${isSubheader ? 4 : 6}px ${isSubheader ? 32 : 16}px`
         : `${isSubheader ? 8 : 14}px 0 ${isSubheader ? 4 : 6}px ${isSubheader ? 16 : 0}px`,
@@ -101,7 +103,7 @@ function TagPills({ tags }: { tags: string[] }) {
   const display = tags.slice(0, 5);
   const overflow = tags.length - display.length;
   return (
-    <div style={{ display: "flex", gap: 3, flexWrap: "wrap", alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 3, flexWrap: "wrap", alignItems: "center" }}>
       {display.map((tag) => {
         const isIntegration = tag.startsWith("integration:");
         return (
@@ -128,14 +130,14 @@ function TagPills({ tags }: { tags: string[] }) {
   );
 }
 
-function TemplateRow({ template, onPress, isWide }: { template: PromptTemplate; onPress: () => void; isWide: boolean }) {
+function TemplateRow({ template, onClick, isWide }: { template: PromptTemplate; onClick: () => void; isWide: boolean }) {
   const tk = useThemeTokens();
   const preview = template.content.split("\n").find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("---"))?.trim() || "";
 
   if (!isWide) {
     return (
       <button
-        onClick={onPress}
+        onClick={onClick}
         style={{
           display: "flex", flexDirection: "column", gap: 6,
           padding: "12px 16px", background: tk.inputBg, borderRadius: 8,
@@ -143,14 +145,14 @@ function TemplateRow({ template, onPress, isWide }: { template: PromptTemplate; 
           width: "100%",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: tk.text, flex: 1 }}>
             {template.name}
           </span>
           <ScopeBadge workspaceId={template.workspace_id} />
           <SourceBadge type={template.source_type} />
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: tk.textDim }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12, fontSize: 11, color: tk.textDim }}>
           {template.category && <span>{template.category}</span>}
         </div>
         {(template.tags || []).length > 0 && <TagPills tags={template.tags || []} />}
@@ -165,7 +167,7 @@ function TemplateRow({ template, onPress, isWide }: { template: PromptTemplate; 
 
   return (
     <button
-      onClick={onPress}
+      onClick={onClick}
       style={{
         display: "grid", gridTemplateColumns: "1fr 100px 80px 80px 100px",
         alignItems: "center", gap: 12,
@@ -203,10 +205,10 @@ function TemplateRow({ template, onPress, isWide }: { template: PromptTemplate; 
 
 export default function PromptTemplatesScreen() {
   const tk = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: templates, isLoading } = usePromptTemplates();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
@@ -305,21 +307,21 @@ export default function PromptTemplatesScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={tk.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list"
         title="Prompt Templates"
         right={
           <button
-            onClick={() => router.push("/admin/prompt-templates/new" as any)}
+            onClick={() => navigate("/admin/prompt-templates/new")}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", borderRadius: 6,
               background: tk.accent, color: "#fff", cursor: "pointer",
@@ -339,7 +341,7 @@ export default function PromptTemplatesScreen() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{
-            display: "flex", alignItems: "center", gap: 6,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             background: tk.inputBg, border: `1px solid ${tk.surfaceBorder}`,
             borderRadius: 6, padding: "5px 10px",
             maxWidth: isWide ? 300 : undefined, flex: isWide ? undefined : 1,
@@ -365,7 +367,7 @@ export default function PromptTemplatesScreen() {
           )}
         </div>
         {categories.length > 0 && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
             <button
               onClick={() => setCategoryFilter(null)}
               style={{
@@ -396,7 +398,7 @@ export default function PromptTemplatesScreen() {
           </div>
         )}
         {allTags.length > 0 && (
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontSize: 10, color: tk.textDim, fontWeight: 600, marginRight: 2 }}>Tags:</span>
             {allTags.map((tag) => {
               const isIntegration = tag.startsWith("integration:");
@@ -422,10 +424,7 @@ export default function PromptTemplatesScreen() {
       </div>
 
       {/* List */}
-      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
-        padding: isWide ? 0 : 12,
-        gap: isWide ? 0 : 8,
-      }}>
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
         {(!templates || templates.length === 0) && (
           <div style={{
             padding: 40, textAlign: "center", color: tk.textDim, fontSize: 13,
@@ -449,11 +448,11 @@ export default function PromptTemplatesScreen() {
               key={item.key}
               template={item.template}
               isWide={isWide}
-              onPress={() => router.push(`/admin/prompt-templates/${item.template.id}` as any)}
+              onClick={() => navigate(`/admin/prompt-templates/${item.template.id}`)}
             />
           ),
         )}
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

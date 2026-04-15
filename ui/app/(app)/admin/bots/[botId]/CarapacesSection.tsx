@@ -33,7 +33,7 @@ function fmtIntName(key: string): string {
 function SectionHeader({ label, count }: { label: string; count: number }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0 4px" }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: "10px 0 4px" }}>
       <span style={{ fontSize: 10, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
         {label}
       </span>
@@ -176,7 +176,7 @@ export function CarapacesSection({
             No pinned capabilities. The bot will auto-discover what it needs.
           </div>
         )}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
           {pinnedCarapaces.map((c) => (
             <div key={c.id} style={{
               display: "flex", alignItems: "center", gap: 4,
@@ -191,7 +191,7 @@ export function CarapacesSection({
               )}
               <button
                 onClick={() => toggle(c.id)}
-                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", flexDirection: "row" }}
                 title="Unpin"
               >
                 <X size={10} color={t.textDim} />
@@ -202,7 +202,7 @@ export function CarapacesSection({
             <button
               onClick={() => setAdding(true)}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 padding: "4px 8px", borderRadius: 4, fontSize: 11,
                 background: "transparent", border: `1px dashed ${t.surfaceBorder}`,
                 color: t.textDim, cursor: "pointer",
@@ -218,7 +218,7 @@ export function CarapacesSection({
             border: `1px solid ${t.surfaceBorder}`, background: t.inputBg,
             marginBottom: 8,
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
               <Search size={12} color={t.textDim} />
               <input
                 type="text" value={addSearch}
@@ -237,7 +237,7 @@ export function CarapacesSection({
               {filteredUnpinned.map((c) => (
                 <button key={c.id} onClick={() => { toggle(c.id); setAddSearch(""); }}
                   style={{
-                    display: "flex", alignItems: "center", gap: 6,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                     width: "100%", textAlign: "left",
                     padding: "5px 6px", fontSize: 11,
                     color: t.text, background: "transparent", border: "none",
@@ -266,7 +266,7 @@ export function CarapacesSection({
         <div style={{ paddingTop: 8 }}>
           {allCarapaces.length > 6 && (
             <div style={{
-              display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8,
               background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "4px 8px",
             }}>
               <Search size={12} color={t.textDim} />
@@ -288,7 +288,7 @@ export function CarapacesSection({
                   background: on ? t.accentSubtle : "transparent",
                   borderBottom: `1px solid ${on ? t.accentBorder : t.surfaceBorder}`,
                 }}>
-                  <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
+                  <label style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
                     <input type="checkbox" checked={on} onChange={() => toggle(c.id)} style={{ accentColor: t.accent, marginTop: 2 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>

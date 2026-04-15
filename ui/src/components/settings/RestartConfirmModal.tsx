@@ -71,7 +71,7 @@ export function RestartConfirmModal({ onClose }: Props) {
                 border: "none",
                 cursor: "pointer",
                 padding: 4,
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
               }}
             >
@@ -161,7 +161,7 @@ export function RestartConfirmModal({ onClose }: Props) {
                   border: "none",
                   opacity: restartMut.isPending ? 0.5 : 1,
                   cursor: "pointer",
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "center",
                 }}

@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { View, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useParams, useNavigate } from "react-router-dom";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import {
   Check, X, Copy, ChevronDown, ChevronRight,
   RotateCcw, Play, Square, RefreshCw, Download, Key, Trash2, Power,
   Link, Unlink,
 } from "lucide-react";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -119,7 +120,7 @@ function WebhookRow({ webhook }: { webhook: IntegrationItem["webhook"] }) {
   };
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 12 }}>
       <span style={{ color: t.textDim }}>Webhook:</span>
       <code style={{ color: t.textMuted, fontFamily: "monospace", fontSize: 11 }}>
         {webhook.path}
@@ -131,7 +132,7 @@ function WebhookRow({ webhook }: { webhook: IntegrationItem["webhook"] }) {
           border: "none",
           cursor: "pointer",
           padding: 2,
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
         }}
         title="Copy full URL"
@@ -207,7 +208,7 @@ function SettingsForm({ integrationId }: { integrationId: string }) {
               <button
                 onClick={() => handleReset(s.key)}
                 title="Reset to env/default"
-                style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", alignItems: "center" }}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", flexDirection: "row", alignItems: "center" }}
               >
                 <RotateCcw size={11} color={t.textDim} />
               </button>
@@ -227,7 +228,7 @@ function SettingsForm({ integrationId }: { integrationId: string }) {
                 setDraft((prev) => ({ ...prev, [s.key]: current === "true" ? "false" : "true" }));
               }}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 8,
                 padding: "6px 10px",
@@ -283,7 +284,7 @@ function SettingsForm({ integrationId }: { integrationId: string }) {
           {s.description && <div style={{ fontSize: 11, color: t.textDim }}>{s.description}</div>}
         </div>
       ))}
-      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 8, marginTop: 4 }}>
         <button
           onClick={handleSave}
           disabled={updateMut.isPending}
@@ -342,14 +343,14 @@ function ProcessControls({ integrationId }: { integrationId: string }) {
             <span style={{ fontSize: 11, color: "#ef4444" }}>exit {ps.exit_code}</span>
           )}
         </div>
-        <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 4, marginLeft: "auto" }}>
           {!isRunning && (
             <button
               onClick={() => startMut.mutate()}
               disabled={anyPending}
               title="Start"
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 padding: "3px 10px", borderRadius: 4, border: "none",
                 background: "rgba(34,197,94,0.15)", color: "#22c55e",
                 fontSize: 11, fontWeight: 600,
@@ -367,7 +368,7 @@ function ProcessControls({ integrationId }: { integrationId: string }) {
                 disabled={anyPending}
                 title="Stop"
                 style={{
-                  display: "flex", alignItems: "center", gap: 4,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                   padding: "3px 10px", borderRadius: 4, border: "none",
                   background: "rgba(239,68,68,0.15)", color: "#ef4444",
                   fontSize: 11, fontWeight: 600,
@@ -382,7 +383,7 @@ function ProcessControls({ integrationId }: { integrationId: string }) {
                 disabled={anyPending}
                 title="Restart"
                 style={{
-                  display: "flex", alignItems: "center", gap: 4,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                   padding: "3px 10px", borderRadius: 4, border: "none",
                   background: "rgba(59,130,246,0.15)", color: "#3b82f6",
                   fontSize: 11, fontWeight: 600,
@@ -412,7 +413,7 @@ function ProcessControls({ integrationId }: { integrationId: string }) {
           })()}
         </div>
       )}
-      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: t.textDim, cursor: "pointer" }}>
+      <label style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 11, color: t.textDim, cursor: "pointer" }}>
         <input
           type="checkbox"
           checked={autoStartData?.auto_start ?? true}
@@ -458,12 +459,12 @@ function DependencySection({ item }: { item: IntegrationItem }) {
         ))}
       </div>
       {!allInstalled && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <button
             onClick={() => installMut.mutate()}
             disabled={installMut.isPending}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "5px 14px", borderRadius: 5, border: "none",
               background: t.accent, color: "#fff", fontSize: 12, fontWeight: 600,
               cursor: installMut.isPending ? "wait" : "pointer",
@@ -515,12 +516,12 @@ function NpmDependencySection({ item }: { item: IntegrationItem }) {
         ))}
       </div>
       {!allInstalled && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <button
             onClick={() => installMut.mutate()}
             disabled={installMut.isPending}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "5px 14px", borderRadius: 5, border: "none",
               background: t.accent, color: "#fff", fontSize: 12, fontWeight: 600,
               cursor: installMut.isPending ? "wait" : "pointer",
@@ -605,7 +606,7 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
             }}
             disabled={disconnectMut.isPending}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "3px 10px", borderRadius: 4, border: "none",
               background: "rgba(239,68,68,0.15)", color: "#ef4444",
               fontSize: 11, fontWeight: 600,
@@ -617,7 +618,7 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
           </button>
         </div>
         {status.scopes && status.scopes.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
             {status.scopes.map((s) => (
               <span
                 key={s}
@@ -641,7 +642,7 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
       <div style={{ fontSize: 12, color: t.textDim }}>
         Select services to authorize, then connect your Google account.
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         {oauth.scope_services.map((svc) => {
           const active = selectedScopes.includes(svc);
           return (
@@ -666,7 +667,7 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
         onClick={handleConnect}
         disabled={selectedScopes.length === 0}
         style={{
-          display: "flex", alignItems: "center", gap: 6, alignSelf: "flex-start",
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start",
           padding: "6px 16px", borderRadius: 6, border: "none",
           background: selectedScopes.length > 0 ? t.accent : t.surfaceOverlay,
           color: selectedScopes.length > 0 ? "#fff" : t.textDim,
@@ -720,7 +721,7 @@ function ApiKeySection({ integrationId }: { integrationId: string }) {
         <span style={{ fontSize: 12, color: t.textDim }}>Loading...</span>
       ) : data?.provisioned ? (
         <>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span
               style={{
                 display: "inline-flex", alignItems: "center", gap: 4,
@@ -736,13 +737,13 @@ function ApiKeySection({ integrationId }: { integrationId: string }) {
                 {data.scopes.length} scope{data.scopes.length !== 1 ? "s" : ""}
               </span>
             )}
-            <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+            <div style={{ display: "flex", flexDirection: "row", gap: 4, marginLeft: "auto" }}>
               <button
                 onClick={handleProvision}
                 disabled={provisionMut.isPending}
                 title="Regenerate key"
                 style={{
-                  display: "flex", alignItems: "center", gap: 4,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                   padding: "3px 10px", borderRadius: 4, border: "none",
                   background: "rgba(59,130,246,0.15)", color: "#3b82f6",
                   fontSize: 11, fontWeight: 600,
@@ -757,7 +758,7 @@ function ApiKeySection({ integrationId }: { integrationId: string }) {
                 disabled={revokeMut.isPending}
                 title="Revoke key"
                 style={{
-                  display: "flex", alignItems: "center", gap: 4,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                   padding: "3px 10px", borderRadius: 4, border: "none",
                   background: "rgba(239,68,68,0.15)", color: "#ef4444",
                   fontSize: 11, fontWeight: 600,
@@ -770,7 +771,7 @@ function ApiKeySection({ integrationId }: { integrationId: string }) {
             </div>
           </div>
           {data.scopes && data.scopes.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+            <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
               {data.scopes.map((s) => (
                 <span
                   key={s}
@@ -787,13 +788,13 @@ function ApiKeySection({ integrationId }: { integrationId: string }) {
           )}
         </>
       ) : (
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 12, color: t.textDim }}>No key provisioned</span>
           <button
             onClick={handleProvision}
             disabled={provisionMut.isPending}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "4px 12px", borderRadius: 5, border: "none",
               background: t.accent, color: "#fff", fontSize: 11, fontWeight: 600,
               cursor: provisionMut.isPending ? "wait" : "pointer",
@@ -809,7 +810,7 @@ function ApiKeySection({ integrationId }: { integrationId: string }) {
       {displayKey && (
         <div
           style={{
-            display: "flex", alignItems: "center", gap: 6,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             padding: "6px 10px", background: "rgba(234,179,8,0.08)",
             borderRadius: 6, border: "1px solid rgba(234,179,8,0.2)",
           }}
@@ -819,7 +820,7 @@ function ApiKeySection({ integrationId }: { integrationId: string }) {
           </code>
           <button
             onClick={handleCopyKey}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", alignItems: "center", flexShrink: 0 }}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", flexDirection: "row", alignItems: "center", flexShrink: 0 }}
             title="Copy key"
           >
             {copied ? <Check size={14} color="#22c55e" /> : <Copy size={14} color={t.textDim} />}
@@ -843,7 +844,7 @@ function ReadmeSection({ content }: { content: string }) {
       <button
         onClick={() => setExpanded(!expanded)}
         style={{
-          display: "flex", alignItems: "center", gap: 4,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
           background: "none", border: "none", cursor: "pointer", padding: 0,
           fontSize: 12, fontWeight: 600, color: t.accent,
         }}
@@ -877,7 +878,7 @@ function DisableToggle({ item }: { item: IntegrationItem }) {
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 10,
         padding: "8px 14px",
@@ -927,30 +928,30 @@ function DisableToggle({ item }: { item: IntegrationItem }) {
 
 export default function IntegrationDetailScreen() {
   const t = useThemeTokens();
-  const { integrationId } = useLocalSearchParams<{ integrationId: string }>();
-  const router = useRouter();
+  const { integrationId } = useParams<{ integrationId: string }>();
+  const navigate = useNavigate();
   const { data, isLoading } = useIntegrations();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   const item = data?.integrations?.find((i) => i.id === integrationId);
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner color={t.accent} />
+      </div>
     );
   }
 
   if (!item) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
+      <div className="flex-1 bg-surface items-center justify-center">
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
           <div style={{ color: t.textDim, fontSize: 13 }}>Integration not found.</div>
           <button
-            onClick={() => router.push("/admin/integrations" as any)}
+            onClick={() => navigate("/admin/integrations")}
             style={{
               padding: "6px 16px", borderRadius: 6, border: "none",
               background: t.accent, color: "#fff", fontSize: 12,
@@ -960,14 +961,14 @@ export default function IntegrationDetailScreen() {
             Back to Integrations
           </button>
         </div>
-      </View>
+      </div>
     );
   }
 
   const envSetCount = item.env_vars.filter((v) => v.is_set).length;
 
   return (
-    <View className="flex-1 bg-surface">
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
@@ -975,9 +976,9 @@ export default function IntegrationDetailScreen() {
         contentContainerStyle={{ padding: isWide ? 20 : 12, gap: 14, maxWidth: 720 }}
       >
         {/* Header */}
-        <DetailHeader
+        <PageHeader variant="detail"
           parentLabel="Integrations"
-          parentHref="/admin/integrations"
+          backTo="/admin/integrations"
           title={item.name}
           right={<StatusBadge status={item.disabled ? "disabled" : item.status} />}
           inline
@@ -991,7 +992,7 @@ export default function IntegrationDetailScreen() {
 
         {/* Overview */}
         <SectionBox title="Overview">
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
             <CapBadge label="router" active={item.has_router} />
             <CapBadge label="dispatcher" active={item.has_dispatcher} />
             <CapBadge label="hooks" active={item.has_hooks} />
@@ -1001,7 +1002,7 @@ export default function IntegrationDetailScreen() {
             <CapBadge label="process" active={item.has_process} />
           </div>
           <WebhookRow webhook={item.webhook} />
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: t.textDim }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 11, color: t.textDim }}>
             <span>Source:</span>
             <span
               style={{
@@ -1041,7 +1042,7 @@ export default function IntegrationDetailScreen() {
                   <span style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
                     Tools ({names.length}){!isLive && " — files on disk, not yet loaded"}
                   </span>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                     {names.map((n) => (
                       <span
                         key={n}
@@ -1064,7 +1065,7 @@ export default function IntegrationDetailScreen() {
                 <span style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
                   Skills ({item.skill_files.length})
                 </span>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                   {item.skill_files.map((n) => (
                     <span
                       key={n}
@@ -1085,7 +1086,7 @@ export default function IntegrationDetailScreen() {
                 <span style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
                   Capabilities ({item.carapace_files.length})
                 </span>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                   {item.carapace_files.map((n) => (
                     <span
                       key={n}
@@ -1110,7 +1111,7 @@ export default function IntegrationDetailScreen() {
         {/* Environment variables */}
         {item.env_vars.length > 0 && (
           <SectionBox title={`Environment Variables (${envSetCount}/${item.env_vars.length} set)`}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
               {item.env_vars.map((v) => (
                 <EnvVarPill key={v.key} v={v} />
               ))}
@@ -1182,6 +1183,6 @@ export default function IntegrationDetailScreen() {
 
         </div>{/* end disabled wrapper */}
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

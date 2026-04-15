@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useParams, useNavigate } from "react-router-dom";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { Shield, ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
@@ -60,7 +60,7 @@ function HudStripBar({
         onClick={() => toggleHud(channelId)}
         aria-label="Expand HUD"
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
           gap: 4,
@@ -96,7 +96,7 @@ function HudStripBar({
           cursor: "pointer",
           padding: 6,
           borderRadius: 4,
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           opacity: 0.4,
         }}
@@ -110,9 +110,9 @@ function HudStripBar({
 }
 
 export default function ChatScreen() {
-  const { channelId } = useLocalSearchParams<{ channelId: string }>();
+  const { channelId } = useParams<{ channelId: string }>();
   const goBack = useGoBack("/");
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const { data: channel } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
@@ -626,7 +626,7 @@ export default function ChatScreen() {
               } catch { /* ignore */ }
             }
             setSecretWarning(null);
-            router.push("/admin/secret-values" as any);
+            navigate("/admin/secret-values");
           }}
         />
       )}

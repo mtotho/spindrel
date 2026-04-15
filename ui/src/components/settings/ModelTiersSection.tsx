@@ -128,7 +128,7 @@ export function ModelTiersSection() {
               <div
                 key={tier}
                 style={{
-                  display: "flex",
+                  display: "flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 12,
                 }}

@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { ChevronRight } from "lucide-react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 export function BotOverridesList({ group }: { group: string }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: bots } = useAdminBots();
 
   const overrides = useMemo(() => {
@@ -40,7 +40,7 @@ export function BotOverridesList({ group }: { group: string }) {
           <button
             key={bot.id}
             onClick={() =>
-              router.push(`/admin/bots/${bot.id}#${sectionHash}` as any)
+              navigate(`/admin/bots/${bot.id}#${sectionHash}`)
             }
             style={{
               display: "flex",

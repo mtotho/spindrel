@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannelContextBreakdown } from "@/src/api/hooks/useChannels";
@@ -40,7 +40,7 @@ function ContextBlock({ block, colors, isPlaceholder }: {
       <button
         onClick={() => setOpen(!open)}
         style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
           width: "100%", padding: "6px 10px", border: "none", cursor: "pointer",
           background: "transparent",
         }}
@@ -87,11 +87,11 @@ function ContextPreview({ channelId }: { channelId: string }) {
 
   return (
     <Section title="Context Preview">
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
         <button
           onClick={() => setExpanded(!expanded)}
           style={{
-            display: "flex", alignItems: "center", gap: 6,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             padding: "5px 12px", fontSize: 11, fontWeight: 600,
             border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
             background: "transparent", color: t.textMuted, cursor: "pointer",
@@ -101,7 +101,7 @@ function ContextPreview({ channelId }: { channelId: string }) {
           {expanded ? "Collapse" : "Expand"}
         </button>
 
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: t.textMuted, cursor: "pointer" }}>
+        <label style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 11, color: t.textMuted, cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={includeHistory}
@@ -118,7 +118,7 @@ function ContextPreview({ channelId }: { channelId: string }) {
         )}
       </div>
 
-      {isLoading && <ActivityIndicator color={t.accent} />}
+      {isLoading && <Spinner color={t.accent} />}
 
       {expanded && data && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -176,7 +176,7 @@ export function ContextTab({ channelId }: { channelId: string }) {
     global:  { bg: t.surfaceBorder, fg: t.textMuted },
   };
 
-  if (isLoading) return <ActivityIndicator color={t.accent} />;
+  if (isLoading) return <Spinner color={t.accent} />;
   if (!data) return <EmptyState message="No context data available." />;
 
   const legend = [
@@ -209,7 +209,7 @@ export function ContextTab({ channelId }: { channelId: string }) {
 
       {/* Stacked bar */}
       <Section title="Proportions">
-        <div style={{ display: "flex", height: 28, borderRadius: 6, overflow: "hidden", background: t.surfaceRaised }}>
+        <div style={{ display: "flex", flexDirection: "row", height: 28, borderRadius: 6, overflow: "hidden", background: t.surfaceRaised }}>
           {data.categories
             .filter((c) => c.percentage > 0)
             .map((c) => (
@@ -224,7 +224,7 @@ export function ContextTab({ channelId }: { channelId: string }) {
               />
             ))}
         </div>
-        <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 16, marginTop: 8 }}>
           {legend.map((l) => (
             <div key={l.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: t.textMuted }}>
               <div style={{ width: 8, height: 8, borderRadius: 4, background: l.color }} />
@@ -349,11 +349,11 @@ export function ContextTab({ channelId }: { channelId: string }) {
               const badge = SOURCE_BADGE_COLORS[setting.source] || SOURCE_BADGE_COLORS.global;
               return (
                 <div key={key} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
                   padding: "8px 12px", background: t.surfaceRaised, borderRadius: 6, border: `1px solid ${t.surfaceOverlay}`,
                 }}>
                   <span style={{ fontSize: 12, color: t.textMuted, fontFamily: "monospace" }}>{key}</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 12, color: t.text }}>{String(setting.value)}</span>
                     <span style={{
                       fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4,

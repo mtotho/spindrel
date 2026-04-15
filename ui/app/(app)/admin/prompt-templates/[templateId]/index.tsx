@@ -1,9 +1,11 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useCallback, useRef } from "react";
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+
+import { useParams } from "react-router-dom";
 import { Trash2, Info, FileText, Sparkles } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import {
   usePromptTemplate,
   useCreatePromptTemplate,
@@ -26,7 +28,7 @@ function fmtDate(iso: string | null | undefined) {
 function InfoRow({ label, value }: { label: string; value: string }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
       <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
       <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{value}</span>
     </div>
@@ -35,7 +37,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 export default function PromptTemplateDetailScreen() {
   const t = useThemeTokens();
-  const { templateId } = useLocalSearchParams<{ templateId: string }>();
+  const { templateId } = useParams<{ templateId: string }>();
   const isNew = templateId === "new";
   const goBack = useGoBack("/admin/prompt-templates");
   const { data: template, isLoading } = usePromptTemplate(isNew ? undefined : templateId);
@@ -43,7 +45,7 @@ export default function PromptTemplateDetailScreen() {
   const updateMut = useUpdatePromptTemplate(templateId);
   const deleteMut = useDeletePromptTemplate();
 
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   const { data: workspaces } = useWorkspaces();
@@ -76,7 +78,6 @@ export default function PromptTemplateDetailScreen() {
 
   const isFileManaged = template?.source_type === "file";
   const isWorkspaceFile = sourceType === "workspace_file";
-
 
   const handleSelectionChange = useCallback(() => {
     const ta = textareaRef.current;
@@ -172,17 +173,17 @@ export default function PromptTemplateDetailScreen() {
 
   if (!isNew && isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <DetailHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="detail"
         parentLabel="Prompt Templates"
-        parentHref="/admin/prompt-templates"
+        backTo="/admin/prompt-templates"
         title={isNew ? "New Template" : "Edit Template"}
         right={
           <>
@@ -192,7 +193,7 @@ export default function PromptTemplateDetailScreen() {
                 disabled={deleteMut.isPending}
                 title="Delete"
                 style={{
-                  display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
                   padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
                   border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
                   background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
@@ -232,7 +233,7 @@ export default function PromptTemplateDetailScreen() {
           margin: isWide ? "16px 20px 0" : "12px 12px 0",
           padding: "12px 16px", borderRadius: 8,
           background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
-          display: "flex", alignItems: "flex-start", gap: 10,
+          display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 10,
         }}>
           <Info size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ fontSize: 12, color: t.accent, lineHeight: 1.5 }}>
@@ -249,7 +250,7 @@ export default function PromptTemplateDetailScreen() {
           margin: isWide ? "16px 20px 0" : "12px 12px 0",
           padding: "12px 16px", borderRadius: 8,
           background: t.successSubtle, border: `1px solid ${t.success}33`,
-          display: "flex", alignItems: "flex-start", gap: 10,
+          display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 10,
         }}>
           <FileText size={14} color={t.success} style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ fontSize: 12, color: t.success, lineHeight: 1.5 }}>
@@ -261,9 +262,7 @@ export default function PromptTemplateDetailScreen() {
       )}
 
       {/* Body */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
-        ...(isWide ? { flexDirection: "row", flex: 1 } : {}),
-      }}>
+      <div style={{ flex: 1, ...(isWide ? { flexDirection: "row" as const } : {}) }}>
         {/* Content editor */}
         <div style={{
           ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),
@@ -272,11 +271,11 @@ export default function PromptTemplateDetailScreen() {
         }}>
           <div style={{
             fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6,
-            display: "flex", justifyContent: "space-between", alignItems: "center",
+            display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center",
           }}>
             <span>{isWorkspaceFile ? "Content Preview" : "Content"}</span>
             {!isFileManaged && !isWorkspaceFile && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 11, color: t.textDim, fontWeight: 400 }}>
                   {hasSelection ? "" : "Select text to generate"}
                 </span>
@@ -284,7 +283,7 @@ export default function PromptTemplateDetailScreen() {
                   onClick={handleGenerate}
                   disabled={!hasSelection || generateMut.isPending}
                   style={{
-                    display: "flex", alignItems: "center", gap: 4,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                     background: "none",
                     border: `1px solid ${hasSelection ? (genFlash === "success" ? t.success : genFlash === "error" ? t.danger : t.accent) : t.surfaceBorder}`,
                     borderRadius: 4,
@@ -451,7 +450,7 @@ export default function PromptTemplateDetailScreen() {
             )}
           </div>
         </div>
-      </ScrollView>
-    </View>
+      </div>
+    </div>
   );
 }

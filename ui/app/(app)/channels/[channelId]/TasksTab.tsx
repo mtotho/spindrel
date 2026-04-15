@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
-import { ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { Plus } from "lucide-react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { EmptyState } from "@/src/components/shared/FormControls";
 import { ActionButton } from "@/src/components/shared/SettingsControls";
@@ -24,7 +24,7 @@ const STATUS_PILL_KEYS: { key: StatusFilter; label: string }[] = [
 
 export function TasksTab({ channelId, botId }: { channelId: string; botId?: string }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["channel-tasks", channelId],
@@ -64,7 +64,7 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
     <>
       {/* Header: filter pills + new task button */}
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         marginBottom: 12, flexWrap: "wrap", gap: 8,
       }}>
         <div style={{ display: "flex", gap: 4 }}>
@@ -76,7 +76,7 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
                 key={pill.key}
                 onClick={() => setStatusFilter(pill.key)}
                 style={{
-                  display: "flex", alignItems: "center", gap: 4,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                   padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
                   border: `1px solid ${active ? t.accent : t.surfaceBorder}`,
                   background: active ? t.accentMuted : t.surfaceRaised,
@@ -107,7 +107,7 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
 
       {/* Task list */}
       {isLoading ? (
-        <ActivityIndicator color={t.accent} />
+        <Spinner color={t.accent} />
       ) : !tasks.length ? (
         <EmptyState message={statusFilter === "all" ? "No tasks yet." : `No ${statusFilter} tasks.`} />
       ) : (
@@ -116,11 +116,11 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
             <TaskCardRow
               key={task.id}
               task={task}
-              onPress={() => {
+              onClick={() => {
                 if (EDITABLE_TASK_TYPES.has(task.task_type ?? "")) {
                   setEditorState({ mode: "edit", taskId: task.id });
                 } else {
-                  router.push(`/admin/tasks/${task.id}`);
+                  navigate(`/admin/tasks/${task.id}`);
                 }
               }}
               showBotDot={false}

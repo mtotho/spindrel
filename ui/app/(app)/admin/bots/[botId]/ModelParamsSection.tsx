@@ -54,7 +54,7 @@ export function ModelParamsSection({
                 defaultValue={typeof def.default === "number" ? def.default : null}
               />
             ) : def.type === "select" ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <select
                   value={hasValue ? params[def.name] : ""}
                   onChange={(e) => setParam(def.name, e.target.value || undefined)}
@@ -72,7 +72,7 @@ export function ModelParamsSection({
                 </select>
               </div>
             ) : (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <input
                   type="number"
                   value={hasValue ? params[def.name] : ""}

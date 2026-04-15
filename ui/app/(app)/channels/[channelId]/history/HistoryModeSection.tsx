@@ -54,7 +54,7 @@ export function HistoryModeSection({ form, patch, botHistoryMode }: {
   return (
     <Section title="History Mode">
       {/* Compact horizontal selector */}
-      <div style={{ display: "flex", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
         {HISTORY_MODES.map((m) => {
           const isSelected = effectiveMode === m.value;
           return (
@@ -62,7 +62,7 @@ export function HistoryModeSection({ form, patch, botHistoryMode }: {
               key={m.value}
               onClick={() => patch("history_mode", m.value)}
               style={{
-                display: "flex", alignItems: "center", gap: 6,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                 padding: "6px 12px", borderRadius: 6, cursor: "pointer",
                 background: isSelected ? `${m.accentColor}12` : "none",
                 border: `1px solid ${isSelected ? m.accentColor : t.surfaceOverlay}`,

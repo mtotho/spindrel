@@ -1,7 +1,7 @@
 /**
  * Reusable status filter chip bar for workflow runs.
  */
-import { Pressable, Text, View } from "react-native";
+
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import type { WorkflowRun } from "@/src/types/api";
 
@@ -50,37 +50,37 @@ export function StatusFilterChips({ runs, active, onChange }: Props) {
 
   return (
     <div style={{
-      display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center",
+      display: "flex", flexDirection: "row", gap: 6, flexWrap: "wrap", alignItems: "center",
     }}>
       {STATUSES.map((s) => {
         const count = counts[s.key] ?? 0;
         if (s.key !== "all" && count === 0) return null;
         const isActive = active === s.key;
         return (
-          <Pressable
+          <button type="button"
             key={s.key}
-            onPress={() => onChange(s.key)}
+            onClick={() => onChange(s.key)}
             style={{
               flexDirection: "row", alignItems: "center", gap: 4,
-              paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
+              paddingInline: 10, paddingBlock: 4, borderRadius: 12,
               backgroundColor: isActive ? t.accentSubtle : t.codeBg,
               borderWidth: 1,
               borderColor: isActive ? t.accentBorder : t.surfaceBorder,
             }}
           >
-            <Text style={{
+            <span style={{
               fontSize: 11, fontWeight: isActive ? "600" : "400",
               color: isActive ? t.accent : t.textMuted,
             }}>
               {s.label}
-            </Text>
-            <Text style={{
+            </span>
+            <span style={{
               fontSize: 10,
               color: isActive ? t.accent : t.textDim,
             }}>
               {count}
-            </Text>
-          </Pressable>
+            </span>
+          </button>
         );
       })}
     </div>

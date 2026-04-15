@@ -1,12 +1,12 @@
 import { useState, useMemo, useCallback } from "react";
-import { View, ActivityIndicator } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
+import { Spinner } from "@/src/components/shared/Spinner";
 import {
   AlertTriangle, Wrench, MessageSquare, Clock, Heart,
   Zap, Bot, X, ChevronRight,
 } from "lucide-react";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { LogsTabBar } from "@/src/components/logs/LogsTabBar";
 import { useTraces, type TraceSummary } from "@/src/api/hooks/useLogs";
 import { useBots } from "@/src/api/hooks/useBots";
@@ -72,11 +72,11 @@ function FilterBar({
 }) {
   return (
     <div style={{
-      display: "flex", gap: 8, padding: "8px 20px",
+      display: "flex", flexDirection: "row", gap: 8, padding: "8px 20px",
       borderBottom: `1px solid ${t.surfaceRaised}`, flexWrap: "wrap", alignItems: "center",
     }}>
       {/* Source filter pills */}
-      <div style={{ display: "flex", gap: 4 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 4 }}>
         {SOURCE_FILTERS.map((f) => {
           const active = sourceFilter === f.value;
           return (
@@ -115,7 +115,7 @@ function FilterBar({
         <button
           onClick={clearFilters}
           style={{
-            display: "flex", alignItems: "center", gap: 4,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
             background: "none", border: "none", color: t.textDim, cursor: "pointer", fontSize: 12,
           }}
         >
@@ -166,7 +166,7 @@ function TraceRow({ trace, t, onPress }: { trace: TraceSummary; t: ThemeTokens; 
         transition: "border-color 0.15s",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
         <SourceBadge source={trace.source_type} t={t} />
 
         <span style={{
@@ -229,7 +229,7 @@ function TraceRow({ trace, t, onPress }: { trace: TraceSummary; t: ThemeTokens; 
 
 export default function TracesScreen() {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { refreshing, onRefresh } = usePageRefresh();
   const { data: bots } = useBots();
 
@@ -277,8 +277,8 @@ export default function TracesScreen() {
   }, [traces]);
 
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Traces" subtitle={data ? `${traces.length} traces` : "Loading..."} />
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="list" title="Traces" subtitle={data ? `${traces.length} traces` : "Loading..."} />
 
       <LogsTabBar active="traces" />
 
@@ -294,9 +294,9 @@ export default function TracesScreen() {
       />
 
       {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={t.accent} />
-        </View>
+        <div className="flex-1 items-center justify-center">
+          <Spinner />
+        </div>
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
           <div style={{ display: "flex", flexDirection: "column", padding: "8px 20px" }}>
@@ -314,7 +314,7 @@ export default function TracesScreen() {
                     key={tr.correlation_id}
                     trace={tr}
                     t={t}
-                    onPress={() => router.push(`/admin/logs/${tr.correlation_id}` as any)}
+                    onPress={() => navigate(`/admin/logs/${tr.correlation_id}`)}
                   />
                 ))}
               </div>
@@ -329,7 +329,7 @@ export default function TracesScreen() {
 
           {/* Load more */}
           {data?.has_more && traces.length > 0 && (
-            <div style={{ display: "flex", justifyContent: "center", padding: "16px 20px" }}>
+            <div style={{ display: "flex", flexDirection: "row", justifyContent: "center", padding: "16px 20px" }}>
               <button
                 onClick={() => {
                   const last = traces[traces.length - 1];
@@ -347,6 +347,6 @@ export default function TracesScreen() {
           )}
         </RefreshableScrollView>
       )}
-    </View>
+    </div>
   );
 }

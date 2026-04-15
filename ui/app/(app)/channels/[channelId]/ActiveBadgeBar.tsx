@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import {
   FileText, Wrench, BookOpen, Plug,
   MessageSquare, Code2, Mail, Camera, LayoutDashboard, Tv, Terminal, MessageCircle,
@@ -24,7 +24,7 @@ function resolveIcon(name: string | undefined): React.ComponentType<{ size: numb
  */
 export function ActiveBadgeBar({ channelId, compact }: { channelId: string; compact?: boolean }) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: settings } = useChannelSettings(channelId);
   const { data: channel } = useChannel(channelId);
   const { data: activatable } = useActivatableIntegrations(channelId);
@@ -50,7 +50,7 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
   const hasAnything = template || activeIntegrations.length > 0 || boundOnly.length > 0;
   if (!hasAnything) return null;
 
-  const nav = (hash: string) => router.push(`/channels/${channelId}/settings#${hash}` as any);
+  const nav = (hash: string) => navigate(`/channels/${channelId}/settings#${hash}`);
 
   const pillStyle: React.CSSProperties = {
     display: "flex",

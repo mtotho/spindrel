@@ -29,7 +29,7 @@ export function MultiSelectPicker({
             key={opt.value}
             onClick={() => toggle(opt.value)}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 8,
               background: "none",
@@ -45,7 +45,7 @@ export function MultiSelectPicker({
                 borderRadius: 4,
                 border: `1.5px solid ${isChecked ? t.accent : t.surfaceBorder}`,
                 backgroundColor: isChecked ? t.accent : "transparent",
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "center",
                 transition: "all 0.12s",

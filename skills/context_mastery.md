@@ -1,13 +1,13 @@
 ---
 name: Context Mastery
-description: The four persistence tiers (auto-injected, reference files, bot-authored skills, fleet skills), how they relate, and how to move content between them
+description: The four persistence tiers (auto-injected, reference files, bot-authored skills, core skills), how they relate, and how to move content between them
 triggers: context window, persistence, where does this go, memory vs skill, reference file, working set, four tiers, hot warm cold, archive content
 category: core
 ---
 
 # Context Mastery — The Four Persistence Tiers
 
-You operate against a fleet-wide platform with **four distinct persistence layers**. Knowing which tier a piece of information belongs to is the single highest-leverage skill you can develop.
+You operate against a platform with **four distinct persistence layers**. Knowing which tier a piece of information belongs to is the single highest-leverage skill you can develop.
 
 ---
 
@@ -17,8 +17,8 @@ You operate against a fleet-wide platform with **four distinct persistence layer
 |---|---|---|---|---|
 | **1. Auto-injected** | `MEMORY.md`, today's log, channel workspace `*.md` | Tokens every turn | Always present | Per-bot, per-channel |
 | **2. Reference files** | `memory/reference/*.md` | Free until fetched | Directory listing visible; you fetch by name | Bot-private |
-| **3. Bot-authored skills** | `bots/{your_id}/...` via `manage_bot_skill` | Free until surfaced | RAG-indexed, semantic discovery | Fleet-visible (you own the namespace) |
-| **4. Fleet skills** | `skills/*.md` (operator-curated) | Free until enrolled | Working set (always-injected) + discovery layer (semantic) | Fleet-shared |
+| **3. Bot-authored skills** | `bots/{your_id}/...` via `manage_bot_skill` | Free until surfaced | RAG-indexed, semantic discovery | Visible to all bots (you own the namespace) |
+| **4. Core skills** | `skills/*.md` (operator-curated) | Free until enrolled | Working set (always-injected) + discovery layer (semantic) | Shared across all bots |
 
 **The decision tree:**
 
@@ -26,15 +26,15 @@ You operate against a fleet-wide platform with **four distinct persistence layer
 Is this information...
 ├── Operational state for THIS channel? → Tier 1 (workspace file)
 ├── Cross-session persistent for ME alone? → Tier 1 (MEMORY.md) or Tier 2 (reference)
-├── A reusable pattern the FLEET would benefit from? → Tier 3 (author a skill)
-└── Already published as fleet documentation? → Tier 4 (it's there, get_skill if needed)
+├── A reusable pattern other bots would benefit from? → Tier 3 (author a skill)
+└── Already published as core documentation? → Tier 4 (it's there, get_skill if needed)
 ```
 
 When in doubt: **Tier 3.** Skills are RAG-indexed, so even if you guess wrong about whether others need them, the discovery layer will only surface them when relevant.
 
 ---
 
-## How Discovery Works (Phase 3 — the working set)
+## How Discovery Works
 
 The skill system has TWO injection paths working together:
 
@@ -69,10 +69,10 @@ These are present in your context every turn. Treat them as expensive real estat
 
 **When to use:**
 - Personal context only YOU need (specific client preferences, session-spanning notes)
-- Things you don't want polluting the fleet catalog
+- Things you don't want polluting the skill catalog
 - Drafts before deciding whether to promote to a skill
 
-**Anti-pattern:** Treating reference files as "cheap skills". They're not. They have no RAG, no triggers, no fleet visibility. If a future bot might need it, author a skill instead.
+**Anti-pattern:** Treating reference files as "cheap skills". They're not. They have no RAG, no triggers, no visibility to other bots. If a future bot might need it, author a skill instead.
 
 ### Template
 ```markdown
@@ -90,15 +90,15 @@ These are present in your context every turn. Treat them as expensive real estat
 Step-by-step when the quick reference isn't enough.
 ```
 
-## Tier 3 — Bot-Authored Skills (Fleet-Visible)
+## Tier 3 — Bot-Authored Skills (Visible to All Bots)
 
 Use `manage_bot_skill(action="create", ...)` to author. See the **skill_authoring** skill (you have it auto-enrolled) for the full schema and trigger-writing guidance.
 
 **The key insight:** authoring a skill is the only way to make a learned pattern auto-surface for future bots. Reference files do not. MEMORY.md does not. Workspace files do not. Only RAG-indexed skills.
 
-## Tier 4 — Fleet Skills (Operator-Curated)
+## Tier 4 — Core Skills (Operator-Curated)
 
-The catalog under `skills/` (this file is one of them). You don't author these — operators do. But you can fetch them via `get_skill("skill_id")`, and successful fetches automatically promote the skill into your working set (Phase 3 enrollment).
+The catalog under `skills/` (this file is one of them). You don't author these — operators do. But you can fetch them via `get_skill("skill_id")`, and successful fetches automatically promote the skill into your working set.
 
 The discovery layer's job is to surface the right ones when you need them.
 
@@ -116,7 +116,7 @@ file(delete, "active-topic.md")
 file(edit, "memory/MEMORY.md", find="...", replace="...→ see reference/topic-name.md")
 ```
 
-### Tier 2 → Tier 3 (private learning that the fleet should benefit from)
+### Tier 2 → Tier 3 (private learning that all bots should benefit from)
 Read your reference file, then call `manage_bot_skill(action="create", ...)`. Delete the reference file once the skill exists.
 
 ### Tier 1 → Cold (concern fully resolved)
@@ -128,65 +128,3 @@ file(append, "archive_index.md", "| resolved-item.md | 2026-04-10 | Summary |\n"
 ```
 
 Archived files are searchable via `search_channel_archive(query)` — gone from your turn-by-turn cost, retrievable on demand.
-
----
-
-## Research Delegation (when gathering would burn your context)
-
-When you need to gather information from many sources, don't burn your context on raw data. Use `schedule_task` with a cheap model for the gathering, then analyze the results yourself.
-
-**Different from `delegate_to_agent`** (bot-to-bot collaboration) — `schedule_task` is for cost-effective research subtasks where you control the model.
-
-### Pattern: Workspace/Archive Search
-```python
-schedule_task(
-    prompt="Search the channel workspace and archive for all mentions of [topic]. "
-           "Compile a summary with: key findings, relevant dates, and source file paths.",
-    execution_config={"model_override": "gemini/gemini-2.5-flash"},
-)
-```
-
-### Pattern: Multi-File Digest
-```python
-schedule_task(
-    prompt="Read these workspace files and extract [specific data]: "
-           "file1.md, file2.md, file3.md. Return a structured summary.",
-    execution_config={"model_override": "gemini/gemini-2.5-flash"},
-)
-```
-
-### Pattern: Web Research
-```python
-schedule_task(
-    prompt="Research [topic] using web_search. Find 3-5 authoritative sources. "
-           "Summarize key findings with URLs.",
-    execution_config={"model_override": "gemini/gemini-2.5-flash"},
-)
-```
-
-### Self-Handle vs Delegate
-
-| Situation | Self | Delegate |
-|---|---|---|
-| Quick lookup in 1-2 files | Yes | — |
-| Searching across many files/channels | — | Yes |
-| Synthesizing complex analysis | Yes | — |
-| Gathering raw data for analysis | — | Yes (gather cheap, analyze yourself) |
-| Single web search | Yes | — |
-| Multi-source research compilation | — | Yes |
-
-**Key insight:** Delegate the gathering, keep the thinking.
-
----
-
-## Cold Start Sequence
-
-When you start a new session with no prior messages:
-
-1. **Orient** — MEMORY.md is already injected; scan it for cross-session context
-2. **Check reference listing** — see what's in `memory/reference/` (titles are visible)
-3. **Scan working set** — your enrolled skills list shows what you have at hand
-4. **Fetch what's relevant** — if today's topic relates to a reference file or unenrolled skill, load it
-5. **Greet with context** — show the user you remember what's going on
-
-Fetch lazily, not preemptively. The directory listing and skill index tell you what exists — that's enough to know what to fetch when needed.

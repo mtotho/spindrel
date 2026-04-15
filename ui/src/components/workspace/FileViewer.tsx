@@ -168,7 +168,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
 
   if (isLoading) {
     return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: t.textDim }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: t.textDim }}>
         Loading...
       </div>
     );
@@ -181,7 +181,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
       if (body) msg = JSON.parse(body)?.detail || msg;
     } catch {}
     return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: t.danger, padding: 24 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", color: t.danger, padding: 24 }}>
         <div style={{ textAlign: "center" }}>
           <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}>
             <FileText size={32} color={t.textDim} />
@@ -205,7 +205,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
       {/* Toolbar */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 8,
           padding: "4px 12px",
@@ -224,7 +224,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
               onClick={handleSave}
               disabled={writeMutation.isPending}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 background: t.success, color: "#000", border: "none",
                 borderRadius: 4, padding: "3px 10px", fontSize: 12,
                 cursor: "pointer", fontWeight: 600,
@@ -235,7 +235,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
             <button
               onClick={handleCancel}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 background: "none", color: t.textMuted, border: `1px solid ${t.surfaceBorder}`,
                 borderRadius: 4, padding: "3px 10px", fontSize: 12,
                 cursor: "pointer",
@@ -252,7 +252,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
                 onClick={() => setMdPreview(!mdPreview)}
                 title={mdPreview ? "Show source" : "Show preview"}
                 style={{
-                  display: "flex", alignItems: "center", gap: 4,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                   background: mdPreview ? t.overlayLight : "none",
                   color: mdPreview ? t.accent : t.textMuted,
                   border: `1px solid ${t.surfaceBorder}`,
@@ -266,7 +266,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
             <button
               onClick={() => setShowSearch(!showSearch)}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 background: showSearch ? t.overlayLight : "none",
                 color: showSearch ? t.accent : t.textMuted,
                 border: `1px solid ${t.surfaceBorder}`,
@@ -279,7 +279,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
             <button
               onClick={handleCopy}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 background: "none", color: copied ? t.success : t.textMuted, border: `1px solid ${t.surfaceBorder}`,
                 borderRadius: 4, padding: "3px 10px", fontSize: 12,
                 cursor: "pointer",
@@ -290,7 +290,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
             <button
               onClick={handleStartEdit}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                 background: "none", color: t.textMuted, border: `1px solid ${t.surfaceBorder}`,
                 borderRadius: 4, padding: "3px 10px", fontSize: 12,
                 cursor: "pointer",
@@ -300,7 +300,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
             </button>
           </>
         )}
-        <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap", display: "flex", gap: 8 }}>
+        <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap", display: "flex", flexDirection: "row", gap: 8 }}>
           {data?.size != null && (
             <span>{data.size > 1024 * 1024 ? `${(data.size / (1024 * 1024)).toFixed(1)}MB` : data.size > 1024 ? `${(data.size / 1024).toFixed(1)}KB` : `${data.size}B`}</span>
           )}
@@ -373,7 +373,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
             }}
           >
             {lines.map((line, i) => (
-              <div key={i} style={{ display: "flex", minHeight: 20 }}>
+              <div key={i} style={{ display: "flex", flexDirection: "row", minHeight: 20 }}>
                 <span
                   style={{
                     display: "inline-block",

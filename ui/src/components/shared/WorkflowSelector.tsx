@@ -81,7 +81,7 @@ export function WorkflowSelector({ value, onChange }: Props) {
         ref={btnRef}
         onClick={() => setOpen(!open)}
         style={{
-          display: "flex", alignItems: "center", gap: 8,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
           width: "100%", padding: "8px 12px",
           background: t.inputBg, border: `1px solid ${t.inputBorder}`,
           borderRadius: 8, cursor: "pointer", textAlign: "left",
@@ -110,7 +110,7 @@ export function WorkflowSelector({ value, onChange }: Props) {
         {value ? (
           <span
             onClick={(e) => { e.stopPropagation(); onChange(null); setOpen(false); }}
-            style={{ padding: 2, cursor: "pointer", display: "flex" }}
+            style={{ padding: 2, cursor: "pointer", display: "flex", flexDirection: "row" }}
           >
             <X size={14} color={t.textDim} />
           </span>
@@ -151,7 +151,7 @@ export function WorkflowSelector({ value, onChange }: Props) {
                   borderBottom: `1px solid ${t.surfaceBorder}`,
                 }}>
                   <div style={{
-                    display: "flex", alignItems: "center", gap: 6,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                     background: t.inputBg, border: `1px solid ${t.inputBorder}`,
                     borderRadius: 6, padding: "5px 8px",
                   }}>
@@ -234,7 +234,7 @@ function WorkflowItem({ workflow: wf, isSelected, t, onSelect }: {
       }}
     >
       {/* Name row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
         <Zap size={12} color={isSelected ? t.accent : t.textMuted} />
         <span style={{
           fontSize: 12, fontWeight: 600,
@@ -262,7 +262,7 @@ function WorkflowItem({ workflow: wf, isSelected, t, onSelect }: {
       )}
       {/* Meta row: steps + tags */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 6, paddingLeft: 18,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 18,
       }}>
         <span style={{ fontSize: 10, color: t.textDim }}>
           {wf.steps?.length ?? 0} step{(wf.steps?.length ?? 0) !== 1 ? "s" : ""}

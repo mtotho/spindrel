@@ -49,7 +49,7 @@ export function WorkspaceSection({
   const segments: any[] = indexing.segments || [];
 
   const rowStyle: React.CSSProperties = {
-    display: "flex", alignItems: "center", gap: 6, padding: "3px 6px",
+    display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "3px 6px",
     background: t.inputBg, borderRadius: 4, fontSize: 11,
   };
   const removeBtn = (onClick: () => void) => (
@@ -84,7 +84,7 @@ export function WorkspaceSection({
           padding: "14px 16px", background: t.purpleSubtle,
           border: `1px solid ${t.purpleBorder}`, borderRadius: 10,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Package size={14} color={t.purple} />
             <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Shared Workspace</span>
             <span style={{
@@ -183,7 +183,7 @@ export function WorkspaceSection({
                         {removeBtn(() => { const e = { ...docker.env }; delete e[k]; setDocker({ env: e }); })}
                       </div>
                     ))}
-                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                    <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
                       {miniInput(newEnvKey, setNewEnvKey, "KEY", { flex: 1, maxWidth: 120 })}
                       <span style={{ color: t.textDim, fontSize: 11 }}>=</span>
                       {miniInput(newEnvVal, setNewEnvVal, "value", { flex: 1 })}
@@ -205,7 +205,7 @@ export function WorkspaceSection({
                         {removeBtn(() => setDocker({ ports: ports.filter((_, j: number) => j !== i) }))}
                       </div>
                     ))}
-                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                    <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
                       {miniInput(newHostPort, setNewHostPort, "host (opt)", { flex: 1, maxWidth: 100 })}
                       <span style={{ color: t.textDim, fontSize: 11 }}>:</span>
                       {miniInput(newContainerPort, setNewContainerPort, "container", { flex: 1, maxWidth: 100 })}
@@ -225,7 +225,7 @@ export function WorkspaceSection({
                         {removeBtn(() => setDocker({ mounts: mounts.filter((_, j: number) => j !== i) }))}
                       </div>
                     ))}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                       {miniInput(newMountHost, setNewMountHost, "host path", { flex: 1, minWidth: 80 })}
                       <span style={{ color: t.textDim, fontSize: 11 }}>:</span>
                       {miniInput(newMountContainer, setNewMountContainer, "container path", { flex: 1, minWidth: 80 })}
@@ -262,7 +262,7 @@ export function WorkspaceSection({
                         {removeBtn(() => setHost({ commands: commands.filter((_: any, j: number) => j !== i) }))}
                       </div>
                     ))}
-                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                    <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
                       {miniInput(newCmd, setNewCmd, "binary", { flex: 1, maxWidth: 100 })}
                       {miniInput(newCmdSubs, setNewCmdSubs, "subcommands (comma-sep)", { flex: 1 })}
                       {addBtn("Add", () => {
@@ -278,14 +278,14 @@ export function WorkspaceSection({
                   {/* Blocked patterns */}
                   <div>
                     <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Blocked Patterns (regex)</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                   {blocked.map((pat, i) => (
                     <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.warningMuted }}>
                       {pat} {removeBtn(() => setHost({ blocked_patterns: blocked.filter((_, j) => j !== i) }))}
                     </span>
                   ))}
                 </div>
-                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
                   {miniInput(newBlocked, setNewBlocked, "regex pattern", { flex: 1 })}
                   {addBtn("Add", () => { if (newBlocked.trim()) { setHost({ blocked_patterns: [...blocked, newBlocked.trim()] }); setNewBlocked(""); } })}
                 </div>
@@ -294,14 +294,14 @@ export function WorkspaceSection({
               {/* Env passthrough */}
               <div>
                 <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Env Passthrough</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                   {envPass.map((v, i) => (
                     <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.accent }}>
                       {v} {removeBtn(() => setHost({ env_passthrough: envPass.filter((_, j) => j !== i) }))}
                     </span>
                   ))}
                 </div>
-                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
                   {miniInput(newEnvPass, setNewEnvPass, "ENV_VAR_NAME", { flex: 1, maxWidth: 200 })}
                   {addBtn("Add", () => { if (newEnvPass.trim()) { setHost({ env_passthrough: [...envPass, newEnvPass.trim()] }); setNewEnvPass(""); } })}
                 </div>
@@ -325,7 +325,7 @@ export function WorkspaceSection({
 
           {/* Indexing panel */}
           <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Workspace File Indexing</div>
               <Toggle value={indexing.enabled !== false} onChange={(v) => setIndexing({ enabled: v })} label="Enable" />
               {indexing.enabled !== false && (
@@ -375,7 +375,7 @@ export function WorkspaceSection({
                     </div>
                   )}
                   {segments.map((seg: any, i: number) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4 }}>
+                    <div key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4 }}>
                       <span style={{ fontFamily: "monospace", color: t.accent }}>{seg.path_prefix}</span>
                       {seg.embedding_model && <span style={{ color: t.textMuted }}>model: <span style={{ color: t.purpleMuted, fontFamily: "monospace" }}>{seg.embedding_model}</span></span>}
                       {seg.patterns && <span style={{ color: t.textDim }}>patterns: {seg.patterns.length}</span>}
@@ -389,7 +389,7 @@ export function WorkspaceSection({
                       No directories configured — only memory files are indexed. Add a directory to enable file indexing.
                     </div>
                   )}
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                  <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                     {miniInput(newSegPrefix, setNewSegPrefix, inSharedWorkspace ? "directory (e.g. common/)" : "path_prefix (e.g. src/)", { flex: 1, minWidth: 80 })}
                     {miniInput(newSegModel, setNewSegModel, "embedding model (optional)", { flex: 1, minWidth: 80 })}
                     {addBtn(inSharedWorkspace ? "Add Directory" : "Add Segment", () => {
@@ -408,7 +408,7 @@ export function WorkspaceSection({
                 {!inSharedWorkspace && (
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Indexed File Patterns</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                       {patterns.map((pat, i) => (
                         <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.accent }}>
                           {pat} {removeBtn(() => setIndexing({ patterns: patterns.filter((_, j) => j !== i) }))}
@@ -420,7 +420,7 @@ export function WorkspaceSection({
                         No patterns — nothing will be indexed beyond memory. Add patterns to index specific directories.
                       </div>
                     )}
-                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                    <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
                       {miniInput(newPattern, setNewPattern, "docs/**/*.md", { flex: 1, maxWidth: 200 })}
                       {addBtn("Add", () => { if (newPattern.trim()) { setIndexing({ patterns: [...patterns, newPattern.trim()] }); setNewPattern(""); } })}
                     </div>
@@ -453,7 +453,7 @@ function ContainerStatusBanner({ sandbox, isRecreating, onRecreate, t }: {
   if (!sandbox.exists) {
     return (
       <div style={{
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
         padding: "8px 12px", background: t.surfaceRaised, borderRadius: 8,
         fontSize: 11, color: t.textDim,
       }}>
@@ -476,7 +476,7 @@ function ContainerStatusBanner({ sandbox, isRecreating, onRecreate, t }: {
       padding: "10px 12px", background: t.surfaceRaised, borderRadius: 8,
       border: sandbox.error_message ? `1px solid ${t.dangerMuted}` : undefined,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Container size={13} color={color} />
         <span style={{
           padding: "1px 7px", borderRadius: 4, fontSize: 10, fontWeight: 600,
@@ -506,7 +506,7 @@ function ContainerStatusBanner({ sandbox, isRecreating, onRecreate, t }: {
           {isRecreating ? "Recreating..." : "Recreate"}
         </button>
       </div>
-      <div style={{ display: "flex", gap: 16, fontSize: 10, color: t.textDim }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 16, fontSize: 10, color: t.textDim }}>
         {sandbox.created_at && <span>Created: {formatDateTime(sandbox.created_at)}</span>}
         {sandbox.last_used_at && <span>Last used: {formatDateTime(sandbox.last_used_at)}</span>}
         {sandbox.image_id && <span>Image: <span style={{ fontFamily: "monospace" }}>{sandbox.image_id}</span></span>}

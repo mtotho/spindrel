@@ -17,7 +17,7 @@ export function PaneTabBar({ pane }: PaneTabBarProps) {
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         overflow: "auto",
         background: t.surfaceRaised,
         borderBottom: `1px solid ${t.surfaceBorder}`,
@@ -32,7 +32,7 @@ export function PaneTabBar({ pane }: PaneTabBarProps) {
             key={file.path}
             onClick={() => setActiveFile(file.path, pane)}
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "center",
               gap: 6,
               padding: "0 12px",
@@ -75,7 +75,7 @@ export function PaneTabBar({ pane }: PaneTabBarProps) {
                 cursor: "pointer",
                 padding: 2,
                 borderRadius: 3,
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 opacity: 0.5,
               }}
               onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}

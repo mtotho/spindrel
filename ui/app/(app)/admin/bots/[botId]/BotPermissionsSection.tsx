@@ -1,4 +1,4 @@
-import { ActivityIndicator } from "react-native";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { Check } from "lucide-react";
 import { useApiKeyScopes } from "@/src/api/hooks/useApiKeys";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -57,14 +57,14 @@ export function BotPermissionsSection({
                 <div style={{ fontSize: 10, color: t.textDim, marginBottom: 6 }}>
                   {groupInfo.description}
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                   {scopes.map((scope) => {
                     const checked = set.has(scope);
                     const isAdmin = scope === "admin";
                     const desc = scopeGroups.descriptions?.[scope];
                     return (
                       <button key={scope} onClick={() => toggle(scope)} title={desc} style={{
-                        display: "flex", alignItems: "center", gap: 6,
+                        display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                         padding: "4px 10px", borderRadius: 5,
                         border: checked
                           ? isAdmin ? `1px solid ${t.dangerBorder}` : `1px solid ${t.accentBorder}`
@@ -80,7 +80,7 @@ export function BotPermissionsSection({
                           width: 14, height: 14, borderRadius: 3,
                           border: checked ? "none" : `1px solid ${t.surfaceBorder}`,
                           background: checked ? (isAdmin ? t.dangerMuted : t.accent) : "transparent",
-                          display: "flex", alignItems: "center", justifyContent: "center",
+                          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
                         }}>
                           {checked && <Check size={10} color="#fff" strokeWidth={3} />}
                         </span>
@@ -94,7 +94,7 @@ export function BotPermissionsSection({
           })}
         </div>
       ) : (
-        <ActivityIndicator color={t.accent} />
+        <Spinner color={t.accent} />
       )}
 
       {permissions.length > 0 && (

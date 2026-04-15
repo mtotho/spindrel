@@ -1,5 +1,6 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState } from "react";
-import { View, ActivityIndicator } from "react-native";
+
 import { Trash2 } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import {
@@ -63,11 +64,11 @@ function LimitStatusCard({ s, forecast }: { s: UsageLimitStatus; forecast?: Limi
         border: `1px solid ${t.surfaceOverlay}`,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
         <div style={{ fontSize: 11, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>
           {s.scope_type} &middot; {s.period}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, fontWeight: 600, color }}>{s.percentage}%</span>
           {projPct != null && projPct > s.percentage && (
             <span style={{ fontSize: 10, color: projColor }}>
@@ -158,7 +159,7 @@ function AddLimitForm({ knownModels }: { knownModels: string[] }) {
   return (
     <div
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         flexWrap: "wrap",
         gap: 8,
         alignItems: "flex-end",
@@ -270,7 +271,7 @@ function LimitsTable() {
   const updateMutation = useUpdateUsageLimit();
   const deleteMutation = useDeleteUsageLimit();
 
-  if (isLoading) return <ActivityIndicator style={{ marginTop: 20 }} />;
+  if (isLoading) return <Spinner />;
   if (!limits || limits.length === 0) {
     return (
       <div style={{ color: t.textDim, fontSize: 12, marginTop: 8 }}>
@@ -284,7 +285,7 @@ function LimitsTable() {
       {/* Header */}
       <div
         style={{
-          display: "flex",
+          display: "flex", flexDirection: "row",
           gap: 12,
           padding: "8px 12px",
           fontSize: 10,
@@ -306,7 +307,7 @@ function LimitsTable() {
         <div
           key={lim.id}
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             gap: 12,
             padding: "7px 12px",
             fontSize: 12,
@@ -376,12 +377,12 @@ export function LimitsTab({ knownModels }: { knownModels: string[] }) {
     );
 
   return (
-    <View>
+    <div>
       {/* Status cards */}
       {isLoading ? (
-        <ActivityIndicator />
+        <Spinner />
       ) : statuses && statuses.length > 0 ? (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
+        <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
           {statuses.map((s) => (
             <LimitStatusCard key={s.id} s={s} forecast={findForecast(s)} />
           ))}
@@ -399,6 +400,6 @@ export function LimitsTab({ knownModels }: { knownModels: string[] }) {
         <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8 }}>All Limits</div>
         <LimitsTable />
       </div>
-    </View>
+    </div>
   );
 }

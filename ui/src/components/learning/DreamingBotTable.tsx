@@ -6,7 +6,7 @@
  * and the now-deleted DreamingBotList in Settings.
  */
 import { useMemo } from "react";
-import { useRouter } from "expo-router";
+import { useNavigate } from "react-router-dom";
 import { Moon, Play } from "lucide-react";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -82,7 +82,7 @@ export interface DreamingBotTableProps {
 
 export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableProps) {
   const t = useThemeTokens();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { width } = useWindowSize();
   const isMobile = width < 768;
   const qc = useQueryClient();
@@ -192,9 +192,9 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
                 borderBottom: `1px solid ${t.surfaceBorder}`,
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                 <button
-                  onClick={() => router.push(`/admin/bots/${bot.bot_id}#memory` as any)}
+                  onClick={() => navigate(`/admin/bots/${bot.bot_id}#memory`)}
                   style={{
                     background: "none",
                     border: "none",
@@ -214,7 +214,7 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
                   <StatusBadge label="off" variant="neutral" />
                 )}
               </div>
-              <div style={{ display: "flex", gap: 12, fontSize: 10, color: t.textDim, alignItems: "center" }}>
+              <div style={{ display: "flex", flexDirection: "row", gap: 12, fontSize: 10, color: t.textDim, alignItems: "center" }}>
                 <span>Last: {fmtRelative(bot.last_run_at)}</span>
                 {bot.last_task_status && (
                   <StatusBadge label={bot.last_task_status} variant={statusVariant(bot.last_task_status)} />
@@ -222,7 +222,7 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
                 <span>Next: {fmtRelative(bot.next_run_at)}</span>
               </div>
               {isManage && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}>
                   <ToggleGroup
                     current={current}
                     disabled={updateMut.isPending}
@@ -247,7 +247,7 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
         return (
           <div
             key={bot.bot_id}
-            onClick={() => router.push(`/admin/bots/${bot.bot_id}#memory` as any)}
+            onClick={() => navigate(`/admin/bots/${bot.bot_id}#memory`)}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = t.inputBg;
             }}
@@ -340,7 +340,7 @@ function ToggleGroup({
 }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", gap: 4 }}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 4 }}>
       {STATES.map((s) => {
         const isSelected = current === s;
         return (
@@ -392,7 +392,7 @@ function RunButton({
       disabled={!enabled || pending}
       title={enabled ? "Trigger dreaming run now" : "Dreaming is disabled for this bot"}
       style={{
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         gap: 4,

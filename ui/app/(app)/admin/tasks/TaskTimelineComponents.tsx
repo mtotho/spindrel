@@ -19,7 +19,7 @@ export function NowLine() {
   return (
     <div style={{
       position: "absolute", left: 0, right: 0, top: `${pct}%`,
-      display: "flex", alignItems: "center", zIndex: 5, pointerEvents: "none",
+      display: "flex", flexDirection: "row", alignItems: "center", zIndex: 5, pointerEvents: "none",
     }}>
       <div style={{ width: 8, height: 8, borderRadius: 4, background: t.danger, marginLeft: -4 }} />
       <div style={{ flex: 1, height: 1, background: t.danger }} />
@@ -75,7 +75,7 @@ export function ConflictBanner({ warnings }: { warnings: string[] }) {
   const t = useThemeTokens();
   return (
     <div style={{
-      display: "flex", alignItems: "flex-start", gap: 8,
+      display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 8,
       padding: "8px 16px 8px 36px",
       background: t.warningSubtle,
       borderLeft: `3px solid ${t.warning}`,
@@ -99,9 +99,9 @@ export function ConflictBanner({ warnings }: { warnings: string[] }) {
 // Task card on timeline (Day/Week views) — simplified
 // ---------------------------------------------------------------------------
 export function TaskCard({
-  task, isPast, onPress, compact, style: extraStyle,
+  task, isPast, onClick, compact, style: extraStyle,
 }: {
-  task: TaskItem; isPast: boolean; onPress: () => void; compact?: boolean; style?: React.CSSProperties;
+  task: TaskItem; isPast: boolean; onClick: () => void; compact?: boolean; style?: React.CSSProperties;
 }) {
   const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
@@ -125,7 +125,7 @@ export function TaskCard({
 
   return (
     <div
-      onClick={onPress}
+      onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -141,7 +141,7 @@ export function TaskCard({
         ...extraStyle,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: compact ? 4 : 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: compact ? 4 : 8 }}>
         <Icon size={compact ? 10 : 13} color={s.fg} style={{ flexShrink: 0 }} />
         <span style={{
           fontSize: compact ? 10 : 13, fontWeight: 600,
@@ -174,7 +174,7 @@ export function TaskCard({
         )}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: compact ? 4 : 6, marginTop: compact ? 2 : 4 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: compact ? 4 : 6, marginTop: compact ? 2 : 4 }}>
         <BotDot botId={task.bot_id} size={compact ? 6 : 8} />
         <span style={{ fontSize: compact ? 9 : 10, color: t.textDim }}>{task.bot_id}</span>
         {!compact && task.task_type && <TypeBadge type={task.task_type} />}
@@ -269,7 +269,7 @@ export function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; t
             key={t.id}
             task={t}
             isPast={getTaskTime(t) < now && t.status !== "running"}
-            onPress={() => onTaskPress(t)}
+            onClick={() => onTaskPress(t)}
             compact={autoCompact || compact}
             style={{
               position: "absolute",

@@ -47,7 +47,7 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
         position: "fixed",
         inset: 0,
         background: "rgba(0,0,0,0.6)",
-        display: "flex",
+        display: "flex", flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         zIndex: 100,
@@ -64,7 +64,7 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
           maxWidth: "90vw",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <span style={{ fontSize: 16, fontWeight: 600, color: t.text }}>Upload Files</span>
           <button
             onClick={onClose}
@@ -79,7 +79,7 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
           <label style={{ fontSize: 12, color: t.textMuted, display: "block", marginBottom: 4 }}>
             Target directory
           </label>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
             <FolderOpen size={14} color={t.textDim} />
             <input
               value={targetDir}
@@ -134,7 +134,7 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
         )}
 
         {/* Actions */}
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
           <button
             onClick={onClose}
             style={{

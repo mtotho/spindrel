@@ -93,7 +93,7 @@ export function HistoryModeSection({ draft, update }: {
             <button
               onClick={() => setShowPrompt(!showPrompt)}
               style={{
-                display: "flex", alignItems: "center", gap: 8, width: "100%",
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%",
                 padding: "10px 16px", background: "none", border: "none",
                 cursor: "pointer", color: t.textMuted,
               }}

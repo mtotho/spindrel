@@ -1,9 +1,11 @@
+import { Spinner } from "@/src/components/shared/Spinner";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useCallback } from "react";
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+
+import { useParams } from "react-router-dom";
 import { Trash2, Zap } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { DetailHeader } from "@/src/components/layout/DetailHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import {
   useMCPServer, useCreateMCPServer, useUpdateMCPServer, useDeleteMCPServer,
   useTestMCPServer, useTestMCPServerInline,
@@ -19,7 +21,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
       onClick={() => onChange(!enabled)}
       title={enabled ? "Enabled" : "Disabled"}
       style={{
-        display: "flex", alignItems: "center", gap: compact ? 0 : 6,
+        display: "flex", flexDirection: "row", alignItems: "center", gap: compact ? 0 : 6,
         padding: compact ? "5px 6px" : "5px 12px", fontSize: 12, fontWeight: 600,
         border: "none", cursor: "pointer", borderRadius: 6, flexShrink: 0,
         background: enabled ? t.successSubtle : t.dangerSubtle,
@@ -45,7 +47,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
 
 export default function MCPServerDetailScreen() {
   const t = useThemeTokens();
-  const { serverId } = useLocalSearchParams<{ serverId: string }>();
+  const { serverId } = useParams<{ serverId: string }>();
   const isNew = serverId === "new";
   const goBack = useGoBack("/admin/mcp-servers");
   const { data: server, isLoading } = useMCPServer(isNew ? undefined : serverId);
@@ -55,7 +57,7 @@ export default function MCPServerDetailScreen() {
   const testMut = useTestMCPServer();
   const testInlineMut = useTestMCPServerInline();
 
-  const { width } = useWindowDimensions();
+  const { width } = useWindowSize();
   const isWide = width >= 768;
 
   const [id, setId] = useState("");
@@ -102,7 +104,7 @@ export default function MCPServerDetailScreen() {
     if (isNew) {
       testInlineMut.mutate({ url: url.trim(), api_key: apiKey || undefined }, { onSuccess, onError });
     } else {
-      testMut.mutate(serverId, { onSuccess, onError });
+      testMut.mutate(serverId!, { onSuccess, onError });
     }
   }, [serverId, isNew, url, apiKey, testMut, testInlineMut]);
 
@@ -112,17 +114,17 @@ export default function MCPServerDetailScreen() {
 
   if (!isNew && isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div className="flex-1 bg-surface items-center justify-center">
+        <Spinner />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
-      <DetailHeader
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="detail"
         parentLabel="MCP Servers"
-        parentHref="/admin/mcp-servers"
+        backTo="/admin/mcp-servers"
         title={isNew ? "New MCP Server" : "Edit MCP Server"}
         subtitle={!isNew ? serverId : undefined}
         right={
@@ -131,7 +133,7 @@ export default function MCPServerDetailScreen() {
               onClick={handleTest}
               disabled={testMut.isPending || testInlineMut.isPending || (!isNew && !url.trim())}
               style={{
-                display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
                 padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
                 border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
                 background: "transparent", color: t.textMuted, cursor: "pointer", flexShrink: 0,
@@ -146,7 +148,7 @@ export default function MCPServerDetailScreen() {
                 disabled={deleteMut.isPending}
                 title="Delete"
                 style={{
-                  display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
                   padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
                   border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
                   background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
@@ -194,11 +196,7 @@ export default function MCPServerDetailScreen() {
       )}
 
       {/* Body */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
-        paddingVertical: isWide ? 20 : 12,
-        paddingHorizontal: isWide ? 24 : 12,
-        maxWidth: 700,
-      }}>
+      <div style={{ flex: 1 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <Section title="Identity">
             {isNew && (
@@ -228,7 +226,7 @@ export default function MCPServerDetailScreen() {
           {/* Discovered tools (after test) */}
           {testResult?.ok && testResult.tools.length > 0 && (
             <Section title="Discovered Tools" description={`${testResult.tool_count} tools available from this server`}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                 {testResult.tools.map((name) => (
                   <span
                     key={name}
@@ -252,23 +250,23 @@ export default function MCPServerDetailScreen() {
                   <span style={{ color: t.textDim }}>ID</span>
                   <span style={{ color: t.text, fontFamily: "monospace" }}>{server.id}</span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                   <span style={{ color: t.textDim }}>Source</span>
                   <span style={{ color: t.textMuted }}>{server.source}</span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                   <span style={{ color: t.textDim }}>API Key</span>
                   <span style={{ color: server.has_api_key ? t.success : t.textDim }}>
                     {server.has_api_key ? "Set" : "Not set"}
                   </span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                   <span style={{ color: t.textDim }}>Created</span>
                   <span style={{ color: t.textMuted }}>
                     {new Date(server.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                   </span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                   <span style={{ color: t.textDim }}>Updated</span>
                   <span style={{ color: t.textMuted }}>
                     {new Date(server.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
@@ -278,7 +276,7 @@ export default function MCPServerDetailScreen() {
             </Section>
           )}
         </div>
-      </ScrollView>
-    </View>
+      </div>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { View, Text, Pressable, ActivityIndicator, Alert, Platform } from "react-native";
-import { Link, useLocalSearchParams, useRouter } from "expo-router";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import {
   useCarapace,
   useCreateCarapace,
@@ -10,7 +10,7 @@ import {
   useCarapaceUsage,
 } from "@/src/api/hooks/useCarapaces";
 import type { CarapaceUsageItem } from "@/src/api/hooks/useCarapaces";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
   Save, Trash2, ArrowLeft, ChevronDown, ChevronRight,
@@ -27,8 +27,8 @@ import type { Carapace } from "@/src/types/api";
 
 export default function CarapaceDetailPage() {
   const t = useThemeTokens();
-  const router = useRouter();
-  const { carapaceId: rawId } = useLocalSearchParams<{ carapaceId: string }>();
+  const navigate = useNavigate();
+  const { carapaceId: rawId } = useParams<{ carapaceId: string }>();
   // Decode -- back to / for IDs with slashes (e.g. integration carapaces)
   const carapaceId = rawId?.replaceAll("--", "/");
   const isNew = carapaceId === "new";
@@ -90,7 +90,7 @@ export default function CarapaceDetailPage() {
           includes: draft.includes || [],
           tags: draft.tags || [],
         });
-        router.back();
+        navigate(-1);
       } else {
         await updateMut.mutateAsync({
           name: draft.name,
@@ -119,7 +119,7 @@ export default function CarapaceDetailPage() {
     setShowDeleteConfirm(false);
     try {
       await deleteMut.mutateAsync(carapaceId!);
-      router.back();
+      navigate(-1);
     } catch {
       // error shown via mutation state
     }
@@ -129,7 +129,7 @@ export default function CarapaceDetailPage() {
     existing?.source_type === "file" || existing?.source_type === "integration";
 
   if (!isNew && isLoading) {
-    return <ActivityIndicator style={{ marginTop: 60 }} />;
+    return <div style={{ marginTop: 60, display: "flex", flexDirection: "row", justifyContent: "center" }}><Spinner /></div>;
   }
 
   const hasIncludes = (draft.includes || []).length > 0;
@@ -138,25 +138,26 @@ export default function CarapaceDetailPage() {
 
   return (
     <div style={{ overflow: "auto", flex: 1, background: t.surface }}>
-      <MobileHeader title={isNew ? "New Capability" : draft.name || "Capability"} />
+      <PageHeader variant="detail" title={isNew ? "New Capability" : draft.name || "Capability"} backTo="/admin/carapaces" />
       <div style={{ padding: 16, maxWidth: 720 }}>
         {/* Top actions */}
         <div
           style={{
-            display: "flex",
+            display: "flex", flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
             marginBottom: 16,
           }}
         >
-          <Pressable
-            onPress={() => router.back()}
-            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", padding: 0 }}
           >
             <ArrowLeft size={16} color={t.textMuted} />
-            <Text style={{ color: t.textMuted, fontSize: 13 }}>Back</Text>
-          </Pressable>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ color: t.textMuted, fontSize: 13 }}>Back</span>
+          </button>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
             <button
               onClick={() => setShowHelp(true)}
               title="Help — what are capabilities?"
@@ -165,51 +166,55 @@ export default function CarapaceDetailPage() {
                 border: "none",
                 cursor: "pointer",
                 padding: 4,
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
               }}
             >
               <HelpCircle size={16} color={t.textDim} />
             </button>
             {!isNew && !isFileBased && (
-              <Pressable
-                onPress={handleDelete}
+              <button
+                type="button"
+                onClick={handleDelete}
                 style={{
+                  display: "flex",
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 4,
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
+                  padding: "6px 10px",
                   borderRadius: 6,
                   backgroundColor: t.dangerSubtle,
-                  borderWidth: 1,
-                  borderColor: t.dangerBorder,
+                  border: `1px solid ${t.dangerBorder}`,
+                  cursor: "pointer",
                 }}
               >
                 <Trash2 size={14} color={t.danger} />
-                <Text style={{ color: t.danger, fontSize: 12 }}>Delete</Text>
-              </Pressable>
+                <span style={{ color: t.danger, fontSize: 12 }}>Delete</span>
+              </button>
             )}
             {!isFileBased && (
-              <Pressable
-                onPress={handleSave}
+              <button
+                type="button"
+                onClick={handleSave}
                 disabled={!dirty && !isNew}
                 style={{
+                  display: "flex",
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 4,
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
+                  padding: "6px 12px",
                   borderRadius: 6,
                   backgroundColor: dirty || isNew ? t.accent : t.surfaceBorder,
                   opacity: dirty || isNew ? 1 : 0.5,
+                  border: "none",
+                  cursor: dirty || isNew ? "pointer" : "default",
                 }}
               >
                 <Save size={14} color="#fff" />
-                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                <span style={{ color: "#fff", fontSize: 12, fontWeight: 600 }}>
                   {isNew ? "Create" : "Save"}
-                </Text>
-              </Pressable>
+                </span>
+              </button>
             )}
           </div>
         </div>
@@ -236,7 +241,7 @@ export default function CarapaceDetailPage() {
         {isFileBased && (
           <div
             style={{
-              display: "flex",
+              display: "flex", flexDirection: "row",
               alignItems: "flex-start",
               gap: 8,
               background: t.accentSubtle,
@@ -470,7 +475,7 @@ export default function CarapaceDetailPage() {
             <button
               onClick={() => setShowResolved(!showResolved)}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
                 padding: "8px 0",
@@ -576,44 +581,44 @@ function UsageRow({ item, t }: { item: CarapaceUsageItem; t: ThemeTokens }) {
     : `/channels/${item.id}`;
 
   return (
-    <Link href={href as any} asChild>
-      <Pressable
+    <Link to={href} style={{ textDecoration: "none" }}>
+      <div
         style={{
+          display: "flex",
           flexDirection: "row",
           alignItems: "center",
           gap: 8,
           padding: 8,
           borderRadius: 6,
           backgroundColor: t.surface,
-          borderWidth: 1,
-          borderColor: t.surfaceBorder,
+          border: `1px solid ${t.surfaceBorder}`,
+          cursor: "pointer",
         }}
       >
         <Icon size={14} color={item.auto_injected ? t.accent : t.textDim} />
-        <Text style={{ fontSize: 13, color: t.text, flex: 1 }} numberOfLines={1}>
+        <span style={{ fontSize: 13, color: t.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {item.name || item.id}
-        </Text>
-        <Text style={{ fontSize: 11, color: t.textDim }}>{label}</Text>
+        </span>
+        <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
         {item.auto_injected && (
-          <View style={{
+          <span style={{
+            display: "inline-flex",
             flexDirection: "row",
             alignItems: "center",
             gap: 3,
             backgroundColor: t.accentSubtle,
-            borderWidth: 1,
-            borderColor: t.accentBorder,
-            paddingHorizontal: 5,
-            paddingVertical: 1,
+            border: `1px solid ${t.accentBorder}`,
+            padding: "1px 5px",
             borderRadius: 4,
           }}>
             <Zap size={9} color={t.accent} />
-            <Text style={{ fontSize: 10, color: t.accent }}>auto-injected</Text>
-          </View>
+            <span style={{ fontSize: 10, color: t.accent }}>auto-injected</span>
+          </span>
         )}
         {item.type === "channel_inherited" && (
-          <Text style={{ fontSize: 10, color: t.textDim }}>via bot</Text>
+          <span style={{ fontSize: 10, color: t.textDim }}>via bot</span>
         )}
-      </Pressable>
+      </div>
     </Link>
   );
 }
@@ -655,7 +660,7 @@ function TagPreview({
   };
   const c = colorMap[color];
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
       {items.map((item) => (
         <span
           key={item}

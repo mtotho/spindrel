@@ -1,7 +1,8 @@
+import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useMemo } from "react";
-import { Pressable, ActivityIndicator } from "react-native";
+
 import { ChevronDown, ChevronRight, FileText } from "lucide-react";
-import { Link } from "expo-router";
+import { Link } from "react-router-dom";
 import { type ThemeTokens } from "@/src/theme/tokens";
 import { useWorkflowRunTasks } from "@/src/api/hooks/useWorkflows";
 import { TaskStatusBadge, TypeBadge, displayTitle } from "@/src/components/shared/TaskConstants";
@@ -36,11 +37,11 @@ export default function WorkflowRunTasks({ runId, steps, t }: {
       border: `1px solid ${t.surfaceBorder}`, background: t.surface,
     }}>
       {/* Header toggle */}
-      <Pressable
-        onPress={() => setExpanded((v) => !v)}
+      <button type="button"
+        onClick={() => setExpanded((v) => !v)}
         style={{
           flexDirection: "row", alignItems: "center", gap: 6,
-          paddingVertical: 8, paddingHorizontal: 12,
+          paddingBlock: 8, paddingInline: 12,
         }}
       >
         {expanded
@@ -53,14 +54,14 @@ export default function WorkflowRunTasks({ runId, steps, t }: {
         }}>
           Tasks ({tasks.length})
         </span>
-      </Pressable>
+      </button>
 
       {/* Rows */}
       {expanded && (
         <div style={{ borderTop: `1px solid ${t.surfaceBorder}` }}>
           {tasks.length === 0 ? (
-            <div style={{ padding: "10px 14px", fontSize: 12, color: t.textDim, fontStyle: "italic", display: "flex", alignItems: "center", gap: 6 }}>
-              {isLoading ? <><ActivityIndicator color={t.textDim} style={{ width: 12, height: 12 }} /> Loading...</> : "No tasks yet"}
+            <div style={{ padding: "10px 14px", fontSize: 12, color: t.textDim, fontStyle: "italic", display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+              {isLoading ? <><Spinner /> Loading...</> : "No tasks yet"}
             </div>
           ) : (
             tasks.map((task) => {
@@ -71,12 +72,12 @@ export default function WorkflowRunTasks({ runId, steps, t }: {
                 ? `/admin/logs/${task.correlation_id}`
                 : `/admin/tasks/${task.id}`;
               return (
-                <Link key={task.id} href={href as any}>
+                <Link key={task.id} to={href}>
                   <div
                     onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceRaised; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                     style={{
-                      display: "flex", alignItems: "center", gap: 10,
+                      display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
                       padding: "8px 14px",
                       borderBottom: `1px solid ${t.surfaceBorder}`,
                       cursor: "pointer", transition: "background 0.1s",

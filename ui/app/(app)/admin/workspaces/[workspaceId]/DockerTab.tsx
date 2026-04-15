@@ -61,7 +61,7 @@ export function EnvEditor({ entries, onChange }: {
       <button
         onClick={() => onChange([...entries, { key: "", value: "" }])}
         style={{
-          display: "flex", alignItems: "center", gap: 4,
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
           padding: "4px 10px", fontSize: 11, fontWeight: 600,
           border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
           background: "transparent", color: t.textMuted, cursor: "pointer",
@@ -231,7 +231,7 @@ export function DockerTab({
           <button
             onClick={() => setPorts([...ports, { host: "", container: "" }])}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "4px 10px", fontSize: 11, fontWeight: 600,
               border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
               background: "transparent", color: t.textMuted, cursor: "pointer",
@@ -311,7 +311,7 @@ export function DockerTab({
           <button
             onClick={() => setMounts([...mounts, { host_path: "", container_path: "", mode: "rw" }])}
             style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "4px 10px", fontSize: 11, fontWeight: 600,
               border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
               background: "transparent", color: t.textMuted, cursor: "pointer",

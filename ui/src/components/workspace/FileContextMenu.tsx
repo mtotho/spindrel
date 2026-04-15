@@ -150,7 +150,7 @@ export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRena
             <div
               onClick={item.onClick}
               style={{
-                display: "flex",
+                display: "flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 8,
                 padding: "6px 12px",
