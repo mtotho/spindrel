@@ -23,7 +23,7 @@ import {
   SettingItem,
   SettingsGroup,
 } from "@/src/api/hooks/useSettings";
-import { ServerStatusBar } from "@/src/components/settings/ServerStatusBar";
+import { ServerStatusStrip } from "@/src/components/settings/ServerStatusBar";
 import { GlobalSection } from "@/src/components/settings/GlobalSection";
 import { ModelTiersSection } from "@/src/components/settings/ModelTiersSection";
 import { ChatHistoryExtras } from "@/src/components/settings/ChatHistoryExtras";
@@ -632,9 +632,7 @@ export default function SettingsScreen() {
         }
       />
 
-      <div style={{ padding: "12px 16px 4px 16px" }}>
-        <ServerStatusBar />
-      </div>
+      <ServerStatusStrip />
 
       <div style={{ display: "flex", flexDirection: "row", flex: 1, minHeight: 0 }}>
         {isDesktop && (

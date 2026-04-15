@@ -1,9 +1,8 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-
-import { useParams } from "react-router-dom";
-import { Trash2, AlertCircle } from "lucide-react";
+import { useParams, Link } from "react-router-dom";
+import { Trash2, AlertCircle, FolderOpen, ChevronDown, ChevronRight } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import {
@@ -11,32 +10,58 @@ import {
 } from "@/src/api/hooks/useWorkspaces";
 import type { SharedWorkspace } from "@/src/types/api";
 import {
-  FormRow, TextInput, Section, TabBar,
+  FormRow, TextInput, Toggle,
 } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
 
-// Tab components
-import { BotsTab } from "./BotsTab";
-import { PromptsTab } from "./PromptsTab";
-import { FilesTab } from "./FilesTab";
-import { IndexingTab } from "./IndexingTab";
-import { EnvEditor } from "./DockerTab";
+// Section components
+import { BotsSection } from "./BotsSection";
+import { IndexingSection } from "./IndexingSection";
+import { WriteProtection } from "./WriteProtection";
 
 // ---------------------------------------------------------------------------
-// Tab definitions
+// Collapsible section
 // ---------------------------------------------------------------------------
-const TABS = [
-  { key: "overview", label: "Overview" },
-  { key: "bots", label: "Bots" },
-  { key: "prompts", label: "Prompts" },
-  { key: "files", label: "Files" },
-  { key: "indexing", label: "Indexing" },
-];
+function CollapsibleSection({
+  title,
+  subtitle,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  subtitle?: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const t = useThemeTokens();
+  const [open, setOpen] = useState(defaultOpen);
 
-const NEW_TABS = [
-  { key: "overview", label: "Overview" },
-  { key: "prompts", label: "Prompts" },
-];
+  return (
+    <div className="flex flex-col border-t" style={{ borderColor: t.surfaceBorder, paddingTop: 16 }}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex flex-row items-center gap-2 w-full text-left bg-transparent border-none cursor-pointer p-0"
+      >
+        {open
+          ? <ChevronDown size={14} color={t.textMuted} className="flex-shrink-0" />
+          : <ChevronRight size={14} color={t.textMuted} className="flex-shrink-0" />}
+        <span className="text-sm font-semibold flex-1" style={{ color: t.text }}>
+          {title}
+        </span>
+        {subtitle && !open && (
+          <span className="text-xs" style={{ color: t.textDim }}>
+            {subtitle}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="flex flex-col gap-3 pt-3">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -54,12 +79,9 @@ export default function WorkspaceDetailScreen() {
   const { width } = useWindowSize();
   const isWide = width >= 768;
 
-  const [activeTab, setActiveTab] = useState("overview");
-
   // Form state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [env, setEnv] = useState<{ key: string; value: string }[]>([]);
   const [basePromptEnabled, setBasePromptEnabled] = useState(true);
   const [writeProtectedPaths, setWriteProtectedPaths] = useState<string[]>([]);
   const [initialized, setInitialized] = useState(isNew);
@@ -67,20 +89,17 @@ export default function WorkspaceDetailScreen() {
   if (workspace && !initialized) {
     setName(workspace.name || "");
     setDescription(workspace.description || "");
-    setEnv(Object.entries(workspace.env || {}).map(([k, v]) => ({ key: k, value: v as string })));
     setBasePromptEnabled(workspace.workspace_base_prompt_enabled ?? true);
     setWriteProtectedPaths(workspace.write_protected_paths || []);
     setInitialized(true);
   }
 
   const handleSave = useCallback(async () => {
-    const envDict = Object.fromEntries(env.filter((e) => e.key).map((e) => [e.key, e.value]));
     if (isNew) {
       if (!name.trim()) return;
       await createMut.mutateAsync({
         name: name.trim(),
         description: description || undefined,
-        env: Object.keys(envDict).length ? envDict : undefined,
         workspace_base_prompt_enabled: basePromptEnabled,
         write_protected_paths: writeProtectedPaths,
       });
@@ -89,7 +108,6 @@ export default function WorkspaceDetailScreen() {
       await updateMut.mutateAsync({
         name: name.trim() || undefined,
         description,
-        env: envDict,
         workspace_base_prompt_enabled: basePromptEnabled,
         write_protected_paths: writeProtectedPaths,
       });
@@ -97,7 +115,7 @@ export default function WorkspaceDetailScreen() {
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2000);
     }
-  }, [isNew, name, description, env, basePromptEnabled, writeProtectedPaths, createMut, updateMut, goBack]);
+  }, [isNew, name, description, basePromptEnabled, writeProtectedPaths, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!workspaceId || !confirm("Delete this workspace? All workspace data will be removed.")) return;
@@ -108,8 +126,8 @@ export default function WorkspaceDetailScreen() {
   // -- Dirty tracking --
   const savedSnapshot = useRef<string>("");
   const currentSnapshot = useMemo(() =>
-    JSON.stringify({ name, description, env, basePromptEnabled, writeProtectedPaths }),
-    [name, description, env, basePromptEnabled, writeProtectedPaths],
+    JSON.stringify({ name, description, basePromptEnabled, writeProtectedPaths }),
+    [name, description, basePromptEnabled, writeProtectedPaths],
   );
   useEffect(() => {
     if (initialized && !savedSnapshot.current) {
@@ -118,12 +136,7 @@ export default function WorkspaceDetailScreen() {
   }, [initialized, currentSnapshot]);
 
   const isDirty = isNew || (initialized && currentSnapshot !== savedSnapshot.current);
-
   const [justSaved, setJustSaved] = useState(false);
-
-  // -- Validation warnings --
-  const hasEmptyEnvKeys = env.some((e) => !e.key);
-  const hasWarnings = hasEmptyEnvKeys;
 
   // -- Warn on navigate away with unsaved changes --
   useEffect(() => {
@@ -145,8 +158,6 @@ export default function WorkspaceDetailScreen() {
     );
   }
 
-  const activeTabs = isNew ? NEW_TABS : TABS;
-
   return (
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
       <PageHeader variant="detail"
@@ -155,17 +166,47 @@ export default function WorkspaceDetailScreen() {
         title={isNew ? "New Workspace" : "Edit Workspace"}
         subtitle={!isNew ? workspaceId?.slice(0, 8) : undefined}
         right={
-          <>
+          <div className="flex flex-row items-center gap-2">
+            {/* File explorer link */}
+            {!isNew && (
+              <Link
+                to={`/admin/workspaces/${workspaceId}/files`}
+                title="Browse files"
+                className="flex flex-row items-center justify-center"
+                style={{
+                  width: isWide ? "auto" : 36,
+                  height: isWide ? "auto" : 36,
+                  padding: isWide ? "6px 14px" : "6px 8px",
+                  fontSize: 13,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  borderRadius: 6,
+                  background: "transparent",
+                  color: t.textMuted,
+                  textDecoration: "none",
+                  gap: 6,
+                  flexShrink: 0,
+                }}
+              >
+                <FolderOpen size={14} />
+                {isWide && <span>Files</span>}
+              </Link>
+            )}
             {!isNew && (
               <button
                 onClick={handleDelete}
                 disabled={deleteMut.isPending}
                 title="Delete"
+                className="flex flex-row items-center"
                 style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
-                  padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-                  border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
-                  background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
+                  gap: isWide ? 6 : 0,
+                  padding: isWide ? "6px 14px" : "6px 8px",
+                  fontSize: 13,
+                  border: `1px solid ${t.dangerBorder}`,
+                  borderRadius: 6,
+                  background: "transparent",
+                  color: t.danger,
+                  cursor: "pointer",
+                  flexShrink: 0,
                 }}
               >
                 <Trash2 size={14} />
@@ -173,60 +214,37 @@ export default function WorkspaceDetailScreen() {
               </button>
             )}
             {isDirty && !isNew && !justSaved && (
-              <span style={{
-                fontSize: 11, fontWeight: 600, color: t.warningMuted,
-                flexShrink: 0, whiteSpace: "nowrap",
-              }}>
+              <span className="text-xs font-semibold flex-shrink-0 whitespace-nowrap"
+                style={{ color: t.warningMuted }}>
                 Unsaved changes
               </span>
             )}
             {justSaved && (
-              <span style={{
-                fontSize: 11, fontWeight: 600, color: t.success,
-                flexShrink: 0,
-              }}>
+              <span className="text-xs font-semibold flex-shrink-0"
+                style={{ color: t.success }}>
                 Saved
               </span>
             )}
-          </>
+          </div>
         }
       />
 
-      <div className="flex-1 overflow-y-auto" style={{ padding: 24 }}>
-        <TabBar tabs={activeTabs} active={activeTab} onChange={setActiveTab} />
-
-        {/* Validation warnings */}
-        {hasWarnings && (
-          <div style={{
-            marginTop: 12, padding: "8px 12px", borderRadius: 6,
-            background: t.warningSubtle, color: t.warning, fontSize: 12,
-            display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-          }}>
-            <AlertCircle size={14} />
-            <span>
-              {hasEmptyEnvKeys && "Some env variables have empty keys. "}
-            </span>
-          </div>
-        )}
-
+      <div className="flex-1 overflow-y-auto p-6">
         {/* Error display */}
         {mutError && (
-          <div style={{
-            marginTop: 12, padding: "8px 12px", borderRadius: 6,
-            background: t.dangerSubtle, color: t.danger, fontSize: 12,
-          }}>
+          <div className="mb-4 px-3 py-2 rounded-md text-xs"
+            style={{ background: t.dangerSubtle, color: t.danger }}>
             {(mutError as any)?.message || String(mutError)}
           </div>
         )}
 
         {/* Save button */}
-        <div style={{ marginTop: 16, marginBottom: 24 }}>
+        <div className="mb-6">
           <button
             onClick={handleSave}
             disabled={!canSave || isSaving || (!isDirty && !isNew)}
+            className="px-5 py-2 text-sm font-semibold rounded-md border-none cursor-pointer"
             style={{
-              padding: "8px 20px", fontSize: 13, fontWeight: 600,
-              borderRadius: 6, border: "none", cursor: "pointer",
               background: canSave && isDirty ? t.accent : t.surfaceOverlay,
               color: canSave && isDirty ? "#fff" : t.textDim,
               opacity: isSaving ? 0.6 : 1,
@@ -236,84 +254,89 @@ export default function WorkspaceDetailScreen() {
           </button>
         </div>
 
-        {/* ---- Overview Tab ---- */}
-        {activeTab === "overview" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-            <Section title="Identity">
-              <FormRow label="Name" description="Unique workspace name">
-                <TextInput value={name} onChangeText={setName} placeholder="e.g. my-workspace" />
-              </FormRow>
-              <FormRow label="Description">
-                <TextInput value={description} onChangeText={setDescription} placeholder="Optional description" />
-              </FormRow>
-            </Section>
-
-            {/* Environment Variables */}
-            <Section title="Environment Variables">
-              <EnvEditor entries={env} onChange={setEnv} />
-            </Section>
-
-            {/* Info (existing workspace) */}
+        <div className="flex flex-col gap-4">
+          {/* ---- Identity (always open) ---- */}
+          <div className="flex flex-col gap-4">
+            <span className="text-sm font-semibold" style={{ color: t.text }}>Identity</span>
+            <FormRow label="Name" description="Unique workspace name">
+              <TextInput value={name} onChangeText={setName} placeholder="e.g. my-workspace" />
+            </FormRow>
+            <FormRow label="Description">
+              <TextInput value={description} onChangeText={setDescription} placeholder="Optional description" />
+            </FormRow>
             {!isNew && workspace && (
-              <Section title="Info">
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11 }}>
-                  <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
-                    <span style={{ color: t.textDim }}>ID</span>
-                    <span style={{ color: t.text, fontFamily: "monospace" }}>{workspace.id}</span>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
-                    <span style={{ color: t.textDim }}>Created</span>
-                    <span style={{ color: t.textMuted }}>
-                      {new Date(workspace.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-                    </span>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
-                    <span style={{ color: t.textDim }}>Updated</span>
-                    <span style={{ color: t.textMuted }}>
-                      {new Date(workspace.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-                    </span>
-                  </div>
+              <div className="flex flex-col gap-1 text-xs mt-2">
+                <div className="flex flex-row justify-between">
+                  <span style={{ color: t.textDim }}>ID</span>
+                  <span className="font-mono" style={{ color: t.text }}>{workspace.id}</span>
                 </div>
-              </Section>
+                <div className="flex flex-row justify-between">
+                  <span style={{ color: t.textDim }}>Created</span>
+                  <span style={{ color: t.textMuted }}>
+                    {new Date(workspace.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                  </span>
+                </div>
+                <div className="flex flex-row justify-between">
+                  <span style={{ color: t.textDim }}>Updated</span>
+                  <span style={{ color: t.textMuted }}>
+                    {new Date(workspace.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                  </span>
+                </div>
+              </div>
             )}
           </div>
-        )}
 
-        {/* ---- Bots Tab ---- */}
-        {activeTab === "bots" && !isNew && workspace && (
-          <BotsTab
-            workspaceId={workspaceId!}
-            bots={workspace.bots}
-            writeProtectedPaths={workspace.write_protected_paths || []}
-          />
-        )}
+          {/* ---- Prompts ---- */}
+          <CollapsibleSection title="Prompts" subtitle="Base prompt override">
+            <FormRow label="Enable workspace base prompt override">
+              <Toggle value={basePromptEnabled} onChange={setBasePromptEnabled} />
+            </FormRow>
+            <div className="text-xs leading-relaxed" style={{ color: t.textMuted }}>
+              <div className="font-semibold mb-1" style={{ color: t.textMuted }}>File conventions:</div>
+              <div className="flex flex-col gap-0.5">
+                <span><code style={{ color: t.accent }}>common/prompts/base.md</code> {"\u2014"} replaces global base prompt for every bot</span>
+                <span><code style={{ color: t.warningMuted }}>{"bots/<bot-id>/prompts/base.md"}</code> {"\u2014"} concatenated after common, resolved per bot</span>
+              </div>
+            </div>
+            <div className="text-xs leading-relaxed mt-2" style={{ color: t.textMuted }}>
+              <div className="font-semibold mb-1" style={{ color: t.textMuted }}>Persona override:</div>
+              <div className="flex flex-col gap-0.5">
+                <span><code style={{ color: t.warningMuted }}>{"bots/<bot-id>/persona.md"}</code> {"\u2014"} overrides DB persona (file presence opts in)</span>
+              </div>
+            </div>
+          </CollapsibleSection>
 
-        {/* ---- Prompts Tab ---- */}
-        {activeTab === "prompts" && (
-          <PromptsTab
-            workspaceId={workspaceId!}
-            isNew={isNew}
-            basePromptEnabled={basePromptEnabled}
-            setBasePromptEnabled={setBasePromptEnabled}
-          />
-        )}
+          {/* ---- Bots ---- */}
+          {!isNew && workspace && (
+            <CollapsibleSection
+              title="Bots"
+              subtitle={`${workspace.bots.length} enrolled`}
+            >
+              <BotsSection
+                workspaceId={workspaceId!}
+                bots={workspace.bots}
+                writeProtectedPaths={workspace.write_protected_paths || []}
+              />
+            </CollapsibleSection>
+          )}
 
-        {/* ---- Files Tab ---- */}
-        {activeTab === "files" && !isNew && (
-          <FilesTab
-            workspaceId={workspaceId!}
-            currentStatus="running"
-          />
-        )}
+          {/* ---- Indexing ---- */}
+          {!isNew && (
+            <CollapsibleSection title="Indexing">
+              <IndexingSection workspaceId={workspaceId!} />
+            </CollapsibleSection>
+          )}
 
-        {/* ---- Indexing Tab ---- */}
-        {activeTab === "indexing" && !isNew && (
-          <IndexingTab
-            workspaceId={workspaceId!}
-            writeProtectedPaths={writeProtectedPaths}
-            setWriteProtectedPaths={setWriteProtectedPaths}
-          />
-        )}
+          {/* ---- Write Protection ---- */}
+          {!isNew && (
+            <CollapsibleSection
+              title="Write Protection"
+              subtitle={`${writeProtectedPaths.length} path${writeProtectedPaths.length !== 1 ? "s" : ""}`}
+            >
+              <WriteProtection paths={writeProtectedPaths} onChange={setWriteProtectedPaths} />
+            </CollapsibleSection>
+          )}
+        </div>
       </div>
     </div>
   );

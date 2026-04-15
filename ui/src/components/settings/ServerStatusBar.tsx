@@ -10,7 +10,11 @@ import {
 } from "@/src/components/shared/SettingsControls";
 import { RestartConfirmModal } from "./RestartConfirmModal";
 
-export function ServerStatusBar() {
+/**
+ * Compact single-row server status strip. Shows status dot, version,
+ * pause/restart controls, and update check — all inline.
+ */
+export function ServerStatusStrip() {
   const t = useThemeTokens();
   const { data: status } = useSystemStatus();
   const { data: version } = useVersion();
@@ -24,126 +28,94 @@ export function ServerStatusBar() {
     <>
       <div
         style={{
-          backgroundColor: t.surfaceRaised,
-          borderRadius: 10,
-          border: `1px solid ${t.surfaceBorder}`,
-          padding: 14,
           display: "flex",
-          flexDirection: "column",
+          flexDirection: "row",
+          alignItems: "center",
           gap: 10,
+          padding: "6px 16px",
+          borderBottom: `1px solid ${t.surfaceBorder}`,
+          flexWrap: "wrap",
         }}
       >
-        {/* Row 1: Status + controls */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 10,
-            flexWrap: "wrap",
-          }}
-        >
-          {/* Status indicator */}
+        {/* Status dot + badge */}
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
           <div
-            style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              backgroundColor: paused ? t.warning : t.success,
+              flexShrink: 0,
+            }}
+          />
+          <StatusBadge
+            label={paused ? "Paused" : "Running"}
+            variant={paused ? "warning" : "success"}
+          />
+        </div>
+
+        {/* Version */}
+        <span style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace" }}>
+          v{version ?? "..."}
+        </span>
+
+        {/* Update result (inline) */}
+        {checkUpdate.data && !checkUpdate.isFetching && (
+          checkUpdate.data.update_available ? (
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <StatusBadge label={`v${checkUpdate.data.latest} available`} variant="info" />
+              {checkUpdate.data.latest_url && (
+                <a
+                  href={checkUpdate.data.latest_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: "flex", flexDirection: "row", alignItems: "center" }}
+                >
+                  <ExternalLink size={10} color={t.accent} />
+                </a>
+              )}
+            </div>
+          ) : checkUpdate.data.error ? (
+            <span style={{ color: t.textDim, fontSize: 10 }}>Check failed</span>
+          ) : (
+            <span style={{ color: t.success, fontSize: 10 }}>Up to date</span>
+          )
+        )}
+        {checkUpdate.isFetching && <div className="chat-spinner" />}
+
+        <div style={{ flex: 1 }} />
+
+        {/* Actions — right-aligned */}
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <button
+            type="button"
+            onClick={() => checkUpdate.refetch()}
+            disabled={checkUpdate.isFetching}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: checkUpdate.isFetching ? "not-allowed" : "pointer",
+              color: t.textDim,
+              fontSize: 10,
+              padding: "2px 6px",
+              opacity: checkUpdate.isFetching ? 0.5 : 1,
+            }}
           >
-            <div
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: paused ? t.warning : t.success,
-              }}
-            />
-            <StatusBadge
-              label={paused ? "Paused" : "Running"}
-              variant={paused ? "warning" : "success"}
-            />
-          </div>
-
-          <div style={{ flex: 1 }} />
-
-          {/* Pause/Resume */}
+            Update
+          </button>
           <ActionButton
-            label={
-              togglePause.isPending
-                ? "..."
-                : paused
-                  ? "Resume"
-                  : "Pause"
-            }
+            label={togglePause.isPending ? "..." : paused ? "Resume" : "Pause"}
             onPress={() => togglePause.mutate(!paused)}
             variant={paused ? "primary" : "secondary"}
             size="small"
             disabled={togglePause.isPending}
           />
-
-          {/* Restart */}
           <ActionButton
             label="Restart"
             onPress={() => setShowRestartModal(true)}
             variant="danger"
             size="small"
-            icon={<RefreshCw size={12} />}
-          />
-        </div>
-
-        {/* Row 2: Version + update check */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 10,
-            flexWrap: "wrap",
-          }}
-        >
-          <span style={{ color: t.textDim, fontSize: 12, fontFamily: "monospace" }}>
-            Spindrel v{version ?? "..."}
-            {checkUpdate.data?.git_hash
-              ? ` (${checkUpdate.data.git_hash})`
-              : ""}
-          </span>
-
-          <div style={{ flex: 1 }} />
-
-          {/* Update check result */}
-          {checkUpdate.data && !checkUpdate.isFetching && (
-            checkUpdate.data.update_available ? (
-              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <StatusBadge label={`v${checkUpdate.data.latest} available`} variant="info" />
-                {checkUpdate.data.latest_url && (
-                  <a
-                    href={checkUpdate.data.latest_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ display: "flex", flexDirection: "row", alignItems: "center" }}
-                  >
-                    <ExternalLink size={12} color={t.accent} />
-                  </a>
-                )}
-              </div>
-            ) : checkUpdate.data.error ? (
-              <span style={{ color: t.textDim, fontSize: 11 }}>
-                Check failed
-              </span>
-            ) : (
-              <span style={{ color: t.success, fontSize: 11 }}>
-                Up to date
-              </span>
-            )
-          )}
-
-          {checkUpdate.isFetching && (
-            <div className="chat-spinner" />
-          )}
-
-          <ActionButton
-            label="Check for Update"
-            onPress={() => checkUpdate.refetch()}
-            variant="ghost"
-            size="small"
-            disabled={checkUpdate.isFetching}
+            icon={<RefreshCw size={11} />}
           />
         </div>
       </div>
@@ -153,4 +125,9 @@ export function ServerStatusBar() {
       )}
     </>
   );
+}
+
+/** @deprecated Use ServerStatusStrip instead */
+export function ServerStatusBar() {
+  return <ServerStatusStrip />;
 }

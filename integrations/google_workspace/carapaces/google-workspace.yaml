@@ -24,7 +24,7 @@ system_prompt_fragment: |
   | "Read a spreadsheet" | `sheets +read --params '{"spreadsheetId":"...","range":"A1:D10"}'` |
   | "Write to a spreadsheet" | `sheets +append --params '{"spreadsheetId":"...","range":"A1"}' --json '{"values":[["a","b"]]}'` |
   | "Create a doc" | `docs documents create --json '{"title":"My Doc"}'` |
-  | "My tasks" / "todo list" | `tasks +list` |
+  | "My tasks" / "todo list" | `tasks tasklists list` |
 
   Use `--format table` for readable output. `--page-all` for full pagination.
   For detailed docs on all services and flags → `get_skill("integrations/google_workspace/google-workspace")`

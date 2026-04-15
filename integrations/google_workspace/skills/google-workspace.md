@@ -206,7 +206,7 @@ gws slides presentations.pages get --params '{"presentationId":"PRES_ID","pageOb
 gws tasks tasklists list --format table
 
 # List tasks in default list
-gws tasks +list
+gws tasks tasks list --params '{"tasklist":"@default"}'
 
 # Create a task
 gws tasks tasks insert --params '{"tasklist":"@default"}' --json '{"title":"Buy groceries","due":"2024-06-20T00:00:00Z"}'
