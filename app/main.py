@@ -918,7 +918,14 @@ if _UI_DIST.is_dir():
             self.app = app
 
         async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-            if scope["type"] != "http" or scope.get("method", "") != "GET":
+            path = scope.get("path", "")
+            if (
+                scope["type"] != "http"
+                or scope.get("method", "") != "GET"
+                or path.startswith("/api/")
+                or path.startswith("/health")
+                or path.startswith("/integrations/")
+            ):
                 await self.app(scope, receive, send)
                 return
 

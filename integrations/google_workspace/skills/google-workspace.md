@@ -205,17 +205,20 @@ gws slides presentations.pages get --params '{"presentationId":"PRES_ID","pageOb
 # List task lists
 gws tasks tasklists list --format table
 
-# List tasks in default list
-gws tasks tasks list --params '{"tasklist":"@default"}'
+# List tasks in a specific list (use tasklist ID from above)
+gws tasks tasks list --params '{"tasklist":"TASKLIST_ID"}'
 
 # Create a task
-gws tasks tasks insert --params '{"tasklist":"@default"}' --json '{"title":"Buy groceries","due":"2024-06-20T00:00:00Z"}'
+gws tasks tasks insert --params '{"tasklist":"TASKLIST_ID"}' --json '{"title":"Buy groceries","due":"2024-06-20T00:00:00Z"}'
 
-# Complete a task
-gws tasks tasks update --params '{"tasklist":"@default","task":"TASK_ID"}' --json '{"status":"completed"}'
+# Move/reorder a task
+gws tasks tasks move --params '{"tasklist":"TASKLIST_ID","task":"TASK_ID"}' --json '{"previous":"OTHER_TASK_ID"}'
+
+# Update a task (⚠️ GOTCHA: `id` must be in --json body, not just --params)
+gws tasks tasks update --params '{"tasklist":"TASKLIST_ID","task":"TASK_ID"}' --json '{"id":"TASK_ID","status":"completed"}'
 
 # Delete a task
-gws tasks tasks delete --params '{"tasklist":"@default","task":"TASK_ID"}'
+gws tasks tasks delete --params '{"tasklist":"TASKLIST_ID","task":"TASK_ID"}'
 ```
 
 ## Google Contacts (People API)
