@@ -10,7 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
-import { useTask, useCreateTask } from "@/src/api/hooks/useTasks";
+import { useTask, useCreateTask, type StepDef } from "@/src/api/hooks/useTasks";
 import { useWorkflows } from "@/src/api/hooks/useWorkflows";
 import { useSkills } from "@/src/api/hooks/useSkills";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
@@ -20,6 +20,7 @@ import { WorkspaceFilePrompt } from "./WorkspaceFilePrompt";
 import { FormRow, SelectInput, Toggle, Section } from "./FormControls";
 import { LlmModelDropdown } from "./LlmModelDropdown";
 import { FallbackModelList } from "./FallbackModelList";
+import { TaskStepEditor } from "./TaskStepEditor";
 import { localInputToISO } from "@/src/utils/time";
 import { useThemeTokens } from "../../theme/tokens";
 import { TriggerSection, type TriggerConfig } from "./TriggerSection";
@@ -74,6 +75,8 @@ export function TaskCreateModal({
   const taskType = triggerConfig.type === "schedule" ? "scheduled" : "agent";
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [selectedToolKeys, setSelectedToolKeys] = useState<string[]>([]);
+  const [steps, setSteps] = useState<StepDef[] | null>(null);
+  const stepsMode = steps !== null;
   const [initialized, setInitialized] = useState(false);
 
   // Populate from clone source
@@ -98,6 +101,7 @@ export function TaskCreateModal({
     }
     setSelectedSkillIds(existingTask.execution_config?.skills ?? []);
     setSelectedToolKeys(existingTask.execution_config?.tools ?? []);
+    setSteps(existingTask.steps ?? null);
     setInitialized(true);
   }
 
@@ -118,7 +122,7 @@ export function TaskCreateModal({
     }
   }, [qc, extraQueryKeysToInvalidate]);
 
-  const hasPromptOrWorkflow = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath || !!workflowId;
+  const hasPromptOrWorkflow = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath || !!workflowId || (steps !== null && steps.length > 0);
 
   const handleSave = useCallback(async () => {
     if (!hasPromptOrWorkflow || !botId) return;
@@ -135,7 +139,7 @@ export function TaskCreateModal({
         channel_id: channelId || null,
         scheduled_at: scheduledAtISO,
         recurrence: effectiveRecurrence,
-        task_type: taskType,
+        task_type: steps && steps.length > 0 ? "pipeline" : taskType,
         trigger_rag_loop: triggerRagLoop,
         model_override: modelOverride || null,
         fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
@@ -145,13 +149,14 @@ export function TaskCreateModal({
         trigger_config: triggerConfig,
         skills: selectedSkillIds.length > 0 ? selectedSkillIds : null,
         tools: selectedToolKeys.length > 0 ? selectedToolKeys : null,
+        steps: steps && steps.length > 0 ? steps : null,
       });
       invalidateExtra();
       onSaved();
     } catch {
       // error shown via mutation state
     }
-  }, [prompt, title, botId, channelId, scheduledAt, recurrence, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, createMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys]);
+  }, [prompt, title, botId, channelId, scheduledAt, recurrence, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, createMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, taskType]);
 
   if (typeof document === "undefined") return null;
 
@@ -229,31 +234,83 @@ export function TaskCreateModal({
                 />
               </FormRow>
 
-              {/* Prompt */}
-              <WorkspaceFilePrompt
-                workspaceId={workspaceId ?? selectedBot?.shared_workspace_id}
-                filePath={workspaceFilePath}
-                onLink={(path, wsId) => { setWorkspaceFilePath(path); setWorkspaceId(wsId); setPromptTemplateId(null); }}
-                onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
-              />
-              {!workspaceFilePath && (
+              {/* Mode toggle: Prompt | Steps */}
+              <div className="flex flex-row items-center gap-1">
+                <button
+                  onClick={() => {
+                    if (stepsMode) {
+                      // Switch to prompt mode — recover prompt from first agent step if possible
+                      if (steps && steps.length === 1 && steps[0].type === "agent") {
+                        setPrompt(steps[0].prompt ?? "");
+                      }
+                      setSteps(null);
+                    }
+                  }}
+                  className={`px-3 py-1 text-xs font-semibold rounded-l-md border transition-colors ${
+                    !stepsMode
+                      ? "bg-accent/10 text-accent border-accent/30"
+                      : "bg-transparent text-text-dim border-surface-border hover:text-text cursor-pointer"
+                  }`}
+                >
+                  Prompt
+                </button>
+                <button
+                  onClick={() => {
+                    if (!stepsMode) {
+                      // Switch to steps mode — convert prompt to first agent step if non-empty
+                      const initial: StepDef[] = prompt.trim()
+                        ? [{ id: "step_1", type: "agent", prompt, label: "", on_failure: "abort" }]
+                        : [];
+                      setSteps(initial);
+                    }
+                  }}
+                  className={`px-3 py-1 text-xs font-semibold rounded-r-md border border-l-0 transition-colors ${
+                    stepsMode
+                      ? "bg-accent/10 text-accent border-accent/30"
+                      : "bg-transparent text-text-dim border-surface-border hover:text-text cursor-pointer"
+                  }`}
+                >
+                  Steps
+                </button>
+              </div>
+
+              {/* Prompt mode */}
+              {!stepsMode && (
                 <>
-                  <PromptTemplateLink
-                    templateId={promptTemplateId}
-                    onLink={(id) => setPromptTemplateId(id)}
-                    onUnlink={() => setPromptTemplateId(null)}
+                  <WorkspaceFilePrompt
+                    workspaceId={workspaceId ?? selectedBot?.shared_workspace_id}
+                    filePath={workspaceFilePath}
+                    onLink={(path, wsId) => { setWorkspaceFilePath(path); setWorkspaceId(wsId); setPromptTemplateId(null); }}
+                    onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
                   />
-                  <LlmPrompt
-                    value={prompt}
-                    onChange={setPrompt}
-                    label="Prompt"
-                    placeholder={workflowId ? "Optional \u2014 workflow will be triggered directly" : promptTemplateId ? "Using linked template..." : "Describe what this task should do..."}
-                    rows={6}
-                    fieldType="task_prompt"
-                    botId={botId}
-                    channelId={channelId}
-                  />
+                  {!workspaceFilePath && (
+                    <>
+                      <PromptTemplateLink
+                        templateId={promptTemplateId}
+                        onLink={(id) => setPromptTemplateId(id)}
+                        onUnlink={() => setPromptTemplateId(null)}
+                      />
+                      <LlmPrompt
+                        value={prompt}
+                        onChange={setPrompt}
+                        label="Prompt"
+                        placeholder={workflowId ? "Optional \u2014 workflow will be triggered directly" : promptTemplateId ? "Using linked template..." : "Describe what this task should do..."}
+                        rows={6}
+                        fieldType="task_prompt"
+                        botId={botId}
+                        channelId={channelId}
+                      />
+                    </>
+                  )}
                 </>
+              )}
+
+              {/* Steps mode */}
+              {stepsMode && (
+                <TaskStepEditor
+                  steps={steps!}
+                  onChange={setSteps}
+                />
               )}
 
               {/* Skills & Tools */}

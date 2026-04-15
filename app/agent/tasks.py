@@ -88,6 +88,19 @@ async def _fire_task_complete(task: Task, status: str) -> None:
                 task.id, cb["workflow_run_id"], cb["workflow_step_index"],
             )
 
+    # Pipeline step completion — resume the parent pipeline
+    if cb.get("pipeline_task_id") and cb.get("pipeline_step_index") is not None:
+        try:
+            from app.services.step_executor import on_pipeline_step_completed
+            await on_pipeline_step_completed(
+                cb["pipeline_task_id"], cb["pipeline_step_index"], status, task,
+            )
+        except Exception:
+            logger.exception(
+                "Pipeline step completion failed for task %s (pipeline=%s step=%s)",
+                task.id, cb["pipeline_task_id"], cb["pipeline_step_index"],
+            )
+
     # Fire generic hook broadcast for non-workflow listeners (integrations, etc.)
     try:
         from app.agent.hooks import HookContext, fire_hook
@@ -632,6 +645,10 @@ async def run_task(task: Task) -> None:
     # Route on task_type (preferred) with fallback to dispatch_type for legacy rows
     if task.task_type == "exec" or (task.task_type == "agent" and task.dispatch_type == "exec"):
         await run_exec_task(task)
+        return
+    if task.task_type == "pipeline":
+        from app.services.step_executor import run_task_pipeline
+        await run_task_pipeline(task)
         return
     if task.workflow_id:
         await _run_workflow_trigger_task(task)

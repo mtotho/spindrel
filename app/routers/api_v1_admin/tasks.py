@@ -14,7 +14,7 @@ from sqlalchemy import and_, func, or_, select
 # Task types allowed to be created/updated via the admin API.
 # Internal types like 'exec', 'claude_code', 'delegation' are only
 # created programmatically by the system (task worker, delegation service, etc.).
-ALLOWED_TASK_TYPES = {"scheduled", "agent"}
+ALLOWED_TASK_TYPES = {"scheduled", "agent", "pipeline"}
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes as sa_attributes
 
@@ -54,6 +54,8 @@ class TaskDetailOut(BaseModel):
     correlation_id: Optional[uuid.UUID] = None
     delegation_session_id: Optional[uuid.UUID] = None
     trigger_config: Optional[dict] = None
+    steps: Optional[list[dict]] = None
+    step_states: Optional[list[dict]] = None
     # Surfaced from execution_config/callback_config for convenience
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
@@ -115,6 +117,7 @@ class TaskCreateIn(BaseModel):
     trigger_config: Optional[dict] = None
     skills: Optional[list[str]] = None
     tools: Optional[list[str]] = None
+    steps: Optional[list[dict]] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -128,8 +131,9 @@ class TaskCreateIn(BaseModel):
     @model_validator(mode="after")
     def _require_prompt_or_workflow(self):
         has_prompt = bool(self.prompt.strip()) or self.prompt_template_id or self.workspace_file_path
-        if not has_prompt and not self.workflow_id:
-            raise ValueError("Either prompt (or prompt_template_id/workspace_file_path) or workflow_id is required")
+        has_steps = bool(self.steps)
+        if not has_prompt and not self.workflow_id and not has_steps:
+            raise ValueError("Either prompt (or prompt_template_id/workspace_file_path), workflow_id, or steps is required")
         return self
 
 
@@ -154,6 +158,7 @@ class TaskUpdateIn(BaseModel):
     trigger_config: Optional[dict] = None
     skills: Optional[list[str]] = None
     tools: Optional[list[str]] = None
+    steps: Optional[list[dict]] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -282,6 +287,8 @@ async def admin_list_tasks(
             "workflow_session_mode": t.workflow_session_mode,
             "max_run_seconds": t.max_run_seconds,
             "trigger_config": t.trigger_config,
+            "steps": t.steps,
+            "step_states": t.step_states,
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
             "run_at": t.run_at.isoformat() if t.run_at else None,
@@ -492,8 +499,20 @@ async def admin_create_task(
     trigger_type = (body.trigger_config or {}).get("type")
     initial_status = "active" if (body.recurrence or trigger_type == "event") else "pending"
 
-    # Use placeholder prompt when workflow_id is set and prompt is empty
-    effective_prompt = body.prompt or ("[Workflow trigger]" if body.workflow_id else "")
+    # Use placeholder prompt when workflow_id or steps is set and prompt is empty
+    effective_prompt = body.prompt
+    if not effective_prompt:
+        if body.steps:
+            effective_prompt = f"[Pipeline: {len(body.steps)} steps]"
+        elif body.workflow_id:
+            effective_prompt = "[Workflow trigger]"
+        else:
+            effective_prompt = ""
+
+    # Auto-set task_type to pipeline when steps are provided
+    effective_task_type = body.task_type
+    if body.steps:
+        effective_task_type = "pipeline"
 
     task = Task(
         bot_id=body.bot_id,
@@ -503,7 +522,7 @@ async def admin_create_task(
         workspace_file_path=body.workspace_file_path,
         workspace_id=body.workspace_id,
         status=initial_status,
-        task_type=body.task_type,
+        task_type=effective_task_type,
         scheduled_at=scheduled,
         recurrence=body.recurrence,
         dispatch_type=dispatch_type,
@@ -517,6 +536,7 @@ async def admin_create_task(
         workflow_id=body.workflow_id,
         workflow_session_mode=body.workflow_session_mode,
         trigger_config=body.trigger_config,
+        steps=body.steps,
     )
     db.add(task)
     await db.commit()
@@ -543,6 +563,15 @@ async def admin_update_task(
     for field in ("prompt", "prompt_template_id", "workspace_file_path", "workspace_id", "bot_id", "status", "task_type", "title", "max_run_seconds", "workflow_id", "workflow_session_mode", "trigger_config"):
         if field in updates:
             setattr(task, field, updates[field])
+
+    if "steps" in updates:
+        task.steps = updates["steps"]
+        sa_attributes.flag_modified(task, "steps")
+        # Auto-set task_type when steps change
+        if updates["steps"]:
+            task.task_type = "pipeline"
+        elif task.task_type == "pipeline":
+            task.task_type = "agent"
     if "recurrence" in updates:
         task.recurrence = updates["recurrence"] or None
 

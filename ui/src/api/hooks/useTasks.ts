@@ -2,6 +2,33 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type { CronEntry } from "../../types/api";
 
+export type StepType = "exec" | "tool" | "agent";
+
+export interface StepDef {
+  id: string;
+  type: StepType;
+  label?: string;
+  prompt?: string;
+  working_directory?: string | null;
+  tool_name?: string | null;
+  tool_args?: Record<string, any> | null;
+  model?: string | null;
+  tools?: string[] | null;
+  carapaces?: string[] | null;
+  when?: Record<string, any> | null;
+  on_failure?: "abort" | "continue";
+  result_max_chars?: number;
+}
+
+export interface StepState {
+  status: "pending" | "running" | "done" | "failed" | "skipped";
+  result?: string | null;
+  error?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  task_id?: string | null;
+}
+
 export interface TaskDetail {
   id: string;
   status: string;
@@ -25,6 +52,8 @@ export interface TaskDetail {
   execution_config?: Record<string, any> | null;
   delegation_session_id?: string | null;
   trigger_config?: Record<string, any> | null;
+  steps?: StepDef[] | null;
+  step_states?: StepState[] | null;
   model_override?: string | null;
   model_provider_id_override?: string | null;
   fallback_models?: { model: string; provider_id?: string | null }[] | null;
@@ -63,6 +92,7 @@ export interface TaskCreatePayload {
   trigger_config?: Record<string, any> | null;
   skills?: string[] | null;
   tools?: string[] | null;
+  steps?: StepDef[] | null;
 }
 
 export interface TaskUpdatePayload {
@@ -86,6 +116,7 @@ export interface TaskUpdatePayload {
   trigger_config?: Record<string, any> | null;
   skills?: string[] | null;
   tools?: string[] | null;
+  steps?: StepDef[] | null;
 }
 
 // ---------------------------------------------------------------------------

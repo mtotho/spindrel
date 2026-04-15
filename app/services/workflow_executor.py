@@ -231,112 +231,14 @@ async def _fire_after_workflow_complete(run: WorkflowRun, workflow: Workflow) ->
 
 
 # ---------------------------------------------------------------------------
-# Condition evaluator (Phase 4) — pure function, no side effects
+# Condition evaluator, prompt renderer, context builder — shared with step_executor
 # ---------------------------------------------------------------------------
 
-def evaluate_condition(condition: dict | None, context: dict) -> bool:
-    """Evaluate a step condition against the current run context.
-
-    Context shape:
-        {
-            "steps": {"step_id": {"status": "done", "result": "..."}},
-            "params": {"name": "value"},
-        }
-
-    Condition shapes:
-        None / empty → always True
-        {"step": "id", "status": "done"}
-        {"step": "id", "status": "done", "output_contains": "text"}
-        {"step": "id", "output_not_contains": "text"}
-        {"param": "name", "equals": value}
-        {"all": [cond, ...]}  — AND
-        {"any": [cond, ...]}  — OR
-        {"not": cond}         — negation
-    """
-    if condition is None:
-        return True
-    if not condition:
-        return True
-
-    # Compound conditions
-    if "all" in condition:
-        return all(evaluate_condition(c, context) for c in condition["all"])
-    if "any" in condition:
-        return any(evaluate_condition(c, context) for c in condition["any"])
-    if "not" in condition:
-        return not evaluate_condition(condition["not"], context)
-
-    # Param check
-    if "param" in condition:
-        val = context.get("params", {}).get(condition["param"])
-        if "equals" in condition:
-            return val == condition["equals"]
-        return val is not None
-
-    # Step check
-    if "step" in condition:
-        state = context.get("steps", {}).get(condition["step"])
-        if not state:
-            return False
-        if "status" in condition and state.get("status") != condition["status"]:
-            return False
-        if "output_contains" in condition:
-            result_text = (state.get("result") or "").lower()
-            if condition["output_contains"].lower() not in result_text:
-                return False
-        if "output_not_contains" in condition:
-            result_text = (state.get("result") or "").lower()
-            if condition["output_not_contains"].lower() in result_text:
-                return False
-        return True
-
-    logger.warning("Unrecognized condition keys: %s — evaluating as False", list(condition.keys()))
-    return False
-
-
-# ---------------------------------------------------------------------------
-# Prompt rendering (Phase 5B)
-# ---------------------------------------------------------------------------
-
-_TEMPLATE_RE = re.compile(r"\{\{(.+?)\}\}")
-
-
-def render_prompt(template: str, params: dict, step_states: list[dict], steps: list[dict]) -> str:
-    """Render a step prompt template with parameter and step result substitution.
-
-    Supports:
-        {{param_name}}          → param value
-        {{steps.step_id.result}} → prior step's result text
-        {{steps.step_id.status}} → prior step's status
-    """
-    # Build step lookup by id
-    step_lookup: dict[str, dict] = {}
-    for i, step_def in enumerate(steps):
-        sid = step_def.get("id", f"step_{i}")
-        if i < len(step_states):
-            step_lookup[sid] = step_states[i]
-
-    def _replace(match: re.Match) -> str:
-        key = match.group(1).strip()
-
-        # Steps reference: steps.step_id.field
-        if key.startswith("steps."):
-            parts = key.split(".", 2)
-            if len(parts) == 3:
-                _, step_id, field = parts
-                state = step_lookup.get(step_id, {})
-                val = state.get(field)
-                return str(val) if val is not None else match.group(0)
-            return match.group(0)
-
-        # Param reference
-        if key in params:
-            return str(params[key])
-
-        # Leave unresolved templates as-is
-        return match.group(0)
-
-    return _TEMPLATE_RE.sub(_replace, template)
+from app.services.step_executor import (
+    evaluate_condition,
+    render_prompt,
+    build_condition_context as _build_condition_context_shared,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -788,12 +690,7 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
 
 def _build_condition_context(steps: list[dict], step_states: list[dict], params: dict) -> dict:
     """Build the context dict for condition evaluation from current step states."""
-    steps_ctx = {}
-    for i, step_def in enumerate(steps):
-        sid = step_def.get("id", f"step_{i}")
-        if i < len(step_states):
-            steps_ctx[sid] = step_states[i]
-    return {"steps": steps_ctx, "params": params}
+    return _build_condition_context_shared(steps, step_states, params)
 
 
 # ---------------------------------------------------------------------------

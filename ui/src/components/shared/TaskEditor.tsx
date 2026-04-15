@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Trash2, Copy, FileText } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
-import { useTask, useCreateTask, useUpdateTask, useDeleteTask } from "@/src/api/hooks/useTasks";
+import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type StepDef } from "@/src/api/hooks/useTasks";
 import { useWorkflows } from "@/src/api/hooks/useWorkflows";
 import { useSkills } from "@/src/api/hooks/useSkills";
 import { useTools } from "@/src/api/hooks/useTools";
@@ -23,6 +23,7 @@ import {
   TASK_TYPE_OPTIONS_CREATE,
 } from "./SchedulingPickers";
 import { TriggerSection, type TriggerConfig } from "./TriggerSection";
+import { TaskStepEditor } from "./TaskStepEditor";
 import { ChipPicker } from "./TaskCreateModal";
 
 
@@ -84,6 +85,8 @@ export function TaskEditor({
   const [triggerConfig, setTriggerConfig] = useState<TriggerConfig>({ type: "schedule" });
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [selectedToolKeys, setSelectedToolKeys] = useState<string[]>([]);
+  const [steps, setSteps] = useState<StepDef[] | null>(null);
+  const stepsMode = steps !== null;
   const [initialized, setInitialized] = useState(false);
   const { data: workflows } = useWorkflows();
 
@@ -113,6 +116,7 @@ export function TaskEditor({
     }
     setSelectedSkillIds(existingTask.execution_config?.skills ?? []);
     setSelectedToolKeys(existingTask.execution_config?.tools ?? []);
+    setSteps(existingTask.steps ?? null);
     setInitialized(true);
   }
 
@@ -139,6 +143,7 @@ export function TaskEditor({
     }
     setSelectedSkillIds(existingTask.execution_config?.skills ?? []);
     setSelectedToolKeys(existingTask.execution_config?.tools ?? []);
+    setSteps(existingTask.steps ?? null);
     setInitialized(true);
   }
 
@@ -159,12 +164,14 @@ export function TaskEditor({
     }
   }, [qc, extraQueryKeysToInvalidate]);
 
-  const hasPromptOrWorkflow = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath || !!workflowId;
+  const hasPromptOrWorkflow = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath || !!workflowId || (steps !== null && steps.length > 0);
 
   const handleSave = useCallback(async () => {
     if (!hasPromptOrWorkflow || !botId) return;
     try {
       const scheduledAtISO = localInputToISO(scheduledAt) || null;
+      const effectiveTaskType = steps && steps.length > 0 ? "pipeline" : taskType;
+      const effectiveSteps = steps && steps.length > 0 ? steps : null;
       if (isCreate) {
         await createMut.mutateAsync({
           prompt: prompt || undefined,
@@ -176,7 +183,7 @@ export function TaskEditor({
           channel_id: channelId || null,
           scheduled_at: scheduledAtISO,
           recurrence: recurrence || null,
-          task_type: taskType,
+          task_type: effectiveTaskType,
           trigger_rag_loop: triggerRagLoop,
           model_override: modelOverride || null,
           fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
@@ -185,6 +192,7 @@ export function TaskEditor({
           workflow_session_mode: workflowSessionMode || null,
           skills: selectedSkillIds.length > 0 ? selectedSkillIds : null,
           tools: selectedToolKeys.length > 0 ? selectedToolKeys : null,
+          steps: effectiveSteps,
         });
       } else {
         await updateMut.mutateAsync({
@@ -197,7 +205,7 @@ export function TaskEditor({
           status,
           scheduled_at: scheduledAtISO,
           recurrence: recurrence || null,
-          task_type: taskType,
+          task_type: effectiveTaskType,
           trigger_rag_loop: triggerRagLoop,
           model_override: modelOverride || null,
           fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
@@ -207,6 +215,7 @@ export function TaskEditor({
           trigger_config: triggerConfig,
           skills: selectedSkillIds.length > 0 ? selectedSkillIds : null,
           tools: selectedToolKeys.length > 0 ? selectedToolKeys : null,
+          steps: effectiveSteps,
         });
       }
       invalidateExtra();
@@ -356,33 +365,87 @@ export function TaskEditor({
                   className="bg-input border border-surface-border rounded-lg px-3 py-[7px] text-text text-[13px] outline-none w-full focus:border-accent"
                 />
               </FormRow>
-              <WorkspaceFilePrompt
-                workspaceId={workspaceId ?? selectedBot?.shared_workspace_id}
-                filePath={workspaceFilePath}
-                onLink={(path, wsId) => { setWorkspaceFilePath(path); setWorkspaceId(wsId); setPromptTemplateId(null); }}
-                onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
-              />
-              {!workspaceFilePath && (
+              {/* Mode toggle: Prompt | Steps */}
+              <div className="flex flex-row items-center gap-1">
+                <button
+                  onClick={() => {
+                    if (stepsMode) {
+                      if (steps && steps.length === 1 && steps[0].type === "agent") {
+                        setPrompt(steps[0].prompt ?? "");
+                      }
+                      setSteps(null);
+                    }
+                  }}
+                  className={`px-3 py-1 text-xs font-semibold rounded-l-md border transition-colors ${
+                    !stepsMode
+                      ? "bg-accent/10 text-accent border-accent/30"
+                      : "bg-transparent text-text-dim border-surface-border hover:text-text cursor-pointer"
+                  }`}
+                >
+                  Prompt
+                </button>
+                <button
+                  onClick={() => {
+                    if (!stepsMode) {
+                      const initial: StepDef[] = prompt.trim()
+                        ? [{ id: "step_1", type: "agent", prompt, label: "", on_failure: "abort" }]
+                        : [];
+                      setSteps(initial);
+                    }
+                  }}
+                  className={`px-3 py-1 text-xs font-semibold rounded-r-md border border-l-0 transition-colors ${
+                    stepsMode
+                      ? "bg-accent/10 text-accent border-accent/30"
+                      : "bg-transparent text-text-dim border-surface-border hover:text-text cursor-pointer"
+                  }`}
+                >
+                  Steps
+                </button>
+              </div>
+
+              {/* Prompt mode */}
+              {!stepsMode && (
                 <>
-                  <PromptTemplateLink
-                    templateId={promptTemplateId}
-                    onLink={(id) => setPromptTemplateId(id)}
-                    onUnlink={() => setPromptTemplateId(null)}
+                  <WorkspaceFilePrompt
+                    workspaceId={workspaceId ?? selectedBot?.shared_workspace_id}
+                    filePath={workspaceFilePath}
+                    onLink={(path, wsId) => { setWorkspaceFilePath(path); setWorkspaceId(wsId); setPromptTemplateId(null); }}
+                    onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
                   />
-                  <LlmPrompt
-                    value={prompt}
-                    onChange={setPrompt}
-                    label="Prompt"
-                    placeholder={workflowId ? "Optional — workflow will be triggered directly" : promptTemplateId ? "Using linked template..." : "Task prompt... (type @ for autocomplete)"}
-                    rows={isWide ? 12 : 6}
-                    fieldType="task_prompt"
-                    botId={botId}
-                    channelId={channelId}
-                  />
+                  {!workspaceFilePath && (
+                    <>
+                      <PromptTemplateLink
+                        templateId={promptTemplateId}
+                        onLink={(id) => setPromptTemplateId(id)}
+                        onUnlink={() => setPromptTemplateId(null)}
+                      />
+                      <LlmPrompt
+                        value={prompt}
+                        onChange={setPrompt}
+                        label="Prompt"
+                        placeholder={workflowId ? "Optional — workflow will be triggered directly" : promptTemplateId ? "Using linked template..." : "Task prompt... (type @ for autocomplete)"}
+                        rows={isWide ? 12 : 6}
+                        fieldType="task_prompt"
+                        botId={botId}
+                        channelId={channelId}
+                      />
+                    </>
+                  )}
                 </>
               )}
 
-              {!isCreate && existingTask?.result && (
+              {/* Steps mode */}
+              {stepsMode && (
+                <TaskStepEditor
+                  steps={steps!}
+                  onChange={setSteps}
+                  stepStates={existingTask?.step_states}
+                  readOnly={false}
+                />
+              )}
+
+              {/* Result/Error display */}
+              {!isCreate && existingTask?.result && !stepsMode && (
                 <div>
                   <div className="text-xs font-semibold text-text-muted mb-1.5">Result</div>
                   <div className="p-3 rounded-lg bg-input border border-surface-raised text-xs text-success whitespace-pre-wrap max-h-[300px] overflow-auto font-mono">
@@ -391,7 +454,7 @@ export function TaskEditor({
                 </div>
               )}
 
-              {!isCreate && existingTask?.error && (
+              {!isCreate && existingTask?.error && !stepsMode && (
                 <div>
                   <div className="text-xs font-semibold text-text-muted mb-1.5">Error</div>
                   <div className="p-3 rounded-lg bg-danger/[0.08] border border-danger/[0.15] text-xs text-danger whitespace-pre-wrap max-h-[200px] overflow-auto font-mono">
