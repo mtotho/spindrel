@@ -23,7 +23,6 @@ import { FallbackModelList } from "./FallbackModelList";
 import { localInputToISO } from "@/src/utils/time";
 import { useThemeTokens } from "../../theme/tokens";
 import { TriggerSection, type TriggerConfig } from "./TriggerSection";
-import { TASK_TYPE_OPTIONS_CREATE } from "./SchedulingPickers";
 
 export interface TaskCreateModalProps {
   onClose: () => void;
@@ -62,7 +61,6 @@ export function TaskCreateModal({
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [botId, setBotId] = useState("");
   const [channelId, setChannelId] = useState("");
-  const [taskType, setTaskType] = useState("scheduled");
   const [scheduledAt, setScheduledAt] = useState("");
   const [recurrence, setRecurrence] = useState("");
   const [triggerRagLoop, setTriggerRagLoop] = useState(false);
@@ -72,6 +70,8 @@ export function TaskCreateModal({
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [workflowSessionMode, setWorkflowSessionMode] = useState<string | null>(null);
   const [triggerConfig, setTriggerConfig] = useState<TriggerConfig>({ type: "schedule" });
+  // taskType derived from trigger — no user-facing dropdown
+  const taskType = triggerConfig.type === "schedule" ? "scheduled" : "agent";
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [selectedToolKeys, setSelectedToolKeys] = useState<string[]>([]);
   const [initialized, setInitialized] = useState(false);
@@ -85,7 +85,6 @@ export function TaskCreateModal({
     setWorkspaceId(existingTask.workspace_id ?? null);
     setBotId(existingTask.bot_id || "");
     setChannelId(existingTask.channel_id || "");
-    setTaskType(existingTask.task_type || "scheduled");
     setScheduledAt("");
     setRecurrence(existingTask.recurrence || "");
     setTriggerRagLoop(existingTask.trigger_rag_loop ?? false);
@@ -152,7 +151,7 @@ export function TaskCreateModal({
     } catch {
       // error shown via mutation state
     }
-  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, createMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys]);
+  }, [prompt, title, botId, channelId, scheduledAt, recurrence, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, createMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys]);
 
   if (typeof document === "undefined") return null;
 
@@ -302,14 +301,6 @@ export function TaskCreateModal({
                     value={channelId}
                     onChange={setChannelId}
                     options={channelOptions}
-                  />
-                </FormRow>
-
-                <FormRow label="Task Type">
-                  <SelectInput
-                    value={taskType}
-                    onChange={setTaskType}
-                    options={TASK_TYPE_OPTIONS_CREATE}
                   />
                 </FormRow>
 

@@ -6,7 +6,7 @@ import { useState } from "react";
 import { ChevronDown, Clock, HelpCircle, Play, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useMemorySchemeDefaults } from "@/src/api/hooks/useMemorySchemeDefaults";
-import { useMemoryHygieneStatus, useMemoryHygieneRuns, useTriggerMemoryHygiene } from "@/src/api/hooks/useMemoryHygiene";
+import { useMemoryHygieneStatus, useMemoryHygieneRuns, useTriggerMemoryHygiene, type JobStatus } from "@/src/api/hooks/useMemoryHygiene";
 import { HygieneHistoryList } from "./HygieneHistoryList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
@@ -192,11 +192,10 @@ function BuiltinPromptCollapsible({ label, content }: { label: string; content: 
 }
 
 // ---------------------------------------------------------------------------
-// Memory hygiene subsection
+// Memory hygiene subsection — two stacked collapsible job sections
 // ---------------------------------------------------------------------------
-type DreamingJobTab = "maintenance" | "skill_review";
 
-const JOB_TAB_CONFIG = {
+const JOB_CONFIG = {
   maintenance: {
     label: "Memory Maintenance",
     shortLabel: "Maintenance",
@@ -237,158 +236,144 @@ const JOB_TAB_CONFIG = {
   },
 } as const;
 
-function MemoryHygieneSubsection({ draft, update, botId }: {
+type JobKey = keyof typeof JOB_CONFIG;
+
+function fmtTime(iso: string | null | undefined): string {
+  if (!iso) return "Never";
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Single job section — self-contained header + collapsible config
+// ---------------------------------------------------------------------------
+function JobSection({ jobKey, draft, update, botId, status, triggerMut }: {
+  jobKey: JobKey;
   draft: BotConfig;
   update: (p: Partial<BotConfig>) => void;
   botId: string | undefined;
+  status: JobStatus | undefined;
+  triggerMut: ReturnType<typeof useTriggerMemoryHygiene>;
 }) {
   const t = useThemeTokens();
-  const { data: status } = useMemoryHygieneStatus(botId);
-  const triggerMut = useTriggerMemoryHygiene();
-  const [activeTab, setActiveTab] = useState<DreamingJobTab>("maintenance");
+  const cfg = JOB_CONFIG[jobKey];
+  const [expanded, setExpanded] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [showExtraInstr, setShowExtraInstr] = useState(false);
-
-  const cfg = JOB_TAB_CONFIG[activeTab];
-  const jobStatus = status?.[cfg.jobType === "memory_hygiene" ? "memory_hygiene" : "skill_review"];
   const { data: runsData } = useMemoryHygieneRuns(botId, cfg.jobType);
 
   const enabledValue = draft[cfg.fields.enabled];
-  const resolvedEnabled = jobStatus?.enabled ?? false;
+  const resolvedEnabled = status?.enabled ?? false;
   const onlyActiveValue = draft[cfg.fields.only_if_active];
-  const resolvedOnlyActive = jobStatus?.only_if_active ?? true;
-
-  const fmtTime = (iso: string | null | undefined) => {
-    if (!iso) return "Never";
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, {
-      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-    });
-  };
-
-  // Summary for tab cards
-  const mhStatus = status?.memory_hygiene;
-  const srStatus = status?.skill_review;
+  const resolvedOnlyActive = status?.only_if_active ?? true;
 
   return (
-    <div className="rounded-lg border border-surface-raised bg-surface p-4">
-      {/* Header */}
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <Clock size={14} color={t.purple} />
-        <span className="text-[13px] font-semibold" style={{ color: t.text }}>Dreaming</span>
-        <span className="text-[10px] flex-1 min-w-[200px]" style={{ color: t.textDim }}>
-          Two scheduled jobs: lightweight maintenance (daily) and deeper skill review (less frequent).
-        </span>
-      </div>
+    <div style={{
+      borderRadius: 8, overflow: "hidden",
+      border: `1px solid ${t.surfaceBorder}`,
+      borderLeft: `3px solid ${cfg.accent}`,
+    }}>
+      {/* Always-visible header */}
+      <div style={{
+        padding: "10px 14px",
+        background: cfg.accentSubtle,
+      }}>
+        {/* Top row: label + status dot + summary */}
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{
+            width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+            background: resolvedEnabled ? cfg.accent : t.textDim,
+          }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>{cfg.label}</span>
+          <span style={{ fontSize: 10, color: t.textDim }}>
+            {resolvedEnabled
+              ? `Every ${status?.interval_hours ?? "?"}h${status?.model ? ` · ${status.model.split("/").pop()}` : ""}`
+              : "Disabled"
+            }
+          </span>
+        </div>
 
-      {/* Job selector cards */}
-      <div className="grid grid-cols-2 gap-2 mb-4">
-        {(["maintenance", "skill_review"] as const).map((tab) => {
-          const tc = JOB_TAB_CONFIG[tab];
-          const js = tab === "maintenance" ? mhStatus : srStatus;
-          const isActive = activeTab === tab;
-          return (
-            <button
-              key={tab}
-              onClick={() => { setActiveTab(tab); setShowPrompt(false); setShowExtraInstr(false); }}
-              className="text-left rounded-lg p-3 transition-all cursor-pointer"
-              style={{
-                background: isActive ? tc.accentSubtle : t.surfaceRaised,
-                border: isActive ? `1.5px solid ${tc.accent}` : `1px solid ${t.surfaceBorder}`,
-                borderLeft: isActive ? `3px solid ${tc.accent}` : `3px solid transparent`,
-              }}
-            >
-              <div className="flex items-center gap-1.5 mb-1">
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ background: js?.enabled ? tc.accent : t.textDim }}
-                />
-                <span className="text-[11px] font-semibold" style={{ color: isActive ? tc.accent : t.text }}>
-                  {tc.shortLabel}
-                </span>
-              </div>
-              <div className="text-[9px] leading-tight" style={{ color: t.textDim }}>
-                {js?.enabled
-                  ? `Every ${js.interval_hours}h${js.model ? ` · ${js.model.split("/").pop()}` : ""}`
-                  : "Disabled"
-                }
-                {js?.next_run_at && js.enabled && (
-                  <span className="block mt-0.5">Next: {fmtTime(js.next_run_at)}</span>
-                )}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Active tab config */}
-      <div className="text-[10px] mb-3 leading-snug" style={{ color: t.textDim }}>
-        {cfg.description}
-      </div>
-
-      {/* Enable selector */}
-      <FormRow label="Enable">
-        <div className="flex gap-1.5">
-          {([undefined, true, false] as const).map((val) => {
-            const isSelected =
-              val === undefined
-                ? enabledValue === null || enabledValue === undefined
-                : enabledValue === val;
-            const label =
-              val === undefined
-                ? `Inherit (${resolvedEnabled ? "On" : "Off"})`
-                : val ? "Enabled" : "Disabled";
-            return (
+        {/* Status line + Run Now */}
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 10, color: t.textDim }}>
+            Last: {fmtTime(status?.last_run_at)}
+            {status?.last_task_status && (
+              <span style={{
+                marginLeft: 6, padding: "1px 6px", borderRadius: 3, fontSize: 9,
+                background: status.last_task_status === "complete" ? t.successSubtle
+                  : status.last_task_status === "failed" ? t.dangerSubtle : t.surfaceOverlay,
+                color: status.last_task_status === "complete" ? t.success
+                  : status.last_task_status === "failed" ? t.danger : t.textDim,
+              }}>
+                {status.last_task_status}
+              </span>
+            )}
+            <span style={{ margin: "0 6px", color: t.surfaceBorder }}>·</span>
+            Next: {fmtTime(status?.next_run_at)}
+          </div>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {botId && (
               <button
-                key={String(val)}
-                onClick={() => update({ [cfg.fields.enabled]: val === undefined ? null : val } as any)}
-                className="px-2.5 py-1 rounded text-[11px] cursor-pointer transition-colors"
+                onClick={() => triggerMut.mutate({ botId, jobType: cfg.jobType })}
+                disabled={triggerMut.isPending}
                 style={{
-                  border: isSelected ? `1px solid ${cfg.accent}` : `1px solid ${t.surfaceOverlay}`,
-                  background: isSelected ? cfg.accentSubtle : "transparent",
-                  color: isSelected ? cfg.accent : t.textMuted,
-                  fontWeight: isSelected ? 600 : 400,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
+                  padding: "3px 10px", borderRadius: 4, fontSize: 10, fontWeight: 500,
+                  cursor: triggerMut.isPending ? "not-allowed" : "pointer",
+                  background: cfg.accentSubtle, border: `1px solid ${cfg.accentBorder}`,
+                  color: cfg.accent, opacity: triggerMut.isPending ? 0.6 : 1,
                 }}
               >
-                {label}
+                <Play size={9} />
+                Run Now
               </button>
-            );
-          })}
+            )}
+            <button
+              onClick={() => setExpanded(!expanded)}
+              style={{
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
+                padding: "3px 10px", borderRadius: 4, fontSize: 10, fontWeight: 500,
+                cursor: "pointer", background: "none",
+                border: `1px solid ${t.surfaceBorder}`, color: t.textMuted,
+              }}
+            >
+              <ChevronDown
+                size={10}
+                style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" } as any}
+              />
+              Configure
+            </button>
+          </div>
         </div>
-      </FormRow>
+      </div>
 
-      <Row>
-        <Col>
-          <FormRow label="Interval (hours)" description={`Global default: ${jobStatus?.interval_hours ?? 24}h`}>
-            <TextInput
-              value={String(draft[cfg.fields.interval] ?? "")}
-              onChangeText={(v) => update({ [cfg.fields.interval]: v ? parseInt(v) : null } as any)}
-              placeholder={String(jobStatus?.interval_hours ?? 24)}
-              type="number"
-            />
-          </FormRow>
-        </Col>
-        <Col>
-          <FormRow
-            label="Only if active"
-            description="Skip if no user messages since last run."
-          >
-            <div className="flex gap-1.5">
+      {/* Collapsible config body */}
+      {expanded && (
+        <div style={{ padding: "12px 14px", background: t.surface }}>
+          <div style={{ fontSize: 10, color: t.textDim, marginBottom: 10, lineHeight: "15px" }}>
+            {cfg.description}
+          </div>
+
+          {/* Enable selector */}
+          <FormRow label="Enable">
+            <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
               {([undefined, true, false] as const).map((val) => {
                 const isSelected =
                   val === undefined
-                    ? onlyActiveValue === null || onlyActiveValue === undefined
-                    : onlyActiveValue === val;
+                    ? enabledValue === null || enabledValue === undefined
+                    : enabledValue === val;
                 const label =
                   val === undefined
-                    ? `Inherit (${resolvedOnlyActive ? "Yes" : "No"})`
-                    : val ? "Yes" : "No";
+                    ? `Inherit (${resolvedEnabled ? "On" : "Off"})`
+                    : val ? "Enabled" : "Disabled";
                 return (
                   <button
                     key={String(val)}
-                    onClick={() => update({ [cfg.fields.only_if_active]: val === undefined ? null : val } as any)}
-                    className="px-2.5 py-1 rounded text-[11px] cursor-pointer transition-colors"
+                    onClick={() => update({ [cfg.fields.enabled]: val === undefined ? null : val } as any)}
                     style={{
+                      padding: "4px 10px", borderRadius: 4, fontSize: 11, cursor: "pointer",
                       border: isSelected ? `1px solid ${cfg.accent}` : `1px solid ${t.surfaceOverlay}`,
                       background: isSelected ? cfg.accentSubtle : "transparent",
                       color: isSelected ? cfg.accent : t.textMuted,
@@ -401,171 +386,241 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
               })}
             </div>
           </FormRow>
-        </Col>
-      </Row>
 
-      {/* Target hour */}
-      <FormRow
-        label="Target Start Hour (local time)"
-        description={`Bots stagger within ~60 min. ${jobStatus?.target_hour != null && jobStatus.target_hour >= 0 ? `Global: ${jobStatus.target_hour}:00` : "Global: disabled"}`}
-      >
-        <TextInput
-          value={draft[cfg.fields.target_hour] != null ? String(draft[cfg.fields.target_hour]) : ""}
-          onChangeText={(v) => {
-            if (v === "" || v === "-1") {
-              update({ [cfg.fields.target_hour]: v === "-1" ? -1 : null } as any);
-            } else {
-              const n = parseInt(v);
-              if (!isNaN(n) && n >= -1 && n <= 23) update({ [cfg.fields.target_hour]: n } as any);
-            }
-          }}
-          placeholder={jobStatus?.target_hour != null && jobStatus.target_hour >= 0 ? `${jobStatus.target_hour} (inherited)` : "Disabled (-1)"}
-          type="number"
-        />
-      </FormRow>
+          <Row>
+            <Col>
+              <FormRow label="Interval (hours)" description={`Global default: ${status?.interval_hours ?? 24}h`}>
+                <TextInput
+                  value={String(draft[cfg.fields.interval] ?? "")}
+                  onChangeText={(v) => update({ [cfg.fields.interval]: v ? parseInt(v) : null } as any)}
+                  placeholder={String(status?.interval_hours ?? 24)}
+                  type="number"
+                />
+              </FormRow>
+            </Col>
+            <Col>
+              <FormRow label="Only if active" description="Skip if no user messages since last run.">
+                <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
+                  {([undefined, true, false] as const).map((val) => {
+                    const isSelected =
+                      val === undefined
+                        ? onlyActiveValue === null || onlyActiveValue === undefined
+                        : onlyActiveValue === val;
+                    const label =
+                      val === undefined
+                        ? `Inherit (${resolvedOnlyActive ? "Yes" : "No"})`
+                        : val ? "Yes" : "No";
+                    return (
+                      <button
+                        key={String(val)}
+                        onClick={() => update({ [cfg.fields.only_if_active]: val === undefined ? null : val } as any)}
+                        style={{
+                          padding: "4px 10px", borderRadius: 4, fontSize: 11, cursor: "pointer",
+                          border: isSelected ? `1px solid ${cfg.accent}` : `1px solid ${t.surfaceOverlay}`,
+                          background: isSelected ? cfg.accentSubtle : "transparent",
+                          color: isSelected ? cfg.accent : t.textMuted,
+                          fontWeight: isSelected ? 600 : 400,
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </FormRow>
+            </Col>
+          </Row>
 
-      {/* Model override */}
-      <FormRow label="Model" description={
-        jobStatus?.model
-          ? `Global: ${jobStatus.model}${draft[cfg.fields.model] ? " (overridden)" : ""}`
-          : "No global default — uses bot's model"
-      }>
-        <LlmModelDropdown
-          value={draft[cfg.fields.model] ?? ""}
-          onChange={(modelId, providerId) => update({
-            [cfg.fields.model]: modelId || null,
-            [cfg.fields.model_provider]: providerId ?? null,
-          } as any)}
-          placeholder={jobStatus?.model || "bot default"}
-          selectedProviderId={draft[cfg.fields.model_provider]}
-          allowClear
-        />
-      </FormRow>
-
-      {/* Additional instructions (appended to base prompt) */}
-      <div className="mt-2">
-        <button
-          onClick={() => setShowExtraInstr(!showExtraInstr)}
-          className="flex items-center gap-1.5 w-full py-1.5 bg-transparent border-none cursor-pointer text-[11px] font-semibold"
-          style={{ color: t.textMuted }}
-        >
-          <ChevronDown
-            size={12}
-            style={{ transform: showExtraInstr ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
-          />
-          Additional Instructions
-          {draft[cfg.fields.extra_instructions] && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: cfg.accentSubtle, color: cfg.accent }}>
-              custom
-            </span>
-          )}
-        </button>
-        {showExtraInstr && (
-          <div className="mt-1.5">
-            <textarea
-              value={draft[cfg.fields.extra_instructions] || ""}
-              onChange={(e) => update({ [cfg.fields.extra_instructions]: e.target.value || null } as any)}
-              rows={3}
-              placeholder="Appended to the built-in prompt. E.g., &quot;Use firecrawl tool for research&quot;..."
-              className="w-full rounded-md px-3 py-2 text-[11px] resize-y"
-              style={{
-                background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.inputText,
-                fontFamily: "inherit", lineHeight: 1.5,
-              }}
-            />
-            <div className="text-[9px] mt-1" style={{ color: t.textDim }}>
-              These are appended to the built-in prompt — they don't replace it.
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Full prompt override (collapsible — secondary) */}
-      <div className="mt-1">
-        <button
-          onClick={() => setShowPrompt(!showPrompt)}
-          className="flex items-center gap-1.5 w-full py-1.5 bg-transparent border-none cursor-pointer text-[11px] font-semibold"
-          style={{ color: t.textDim }}
-        >
-          <ChevronDown
-            size={12}
-            style={{ transform: showPrompt ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
-          />
-          Full Prompt Override
-          {draft[cfg.fields.prompt] && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: t.warningSubtle, color: t.warning }}>
-              overridden
-            </span>
-          )}
-        </button>
-        {showPrompt && (
-          <div className="mt-1.5">
-            <LlmPrompt
-              value={draft[cfg.fields.prompt] || ""}
-              onChange={(v) => update({ [cfg.fields.prompt]: v || null } as any)}
-              rows={6}
-              placeholder="Leave empty to use the built-in default prompt..."
-              fieldType={cfg.fields.prompt}
-              botId={botId}
-            />
-            {draft[cfg.fields.prompt] && (
-              <button
-                onClick={() => update({ [cfg.fields.prompt]: null } as any)}
-                className="mt-1 px-2 py-0.5 rounded text-[10px] cursor-pointer"
-                style={{ background: "none", border: `1px solid ${t.surfaceOverlay}`, color: t.textDim }}
-              >
-                Reset to default
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Built-in prompt preview */}
-      {!draft[cfg.fields.prompt] && jobStatus?.resolved_prompt && (
-        <BuiltinPromptCollapsible
-          label={`Built-in ${cfg.shortLabel} Prompt`}
-          content={jobStatus.resolved_prompt}
-        />
-      )}
-
-      {/* Status line + Run Now */}
-      {botId && jobStatus && (
-        <div className="mt-3 pt-2.5 flex items-center justify-between" style={{ borderTop: `1px solid ${t.surfaceOverlay}` }}>
-          <div className="text-[10px] leading-relaxed" style={{ color: t.textDim }}>
-            Last run: {fmtTime(jobStatus.last_run_at)}
-            {jobStatus.last_task_status && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px]" style={{
-                background: jobStatus.last_task_status === "complete" ? t.successSubtle : t.surfaceOverlay,
-                color: jobStatus.last_task_status === "complete" ? t.success : t.textDim,
-              }}>
-                {jobStatus.last_task_status}
-              </span>
-            )}
-            <br />
-            Next run: {fmtTime(jobStatus.next_run_at)}
-          </div>
-          <button
-            onClick={() => botId && triggerMut.mutate({ botId, jobType: cfg.jobType })}
-            disabled={triggerMut.isPending}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium cursor-pointer transition-opacity"
-            style={{
-              background: cfg.accentSubtle, border: `1px solid ${cfg.accentBorder}`,
-              color: cfg.accent, opacity: triggerMut.isPending ? 0.6 : 1,
-            }}
+          {/* Target hour */}
+          <FormRow
+            label="Target Start Hour (local time)"
+            description={`Bots stagger within ~60 min. ${status?.target_hour != null && status.target_hour >= 0 ? `Global: ${status.target_hour}:00` : "Global: disabled"}`}
           >
-            <Play size={10} />
-            {triggerMut.isPending ? "Running..." : "Run Now"}
-          </button>
-        </div>
-      )}
+            <TextInput
+              value={draft[cfg.fields.target_hour] != null ? String(draft[cfg.fields.target_hour]) : ""}
+              onChangeText={(v) => {
+                if (v === "" || v === "-1") {
+                  update({ [cfg.fields.target_hour]: v === "-1" ? -1 : null } as any);
+                } else {
+                  const n = parseInt(v);
+                  if (!isNaN(n) && n >= -1 && n <= 23) update({ [cfg.fields.target_hour]: n } as any);
+                }
+              }}
+              placeholder={status?.target_hour != null && status.target_hour >= 0 ? `${status.target_hour} (inherited)` : "Disabled (-1)"}
+              type="number"
+            />
+          </FormRow>
 
-      {/* Run history */}
-      {botId && runsData && runsData.runs.length > 0 && (
-        <div className="mt-3">
-          <HygieneHistoryList runs={runsData.runs} />
+          {/* Model override */}
+          <FormRow label="Model" description={
+            status?.model
+              ? `Global: ${status.model}${draft[cfg.fields.model] ? " (overridden)" : ""}`
+              : "No global default — uses bot's model"
+          }>
+            <LlmModelDropdown
+              value={draft[cfg.fields.model] ?? ""}
+              onChange={(modelId, providerId) => update({
+                [cfg.fields.model]: modelId || null,
+                [cfg.fields.model_provider]: providerId ?? null,
+              } as any)}
+              placeholder={status?.model || "bot default"}
+              selectedProviderId={draft[cfg.fields.model_provider]}
+              allowClear
+            />
+          </FormRow>
+
+          {/* Additional instructions */}
+          <div style={{ marginTop: 8 }}>
+            <button
+              onClick={() => setShowExtraInstr(!showExtraInstr)}
+              style={{
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
+                width: "100%", padding: "6px 0", background: "none", border: "none",
+                cursor: "pointer", fontSize: 11, fontWeight: 600, color: t.textMuted,
+              }}
+            >
+              <ChevronDown
+                size={12}
+                style={{ transform: showExtraInstr ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
+              />
+              Additional Instructions
+              {draft[cfg.fields.extra_instructions] && (
+                <span style={{
+                  fontSize: 9, padding: "1px 6px", borderRadius: 3,
+                  background: cfg.accentSubtle, color: cfg.accent,
+                }}>custom</span>
+              )}
+            </button>
+            {showExtraInstr && (
+              <div style={{ marginTop: 6 }}>
+                <textarea
+                  value={draft[cfg.fields.extra_instructions] || ""}
+                  onChange={(e) => update({ [cfg.fields.extra_instructions]: e.target.value || null } as any)}
+                  rows={3}
+                  placeholder="Appended to the built-in prompt. E.g., &quot;Use firecrawl tool for research&quot;..."
+                  style={{
+                    width: "100%", borderRadius: 6, padding: "8px 12px", fontSize: 11,
+                    resize: "vertical", fontFamily: "inherit", lineHeight: 1.5,
+                    background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.inputText,
+                    boxSizing: "border-box",
+                  }}
+                />
+                <div style={{ fontSize: 9, marginTop: 4, color: t.textDim }}>
+                  These are appended to the built-in prompt — they don't replace it.
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Full prompt override */}
+          <div style={{ marginTop: 4 }}>
+            <button
+              onClick={() => setShowPrompt(!showPrompt)}
+              style={{
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
+                width: "100%", padding: "6px 0", background: "none", border: "none",
+                cursor: "pointer", fontSize: 11, fontWeight: 600, color: t.textDim,
+              }}
+            >
+              <ChevronDown
+                size={12}
+                style={{ transform: showPrompt ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
+              />
+              Full Prompt Override
+              {draft[cfg.fields.prompt] && (
+                <span style={{
+                  fontSize: 9, padding: "1px 6px", borderRadius: 3,
+                  background: t.warningSubtle, color: t.warning,
+                }}>overridden</span>
+              )}
+            </button>
+            {showPrompt && (
+              <div style={{ marginTop: 6 }}>
+                <LlmPrompt
+                  value={draft[cfg.fields.prompt] || ""}
+                  onChange={(v) => update({ [cfg.fields.prompt]: v || null } as any)}
+                  rows={6}
+                  placeholder="Leave empty to use the built-in default prompt..."
+                  fieldType={cfg.fields.prompt}
+                  botId={botId}
+                />
+                {draft[cfg.fields.prompt] && (
+                  <button
+                    onClick={() => update({ [cfg.fields.prompt]: null } as any)}
+                    style={{
+                      marginTop: 4, padding: "2px 8px", borderRadius: 4, fontSize: 10,
+                      cursor: "pointer", background: "none",
+                      border: `1px solid ${t.surfaceOverlay}`, color: t.textDim,
+                    }}
+                  >
+                    Reset to default
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Built-in prompt preview */}
+          {!draft[cfg.fields.prompt] && status?.resolved_prompt && (
+            <BuiltinPromptCollapsible
+              label={`Built-in ${cfg.shortLabel} Prompt`}
+              content={status.resolved_prompt}
+            />
+          )}
+
+          {/* Run history */}
+          {botId && runsData && runsData.runs.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <HygieneHistoryList runs={runsData.runs} />
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main dreaming subsection — renders two JobSections stacked
+// ---------------------------------------------------------------------------
+function MemoryHygieneSubsection({ draft, update, botId }: {
+  draft: BotConfig;
+  update: (p: Partial<BotConfig>) => void;
+  botId: string | undefined;
+}) {
+  const t = useThemeTokens();
+  const { data: status } = useMemoryHygieneStatus(botId);
+  const triggerMut = useTriggerMemoryHygiene();
+
+  return (
+    <div style={{
+      borderRadius: 8, padding: 16,
+      background: t.surface, border: `1px solid ${t.surfaceRaised}`,
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <Clock size={14} color={t.purple} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Dreaming</span>
+      </div>
+      <div style={{ fontSize: 10, color: t.textDim, marginBottom: 14, lineHeight: "15px" }}>
+        Two scheduled jobs: lightweight maintenance (daily) and deeper skill review (less frequent).
+      </div>
+
+      {/* Stacked job sections */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <JobSection
+          jobKey="maintenance"
+          draft={draft} update={update} botId={botId}
+          status={status?.memory_hygiene}
+          triggerMut={triggerMut}
+        />
+        <JobSection
+          jobKey="skill_review"
+          draft={draft} update={update} botId={botId}
+          status={status?.skill_review}
+          triggerMut={triggerMut}
+        />
+      </div>
     </div>
   );
 }

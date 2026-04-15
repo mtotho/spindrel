@@ -106,6 +106,7 @@ export interface TriggerEventSource {
   integration_type?: string;
   binding_id?: string;
   disabled?: boolean;
+  activated?: boolean;
 }
 
 export function useTriggerEvents() {

@@ -41,24 +41,24 @@ export function DreamingTab() {
   if (!data) return null;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {/* Quick Status Banner */}
-      <div className="rounded-lg p-3" style={{ background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}` }}>
-        <div className="flex flex-col gap-1.5 text-[11px]" style={{ color: t.textMuted }}>
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full" style={{ background: maintEnabled > 0 ? "#f59e0b" : t.textDim }} />
+      <div style={{ borderRadius: 8, padding: 12, background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}` }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11, color: t.textMuted }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: maintEnabled > 0 ? "#f59e0b" : t.textDim }} />
             <span>
               <strong style={{ color: t.text }}>{maintEnabled}/{totalBots}</strong> bots running maintenance
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full" style={{ background: skillEnabled > 0 ? "#8b5cf6" : t.textDim }} />
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: skillEnabled > 0 ? "#8b5cf6" : t.textDim }} />
             <span>
               <strong style={{ color: t.text }}>{skillEnabled}/{totalBots}</strong> bots running skill review
             </span>
           </div>
           {failures.length > 0 && (
-            <div className="flex items-center gap-2 mt-0.5" style={{ color: t.danger }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2, color: t.danger }}>
               <AlertTriangle size={11} />
               <span>{failures.map((b) => b.bot_name).join(", ")}: last run failed</span>
             </div>
@@ -68,7 +68,7 @@ export function DreamingTab() {
 
       {/* Per-bot dreaming management */}
       <div>
-        <div className="flex items-center gap-1.5 mb-1.5">
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
           <Moon size={14} color="#8b5cf6" />
           <span className="text-sm font-semibold" style={{ color: t.text }}>Dreaming by Bot</span>
         </div>
@@ -83,9 +83,9 @@ export function DreamingTab() {
       {/* Run history with filter */}
       {data.recent_runs.length > 0 && (
         <div>
-          <div className="flex items-center justify-between mb-2.5">
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <span className="text-sm font-semibold" style={{ color: t.text }}>Recent Runs</span>
-            <div className="flex gap-0.5 p-0.5 rounded-md" style={{ background: t.surfaceOverlay }}>
+            <div style={{ display: "flex", flexDirection: "row", gap: 2, padding: 2, borderRadius: 6, background: t.surfaceOverlay }}>
               {([
                 { key: "all" as const, label: "All" },
                 { key: "memory_hygiene" as const, label: "Maintenance" },

@@ -121,7 +121,7 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
   const gridTemplate = useMemo(() => {
     if (isManage) {
       // Bot / Last Run / Result / Next / Maint dot / Skills dot / Run
-      return "1fr 90px 80px 90px 56px 56px 50px";
+      return "1fr 90px 80px 90px 56px 56px 58px";
     }
     // Bot / Jobs / Last Run / Result / Next
     return "1fr 80px 110px 80px 110px";
@@ -521,13 +521,18 @@ function RunDropdown({
         }}
         disabled={!anyEnabled || pending}
         title={anyEnabled ? "Trigger a dreaming run" : "No jobs enabled for this bot"}
-        className="flex items-center justify-center gap-0.5 rounded cursor-pointer
-          disabled:cursor-not-allowed disabled:opacity-50
-          transition-colors duration-100"
         style={{
+          display: "inline-flex",
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 2,
           padding: "4px 6px",
+          borderRadius: 4,
           fontSize: 10,
           fontWeight: 500,
+          cursor: anyEnabled ? "pointer" : "not-allowed",
+          opacity: pending ? 0.5 : 1,
           background: anyEnabled ? t.purpleSubtle : "transparent",
           color: anyEnabled ? t.purple : t.textDim,
           border: `1px solid ${anyEnabled ? t.purpleBorder : t.surfaceOverlay}`,

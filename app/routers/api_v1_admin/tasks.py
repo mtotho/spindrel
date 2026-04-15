@@ -332,8 +332,9 @@ async def admin_list_trigger_events(
     # ── Integration events from real bindings ────────────────────────
     integration_events = discover_integration_events()
 
-    # Query all active bindings grouped by integration type
-    stmt = select(ChannelIntegration).where(ChannelIntegration.activated.is_(True))
+    # Query all bindings (not just activated — webhooks fire regardless of
+    # activation status, so non-active bindings are still valid event sources)
+    stmt = select(ChannelIntegration)
     bindings = (await db.execute(stmt)).scalars().all()
 
     by_type: dict[str, list] = defaultdict(list)
@@ -367,9 +368,10 @@ async def admin_list_trigger_events(
                 "events": event_list,
                 "integration_type": int_type,
                 "binding_id": str(b.id),
+                "activated": b.activated,
             })
 
-    # Integrations with events but no active bindings (discovery hint)
+    # Integrations with events but no bindings at all (discovery hint)
     for int_type, raw_events in sorted(integration_events.items()):
         if int_type in by_type:
             continue

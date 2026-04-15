@@ -4,9 +4,10 @@
  * Used in TaskCreateModal and TaskEditor to configure how a task is triggered.
  */
 import { useState, useMemo } from "react";
-import { FormRow, SelectInput } from "./FormControls";
+import { ChevronDown, ChevronRight, Zap, Server } from "lucide-react";
 import { ScheduledAtPicker, RecurrencePicker, ScheduleSummary } from "./SchedulingPickers";
-import { useTriggerEvents, type TriggerEventSource } from "@/src/api/hooks/useTasks";
+import { useTriggerEvents, type TriggerEventSource, type TriggerEventOption } from "@/src/api/hooks/useTasks";
+import { prettyIntegrationName } from "@/src/utils/format";
 
 export type TriggerType = "schedule" | "event" | "manual";
 
@@ -32,6 +33,26 @@ const TRIGGER_TYPES: { label: string; value: TriggerType }[] = [
   { label: "Event", value: "event" },
   { label: "Manual", value: "manual" },
 ];
+
+// ---------------------------------------------------------------------------
+// Integration color map — brand colors for visual identity
+// ---------------------------------------------------------------------------
+const INTEGRATION_COLORS: Record<string, { border: string; bg: string; dot: string }> = {
+  system:      { border: "#6b7280", bg: "rgba(107,114,128,0.06)", dot: "#6b7280" },
+  slack:       { border: "#4A154B", bg: "rgba(74,21,75,0.06)",    dot: "#E01E5A" },
+  github:      { border: "#8b949e", bg: "rgba(139,148,158,0.06)", dot: "#8b949e" },
+  discord:     { border: "#5865F2", bg: "rgba(88,101,242,0.06)",  dot: "#5865F2" },
+  wyoming:     { border: "#14b8a6", bg: "rgba(20,184,166,0.06)",  dot: "#14b8a6" },
+  gmail:       { border: "#EA4335", bg: "rgba(234,67,53,0.06)",   dot: "#EA4335" },
+  frigate:     { border: "#0ea5e9", bg: "rgba(14,165,233,0.06)",  dot: "#0ea5e9" },
+  bluebubbles: { border: "#34D399", bg: "rgba(52,211,153,0.06)",  dot: "#34D399" },
+};
+
+const DEFAULT_COLOR = { border: "#6b7280", bg: "rgba(107,114,128,0.06)", dot: "#6b7280" };
+
+function getColor(intType: string) {
+  return INTEGRATION_COLORS[intType] ?? DEFAULT_COLOR;
+}
 
 export function TriggerSection({
   triggerConfig,
@@ -98,28 +119,60 @@ export function TriggerSection({
 }
 
 // ---------------------------------------------------------------------------
-// Event trigger sub-form
+// Types for grouped source data
 // ---------------------------------------------------------------------------
+interface SourceGroup {
+  intType: string;
+  label: string;
+  eventCount: number;
+  /** The integration-wide "any" source */
+  anySource: TriggerEventSource | null;
+  /** Per-binding sources */
+  bindings: TriggerEventSource[];
+  disabled: boolean;
+}
 
-/** Group sources by integration type for <optgroup> display. */
-function useGroupedSourceOptions(sources: TriggerEventSource[]) {
+// ---------------------------------------------------------------------------
+// Build grouped source data from flat sources array
+// ---------------------------------------------------------------------------
+function useSourceGroups(sources: TriggerEventSource[]): SourceGroup[] {
   return useMemo(() => {
-    // Separate system from integration sources
-    const systemSources = sources.filter((s) => s.source === "system");
-    const integrationSources = sources.filter((s) => s.source !== "system");
+    const groups = new Map<string, SourceGroup>();
 
-    // Group integration sources by integration_type
-    const groups = new Map<string, TriggerEventSource[]>();
-    for (const s of integrationSources) {
-      const key = s.integration_type ?? s.source;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(s);
+    for (const s of sources) {
+      const intType = s.source === "system" ? "system" : (s.integration_type ?? s.source);
+
+      if (!groups.has(intType)) {
+        groups.set(intType, {
+          intType,
+          label: intType === "system" ? "System Events" : prettyIntegrationName(intType),
+          eventCount: s.events.length,
+          anySource: null,
+          bindings: [],
+          disabled: false,
+        });
+      }
+
+      const group = groups.get(intType)!;
+      group.eventCount = Math.max(group.eventCount, s.events.length);
+
+      if (s.source === "system" || s.source === intType) {
+        // Integration-wide or system source
+        group.anySource = s;
+        group.disabled = !!s.disabled;
+      } else {
+        // Per-binding source
+        group.bindings.push(s);
+      }
     }
 
-    return { systemSources, groups };
+    return Array.from(groups.values());
   }, [sources]);
 }
 
+// ---------------------------------------------------------------------------
+// Event trigger sub-form — card picker
+// ---------------------------------------------------------------------------
 function EventTriggerFields({
   triggerConfig,
   onTriggerConfigChange,
@@ -131,16 +184,12 @@ function EventTriggerFields({
   onTriggerConfigChange: (tc: TriggerConfig) => void;
   sources: TriggerEventSource[];
   selectedSource: TriggerEventSource | undefined;
-  selectedEvents: { type: string; label: string }[];
+  selectedEvents: TriggerEventOption[];
 }) {
   const [filterKey, setFilterKey] = useState("");
   const [filterValue, setFilterValue] = useState("");
-  const { systemSources, groups } = useGroupedSourceOptions(sources);
-
-  const eventOptions = [
-    { label: "All events", value: "" },
-    ...selectedEvents.map((e) => ({ label: e.label, value: e.type })),
-  ];
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const groups = useSourceGroups(sources);
 
   const filters = triggerConfig.event_filter ?? {};
   const filterEntries = Object.entries(filters);
@@ -162,14 +211,40 @@ function EventTriggerFields({
     });
   };
 
-  const handleSourceChange = (v: string) => {
+  const selectSource = (source: string) => {
     onTriggerConfigChange({
       ...triggerConfig,
-      event_source: v || undefined,
+      event_source: source || undefined,
       event_type: undefined,
       event_action: undefined,
       event_filter: undefined,
     });
+  };
+
+  /** Is a source currently selected? */
+  const isSelected = (sourceId: string) => triggerConfig.event_source === sourceId;
+
+  /** Is any source within a group selected? */
+  const isGroupSelected = (group: SourceGroup) => {
+    if (group.anySource && isSelected(group.anySource.source)) return true;
+    return group.bindings.some((b) => isSelected(b.source));
+  };
+
+  /** Toggle group expansion, auto-expand if it has only an "any" source */
+  const toggleGroup = (intType: string, group: SourceGroup) => {
+    if (group.disabled) return;
+    // If system or no bindings, just select the "any" source directly
+    if (intType === "system" || group.bindings.length === 0) {
+      if (group.anySource) {
+        if (isSelected(group.anySource.source)) {
+          selectSource("");
+        } else {
+          selectSource(group.anySource.source);
+        }
+      }
+      return;
+    }
+    setExpandedGroup(expandedGroup === intType ? null : intType);
   };
 
   if (sources.length === 0) {
@@ -181,45 +256,154 @@ function EventTriggerFields({
   }
 
   return (
-    <div className="flex gap-2.5">
-      <FormRow label="Source" description="Which integration or system emits the event">
-        <select
-          value={triggerConfig.event_source ?? ""}
-          onChange={(e) => handleSourceChange(e.target.value)}
-          className="w-full px-2.5 py-2 text-xs bg-input border border-surface-border rounded-lg text-text outline-none focus:border-accent appearance-none cursor-pointer"
-        >
-          <option value="">Select source...</option>
-          {systemSources.length > 0 && (
-            <optgroup label="System">
-              {systemSources.map((s) => (
-                <option key={s.source} value={s.source}>{s.label}</option>
-              ))}
-            </optgroup>
-          )}
-          {Array.from(groups.entries()).map(([intType, groupSources]) => (
-            <optgroup key={intType} label={intType.charAt(0).toUpperCase() + intType.slice(1)}>
-              {groupSources.map((s) => (
-                <option key={s.source} value={s.source} disabled={s.disabled}>
-                  {s.label}{s.disabled ? " (not configured)" : ""}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </FormRow>
+    <div className="flex gap-3">
+      {/* Source card picker */}
+      <div className="flex gap-1.5">
+        <div className="text-[11px] text-text-dim font-semibold uppercase tracking-wider mb-0.5">
+          Source
+        </div>
 
-      {triggerConfig.event_source && (
-        <FormRow label="Event" description="Filter to a specific event type, or leave on 'All'">
-          <SelectInput
-            value={triggerConfig.event_type ?? ""}
-            onChange={(v) => onTriggerConfigChange({
-              ...triggerConfig,
-              event_type: v || undefined,
-              event_action: undefined,
-            })}
-            options={eventOptions}
-          />
-        </FormRow>
+        {groups.map((group) => {
+          const color = getColor(group.intType);
+          const expanded = expandedGroup === group.intType;
+          const groupSel = isGroupSelected(group);
+          const isSystem = group.intType === "system";
+          const hasBindings = group.bindings.length > 0;
+
+          return (
+            <div key={group.intType} className="flex">
+              {/* Card header */}
+              <button
+                onClick={() => toggleGroup(group.intType, group)}
+                disabled={group.disabled}
+                className={`flex flex-row items-center gap-2.5 w-full px-3 py-2.5 rounded-[10px] border text-left transition-all duration-150 cursor-pointer ${
+                  group.disabled
+                    ? "opacity-40 cursor-not-allowed border-surface-border bg-surface-raised"
+                    : groupSel
+                    ? "border-accent/50 bg-accent/[0.04] shadow-sm"
+                    : "border-surface-border bg-surface-raised hover:border-text-dim/30 hover:bg-surface-raised/80"
+                }`}
+                style={{
+                  borderLeftWidth: 3,
+                  borderLeftColor: group.disabled ? "transparent" : color.border,
+                }}
+              >
+                {/* Icon area */}
+                <div
+                  className="flex items-center justify-center w-7 h-7 rounded-md shrink-0"
+                  style={{ backgroundColor: color.bg }}
+                >
+                  {isSystem ? (
+                    <Server size={14} style={{ color: color.dot }} />
+                  ) : (
+                    <Zap size={14} style={{ color: color.dot }} />
+                  )}
+                </div>
+
+                {/* Text */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-row items-center gap-2">
+                    <span className={`text-xs font-semibold truncate ${group.disabled ? "text-text-dim" : "text-text"}`}>
+                      {group.label}
+                    </span>
+                    <span className="text-[10px] text-text-dim font-medium tabular-nums shrink-0">
+                      {group.eventCount} event{group.eventCount !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  {group.disabled && (
+                    <div className="text-[10px] text-text-dim mt-0.5">No bindings configured</div>
+                  )}
+                  {!group.disabled && hasBindings && (
+                    <div className="text-[10px] text-text-dim mt-0.5">
+                      {group.bindings.length} binding{group.bindings.length !== 1 ? "s" : ""}
+                    </div>
+                  )}
+                  {!group.disabled && isSystem && (
+                    <div className="text-[10px] text-text-dim mt-0.5">Lifecycle hooks</div>
+                  )}
+                </div>
+
+                {/* Expand chevron (only for groups with bindings) */}
+                {hasBindings && !group.disabled && (
+                  <div className="shrink-0 text-text-dim">
+                    {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </div>
+                )}
+
+                {/* Selected indicator for groups without bindings */}
+                {(!hasBindings || isSystem) && groupSel && (
+                  <div className="w-2 h-2 rounded-full bg-accent shrink-0" />
+                )}
+              </button>
+
+              {/* Expanded bindings list */}
+              {expanded && hasBindings && (
+                <div className="flex gap-0.5 ml-3 pl-3 border-l-2" style={{ borderLeftColor: color.border + "40" }}>
+                  {/* "Any" option */}
+                  {group.anySource && (
+                    <BindingItem
+                      label={`Any ${group.label}`}
+                      sublabel="Matches all bindings"
+                      selected={isSelected(group.anySource.source)}
+                      onClick={() => selectSource(
+                        isSelected(group.anySource!.source) ? "" : group.anySource!.source
+                      )}
+                      color={color}
+                    />
+                  )}
+
+                  {/* Individual bindings */}
+                  {group.bindings.map((b) => (
+                    <BindingItem
+                      key={b.source}
+                      label={b.label}
+                      sublabel={b.activated === false ? "Not active" : undefined}
+                      selected={isSelected(b.source)}
+                      dimmed={b.activated === false}
+                      onClick={() => selectSource(isSelected(b.source) ? "" : b.source)}
+                      color={color}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Event type picker */}
+      {triggerConfig.event_source && selectedEvents.length > 0 && (
+        <div className="flex gap-1.5">
+          <div className="text-[11px] text-text-dim font-semibold uppercase tracking-wider">
+            Event
+          </div>
+          <div className="flex flex-row gap-1.5 flex-wrap">
+            {/* "All events" pill */}
+            <EventPill
+              label="All events"
+              selected={!triggerConfig.event_type}
+              onClick={() => onTriggerConfigChange({
+                ...triggerConfig,
+                event_type: undefined,
+                event_action: undefined,
+              })}
+            />
+            {selectedEvents.map((e) => (
+              <EventPill
+                key={e.type}
+                label={e.label}
+                description={e.description}
+                category={e.category}
+                selected={triggerConfig.event_type === e.type}
+                onClick={() => onTriggerConfigChange({
+                  ...triggerConfig,
+                  event_type: triggerConfig.event_type === e.type ? undefined : e.type,
+                  event_action: undefined,
+                })}
+              />
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Filter conditions */}
@@ -273,5 +457,96 @@ function EventTriggerFields({
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Binding item — selectable row within an expanded group
+// ---------------------------------------------------------------------------
+function BindingItem({
+  label,
+  sublabel,
+  selected,
+  dimmed,
+  onClick,
+  color,
+}: {
+  label: string;
+  sublabel?: string;
+  selected: boolean;
+  dimmed?: boolean;
+  onClick: () => void;
+  color: { border: string; bg: string; dot: string };
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex flex-row items-center gap-2.5 w-full px-3 py-2 rounded-lg border text-left transition-all duration-150 cursor-pointer ${
+        selected
+          ? "border-accent/40 bg-accent/[0.05]"
+          : "border-transparent hover:bg-surface-raised"
+      } ${dimmed ? "opacity-50" : ""}`}
+    >
+      {/* Radio indicator */}
+      <div className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
+        selected ? "border-accent" : "border-text-dim/30"
+      }`}>
+        {selected && <div className="w-1.5 h-1.5 rounded-full bg-accent" />}
+      </div>
+
+      {/* Label */}
+      <div className="flex-1 min-w-0">
+        <span className={`text-xs truncate block ${selected ? "text-text font-medium" : "text-text-muted"}`}>
+          {label}
+        </span>
+        {sublabel && (
+          <span className="text-[10px] text-text-dim block mt-0.5">{sublabel}</span>
+        )}
+      </div>
+
+      {/* Dot */}
+      <div
+        className="w-1.5 h-1.5 rounded-full shrink-0"
+        style={{ backgroundColor: color.dot, opacity: dimmed ? 0.4 : 0.6 }}
+      />
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Event pill — toggleable pill for event type selection
+// ---------------------------------------------------------------------------
+function EventPill({
+  label,
+  description,
+  category,
+  selected,
+  onClick,
+}: {
+  label: string;
+  description?: string;
+  category?: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={description}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition-all duration-150 cursor-pointer ${
+        selected
+          ? "bg-accent/[0.10] text-accent border-accent/30"
+          : "bg-transparent text-text-muted border-surface-border hover:border-text-dim/30 hover:text-text"
+      }`}
+    >
+      {category && (
+        <span className={`text-[9px] uppercase tracking-wider font-semibold ${
+          selected ? "text-accent/60" : "text-text-dim"
+        }`}>
+          {category}
+        </span>
+      )}
+      {label}
+    </button>
   );
 }
