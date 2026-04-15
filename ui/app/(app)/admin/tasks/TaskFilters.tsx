@@ -83,7 +83,7 @@ export function TaskFilters({
           <button
             onClick={() => setStatusFilter("cancelled")}
             style={{
-              display: "inline-flex", alignItems: "center", gap: 4,
+              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
               fontSize: 11, fontWeight: 600, color: t.textDim,
               background: t.surfaceRaised, padding: "3px 10px", borderRadius: 12,
               border: "none", cursor: "pointer",
@@ -100,7 +100,7 @@ export function TaskFilters({
         <>
           <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
           <span style={{
-            display: "inline-flex", alignItems: "center", gap: 4,
+            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
             fontSize: 11, fontWeight: 700, color: t.warningMuted,
             background: t.warningSubtle, padding: "3px 10px", borderRadius: 12,
           }}>

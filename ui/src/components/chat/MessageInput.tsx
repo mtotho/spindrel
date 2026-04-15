@@ -6,6 +6,8 @@ import { RecordingOverlay } from "./RecordingOverlay";
 import { useThemeTokens } from "../../theme/tokens";
 import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import { TiptapChatInput, type TiptapChatInputHandle } from "./TiptapChatInput";
+import { createPortal } from "react-dom";
+import { LlmModelDropdown } from "../shared/LlmModelDropdown";
 
 export interface PendingFile {
   file: File;
@@ -477,13 +479,10 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   <Cpu size={16} color={t.textDim} />
                 </button>
               )}
-              {showModelPicker && (() => {
-                const { LlmModelDropdown } = require("../shared/LlmModelDropdown");
-                const ReactDOM = require("react-dom");
-                const rect = modelPickerRef.current?.getBoundingClientRect();
+              {showModelPicker && (() => {                const rect = modelPickerRef.current?.getBoundingClientRect();
                 const dropdownRight = rect ? window.innerWidth - rect.right : 16;
                 const dropdownBottom = rect ? window.innerHeight - rect.top + 8 : 80;
-                return ReactDOM.createPortal(
+                return createPortal(
                   <>
                     <div
                       onClick={() => setShowModelPicker(false)}

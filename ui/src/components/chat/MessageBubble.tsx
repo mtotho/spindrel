@@ -26,7 +26,7 @@ function SkillBadges({ skills, t }: { skills: AutoInjectedSkillMeta[]; t: ThemeT
           <div
             key={s.skillId ?? s.skill_id ?? i}
             style={{
-              display: "inline-flex",
+              display: "inline-flex", flexDirection: "row",
               alignItems: "center",
               gap: 4,
               padding: "1px 7px 1px 5px",
@@ -261,7 +261,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           {triggerBadge && (
             <span
               style={{
-                display: "inline-flex",
+                display: "inline-flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 3,
                 fontSize: 10,

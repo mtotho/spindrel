@@ -179,7 +179,7 @@ export function CarapacesSection({
         <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
           {pinnedCarapaces.map((c) => (
             <div key={c.id} style={{
-              display: "flex", alignItems: "center", gap: 4,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "4px 8px", borderRadius: 4, fontSize: 11,
               background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
             }}>
@@ -291,7 +291,7 @@ export function CarapacesSection({
                   <label style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
                     <input type="checkbox" checked={on} onChange={() => toggle(c.id)} style={{ accentColor: t.accent, marginTop: 2 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                         <span style={{ fontSize: 12, fontWeight: 500, color: on ? t.accent : t.text }}>{c.name}</span>
                         <span style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>{c.id}</span>
                         {sourceType !== "integration" && <SourceBadge type={sourceType} />}

@@ -67,7 +67,7 @@ export function TaskCardRow({
         )}
         {task.recurrence && (
           <span style={{
-            display: "inline-flex", alignItems: "center", gap: 3,
+            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
             background: isCancelled ? t.surfaceRaised : t.warningSubtle,
             color: isCancelled ? t.textDim : t.warning,
             padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
@@ -88,7 +88,7 @@ export function TaskCardRow({
             }}
             title="View trace"
             style={{
-              display: "inline-flex", alignItems: "center", padding: "2px 6px",
+              display: "inline-flex", flexDirection: "row", alignItems: "center", padding: "2px 6px",
               background: "transparent", border: `1px solid ${t.surfaceBorder}`,
               borderRadius: 4, cursor: "pointer", flexShrink: 0,
               color: t.textMuted,

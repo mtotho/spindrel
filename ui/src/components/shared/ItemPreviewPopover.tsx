@@ -51,7 +51,7 @@ export function HoverPopover({ children, content }: PopoverProps) {
       ref={containerRef}
       onMouseEnter={show}
       onMouseLeave={hide}
-      style={{ position: "relative", display: "inline-flex" }}
+      style={{ position: "relative", display: "inline-flex", flexDirection: "row" }}
     >
       {children}
       {visible && (

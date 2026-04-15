@@ -216,7 +216,7 @@ export function SkillsSection({
                   <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
                     {isBotAuthored && (
                       <span style={{
-                        display: "inline-flex", alignItems: "center", fontSize: 9, fontWeight: 600,
+                        display: "inline-flex", flexDirection: "row", alignItems: "center", fontSize: 9, fontWeight: 600,
                         color: "#059669", background: "rgba(16,185,129,0.15)", borderRadius: 3,
                         padding: "2px 5px", marginTop: 1, whiteSpace: "nowrap",
                       }}>
@@ -244,7 +244,7 @@ export function SkillsSection({
                     <button
                       onClick={() => navigate(`/admin/skills/${encodeURIComponent(skill.id)}`)}
                       style={{
-                        display: "inline-flex", alignItems: "center", gap: 3,
+                        display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
                         fontSize: 10, color: t.accent, background: "none",
                         border: "none", cursor: "pointer", whiteSpace: "nowrap", marginTop: 1,
                       }}

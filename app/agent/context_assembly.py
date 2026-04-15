@@ -1821,35 +1821,6 @@ async def assemble_context(
         messages.append({"role": "system", "content": system_preamble})
         _inject_chars["system_preamble"] = len(system_preamble)
 
-    # --- bot system_prompt reinforcement (recency bias) ---
-    # bot.system_prompt is already included in messages[0] via _effective_system_prompt,
-    # but buried under GLOBAL_BASE_PROMPT + base_prompt + memory_scheme_prompt (~12KB of
-    # framework text). Gemini Flash and other models drown out small instructions when
-    # buried in the middle of a large system prompt. Repeating it here gives the bot's
-    # actual instructions recency bias so they're actually followed.
-    # In task_mode this goes BEFORE the marker so the task prompt is the very last thing
-    # the model sees — otherwise 8KB of personality drowns out the heartbeat instructions.
-    # In normal mode it goes AFTER the marker for maximum recency on conversational turns.
-    _bot_sys_prompt = bot.system_prompt or ""
-    if getattr(bot, "system_prompt_workspace_file", False):
-        try:
-            from app.services.prompt_resolution import resolve_workspace_file_prompt
-            _ws_prompt = resolve_workspace_file_prompt(
-                bot.shared_workspace_id,
-                f"bots/{bot.id}/system_prompt.md",
-                "",
-            )
-            if _ws_prompt:
-                _bot_sys_prompt = _ws_prompt
-        except Exception:
-            pass
-    _has_reinforce = _bot_sys_prompt.strip()
-    if _has_reinforce and task_mode:
-        # Task mode: reinforce BEFORE the marker so task prompt has final-position recency
-        _reinforce = f"## Your Role (these are your active instructions — follow them)\n\n{_bot_sys_prompt.rstrip()}"
-        messages.append({"role": "system", "content": _reinforce})
-        _inject_chars["bot_system_prompt_reinforce"] = len(_reinforce)
-
     # --- current-turn marker (helps models distinguish injected context from the live message) ---
     if task_mode:
         # Heartbeat or other system-initiated task — frame as executable task, not conversation
@@ -1863,11 +1834,28 @@ async def assemble_context(
             "content": "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
         })
 
-    if _has_reinforce and not task_mode:
-        # Normal mode: reinforce AFTER the marker for maximum recency on conversational turns
-        _reinforce = f"## Your Role (these are your active instructions — follow them)\n\n{_bot_sys_prompt.rstrip()}"
-        messages.append({"role": "system", "content": _reinforce})
-        _inject_chars["bot_system_prompt_reinforce"] = len(_reinforce)
+    # --- bot system_prompt reinforcement (recency bias) ---
+    # Repeats bot.system_prompt near the end of the message array so weaker
+    # models don't lose it under ~12KB of framework text. Disabled by default
+    # (strong models don't need it). Gated on REINFORCE_SYSTEM_PROMPT setting.
+    if settings.REINFORCE_SYSTEM_PROMPT and not task_mode:
+        _bot_sys_prompt = bot.system_prompt or ""
+        if getattr(bot, "system_prompt_workspace_file", False):
+            try:
+                from app.services.prompt_resolution import resolve_workspace_file_prompt
+                _ws_prompt = resolve_workspace_file_prompt(
+                    bot.shared_workspace_id,
+                    f"bots/{bot.id}/system_prompt.md",
+                    "",
+                )
+                if _ws_prompt:
+                    _bot_sys_prompt = _ws_prompt
+            except Exception:
+                pass
+        if _bot_sys_prompt.strip():
+            _reinforce = f"## Your Role (these are your active instructions — follow them)\n\n{_bot_sys_prompt.rstrip()}"
+            messages.append({"role": "system", "content": _reinforce})
+            _inject_chars["bot_system_prompt_reinforce"] = len(_reinforce)
 
     # --- user message (audio or text) ---
     if native_audio:
@@ -1878,15 +1866,6 @@ async def assemble_context(
         user_msg = _build_audio_user_message(audio_data, audio_format)
         messages.append(user_msg)
         result.user_msg_index = len(messages) - 1
-    elif user_message and task_mode:
-        # Task mode (heartbeat, scheduled tasks, memory flush): render as system
-        # message so models treat it as an instruction to execute, not a user
-        # message to converse about. No sanitize_unicode — content comes from
-        # admin-configured prompts (trusted), not end-user chat input.
-        # The "--- TASK PROMPT ---" prefix is matched by _CLASSIFY_SYS_MSG for traces.
-        _task_content = f"--- TASK PROMPT ---\n\n{user_message}"
-        messages.append({"role": "system", "content": _task_content})
-        _inject_chars["task_prompt"] = len(_task_content)
     elif user_message:
         from app.security.prompt_sanitize import sanitize_unicode
         user_content = _build_user_message_content(sanitize_unicode(user_message), attachments)

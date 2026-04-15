@@ -34,7 +34,7 @@ export function CronJobsView() {
   return (
     <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 13, color: t.textMuted }}>
           {jobs.length} cron job{jobs.length !== 1 ? "s" : ""} discovered
         </span>

@@ -65,6 +65,7 @@ export function DiffRenderer({ body, t }: Props) {
   return (
     <div
       style={{
+        display: "block",
         borderRadius: 8,
         border: `1px solid ${t.surfaceBorder}`,
         background: t.codeBg,

@@ -6,6 +6,7 @@ import { apiFetch } from "../../api/client";
 import type { WorkspaceFileEntry } from "../../types/api";
 import { useThemeTokens } from "../../theme/tokens";
 import { writeToClipboard } from "../../utils/clipboard";
+import { createPortal } from "react-dom";
 
 interface FileContextMenuProps {
   x: number;
@@ -118,10 +119,7 @@ export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRena
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
-  if (typeof document === "undefined") return null;
-
-  const ReactDOM = require("react-dom");
-  return ReactDOM.createPortal(
+  if (typeof document === "undefined") return null;  return createPortal(
     <>
       <div
         onClick={onClose}

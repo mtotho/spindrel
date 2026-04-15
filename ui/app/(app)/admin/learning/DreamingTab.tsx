@@ -27,7 +27,7 @@ export function DreamingTab() {
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {/* Per-bot dreaming management — canonical surface for toggles + Run */}
       <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
           <Moon size={14} color="#8b5cf6" />
           <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Dreaming by Bot</span>
         </div>

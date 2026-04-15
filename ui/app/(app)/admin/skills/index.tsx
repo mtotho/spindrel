@@ -151,7 +151,7 @@ function FilterDropdown({
       <button
         onClick={() => setOpen(!open)}
         style={{
-          display: "inline-flex", alignItems: "center", gap: 5,
+          display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 5,
           padding: "5px 10px", borderRadius: 6, fontSize: 12,
           border: `1px solid ${value ? t.accentBorder : t.surfaceBorder}`,
           background: value ? t.accentSubtle : "transparent",
@@ -424,13 +424,13 @@ function SkillCard({
         }}>
           {hasActivity ? (
             <span style={{
-              display: "inline-flex", alignItems: "center", gap: 3,
+              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
               color: isHot ? "#059669" : t.textMuted,
             }}>
               {isHot && <TrendingUp size={10} />}
               {skill.surface_count}x surfaced
               {skill.total_auto_injects > 0 && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "#a855f7" }}>
+                <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 2, color: "#a855f7" }}>
                   <Zap size={9} /> {skill.total_auto_injects}
                 </span>
               )}
@@ -440,7 +440,7 @@ function SkillCard({
           )}
           <span style={{ color: t.surfaceBorder }}>·</span>
           {skill.enrolled_bot_count > 0 ? (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+            <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 2 }}>
               <Users size={9} /> {skill.enrolled_bot_count}
             </span>
           ) : (
@@ -555,7 +555,7 @@ function SkillRow({ skill, onClick, isWide }: { skill: SkillItem; onClick: () =>
         )}
         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, fontSize: 10, color: t.textDim }}>
           {skill.enrolled_bot_count > 0 && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+            <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 2 }}>
               <Users size={9} /> {skill.enrolled_bot_count}
             </span>
           )}
@@ -603,7 +603,7 @@ function SkillRow({ skill, onClick, isWide }: { skill: SkillItem; onClick: () =>
       {/* Enrolled */}
       <span style={{ textAlign: "right", fontSize: 10, color: skill.enrolled_bot_count > 0 ? t.textMuted : t.textDim }}>
         {skill.enrolled_bot_count > 0 ? (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 2, justifyContent: "flex-end" }}>
+          <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 2, justifyContent: "flex-end" }}>
             <Users size={10} /> {skill.enrolled_bot_count}
           </span>
         ) : "--"}
@@ -612,7 +612,7 @@ function SkillRow({ skill, onClick, isWide }: { skill: SkillItem; onClick: () =>
       <span style={{ textAlign: "right" }}>
         {skill.surface_count > 0 ? (
           <span style={{
-            display: "inline-flex", alignItems: "center", gap: 3,
+            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
             fontSize: 10, color: skill.surface_count >= 10 ? "#059669" : t.textMuted,
           }}
             title={`Surfaced ${skill.surface_count}x, auto-injected ${skill.total_auto_injects}x`}

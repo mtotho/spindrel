@@ -182,7 +182,7 @@ export function EnrolledToolsPanel({ botId }: { botId: string }) {
                       disabled={unenrollMut.isPending}
                       title="Remove from working set"
                       style={{
-                        display: "inline-flex",
+                        display: "inline-flex", flexDirection: "row",
                         alignItems: "center",
                         gap: 3,
                         fontSize: 10,

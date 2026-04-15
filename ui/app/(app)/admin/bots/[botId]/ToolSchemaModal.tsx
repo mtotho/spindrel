@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useTool } from "@/src/api/hooks/useTools";
 import { X } from "lucide-react";
+import { createPortal } from "react-dom";
 
 function ToolSchemaModalContent({
   toolName,
@@ -173,9 +174,7 @@ export function ToolSchemaModal({
 }: {
   toolName: string;
   onClose: () => void;
-}) {
-  const ReactDOM = require("react-dom");
-  return ReactDOM.createPortal(
+}) {  return createPortal(
     <ToolSchemaModalContent toolName={toolName} onClose={onClose} />,
     document.body,
   );

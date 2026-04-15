@@ -263,7 +263,7 @@ export default function BotEditorScreen() {
 
           {activeSection === "prompt" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>System Prompt</div>
                 <GenerateButton
                   fieldType="system_prompt"
@@ -304,7 +304,7 @@ export default function BotEditorScreen() {
                   <a
                     href={`/admin/workspaces/${draft.shared_workspace_id}`}
                     style={{
-                      display: "inline-flex", alignItems: "center", gap: 4,
+                      display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
                       fontSize: 11, fontWeight: 600, color: t.accent,
                       textDecoration: "none", alignSelf: "flex-start",
                     }}
@@ -351,7 +351,7 @@ export default function BotEditorScreen() {
                     <a
                       href={`/admin/workspaces/${editorData.bot.shared_workspace_id}`}
                       style={{
-                        display: "inline-flex", alignItems: "center", gap: 4,
+                        display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
                         fontSize: 11, fontWeight: 600, color: t.accent,
                         textDecoration: "none", alignSelf: "flex-start",
                       }}
@@ -680,7 +680,7 @@ export default function BotEditorScreen() {
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                     <div style={{
-                      display: "flex", alignItems: "center", gap: 8,
+                      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
                       padding: "10px 14px", background: t.dangerSubtle, borderRadius: 6,
                     }}>
                       <AlertTriangle size={16} color={t.danger} />

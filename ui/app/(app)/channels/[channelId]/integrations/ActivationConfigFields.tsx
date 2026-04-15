@@ -54,7 +54,7 @@ function SaveIndicator({ visible }: { visible: boolean }) {
   const t = useThemeTokens();
   return (
     <span style={{
-      display: "inline-flex",
+      display: "inline-flex", flexDirection: "row",
       alignItems: "center",
       gap: 3,
       fontSize: 10,

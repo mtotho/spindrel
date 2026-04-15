@@ -289,7 +289,7 @@ export default function TasksScreen() {
                 key={s.id}
                 onClick={() => setEditorState({ mode: "edit", taskId: s.id })}
                 style={{
-                  display: "inline-flex", alignItems: "center", gap: 4,
+                  display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
                   fontSize: 11, color: t.danger, cursor: "pointer",
                   marginRight: 12,
                   textDecoration: "underline",

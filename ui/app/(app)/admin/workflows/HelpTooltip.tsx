@@ -16,7 +16,7 @@ export function HelpTooltip({ text, size = 14 }: Props) {
     <span
       style={{
         position: "relative",
-        display: "inline-flex",
+        display: "inline-flex", flexDirection: "row",
         alignItems: "center",
         cursor: "help",
       }}

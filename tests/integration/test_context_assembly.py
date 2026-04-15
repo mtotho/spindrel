@@ -112,7 +112,8 @@ class TestBasicPipeline:
 
     @pytest.mark.asyncio
     async def test_system_preamble_injected(self, engine):
-        """When system_preamble + task_mode are provided (e.g. heartbeat), task framing is used."""
+        """When system_preamble + task_mode are provided (e.g. heartbeat), task framing marker
+        is used and the task prompt is rendered as a normal user message."""
         bot = _make_bot()
         messages = [{"role": "system", "content": bot.system_prompt}]
         result = AssemblyResult()
@@ -150,15 +151,11 @@ class TestBasicPipeline:
         marker_msgs = [m for m in messages if "TASK PROMPT follows" in m["content"]]
         assert len(marker_msgs) == 1
 
-        # user_message should be rendered as system with task prompt prefix, not role:user
-        task_msgs = [m for m in messages if m.get("content", "").startswith("--- TASK PROMPT ---")]
-        assert len(task_msgs) == 1
-        assert task_msgs[0]["role"] == "system"
-        assert "Run all 9 phases now." in task_msgs[0]["content"]
-
-        # No role:user messages should exist
+        # Task prompt rendered as role:user (not system) — small models respond
+        # better to user messages than system messages for task execution.
         user_msgs = [m for m in messages if m["role"] == "user"]
-        assert len(user_msgs) == 0
+        assert len(user_msgs) == 1
+        assert "Run all 9 phases now." in user_msgs[0]["content"]
 
     @pytest.mark.asyncio
     async def test_attachments_included_in_user_message(self, engine):
@@ -1007,7 +1004,8 @@ class TestMessageOrdering:
 
     @pytest.mark.asyncio
     async def test_message_order_system_then_marker_then_user(self, engine):
-        """All system messages should come before the marker, which comes before user."""
+        """All system messages should come before the marker, which comes before user.
+        With REINFORCE_SYSTEM_PROMPT=False (default), the marker is immediately before the user."""
         bot = _make_bot()
         messages = [{"role": "system", "content": bot.system_prompt}]
         result = AssemblyResult()
@@ -1039,32 +1037,24 @@ class TestMessageOrdering:
         assert messages[-1]["role"] == "user"
         assert messages[-1]["content"] == "final message"
 
-        # Second-to-last should be the bot system_prompt reinforcement
-        # (positioned after the marker, immediately before the user, for recency bias)
+        # Second-to-last should be the current-turn marker (reinforce disabled by default)
         assert messages[-2]["role"] == "system"
-        assert "Your Role" in messages[-2]["content"]
-        assert bot.system_prompt in messages[-2]["content"]
+        assert "CURRENT message follows" in messages[-2]["content"]
 
-        # Third-to-last should be the current-turn marker
-        assert messages[-3]["role"] == "system"
-        assert "CURRENT message follows" in messages[-3]["content"]
+        # No reinforcement block when REINFORCE_SYSTEM_PROMPT=False
+        reinforce_msgs = [m for m in messages if "Your Role" in m.get("content", "")]
+        assert len(reinforce_msgs) == 0
 
         # All other messages should be system
         for m in messages[:-1]:
             assert m["role"] == "system"
 
     @pytest.mark.asyncio
-    async def test_bot_system_prompt_reinforced_at_end(self, engine):
-        """Regression: bot.system_prompt must be reinforced as the last system message
-        before the user turn, so models with strong base prompts (Gemini Flash etc.)
-        actually follow per-bot instructions instead of drowning them out under the
-        framework prompt + memory scheme + skill index that's bundled into messages[0].
-
-        Found 2026-04-10: 4 multibot tests failed because Sparrow/Cockatoo/etc.
-        responded as generic Gemini despite having distinctive system_prompts.
-        Position-sensitive: must come AFTER the "Everything above is context" marker,
-        not before it.
-        """
+    async def test_bot_system_prompt_reinforced_when_enabled(self, engine):
+        """When REINFORCE_SYSTEM_PROMPT is enabled, bot.system_prompt must be reinforced
+        as the last system message before the user turn. Disabled by default since
+        strong models (GPT-5.3, Minimax) don't need it."""
+        from app.config import settings
         bot = _make_bot(
             id="reinforce-bot",
             name="Reinforce",
@@ -1074,27 +1064,32 @@ class TestMessageOrdering:
         result = AssemblyResult()
         factory = _session_factory(engine)
 
-        with (
-            patch("app.db.engine.async_session", factory),
-            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
-            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
-            patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
-        ):
-            await _collect(assemble_context(
-                messages=messages,
-                bot=bot,
-                user_message="say your secret",
-                session_id=None,
-                client_id=None,
-                correlation_id=None,
-                channel_id=None,
-                audio_data=None,
-                audio_format=None,
-                attachments=None,
-                native_audio=False,
-                result=result,
-            ))
+        _orig = settings.REINFORCE_SYSTEM_PROMPT
+        settings.REINFORCE_SYSTEM_PROMPT = True
+        try:
+            with (
+                patch("app.db.engine.async_session", factory),
+                patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+                patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+                patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+                patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
+            ):
+                await _collect(assemble_context(
+                    messages=messages,
+                    bot=bot,
+                    user_message="say your secret",
+                    session_id=None,
+                    client_id=None,
+                    correlation_id=None,
+                    channel_id=None,
+                    audio_data=None,
+                    audio_format=None,
+                    attachments=None,
+                    native_audio=False,
+                    result=result,
+                ))
+        finally:
+            settings.REINFORCE_SYSTEM_PROMPT = _orig
 
         # The reinforcement must be the last system message, immediately before the user
         assert messages[-1]["role"] == "user"
@@ -1102,9 +1097,7 @@ class TestMessageOrdering:
         assert "Your Role" in messages[-2]["content"]
         assert "BANANARAMA" in messages[-2]["content"]
 
-        # And the marker must come BEFORE the reinforcement (not after — the model
-        # treats the marker as the boundary between context and the live turn, so
-        # the reinforcement needs to live on the live-turn side).
+        # And the marker must come BEFORE the reinforcement
         marker_idx = next(
             i for i, m in enumerate(messages)
             if m.get("role") == "system" and "CURRENT message follows" in (m.get("content") or "")

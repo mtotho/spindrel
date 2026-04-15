@@ -307,7 +307,7 @@ function ConfigForm() {
 
       {/* Enable toggle */}
       <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <label style={{ ...labelStyle, marginBottom: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+        <label style={{ ...labelStyle, marginBottom: 0, cursor: "pointer", display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
           <input
             type="checkbox"
             checked={config.enabled}
@@ -388,7 +388,7 @@ function ConfigForm() {
                   <span
                     key={i}
                     style={{
-                      display: "inline-flex",
+                      display: "inline-flex", flexDirection: "row",
                       alignItems: "center",
                       gap: 4,
                       padding: "4px 10px",

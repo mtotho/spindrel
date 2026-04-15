@@ -42,7 +42,7 @@ export function WorkflowHeader({
         maxWidth: 1200,
       }}>
         {/* Left: back + name */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
           <button type="button"
             onClick={onBack}
             style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
@@ -60,7 +60,7 @@ export function WorkflowHeader({
           {/* Source badge */}
           {isFileBased && (
             <span style={{
-              display: "inline-flex", alignItems: "center", gap: 4,
+              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
               fontSize: 10, padding: "2px 7px", borderRadius: 4,
               background: t.accentSubtle, border: `1px solid ${t.accentBorder}`, color: t.accent,
             }}>

@@ -74,7 +74,7 @@ export function BotsTab({ workspaceId, bots, writeProtectedPaths }: BotsTabProps
                           key={p}
                           onClick={() => toggleWriteAccess(p)}
                           style={{
-                            display: "inline-flex", alignItems: "center", gap: 3,
+                            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
                             padding: "2px 8px", fontSize: 10, fontFamily: "monospace",
                             borderRadius: 4, cursor: "pointer",
                             border: `1px solid ${allowed ? t.success : t.surfaceBorder}`,

@@ -56,7 +56,7 @@ export function SectionSearch({ channelId }: { channelId: string }) {
       </div>
       <div style={{ display: "flex", flexDirection: "row", gap: 6, alignItems: "center" }}>
         <div style={{
-          flex: 1, display: "flex", alignItems: "center", gap: 6,
+          flex: 1, display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
           background: t.inputBg, border: `1px solid ${t.inputBorder}`,
           borderRadius: 6, padding: "6px 10px",
         }}>

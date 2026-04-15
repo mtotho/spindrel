@@ -109,7 +109,7 @@ function ProviderCard({ provider, onClick, isWide }: { provider: ProviderItem; o
       <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
         <span style={{ fontFamily: "monospace" }}>{provider.id}</span>
         {provider.base_url && (
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+          <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
             <ExternalLink size={10} />
             {provider.base_url.replace(/^https?:\/\//, "").slice(0, 30)}
           </span>

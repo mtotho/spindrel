@@ -83,7 +83,7 @@ export function QuietHoursPicker({ start, end, timezone, onChangeStart, onChange
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {/* Presets */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
         {QUIET_PRESETS.map((p) => {
           const isActive = activePreset?.label === p.label;
           return (

@@ -406,7 +406,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{
-                display: "flex", alignItems: "center", gap: 8,
+                display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
                 padding: "10px 14px", background: t.dangerSubtle, borderRadius: 6,
               }}>
                 <AlertTriangle size={16} color={t.danger} />

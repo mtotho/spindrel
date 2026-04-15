@@ -103,7 +103,7 @@ export function WorkflowStepCard({
         {/* Type badge */}
         <span style={{
           fontSize: 10, padding: "1px 5px", borderRadius: 3, flexShrink: 0,
-          display: "inline-flex", alignItems: "center", gap: 3,
+          display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
           background: typeStyle.bg, border: `1px solid ${typeStyle.border}`,
           color: typeStyle.text, whiteSpace: "nowrap",
         }}>
@@ -114,7 +114,7 @@ export function WorkflowStepCard({
         {/* Indicator dots */}
         <div style={{ display: "flex", flexDirection: "row", gap: 3, flexShrink: 0 }}>
           {hasCondition && (
-            <span title="Conditional" style={{ display: "flex" }}>
+            <span title="Conditional" style={{ display: "flex", flexDirection: "row" }}>
               <GitBranch size={11} color={t.purple} />
             </span>
           )}

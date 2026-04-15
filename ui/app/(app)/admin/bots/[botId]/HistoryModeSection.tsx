@@ -74,7 +74,7 @@ export function HistoryModeSection({ draft, update }: {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {FILE_MODE_PRESETS.map((p, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <div key={i} style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
                   <Check size={12} color={t.success} style={{ marginTop: 2, flexShrink: 0 } as any} />
                   <div>
                     <span style={{ fontSize: 12, color: t.text }}>{p.label}</span>

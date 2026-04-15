@@ -190,6 +190,7 @@ export function ToolBadges({
               onClick={expandable ? () => handleExpand(idx) : undefined}
               style={{
                 display: "inline-flex",
+                flexDirection: "row",
                 alignItems: "center",
                 alignSelf: "flex-start",
                 gap: 5,
@@ -221,9 +222,9 @@ export function ToolBadges({
               </span>
               {/* Status dots — compact success/error indicator */}
               {envCount > 0 && !isExpanded && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
                   {errorCount > 0 && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                    <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 2 }}>
                       <span style={{
                         width: 6, height: 6, borderRadius: "50%",
                         backgroundColor: t.danger, display: "inline-block",
@@ -236,7 +237,7 @@ export function ToolBadges({
                     </span>
                   )}
                   {successCount > 0 && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                    <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 2 }}>
                       <span style={{
                         width: 6, height: 6, borderRadius: "50%",
                         backgroundColor: t.success, display: "inline-block",

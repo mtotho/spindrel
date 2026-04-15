@@ -61,7 +61,7 @@ export function WorkflowStepDetail({
       }}>
         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
           <span style={{
-            display: "inline-flex", alignItems: "center", gap: 4,
+            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
             fontSize: 11, padding: "2px 8px", borderRadius: 4,
             background: tc.bg, border: `1px solid ${tc.border}`, color: tc.text,
             fontWeight: 600,
@@ -273,7 +273,7 @@ export function WorkflowStepDetail({
               <Toggle
                 value={!!step.inject_prior_results}
                 onChange={(v) => onChange({ inject_prior_results: v })}
-                label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Inject Prior Results <HelpTooltip text="Appends completed step results to this step's prompt context." /></span>}
+                label={<span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 6 }}>Inject Prior Results <HelpTooltip text="Appends completed step results to this step's prompt context." /></span>}
                 description="Include completed step results"
               />
             </div>
@@ -310,7 +310,7 @@ export function WorkflowStepDetail({
             </div>
           )}
           <div style={{ flex: 1, minWidth: 180 }}>
-            <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>On Failure <HelpTooltip text={stepType === "tool" ? "abort: stop workflow. continue: marks failed but proceeds." : "abort: stop workflow. continue: marks failed but proceeds. retry:N: retries N times."} /></span>}>
+            <FormRow label={<span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 6 }}>On Failure <HelpTooltip text={stepType === "tool" ? "abort: stop workflow. continue: marks failed but proceeds." : "abort: stop workflow. continue: marks failed but proceeds. retry:N: retries N times."} /></span>}>
               <select
                 value={step.on_failure || "abort"}
                 onChange={(e) => onChange({ on_failure: e.target.value })}

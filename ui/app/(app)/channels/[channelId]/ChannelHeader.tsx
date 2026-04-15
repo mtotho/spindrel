@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Settings, Menu, ArrowLeft, Hash, FolderOpen, Code, PanelLeft, Users, Wrench } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
+import { useUIStore } from "@/src/stores/ui";
 
 export interface ChannelHeaderProps {
   channelId: string;
@@ -55,6 +56,7 @@ export function ChannelHeader({
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
+  const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
   const [compact, setCompact] = useToolResultCompact(channelId);
 
   const fmtTokens = (n: number) => {
@@ -78,16 +80,19 @@ export function ChannelHeader({
           minHeight: 52,
         }}
       >
-        {columns === "single" && (
-          <button className="header-icon-btn" style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44 }} onClick={goBack} title="Back">
-            <ArrowLeft size={isMobile ? 18 : 20} color={t.textMuted} />
+        {isMobile ? (
+          <button className="header-icon-btn" style={{ width: 36, height: 36 }} onClick={openMobileSidebar} title="Open menu">
+            <Menu size={18} color={t.textMuted} />
           </button>
-        )}
-        {showHamburger && columns !== "single" && (
+        ) : columns === "single" ? (
+          <button className="header-icon-btn" style={{ width: 44, height: 44 }} onClick={goBack} title="Back">
+            <ArrowLeft size={20} color={t.textMuted} />
+          </button>
+        ) : showHamburger ? (
           <button className="header-icon-btn" style={{ width: 44, height: 44 }} onClick={toggleSidebar} title="Toggle sidebar">
             <Menu size={20} color={t.textMuted} />
           </button>
-        )}
+        ) : null}
         <Hash size={18} color={t.textDim} style={{ marginLeft: 2, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0, padding: "8px 0" }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

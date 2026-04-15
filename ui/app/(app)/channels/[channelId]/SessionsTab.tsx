@@ -65,7 +65,7 @@ export function SessionsTab({ channelId }: { channelId: string }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {data.map((s: any) => (
             <div key={s.id} style={{
-              display: "flex", alignItems: "center", gap: 10,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
               padding: "10px 12px", background: s.is_active ? t.successSubtle : t.surfaceRaised,
               borderRadius: 8, border: `1px solid ${s.is_active ? t.successBorder : t.surfaceOverlay}`,
             }}>

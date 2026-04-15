@@ -156,7 +156,7 @@ export function TaskCard({
 
         {isRecurring && (
           <span style={{
-            display: "inline-flex", alignItems: "center", gap: 3,
+            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
             background: t.warningSubtle, color: t.warning,
             padding: compact ? "0px 5px" : "1px 7px", borderRadius: 10,
             fontSize: compact ? 8 : 10, fontWeight: 700,

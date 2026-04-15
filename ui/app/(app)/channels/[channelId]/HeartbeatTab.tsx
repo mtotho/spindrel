@@ -315,7 +315,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                       {customizedFromTemplateId && (
                         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
                           <div style={{
-                            display: "flex", alignItems: "center", gap: 4,
+                            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
                             fontSize: 10, fontWeight: 600, color: t.warning,
                           }}>
                             <Pencil size={10} />
@@ -332,7 +332,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                               setTemplatePreviewExpanded(false);
                             }}
                             style={{
-                              display: "inline-flex", alignItems: "center", gap: 3,
+                              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
                               padding: "2px 8px", borderRadius: 4, cursor: "pointer",
                               fontSize: 10, fontWeight: 600,
                               border: `1px solid ${t.surfaceBorder}`,

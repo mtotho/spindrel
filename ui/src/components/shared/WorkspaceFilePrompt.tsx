@@ -3,6 +3,7 @@ import { FolderOpen, Unlink, Save, X, Edit3, FileText } from "lucide-react";
 import { useWorkspaces, useWorkspaceFileContent, useWriteWorkspaceFile } from "../../api/hooks/useWorkspaces";
 import { WorkspaceFilePicker } from "./WorkspaceFilePicker";
 import { useThemeTokens } from "../../theme/tokens";
+import { createPortal } from "react-dom";
 
 interface Props {
   /** Default workspace id (e.g. from the bot). Null/undefined = let user pick. */
@@ -70,7 +71,7 @@ function BrowseButton({
         ref={btnRef}
         onClick={() => { setOpen(!open); setSelected(""); setPickerWsId(null); }}
         style={{
-          display: "inline-flex", alignItems: "center", gap: 4,
+          display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
           padding: "3px 8px", fontSize: 11, fontWeight: 600,
           border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
           background: open ? t.surfaceRaised : "transparent",
@@ -81,9 +82,7 @@ function BrowseButton({
         Browse Workspace File
       </button>
 
-      {open && typeof document !== "undefined" && (() => {
-        const ReactDOM = require("react-dom");
-        return ReactDOM.createPortal(
+      {open && typeof document !== "undefined" && (() => {        return createPortal(
           <>
             <div
               onClick={() => { setOpen(false); setSelected(""); }}

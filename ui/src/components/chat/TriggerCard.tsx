@@ -71,7 +71,7 @@ export const TriggerCard = memo(function TriggerCard({ message }: Props) {
     >
       {/* Header row */}
       <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 7 }}>
           <span style={{ fontSize: 15, lineHeight: 1 }}>{icon}</span>
           <span style={{ fontSize: 13, fontWeight: 600, color, letterSpacing: 0.1 }}>{label}</span>
         </div>
@@ -109,7 +109,7 @@ export const TriggerCard = memo(function TriggerCard({ message }: Props) {
           <button
             onClick={() => setExpanded(!expanded)}
             style={{
-              display: "inline-flex",
+              display: "inline-flex", flexDirection: "row",
               alignItems: "center",
               gap: 4,
               cursor: "pointer",
@@ -142,7 +142,7 @@ export const TriggerCard = memo(function TriggerCard({ message }: Props) {
           <button
             onClick={() => navigate(`/admin/tasks/${taskId}`)}
             style={{
-              display: "inline-flex",
+              display: "inline-flex", flexDirection: "row",
               alignItems: "center",
               gap: 4,
               cursor: "pointer",

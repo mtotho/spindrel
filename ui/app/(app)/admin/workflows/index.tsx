@@ -129,7 +129,7 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
                 {run.workflow_id}
               </span>
               <span style={{
-                display: "inline-flex", alignItems: "center", gap: 3,
+                display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
                 padding: "1px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
                 background: s.bg, border: `1px solid ${s.border}`, color: s.color,
               }}>
@@ -148,7 +148,7 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
           {/* Step progress */}
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 }}>
             <div style={{
-              display: "flex", gap: 2, height: 4, borderRadius: 2,
+              display: "flex", flexDirection: "row", gap: 2, height: 4, borderRadius: 2,
               overflow: "hidden", width: 60,
             }}>
               {run.step_states.map((st, i) => {
@@ -437,13 +437,13 @@ function WorkflowCard({ workflow: w, recentRuns, t }: {
             {/* Metadata row */}
             <div style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
               {/* Step type summary */}
-              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                 {stepTypeSummary.map(([type, count]) => {
                   const st = STEP_TYPE_ICONS[type] || STEP_TYPE_ICONS.agent;
                   const StIcon = st.icon;
                   return (
                     <span key={type} style={{
-                      display: "inline-flex", alignItems: "center", gap: 2,
+                      display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 2,
                       fontSize: 11, color: t.textDim,
                     }}>
                       <StIcon size={10} color={st.color(t)} />

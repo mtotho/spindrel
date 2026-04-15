@@ -293,7 +293,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
         {(stepDef?.type === "tool" || stepDef?.type === "exec") && (
           <span style={{
             fontSize: 10, padding: "1px 5px", borderRadius: 3,
-            display: "inline-flex", alignItems: "center", gap: 3,
+            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
             whiteSpace: "nowrap",
             ...(stepDef.type === "tool"
               ? { background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`, color: t.purple }
@@ -384,7 +384,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
           display: "flex", flexDirection: "column", gap: 8,
         }}>
           <span style={{ fontWeight: 600 }}>Awaiting approval</span>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
             <button
               onClick={onApprove}
               disabled={isApproving}
@@ -522,10 +522,10 @@ function TaskLink({ taskId, correlationId, t }: { taskId: string; correlationId?
     : `/admin/tasks/${taskId}`;
 
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+    <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
       <Link to={href}>
         <span style={{
-          display: "inline-flex", alignItems: "center", gap: 3,
+          display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
           fontSize: 10, color: t.accent, fontFamily: "monospace",
           padding: "1px 5px", borderRadius: 3,
           background: t.codeBg, border: `1px solid ${t.codeBorder}`,

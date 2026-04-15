@@ -12,7 +12,7 @@ import type { AttachmentBrief } from "../../types/api";
 function AttachmentImage({ src, alt, t }: { src: string; alt: string; t: ThemeTokens }) {
   const [loaded, setLoaded] = useState(false);
   return (
-    <a href={src} target="_blank" rel="noopener noreferrer">
+    <a href={src} target="_blank" rel="noopener noreferrer" style={{ alignSelf: "flex-start" }}>
       <div style={{
         minHeight: loaded ? undefined : 200,
         maxWidth: "100%",

@@ -326,7 +326,7 @@ function YamlEditorTab({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {/* Save bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <button
           onClick={handleSave}
           disabled={!!parseError || updateMut.isPending}
@@ -384,7 +384,7 @@ export function ManifestEditor({ integrationId }: { integrationId: string }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* Tab toggle */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
         <ViewToggle mode={mode} onChange={setMode} />
         {fileDrift?.drifted && (
           <div

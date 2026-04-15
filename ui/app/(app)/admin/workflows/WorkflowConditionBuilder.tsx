@@ -144,7 +144,7 @@ export function WorkflowConditionBuilder({
           display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
           marginBottom: 8,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Code size={12} color={t.textMuted} />
             <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
               Condition Expression
@@ -208,7 +208,7 @@ export function WorkflowConditionBuilder({
         display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         marginBottom: conditions.length > 0 ? 8 : 0,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
           <GitBranch size={12} color={t.purple} />
           <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
             Condition

@@ -41,7 +41,7 @@ function StatusBadge({ status, t }: { status: string; t: ThemeTokens }) {
   const Icon = s.icon;
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
+      display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
       padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
       background: s.bg, border: `1px solid ${s.border}`, color: s.text,
     }}>
@@ -138,7 +138,7 @@ function ConnectionCard({ connection: c, t }: { connection: WorkflowConnection; 
       </div>
       {href && (
         <Link to={href} style={{ textDecoration: "none" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+          <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
             <ExternalLink size={10} />
             Edit
           </span>
@@ -317,7 +317,7 @@ function RunCard({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
       >
         {/* Top row: workflow id + status + step count */}
         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
             {expanded
               ? <ChevronDown size={14} color={t.textDim} />
               : <ChevronRight size={14} color={t.textDim} />}
@@ -380,13 +380,13 @@ function RunCard({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
           {/* Links row */}
           <div style={{ display: "flex", flexDirection: "row", gap: 12, marginTop: 4 }}>
             <Link to={`/admin/workflows/${run.workflow_id}`} style={{ textDecoration: "none" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+              <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
                 <ExternalLink size={10} />
                 Workflow
               </span>
             </Link>
             <Link to={`/admin/workflows/${run.workflow_id}#runs`} style={{ textDecoration: "none" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+              <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
                 <ExternalLink size={10} />
                 Full run details
               </span>
@@ -450,7 +450,7 @@ function StepRow({ index, state, t }: { index: number; state: WorkflowStepState;
             )}
             {state.task_id && (
               <Link to={`/admin/tasks/${state.task_id}`} style={{ textDecoration: "none" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+                <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
                   <ExternalLink size={10} />
                   Task
                 </span>
@@ -458,7 +458,7 @@ function StepRow({ index, state, t }: { index: number; state: WorkflowStepState;
             )}
             {state.correlation_id && (
               <Link to={`/admin/logs/${state.correlation_id}`} style={{ textDecoration: "none" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+                <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
                   <ExternalLink size={10} />
                   Trace
                 </span>

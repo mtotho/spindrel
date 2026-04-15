@@ -339,7 +339,7 @@ export default function PromptTemplatesScreen() {
         borderBottom: `1px solid ${tk.surfaceBorder}`,
         display: "flex", flexDirection: "column", gap: 8,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
           <div style={{
             display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             background: tk.inputBg, border: `1px solid ${tk.surfaceBorder}`,

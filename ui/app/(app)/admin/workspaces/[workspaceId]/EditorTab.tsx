@@ -55,8 +55,8 @@ export function EditorTab({ workspace, currentStatus }: EditorTabProps) {
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <Section title="Code Editor" description="Run VS Code (code-server) inside the workspace container. Enabling requires a container restart to map the editor port.">
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Toggle
                 value={editorEnabled}
                 onChange={handleToggle}

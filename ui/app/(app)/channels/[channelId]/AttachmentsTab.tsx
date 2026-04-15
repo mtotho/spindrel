@@ -69,7 +69,7 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
 
       {/* Upload + filter */}
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", flexDirection: isMobile ? "column" as any : "row" as any }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 10, alignItems: "center" }}>
           <ActionButton
             label={upload.isPending ? "Uploading..." : "Upload"}
             onPress={() => fileRef.current?.click()}

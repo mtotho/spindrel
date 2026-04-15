@@ -189,7 +189,7 @@ export default function FallbacksScreen() {
                 }}
               >
                 <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{
                       fontSize: 12, fontWeight: 600, color: t.danger,
                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",

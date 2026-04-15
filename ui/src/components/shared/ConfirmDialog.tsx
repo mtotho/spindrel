@@ -11,6 +11,7 @@
 import { useState, useCallback, useRef } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { createPortal } from "react-dom";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -42,9 +43,7 @@ export function ConfirmDialog({
   const confirmBg =
     variant === "danger" ? t.danger : variant === "warning" ? "#f59e0b" : t.accent;
 
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const ReactDOM = require("react-dom");
-  return ReactDOM.createPortal(
+  return createPortal(
     <>
       {/* Backdrop */}
       <div

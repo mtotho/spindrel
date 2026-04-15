@@ -71,7 +71,7 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                 }}
               >
                 <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                     {hasContent && (
                       isExpanded
                         ? <ChevronDown size={12} color={t.textDim} />
@@ -205,7 +205,7 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                     <div
                       onClick={() => navigate(`/admin/logs/${run.correlation_id}`)}
                       style={{
-                        display: "inline-flex", alignItems: "center", gap: 5,
+                        display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 5,
                         marginTop: 8, fontSize: 11, color: t.accent, cursor: "pointer",
                       }}
                     >

@@ -16,6 +16,26 @@
   }
 }
 
+/* ── Prose reset — restore normal inline-flow inside rendered text ──── */
+/* The RN-compat reset above makes every div flex-column, which forces inline
+   elements (strong, span, a) onto their own lines.  Text content needs
+   standard block-flow so inline text wraps naturally.
+
+   Two mechanisms:
+   1. .prose class — explicit opt-in (MarkdownContent, helper text)
+   2. :has() auto-detect — any div whose direct children include inline
+      formatting elements (<strong>, <em>, <br>) is almost certainly prose,
+      not a flex layout container. */
+.prose, .prose div       { display: block; flex-direction: unset; }
+.prose a                 { display: inline; }
+.prose ul, .prose ol     { display: block; }
+.prose li                { display: list-item; }
+
+div:has(> strong), div:has(> em), div:has(> br) {
+  display: block;
+  flex-direction: unset;
+}
+
 /* ── Sidebar component classes ──────────────────────────── */
 @layer components {
   .sidebar-item {

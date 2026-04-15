@@ -103,7 +103,7 @@ export function WorkflowSummaryCard({
             onClick={() => { window.location.href = runDetailHref; }}
             title="View full run details"
             style={{
-              display: "inline-flex", alignItems: "center", gap: 3,
+              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
               cursor: "pointer", color: t.textDim, fontSize: 11,
               opacity: 0.6, transition: "opacity 0.15s",
             }}

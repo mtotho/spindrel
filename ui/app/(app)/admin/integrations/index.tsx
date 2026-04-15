@@ -141,7 +141,7 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
         <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
           {activeCaps.map((c) => <CapBadge key={c} label={c} active />)}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: t.textDim }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, fontSize: 11, color: t.textDim }}>
           <span style={{
             fontSize: 9, fontWeight: 600, padding: "1px 5px", borderRadius: 3,
             background: "rgba(107,114,128,0.08)", textTransform: "uppercase", letterSpacing: 0.3,
@@ -183,7 +183,7 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{item.name}</span>
           <StatusBadge status={effectiveStatus} />
-          <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 3, flexWrap: "wrap" }}>
             {activeCaps.map((c) => <CapBadge key={c} label={c} active />)}
           </div>
         </div>
@@ -348,7 +348,7 @@ export default function IntegrationsScreen() {
 
       {/* Status legend */}
       {all && all.length > 0 && (
-        <div style={{
+        <div className="prose" style={{
           padding: isWide ? "4px 16px 6px" : "4px 12px 6px",
           fontSize: 11, color: t.textDim, lineHeight: 1.5,
         }}>

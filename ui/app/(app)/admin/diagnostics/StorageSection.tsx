@@ -79,7 +79,7 @@ export function StorageSection() {
           <a
             href="/admin/settings#Data%20Retention"
             style={{
-              display: "inline-flex",
+              display: "inline-flex", flexDirection: "row",
               alignItems: "center",
               gap: 4,
               marginLeft: "auto",

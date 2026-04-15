@@ -86,7 +86,7 @@ export function ScheduledAtPicker({ value, onChange }: { value: string; onChange
   return (
     <FormRow label="Scheduled At">
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
           <PillButton
             active={!value}
             onClick={() => onChange("")}
@@ -136,7 +136,7 @@ export function RecurrencePicker({ value, onChange }: { value: string; onChange:
   return (
     <FormRow label="Recurrence">
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
           {RECURRENCE_PRESETS.map((p) => (
             <button
               key={p.value}

@@ -43,7 +43,7 @@ export function FallbackModelList({ value, onChange, placeholder }: Props) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {value.map((entry, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
           <div style={{ flex: 1 }}>
             <LlmModelDropdown
               value={entry.model}

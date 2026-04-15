@@ -388,7 +388,7 @@ function FullToolList({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Search bar + counts */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
         <div style={{
           display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flex: 1,
           background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "5px 10px",
@@ -667,7 +667,7 @@ function FullToolList({
                                 onClick={() => cycleToolState(tool.name)}
                                 title={badgeTooltips[toolState]}
                                 style={{
-                                  display: "inline-flex", alignItems: "center", gap: 3,
+                                  display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
                                   padding: "1px 6px", borderRadius: 8, fontSize: 9, fontWeight: 600,
                                   background: "transparent",
                                   border: `1px ${toolState === "discoverable" ? "dashed" : "solid"} ${toolState === "discoverable" ? t.surfaceBorder : stateStyles[toolState].border}`,

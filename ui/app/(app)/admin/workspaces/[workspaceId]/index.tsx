@@ -92,7 +92,7 @@ function ContainerControls({ workspaceId, status }: { workspaceId: string; statu
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         <button
           onClick={() => startMut.mutate()}
           disabled={busy || isRunning}
@@ -479,7 +479,7 @@ export default function WorkspaceDetailScreen() {
             {!isNew && workspace && (
               <Section title="Info">
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                     <span style={{ color: t.textDim }}>ID</span>
                     <span style={{ color: t.text, fontFamily: "monospace" }}>{workspace.id}</span>
                   </div>

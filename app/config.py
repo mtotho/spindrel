@@ -722,6 +722,11 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # Empty = use DEFAULT_CHANNEL_WORKSPACE_PROMPT.
     CHANNEL_WORKSPACE_PROMPT: str = ""
 
+    # Bot system prompt reinforcement — repeats bot.system_prompt near the end
+    # of the message array for recency bias on weaker models. Strong models
+    # (GPT-5.3, Claude, Minimax) don't need it; disabled by default.
+    REINFORCE_SYSTEM_PROMPT: bool = False
+
     # Context pruning (trim old tool results at assembly time)
     CONTEXT_PRUNING_ENABLED: bool = True
     CONTEXT_PRUNING_MIN_LENGTH: int = 200
@@ -760,6 +765,7 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     HEARTBEAT_ACTIVE_INTERVAL_MINUTES: int = 5  # default active interval (per-heartbeat DB value takes precedence)
     HEARTBEAT_DEFAULT_PROMPT: str = ""  # fallback prompt when channel heartbeat has no prompt/template/workspace file
     HEARTBEAT_PREVIOUS_CONCLUSION_CHARS: int = 500  # max chars of previous heartbeat conclusion injected into next heartbeat
+    HEARTBEAT_MAX_HISTORY_TURNS: int = 3  # max non-heartbeat turn-pairs loaded for heartbeats/tasks (0 = no history)
     HEARTBEAT_REPETITION_DETECTION: bool = True
     HEARTBEAT_REPETITION_THRESHOLD: float = 0.8  # SequenceMatcher ratio
     HEARTBEAT_REPETITION_WARNING: str = (

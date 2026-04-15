@@ -66,7 +66,7 @@ function ServerCard({ server, onClick, isWide }: { server: MCPServerItem; onClic
       {/* Info row */}
       <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
         <span style={{ fontFamily: "monospace" }}>{server.id}</span>
-        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+        <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
           <ExternalLink size={10} />
           {server.url.replace(/^https?:\/\//, "").slice(0, 40)}
         </span>

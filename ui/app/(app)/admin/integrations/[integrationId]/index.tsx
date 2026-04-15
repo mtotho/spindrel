@@ -198,7 +198,7 @@ function SettingsForm({ integrationId }: { integrationId: string }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {settings.map((s) => (
         <div key={s.key} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, fontFamily: "monospace" }}>
               {s.key}
             </label>
@@ -329,8 +329,8 @@ function ProcessControls({ integrationId }: { integrationId: string }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 5 }}>
           <span style={{ width: 8, height: 8, borderRadius: 4, background: isRunning ? "#22c55e" : "#6b7280", flexShrink: 0 }} />
           <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>{isRunning ? "Running" : "Stopped"}</span>
           {isRunning && ps?.pid && (
@@ -441,12 +441,12 @@ function DependencySection({ item }: { item: IntegrationItem }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         {deps.map((d) => (
           <span
             key={d.package}
             style={{
-              display: "inline-flex", alignItems: "center", gap: 4,
+              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
               background: d.installed ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
               color: d.installed ? "#22c55e" : "#ef4444",
@@ -498,12 +498,12 @@ function NpmDependencySection({ item }: { item: IntegrationItem }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         {deps.map((d) => (
           <span
             key={d.package}
             style={{
-              display: "inline-flex", alignItems: "center", gap: 4,
+              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
               background: d.installed ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
               color: d.installed ? "#22c55e" : "#ef4444",
@@ -587,10 +587,10 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
   if (status?.connected) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span
             style={{
-              display: "inline-flex", alignItems: "center", gap: 4,
+              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
               background: "rgba(34,197,94,0.1)", color: "#22c55e",
             }}
@@ -650,7 +650,7 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
               key={svc}
               onClick={() => toggleScope(svc)}
               style={{
-                display: "inline-flex", alignItems: "center", gap: 4,
+                display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
                 padding: "3px 10px", borderRadius: 4, border: "none",
                 background: active ? "rgba(59,130,246,0.15)" : "rgba(107,114,128,0.08)",
                 color: active ? "#3b82f6" : t.textDim,
@@ -724,7 +724,7 @@ function ApiKeySection({ integrationId }: { integrationId: string }) {
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span
               style={{
-                display: "inline-flex", alignItems: "center", gap: 4,
+                display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
                 padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
                 background: "rgba(34,197,94,0.1)", color: "#22c55e", fontFamily: "monospace",
               }}

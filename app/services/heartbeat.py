@@ -15,6 +15,48 @@ from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Task, ToolCal
 logger = logging.getLogger(__name__)
 
 
+def _trim_history_for_task(messages: list[dict], max_turns: int) -> list[dict]:
+    """Trim conversation history to last *max_turns* non-heartbeat turn-pairs.
+
+    Preserves all leading system messages (system prompt, persona, compaction
+    summary).  From the remaining user/assistant/tool messages, keeps only the
+    last *max_turns* user-message-initiated groups.  A "group" starts at each
+    ``role: "user"`` message and includes everything until the next user message.
+
+    When *max_turns* is 0, all non-system messages are stripped (no history).
+    When *max_turns* is negative, no trimming is applied.
+    """
+    if max_turns < 0:
+        return messages
+
+    # Split: leading system messages vs conversation body
+    sys_prefix: list[dict] = []
+    body: list[dict] = []
+    in_body = False
+    for m in messages:
+        if not in_body and m.get("role") == "system":
+            sys_prefix.append(m)
+        else:
+            in_body = True
+            body.append(m)
+
+    if max_turns == 0 or not body:
+        return sys_prefix
+
+    # Identify turn boundaries (each user message starts a turn)
+    turn_starts: list[int] = []
+    for i, m in enumerate(body):
+        if m.get("role") == "user":
+            turn_starts.append(i)
+
+    if not turn_starts:
+        return sys_prefix + body
+
+    # Keep last max_turns turns
+    keep_from = turn_starts[-max_turns] if max_turns <= len(turn_starts) else 0
+    return sys_prefix + body[keep_from:]
+
+
 def next_aligned_time(now: datetime, interval_minutes: int) -> datetime:
     """Compute the next clock-aligned run time.
 
@@ -571,6 +613,11 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             eff_session_id, messages = await load_or_create(
                 db, session_id, client_id or "heartbeat", bot_id
             )
+
+        # Trim conversation history for small task models — full history
+        # gives small models a conversational pattern to continue instead
+        # of executing the task prompt.
+        messages = _trim_history_for_task(messages, settings.HEARTBEAT_MAX_HISTORY_TURNS)
 
         messages_start = len(messages)
         _hb_timeout = resolve_heartbeat_timeout(hb)

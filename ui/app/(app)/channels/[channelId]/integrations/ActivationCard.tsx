@@ -13,7 +13,7 @@ function CarapacePill({ id, t }: { id: string; t: any }) {
     <Link to={href}>
       <span
         style={{
-          display: "inline-flex",
+          display: "inline-flex", flexDirection: "row",
           alignItems: "center",
           gap: 4,
           padding: "2px 8px",

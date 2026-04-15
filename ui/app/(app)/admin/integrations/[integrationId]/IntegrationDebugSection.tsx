@@ -70,7 +70,7 @@ function TaskStats({ stats }: { stats: Record<string, number> }) {
         <span
           key={status}
           style={{
-            display: "inline-flex",
+            display: "inline-flex", flexDirection: "row",
             alignItems: "center",
             gap: 4,
             fontSize: 12,
@@ -123,7 +123,7 @@ function ActionButton({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
         <button
           onClick={handleClick}
           disabled={mut.isPending}

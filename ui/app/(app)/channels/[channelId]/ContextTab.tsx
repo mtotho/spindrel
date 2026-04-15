@@ -226,7 +226,7 @@ export function ContextTab({ channelId }: { channelId: string }) {
         </div>
         <div style={{ display: "flex", flexDirection: "row", gap: 16, marginTop: 8 }}>
           {legend.map((l) => (
-            <div key={l.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: t.textMuted }}>
+            <div key={l.key} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 11, color: t.textMuted }}>
               <div style={{ width: 8, height: 8, borderRadius: 4, background: l.color }} />
               {l.label}
             </div>
@@ -239,7 +239,7 @@ export function ContextTab({ channelId }: { channelId: string }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {data.categories.map((c) => (
             <div key={c.key} style={{
-              display: "flex", alignItems: "center", gap: 12,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
               padding: "10px 12px", background: t.surfaceRaised, borderRadius: 6, border: `1px solid ${t.surfaceOverlay}`,
             }}>
               <div style={{

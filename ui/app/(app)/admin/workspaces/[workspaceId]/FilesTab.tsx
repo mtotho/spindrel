@@ -109,7 +109,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {/* Breadcrumb + toolbar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 0, fontSize: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 0, fontSize: 12, flexWrap: "wrap" }}>
         <button
           onClick={() => navigateTo("/")}
           style={{
@@ -126,7 +126,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             const segPath = "/" + segments.slice(0, i + 1).join("/");
             const isLast = i === segments.length - 1;
             return (
-              <span key={segPath} style={{ display: "inline-flex", alignItems: "center" }}>
+              <span key={segPath} style={{ display: "inline-flex", flexDirection: "row", alignItems: "center" }}>
                 <span style={{ color: t.textDim, margin: "0 1px" }}>/</span>
                 <button
                   onClick={() => navigateTo(segPath)}

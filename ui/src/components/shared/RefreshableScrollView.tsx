@@ -155,7 +155,7 @@ export function RefreshableScrollView({
           right: 0,
           height: 0,
           opacity: 0,
-          display: "flex", flexDirection: "row",
+          display: "flex", flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",

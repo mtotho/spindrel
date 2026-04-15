@@ -208,7 +208,7 @@ function SkillActivityChart({ data }: { data: DailyActivityPoint[] }) {
           Skill Activity
         </span>
         <div style={{ display: "flex", flexDirection: "row", gap: 12 }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: t.textDim }}>
+          <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, fontSize: 9, color: t.textDim }}>
             <span style={{ width: 8, height: 8, borderRadius: 2, background: "#f59e0b", opacity: 0.7 }} />
             Surfacings
           </span>
@@ -502,14 +502,14 @@ export function OverviewTab({ days }: { days: number }) {
             display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
             marginBottom: 10,
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Moon size={14} color="#8b5cf6" />
               <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Dreaming by Bot</span>
             </div>
             <button
               onClick={() => navigate("/admin/learning#Dreaming")}
               style={{
-                display: "inline-flex", alignItems: "center", gap: 4,
+                display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
                 fontSize: 10, color: t.textMuted, background: "none", border: "none",
                 cursor: "pointer", padding: "2px 0",
               }}

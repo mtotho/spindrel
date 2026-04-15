@@ -37,7 +37,7 @@ function SourceBadge({ source, t }: { source: string; t: ThemeTokens }) {
   const Icon = s.icon;
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
+      display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
       padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
       background: s.bg, color: s.fg, textTransform: "uppercase", letterSpacing: 0.5,
       flexShrink: 0,
@@ -178,7 +178,7 @@ function TraceRow({ trace, t, onPress }: { trace: TraceSummary; t: ThemeTokens; 
 
         {trace.has_error && (
           <span style={{
-            display: "inline-flex", alignItems: "center", gap: 3,
+            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
             padding: "1px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
             background: t.dangerSubtle, color: t.danger,
           }}>
@@ -188,7 +188,7 @@ function TraceRow({ trace, t, onPress }: { trace: TraceSummary; t: ThemeTokens; 
 
         {trace.tool_call_count > 0 && (
           <span style={{
-            display: "inline-flex", alignItems: "center", gap: 3,
+            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
             fontSize: 10, color: t.textDim,
           }}>
             <Wrench size={10} /> {trace.tool_call_count}

@@ -699,6 +699,10 @@ async def run_task(task: Task) -> None:
                     channel_id=task.channel_id,
                 )
 
+        # Trim conversation history for task models (same as heartbeat trim)
+        from app.services.heartbeat import _trim_history_for_task
+        messages = _trim_history_for_task(messages, settings.HEARTBEAT_MAX_HISTORY_TURNS)
+
         correlation_id = uuid.uuid4()
         task.correlation_id = correlation_id  # reflect back to in-memory object for hooks
         # Persist correlation_id on task row for cost attribution in forecast.

@@ -67,7 +67,7 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
         display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         marginBottom: 12, flexWrap: "wrap", gap: 8,
       }}>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 4 }}>
           {STATUS_PILL_KEYS.map((pill) => {
             const ct = pill.key === "all" ? allTasks.length : pill.key === "active" ? activeCt : failedCt;
             const active = statusFilter === pill.key;

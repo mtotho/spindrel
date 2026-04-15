@@ -38,7 +38,7 @@ export function SplitViewContainer({ workspaceId, indexMap }: SplitViewContainer
       ref={containerRef}
       style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden" }}
     >
-      <div style={{ flex: splitRatio, display: "flex", overflow: "hidden", minWidth: 100 }}>
+      <div style={{ flex: splitRatio, display: "flex", flexDirection: "row", overflow: "hidden", minWidth: 100 }}>
         <FilePane workspaceId={workspaceId} pane="left" indexMap={indexMap} />
       </div>
       <ResizeHandle direction="horizontal" onResize={handleResize} />

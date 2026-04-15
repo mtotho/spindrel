@@ -506,7 +506,7 @@ export default function BotsScreen() {
             <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
               <MessageSquare size={11} color={t.textDim} /> {totalCalls.toLocaleString()} calls
             </span>
-            <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
               <Zap size={11} color={t.textDim} /> {fmtTokens(totalTokens)} tokens
             </span>
             {totalCost != null && totalCost > 0 && (

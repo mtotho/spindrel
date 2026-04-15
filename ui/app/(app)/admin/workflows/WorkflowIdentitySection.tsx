@@ -83,7 +83,7 @@ export function WorkflowIdentitySection({
 
       {/* Execution settings */}
       <CollapsibleSection title="Execution" defaultOpen t={t}>
-        <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Session Mode <HelpTooltip text="Isolated: each step gets fresh context. Shared: steps share one conversation channel." /></span>}>
+        <FormRow label={<span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 6 }}>Session Mode <HelpTooltip text="Isolated: each step gets fresh context. Shared: steps share one conversation channel." /></span>}>
           <SelectInput
             value={draft.session_mode || "isolated"}
             onChange={(v) => update({ session_mode: v })}
@@ -93,7 +93,7 @@ export function WorkflowIdentitySection({
             ]}
           />
         </FormRow>
-        <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Secrets <HelpTooltip text="Secrets from vault available to workflow steps." /></span>}>
+        <FormRow label={<span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 6 }}>Secrets <HelpTooltip text="Secrets from vault available to workflow steps." /></span>}>
           <SecretChipPicker
             available={vaultSecretNames}
             selected={draft.secrets || []}

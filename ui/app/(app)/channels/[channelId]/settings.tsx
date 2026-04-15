@@ -226,7 +226,7 @@ export default function ChannelSettingsScreen() {
   }
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", backgroundColor: t.surface }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", backgroundColor: t.surface }}>
       {/* Header */}
       <div
         style={{
@@ -259,14 +259,14 @@ export default function ChannelSettingsScreen() {
                   className="header-bot-link"
                   href={`/admin/bots/${settings.bot_id}`}
                   onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${settings.bot_id}`); }}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent, textDecoration: "none", cursor: "pointer" }}
+                  style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.accent, textDecoration: "none", cursor: "pointer" }}
                 >
                   <ExternalLink size={10} color={t.accent} />
                   {currentBot?.name || settings.bot_id}
                 </a>
               )}
               {activatable?.filter(ig => ig.activated).map(ig => (
-                <span key={ig.integration_type} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.success }}>
+                <span key={ig.integration_type} style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.success }}>
                   <Zap size={10} color={t.success} fill={t.success} />
                   {prettyIntegrationName(ig.integration_type)}
                 </span>

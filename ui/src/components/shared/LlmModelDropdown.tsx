@@ -6,6 +6,7 @@ import {
 } from "../../api/hooks/useModels";
 import { useThemeTokens } from "../../theme/tokens";
 import type { LlmModel } from "../../types/api";
+import { createPortal } from "react-dom";
 
 interface Props {
   value: string;
@@ -224,9 +225,7 @@ export function LlmModelDropdown({
 
       {/* Portal dropdown — rendered into document.body */}
       {open && typeof document !== "undefined" &&
-        (() => {
-          const ReactDOM = require("react-dom");
-          return ReactDOM.createPortal(
+        (() => {          return createPortal(
             <>
               {/* Backdrop */}
               <div

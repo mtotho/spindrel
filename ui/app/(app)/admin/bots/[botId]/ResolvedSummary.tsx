@@ -89,7 +89,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
         background: pinned ? "#eab30810" : t.surfaceOverlay,
         color: pinned ? "#eab308" : t.textMuted,
         border: pinned ? "1px solid #eab30820" : undefined,
-        display: "inline-flex", alignItems: "center", gap: 3,
+        display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
       }}>
         {pinned && <Pin size={7} />}
         {name}
@@ -146,22 +146,22 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
         </span>
         <span style={{ marginLeft: "auto", display: "flex", flexDirection: "row", gap: 8 }}>
           {toolCount > 0 && (
-            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
+            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
               <Wrench size={9} /> {toolCount}
             </span>
           )}
           {carapaces.length > 0 && (
-            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
+            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
               <Shield size={9} /> {carapaces.length}
             </span>
           )}
           {skills.length > 0 && (
-            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
+            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
               <Puzzle size={9} /> {skills.length}
             </span>
           )}
           {mcpCount > 0 && (
-            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
+            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
               <Server size={9} /> {mcpCount}
             </span>
           )}
@@ -218,7 +218,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
                   }}>
                     All tools the bot can use.
                     {pinnedCount > 0 && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "#eab308" }}>
+                      <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 2, color: "#eab308" }}>
                         <Pin size={7} /> = pinned (always included)
                       </span>
                     )}
@@ -259,7 +259,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
                   }}>
                     All tools the bot can use.
                     {pinnedCount > 0 && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "#eab308" }}>
+                      <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 2, color: "#eab308" }}>
                         <Pin size={7} /> = pinned (always included)
                       </span>
                     )}

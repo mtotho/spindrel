@@ -85,7 +85,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       {/* Header */}
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+        display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         paddingBottom: 12, flexShrink: 0,
       }}>
         {!embedded ? (
@@ -178,7 +178,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
           <div>
             <div style={{ fontSize: 10, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Channel</div>
             <Link to={`/channels/${run.channel_id}` as any}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, color: t.accent, marginTop: 1 }}>
+              <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 12, color: t.accent, marginTop: 1 }}>
                 <MessageSquare size={11} />
                 {run.channel_id.slice(0, 8)}
               </span>

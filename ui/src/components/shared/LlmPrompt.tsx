@@ -3,6 +3,7 @@ import { useCompletions } from "../../api/hooks/useModels";
 import { useGeneratePrompt } from "../../api/hooks/usePrompts";
 import { useThemeTokens } from "../../theme/tokens";
 import type { CompletionItem } from "../../types/api";
+import { createPortal } from "react-dom";
 
 interface Props {
   value: string;
@@ -129,9 +130,7 @@ export function GenerateButton({
         {gen.isPending ? "Generating..." : flash === "success" ? "Done!" : flash === "error" ? "Failed" : "Generate"}
       </button>
 
-      {showGuidance && !gen.isPending && typeof document !== "undefined" && (() => {
-        const ReactDOM = require("react-dom");
-        return ReactDOM.createPortal(
+      {showGuidance && !gen.isPending && typeof document !== "undefined" && (() => {        return createPortal(
           <>
             <div onClick={() => { setShowGuidance(false); setGuidance(""); }} style={{ position: "fixed", inset: 0, zIndex: 10010 }} />
             <div style={{
@@ -219,13 +218,11 @@ export function AutocompleteMenu({
   anchor?: "top" | "bottom";
 }) {
   const t = useThemeTokens();
-  if (!show || items.length === 0 || typeof document === "undefined") return null;
-  const ReactDOM = require("react-dom");
-  const posStyle: React.CSSProperties =
+  if (!show || items.length === 0 || typeof document === "undefined") return null;  const posStyle: React.CSSProperties =
     anchor === "bottom"
       ? { bottom: window.innerHeight - menuPos.top }
       : { top: menuPos.top };
-  return ReactDOM.createPortal(
+  return createPortal(
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 10010 }} />
       <div
@@ -379,9 +376,7 @@ function FullscreenEditor({
   );
 
   if (typeof document === "undefined") return null;
-  const ReactDOM = require("react-dom");
-
-  return ReactDOM.createPortal(
+  return createPortal(
     <div style={{
       position: "fixed", inset: 0, zIndex: 10000,
       background: "rgba(0,0,0,0.8)", display: "flex", flexDirection: "column",

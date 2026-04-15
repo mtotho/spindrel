@@ -3,6 +3,7 @@ import { Link2, Unlink, Pencil, X } from "lucide-react";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
 import { useThemeTokens } from "../../theme/tokens";
 import { prettyIntegrationName } from "../../utils/format";
+import { createPortal } from "react-dom";
 
 function getIntegrationLabel(sourcePath?: string | null): string | null {
   if (!sourcePath) return null;
@@ -168,7 +169,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
         <>
           <div
             style={{
-              display: "inline-flex",
+              display: "inline-flex", flexDirection: "row",
               alignItems: "center",
               gap: 5,
               padding: "3px 8px",
@@ -204,7 +205,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
             onClick={onUnlink}
             title="Unlink template"
             style={{
-              display: "inline-flex",
+              display: "inline-flex", flexDirection: "row",
               alignItems: "center",
               gap: 3,
               padding: "3px 6px",
@@ -227,7 +228,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
             onClick={() => setOpen(!open)}
             title="Link a prompt template"
             style={{
-              display: "inline-flex",
+              display: "inline-flex", flexDirection: "row",
               alignItems: "center",
               gap: 4,
               padding: "3px 8px",
@@ -246,9 +247,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
 
           {open &&
             typeof document !== "undefined" &&
-            (() => {
-              const ReactDOM = require("react-dom");
-              return ReactDOM.createPortal(
+            (() => {              return createPortal(
                 isMobile ? (
                   /* ---- Mobile: full-screen modal ---- */
                   <div

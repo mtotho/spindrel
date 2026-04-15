@@ -35,7 +35,7 @@ function IssuesList({ issues }: { issues: string[] }) {
       border: `1px solid ${t.dangerBorder}`, borderRadius: 8,
       display: "flex", flexDirection: "column", gap: 6,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: t.danger }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: t.danger }}>
         <AlertTriangle size={14} /> {issues.length} issue{issues.length !== 1 ? "s" : ""} detected
       </div>
       {issues.map((issue, i) => (

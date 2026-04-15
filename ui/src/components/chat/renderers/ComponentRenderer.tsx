@@ -595,7 +595,7 @@ function StatusBadge({ node, t }: { node: StatusNode; t: ThemeTokens }) {
   return (
     <span
       style={{
-        display: "inline-flex",
+        display: "inline-flex", flexDirection: "row",
         alignItems: "center",
         gap: 4,
         padding: "2px 8px",

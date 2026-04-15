@@ -216,7 +216,7 @@ export function CollapsedWorkflow({
             onClick={(e) => { e.stopPropagation(); }}
             title="View workflow run"
             style={{
-              display: "inline-flex", alignItems: "center", cursor: "pointer",
+              display: "inline-flex", flexDirection: "row", alignItems: "center", cursor: "pointer",
               color: t.textDim, opacity: 0.5,
               transition: "opacity 0.15s",
               textDecoration: "none",

@@ -482,7 +482,7 @@ export function MemorySection({ draft, update, botId }: {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Memory</div>
         <button
           onClick={() => setShowHelp(true)}

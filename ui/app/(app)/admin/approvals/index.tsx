@@ -217,7 +217,7 @@ function ApprovalCard({
       {isPending && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
           {/* Primary actions: Allow always + Approve this run + Deny */}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
             <button
               onClick={() =>
                 onDecideWithRule(approval.id, {

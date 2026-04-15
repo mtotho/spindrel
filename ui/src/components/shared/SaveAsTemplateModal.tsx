@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { useCreatePromptTemplate } from "../../api/hooks/usePromptTemplates";
+import { createPortal } from "react-dom";
 
 interface Props {
   content: string;
@@ -35,9 +36,7 @@ export function SaveAsTemplateModal({ content, onClose, onSaved }: Props) {
 
   if (typeof document === "undefined") return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const ReactDOM = require("react-dom");
-  return ReactDOM.createPortal(
+  return createPortal(
     <>
       {/* Backdrop */}
       <div

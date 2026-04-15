@@ -11,6 +11,7 @@ import { useDeleteSkill } from "@/src/api/hooks/useSkills";
 import { useQueryClient } from "@tanstack/react-query";
 import { AdvancedSection } from "@/src/components/shared/SettingsControls";
 import type { SkillOption } from "@/src/types/api";
+import { createPortal } from "react-dom";
 
 const SOURCE_LABELS: Record<string, { label: string; bg: string; fg: string }> = {
   starter: { label: "starter", bg: "rgba(59,130,246,0.15)", fg: "#2563eb" },
@@ -74,9 +75,7 @@ function RemoveAuthoredSkillModal({
 
   if (typeof document === "undefined") return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const ReactDOM = require("react-dom");
-  return ReactDOM.createPortal(
+  return createPortal(
     <>
       {/* Backdrop */}
       <div
@@ -480,7 +479,7 @@ export function EnrolledSkillsPanel({
                       disabled={unenrollMut.isPending}
                       title="Remove from working set"
                       style={{
-                        display: "inline-flex",
+                        display: "inline-flex", flexDirection: "row",
                         alignItems: "center",
                         gap: 3,
                         fontSize: 10,
@@ -508,7 +507,7 @@ export function EnrolledSkillsPanel({
             <button
               onClick={() => setShowAddPicker(true)}
               style={{
-                display: "inline-flex",
+                display: "inline-flex", flexDirection: "row",
                 alignItems: "center",
                 gap: 4,
                 fontSize: 11,

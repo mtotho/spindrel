@@ -68,7 +68,7 @@ export function WorkflowStepList({
         display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
         padding: "4px 0",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
           <span style={{
             fontSize: 10, fontWeight: 700, color: t.textMuted,
             textTransform: "uppercase", letterSpacing: 1,

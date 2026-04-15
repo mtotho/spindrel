@@ -171,7 +171,7 @@ export function HeartbeatTemplatePreview({
           <button
             onClick={onCustomize}
             style={{
-              display: "inline-flex", alignItems: "center", gap: 4,
+              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
               padding: "4px 10px", borderRadius: 4, cursor: "pointer",
               fontSize: 11, fontWeight: 500,
               border: `1px solid ${t.surfaceBorder}`,

@@ -292,7 +292,7 @@ export default function ApiDocsScreen() {
         right={
           <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
             <div style={{
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
               background: t.inputBg, borderRadius: 6,
               border: `1px solid ${t.surfaceOverlay}`,
               padding: "4px 10px",

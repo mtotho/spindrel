@@ -210,7 +210,7 @@ function RunCard({ run, t, selected, onSelect }: {
       }}
     >
       <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
           <StatusBadge status={run.status} t={t} />
           <span style={{ fontSize: 12, color: t.textDim, fontFamily: "monospace" }}>
             {run.id.slice(0, 8)}

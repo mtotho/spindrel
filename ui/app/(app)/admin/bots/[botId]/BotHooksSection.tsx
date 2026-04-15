@@ -364,7 +364,7 @@ export function BotHooksSection({ botId }: { botId: string }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Header */}
       <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
           <span style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Hooks</span>
           {hooks && hooks.length > 0 && (
             <span style={{ fontSize: 11, color: t.textDim }}>

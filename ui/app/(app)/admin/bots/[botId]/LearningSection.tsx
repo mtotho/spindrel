@@ -274,7 +274,7 @@ export function LearningSection({ botId }: { botId: string }) {
                         userSelect: "none", whiteSpace: "nowrap",
                       }}
                     >
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
                         {label}
                         {key && sortKey === key && <SortIcon size={10} />}
                       </span>
@@ -333,7 +333,7 @@ export function LearningSection({ botId }: { botId: string }) {
                     </td>
                     {/* Surface count */}
                     <td style={{ padding: "8px 8px", textAlign: "right" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                         {s.surface_count >= 10 && <Flame size={10} color="#ef4444" />}
                         <span style={{ color: s.surface_count > 0 ? t.text : t.textDim, fontWeight: s.surface_count >= 10 ? 600 : 400 }}>
                           {s.surface_count}
@@ -342,7 +342,7 @@ export function LearningSection({ botId }: { botId: string }) {
                     </td>
                     {/* Auto-Injects */}
                     <td style={{ padding: "8px 8px", textAlign: "right" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                         {(s.total_auto_injects ?? 0) >= 10 && <Zap size={10} color="#a855f7" />}
                         <span style={{ color: (s.total_auto_injects ?? 0) > 0 ? t.text : t.textDim, fontWeight: (s.total_auto_injects ?? 0) >= 10 ? 600 : 400 }}>
                           {s.total_auto_injects ?? 0}

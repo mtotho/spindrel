@@ -117,7 +117,7 @@ export function TaskStatusBadge({ status }: { status: string }) {
   const Icon = cfg.icon;
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
+      display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
       background: cfg.bg, color: cfg.fg,
       padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
       flexShrink: 0, whiteSpace: "nowrap",

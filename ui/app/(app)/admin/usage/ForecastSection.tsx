@@ -323,7 +323,7 @@ function DonutChart({ components, period }: { components: ForecastComponent[]; p
       {/* Legend */}
       <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12, justifyContent: "center" }}>
         {segments.map((seg) => (
-          <div key={seg.source} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <div key={seg.source} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 5 }}>
             <div style={{ width: 8, height: 8, borderRadius: 2, background: seg.color, flexShrink: 0 }} />
             <span style={{ fontSize: 11, color: t.textMuted }}>
               {seg.label} {fmtCost(seg.cost)}
@@ -417,7 +417,7 @@ function SpendComparisonChart({ forecast }: { forecast: UsageForecast }) {
       </div>
       {/* Legend */}
       <div style={{ display: "flex", flexDirection: "row", gap: 16, marginTop: 14, justifyContent: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 5 }}>
           <div style={{ width: 12, height: 8, borderRadius: 2, background: t.accent }} />
           <span style={{ fontSize: 10, color: t.textMuted }}>Actual</span>
         </div>

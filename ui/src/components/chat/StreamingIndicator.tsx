@@ -494,7 +494,7 @@ function SkillPills({ skills, t }: { skills: AutoInjectedSkillDisplay[]; t: Retu
             key={s.skillId}
             className="skill-pill"
             style={{
-              display: "inline-flex",
+              display: "inline-flex", flexDirection: "row",
               alignItems: "center",
               gap: 5,
               padding: "2px 8px 2px 6px",

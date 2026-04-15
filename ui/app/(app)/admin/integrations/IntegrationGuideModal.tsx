@@ -8,6 +8,7 @@ import { X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
 import { useDocsPage } from "@/src/api/hooks/useIntegrations";
+import { createPortal } from "react-dom";
 
 interface Props {
   onClose: () => void;
@@ -28,9 +29,7 @@ export function IntegrationGuideModal({ onClose }: Props) {
 
   if (typeof document === "undefined") return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const ReactDOM = require("react-dom");
-  return ReactDOM.createPortal(
+  return createPortal(
     <>
       {/* Backdrop */}
       <div

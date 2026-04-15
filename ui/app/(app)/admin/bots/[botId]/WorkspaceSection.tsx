@@ -105,7 +105,7 @@ export function WorkspaceSection({
           <a
             href={`/admin/workspaces/${draft.shared_workspace_id}`}
             style={{
-              display: "inline-flex", alignItems: "center", gap: 4,
+              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
               fontSize: 12, fontWeight: 600, color: t.accent,
               textDecoration: "none", alignSelf: "flex-start",
             }}
@@ -280,7 +280,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Blocked Patterns (regex)</div>
                 <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                   {blocked.map((pat, i) => (
-                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.warningMuted }}>
+                    <span key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.warningMuted }}>
                       {pat} {removeBtn(() => setHost({ blocked_patterns: blocked.filter((_, j) => j !== i) }))}
                     </span>
                   ))}
@@ -296,7 +296,7 @@ export function WorkspaceSection({
                 <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Env Passthrough</div>
                 <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                   {envPass.map((v, i) => (
-                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.accent }}>
+                    <span key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.accent }}>
                       {v} {removeBtn(() => setHost({ env_passthrough: envPass.filter((_, j) => j !== i) }))}
                     </span>
                   ))}
@@ -410,7 +410,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Indexed File Patterns</div>
                     <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                       {patterns.map((pat, i) => (
-                        <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.accent }}>
+                        <span key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.accent }}>
                           {pat} {removeBtn(() => setIndexing({ patterns: patterns.filter((_, j) => j !== i) }))}
                         </span>
                       ))}
@@ -495,7 +495,7 @@ function ContainerStatusBanner({ sandbox, isRecreating, onRecreate, t }: {
           onClick={onRecreate}
           disabled={isRecreating}
           style={{
-            display: "inline-flex", alignItems: "center", gap: 4,
+            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
             padding: "3px 10px", fontSize: 10, fontWeight: 600,
             background: t.surface, border: `1px solid ${t.surfaceBorder}`,
             borderRadius: 4, color: t.warningMuted, cursor: isRecreating ? "wait" : "pointer",

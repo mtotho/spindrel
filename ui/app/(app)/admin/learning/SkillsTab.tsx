@@ -205,7 +205,7 @@ export function SkillsTab({ days }: { days: number }) {
                         fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5,
                       }}
                     >
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
                         {label}
                         {key && sortKey === (key as SortKey) && <SortIcon size={10} />}
                       </span>
@@ -270,7 +270,7 @@ export function SkillsTab({ days }: { days: number }) {
                     </td>
                     {/* Surfacings */}
                     <td style={{ padding: "8px 8px", textAlign: "right" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                         {s.surface_count >= 10 && <Flame size={10} color="#ef4444" />}
                         <span style={{
                           color: s.surface_count > 0 ? t.text : t.textDim,
@@ -283,7 +283,7 @@ export function SkillsTab({ days }: { days: number }) {
                     </td>
                     {/* Auto-Injects */}
                     <td style={{ padding: "8px 8px", textAlign: "right" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                         {(s.total_auto_injects ?? 0) >= 10 && <Zap size={10} color="#a855f7" />}
                         <span style={{
                           color: (s.total_auto_injects ?? 0) > 0 ? t.text : t.textDim,

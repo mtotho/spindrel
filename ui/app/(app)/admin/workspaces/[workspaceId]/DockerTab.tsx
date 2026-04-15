@@ -15,7 +15,7 @@ export function EnvEditor({ entries, onChange }: {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {entries.map((entry, i) => (
-        <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <div key={i} style={{ display: "flex", flexDirection: "row", gap: 6, alignItems: "center" }}>
           <input
             value={entry.key}
             onChange={(e) => {
@@ -183,7 +183,7 @@ export function DockerTab({
       <Section title="Port Mappings" description="Map host ports to container ports">
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {ports.map((p, i) => (
-            <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <div key={i} style={{ display: "flex", flexDirection: "row", gap: 6, alignItems: "center" }}>
               <input
                 value={p.host}
                 onChange={(e) => {
@@ -247,7 +247,7 @@ export function DockerTab({
       <Section title="Extra Mounts" description="/workspace is always mounted. Add additional host paths here.">
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {mounts.map((m, i) => (
-            <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <div key={i} style={{ display: "flex", flexDirection: "row", gap: 6, alignItems: "center" }}>
               <input
                 value={m.host_path}
                 onChange={(e) => {

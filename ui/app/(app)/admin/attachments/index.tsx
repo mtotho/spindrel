@@ -83,7 +83,7 @@ function FilterSelect({
 }) {
   const t = useThemeTokens();
   return (
-    <div style={{ position: "relative", display: "inline-flex" }}>
+    <div style={{ position: "relative", display: "inline-flex", flexDirection: "row" }}>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -337,7 +337,7 @@ function PreviewModal({ att, onClose }: { att: AttachmentAdmin; onClose: () => v
         display: "flex", flexDirection: "column",
         border: `1px solid ${t.surfaceRaised}`,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <span style={{
             flex: 1, fontSize: 14, fontWeight: 600, color: t.text,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",

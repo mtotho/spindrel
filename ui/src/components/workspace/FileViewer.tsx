@@ -183,7 +183,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", color: t.danger, padding: 24 }}>
         <div style={{ textAlign: "center" }}>
-          <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}>
+          <div style={{ marginBottom: 8, display: "flex", flexDirection: "row", justifyContent: "center" }}>
             <FileText size={32} color={t.textDim} />
           </div>
           <div style={{ fontSize: 13 }}>{msg || "Cannot display file"}</div>

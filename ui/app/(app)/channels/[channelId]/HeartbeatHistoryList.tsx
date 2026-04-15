@@ -67,7 +67,7 @@ export function HeartbeatHistoryList({ history, isWide }: { history: HeartbeatHi
                   <span style={{
                     fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
                     background: t.warningSubtle, color: t.warningMuted,
-                    display: "inline-flex", alignItems: "center", gap: 3,
+                    display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
                   }}>
                     <AlertTriangle size={10} /> repetitive
                   </span>
@@ -124,7 +124,7 @@ export function HeartbeatHistoryList({ history, isWide }: { history: HeartbeatHi
                     <div
                       onClick={() => navigate(`/admin/logs/${hb.correlation_id}`)}
                       style={{
-                        display: "inline-flex", alignItems: "center", gap: 5,
+                        display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 5,
                         marginTop: 8, fontSize: 11, color: t.accent, cursor: "pointer",
                       }}
                     >

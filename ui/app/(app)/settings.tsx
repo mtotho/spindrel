@@ -454,13 +454,13 @@ function GroupNav({
   onSelect: (g: string) => void;
 }) {
   return (
-    <div className="gap-0.5">
+    <div className="flex flex-col gap-0.5">
       {groups.map((g) => (
         <button
           type="button"
           key={g.group}
           onClick={() => onSelect(g.group)}
-          className={`px-3 py-2 rounded ${
+          className={`text-left px-3 py-2 rounded ${
             activeGroup === g.group ? "bg-accent/15" : "hover:bg-surface-overlay"
           }`}
         >

@@ -39,7 +39,7 @@ export function StatusBadge({ status, t }: { status: string; t: ThemeTokens }) {
   const Icon = s.icon;
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
+      display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
       padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
       background: s.bg, border: `1px solid ${s.border}`, color: s.text,
     }}>

@@ -195,7 +195,7 @@ function PatternTagInput({
       <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, marginBottom: value.length > 0 ? 4 : 0 }}>
         {value.map((pat, i) => (
           <span key={i} style={{
-            display: "inline-flex", alignItems: "center", gap: 3,
+            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
             padding: "2px 6px", borderRadius: 3, fontSize: 11,
             fontFamily: "monospace", background: t.inputBg, color: "#60a5fa",
           }}>

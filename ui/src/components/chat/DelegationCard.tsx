@@ -24,7 +24,7 @@ export function DelegationCard({ delegations, t }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
         {delegations.map((d, idx) => {
           const hasPreview = !!d.prompt_preview;
           const isExpanded = expandedIdx === idx;
@@ -33,7 +33,7 @@ export function DelegationCard({ delegations, t }: Props) {
               <div
                 onClick={hasPreview ? () => setExpandedIdx(isExpanded ? null : idx) : undefined}
                 style={{
-                  display: "inline-flex",
+                  display: "inline-flex", flexDirection: "row",
                   alignItems: "center",
                   gap: 4,
                   paddingLeft: 6,

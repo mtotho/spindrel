@@ -591,7 +591,7 @@ export default function ProviderDetailScreen() {
           {!isNew && provider && (
             <Section title="Info">
               <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                   <span style={{ color: t.textDim }}>ID</span>
                   <span style={{ color: t.text, fontFamily: "monospace" }}>{provider.id}</span>
                 </div>

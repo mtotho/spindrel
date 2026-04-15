@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { X, Bot, Wrench, Puzzle, Server, Shield, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "../../theme/tokens";
@@ -274,7 +275,7 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {displayTools.skills.map((s) => (
                   <div key={s.id} style={{
-                    display: "flex", alignItems: "center", gap: 6,
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                     padding: "2px 6px", borderRadius: 4,
                     background: t.accentSubtle,
                   }}>
@@ -341,7 +342,7 @@ function CountBadge({ icon, label }: { icon: React.ReactNode; label: string }) {
   const t = useThemeTokens();
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
+      display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
       fontSize: 10, fontWeight: 600, color: t.textMuted,
       background: t.surfaceOverlay, borderRadius: 4,
       padding: "2px 8px",
@@ -416,7 +417,7 @@ function ConfigOverhead({ estimate, t }: { estimate: ContextEstimate; t: any }) 
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         {displayLines.map((line, i) => (
           <div key={i} style={{
-            display: "flex", alignItems: "center", gap: 6,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             padding: "2px 0",
           }}
           title={line.hint || undefined}
@@ -448,7 +449,7 @@ function CaparacesSection({ carapaces, sources }: { carapaces: string[]; sources
       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
         {carapaces.map((id) => (
           <div key={id} style={{
-            display: "flex", alignItems: "center", gap: 6,
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
             padding: "3px 8px", borderRadius: 4,
             background: t.purpleSubtle,
             border: `1px solid ${t.purpleBorder}`,
@@ -470,8 +471,7 @@ function CaparacesSection({ carapaces, sources }: { carapaces: string[]; sources
 // ---------------------------------------------------------------------------
 
 export function BotInfoPanel(props: Props) {
-  const ReactDOM = require("react-dom");
-  return ReactDOM.createPortal(
+  return createPortal(
     <BotInfoPanelContent {...props} />,
     document.body,
   );

@@ -4,6 +4,7 @@
  */
 import { X } from "lucide-react";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
+import { createPortal } from "react-dom";
 
 interface Props {
   onClose: () => void;
@@ -14,9 +15,7 @@ export function CarapaceHelpModal({ onClose }: Props) {
 
   if (typeof document === "undefined") return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const ReactDOM = require("react-dom");
-  return ReactDOM.createPortal(
+  return createPortal(
     <>
       {/* Backdrop */}
       <div

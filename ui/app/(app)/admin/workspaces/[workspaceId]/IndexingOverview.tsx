@@ -552,7 +552,7 @@ function ConfigChip({ label, value, overridden }: { label: string; value: any; o
   const t = useThemeTokens();
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
+      display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
       padding: "3px 8px", borderRadius: 4, fontSize: 11,
       background: overridden ? t.warningSubtle : t.inputBg,
       border: overridden ? `1px solid ${t.warningBorder}` : "1px solid transparent",
@@ -675,7 +675,7 @@ export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Summary bar */}
       <div style={{
-        display: "flex", alignItems: "center", flexWrap: "wrap", gap: 16,
+        display: "flex", flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 16,
         padding: "10px 14px", background: t.inputBg, borderRadius: 8,
         border: `1px solid ${t.surfaceOverlay}`, fontSize: 12,
       }}>

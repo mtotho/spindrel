@@ -18,7 +18,7 @@ export function StatusBadge({ status }: { status: string }) {
   return (
     <span
       style={{
-        display: "inline-flex",
+        display: "inline-flex", flexDirection: "row",
         alignItems: "center",
         gap: 6,
         padding: "2px 10px",
@@ -85,7 +85,7 @@ export function EnvVarPill({ v }: { v: IntegrationEnvVar }) {
     <span
       title={v.description + (v.default ? ` (default: ${v.default})` : "")}
       style={{
-        display: "inline-flex",
+        display: "inline-flex", flexDirection: "row",
         alignItems: "center",
         gap: 4,
         padding: "2px 8px",

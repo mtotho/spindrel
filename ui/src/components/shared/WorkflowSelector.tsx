@@ -7,6 +7,7 @@ import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 import { useWorkflows } from "../../api/hooks/useWorkflows";
 import { Search, ChevronDown, Zap, X } from "lucide-react";
 import type { Workflow } from "../../types/api";
+import { createPortal } from "react-dom";
 
 interface Props {
   value: string | null;
@@ -121,10 +122,8 @@ export function WorkflowSelector({ value, onChange }: Props) {
 
       {/* Popover via portal */}
       {open && typeof document !== "undefined" &&
-        (() => {
-          const ReactDOM = require("react-dom");
-          const rect = btnRef.current?.getBoundingClientRect();
-          return ReactDOM.createPortal(
+        (() => {          const rect = btnRef.current?.getBoundingClientRect();
+          return createPortal(
             <>
               <div
                 onClick={() => { setOpen(false); setSearch(""); }}

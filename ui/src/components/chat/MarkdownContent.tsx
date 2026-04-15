@@ -232,7 +232,7 @@ export function MarkdownContent({ text, t }: { text: string; t: ThemeTokens }) {
   if (last < text.length) blocks.push({ type: "text", content: text.slice(last) });
 
   return (
-    <div style={{ fontSize: 15, lineHeight: "1.6", color: t.contentText, overflowWrap: "break-word", minWidth: 0 }}>
+    <div className="prose" style={{ fontSize: 15, lineHeight: "1.6", color: t.contentText, overflowWrap: "break-word", minWidth: 0 }}>
       {blocks.map((block, i) => {
         if (block.type === "code") {
           return (

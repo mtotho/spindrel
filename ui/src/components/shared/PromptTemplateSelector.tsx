@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
 import { useThemeTokens } from "../../theme/tokens";
 import type { PromptTemplate } from "../../types/api";
+import { createPortal } from "react-dom";
 
 interface Props {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -68,7 +69,7 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
         onClick={() => setOpen(!open)}
         title="Insert prompt template"
         style={{
-          display: "inline-flex",
+          display: "inline-flex", flexDirection: "row",
           alignItems: "center",
           gap: 4,
           padding: "3px 8px",
@@ -91,9 +92,7 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
       </button>
 
       {open && typeof document !== "undefined" &&
-        (() => {
-          const ReactDOM = require("react-dom");
-          return ReactDOM.createPortal(
+        (() => {          return createPortal(
             <>
               <div
                 onClick={() => { setOpen(false); setSearch(""); }}

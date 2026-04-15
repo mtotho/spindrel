@@ -44,7 +44,7 @@ export function BarChart({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: gap }}>
       {displayed.map((item, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
           <span
             style={{
               width: labelWidth,
