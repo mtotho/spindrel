@@ -82,6 +82,30 @@ class TestExtractXmlToolCalls:
         tcs = extract_xml_tool_calls(blocks, KNOWN_TOOLS)
         assert len(tcs) == 1
 
+    def test_invoke_with_xml_parameters(self):
+        """MiniMax M2.7 sends <parameter> elements instead of JSON."""
+        blocks = [
+            '<invoke name="web_search">'
+            '<parameter name="query">hello world</parameter>'
+            '</invoke>'
+        ]
+        tcs = extract_xml_tool_calls(blocks, KNOWN_TOOLS)
+        assert len(tcs) == 1
+        assert tcs[0]["function"]["name"] == "web_search"
+        assert json.loads(tcs[0]["function"]["arguments"]) == {"query": "hello world"}
+
+    def test_invoke_with_multiple_xml_parameters(self):
+        blocks = [
+            '<invoke name="get_weather">'
+            '<parameter name="city">NYC</parameter>'
+            '<parameter name="units">metric</parameter>'
+            '</invoke>'
+        ]
+        tcs = extract_xml_tool_calls(blocks, KNOWN_TOOLS)
+        assert len(tcs) == 1
+        args = json.loads(tcs[0]["function"]["arguments"])
+        assert args == {"city": "NYC", "units": "metric"}
+
 
 class TestToolCallXmlFilterSuppression:
     """Tests that ToolCallXmlFilter stores suppressed blocks for recovery."""
@@ -166,6 +190,23 @@ class TestEndToEndRecovery:
         assert len(tcs) == 1
         assert tcs[0]["function"]["name"] == "mermaid_to_excalidraw"
         assert json.loads(tcs[0]["function"]["arguments"]) == {"code": "graph TD; A-->B"}
+
+    def test_minimax_parameter_xml_round_trip(self):
+        """MiniMax M2.7 emits <parameter> elements inside <invoke>."""
+        f = ToolCallXmlFilter()
+        raw = (
+            '<invoke name="web_search">'
+            '<parameter name="query">python asyncio</parameter>'
+            '</invoke>'
+        )
+        emitted = f.feed(raw)
+        emitted += f.flush()
+        assert emitted == ""
+
+        tcs = extract_xml_tool_calls(f.suppressed_blocks, KNOWN_TOOLS)
+        assert len(tcs) == 1
+        assert tcs[0]["function"]["name"] == "web_search"
+        assert json.loads(tcs[0]["function"]["arguments"]) == {"query": "python asyncio"}
 
     def test_no_recovery_for_unknown_tools(self):
         f = ToolCallXmlFilter()

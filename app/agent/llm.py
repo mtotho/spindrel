@@ -440,6 +440,11 @@ _XML_INVOKE_RE = re.compile(
     r'<invoke\s+name\s*=\s*"([^"]+)"\s*>(.*?)</invoke>',
     re.DOTALL,
 )
+# <parameter name="param_name">value</parameter> — used by MiniMax and similar
+_XML_PARAM_RE = re.compile(
+    r'<parameter\s+name\s*=\s*"([^"]+)"\s*>(.*?)</parameter>',
+    re.DOTALL,
+)
 # <tool_call>JSON with "name" and "arguments"</tool_call>
 _XML_TOOL_CALL_RE = re.compile(
     r'<(?:\w+:)?tool_call\b[^>]*>(.*?)</(?:\w+:)?tool_call>',
@@ -472,7 +477,12 @@ def extract_xml_tool_calls(
                 args = json.loads(body)
                 args_str = json.dumps(args) if isinstance(args, dict) else body
             except (json.JSONDecodeError, ValueError):
-                args_str = body
+                # Try XML <parameter name="X">value</parameter> (MiniMax M2.7+)
+                params = _XML_PARAM_RE.findall(body)
+                if params:
+                    args_str = json.dumps({k: v for k, v in params})
+                else:
+                    args_str = body
             tool_calls.append({
                 "id": f"xml-tc-{uuid.uuid4().hex[:12]}",
                 "type": "function",
