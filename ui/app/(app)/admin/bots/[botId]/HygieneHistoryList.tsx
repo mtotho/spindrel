@@ -5,8 +5,9 @@ import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { StatusBadge } from "@/src/components/shared/SettingsControls";
 import type { MemoryHygieneRun } from "@/src/api/hooks/useMemoryHygiene";
+import type { LearningHygieneRun } from "@/src/api/hooks/useLearningOverview";
 
-type RunWithExtras = MemoryHygieneRun & { bot_name?: string; files_affected?: string[] };
+type RunWithExtras = (MemoryHygieneRun | LearningHygieneRun) & { bot_name?: string; files_affected?: string[] };
 
 function statusVariant(status: string): "success" | "danger" | "skipped" | "neutral" {
   if (status === "complete") return "success";
@@ -80,6 +81,16 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                     {showBotName && run.bot_name && (
                       <span style={{ fontSize: 11, fontWeight: 600, color: t.text }}>
                         {run.bot_name}
+                      </span>
+                    )}
+                    {"job_type" in run && run.job_type && (
+                      <span style={{
+                        fontSize: 8, fontWeight: 700, padding: "1px 4px", borderRadius: 3,
+                        textTransform: "uppercase", letterSpacing: 0.3,
+                        background: run.job_type === "skill_review" ? "rgba(139,92,246,0.12)" : "rgba(245,158,11,0.12)",
+                        color: run.job_type === "skill_review" ? "#8b5cf6" : "#f59e0b",
+                      }}>
+                        {run.job_type === "skill_review" ? "skills" : "maint"}
                       </span>
                     )}
                     <span style={{ fontSize: 12, color: t.textMuted }}>

@@ -178,7 +178,7 @@ export function TaskCreateModal({
       className="flex fixed inset-0 z-[10000] flex-row items-center justify-center bg-black/50"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className={`bg-surface ${isMobile ? "w-full h-full" : "w-[min(95vw,720px)] max-h-[85vh] rounded-[14px] shadow-2xl border border-surface-border"} overflow-hidden`}>
+      <div className={`flex bg-surface ${isMobile ? "w-full h-full" : "w-[min(95vw,720px)] max-h-[85vh] rounded-[14px] shadow-2xl border border-surface-border"} overflow-hidden`}>
         {/* Header */}
         <div className="flex flex-row items-center px-5 py-3.5 border-b border-surface-border shrink-0 gap-2.5">
           <button
@@ -216,7 +216,7 @@ export function TaskCreateModal({
             <div className="chat-spinner" />
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
             <div className="flex gap-5">
 
               {/* Title */}

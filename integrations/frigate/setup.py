@@ -21,6 +21,9 @@ SETUP = {
         "path": "/integrations/frigate/webhook",
         "description": "Frigate event receiver (MQTT listener posts here for channel fan-out)",
     },
+    "events": [
+        {"type": "object_detected", "label": "Object detected", "description": "New object detection event from Frigate", "category": "webhook"},
+    ],
     "activation": {
         "carapaces": ["frigate"],
         "requires_workspace": False,

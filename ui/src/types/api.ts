@@ -82,6 +82,15 @@ export interface BotConfig {
   memory_hygiene_model?: string | null;
   memory_hygiene_model_provider_id?: string | null;
   memory_hygiene_target_hour?: number | null;
+  memory_hygiene_extra_instructions?: string | null;
+  skill_review_enabled?: boolean | null;
+  skill_review_interval_hours?: number | null;
+  skill_review_prompt?: string | null;
+  skill_review_only_if_active?: boolean | null;
+  skill_review_model?: string | null;
+  skill_review_model_provider_id?: string | null;
+  skill_review_target_hour?: number | null;
+  skill_review_extra_instructions?: string | null;
   carapaces?: string[];
   system_prompt_workspace_file?: boolean;
   system_prompt_write_protected?: boolean;

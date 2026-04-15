@@ -745,7 +745,7 @@ export default function SettingsScreen() {
         <ServerStatusBar />
       </div>
 
-      <div className="flex flex-1 flex-row">
+      <div className="flex flex-1 flex-row min-h-0">
         {/* Desktop group nav */}
         {isDesktop && (
           <div
@@ -772,7 +772,7 @@ export default function SettingsScreen() {
                   type="button"
                   key={g.group}
                   onClick={() => setActiveGroup(g.group)}
-                  className={`px-3 py-1.5 rounded-full border ${
+                  className={`flex items-center whitespace-nowrap px-3 py-1.5 rounded-full border shrink-0 ${
                     activeGroup === g.group
                       ? "bg-accent/20 border-accent"
                       : "border-surface-border"

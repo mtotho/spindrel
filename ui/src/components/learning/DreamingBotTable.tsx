@@ -2,17 +2,17 @@
  * Shared per-bot dreaming table — used by Learning Center > Overview
  * (read-only) and Learning Center > Dreaming (manage mode with toggle + Run).
  *
- * Replaces three near-duplicate copies that lived in OverviewTab, DreamingTab,
- * and the now-deleted DreamingBotList in Settings.
+ * Displays dual job types: Memory Maintenance (amber) and Skill Review (purple).
  */
-import { useMemo } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Moon, Play } from "lucide-react";
+import { Moon, Play, ChevronDown } from "lucide-react";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { StatusBadge } from "@/src/components/shared/SettingsControls";
 import type { BotDreamingStatus } from "@/src/api/hooks/useLearningOverview";
 import type { BotConfig } from "@/src/types/api";
+import type { HygieneJobType } from "@/src/api/hooks/useMemoryHygiene";
 import { useTriggerMemoryHygiene } from "@/src/api/hooks/useMemoryHygiene";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/src/api/client";
@@ -48,8 +48,16 @@ function statusVariant(s: string | null | undefined) {
   return "neutral" as const;
 }
 
+/** Worst-of-two: failed > skipped > neutral > complete */
+function worstStatus(a: string | null | undefined, b: string | null | undefined): string | null {
+  const priority: Record<string, number> = { failed: 3, skipped: 2, running: 1, complete: 0 };
+  const pa = a ? (priority[a] ?? 1) : -1;
+  const pb = b ? (priority[b] ?? 1) : -1;
+  if (pa >= pb) return a ?? null;
+  return b ?? null;
+}
+
 type HygieneState = "inherit" | "on" | "off";
-const STATES: HygieneState[] = ["inherit", "on", "off"];
 
 function resolveState(val: boolean | null | undefined): HygieneState {
   if (val === true) return "on";
@@ -63,6 +71,12 @@ function stateToValue(s: HygieneState): boolean | null {
   return null;
 }
 
+function nextState(current: HygieneState): HygieneState {
+  if (current === "on") return "off";
+  if (current === "off") return "inherit";
+  return "on";
+}
+
 // ---------------------------------------------------------------------------
 // Public component
 // ---------------------------------------------------------------------------
@@ -70,9 +84,9 @@ function stateToValue(s: HygieneState): boolean | null {
 export interface DreamingBotTableProps {
   bots: BotDreamingStatus[];
   /**
-   * "view" — Bot / Status / Last Run / Result / Next Run. Click navigates
+   * "view" — Bot / Jobs / Last Run / Result / Next Run. Click navigates
    *   to the bot's Memory tab.
-   * "manage" — adds Toggle (Inherit/On/Off) + Run column. Used in the
+   * "manage" — adds Maint + Skills dot toggles + Run dropdown. Used in the
    *   canonical Learning Center > Dreaming surface.
    */
   mode: "view" | "manage";
@@ -89,11 +103,11 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
   const triggerMut = useTriggerMemoryHygiene();
 
   const updateMut = useMutation({
-    mutationFn: ({ botId, value }: { botId: string; value: boolean | null }) =>
+    mutationFn: ({ botId, field, value }: { botId: string; field: string; value: boolean | null }) =>
       apiFetch<BotConfig>(`/api/v1/admin/bots/${botId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memory_hygiene_enabled: value }),
+        body: JSON.stringify({ [field]: value }),
       }),
     onSuccess: (_data, { botId }) => {
       qc.invalidateQueries({ queryKey: ["bots", botId] });
@@ -104,15 +118,13 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
 
   const isManage = mode === "manage";
 
-  // Column widths — keep narrow so the row fits in the dashboard column.
-  // Manage mode adds two extra columns (toggle + run).
   const gridTemplate = useMemo(() => {
     if (isManage) {
-      // Bot / Status / Last / Result / Next / Toggle / Run
-      return "1fr 60px 90px 80px 90px 140px 50px";
+      // Bot / Last Run / Result / Next / Maint dot / Skills dot / Run
+      return "1fr 90px 80px 90px 56px 56px 50px";
     }
-    // Bot / Status / Last / Result / Next
-    return "1fr 70px 110px 80px 110px";
+    // Bot / Jobs / Last Run / Result / Next
+    return "1fr 80px 110px 80px 110px";
   }, [isManage]);
 
   if (bots.length === 0) {
@@ -155,8 +167,8 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
           }}
         >
           {(isManage
-            ? ["Bot", "Status", "Last Run", "Result", "Next Run", "Dreaming", ""]
-            : ["Bot", "Status", "Last Run", "Result", "Next Run"]
+            ? ["Bot", "Last Run", "Result", "Next Run", "Maint", "Skills", ""]
+            : ["Bot", "Jobs", "Last Run", "Result", "Next Run"]
           ).map((h, i) => (
             <span
               key={`${h}-${i}`}
@@ -166,6 +178,7 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
                 color: t.textDim,
                 textTransform: "uppercase",
                 letterSpacing: 0.5,
+                textAlign: (isManage && (i === 4 || i === 5)) ? "center" : undefined,
               }}
             >
               {h}
@@ -177,9 +190,25 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
       {/* Rows */}
       {bots.map((bot) => {
         const cfg = botConfigMap?.[bot.bot_id];
-        const current = cfg ? resolveState(cfg.memory_hygiene_enabled) : "inherit";
+        const maintState = cfg ? resolveState(cfg.memory_hygiene_enabled) : "inherit";
+        const skillState = cfg ? resolveState(cfg.skill_review_enabled) : "inherit";
+        const combined = worstStatus(bot.last_task_status, bot.skill_review_last_task_status);
+        const lastRunAt = (() => {
+          if (!bot.last_run_at && !bot.skill_review_last_run_at) return null;
+          if (!bot.last_run_at) return bot.skill_review_last_run_at;
+          if (!bot.skill_review_last_run_at) return bot.last_run_at;
+          return new Date(bot.last_run_at) > new Date(bot.skill_review_last_run_at)
+            ? bot.last_run_at : bot.skill_review_last_run_at;
+        })();
+        const nextRunAt = (() => {
+          if (!bot.next_run_at && !bot.skill_review_next_run_at) return null;
+          if (!bot.next_run_at) return bot.skill_review_next_run_at;
+          if (!bot.skill_review_next_run_at) return bot.next_run_at;
+          return new Date(bot.next_run_at) < new Date(bot.skill_review_next_run_at)
+            ? bot.next_run_at : bot.skill_review_next_run_at;
+        })();
 
-        // Mobile: stacked card layout (works in both modes)
+        // Mobile: stacked card layout
         if (isMobile) {
           return (
             <div
@@ -192,47 +221,54 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
                 borderBottom: `1px solid ${t.surfaceBorder}`,
               }}
             >
-              <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <div className="flex items-center justify-between">
                 <button
                   onClick={() => navigate(`/admin/bots/${bot.bot_id}#memory`)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    cursor: "pointer",
-                    color: t.text,
-                    fontSize: 13,
-                    fontWeight: 500,
-                    textAlign: "left",
-                  }}
+                  className="bg-transparent border-none p-0 cursor-pointer text-left"
+                  style={{ color: t.text, fontSize: 13, fontWeight: 500 }}
                 >
                   {bot.bot_name}
                 </button>
-                {bot.enabled ? (
-                  <StatusBadge label="on" variant="success" />
-                ) : (
-                  <StatusBadge label="off" variant="neutral" />
-                )}
+                <div className="flex items-center gap-1.5">
+                  <DotIndicator enabled={bot.enabled} flavor="maint" />
+                  <DotIndicator enabled={bot.skill_review_enabled} flavor="skills" />
+                </div>
               </div>
-              <div style={{ display: "flex", flexDirection: "row", gap: 12, fontSize: 10, color: t.textDim, alignItems: "center" }}>
-                <span>Last: {fmtRelative(bot.last_run_at)}</span>
-                {bot.last_task_status && (
-                  <StatusBadge label={bot.last_task_status} variant={statusVariant(bot.last_task_status)} />
-                )}
-                <span>Next: {fmtRelative(bot.next_run_at)}</span>
+              <div className="flex items-center gap-3" style={{ fontSize: 10, color: t.textDim }}>
+                <span>Last: {fmtRelative(lastRunAt)}</span>
+                {combined && <StatusBadge label={combined} variant={statusVariant(combined)} />}
+                <span>Next: {fmtRelative(nextRunAt)}</span>
               </div>
               {isManage && (
-                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}>
-                  <ToggleGroup
-                    current={current}
-                    disabled={updateMut.isPending}
-                    onChange={(s) => updateMut.mutate({ botId: bot.bot_id, value: stateToValue(s) })}
-                  />
-                  <RunButton
-                    enabled={bot.enabled}
+                <div className="flex items-center gap-3 mt-1">
+                  <div className="flex items-center gap-1.5">
+                    <DotToggle
+                      state={maintState}
+                      flavor="maint"
+                      disabled={updateMut.isPending}
+                      onClick={() => updateMut.mutate({
+                        botId: bot.bot_id,
+                        field: "memory_hygiene_enabled",
+                        value: stateToValue(nextState(maintState)),
+                      })}
+                    />
+                    <DotToggle
+                      state={skillState}
+                      flavor="skills"
+                      disabled={updateMut.isPending}
+                      onClick={() => updateMut.mutate({
+                        botId: bot.bot_id,
+                        field: "skill_review_enabled",
+                        value: stateToValue(nextState(skillState)),
+                      })}
+                    />
+                  </div>
+                  <RunDropdown
+                    maintEnabled={bot.enabled}
+                    skillsEnabled={bot.skill_review_enabled}
                     pending={triggerMut.isPending}
-                    onClick={() =>
-                      triggerMut.mutate(bot.bot_id, {
+                    onTrigger={(jobType) =>
+                      triggerMut.mutate({ botId: bot.bot_id, jobType }, {
                         onSuccess: () => qc.invalidateQueries({ queryKey: ["learning-overview"] }),
                       })
                     }
@@ -278,43 +314,79 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
             >
               {bot.bot_name}
             </span>
-            <span>
-              {bot.enabled ? (
-                <StatusBadge label="on" variant="success" />
-              ) : (
-                <StatusBadge label="off" variant="neutral" />
-              )}
-            </span>
-            <span style={{ fontSize: 11, color: t.textMuted }}>
-              {fmtRelative(bot.last_run_at)}
-            </span>
-            <span>
-              {bot.last_task_status && (
-                <StatusBadge label={bot.last_task_status} variant={statusVariant(bot.last_task_status)} />
-              )}
-            </span>
-            <span style={{ fontSize: 11, color: t.textDim }}>
-              {fmtRelative(bot.next_run_at)}
-            </span>
-            {isManage && (
+
+            {isManage ? (
               <>
-                <span onClick={(e) => e.stopPropagation()}>
-                  <ToggleGroup
-                    current={current}
+                {/* Last Run */}
+                <span style={{ fontSize: 11, color: t.textMuted }}>
+                  {fmtRelative(lastRunAt)}
+                </span>
+                {/* Result */}
+                <span>
+                  {combined && <StatusBadge label={combined} variant={statusVariant(combined)} />}
+                </span>
+                {/* Next Run */}
+                <span style={{ fontSize: 11, color: t.textDim }}>
+                  {fmtRelative(nextRunAt)}
+                </span>
+                {/* Maint dot toggle */}
+                <span className="flex justify-center" onClick={(e) => e.stopPropagation()}>
+                  <DotToggle
+                    state={maintState}
+                    flavor="maint"
                     disabled={updateMut.isPending}
-                    onChange={(s) => updateMut.mutate({ botId: bot.bot_id, value: stateToValue(s) })}
+                    onClick={() => updateMut.mutate({
+                      botId: bot.bot_id,
+                      field: "memory_hygiene_enabled",
+                      value: stateToValue(nextState(maintState)),
+                    })}
                   />
                 </span>
+                {/* Skills dot toggle */}
+                <span className="flex justify-center" onClick={(e) => e.stopPropagation()}>
+                  <DotToggle
+                    state={skillState}
+                    flavor="skills"
+                    disabled={updateMut.isPending}
+                    onClick={() => updateMut.mutate({
+                      botId: bot.bot_id,
+                      field: "skill_review_enabled",
+                      value: stateToValue(nextState(skillState)),
+                    })}
+                  />
+                </span>
+                {/* Run dropdown */}
                 <span onClick={(e) => e.stopPropagation()}>
-                  <RunButton
-                    enabled={bot.enabled}
+                  <RunDropdown
+                    maintEnabled={bot.enabled}
+                    skillsEnabled={bot.skill_review_enabled}
                     pending={triggerMut.isPending}
-                    onClick={() =>
-                      triggerMut.mutate(bot.bot_id, {
+                    onTrigger={(jobType) =>
+                      triggerMut.mutate({ botId: bot.bot_id, jobType }, {
                         onSuccess: () => qc.invalidateQueries({ queryKey: ["learning-overview"] }),
                       })
                     }
                   />
+                </span>
+              </>
+            ) : (
+              <>
+                {/* Jobs — dual dot indicators */}
+                <span className="flex items-center gap-1.5">
+                  <DotIndicator enabled={bot.enabled} flavor="maint" />
+                  <DotIndicator enabled={bot.skill_review_enabled} flavor="skills" />
+                </span>
+                {/* Last Run */}
+                <span style={{ fontSize: 11, color: t.textMuted }}>
+                  {fmtRelative(lastRunAt)}
+                </span>
+                {/* Result — worst-of-two */}
+                <span>
+                  {combined && <StatusBadge label={combined} variant={statusVariant(combined)} />}
+                </span>
+                {/* Next Run */}
+                <span style={{ fontSize: 11, color: t.textDim }}>
+                  {fmtRelative(nextRunAt)}
                 </span>
               </>
             )}
@@ -326,88 +398,178 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
 }
 
 // ---------------------------------------------------------------------------
-// Internal: toggle pills + run button
+// Internal: Dot indicator (view mode — read-only)
 // ---------------------------------------------------------------------------
 
-function ToggleGroup({
-  current,
-  disabled,
-  onChange,
-}: {
-  current: HygieneState;
-  disabled: boolean;
-  onChange: (s: HygieneState) => void;
-}) {
-  const t = useThemeTokens();
+function DotIndicator({ enabled, flavor }: { enabled: boolean; flavor: "maint" | "skills" }) {
+  const colorClass = flavor === "maint"
+    ? (enabled ? "bg-amber-500" : "bg-amber-500/20")
+    : (enabled ? "bg-purple-500" : "bg-purple-500/20");
+  const title = `${flavor === "maint" ? "Maintenance" : "Skill Review"}: ${enabled ? "on" : "off"}`;
+
   return (
-    <div style={{ display: "flex", flexDirection: "row", gap: 4 }}>
-      {STATES.map((s) => {
-        const isSelected = current === s;
-        return (
-          <button
-            key={s}
-            disabled={disabled || isSelected}
-            onClick={() => {
-              if (!isSelected) onChange(s);
-            }}
-            style={{
-              padding: "3px 8px",
-              borderRadius: 4,
-              fontSize: 10,
-              fontWeight: 500,
-              cursor: isSelected ? "default" : "pointer",
-              border: isSelected
-                ? `1px solid ${t.purpleBorder}`
-                : `1px solid ${t.surfaceOverlay}`,
-              background: isSelected ? t.purpleSubtle : "transparent",
-              color: isSelected ? t.purple : t.textDim,
-              opacity: disabled ? 0.6 : 1,
-              textTransform: "capitalize",
-            }}
-          >
-            {s}
-          </button>
-        );
-      })}
-    </div>
+    <span
+      className={`inline-block w-2 h-2 rounded-full ${colorClass}`}
+      title={title}
+    />
   );
 }
 
-function RunButton({
-  enabled,
-  pending,
+// ---------------------------------------------------------------------------
+// Internal: Dot toggle (manage mode — clickable state cycle)
+// ---------------------------------------------------------------------------
+
+function DotToggle({
+  state,
+  flavor,
+  disabled,
   onClick,
 }: {
-  enabled: boolean;
-  pending: boolean;
+  state: HygieneState;
+  flavor: "maint" | "skills";
+  disabled: boolean;
   onClick: () => void;
 }) {
-  const t = useThemeTokens();
+  const label = flavor === "maint" ? "Maintenance" : "Skill Review";
+  const title = `${label}: ${state}${state === "inherit" ? " (click to change)" : ""} — click to cycle`;
+
+  // On = solid, Off = ring only, Inherit = half-opacity solid
+  // Static class names (no template literals — Tailwind JIT requires them)
+  const dotClass = (() => {
+    if (flavor === "maint") {
+      if (state === "on") return "bg-amber-500 ring-1 ring-amber-500/30";
+      if (state === "off") return "bg-transparent ring-1 ring-amber-500/40";
+      return "bg-amber-500/40 ring-1 ring-amber-500/30";
+    }
+    if (state === "on") return "bg-purple-500 ring-1 ring-purple-500/30";
+    if (state === "off") return "bg-transparent ring-1 ring-purple-500/40";
+    return "bg-purple-500/40 ring-1 ring-purple-500/30";
+  })();
+
   return (
     <button
-      onClick={(e) => {
-        e.stopPropagation();
-        if (enabled) onClick();
-      }}
-      disabled={!enabled || pending}
-      title={enabled ? "Trigger dreaming run now" : "Dreaming is disabled for this bot"}
-      style={{
-        display: "flex", flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 4,
-        padding: "4px 8px",
-        borderRadius: 4,
-        fontSize: 10,
-        fontWeight: 500,
-        background: enabled ? t.purpleSubtle : "transparent",
-        color: enabled ? t.purple : t.textDim,
-        border: `1px solid ${enabled ? t.purpleBorder : t.surfaceOverlay}`,
-        cursor: enabled ? "pointer" : "not-allowed",
-        opacity: pending ? 0.6 : 1,
-      }}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      disabled={disabled}
+      title={title}
+      className={`
+        relative w-5 h-5 rounded-full cursor-pointer
+        flex items-center justify-center
+        transition-all duration-150
+        disabled:opacity-50 disabled:cursor-not-allowed
+        hover:scale-110
+        ${dotClass}
+      `}
+      style={{ border: "none" }}
     >
-      <Play size={10} />
+      {/* Inner dot for "on" state emphasis */}
+      {state === "on" && (
+        <span className={`block w-2 h-2 rounded-full ${
+          flavor === "maint" ? "bg-amber-300" : "bg-purple-300"
+        }`} />
+      )}
+      {/* Dash for "off" */}
+      {state === "off" && (
+        <span className={`block w-1.5 h-px ${
+          flavor === "maint" ? "bg-amber-500/50" : "bg-purple-500/50"
+        }`} />
+      )}
+      {/* Half-circle for "inherit" */}
+      {state === "inherit" && (
+        <span className={`block w-2 h-2 rounded-full clip-half ${
+          flavor === "maint" ? "bg-amber-500/70" : "bg-purple-500/70"
+        }`} />
+      )}
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Internal: Run dropdown (manage mode)
+// ---------------------------------------------------------------------------
+
+function RunDropdown({
+  maintEnabled,
+  skillsEnabled,
+  pending,
+  onTrigger,
+}: {
+  maintEnabled: boolean;
+  skillsEnabled: boolean;
+  pending: boolean;
+  onTrigger: (jobType: HygieneJobType) => void;
+}) {
+  const t = useThemeTokens();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const anyEnabled = maintEnabled || skillsEnabled;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (anyEnabled) setOpen(!open);
+        }}
+        disabled={!anyEnabled || pending}
+        title={anyEnabled ? "Trigger a dreaming run" : "No jobs enabled for this bot"}
+        className="flex items-center justify-center gap-0.5 rounded cursor-pointer
+          disabled:cursor-not-allowed disabled:opacity-50
+          transition-colors duration-100"
+        style={{
+          padding: "4px 6px",
+          fontSize: 10,
+          fontWeight: 500,
+          background: anyEnabled ? t.purpleSubtle : "transparent",
+          color: anyEnabled ? t.purple : t.textDim,
+          border: `1px solid ${anyEnabled ? t.purpleBorder : t.surfaceOverlay}`,
+        }}
+      >
+        <Play size={10} />
+        <ChevronDown size={8} />
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-full mt-1 z-50 rounded-md overflow-hidden shadow-lg"
+          style={{
+            minWidth: 160,
+            background: t.surfaceRaised,
+            border: `1px solid ${t.surfaceBorder}`,
+          }}
+        >
+          <button
+            disabled={!maintEnabled || pending}
+            onClick={() => { onTrigger("memory_hygiene"); setOpen(false); }}
+            className="w-full text-left px-3 py-2 text-xs flex items-center gap-2
+              disabled:opacity-40 disabled:cursor-not-allowed
+              hover:bg-white/5 transition-colors cursor-pointer"
+            style={{ color: t.text, background: "transparent", border: "none" }}
+          >
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+            Run Maintenance
+          </button>
+          <button
+            disabled={!skillsEnabled || pending}
+            onClick={() => { onTrigger("skill_review"); setOpen(false); }}
+            className="w-full text-left px-3 py-2 text-xs flex items-center gap-2
+              disabled:opacity-40 disabled:cursor-not-allowed
+              hover:bg-white/5 transition-colors cursor-pointer"
+            style={{ color: t.text, background: "transparent", border: "none" }}
+          >
+            <span className="inline-block w-2 h-2 rounded-full bg-purple-500" />
+            Run Skill Review
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

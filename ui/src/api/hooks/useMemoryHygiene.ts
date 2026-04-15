@@ -1,7 +1,27 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 
+export interface JobStatus {
+  enabled: boolean;
+  interval_hours: number;
+  only_if_active: boolean;
+  has_custom_prompt: boolean;
+  resolved_prompt: string;
+  extra_instructions: string | null;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_task_status: string | null;
+  last_task_id: string | null;
+  model: string | null;
+  model_provider_id: string | null;
+  target_hour: number;
+}
+
+/** Combined response from GET /bots/{id}/memory-hygiene */
 export interface MemoryHygieneStatus {
+  memory_hygiene: JobStatus;
+  skill_review: JobStatus;
+  // Legacy flat fields (memory_hygiene values) for backward compat
   enabled: boolean;
   interval_hours: number;
   only_if_active: boolean;
@@ -15,6 +35,8 @@ export interface MemoryHygieneStatus {
   model_provider_id: string | null;
   target_hour: number;
 }
+
+export type HygieneJobType = "memory_hygiene" | "skill_review";
 
 export interface MemoryHygieneRun {
   id: string;
@@ -34,6 +56,7 @@ export interface MemoryHygieneRun {
   total_tokens: number;
   iterations: number;
   duration_ms?: number | null;
+  job_type: string;
 }
 
 export function useMemoryHygieneStatus(botId: string | undefined) {
@@ -48,12 +71,12 @@ export function useMemoryHygieneStatus(botId: string | undefined) {
   });
 }
 
-export function useMemoryHygieneRuns(botId: string | undefined) {
+export function useMemoryHygieneRuns(botId: string | undefined, jobType: string = "all") {
   return useQuery({
-    queryKey: ["memory-hygiene-runs", botId],
+    queryKey: ["memory-hygiene-runs", botId, jobType],
     queryFn: () =>
       apiFetch<{ runs: MemoryHygieneRun[]; total: number }>(
-        `/api/v1/admin/bots/${botId}/memory-hygiene/runs`
+        `/api/v1/admin/bots/${botId}/memory-hygiene/runs?job_type=${jobType}`
       ),
     enabled: !!botId,
     refetchInterval: 30_000,
@@ -63,14 +86,15 @@ export function useMemoryHygieneRuns(botId: string | undefined) {
 export function useTriggerMemoryHygiene() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (botId: string) =>
-      apiFetch<{ status: string; task_id: string }>(
-        `/api/v1/admin/bots/${botId}/memory-hygiene/trigger`,
+    mutationFn: ({ botId, jobType = "memory_hygiene" }: { botId: string; jobType?: HygieneJobType }) =>
+      apiFetch<{ status: string; task_id: string; job_type: string }>(
+        `/api/v1/admin/bots/${botId}/memory-hygiene/trigger?job_type=${jobType}`,
         { method: "POST" }
       ),
-    onSuccess: (_data, botId) => {
+    onSuccess: (_data, { botId }) => {
       qc.invalidateQueries({ queryKey: ["memory-hygiene", botId] });
       qc.invalidateQueries({ queryKey: ["memory-hygiene-runs", botId] });
+      qc.invalidateQueries({ queryKey: ["learning-overview"] });
     },
   });
 }

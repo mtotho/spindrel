@@ -89,6 +89,15 @@ class BotOut(BaseModel):
     memory_hygiene_model: Optional[str] = None
     memory_hygiene_model_provider_id: Optional[str] = None
     memory_hygiene_target_hour: Optional[int] = None
+    memory_hygiene_extra_instructions: Optional[str] = None
+    skill_review_enabled: Optional[bool] = None
+    skill_review_interval_hours: Optional[int] = None
+    skill_review_prompt: Optional[str] = None
+    skill_review_only_if_active: Optional[bool] = None
+    skill_review_model: Optional[str] = None
+    skill_review_model_provider_id: Optional[str] = None
+    skill_review_target_hour: Optional[int] = None
+    skill_review_extra_instructions: Optional[str] = None
     carapaces: list[str] = []
     system_prompt_workspace_file: bool = False
     system_prompt_write_protected: bool = False

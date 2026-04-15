@@ -512,6 +512,15 @@ class BotUpdateIn(BaseModel):
     memory_hygiene_model: Optional[str] = None
     memory_hygiene_model_provider_id: Optional[str] = None
     memory_hygiene_target_hour: Optional[int] = None
+    memory_hygiene_extra_instructions: Optional[str] = None
+    skill_review_enabled: Optional[bool] = None
+    skill_review_interval_hours: Optional[int] = None
+    skill_review_prompt: Optional[str] = None
+    skill_review_only_if_active: Optional[bool] = None
+    skill_review_model: Optional[str] = None
+    skill_review_model_provider_id: Optional[str] = None
+    skill_review_target_hour: Optional[int] = None
+    skill_review_extra_instructions: Optional[str] = None
     carapaces: Optional[list[str]] = None
     system_prompt_workspace_file: Optional[bool] = None
     system_prompt_write_protected: Optional[bool] = None
@@ -558,6 +567,8 @@ async def admin_bot_update(
     # Clear schedule when hygiene is explicitly disabled (so re-enable re-staggers)
     if updates.get("memory_hygiene_enabled") is False:
         row.next_hygiene_run_at = None
+    if updates.get("skill_review_enabled") is False:
+        row.next_skill_review_run_at = None
 
     row.updated_at = datetime.now(timezone.utc)
 
@@ -606,7 +617,7 @@ async def admin_bot_update(
     if updates.get("memory_hygiene_enabled") is True and row.next_hygiene_run_at is None:
         from app.services.memory_hygiene import bootstrap_hygiene_schedule
         try:
-            await bootstrap_hygiene_schedule(row, db)
+            await bootstrap_hygiene_schedule(row, db, job_type="memory_hygiene")
         except Exception:
             logger.warning("Failed to bootstrap hygiene schedule for bot %s", bot_id, exc_info=True)
 
@@ -614,10 +625,27 @@ async def admin_bot_update(
     if "memory_hygiene_target_hour" in updates and row.next_hygiene_run_at is not None:
         from app.services.memory_hygiene import _compute_next_run
         try:
-            row.next_hygiene_run_at = _compute_next_run(row, datetime.now(timezone.utc), after_run=False)
+            row.next_hygiene_run_at = _compute_next_run(row, datetime.now(timezone.utc), job_type="memory_hygiene", after_run=False)
             await db.commit()
         except Exception:
             logger.warning("Failed to recalculate hygiene schedule for bot %s", bot_id, exc_info=True)
+
+    # Bootstrap skill review schedule when enabled for the first time
+    if updates.get("skill_review_enabled") is True and row.next_skill_review_run_at is None:
+        from app.services.memory_hygiene import bootstrap_hygiene_schedule
+        try:
+            await bootstrap_hygiene_schedule(row, db, job_type="skill_review")
+        except Exception:
+            logger.warning("Failed to bootstrap skill review schedule for bot %s", bot_id, exc_info=True)
+
+    # Recalculate skill review schedule when target_hour changes
+    if "skill_review_target_hour" in updates and row.next_skill_review_run_at is not None:
+        from app.services.memory_hygiene import _compute_next_run
+        try:
+            row.next_skill_review_run_at = _compute_next_run(row, datetime.now(timezone.utc), job_type="skill_review", after_run=False)
+            await db.commit()
+        except Exception:
+            logger.warning("Failed to recalculate skill review schedule for bot %s", bot_id, exc_info=True)
 
     pc = await get_persona(bot_id)
     return _bot_to_out(bot, persona_content=pc, api_permissions=await _get_bot_api_permissions(db, row))
@@ -679,6 +707,15 @@ class BotCreateIn(BaseModel):
     memory_hygiene_model: Optional[str] = None
     memory_hygiene_model_provider_id: Optional[str] = None
     memory_hygiene_target_hour: Optional[int] = None
+    memory_hygiene_extra_instructions: Optional[str] = None
+    skill_review_enabled: Optional[bool] = None
+    skill_review_interval_hours: Optional[int] = None
+    skill_review_prompt: Optional[str] = None
+    skill_review_only_if_active: Optional[bool] = None
+    skill_review_model: Optional[str] = None
+    skill_review_model_provider_id: Optional[str] = None
+    skill_review_target_hour: Optional[int] = None
+    skill_review_extra_instructions: Optional[str] = None
 
 
 @router.post("/bots", response_model=BotOut, status_code=201)
@@ -961,7 +998,27 @@ async def _get_bot_api_permissions(db: AsyncSession, bot_row: BotRow) -> list[st
 # Memory hygiene
 # ---------------------------------------------------------------------------
 
-class MemoryHygieneStatusOut(BaseModel):
+class JobStatusOut(BaseModel):
+    enabled: bool = False
+    interval_hours: int = 24
+    only_if_active: bool = True
+    has_custom_prompt: bool = False
+    resolved_prompt: str = ""
+    extra_instructions: Optional[str] = None
+    last_run_at: Optional[str] = None
+    next_run_at: Optional[str] = None
+    last_task_status: Optional[str] = None
+    last_task_id: Optional[str] = None
+    model: Optional[str] = None
+    model_provider_id: Optional[str] = None
+    target_hour: int = -1
+
+
+class HygieneStatusCombinedOut(BaseModel):
+    """Combined status for both job types. Also includes legacy flat fields for backward compat."""
+    memory_hygiene: JobStatusOut
+    skill_review: JobStatusOut
+    # Legacy flat fields (memory_hygiene values) for existing UI during transition
     enabled: bool = False
     interval_hours: int = 24
     only_if_active: bool = True
@@ -976,67 +1033,90 @@ class MemoryHygieneStatusOut(BaseModel):
     target_hour: int = -1
 
 
-@router.get("/bots/{bot_id}/memory-hygiene", response_model=MemoryHygieneStatusOut)
+@router.get("/bots/{bot_id}/memory-hygiene", response_model=HygieneStatusCombinedOut)
 async def admin_bot_memory_hygiene_status(
     bot_id: str,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("bots:read")),
 ):
-    """Get resolved memory hygiene config + last/next run times."""
+    """Get resolved config + last/next run times for both hygiene job types."""
     from app.db.models import Task as TaskRow
-    from app.services.memory_hygiene import (
-        resolve_enabled, resolve_interval, resolve_model,
-        resolve_model_provider_id, resolve_only_if_active, resolve_prompt,
-        resolve_target_hour,
-    )
+    from app.services.memory_hygiene import resolve_config, _JOB_META
+    from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT, DEFAULT_SKILL_REVIEW_PROMPT
 
     row = await db.get(BotRow, bot_id)
     if not row:
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
 
-    enabled = resolve_enabled(row)
-    interval = resolve_interval(row)
-    only_active = resolve_only_if_active(row)
-    prompt = resolve_prompt(row)
-    model = resolve_model(row)
-    model_provider = resolve_model_provider_id(row)
-    target_hour = resolve_target_hour(row)
+    result = {}
+    for job_type in ("memory_hygiene", "skill_review"):
+        meta = _JOB_META[job_type]
+        cfg = resolve_config(row, job_type)
 
-    from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
-    has_custom = bool(prompt and prompt != DEFAULT_MEMORY_HYGIENE_PROMPT)
+        default_prompt = DEFAULT_MEMORY_HYGIENE_PROMPT if job_type == "memory_hygiene" else DEFAULT_SKILL_REVIEW_PROMPT
+        has_custom = bool(cfg.prompt and cfg.prompt != default_prompt)
 
-    # Find last hygiene task
-    last_task = (await db.execute(
-        select(TaskRow.id, TaskRow.status, TaskRow.completed_at)
-        .where(TaskRow.bot_id == bot_id, TaskRow.task_type == "memory_hygiene")
-        .order_by(TaskRow.created_at.desc())
-        .limit(1)
-    )).first()
+        last_run_col = meta["col_last_run"]
+        next_run_col = meta["col_next_run"]
+        last_run_val = getattr(row, last_run_col, None)
+        next_run_val = getattr(row, next_run_col, None)
 
-    return MemoryHygieneStatusOut(
-        enabled=enabled,
-        interval_hours=interval,
-        only_if_active=only_active,
-        has_custom_prompt=has_custom,
-        resolved_prompt=prompt,
-        last_run_at=row.last_hygiene_run_at.isoformat() if row.last_hygiene_run_at else None,
-        next_run_at=row.next_hygiene_run_at.isoformat() if row.next_hygiene_run_at else None,
-        last_task_status=last_task.status if last_task else None,
-        last_task_id=str(last_task.id) if last_task else None,
-        model=model,
-        model_provider_id=model_provider,
-        target_hour=target_hour,
+        # Find last task of this type
+        last_task = (await db.execute(
+            select(TaskRow.id, TaskRow.status, TaskRow.completed_at)
+            .where(TaskRow.bot_id == bot_id, TaskRow.task_type == job_type)
+            .order_by(TaskRow.created_at.desc())
+            .limit(1)
+        )).first()
+
+        result[job_type] = JobStatusOut(
+            enabled=cfg.enabled,
+            interval_hours=cfg.interval_hours,
+            only_if_active=cfg.only_if_active,
+            has_custom_prompt=has_custom,
+            resolved_prompt=cfg.prompt,
+            extra_instructions=cfg.extra_instructions,
+            last_run_at=last_run_val.isoformat() if last_run_val else None,
+            next_run_at=next_run_val.isoformat() if next_run_val else None,
+            last_task_status=last_task.status if last_task else None,
+            last_task_id=str(last_task.id) if last_task else None,
+            model=cfg.model,
+            model_provider_id=cfg.model_provider_id,
+            target_hour=cfg.target_hour,
+        )
+
+    mh = result["memory_hygiene"]
+    return HygieneStatusCombinedOut(
+        memory_hygiene=mh,
+        skill_review=result["skill_review"],
+        # Legacy flat fields = memory_hygiene values
+        enabled=mh.enabled,
+        interval_hours=mh.interval_hours,
+        only_if_active=mh.only_if_active,
+        has_custom_prompt=mh.has_custom_prompt,
+        resolved_prompt=mh.resolved_prompt,
+        last_run_at=mh.last_run_at,
+        next_run_at=mh.next_run_at,
+        last_task_status=mh.last_task_status,
+        last_task_id=mh.last_task_id,
+        model=mh.model,
+        model_provider_id=mh.model_provider_id,
+        target_hour=mh.target_hour,
     )
 
 
 @router.post("/bots/{bot_id}/memory-hygiene/trigger")
 async def admin_bot_memory_hygiene_trigger(
     bot_id: str,
+    job_type: str = Query(default="memory_hygiene", description="Job type: memory_hygiene or skill_review"),
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("bots:write")),
 ):
-    """Manually trigger a memory hygiene run for this bot."""
+    """Manually trigger a hygiene or skill review run for this bot."""
     from app.services.memory_hygiene import create_hygiene_task
+
+    if job_type not in ("memory_hygiene", "skill_review"):
+        raise HTTPException(status_code=400, detail=f"Invalid job_type: {job_type}")
 
     row = await db.get(BotRow, bot_id)
     if not row:
@@ -1045,8 +1125,8 @@ async def admin_bot_memory_hygiene_trigger(
     if row.memory_scheme != "workspace-files":
         raise HTTPException(status_code=400, detail="Memory hygiene requires workspace-files memory scheme")
 
-    task_id = await create_hygiene_task(bot_id, db)
-    return {"status": "ok", "task_id": str(task_id)}
+    task_id = await create_hygiene_task(bot_id, db, job_type=job_type)
+    return {"status": "ok", "task_id": str(task_id), "job_type": job_type}
 
 
 # ---------------------------------------------------------------------------
@@ -1065,6 +1145,7 @@ class HygieneRunOut(BaseModel):
     total_tokens: int = 0
     iterations: int = 0
     duration_ms: Optional[int] = None
+    job_type: str = "memory_hygiene"
 
 
 class HygieneRunsResponse(BaseModel):
@@ -1072,14 +1153,18 @@ class HygieneRunsResponse(BaseModel):
     total: int = 0
 
 
+_HYGIENE_JOB_TYPES = ("memory_hygiene", "skill_review")
+
+
 @router.get("/bots/{bot_id}/memory-hygiene/runs", response_model=HygieneRunsResponse)
 async def admin_bot_memory_hygiene_runs(
     bot_id: str,
     limit: int = Query(10, ge=1, le=50),
+    job_type: str = Query(default="all", description="Filter: all, memory_hygiene, or skill_review"),
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("bots:read")),
 ):
-    """Get recent memory hygiene run history with enriched stats."""
+    """Get recent hygiene/skill-review run history with enriched stats."""
     from app.db.models import Task as TaskRow, ToolCall, TraceEvent
     from app.routers.api_v1_admin._helpers import build_tool_call_previews
 
@@ -1087,17 +1172,19 @@ async def admin_bot_memory_hygiene_runs(
     if not row:
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
 
+    type_filter = _HYGIENE_JOB_TYPES if job_type == "all" else (job_type,)
+
     # Count total runs
     total = (await db.execute(
         select(func.count())
         .select_from(TaskRow)
-        .where(TaskRow.bot_id == bot_id, TaskRow.task_type == "memory_hygiene")
+        .where(TaskRow.bot_id == bot_id, TaskRow.task_type.in_(type_filter))
     )).scalar() or 0
 
     # Fetch recent runs
     tasks = (await db.execute(
         select(TaskRow)
-        .where(TaskRow.bot_id == bot_id, TaskRow.task_type == "memory_hygiene")
+        .where(TaskRow.bot_id == bot_id, TaskRow.task_type.in_(type_filter))
         .order_by(TaskRow.created_at.desc())
         .limit(limit)
     )).scalars().all()
@@ -1112,6 +1199,7 @@ async def admin_bot_memory_hygiene_runs(
             result=(t.result[:500] if t.result and len(t.result) > 500 else t.result),
             error=t.error,
             correlation_id=str(t.correlation_id) if t.correlation_id else None,
+            job_type=t.task_type,
         ))
 
     # Enrich with tool calls and token stats via correlation_id

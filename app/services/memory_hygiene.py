@@ -1,28 +1,188 @@
 """Memory hygiene scheduler — periodic cross-channel memory curation.
 
 Called from the task_worker loop. Checks which workspace-files bots are due
-for a hygiene run, optionally checks for recent activity, and creates
-standard agent tasks (task_type="memory_hygiene") to perform the curation.
+for maintenance and/or skill review runs, optionally checks for recent
+activity, and creates standard agent tasks to perform the curation.
+
+Two job types:
+- memory_hygiene: lightweight maintenance (curate files, promote logs, archive)
+- skill_review: reasoning-heavy review (cross-channel reflection, skill pruning/creation)
 """
 from __future__ import annotations
 
 import hashlib
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT, settings
+from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT, DEFAULT_SKILL_REVIEW_PROMPT, settings
 from app.db.models import Bot as BotRow, Message, Task
 
 logger = logging.getLogger(__name__)
 
+# The two job types supported by the hygiene scheduler.
+JobType = Literal["memory_hygiene", "skill_review"]
+
+# Column name prefixes and setting name prefixes for each job type.
+_JOB_META = {
+    "memory_hygiene": {
+        "col_enabled": "memory_hygiene_enabled",
+        "col_interval": "memory_hygiene_interval_hours",
+        "col_prompt": "memory_hygiene_prompt",
+        "col_only_if_active": "memory_hygiene_only_if_active",
+        "col_model": "memory_hygiene_model",
+        "col_model_provider": "memory_hygiene_model_provider_id",
+        "col_target_hour": "memory_hygiene_target_hour",
+        "col_extra_instructions": "memory_hygiene_extra_instructions",
+        "col_last_run": "last_hygiene_run_at",
+        "col_next_run": "next_hygiene_run_at",
+        "setting_enabled": "MEMORY_HYGIENE_ENABLED",
+        "setting_interval": "MEMORY_HYGIENE_INTERVAL_HOURS",
+        "setting_prompt": "MEMORY_HYGIENE_PROMPT",
+        "setting_only_if_active": "MEMORY_HYGIENE_ONLY_IF_ACTIVE",
+        "setting_model": "MEMORY_HYGIENE_MODEL",
+        "setting_model_provider": "MEMORY_HYGIENE_MODEL_PROVIDER_ID",
+        "setting_target_hour": "MEMORY_HYGIENE_TARGET_HOUR",
+        "default_prompt": DEFAULT_MEMORY_HYGIENE_PROMPT,
+        "task_title": "Memory maintenance",
+    },
+    "skill_review": {
+        "col_enabled": "skill_review_enabled",
+        "col_interval": "skill_review_interval_hours",
+        "col_prompt": "skill_review_prompt",
+        "col_only_if_active": "skill_review_only_if_active",
+        "col_model": "skill_review_model",
+        "col_model_provider": "skill_review_model_provider_id",
+        "col_target_hour": "skill_review_target_hour",
+        "col_extra_instructions": "skill_review_extra_instructions",
+        "col_last_run": "last_skill_review_run_at",
+        "col_next_run": "next_skill_review_run_at",
+        "setting_enabled": "SKILL_REVIEW_ENABLED",
+        "setting_interval": "SKILL_REVIEW_INTERVAL_HOURS",
+        "setting_prompt": "SKILL_REVIEW_PROMPT",
+        "setting_only_if_active": "SKILL_REVIEW_ONLY_IF_ACTIVE",
+        "setting_model": "SKILL_REVIEW_MODEL",
+        "setting_model_provider": "SKILL_REVIEW_MODEL_PROVIDER_ID",
+        "setting_target_hour": "SKILL_REVIEW_TARGET_HOUR",
+        "default_prompt": DEFAULT_SKILL_REVIEW_PROMPT,
+        "task_title": "Skill review",
+    },
+}
+
 
 # ---------------------------------------------------------------------------
-# Resolution helpers (bot override > global default)
+# Unified config resolution
+# ---------------------------------------------------------------------------
+
+@dataclass
+class JobConfig:
+    """Resolved configuration for a single hygiene job type."""
+    enabled: bool
+    interval_hours: int
+    prompt: str
+    only_if_active: bool
+    model: str | None
+    model_provider_id: str | None
+    target_hour: int
+    extra_instructions: str | None
+
+
+def _col(bot_row: BotRow, col_name: str):
+    """Safe attribute access that returns None for missing columns.
+
+    Unlike plain getattr, this also returns None for MagicMock-style objects
+    where any attribute access returns a truthy value.
+    """
+    if not hasattr(type(bot_row), col_name) and not hasattr(bot_row, "__table__"):
+        # MagicMock or similar — check if the attribute was explicitly set
+        try:
+            return bot_row.__dict__.get(col_name) if hasattr(bot_row, "__dict__") else getattr(bot_row, col_name, None)
+        except Exception:
+            return None
+    return getattr(bot_row, col_name, None)
+
+
+def resolve_config(bot_row: BotRow, job_type: JobType) -> JobConfig:
+    """Resolve all config fields for a job type: bot override > global > default."""
+    meta = _JOB_META[job_type]
+
+    # For memory_hygiene, delegate to legacy helpers for consistency
+    if job_type == "memory_hygiene":
+        return JobConfig(
+            enabled=resolve_enabled(bot_row),
+            interval_hours=resolve_interval(bot_row),
+            prompt=resolve_prompt(bot_row),
+            only_if_active=resolve_only_if_active(bot_row),
+            model=resolve_model(bot_row),
+            model_provider_id=resolve_model_provider_id(bot_row),
+            target_hour=resolve_target_hour(bot_row),
+            extra_instructions=getattr(bot_row, "memory_hygiene_extra_instructions", None),
+        )
+
+    # skill_review: same pattern as legacy helpers but for skill_review columns
+    if bot_row.memory_scheme != "workspace-files":
+        return JobConfig(
+            enabled=False, interval_hours=72, prompt="",
+            only_if_active=False, model=None, model_provider_id=None,
+            target_hour=-1, extra_instructions=None,
+        )
+
+    # Enabled
+    bot_enabled = getattr(bot_row, "skill_review_enabled", None)
+    enabled = bot_enabled if bot_enabled is not None else settings.SKILL_REVIEW_ENABLED
+
+    # Interval
+    bot_interval = getattr(bot_row, "skill_review_interval_hours", None)
+    interval_hours = bot_interval if bot_interval is not None else settings.SKILL_REVIEW_INTERVAL_HOURS
+
+    # Only-if-active
+    bot_active = getattr(bot_row, "skill_review_only_if_active", None)
+    only_if_active = bot_active if bot_active is not None else settings.SKILL_REVIEW_ONLY_IF_ACTIVE
+
+    # Prompt
+    bot_prompt = getattr(bot_row, "skill_review_prompt", None)
+    if bot_prompt:
+        prompt = bot_prompt
+    elif settings.SKILL_REVIEW_PROMPT:
+        prompt = settings.SKILL_REVIEW_PROMPT
+    else:
+        prompt = DEFAULT_SKILL_REVIEW_PROMPT
+
+    # Model
+    bot_model = getattr(bot_row, "skill_review_model", None)
+    model = bot_model if bot_model else (settings.SKILL_REVIEW_MODEL or None)
+
+    # Model provider
+    bot_provider = getattr(bot_row, "skill_review_model_provider_id", None)
+    model_provider_id = bot_provider if bot_provider else (settings.SKILL_REVIEW_MODEL_PROVIDER_ID or None)
+
+    # Target hour
+    bot_target = getattr(bot_row, "skill_review_target_hour", None)
+    target_hour = bot_target if bot_target is not None else settings.SKILL_REVIEW_TARGET_HOUR
+
+    # Extra instructions
+    extra_instructions = getattr(bot_row, "skill_review_extra_instructions", None)
+
+    return JobConfig(
+        enabled=enabled,
+        interval_hours=interval_hours,
+        prompt=prompt,
+        only_if_active=only_if_active,
+        model=model,
+        model_provider_id=model_provider_id,
+        target_hour=target_hour,
+        extra_instructions=extra_instructions,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Legacy resolution helpers (direct attribute access for backward compat)
 # ---------------------------------------------------------------------------
 
 def resolve_enabled(bot_row: BotRow) -> bool:
@@ -33,32 +193,24 @@ def resolve_enabled(bot_row: BotRow) -> bool:
         return bot_row.memory_hygiene_enabled
     return settings.MEMORY_HYGIENE_ENABLED
 
-
 def resolve_interval(bot_row: BotRow) -> int:
-    """Interval in hours between hygiene runs."""
     if bot_row.memory_hygiene_interval_hours is not None:
         return bot_row.memory_hygiene_interval_hours
     return settings.MEMORY_HYGIENE_INTERVAL_HOURS
 
-
 def resolve_only_if_active(bot_row: BotRow) -> bool:
-    """Whether to skip hygiene if no user activity since last run."""
     if bot_row.memory_hygiene_only_if_active is not None:
         return bot_row.memory_hygiene_only_if_active
     return settings.MEMORY_HYGIENE_ONLY_IF_ACTIVE
 
-
 def resolve_prompt(bot_row: BotRow) -> str:
-    """Resolve the hygiene prompt: bot > global > built-in default."""
     if bot_row.memory_hygiene_prompt:
         return bot_row.memory_hygiene_prompt
     if settings.MEMORY_HYGIENE_PROMPT:
         return settings.MEMORY_HYGIENE_PROMPT
     return DEFAULT_MEMORY_HYGIENE_PROMPT
 
-
 def resolve_model(bot_row: BotRow) -> str | None:
-    """Resolve the model for hygiene runs: bot > global > None (use bot default)."""
     val = getattr(bot_row, "memory_hygiene_model", None)
     if val:
         return val
@@ -66,9 +218,7 @@ def resolve_model(bot_row: BotRow) -> str | None:
         return settings.MEMORY_HYGIENE_MODEL
     return None
 
-
 def resolve_model_provider_id(bot_row: BotRow) -> str | None:
-    """Resolve the model provider for hygiene runs: bot > global > None (use bot default)."""
     val = getattr(bot_row, "memory_hygiene_model_provider_id", None)
     if val:
         return val
@@ -76,9 +226,7 @@ def resolve_model_provider_id(bot_row: BotRow) -> str | None:
         return settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID
     return None
 
-
 def resolve_target_hour(bot_row: BotRow) -> int:
-    """Resolve target hour: bot override > global > -1 (disabled)."""
     val = getattr(bot_row, "memory_hygiene_target_hour", None)
     if val is not None:
         return val
@@ -97,8 +245,6 @@ async def _has_activity_since(bot_id: str, since: datetime, db: AsyncSession) ->
     from app.db.models import Channel, Session
     from app.services.channels import bot_channel_filter
 
-    # Join Message → Session → Channel to find user messages across all
-    # channels belonging to this bot (primary or member).
     count = (await db.execute(
         select(func.count())
         .select_from(Message)
@@ -338,39 +484,46 @@ async def _build_channel_snapshot(bot_id: str, db: AsyncSession) -> str:
     return "\n".join(lines)
 
 
-async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: bool = True) -> uuid.UUID:
-    """Create a memory_hygiene task for the given bot. Returns the task ID.
-
-    When called from the scheduler, pass auto_commit=False so the caller can
-    commit the task + schedule update atomically.
-    """
+async def create_hygiene_task(
+    bot_id: str,
+    db: AsyncSession,
+    *,
+    job_type: JobType = "memory_hygiene",
+    auto_commit: bool = True,
+) -> uuid.UUID:
+    """Create a hygiene/skill-review task for the given bot. Returns the task ID."""
     bot_row = await db.get(BotRow, bot_id)
     if not bot_row:
         raise ValueError(f"Bot not found: {bot_id}")
 
-    prompt = resolve_prompt(bot_row)
+    meta = _JOB_META[job_type]
+    cfg = resolve_config(bot_row, job_type)
+    prompt = cfg.prompt
 
-    # Append live snapshots so the hygiene agent has data without needing
-    # to call list_channels() or manage_bot_skill() — less capable models
-    # skip those steps.
+    # Append extra instructions if present
+    if cfg.extra_instructions:
+        prompt = f"{prompt}\n\n## Additional Instructions\n{cfg.extra_instructions}"
+
+    # Append live snapshots — both job types get the channel snapshot
     try:
         ch_snapshot = await _build_channel_snapshot(bot_id, db)
         prompt = f"{prompt}\n\n{ch_snapshot}"
     except Exception:
-        logger.warning("Failed to build channel snapshot for hygiene of %s", bot_id, exc_info=True)
+        logger.warning("Failed to build channel snapshot for %s %s", job_type, bot_id, exc_info=True)
 
-    try:
-        snapshot = await _build_working_set_snapshot(bot_id, db)
-        prompt = f"{prompt}\n\n{snapshot}"
-    except Exception:
-        logger.warning("Failed to build working-set snapshot for hygiene of %s", bot_id, exc_info=True)
+    # Only skill_review gets the working set + inject audit samples
+    if job_type == "skill_review":
+        try:
+            snapshot = await _build_working_set_snapshot(bot_id, db)
+            prompt = f"{prompt}\n\n{snapshot}"
+        except Exception:
+            logger.warning("Failed to build working-set snapshot for %s %s", job_type, bot_id, exc_info=True)
 
     # Build execution_config with model overrides if set
     exec_cfg: dict | None = None
-    model = resolve_model(bot_row)
-    provider = resolve_model_provider_id(bot_row)
-    # Auto-resolve provider from model when not explicitly set — prevents
-    # routing a model (e.g. minimax/MiniMax-M2.7) through the wrong provider.
+    model = cfg.model
+    provider = cfg.model_provider_id
+    # Auto-resolve provider from model when not explicitly set
     if model and not provider:
         from app.services.providers import resolve_provider_for_model
         provider = resolve_provider_for_model(model)
@@ -385,13 +538,12 @@ async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: boo
         id=uuid.uuid4(),
         bot_id=bot_id,
         prompt=prompt,
-        title=f"Memory hygiene: {bot_id}",
-        task_type="memory_hygiene",
+        title=f"{meta['task_title']}: {bot_id}",
+        task_type=job_type,
         status="pending",
         run_at=datetime.now(timezone.utc),
         dispatch_type="none",
         execution_config=exec_cfg,
-        # No channel_id — cross-channel run
         channel_id=None,
         session_id=None,
         client_id=None,
@@ -400,7 +552,7 @@ async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: boo
     if auto_commit:
         await db.commit()
 
-    logger.info("Created memory_hygiene task %s for bot %s", task.id, bot_id)
+    logger.info("Created %s task %s for bot %s", job_type, task.id, bot_id)
     return task.id
 
 
@@ -446,14 +598,7 @@ def _next_target_run(
     After a completed run (after_run=True):
         Find the next occurrence of target_hour that is strictly in the future,
         then add ``(days_between - 1)`` days, where ``days_between`` is
-        ``interval_hours`` rounded to whole days (min 1).  Target-hour mode
-        inherently anchors to a daily (or multi-day) wall-clock cadence; the
-        interval is expressed by ``days_between``, not by a literal hour-count
-        floor.  Using a literal ``now + interval_hours`` floor caused a bug
-        where any run completing even a few minutes after the target hour was
-        pushed two cycles forward instead of one (the "today candidate" was
-        already behind, and "tomorrow candidate" fell short of the floor by
-        the run's own duration).
+        ``interval_hours`` rounded to whole days (min 1).
     """
     tz = ZoneInfo(settings.TIMEZONE)
     now_local = now_utc.astimezone(tz)
@@ -466,8 +611,6 @@ def _next_target_run(
         candidate += timedelta(days=1)
 
     if after_run:
-        # Multi-day intervals: round to whole days, min 1.  A 24h interval
-        # means "daily", a 48h interval means "every other day", etc.
         days_between = max(1, round(interval_hours / 24))
         candidate += timedelta(days=days_between - 1)
 
@@ -481,45 +624,84 @@ def _next_target_run(
 # Schedule bootstrap (called when hygiene is first enabled via admin API)
 # ---------------------------------------------------------------------------
 
-async def bootstrap_hygiene_schedule(bot_row: BotRow, db: AsyncSession) -> None:
-    """Set next_hygiene_run_at when hygiene is enabled for the first time.
+async def bootstrap_hygiene_schedule(
+    bot_row: BotRow,
+    db: AsyncSession,
+    job_type: JobType = "memory_hygiene",
+) -> None:
+    """Set next run time when a job is enabled for the first time.
 
     Uses a deterministic stagger offset so bots with the same interval
     don't all fire at the same time.
     """
-    interval = resolve_interval(bot_row)
-    target_hour = resolve_target_hour(bot_row)
+    meta = _JOB_META[job_type]
+    cfg = resolve_config(bot_row, job_type)
 
-    if target_hour >= 0:
+    if cfg.target_hour >= 0:
         now_utc = datetime.now(timezone.utc)
-        bot_row.next_hygiene_run_at = _next_target_run(
-            bot_row.id, target_hour, interval, now_utc, after_run=False,
+        next_run = _next_target_run(
+            bot_row.id, cfg.target_hour, cfg.interval_hours, now_utc, after_run=False,
         )
     else:
-        offset = _stagger_offset_minutes(bot_row.id, interval)
-        bot_row.next_hygiene_run_at = datetime.now(timezone.utc) + timedelta(minutes=offset)
+        offset = _stagger_offset_minutes(bot_row.id, cfg.interval_hours)
+        next_run = datetime.now(timezone.utc) + timedelta(minutes=offset)
 
+    setattr(bot_row, meta["col_next_run"], next_run)
     await db.commit()
-    logger.info("Bootstrapped hygiene schedule for bot %s: next run at %s", bot_row.id, bot_row.next_hygiene_run_at)
+    logger.info("Bootstrapped %s schedule for bot %s: next run at %s", job_type, bot_row.id, next_run)
 
 
 # ---------------------------------------------------------------------------
 # Compute next run (used by scheduler and recalc-on-change)
 # ---------------------------------------------------------------------------
 
-def _compute_next_run(bot_row: BotRow, now_utc: datetime, *, after_run: bool = False) -> datetime:
-    """Compute the next hygiene run time for a bot.
+def _compute_next_run(
+    bot_row: BotRow,
+    now_utc: datetime,
+    *,
+    job_type: JobType = "memory_hygiene",
+    after_run: bool = False,
+) -> datetime:
+    """Compute the next run time for a bot/job_type combination."""
+    cfg = resolve_config(bot_row, job_type)
 
-    Centralises the target_hour vs plain-interval logic.
-    """
-    interval = resolve_interval(bot_row)
-    target_hour = resolve_target_hour(bot_row)
-
-    if target_hour >= 0:
+    if cfg.target_hour >= 0:
         return _next_target_run(
-            bot_row.id, target_hour, interval, now_utc, after_run=after_run,
+            bot_row.id, cfg.target_hour, cfg.interval_hours, now_utc, after_run=after_run,
         )
-    return now_utc + timedelta(hours=interval)
+    return now_utc + timedelta(hours=cfg.interval_hours)
+
+
+# ---------------------------------------------------------------------------
+# Cross-job stagger (avoid running both jobs for same bot simultaneously)
+# ---------------------------------------------------------------------------
+
+def _cross_job_stagger(
+    bot_row: BotRow,
+    job_type: JobType,
+    proposed: datetime,
+) -> datetime:
+    """If proposed run time is within 30 min of the other job, push forward 60 min."""
+    other_meta = _JOB_META["skill_review" if job_type == "memory_hygiene" else "memory_hygiene"]
+    other_next = getattr(bot_row, other_meta["col_next_run"], None)
+    if other_next is None:
+        return proposed
+
+    # Ensure timezone-aware comparison
+    if other_next.tzinfo is None:
+        other_next = other_next.replace(tzinfo=timezone.utc)
+    if proposed.tzinfo is None:
+        proposed = proposed.replace(tzinfo=timezone.utc)
+
+    diff = abs((proposed - other_next).total_seconds())
+    if diff < 1800:  # 30 minutes
+        logger.info(
+            "Cross-job stagger: %s for bot %s pushed forward 60 min (was within %d min of %s)",
+            job_type, bot_row.id, int(diff / 60),
+            "skill_review" if job_type == "memory_hygiene" else "memory_hygiene",
+        )
+        return proposed + timedelta(minutes=60)
+    return proposed
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +709,10 @@ def _compute_next_run(bot_row: BotRow, now_utc: datetime, *, after_run: bool = F
 # ---------------------------------------------------------------------------
 
 async def check_memory_hygiene() -> None:
-    """Check all workspace-files bots and create hygiene tasks for those that are due."""
+    """Check all workspace-files bots and create tasks for those that are due.
+
+    Checks both memory_hygiene and skill_review job types.
+    """
     from app.db.engine import async_session
 
     now = datetime.now(timezone.utc)
@@ -539,88 +724,97 @@ async def check_memory_hygiene() -> None:
         )).scalars().all()
 
         for bot_row in rows:
-            try:
-                if not resolve_enabled(bot_row):
-                    continue
+            for job_type in ("memory_hygiene", "skill_review"):
+                try:
+                    await _check_job_for_bot(bot_row, job_type, now, db)
+                except Exception:
+                    logger.exception("Error checking %s for bot %s", job_type, bot_row.id)
 
-                # First-time bootstrap: stagger instead of running immediately
-                if bot_row.next_hygiene_run_at is None:
-                    target_hour = resolve_target_hour(bot_row)
-                    interval = resolve_interval(bot_row)
-                    if target_hour >= 0:
-                        bot_row.next_hygiene_run_at = _next_target_run(
-                            bot_row.id, target_hour, interval, now, after_run=False,
-                        )
-                    else:
-                        offset = _stagger_offset_minutes(bot_row.id, interval)
-                        bot_row.next_hygiene_run_at = now + timedelta(minutes=offset)
-                    await db.commit()
-                    logger.info("Bootstrapped hygiene for bot %s: first run at %s", bot_row.id, bot_row.next_hygiene_run_at)
-                    continue
 
-                # Skip if not yet due
-                if bot_row.next_hygiene_run_at > now:
-                    continue
+async def _check_job_for_bot(
+    bot_row: BotRow,
+    job_type: JobType,
+    now: datetime,
+    db: AsyncSession,
+) -> None:
+    """Check whether a specific job type is due for a bot and create the task if so."""
+    meta = _JOB_META[job_type]
+    cfg = resolve_config(bot_row, job_type)
 
-                interval = resolve_interval(bot_row)
+    if not cfg.enabled:
+        return
 
-                # Activity check (if enabled)
-                if resolve_only_if_active(bot_row):
-                    since = bot_row.last_hygiene_run_at or (now - timedelta(hours=interval))
-                    if not await _has_activity_since(bot_row.id, since, db):
-                        # No activity — advance schedule without running, but
-                        # record a skipped Task row so the Learning Center's
-                        # Recent Runs panel surfaces the decision instead of
-                        # silently dropping the cycle.
-                        skip_reason = (
-                            f"No user messages across bot's channels since "
-                            f"{since.isoformat()}"
-                        )
-                        skip_task = Task(
-                            id=uuid.uuid4(),
-                            bot_id=bot_row.id,
-                            prompt="",
-                            title=f"Memory hygiene skipped: {bot_row.id}",
-                            task_type="memory_hygiene",
-                            status="skipped",
-                            run_at=now,
-                            completed_at=now,
-                            result=skip_reason,
-                            dispatch_type="none",
-                            channel_id=None,
-                            session_id=None,
-                            client_id=None,
-                        )
-                        db.add(skip_task)
-                        bot_row.next_hygiene_run_at = _compute_next_run(bot_row, now, after_run=True)
-                        await db.commit()
-                        logger.info(
-                            "Skipped hygiene for bot %s: no activity since %s",
-                            bot_row.id, since,
-                        )
-                        continue
+    next_run = getattr(bot_row, meta["col_next_run"])
+    last_run = getattr(bot_row, meta["col_last_run"])
 
-                # Dedup: check if there's already a pending/running hygiene task
-                existing = (await db.execute(
-                    select(func.count())
-                    .select_from(Task)
-                    .where(
-                        Task.bot_id == bot_row.id,
-                        Task.task_type == "memory_hygiene",
-                        Task.status.in_(["pending", "running"]),
-                    )
-                )).scalar() or 0
-                if existing > 0:
-                    logger.debug("Skipped hygiene for bot %s: task already in progress", bot_row.id)
-                    continue
+    # First-time bootstrap: stagger instead of running immediately
+    if next_run is None:
+        if cfg.target_hour >= 0:
+            next_run = _next_target_run(
+                bot_row.id, cfg.target_hour, cfg.interval_hours, now, after_run=False,
+            )
+        else:
+            offset = _stagger_offset_minutes(bot_row.id, cfg.interval_hours)
+            next_run = now + timedelta(minutes=offset)
 
-                # Create the task + advance schedule atomically
-                await create_hygiene_task(bot_row.id, db, auto_commit=False)
-                bot_row.last_hygiene_run_at = now
-                bot_row.next_hygiene_run_at = _compute_next_run(bot_row, now, after_run=True)
-                await db.commit()
+        next_run = _cross_job_stagger(bot_row, job_type, next_run)
+        setattr(bot_row, meta["col_next_run"], next_run)
+        await db.commit()
+        logger.info("Bootstrapped %s for bot %s: first run at %s", job_type, bot_row.id, next_run)
+        return
 
-                logger.info("Scheduled hygiene for bot %s, next at %s", bot_row.id, bot_row.next_hygiene_run_at)
+    # Skip if not yet due
+    if next_run > now:
+        return
 
-            except Exception:
-                logger.exception("Error checking hygiene for bot %s", bot_row.id)
+    # Activity check (if enabled)
+    if cfg.only_if_active:
+        since = last_run or (now - timedelta(hours=cfg.interval_hours))
+        if not await _has_activity_since(bot_row.id, since, db):
+            # No activity — advance schedule, record a skipped Task row
+            skip_task = Task(
+                id=uuid.uuid4(),
+                bot_id=bot_row.id,
+                prompt="",
+                title=f"{meta['task_title']} skipped: {bot_row.id}",
+                task_type=job_type,
+                status="skipped",
+                run_at=now,
+                completed_at=now,
+                result=f"No user messages across bot's channels since {since.isoformat()}",
+                dispatch_type="none",
+                channel_id=None,
+                session_id=None,
+                client_id=None,
+            )
+            db.add(skip_task)
+            new_next = _compute_next_run(bot_row, now, job_type=job_type, after_run=True)
+            new_next = _cross_job_stagger(bot_row, job_type, new_next)
+            setattr(bot_row, meta["col_next_run"], new_next)
+            await db.commit()
+            logger.info("Skipped %s for bot %s: no activity since %s", job_type, bot_row.id, since)
+            return
+
+    # Dedup: check if there's already a pending/running task of this type
+    existing = (await db.execute(
+        select(func.count())
+        .select_from(Task)
+        .where(
+            Task.bot_id == bot_row.id,
+            Task.task_type == job_type,
+            Task.status.in_(["pending", "running"]),
+        )
+    )).scalar() or 0
+    if existing > 0:
+        logger.debug("Skipped %s for bot %s: task already in progress", job_type, bot_row.id)
+        return
+
+    # Create the task + advance schedule atomically
+    await create_hygiene_task(bot_row.id, db, job_type=job_type, auto_commit=False)
+    setattr(bot_row, meta["col_last_run"], now)
+    new_next = _compute_next_run(bot_row, now, job_type=job_type, after_run=True)
+    new_next = _cross_job_stagger(bot_row, job_type, new_next)
+    setattr(bot_row, meta["col_next_run"], new_next)
+    await db.commit()
+
+    logger.info("Scheduled %s for bot %s, next at %s", job_type, bot_row.id, new_next)

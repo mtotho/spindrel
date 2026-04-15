@@ -189,6 +189,15 @@ async def frigate_webhook(
         )
         results.append(result)
 
+    # Fire task triggers for this integration event (fire-and-forget)
+    from app.utils import safe_create_task
+    from integrations.utils import emit_integration_event
+    safe_create_task(emit_integration_event(
+        "frigate", "object_detected",
+        {"camera": event.camera, "label": event.label, "score": event.score},
+        client_id=CLIENT_ID, category="webhook",
+    ))
+
     if not results:
         return {"status": "filtered", "channels": len(pairs)}
 

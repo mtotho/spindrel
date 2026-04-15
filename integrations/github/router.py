@@ -184,6 +184,16 @@ async def github_webhook(
         )
         results.append(result)
 
+    # Fire task triggers for this integration event (fire-and-forget)
+    from app.utils import safe_create_task
+    from integrations.utils import emit_integration_event
+    safe_create_task(emit_integration_event(
+        "github", event_type,
+        {"owner": parsed.owner, "repo": parsed.repo,
+         "action": payload.get("action"), "sender": parsed.sender},
+        client_id=client_id, category="webhook",
+    ))
+
     if not results:
         return {"status": "filtered", "event": event_type, "channels": len(pairs)}
 

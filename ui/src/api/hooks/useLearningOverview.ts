@@ -10,6 +10,13 @@ export interface BotDreamingStatus {
   next_run_at: string | null;
   interval_hours: number;
   model: string | null;
+  // Skill review fields
+  skill_review_enabled: boolean;
+  skill_review_last_run_at: string | null;
+  skill_review_last_task_status: string | null;
+  skill_review_next_run_at: string | null;
+  skill_review_interval_hours: number;
+  skill_review_model: string | null;
 }
 
 export interface LearningHygieneRun {
@@ -33,6 +40,7 @@ export interface LearningHygieneRun {
   iterations: number;
   duration_ms?: number | null;
   files_affected: string[];
+  job_type: string;
 }
 
 export interface MemoryFileActivity {
@@ -43,6 +51,7 @@ export interface MemoryFileActivity {
   created_at: string;
   is_hygiene: boolean;
   correlation_id?: string | null;
+  job_type?: string | null;
 }
 
 export interface LearningOverview {

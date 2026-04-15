@@ -82,6 +82,7 @@ export interface IntegrationItem {
   status: "ready" | "partial" | "not_configured";
   readme: string | null;
   debug_actions?: DebugAction[];
+  events?: { type: string; label: string; description?: string; category?: string }[];
 }
 
 export interface IntegrationTaskItem {

@@ -294,7 +294,7 @@ export default function ToolsScreen() {
       </div>
 
       {/* List */}
-      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{ padding: isWide ? undefined : "0 12px" }}>
         {(!tools || tools.length === 0) && (
           <div style={{
             padding: 40, textAlign: "center", color: t.textDim, fontSize: 13,

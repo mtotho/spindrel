@@ -5,13 +5,15 @@ import {
 } from "./taskUtils";
 
 // ---------------------------------------------------------------------------
-// Filter toolbar (type + status pills, conflict/disabled indicators)
+// Filter toolbar (type + status — dropdowns on mobile, pills on desktop)
 // ---------------------------------------------------------------------------
 export function TaskFilters({
   typeFilter, setTypeFilter,
   statusFilter, setStatusFilter,
   disabledScheduleCount,
   conflictCount,
+  isMobile,
+  botFilter, setBotFilter, bots,
 }: {
   typeFilter: TaskTypeFilter;
   setTypeFilter: (f: TaskTypeFilter) => void;
@@ -19,7 +21,79 @@ export function TaskFilters({
   setStatusFilter: (f: StatusFilter) => void;
   disabledScheduleCount: number;
   conflictCount: number;
+  isMobile?: boolean;
+  botFilter?: string;
+  setBotFilter?: (v: string) => void;
+  bots?: Array<{ id: string; name?: string }>;
 }) {
+  if (isMobile) {
+    return (
+      <div className="flex flex-row items-center gap-2 px-4 py-2 border-b border-surface-raised overflow-x-auto">
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value as TaskTypeFilter)}
+          className={`px-2 py-1 text-[11px] rounded-md bg-surface-raised cursor-pointer outline-none ${
+            typeFilter !== "all"
+              ? "text-text border border-accent"
+              : "text-text-dim border border-surface-border"
+          }`}
+        >
+          {TASK_TYPE_FILTERS.map((f) => (
+            <option key={f.key} value={f.key}>{f.label}</option>
+          ))}
+        </select>
+
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+          className={`px-2 py-1 text-[11px] rounded-md bg-surface-raised cursor-pointer outline-none ${
+            statusFilter !== "all"
+              ? "text-text border border-accent"
+              : "text-text-dim border border-surface-border"
+          }`}
+        >
+          {STATUS_FILTERS.map((f) => (
+            <option key={f.key} value={f.key}>{f.label}</option>
+          ))}
+        </select>
+
+        {setBotFilter && (
+          <select
+            value={botFilter ?? ""}
+            onChange={(e) => setBotFilter(e.target.value)}
+            className={`px-2 py-1 text-[11px] rounded-md bg-surface-raised cursor-pointer outline-none ${
+              botFilter
+                ? "text-text border border-accent"
+                : "text-text-dim border border-surface-border"
+            }`}
+          >
+            <option value="">All Bots</option>
+            {bots?.map((b) => (
+              <option key={b.id} value={b.id}>{b.name || b.id}</option>
+            ))}
+          </select>
+        )}
+
+        {disabledScheduleCount > 0 && statusFilter !== "cancelled" && (
+          <button
+            onClick={() => setStatusFilter("cancelled")}
+            className="inline-flex flex-row items-center gap-1 text-[11px] font-semibold text-text-dim bg-surface-raised px-2 py-[3px] rounded-full border-none cursor-pointer hover:text-text"
+          >
+            <XCircle size={10} className="text-text-dim" />
+            {disabledScheduleCount}
+          </button>
+        )}
+
+        {conflictCount > 0 && (
+          <span className="inline-flex flex-row items-center gap-1 text-[10px] font-bold text-warning-muted bg-warning/[0.08] px-2 py-[3px] rounded-full shrink-0">
+            <AlertTriangle size={10} className="text-warning-muted" />
+            {conflictCount}
+          </span>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-row items-center gap-1.5 px-5 py-2 border-b border-surface-raised overflow-x-auto flex-wrap">
       {/* Type filter pills */}

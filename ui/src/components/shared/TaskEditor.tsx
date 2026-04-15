@@ -242,7 +242,7 @@ export function TaskEditor({
   const editorTitle = cloneFromId ? "New Task (Clone)" : isCreate ? "New Task" : "Edit Task";
 
   return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[10000] bg-surface">
+    <div className="flex fixed inset-0 z-[10000] bg-surface">
       {/* Header */}
       <div className={`flex flex-row items-center border-b border-surface-border shrink-0 gap-2 ${isWide ? "px-5 py-3" : "px-3 py-2.5"}`}>
         <button
@@ -343,7 +343,7 @@ export function TaskEditor({
           <div className="chat-spinner" />
         </div>
       ) : (
-        <div className={`flex flex-1 overflow-y-auto ${isWide ? "flex-row" : ""}`}>
+        <div className={`flex flex-1 min-h-0 overflow-y-auto ${isWide ? "flex-row" : ""}`}>
           {/* Prompt + Result/Error */}
           <div className={isWide ? "flex-[3] border-r border-surface-overlay" : ""}>
             <div className="flex px-5 py-4 gap-4">

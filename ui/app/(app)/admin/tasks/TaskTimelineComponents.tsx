@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { RefreshCw, AlertTriangle } from "lucide-react";
+import { RefreshCw, AlertTriangle, ChevronRight } from "lucide-react";
 import { formatTime, formatDate } from "@/src/utils/time";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -222,7 +222,7 @@ function assignLanes(sorted: { task: TaskItem; topPx: number }[], cardHeight: nu
   return result;
 }
 
-export function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void; compact?: boolean }) {
+export function DayColumn({ date, tasks, onTaskPress, compact, showHourLabels = true }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void; compact?: boolean; showHourLabels?: boolean }) {
   const now = new Date();
   const showNow = isToday(date);
 
@@ -261,7 +261,7 @@ export function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; t
 
       <div className="relative pl-12" style={{ height: 1440 }}>
         <HourGrid />
-        <HourLabels />
+        {showHourLabels && <HourLabels />}
         {showNow && <NowLine />}
 
         {positioned.map(({ task: tk, topPx, lane, totalLanes }) => {
@@ -287,6 +287,64 @@ export function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; t
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mobile week summary — replaces the 7-column grid on narrow screens
+// ---------------------------------------------------------------------------
+export function MobileWeekSummary({ tasksByDay, onDayPress, onTaskPress }: {
+  tasksByDay: Record<string, TaskItem[]>;
+  onDayPress: (date: Date) => void;
+  onTaskPress: (t: TaskItem) => void;
+}) {
+  const now = new Date();
+  return (
+    <div className="flex">
+      {Object.entries(tasksByDay).map(([dayStr, tasks]) => {
+        const date = new Date(dayStr);
+        const today = isToday(date);
+        return (
+          <div key={dayStr} className={today ? "bg-accent/[0.04]" : ""}>
+            <button
+              onClick={() => onDayPress(date)}
+              className={`flex flex-row items-center justify-between w-full px-4 py-3 bg-transparent border-none border-b border-surface-border cursor-pointer`}
+            >
+              <span className={`text-sm font-bold ${today ? "text-accent" : "text-text"}`}>
+                {today ? "Today" : date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+              </span>
+              <div className="flex flex-row items-center gap-2">
+                <span className={`text-xs font-medium ${tasks.length > 0 ? "text-text-muted" : "text-text-dim"}`}>
+                  {tasks.length} task{tasks.length !== 1 ? "s" : ""}
+                </span>
+                <ChevronRight size={14} className="text-text-dim" />
+              </div>
+            </button>
+            {tasks.length > 0 && (
+              <div className="flex gap-2 px-4 py-2">
+                {tasks.slice(0, 3).map((tk) => (
+                  <TaskCard
+                    key={tk.id}
+                    task={tk}
+                    isPast={getTaskTime(tk) < now && tk.status !== "running"}
+                    onClick={() => onTaskPress(tk)}
+                    compact
+                  />
+                ))}
+                {tasks.length > 3 && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDayPress(date); }}
+                    className="text-[11px] text-accent bg-transparent border-none cursor-pointer py-1"
+                  >
+                    +{tasks.length - 3} more
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

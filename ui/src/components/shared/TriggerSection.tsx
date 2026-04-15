@@ -3,10 +3,10 @@
  *
  * Used in TaskCreateModal and TaskEditor to configure how a task is triggered.
  */
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { FormRow, SelectInput } from "./FormControls";
 import { ScheduledAtPicker, RecurrencePicker, ScheduleSummary } from "./SchedulingPickers";
-import { useTriggerEvents } from "@/src/api/hooks/useTasks";
+import { useTriggerEvents, type TriggerEventSource } from "@/src/api/hooks/useTasks";
 
 export type TriggerType = "schedule" | "event" | "manual";
 
@@ -100,6 +100,26 @@ export function TriggerSection({
 // ---------------------------------------------------------------------------
 // Event trigger sub-form
 // ---------------------------------------------------------------------------
+
+/** Group sources by integration type for <optgroup> display. */
+function useGroupedSourceOptions(sources: TriggerEventSource[]) {
+  return useMemo(() => {
+    // Separate system from integration sources
+    const systemSources = sources.filter((s) => s.source === "system");
+    const integrationSources = sources.filter((s) => s.source !== "system");
+
+    // Group integration sources by integration_type
+    const groups = new Map<string, TriggerEventSource[]>();
+    for (const s of integrationSources) {
+      const key = s.integration_type ?? s.source;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(s);
+    }
+
+    return { systemSources, groups };
+  }, [sources]);
+}
+
 function EventTriggerFields({
   triggerConfig,
   onTriggerConfigChange,
@@ -109,17 +129,13 @@ function EventTriggerFields({
 }: {
   triggerConfig: TriggerConfig;
   onTriggerConfigChange: (tc: TriggerConfig) => void;
-  sources: { source: string; label: string; events: { type: string; label: string; description?: string }[] }[];
-  selectedSource: { source: string; label: string; events: { type: string; label: string }[] } | undefined;
+  sources: TriggerEventSource[];
+  selectedSource: TriggerEventSource | undefined;
   selectedEvents: { type: string; label: string }[];
 }) {
   const [filterKey, setFilterKey] = useState("");
   const [filterValue, setFilterValue] = useState("");
-
-  const sourceOptions = [
-    { label: "Select source...", value: "" },
-    ...sources.map((s) => ({ label: s.label, value: s.source })),
-  ];
+  const { systemSources, groups } = useGroupedSourceOptions(sources);
 
   const eventOptions = [
     { label: "All events", value: "" },
@@ -146,32 +162,54 @@ function EventTriggerFields({
     });
   };
 
+  const handleSourceChange = (v: string) => {
+    onTriggerConfigChange({
+      ...triggerConfig,
+      event_source: v || undefined,
+      event_type: undefined,
+      event_action: undefined,
+      event_filter: undefined,
+    });
+  };
+
   if (sources.length === 0) {
     return (
       <div className="px-4 py-3.5 rounded-[10px] bg-surface-raised border border-surface-border text-xs text-text-dim leading-normal">
-        No integrations with event triggers installed. System events are always available.
+        No event sources available. Install integrations or configure channel bindings to enable event triggers.
       </div>
     );
   }
 
   return (
     <div className="flex gap-2.5">
-      <FormRow label="Source">
-        <SelectInput
+      <FormRow label="Source" description="Which integration or system emits the event">
+        <select
           value={triggerConfig.event_source ?? ""}
-          onChange={(v) => onTriggerConfigChange({
-            ...triggerConfig,
-            event_source: v || undefined,
-            event_type: undefined,
-            event_action: undefined,
-            event_filter: undefined,
-          })}
-          options={sourceOptions}
-        />
+          onChange={(e) => handleSourceChange(e.target.value)}
+          className="w-full px-2.5 py-2 text-xs bg-input border border-surface-border rounded-lg text-text outline-none focus:border-accent appearance-none cursor-pointer"
+        >
+          <option value="">Select source...</option>
+          {systemSources.length > 0 && (
+            <optgroup label="System">
+              {systemSources.map((s) => (
+                <option key={s.source} value={s.source}>{s.label}</option>
+              ))}
+            </optgroup>
+          )}
+          {Array.from(groups.entries()).map(([intType, groupSources]) => (
+            <optgroup key={intType} label={intType.charAt(0).toUpperCase() + intType.slice(1)}>
+              {groupSources.map((s) => (
+                <option key={s.source} value={s.source} disabled={s.disabled}>
+                  {s.label}{s.disabled ? " (not configured)" : ""}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
       </FormRow>
 
       {triggerConfig.event_source && (
-        <FormRow label="Event">
+        <FormRow label="Event" description="Filter to a specific event type, or leave on 'All'">
           <SelectInput
             value={triggerConfig.event_type ?? ""}
             onChange={(v) => onTriggerConfigChange({

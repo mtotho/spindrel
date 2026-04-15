@@ -338,7 +338,7 @@ export function OverviewTab({ days }: { days: number }) {
 
   const botsWithFailures = useMemo(() => {
     if (!data) return [];
-    return data.bots.filter((b) => b.last_task_status === "failed");
+    return data.bots.filter((b) => b.last_task_status === "failed" || b.skill_review_last_task_status === "failed");
   }, [data]);
 
   const failedRuns = useMemo(
@@ -388,7 +388,13 @@ export function OverviewTab({ days }: { days: number }) {
         <MetricCard
           label="Bots Dreaming"
           value={`${data.dreaming_enabled_count}/${data.total_bots}`}
-          subtitle={nextRunBot ? `Next: ${nextRunBot.bot_name} ${fmtRelativeFuture(nextRunBot.next_run_at)}` : undefined}
+          subtitle={(() => {
+            const srCount = data.bots.filter(b => b.skill_review_enabled).length;
+            const parts: string[] = [`${data.dreaming_enabled_count} maint`];
+            if (srCount > 0) parts.push(`${srCount} skills`);
+            if (nextRunBot) parts.push(`Next: ${nextRunBot.bot_name} ${fmtRelativeFuture(nextRunBot.next_run_at)}`);
+            return parts.join(" · ");
+          })()}
           icon={<Moon size={13} color="#8b5cf6" />}
           accent="#8b5cf6"
         />
@@ -574,7 +580,9 @@ export function OverviewTab({ days }: { days: number }) {
                     >
                       <div style={{
                         width: 3, height: 20, borderRadius: 2, flexShrink: 0,
-                        background: item.is_hygiene ? "#8b5cf6" : t.surfaceBorder,
+                        background: item.is_hygiene
+                          ? (item.job_type === "skill_review" ? "#8b5cf6" : "#f59e0b")
+                          : t.surfaceBorder,
                       }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
@@ -587,10 +595,12 @@ export function OverviewTab({ days }: { days: number }) {
                           {item.is_hygiene && (
                             <span style={{
                               fontSize: 7, fontWeight: 700, padding: "1px 5px", borderRadius: 3,
-                              background: "rgba(139,92,246,0.15)", color: "#8b5cf6",
                               textTransform: "uppercase", letterSpacing: 0.5,
+                              background: item.job_type === "skill_review"
+                                ? "rgba(139,92,246,0.15)" : "rgba(245,158,11,0.15)",
+                              color: item.job_type === "skill_review" ? "#8b5cf6" : "#f59e0b",
                             }}>
-                              dreaming
+                              {item.job_type === "skill_review" ? "skills" : "maint"}
                             </span>
                           )}
                         </div>

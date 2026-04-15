@@ -115,11 +115,11 @@ Use the `file` tool to write to the appropriate files under memory/.
 
 
 DEFAULT_MEMORY_HYGIENE_PROMPT = """\
-[MEMORY HYGIENE — Periodic Review]
+[MEMORY MAINTENANCE — Periodic Review]
 
-You are running a scheduled memory hygiene pass across all your channels.
+You are running a scheduled memory maintenance pass across all your channels.
 Your goal: keep memory lean, promote stable facts, prune stale entries, detect contradictions,
-generate cross-channel reflections, and consolidate skills.
+archive old logs, and keep files organized.
 
 ## Step 1 — Survey channels
 Your channels (primary and member) are listed in the "## Channels" snapshot appended below, with last activity times and 7-day message counts. For each channel with recent activity:
@@ -154,11 +154,35 @@ Scan recent daily logs (last 3-7 days). For each candidate entry, mentally score
 
 Promote entries scoring well on 3+ factors:
 - Stable facts or decisions → promote to memory/MEMORY.md using `file(operation="edit")` to update existing sections or `file(operation="append")` for new sections. **NEVER use `file(operation="write")` on MEMORY.md** — it replaces the entire file.
-- Reusable procedures or patterns → create skills with `manage_bot_skill(action="create", ...)`
+- Reusable procedures or patterns → note them for the skill review job to create
 - Detailed reference info → move to memory/reference/ files
 
-## Step 5 — Cross-channel reflection
-After reviewing all channels, generate 3-5 meta-observations. Look for:
+## Step 5 — Archive maintenance
+- Create the archive directory if needed: `file(operation="mkdir", path="memory/logs/archive")`
+- Move processed logs older than 14 days: `file(operation="move", path="memory/logs/YYYY-MM-DD.md", destination="memory/logs/archive/YYYY-MM-DD.md")`
+- Archived logs remain searchable via `search_memory` but won't be auto-injected into context.
+- Only archive logs you've already reviewed and promoted from in this or previous hygiene runs.
+- Clean up orphaned reference files that are no longer linked from MEMORY.md — use `file(operation="delete", path="memory/reference/outdated-file.md")`.
+- Update any `<!-- superseded -->` references that are older than 30 days — delete them entirely.
+
+## Step 6 — Summarize
+Write a brief summary to today's daily log including:
+- Entries added / updated / removed
+- Contradictions resolved (if any)
+- Files archived or cleaned up
+- Any topics you noticed that might benefit from a dedicated skill (the skill review job handles creation)"""
+
+
+DEFAULT_SKILL_REVIEW_PROMPT = """\
+[SKILL REVIEW — Periodic Assessment]
+
+You are running a scheduled skill review pass. Your goal: generate cross-channel reflections,
+prune stale or low-value skills, improve skill triggers, create new skills for emerging patterns,
+and audit auto-inject quality.
+
+## Step 1 — Cross-channel reflection
+Your channels (primary and member) are listed in the "## Channels" snapshot appended below.
+Review recent activity across all channels and generate 3-5 meta-observations. Look for:
 - **Recurring patterns**: Similar requests or problems appearing across channels
 - **Cross-project connections**: Information from one channel that's relevant to another
 - **Emerging themes**: New topics or interests the user is developing
@@ -173,7 +197,7 @@ Write reflections to a dedicated `## Reflections` section at the bottom of MEMOR
 - Cap at ~5-8 active reflections to prevent bloat. Drop the least actionable if over the cap.
 - Reflections should be actionable — "User frequently asks about X, consider creating a skill" rather than "User is interested in X."
 
-## Step 6 — Skill hygiene
+## Step 2 — Skill hygiene
 Review your complete skill list in the "## Working set" snapshot appended below. It shows ALL your enrolled skills (both authored and catalog) with per-bot fetch counts, global surface counts, source, and age.
 
 ### Understanding the data
@@ -197,21 +221,12 @@ Review your complete skill list in the "## Working set" snapshot appended below.
 - Protected: `prune_enrolled_skills(skill_ids=["id1"], overrides={"id1": "reason"})`
 - **Do not call `manage_bot_skill(action="delete")` on catalog skills you don't own** — that archives the skill itself, not just your enrollment.
 
-## Step 7 — Archive maintenance
-- Create the archive directory if needed: `file(operation="mkdir", path="memory/logs/archive")`
-- Move processed logs older than 14 days: `file(operation="move", path="memory/logs/YYYY-MM-DD.md", destination="memory/logs/archive/YYYY-MM-DD.md")`
-- Archived logs remain searchable via `search_memory` but won't be auto-injected into context.
-- Only archive logs you've already reviewed and promoted from in this or previous hygiene runs.
-- Clean up orphaned reference files that are no longer linked from MEMORY.md — use `file(operation="delete", path="memory/reference/outdated-file.md")`.
-- Update any `<!-- superseded -->` references that are older than 30 days — delete them entirely.
-
-## Step 8 — Summarize
+## Step 3 — Summarize
 Write a brief summary to today's daily log including:
-- Entries added / updated / removed
-- Contradictions resolved (if any)
-- Reflections generated
-- Skills created / merged / deleted
-- Files archived or cleaned up"""
+- Reflections generated or updated
+- Skills created / merged / pruned / updated
+- Auto-inject quality issues found and corrected
+- Any knowledge gaps identified that couldn't be addressed"""
 
 
 # ---------------------------------------------------------------------------
@@ -729,6 +744,15 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     MEMORY_HYGIENE_MODEL: str = ""  # empty = use bot's default model
     MEMORY_HYGIENE_MODEL_PROVIDER_ID: str = ""  # empty = use bot's default provider
     MEMORY_HYGIENE_TARGET_HOUR: int = -1  # 0-23 = target hour (local tz), -1 = disabled (current behavior)
+
+    # Skill review (periodic skill curation — separate from memory maintenance)
+    SKILL_REVIEW_ENABLED: bool = False
+    SKILL_REVIEW_INTERVAL_HOURS: int = 72  # 3 days — skill rot is slower than memory drift
+    SKILL_REVIEW_PROMPT: str = ""  # empty = use DEFAULT_SKILL_REVIEW_PROMPT
+    SKILL_REVIEW_ONLY_IF_ACTIVE: bool = False  # skill rot happens regardless of activity
+    SKILL_REVIEW_MODEL: str = ""  # empty = use bot's default model (should be a strong model)
+    SKILL_REVIEW_MODEL_PROVIDER_ID: str = ""  # empty = use bot's default provider
+    SKILL_REVIEW_TARGET_HOUR: int = -1  # 0-23 = target hour (local tz), -1 = disabled
 
     # Channel workspace injection prompt.
     # Placeholders: {workspace_path}, {channel_id}, {data_listing}

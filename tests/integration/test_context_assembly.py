@@ -1050,6 +1050,51 @@ class TestMessageOrdering:
             assert m["role"] == "system"
 
     @pytest.mark.asyncio
+    async def test_datetime_injected_late_for_cache_efficiency(self, engine):
+        """Datetime must come AFTER stable context (carapace fragments, pinned knowledge,
+        delegation index, etc.) to avoid busting the prompt cache prefix. The timestamp
+        changes every request, so placing it early invalidates caching for all subsequent
+        system messages."""
+        bot = _make_bot()
+        messages = [{"role": "system", "content": bot.system_prompt}]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        with (
+            patch("app.db.engine.async_session", factory),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+            patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
+        ):
+            events = await _collect(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="hello",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+            ))
+
+        # Find datetime and marker positions
+        time_idx = next(i for i, m in enumerate(messages) if "Current time" in m.get("content", ""))
+        marker_idx = next(i for i, m in enumerate(messages) if "CURRENT message follows" in m.get("content", ""))
+
+        # Datetime must be the last system message before the marker.
+        # Placing it earlier busts prompt cache for all subsequent stable content.
+        assert time_idx == marker_idx - 1, (
+            f"Datetime (idx={time_idx}) should be immediately before "
+            f"the current-turn marker (idx={marker_idx}). "
+            f"Moving it earlier breaks prompt cache for stable context."
+        )
+
+    @pytest.mark.asyncio
     async def test_bot_system_prompt_reinforced_when_enabled(self, engine):
         """When REINFORCE_SYSTEM_PROMPT is enabled, bot.system_prompt must be reinforced
         as the last system message before the user turn. Disabled by default since

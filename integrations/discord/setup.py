@@ -10,6 +10,10 @@ SETUP = {
     "api_permissions": "slack_integration",
     "webhook": None,
     "instructions_url": None,
+    "events": [
+        {"type": "message_received", "label": "Message received", "description": "New message in a bound channel", "category": "message"},
+        {"type": "reaction_added", "label": "Reaction added", "description": "Emoji reaction added to a message", "category": "message"},
+    ],
     "binding": {
         "client_id_prefix": "discord:",
         "client_id_placeholder": "discord:123456789012345678",

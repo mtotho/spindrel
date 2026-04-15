@@ -54,7 +54,12 @@ export function configSummaryText(
     if (v === undefined || v === null) continue;
     if (v === f.default) continue;
     if (Array.isArray(v)) {
-      if (v.length > 0) parts.push(`${f.label}: ${v.join(", ")}`);
+      if (v.length > 0) {
+        // Map values to labels for multiselect fields
+        const optMap = new Map((f.options ?? []).map((o) => [o.value, o.label]));
+        const labels = v.map((val) => optMap.get(val) ?? val);
+        parts.push(`${f.label}: ${labels.join(", ")}`);
+      }
     } else if (typeof v === "boolean") {
       parts.push(`${f.label}: ${v ? "on" : "off"}`);
     } else if (v !== "") {

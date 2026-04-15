@@ -4,7 +4,7 @@ import { RefreshableScrollView } from "@/src/components/shared/RefreshableScroll
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChevronLeft, ChevronRight, Plus, Calendar, List, Terminal,
+  ChevronLeft, ChevronRight, Plus, Calendar, CalendarDays, CalendarRange, List, Terminal,
 } from "lucide-react";
 import { AlertCircle } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
@@ -17,7 +17,7 @@ import { formatDate } from "@/src/utils/time";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { TaskItem, TasksResponse } from "@/src/components/shared/TaskConstants";
 import { CronJobsView } from "./CronJobsView";
-import { DayColumn } from "./TaskTimelineComponents";
+import { DayColumn, MobileWeekSummary } from "./TaskTimelineComponents";
 import { ScheduleView } from "./ScheduleView";
 import { TaskListView } from "./TaskListView";
 import { TaskFilters } from "./TaskFilters";
@@ -176,89 +176,150 @@ export default function TasksScreen() {
       ].filter(Boolean).join(" \u00b7 ") || "No schedules"
     : undefined;
 
+  const handleDayPress = (date: Date) => {
+    setBaseDate(startOfDay(date));
+    setViewMode("day");
+  };
+
   const VIEW_MODES: { key: ViewMode; label: string; icon?: typeof Calendar }[] = [
     { key: "schedule", label: "Schedule", icon: Calendar },
-    { key: "day", label: "Day" },
-    { key: "week", label: "Week" },
+    { key: "day", label: "Day", icon: CalendarDays },
+    { key: "week", label: "Week", icon: CalendarRange },
     { key: "list", label: "List", icon: List },
     { key: "cron", label: "Cron Jobs", icon: Terminal },
   ];
 
   return (
-    <div className="flex-1 bg-surface overflow-hidden">
+    <div className="flex flex-1 min-h-0 bg-surface overflow-hidden">
       <PageHeader variant="list"
         title="Tasks"
-        subtitle={subtitle}
+        subtitle={!isMobile ? subtitle : undefined}
         right={
-          <div className="flex flex-row items-center gap-1.5 flex-wrap">
+          isMobile ? (
             <button
               onClick={() => setEditorState({ mode: "create" })}
               title="New Task"
-              className="flex flex-row items-center gap-1.5 px-3.5 py-[5px] text-xs font-semibold border-none cursor-pointer rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
+              className="flex flex-row items-center gap-1.5 px-3 py-[5px] text-xs font-semibold border-none cursor-pointer rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
             >
               <Plus size={14} />
-              {!isMobile && "New Task"}
             </button>
+          ) : (
+            <div className="flex flex-row items-center gap-1.5 flex-wrap">
+              <button
+                onClick={() => setEditorState({ mode: "create" })}
+                title="New Task"
+                className="flex flex-row items-center gap-1.5 px-3.5 py-[5px] text-xs font-semibold border-none cursor-pointer rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
+              >
+                <Plus size={14} />
+                New Task
+              </button>
 
-            <select
-              value={botFilter}
-              onChange={(e) => setBotFilter(e.target.value)}
-              className={`px-2 py-[5px] text-[11px] rounded-md bg-surface-raised cursor-pointer max-w-[140px] outline-none ${
-                botFilter
-                  ? "text-text border border-accent"
-                  : "text-text-dim border border-surface-border"
-              }`}
-            >
-              <option value="">All Bots</option>
-              {bots?.map((b: any) => (
-                <option key={b.id} value={b.id}>{b.name || b.id}</option>
-              ))}
-            </select>
+              <select
+                value={botFilter}
+                onChange={(e) => setBotFilter(e.target.value)}
+                className={`px-2 py-[5px] text-[11px] rounded-md bg-surface-raised cursor-pointer max-w-[140px] outline-none ${
+                  botFilter
+                    ? "text-text border border-accent"
+                    : "text-text-dim border border-surface-border"
+                }`}
+              >
+                <option value="">All Bots</option>
+                {bots?.map((b: any) => (
+                  <option key={b.id} value={b.id}>{b.name || b.id}</option>
+                ))}
+              </select>
 
-            <div className="flex flex-row gap-0.5 bg-surface-raised rounded-lg border border-surface-border p-0.5">
-              {VIEW_MODES.map((m) => {
-                const IconCmp = m.icon;
-                return (
+              <div className="flex flex-row gap-0.5 bg-surface-raised rounded-lg border border-surface-border p-0.5">
+                {VIEW_MODES.map((m) => {
+                  const IconCmp = m.icon;
+                  return (
+                    <button
+                      key={m.key}
+                      onClick={() => setViewMode(m.key)}
+                      className={`flex px-3 py-[5px] text-[11px] font-semibold border-none cursor-pointer rounded-md flex-row items-center gap-1 capitalize transition-colors duration-100 ${
+                        viewMode === m.key
+                          ? "bg-accent text-white"
+                          : "bg-transparent text-text-muted hover:text-text"
+                      }`}
+                    >
+                      {IconCmp && <IconCmp size={12} />}
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {isCalendar && (
+                <>
                   <button
-                    key={m.key}
-                    onClick={() => setViewMode(m.key)}
-                    className={`flex px-3 py-[5px] text-[11px] font-semibold border-none cursor-pointer rounded-md flex-row items-center gap-1 capitalize transition-colors duration-100 ${
-                      viewMode === m.key
-                        ? "bg-accent text-white"
-                        : "bg-transparent text-text-muted hover:text-text"
-                    }`}
+                    onClick={goToday}
+                    className="px-2 py-[5px] text-[11px] border border-surface-border rounded-md bg-transparent text-text-muted cursor-pointer hover:text-text hover:border-accent/50 transition-colors"
                   >
-                    {IconCmp && <IconCmp size={12} />}
-                    {m.label}
+                    Today
                   </button>
-                );
-              })}
+                  <button onClick={goPrev} className="bg-transparent border-none cursor-pointer p-0.5">
+                    <ChevronLeft size={16} className="text-text-muted" />
+                  </button>
+                  <span className="text-xs text-text font-medium text-center whitespace-nowrap">
+                    {viewMode === "day"
+                      ? formatDate(baseDate)
+                      : `${formatDate(baseDate)} \u2014 ${formatDate(addDays(baseDate, 6))}`}
+                  </span>
+                  <button onClick={goNext} className="bg-transparent border-none cursor-pointer p-0.5">
+                    <ChevronRight size={16} className="text-text-muted" />
+                  </button>
+                </>
+              )}
             </div>
-
-            {isCalendar && (
-              <>
-                <button
-                  onClick={goToday}
-                  className="px-2 py-[5px] text-[11px] border border-surface-border rounded-md bg-transparent text-text-muted cursor-pointer hover:text-text hover:border-accent/50 transition-colors"
-                >
-                  Today
-                </button>
-                <button onClick={goPrev} className="bg-transparent border-none cursor-pointer p-0.5">
-                  <ChevronLeft size={16} className="text-text-muted" />
-                </button>
-                <span className="text-xs text-text font-medium text-center">
-                  {viewMode === "day"
-                    ? formatDate(baseDate)
-                    : `${formatDate(baseDate)} \u2014 ${formatDate(addDays(baseDate, 6))}`}
-                </span>
-                <button onClick={goNext} className="bg-transparent border-none cursor-pointer p-0.5">
-                  <ChevronRight size={16} className="text-text-muted" />
-                </button>
-              </>
-            )}
-          </div>
+          )
         }
       />
+
+      {/* Mobile control bar — view modes + date nav */}
+      {isMobile && (
+        <div className="flex flex-row items-center gap-1.5 px-3 py-2 border-b border-surface-border">
+          <div className="flex flex-row gap-0.5 bg-surface-raised rounded-lg border border-surface-border p-0.5">
+            {VIEW_MODES.map((m) => {
+              const IconCmp = m.icon;
+              return (
+                <button
+                  key={m.key}
+                  onClick={() => setViewMode(m.key)}
+                  className={`flex px-2.5 py-[5px] text-[11px] font-semibold border-none cursor-pointer rounded-md flex-row items-center gap-1 transition-colors duration-100 ${
+                    viewMode === m.key
+                      ? "bg-accent text-white"
+                      : "bg-transparent text-text-muted hover:text-text"
+                  }`}
+                >
+                  {IconCmp && <IconCmp size={12} />}
+                </button>
+              );
+            })}
+          </div>
+
+          {isCalendar && (
+            <>
+              <button
+                onClick={goToday}
+                className="px-2 py-[5px] text-[11px] border border-surface-border rounded-md bg-transparent text-text-muted cursor-pointer hover:text-text hover:border-accent/50 transition-colors shrink-0"
+              >
+                Today
+              </button>
+              <button onClick={goPrev} className="bg-transparent border-none cursor-pointer p-0.5 shrink-0">
+                <ChevronLeft size={16} className="text-text-muted" />
+              </button>
+              <span className="text-xs text-text font-medium text-center whitespace-nowrap min-w-0">
+                {viewMode === "day"
+                  ? formatDate(baseDate)
+                  : `${baseDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })} \u2013 ${addDays(baseDate, 6).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}
+              </span>
+              <button onClick={goNext} className="bg-transparent border-none cursor-pointer p-0.5 shrink-0">
+                <ChevronRight size={16} className="text-text-muted" />
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Filter rows (hidden in cron mode) */}
       {viewMode !== "cron" && (
@@ -269,6 +330,10 @@ export default function TasksScreen() {
           setStatusFilter={setStatusFilter}
           disabledScheduleCount={disabledScheduleCount}
           conflictCount={conflictCount}
+          isMobile={isMobile}
+          botFilter={isMobile ? botFilter : undefined}
+          setBotFilter={isMobile ? setBotFilter : undefined}
+          bots={isMobile ? bots : undefined}
         />
       )}
 
@@ -324,20 +389,29 @@ export default function TasksScreen() {
         </RefreshableScrollView>
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
-          <div
-            className="flex flex-row flex-1 border-l border-surface-overlay"
-            style={{ minHeight: 1500 }}
-          >
-            {Object.entries(tasksByDay).map(([dayStr, tasks]) => (
-              <DayColumn
-                key={dayStr}
-                date={new Date(dayStr)}
-                tasks={tasks}
-                onTaskPress={handleTaskPress}
-                compact={viewMode === "week"}
-              />
-            ))}
-          </div>
+          {isMobile && viewMode === "week" ? (
+            <MobileWeekSummary
+              tasksByDay={tasksByDay}
+              onDayPress={handleDayPress}
+              onTaskPress={handleTaskPress}
+            />
+          ) : (
+            <div
+              className="flex flex-row flex-1 border-l border-surface-overlay"
+              style={{ minHeight: 1500 }}
+            >
+              {Object.entries(tasksByDay).map(([dayStr, tasks], idx) => (
+                <DayColumn
+                  key={dayStr}
+                  date={new Date(dayStr)}
+                  tasks={tasks}
+                  onTaskPress={handleTaskPress}
+                  compact={viewMode === "week"}
+                  showHourLabels={viewMode === "day" || idx === 0}
+                />
+              ))}
+            </div>
+          )}
         </RefreshableScrollView>
       )}
 

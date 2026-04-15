@@ -58,6 +58,9 @@ SETUP = {
             "method": "GET",
         },
     ],
+    "events": [
+        {"type": "message_received", "label": "Message received", "description": "New iMessage received", "category": "message"},
+    ],
     "activation": {
         "description": "iMessage relay via BlueBubbles — connection status and kill switch",
         "carapaces": [],

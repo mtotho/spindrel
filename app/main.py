@@ -224,6 +224,36 @@ async def lifespan(application: FastAPI):
     from app.services.providers import seed_provider_from_file, load_providers
     await seed_provider_from_file()
     await load_providers()
+    # Sync SPINDREL_HOME → HOME_HOST_DIR in .env so docker-compose can mount it.
+    # This runs inside the container after DB settings are loaded.  The value
+    # takes effect on the NEXT container restart (compose re-reads .env).
+    if settings.SPINDREL_HOME and not os.environ.get("HOME_HOST_DIR"):
+        _env_path_home = os.path.join(os.getcwd(), ".env")
+        try:
+            import re as _re_home
+            _home_val = settings.SPINDREL_HOME
+            if os.path.isfile(_env_path_home):
+                with open(_env_path_home) as f:
+                    _env_content_home = f.read()
+                if "HOME_HOST_DIR=" in _env_content_home:
+                    _env_content_home = _re_home.sub(
+                        r"^#?\s*HOME_HOST_DIR=.*$",
+                        f"HOME_HOST_DIR={_home_val}",
+                        _env_content_home,
+                        count=1,
+                        flags=_re_home.MULTILINE,
+                    )
+                else:
+                    _env_content_home += f"\nHOME_HOST_DIR={_home_val}\n"
+                with open(_env_path_home, "w") as f:
+                    f.write(_env_content_home)
+            else:
+                with open(_env_path_home, "a") as f:
+                    f.write(f"\nHOME_HOST_DIR={_home_val}\n")
+            logger.info("Synced SPINDREL_HOME=%s to .env as HOME_HOST_DIR (takes effect on next restart)", _home_val)
+        except OSError:
+            logger.warning("Could not sync SPINDREL_HOME to .env — set HOME_HOST_DIR manually")
+
     # Auto-generate ENCRYPTION_KEY on first boot if not set and no encrypted
     # secrets exist yet.  Writes the key to .env so it persists across restarts.
     from app.services.encryption import is_encryption_enabled, generate_key, reset as _reset_encryption

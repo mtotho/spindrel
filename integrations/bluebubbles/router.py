@@ -1243,6 +1243,16 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
             # break webhook processing.
             logger.debug("BB markUnread post-processing failed", exc_info=True)
 
+    # Fire task triggers for this integration event (fire-and-forget)
+    if results:
+        from app.utils import safe_create_task
+        from integrations.utils import emit_integration_event
+        safe_create_task(emit_integration_event(
+            "bluebubbles", "message_received",
+            {"chat_guid": chat_guid, "sender": sender},
+            client_id=client_id, category="message",
+        ))
+
     return {
         "status": "processed",
         "channels": len(results),

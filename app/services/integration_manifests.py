@@ -41,7 +41,7 @@ _KNOWN_KEYS = {
     "binding", "dependencies", "docker_compose", "web_ui",
     "chat_hud", "chat_hud_presets", "sidebar_section",
     "debug_actions", "api_permissions", "dashboard_modules",
-    "target", "process", "capabilities", "provides",
+    "target", "process", "capabilities", "provides", "events",
 }
 
 # Keys passed through as-is between manifest and SETUP dict formats.
@@ -51,7 +51,7 @@ PASSTHROUGH_KEYS = (
     "mcp_servers", "docker_compose", "web_ui", "chat_hud",
     "chat_hud_presets", "sidebar_section", "debug_actions",
     "api_permissions", "dashboard_modules",
-    "target", "process", "capabilities", "provides",
+    "target", "process", "capabilities", "provides", "events",
 )
 
 

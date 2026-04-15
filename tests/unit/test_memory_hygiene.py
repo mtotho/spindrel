@@ -184,8 +184,20 @@ class TestCheckMemoryHygiene:
         bot.memory_hygiene_only_if_active = only_if_active
         bot.memory_hygiene_prompt = None
         bot.memory_hygiene_target_hour = None
+        bot.memory_hygiene_extra_instructions = None
         bot.next_hygiene_run_at = next_run
         bot.last_hygiene_run_at = last_run
+        # Skill review defaults — disabled so it doesn't interfere with hygiene tests
+        bot.skill_review_enabled = None
+        bot.skill_review_interval_hours = None
+        bot.skill_review_only_if_active = None
+        bot.skill_review_prompt = None
+        bot.skill_review_model = None
+        bot.skill_review_model_provider_id = None
+        bot.skill_review_target_hour = None
+        bot.skill_review_extra_instructions = None
+        bot.next_skill_review_run_at = None
+        bot.last_skill_review_run_at = None
         return bot
 
     def _mock_db_session(self, bots, existing_task_count=0):
@@ -488,14 +500,16 @@ class TestBotChannelFilter:
 # ---------------------------------------------------------------------------
 
 class TestHygienePromptContent:
-    """Verify that the enhanced hygiene prompt includes key intelligence features."""
+    """Verify that the maintenance prompt includes key features."""
 
-    def test_has_all_eight_steps(self):
+    def test_maintenance_has_six_steps(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
-        for step_num in range(1, 9):
+        for step_num in range(1, 7):
             assert f"## Step {step_num}" in DEFAULT_MEMORY_HYGIENE_PROMPT, (
-                f"Missing Step {step_num} in hygiene prompt"
+                f"Missing Step {step_num} in maintenance prompt"
             )
+        # Steps 7-8 should NOT be in maintenance (they're in skill review)
+        assert "## Step 7" not in DEFAULT_MEMORY_HYGIENE_PROMPT
 
     def test_has_contradiction_detection(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
@@ -515,28 +529,10 @@ class TestHygienePromptContent:
         assert "factual confidence" in prompt_lower
         assert "semantic novelty" in prompt_lower
 
-    def test_has_cross_channel_reflection(self):
-        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert "Cross-channel reflection" in DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert "[reflection YYYY-MM-DD]" in DEFAULT_MEMORY_HYGIENE_PROMPT
-
     def test_has_archive_maintenance(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
         assert "Archive maintenance" in DEFAULT_MEMORY_HYGIENE_PROMPT
         assert "14 days" in DEFAULT_MEMORY_HYGIENE_PROMPT
-
-    def test_has_enhanced_summary(self):
-        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert "Contradictions resolved" in DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert "Reflections generated" in DEFAULT_MEMORY_HYGIENE_PROMPT
-
-    def test_has_reflections_section_guidance(self):
-        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert "## Reflections" in DEFAULT_MEMORY_HYGIENE_PROMPT
-
-    def test_has_reflection_date_format(self):
-        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert "[reflection YYYY-MM-DD]" in DEFAULT_MEMORY_HYGIENE_PROMPT
 
     def test_has_archive_path_guidance(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
@@ -546,6 +542,44 @@ class TestHygienePromptContent:
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
         assert 'operation="mkdir"' in DEFAULT_MEMORY_HYGIENE_PROMPT
         assert 'operation="move"' in DEFAULT_MEMORY_HYGIENE_PROMPT
+
+    def test_maintenance_does_not_have_skill_hygiene(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "Skill hygiene" not in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "prune_enrolled_skills" not in DEFAULT_MEMORY_HYGIENE_PROMPT
+
+
+class TestSkillReviewPromptContent:
+    """Verify that the skill review prompt includes key features."""
+
+    def test_has_three_steps(self):
+        from app.config import DEFAULT_SKILL_REVIEW_PROMPT
+        for step_num in range(1, 4):
+            assert f"## Step {step_num}" in DEFAULT_SKILL_REVIEW_PROMPT, (
+                f"Missing Step {step_num} in skill review prompt"
+            )
+
+    def test_has_cross_channel_reflection(self):
+        from app.config import DEFAULT_SKILL_REVIEW_PROMPT
+        assert "Cross-channel reflection" in DEFAULT_SKILL_REVIEW_PROMPT
+        assert "[reflection YYYY-MM-DD]" in DEFAULT_SKILL_REVIEW_PROMPT
+
+    def test_has_reflections_section_guidance(self):
+        from app.config import DEFAULT_SKILL_REVIEW_PROMPT
+        assert "## Reflections" in DEFAULT_SKILL_REVIEW_PROMPT
+
+    def test_has_skill_hygiene(self):
+        from app.config import DEFAULT_SKILL_REVIEW_PROMPT
+        assert "Skill hygiene" in DEFAULT_SKILL_REVIEW_PROMPT
+        assert "prune_enrolled_skills" in DEFAULT_SKILL_REVIEW_PROMPT
+
+    def test_has_auto_inject_audit(self):
+        from app.config import DEFAULT_SKILL_REVIEW_PROMPT
+        assert "Auto-inject quality" in DEFAULT_SKILL_REVIEW_PROMPT
+
+    def test_does_not_have_archive_maintenance(self):
+        from app.config import DEFAULT_SKILL_REVIEW_PROMPT
+        assert "Archive maintenance" not in DEFAULT_SKILL_REVIEW_PROMPT
 
 
 # ---------------------------------------------------------------------------
@@ -1081,3 +1115,150 @@ class TestComputeNextRun:
         # Should be now + 24h
         expected = now_utc + timedelta(hours=24)
         assert result == expected
+
+
+# ---------------------------------------------------------------------------
+# Skill review: resolve_config
+# ---------------------------------------------------------------------------
+
+class TestSkillReviewResolveConfig:
+    """Verify that skill_review config resolution follows the same pattern."""
+
+    def _make_bot(self, **overrides):
+        bot = MagicMock()
+        bot.memory_scheme = "workspace-files"
+        # memory_hygiene defaults
+        bot.memory_hygiene_enabled = None
+        bot.memory_hygiene_interval_hours = None
+        bot.memory_hygiene_only_if_active = None
+        bot.memory_hygiene_prompt = None
+        bot.memory_hygiene_model = None
+        bot.memory_hygiene_model_provider_id = None
+        bot.memory_hygiene_target_hour = None
+        bot.memory_hygiene_extra_instructions = None
+        # skill_review defaults
+        bot.skill_review_enabled = None
+        bot.skill_review_interval_hours = None
+        bot.skill_review_only_if_active = None
+        bot.skill_review_prompt = None
+        bot.skill_review_model = None
+        bot.skill_review_model_provider_id = None
+        bot.skill_review_target_hour = None
+        bot.skill_review_extra_instructions = None
+        for k, v in overrides.items():
+            setattr(bot, k, v)
+        return bot
+
+    def test_disabled_without_workspace_files(self):
+        from app.services.memory_hygiene import resolve_config
+        bot = self._make_bot(memory_scheme=None)
+        cfg = resolve_config(bot, "skill_review")
+        assert cfg.enabled is False
+
+    def test_inherits_global_enabled(self):
+        from app.services.memory_hygiene import resolve_config
+        bot = self._make_bot()
+        with patch("app.services.memory_hygiene.settings") as ms:
+            ms.SKILL_REVIEW_ENABLED = True
+            ms.SKILL_REVIEW_INTERVAL_HOURS = 72
+            ms.SKILL_REVIEW_ONLY_IF_ACTIVE = False
+            ms.SKILL_REVIEW_PROMPT = ""
+            ms.SKILL_REVIEW_MODEL = ""
+            ms.SKILL_REVIEW_MODEL_PROVIDER_ID = ""
+            ms.SKILL_REVIEW_TARGET_HOUR = -1
+            cfg = resolve_config(bot, "skill_review")
+        assert cfg.enabled is True
+        assert cfg.interval_hours == 72
+
+    def test_bot_override_wins(self):
+        from app.services.memory_hygiene import resolve_config
+        bot = self._make_bot(
+            skill_review_enabled=True,
+            skill_review_interval_hours=48,
+            skill_review_model="gpt-4",
+        )
+        with patch("app.services.memory_hygiene.settings") as ms:
+            ms.SKILL_REVIEW_ENABLED = False
+            ms.SKILL_REVIEW_INTERVAL_HOURS = 72
+            ms.SKILL_REVIEW_ONLY_IF_ACTIVE = False
+            ms.SKILL_REVIEW_PROMPT = ""
+            ms.SKILL_REVIEW_MODEL = ""
+            ms.SKILL_REVIEW_MODEL_PROVIDER_ID = ""
+            ms.SKILL_REVIEW_TARGET_HOUR = -1
+            cfg = resolve_config(bot, "skill_review")
+        assert cfg.enabled is True
+        assert cfg.interval_hours == 48
+        assert cfg.model == "gpt-4"
+
+    def test_default_only_if_active_is_false(self):
+        """Skill review defaults to only_if_active=False (skill rot is activity-independent)."""
+        from app.services.memory_hygiene import resolve_config
+        bot = self._make_bot()
+        with patch("app.services.memory_hygiene.settings") as ms:
+            ms.SKILL_REVIEW_ENABLED = True
+            ms.SKILL_REVIEW_INTERVAL_HOURS = 72
+            ms.SKILL_REVIEW_ONLY_IF_ACTIVE = False
+            ms.SKILL_REVIEW_PROMPT = ""
+            ms.SKILL_REVIEW_MODEL = ""
+            ms.SKILL_REVIEW_MODEL_PROVIDER_ID = ""
+            ms.SKILL_REVIEW_TARGET_HOUR = -1
+            cfg = resolve_config(bot, "skill_review")
+        assert cfg.only_if_active is False
+
+    def test_extra_instructions_resolved(self):
+        from app.services.memory_hygiene import resolve_config
+        bot = self._make_bot(skill_review_extra_instructions="Use firecrawl for research")
+        with patch("app.services.memory_hygiene.settings") as ms:
+            ms.SKILL_REVIEW_ENABLED = True
+            ms.SKILL_REVIEW_INTERVAL_HOURS = 72
+            ms.SKILL_REVIEW_ONLY_IF_ACTIVE = False
+            ms.SKILL_REVIEW_PROMPT = ""
+            ms.SKILL_REVIEW_MODEL = ""
+            ms.SKILL_REVIEW_MODEL_PROVIDER_ID = ""
+            ms.SKILL_REVIEW_TARGET_HOUR = -1
+            cfg = resolve_config(bot, "skill_review")
+        assert cfg.extra_instructions == "Use firecrawl for research"
+
+
+# ---------------------------------------------------------------------------
+# Cross-job stagger
+# ---------------------------------------------------------------------------
+
+class TestCrossJobStagger:
+    """Verify that two jobs don't run within 30 min of each other for the same bot."""
+
+    def test_pushes_forward_when_too_close(self):
+        from app.services.memory_hygiene import _cross_job_stagger
+        now = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)
+
+        bot = MagicMock()
+        bot.id = "test-bot"
+        # Other job scheduled 10 min later
+        bot.next_hygiene_run_at = now + timedelta(minutes=10)
+
+        # skill_review proposed at now — should be pushed forward 60 min
+        result = _cross_job_stagger(bot, "skill_review", now)
+        assert result == now + timedelta(minutes=60)
+
+    def test_no_push_when_far_apart(self):
+        from app.services.memory_hygiene import _cross_job_stagger
+        now = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)
+
+        bot = MagicMock()
+        bot.id = "test-bot"
+        # Other job scheduled 2 hours later
+        bot.next_hygiene_run_at = now + timedelta(hours=2)
+
+        result = _cross_job_stagger(bot, "skill_review", now)
+        assert result == now  # unchanged
+
+    def test_no_push_when_other_not_scheduled(self):
+        from app.services.memory_hygiene import _cross_job_stagger
+        now = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)
+
+        bot = MagicMock()
+        bot.id = "test-bot"
+        bot.next_hygiene_run_at = None
+
+        result = _cross_job_stagger(bot, "skill_review", now)
+        assert result == now  # unchanged

@@ -10,6 +10,7 @@ services:
       - WORKSPACE_LOCAL_DIR=/workspace-data
       - HOME_LOCAL_DIR=/app/home
     volumes:
+      - ./.env:/app/.env                                    # settings sync (SPINDREL_HOME → HOME_HOST_DIR)
       - ./bots:/app/bots
       - ./skills:/app/skills
       - ./tools:/app/tools

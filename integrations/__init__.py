@@ -115,6 +115,9 @@ def _get_setup(
             module = _import_module(integration_id, "setup", setup_file, is_external, source)
             setup = getattr(module, "SETUP", None)
             if setup:
+                import copy
+                setup = copy.deepcopy(setup)
+                _backfill_event_filter_options(setup)
                 return setup
         except Exception:
             logger.exception("Failed to load setup.py for integration %r", integration_id)
@@ -131,6 +134,48 @@ def _get_setup(
             logger.debug("Failed to parse integration.yaml for %r", integration_id, exc_info=True)
 
     return None
+
+
+def _backfill_event_filter_options(setup: dict) -> None:
+    """Ensure ``binding.config_fields`` includes an ``event_filter`` multiselect
+    whenever the integration declares ``events``.
+
+    - If ``event_filter`` exists without options → populate from events.
+    - If no ``event_filter`` field exists → auto-inject one.
+    """
+    events = setup.get("events")
+    binding = setup.get("binding")
+    if not events or not binding:
+        return
+
+    options = [
+        {"value": e["type"], "label": e.get("label", e["type"])}
+        for e in events
+        if isinstance(e, dict) and "type" in e
+    ]
+    if not options:
+        return
+
+    config_fields = binding.get("config_fields")
+    if config_fields is None:
+        config_fields = []
+        binding["config_fields"] = config_fields
+
+    for field in config_fields:
+        if field.get("key") != "event_filter":
+            continue
+        if not field.get("options"):
+            field["options"] = options
+        return  # already has event_filter field
+
+    # No event_filter field — auto-inject one
+    config_fields.append({
+        "key": "event_filter",
+        "type": "multiselect",
+        "label": "Event Filter",
+        "description": "Which events to process (empty = all)",
+        "options": options,
+    })
 
 
 def _manifest_to_setup(manifest: dict) -> dict:
@@ -172,6 +217,9 @@ def _manifest_to_setup(manifest: dict) -> dict:
     for key in PASSTHROUGH_KEYS:
         if key in manifest:
             setup[key] = manifest[key]
+
+    # Auto-derive binding.config_fields[event_filter].options from top-level events
+    _backfill_event_filter_options(setup)
 
     return setup
 
@@ -719,6 +767,11 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             if mcp and isinstance(mcp, list):
                 entry["mcp_servers"] = mcp
 
+            # Declared events
+            events = setup.get("events")
+            if events and isinstance(events, list):
+                entry["events"] = events
+
         # Read README.md if present
         readme_file = candidate / "README.md"
         if readme_file.exists():
@@ -1071,6 +1124,24 @@ def discover_binding_metadata() -> dict[str, dict]:
         binding = setup.get("binding")
         if binding:
             results[integration_id] = binding
+
+    return results
+
+
+def discover_integration_events() -> dict[str, list[dict]]:
+    """Return declared events for all integrations that have them.
+
+    Returns ``{integration_id: [{type, label, description?, category?}, ...]}``
+    """
+    results: dict[str, list[dict]] = {}
+
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
+        setup = _get_setup(candidate, integration_id, is_external, source)
+        if not setup:
+            continue
+        events = setup.get("events")
+        if events and isinstance(events, list):
+            results[integration_id] = events
 
     return results
 

@@ -40,10 +40,10 @@ export function PageHeader({
 
   const handleBack = backTo ? () => navigate(backTo) : onBack;
 
-  // On mobile, always show hamburger (sidebar is the primary nav).
-  // On desktop, detail pages show back arrow; list pages show hamburger only when sidebar is hidden.
-  const useHamburger = isMobile || (variant === "list" && sidebarHidden);
-  const useBackArrow = !isMobile && variant === "detail" && !!handleBack;
+  // Detail pages with a back target show back arrow everywhere (mobile + desktop).
+  // List pages show hamburger on mobile or when sidebar is collapsed on desktop.
+  const useBackArrow = variant === "detail" && !!handleBack;
+  const useHamburger = !useBackArrow && (isMobile || (variant === "list" && sidebarHidden));
 
   const showNav = !hideNav && (useHamburger || useBackArrow);
 

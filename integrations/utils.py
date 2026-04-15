@@ -6,6 +6,8 @@ All functions require a live AsyncSession (inject via FastAPI `Depends(get_db)`)
 """
 from __future__ import annotations
 
+import logging
+import time
 import uuid
 from typing import Any, Optional
 
@@ -156,6 +158,15 @@ async def inject_message(
         from app.routers.api_v1_sessions import _fanout
         await _fanout(session, content, source)
 
+    # Fire integration event triggers if this message comes from an integration
+    if source and source not in ("web", "api", "system"):
+        from app.utils import safe_create_task
+        safe_create_task(emit_integration_event(
+            source, "message_received",
+            {"session_id": str(session_id), "source": source},
+            client_id=session.client_id or None, category="message",
+        ))
+
     task_id: uuid.UUID | None = None
     if run_agent:
         effective_dispatch = dispatch_config or session.dispatch_config or {}
@@ -189,3 +200,72 @@ async def inject_message(
         "session_id": str(session_id),
         "task_id": str(task_id) if task_id else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Integration event emission — fires task triggers for integration events
+# ---------------------------------------------------------------------------
+
+_logger = logging.getLogger(__name__)
+_event_cooldowns: dict[str, float] = {}
+_COOLDOWN_MAX_SIZE = 500  # evict oldest entries when exceeded
+
+# Default cooldowns by event category (seconds)
+_CATEGORY_COOLDOWNS: dict[str, float] = {
+    "webhook": 0,       # discrete events, no cooldown
+    "message": 300,     # 5 min — high-frequency messaging
+    "poll": 60,         # 1 min — naturally rate-limited by poll interval
+    "device": 30,       # 30s — hardware events
+}
+
+
+async def emit_integration_event(
+    integration_type: str,
+    event_type: str,
+    event_data: dict,
+    *,
+    client_id: str | None = None,
+    cooldown_seconds: float | None = None,
+    category: str = "webhook",
+) -> int:
+    """Fire task triggers for an integration event.
+
+    Fires for both integration-wide triggers (e.g. "any github event") and
+    binding-specific triggers (e.g. "events from github:mtotho/spindrel").
+
+    ``cooldown_seconds`` overrides the default per-category cooldown.
+    """
+    effective_cooldown = (
+        cooldown_seconds if cooldown_seconds is not None
+        else _CATEGORY_COOLDOWNS.get(category, 0)
+    )
+
+    now = time.monotonic()
+    key = f"{client_id or integration_type}:{event_type}"
+    if effective_cooldown > 0:
+        last = _event_cooldowns.get(key, 0)
+        if now - last < effective_cooldown:
+            return 0
+    _event_cooldowns[key] = now
+
+    # Evict oldest entries to prevent unbounded growth
+    if len(_event_cooldowns) > _COOLDOWN_MAX_SIZE:
+        sorted_keys = sorted(_event_cooldowns, key=_event_cooldowns.get)  # type: ignore[arg-type]
+        for k in sorted_keys[: len(_event_cooldowns) - _COOLDOWN_MAX_SIZE // 2]:
+            _event_cooldowns.pop(k, None)
+
+    from app.agent.tasks import fire_event_triggers
+
+    spawned = 0
+    try:
+        spawned += await fire_event_triggers(integration_type, event_type, event_data)
+        if client_id:
+            spawned += await fire_event_triggers(
+                f"binding:{client_id}", event_type, event_data,
+            )
+    except Exception:
+        _logger.exception(
+            "emit_integration_event failed: %s/%s", integration_type, event_type,
+        )
+
+    return spawned

@@ -96,12 +96,16 @@ export interface TriggerEventOption {
   type: string;
   label: string;
   description?: string;
+  category?: string;
 }
 
 export interface TriggerEventSource {
   source: string;
   label: string;
   events: TriggerEventOption[];
+  integration_type?: string;
+  binding_id?: string;
+  disabled?: boolean;
 }
 
 export function useTriggerEvents() {

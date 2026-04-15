@@ -33,6 +33,13 @@ class BotDreamingStatus(BaseModel):
     next_run_at: Optional[str] = None
     interval_hours: int = 24
     model: Optional[str] = None
+    # Skill review fields
+    skill_review_enabled: bool = False
+    skill_review_last_run_at: Optional[str] = None
+    skill_review_last_task_status: Optional[str] = None
+    skill_review_next_run_at: Optional[str] = None
+    skill_review_interval_hours: int = 72
+    skill_review_model: Optional[str] = None
 
 class RecentHygieneRun(BaseModel):
     id: str
@@ -50,6 +57,7 @@ class RecentHygieneRun(BaseModel):
     duration_ms: Optional[int] = None
     files_affected: list[str] = []  # memory file paths written during this run
     skill_overrides: list[dict] = []  # [{skill_id, source, reason, age_days, archived}]
+    job_type: str = "memory_hygiene"
 
 class MemoryFileActivity(BaseModel):
     bot_id: str
@@ -59,6 +67,7 @@ class MemoryFileActivity(BaseModel):
     created_at: datetime
     is_hygiene: bool = False
     correlation_id: Optional[str] = None
+    job_type: Optional[str] = None  # memory_hygiene or skill_review when is_hygiene
 
 class LearningOverviewOut(BaseModel):
     total_bots: int = 0
@@ -84,9 +93,7 @@ async def learning_overview(
     _auth=Depends(require_scopes("bots:read")),
 ):
     """Aggregate learning/dreaming dashboard data across all bots."""
-    from app.services.memory_hygiene import (
-        resolve_enabled, resolve_interval, resolve_model,
-    )
+    from app.services.memory_hygiene import resolve_config
 
     # 1. All bots with workspace-files memory
     all_bots = (await db.execute(
@@ -101,53 +108,61 @@ async def learning_overview(
     for bot in all_bots:
         bot_name_map[bot.id] = bot.name
 
-    # Batch: get last hygiene task status per bot in one query
-    last_task_map: dict[str, str] = {}
+    # Batch: get last task status per bot per job type in one query
+    _hygiene_types = ("memory_hygiene", "skill_review")
+    last_task_map: dict[str, dict[str, str]] = {}  # {bot_id: {job_type: status}}
     if bot_ids:
-        # Window function to get latest task per bot in one query
         latest_subq = (
             select(
                 TaskRow.bot_id,
+                TaskRow.task_type,
                 TaskRow.status,
                 func.row_number().over(
-                    partition_by=TaskRow.bot_id,
+                    partition_by=[TaskRow.bot_id, TaskRow.task_type],
                     order_by=TaskRow.created_at.desc(),
                 ).label("rn"),
             )
-            .where(TaskRow.bot_id.in_(bot_ids), TaskRow.task_type == "memory_hygiene")
+            .where(TaskRow.bot_id.in_(bot_ids), TaskRow.task_type.in_(_hygiene_types))
             .subquery()
         )
         latest_rows = (await db.execute(
-            select(latest_subq.c.bot_id, latest_subq.c.status)
+            select(latest_subq.c.bot_id, latest_subq.c.task_type, latest_subq.c.status)
             .where(latest_subq.c.rn == 1)
         )).all()
         for row in latest_rows:
-            last_task_map[row.bot_id] = row.status
+            last_task_map.setdefault(row.bot_id, {})[row.task_type] = row.status
 
     for bot in all_bots:
-        enabled = resolve_enabled(bot)
-        interval = resolve_interval(bot)
-        model = resolve_model(bot)
-        if enabled:
+        mh_cfg = resolve_config(bot, "memory_hygiene")
+        sr_cfg = resolve_config(bot, "skill_review")
+        if mh_cfg.enabled:
             enabled_count += 1
+
+        bot_tasks = last_task_map.get(bot.id, {})
 
         bot_statuses.append(BotDreamingStatus(
             bot_id=bot.id,
             bot_name=bot.name,
-            enabled=enabled,
+            enabled=mh_cfg.enabled,
             last_run_at=bot.last_hygiene_run_at.isoformat() if bot.last_hygiene_run_at else None,
-            last_task_status=last_task_map.get(bot.id),
+            last_task_status=bot_tasks.get("memory_hygiene"),
             next_run_at=bot.next_hygiene_run_at.isoformat() if bot.next_hygiene_run_at else None,
-            interval_hours=interval,
-            model=model,
+            interval_hours=mh_cfg.interval_hours,
+            model=mh_cfg.model,
+            skill_review_enabled=sr_cfg.enabled,
+            skill_review_last_run_at=bot.last_skill_review_run_at.isoformat() if bot.last_skill_review_run_at else None,
+            skill_review_last_task_status=bot_tasks.get("skill_review"),
+            skill_review_next_run_at=bot.next_skill_review_run_at.isoformat() if bot.next_skill_review_run_at else None,
+            skill_review_interval_hours=sr_cfg.interval_hours,
+            skill_review_model=sr_cfg.model,
         ))
 
     bot_statuses.sort(key=lambda b: b.bot_name.lower())
 
-    # 2. Recent hygiene runs across all bots (last 20)
+    # 2. Recent hygiene/skill-review runs across all bots (last 20)
     recent_tasks = (await db.execute(
         select(TaskRow)
-        .where(TaskRow.task_type == "memory_hygiene")
+        .where(TaskRow.task_type.in_(_hygiene_types))
         .order_by(TaskRow.created_at.desc())
         .limit(20)
     )).scalars().all()
@@ -164,6 +179,7 @@ async def learning_overview(
             result=(t.result[:500] if t.result and len(t.result) > 500 else t.result),
             error=t.error,
             correlation_id=str(t.correlation_id) if t.correlation_id else None,
+            job_type=t.task_type,
         ))
 
     # Enrich runs with tool calls and token stats
@@ -244,17 +260,20 @@ async def learning_overview(
             if run.correlation_id and run.correlation_id in overrides_by_corr:
                 run.skill_overrides = overrides_by_corr[run.correlation_id]
 
-    # 2d. Collect hygiene correlation_ids for tagging memory activity
+    # 2d. Collect hygiene correlation_ids + job types for tagging memory activity
     hygiene_corr_ids: set[str] = set()
+    corr_to_job_type: dict[str, str] = {}
     for task in recent_tasks:
         if task.correlation_id:
-            hygiene_corr_ids.add(str(task.correlation_id))
+            cid = str(task.correlation_id)
+            hygiene_corr_ids.add(cid)
+            corr_to_job_type[cid] = task.task_type
 
     # 3. Time-windowed stats (or all-time when days=0)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days > 0 else None
 
-    # 3a. Hygiene runs count
-    _runs_q = select(func.count()).select_from(TaskRow).where(TaskRow.task_type == "memory_hygiene")
+    # 3a. Hygiene + skill review runs count
+    _runs_q = select(func.count()).select_from(TaskRow).where(TaskRow.task_type.in_(_hygiene_types))
     if cutoff:
         _runs_q = _runs_q.where(TaskRow.created_at >= cutoff)
     hygiene_runs = (await db.execute(_runs_q)).scalar() or 0
@@ -314,14 +333,16 @@ async def learning_overview(
         idx = path.find("memory/")
         short = path[idx:] if idx >= 0 else path
         corr_str = str(tc.correlation_id) if tc.correlation_id else None
+        is_hygiene = corr_str in hygiene_corr_ids if corr_str else False
         memory_activity.append(MemoryFileActivity(
             bot_id=tc.bot_id or "",
             bot_name=bot_name_map.get(tc.bot_id or "", tc.bot_id or ""),
             file_path=short,
             operation=tc.arguments.get("operation", "write") if tc.arguments else "write",
             created_at=tc.created_at,
-            is_hygiene=corr_str in hygiene_corr_ids if corr_str else False,
+            is_hygiene=is_hygiene,
             correlation_id=corr_str,
+            job_type=corr_to_job_type.get(corr_str) if is_hygiene and corr_str else None,
         ))
 
     return LearningOverviewOut(

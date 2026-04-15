@@ -928,7 +928,7 @@ export default function SkillsScreen() {
       )}
 
       {/* List */}
-      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={!isWide ? { padding: "0 12px" } : undefined}>
         {(!skills || skills.length === 0) && (
           <div style={{
             padding: 40, textAlign: "center", color: t.textDim, fontSize: 13,

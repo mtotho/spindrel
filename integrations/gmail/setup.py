@@ -78,6 +78,9 @@ SETUP = {
         "description": "Email ingestion and digest management via Gmail IMAP",
 
     },
+    "events": [
+        {"type": "new_email", "label": "New email received", "description": "New email found during poll cycle", "category": "poll"},
+    ],
     "binding": {
         "client_id_prefix": "gmail:",
         "client_id_placeholder": "gmail:user@gmail.com",

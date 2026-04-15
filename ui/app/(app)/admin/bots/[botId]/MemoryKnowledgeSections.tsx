@@ -194,6 +194,49 @@ function BuiltinPromptCollapsible({ label, content }: { label: string; content: 
 // ---------------------------------------------------------------------------
 // Memory hygiene subsection
 // ---------------------------------------------------------------------------
+type DreamingJobTab = "maintenance" | "skill_review";
+
+const JOB_TAB_CONFIG = {
+  maintenance: {
+    label: "Memory Maintenance",
+    shortLabel: "Maintenance",
+    description: "Daily file tidying — curates MEMORY.md, promotes facts, archives old logs.",
+    accent: "#f59e0b",
+    accentSubtle: "rgba(245,158,11,0.08)",
+    accentBorder: "rgba(245,158,11,0.2)",
+    jobType: "memory_hygiene" as const,
+    fields: {
+      enabled: "memory_hygiene_enabled" as const,
+      interval: "memory_hygiene_interval_hours" as const,
+      only_if_active: "memory_hygiene_only_if_active" as const,
+      target_hour: "memory_hygiene_target_hour" as const,
+      model: "memory_hygiene_model" as const,
+      model_provider: "memory_hygiene_model_provider_id" as const,
+      prompt: "memory_hygiene_prompt" as const,
+      extra_instructions: "memory_hygiene_extra_instructions" as const,
+    },
+  },
+  skill_review: {
+    label: "Skill Review",
+    shortLabel: "Skill Review",
+    description: "Periodic reasoning — cross-channel reflection, skill pruning, auto-inject audit.",
+    accent: "#8b5cf6",
+    accentSubtle: "rgba(139,92,246,0.08)",
+    accentBorder: "rgba(139,92,246,0.2)",
+    jobType: "skill_review" as const,
+    fields: {
+      enabled: "skill_review_enabled" as const,
+      interval: "skill_review_interval_hours" as const,
+      only_if_active: "skill_review_only_if_active" as const,
+      target_hour: "skill_review_target_hour" as const,
+      model: "skill_review_model" as const,
+      model_provider: "skill_review_model_provider_id" as const,
+      prompt: "skill_review_prompt" as const,
+      extra_instructions: "skill_review_extra_instructions" as const,
+    },
+  },
+} as const;
+
 function MemoryHygieneSubsection({ draft, update, botId }: {
   draft: BotConfig;
   update: (p: Partial<BotConfig>) => void;
@@ -201,16 +244,19 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
 }) {
   const t = useThemeTokens();
   const { data: status } = useMemoryHygieneStatus(botId);
-  const { data: runsData } = useMemoryHygieneRuns(botId);
   const triggerMut = useTriggerMemoryHygiene();
+  const [activeTab, setActiveTab] = useState<DreamingJobTab>("maintenance");
   const [showPrompt, setShowPrompt] = useState(false);
+  const [showExtraInstr, setShowExtraInstr] = useState(false);
 
-  // Three-state: null = inherit global, true = enabled, false = disabled
-  const enabledValue = draft.memory_hygiene_enabled;
-  const resolvedEnabled = status?.enabled ?? false;
+  const cfg = JOB_TAB_CONFIG[activeTab];
+  const jobStatus = status?.[cfg.jobType === "memory_hygiene" ? "memory_hygiene" : "skill_review"];
+  const { data: runsData } = useMemoryHygieneRuns(botId, cfg.jobType);
 
-  const onlyActiveValue = draft.memory_hygiene_only_if_active;
-  const resolvedOnlyActive = status?.only_if_active ?? true;
+  const enabledValue = draft[cfg.fields.enabled];
+  const resolvedEnabled = jobStatus?.enabled ?? false;
+  const onlyActiveValue = draft[cfg.fields.only_if_active];
+  const resolvedOnlyActive = jobStatus?.only_if_active ?? true;
 
   const fmtTime = (iso: string | null | undefined) => {
     if (!iso) return "Never";
@@ -220,34 +266,69 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
     });
   };
 
+  // Summary for tab cards
+  const mhStatus = status?.memory_hygiene;
+  const srStatus = status?.skill_review;
+
   return (
-    <div style={{
-      background: t.surface, border: `1px solid ${t.surfaceRaised}`,
-      borderRadius: 8, padding: "14px 16px",
-    }}>
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+    <div className="rounded-lg border border-surface-raised bg-surface p-4">
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
         <Clock size={14} color={t.purple} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
-          Dreaming
+        <span className="text-[13px] font-semibold" style={{ color: t.text }}>Dreaming</span>
+        <span className="text-[10px] flex-1 min-w-[200px]" style={{ color: t.textDim }}>
+          Two scheduled jobs: lightweight maintenance (daily) and deeper skill review (less frequent).
         </span>
-        <span style={{ fontSize: 10, color: t.textDim, flex: 1, minWidth: 200 }}>
-          Scheduled background review — curates MEMORY.md, promotes facts from daily logs, detects contradictions, generates reflections, and consolidates skills across all channels.
-        </span>
-        {status?.next_run_at && (
-          <span style={{
-            fontSize: 10, color: t.purple, fontWeight: 500,
-            padding: "2px 8px", borderRadius: 4,
-            background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`,
-            whiteSpace: "nowrap",
-          }}>
-            Next: {fmtTime(status.next_run_at)}
-          </span>
-        )}
+      </div>
+
+      {/* Job selector cards */}
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        {(["maintenance", "skill_review"] as const).map((tab) => {
+          const tc = JOB_TAB_CONFIG[tab];
+          const js = tab === "maintenance" ? mhStatus : srStatus;
+          const isActive = activeTab === tab;
+          return (
+            <button
+              key={tab}
+              onClick={() => { setActiveTab(tab); setShowPrompt(false); setShowExtraInstr(false); }}
+              className="text-left rounded-lg p-3 transition-all cursor-pointer"
+              style={{
+                background: isActive ? tc.accentSubtle : t.surfaceRaised,
+                border: isActive ? `1.5px solid ${tc.accent}` : `1px solid ${t.surfaceBorder}`,
+                borderLeft: isActive ? `3px solid ${tc.accent}` : `3px solid transparent`,
+              }}
+            >
+              <div className="flex items-center gap-1.5 mb-1">
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ background: js?.enabled ? tc.accent : t.textDim }}
+                />
+                <span className="text-[11px] font-semibold" style={{ color: isActive ? tc.accent : t.text }}>
+                  {tc.shortLabel}
+                </span>
+              </div>
+              <div className="text-[9px] leading-tight" style={{ color: t.textDim }}>
+                {js?.enabled
+                  ? `Every ${js.interval_hours}h${js.model ? ` · ${js.model.split("/").pop()}` : ""}`
+                  : "Disabled"
+                }
+                {js?.next_run_at && js.enabled && (
+                  <span className="block mt-0.5">Next: {fmtTime(js.next_run_at)}</span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Active tab config */}
+      <div className="text-[10px] mb-3 leading-snug" style={{ color: t.textDim }}>
+        {cfg.description}
       </div>
 
       {/* Enable selector */}
       <FormRow label="Enable">
-        <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
+        <div className="flex gap-1.5">
           {([undefined, true, false] as const).map((val) => {
             const isSelected =
               val === undefined
@@ -256,19 +337,17 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
             const label =
               val === undefined
                 ? `Inherit (${resolvedEnabled ? "On" : "Off"})`
-                : val
-                  ? "Enabled"
-                  : "Disabled";
+                : val ? "Enabled" : "Disabled";
             return (
               <button
                 key={String(val)}
-                onClick={() => update({ memory_hygiene_enabled: val === undefined ? null : val })}
+                onClick={() => update({ [cfg.fields.enabled]: val === undefined ? null : val } as any)}
+                className="px-2.5 py-1 rounded text-[11px] cursor-pointer transition-colors"
                 style={{
-                  padding: "4px 10px", borderRadius: 4, fontSize: 11,
-                  border: isSelected ? `1px solid ${t.accent}` : `1px solid ${t.surfaceOverlay}`,
-                  background: isSelected ? t.accentSubtle : "transparent",
-                  color: isSelected ? t.accent : t.textMuted,
-                  cursor: "pointer", fontWeight: isSelected ? 600 : 400,
+                  border: isSelected ? `1px solid ${cfg.accent}` : `1px solid ${t.surfaceOverlay}`,
+                  background: isSelected ? cfg.accentSubtle : "transparent",
+                  color: isSelected ? cfg.accent : t.textMuted,
+                  fontWeight: isSelected ? 600 : 400,
                 }}
               >
                 {label}
@@ -280,11 +359,11 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
 
       <Row>
         <Col>
-          <FormRow label="Interval (hours)" description={`Global default: ${status?.interval_hours ?? 24}h`}>
+          <FormRow label="Interval (hours)" description={`Global default: ${jobStatus?.interval_hours ?? 24}h`}>
             <TextInput
-              value={String(draft.memory_hygiene_interval_hours ?? "")}
-              onChangeText={(v) => update({ memory_hygiene_interval_hours: v ? parseInt(v) : null })}
-              placeholder={String(status?.interval_hours ?? 24)}
+              value={String(draft[cfg.fields.interval] ?? "")}
+              onChangeText={(v) => update({ [cfg.fields.interval]: v ? parseInt(v) : null } as any)}
+              placeholder={String(jobStatus?.interval_hours ?? 24)}
               type="number"
             />
           </FormRow>
@@ -292,9 +371,9 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
         <Col>
           <FormRow
             label="Only if active"
-            description="Skip when no user messages have landed in this bot's channels (primary or member) since the last run. Bot-to-bot delegation, heartbeats, and assistant replies don't count as activity — a bot whose channels only see bot traffic will never dream unless this is set to No."
+            description="Skip if no user messages since last run."
           >
-            <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
+            <div className="flex gap-1.5">
               {([undefined, true, false] as const).map((val) => {
                 const isSelected =
                   val === undefined
@@ -303,19 +382,17 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
                 const label =
                   val === undefined
                     ? `Inherit (${resolvedOnlyActive ? "Yes" : "No"})`
-                    : val
-                      ? "Yes"
-                      : "No";
+                    : val ? "Yes" : "No";
                 return (
                   <button
                     key={String(val)}
-                    onClick={() => update({ memory_hygiene_only_if_active: val === undefined ? null : val })}
+                    onClick={() => update({ [cfg.fields.only_if_active]: val === undefined ? null : val } as any)}
+                    className="px-2.5 py-1 rounded text-[11px] cursor-pointer transition-colors"
                     style={{
-                      padding: "4px 10px", borderRadius: 4, fontSize: 11,
-                      border: isSelected ? `1px solid ${t.accent}` : `1px solid ${t.surfaceOverlay}`,
-                      background: isSelected ? t.accentSubtle : "transparent",
-                      color: isSelected ? t.accent : t.textMuted,
-                      cursor: "pointer", fontWeight: isSelected ? 600 : 400,
+                      border: isSelected ? `1px solid ${cfg.accent}` : `1px solid ${t.surfaceOverlay}`,
+                      background: isSelected ? cfg.accentSubtle : "transparent",
+                      color: isSelected ? cfg.accent : t.textMuted,
+                      fontWeight: isSelected ? 600 : 400,
                     }}
                   >
                     {label}
@@ -330,81 +407,112 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
       {/* Target hour */}
       <FormRow
         label="Target Start Hour (local time)"
-        description={`Bots stagger within ~60 min of this hour. ${status?.target_hour != null && status.target_hour >= 0 ? `Global: ${status.target_hour}:00` : "Global: disabled"}`}
+        description={`Bots stagger within ~60 min. ${jobStatus?.target_hour != null && jobStatus.target_hour >= 0 ? `Global: ${jobStatus.target_hour}:00` : "Global: disabled"}`}
       >
         <TextInput
-          value={draft.memory_hygiene_target_hour != null ? String(draft.memory_hygiene_target_hour) : ""}
+          value={draft[cfg.fields.target_hour] != null ? String(draft[cfg.fields.target_hour]) : ""}
           onChangeText={(v) => {
             if (v === "" || v === "-1") {
-              update({ memory_hygiene_target_hour: v === "-1" ? -1 : null });
+              update({ [cfg.fields.target_hour]: v === "-1" ? -1 : null } as any);
             } else {
               const n = parseInt(v);
-              if (!isNaN(n) && n >= -1 && n <= 23) update({ memory_hygiene_target_hour: n });
+              if (!isNaN(n) && n >= -1 && n <= 23) update({ [cfg.fields.target_hour]: n } as any);
             }
           }}
-          placeholder={status?.target_hour != null && status.target_hour >= 0 ? `${status.target_hour} (inherited)` : "Disabled (-1)"}
+          placeholder={jobStatus?.target_hour != null && jobStatus.target_hour >= 0 ? `${jobStatus.target_hour} (inherited)` : "Disabled (-1)"}
           type="number"
         />
       </FormRow>
 
       {/* Model override */}
       <FormRow label="Model" description={
-        status?.model
-          ? `Global: ${status.model}${draft.memory_hygiene_model ? " (overridden)" : ""}`
+        jobStatus?.model
+          ? `Global: ${jobStatus.model}${draft[cfg.fields.model] ? " (overridden)" : ""}`
           : "No global default — uses bot's model"
       }>
         <LlmModelDropdown
-          value={draft.memory_hygiene_model ?? ""}
+          value={draft[cfg.fields.model] ?? ""}
           onChange={(modelId, providerId) => update({
-            memory_hygiene_model: modelId || null,
-            memory_hygiene_model_provider_id: providerId ?? null,
-          })}
-          placeholder={status?.model || "bot default"}
-          selectedProviderId={draft.memory_hygiene_model_provider_id}
+            [cfg.fields.model]: modelId || null,
+            [cfg.fields.model_provider]: providerId ?? null,
+          } as any)}
+          placeholder={jobStatus?.model || "bot default"}
+          selectedProviderId={draft[cfg.fields.model_provider]}
           allowClear
         />
       </FormRow>
 
-      {/* Custom prompt override (collapsible) */}
-      <div style={{ marginTop: 8 }}>
+      {/* Additional instructions (appended to base prompt) */}
+      <div className="mt-2">
+        <button
+          onClick={() => setShowExtraInstr(!showExtraInstr)}
+          className="flex items-center gap-1.5 w-full py-1.5 bg-transparent border-none cursor-pointer text-[11px] font-semibold"
+          style={{ color: t.textMuted }}
+        >
+          <ChevronDown
+            size={12}
+            style={{ transform: showExtraInstr ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
+          />
+          Additional Instructions
+          {draft[cfg.fields.extra_instructions] && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: cfg.accentSubtle, color: cfg.accent }}>
+              custom
+            </span>
+          )}
+        </button>
+        {showExtraInstr && (
+          <div className="mt-1.5">
+            <textarea
+              value={draft[cfg.fields.extra_instructions] || ""}
+              onChange={(e) => update({ [cfg.fields.extra_instructions]: e.target.value || null } as any)}
+              rows={3}
+              placeholder="Appended to the built-in prompt. E.g., &quot;Use firecrawl tool for research&quot;..."
+              className="w-full rounded-md px-3 py-2 text-[11px] resize-y"
+              style={{
+                background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.inputText,
+                fontFamily: "inherit", lineHeight: 1.5,
+              }}
+            />
+            <div className="text-[9px] mt-1" style={{ color: t.textDim }}>
+              These are appended to the built-in prompt — they don't replace it.
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Full prompt override (collapsible — secondary) */}
+      <div className="mt-1">
         <button
           onClick={() => setShowPrompt(!showPrompt)}
-          style={{
-            display: "flex", flexDirection: "row", alignItems: "center", gap: 6, width: "100%",
-            padding: "6px 0", background: "none", border: "none",
-            cursor: "pointer", color: t.textMuted, fontSize: 11, fontWeight: 600,
-          }}
+          className="flex items-center gap-1.5 w-full py-1.5 bg-transparent border-none cursor-pointer text-[11px] font-semibold"
+          style={{ color: t.textDim }}
         >
           <ChevronDown
             size={12}
             style={{ transform: showPrompt ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
           />
-          Custom Prompt Override
-          {draft.memory_hygiene_prompt && (
-            <span style={{
-              fontSize: 9, padding: "1px 5px", borderRadius: 3,
-              background: t.purpleSubtle, color: t.purple,
-            }}>custom</span>
+          Full Prompt Override
+          {draft[cfg.fields.prompt] && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: t.warningSubtle, color: t.warning }}>
+              overridden
+            </span>
           )}
         </button>
         {showPrompt && (
-          <div style={{ marginTop: 6 }}>
+          <div className="mt-1.5">
             <LlmPrompt
-              value={draft.memory_hygiene_prompt || ""}
-              onChange={(v) => update({ memory_hygiene_prompt: v || null })}
+              value={draft[cfg.fields.prompt] || ""}
+              onChange={(v) => update({ [cfg.fields.prompt]: v || null } as any)}
               rows={6}
               placeholder="Leave empty to use the built-in default prompt..."
-              fieldType="memory_hygiene_prompt"
+              fieldType={cfg.fields.prompt}
               botId={botId}
             />
-            {draft.memory_hygiene_prompt && (
+            {draft[cfg.fields.prompt] && (
               <button
-                onClick={() => update({ memory_hygiene_prompt: null })}
-                style={{
-                  marginTop: 4, padding: "3px 8px", borderRadius: 4,
-                  background: "none", border: `1px solid ${t.surfaceOverlay}`,
-                  color: t.textDim, fontSize: 10, cursor: "pointer",
-                }}
+                onClick={() => update({ [cfg.fields.prompt]: null } as any)}
+                className="mt-1 px-2 py-0.5 rounded text-[10px] cursor-pointer"
+                style={{ background: "none", border: `1px solid ${t.surfaceOverlay}`, color: t.textDim }}
               >
                 Reset to default
               </button>
@@ -413,41 +521,37 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
         )}
       </div>
 
-      {/* Built-in hygiene prompt (collapsible, shown when no custom override) */}
-      {!draft.memory_hygiene_prompt && status?.resolved_prompt && (
-        <BuiltinPromptCollapsible label="Built-in Dreaming Prompt" content={status.resolved_prompt} />
+      {/* Built-in prompt preview */}
+      {!draft[cfg.fields.prompt] && jobStatus?.resolved_prompt && (
+        <BuiltinPromptCollapsible
+          label={`Built-in ${cfg.shortLabel} Prompt`}
+          content={jobStatus.resolved_prompt}
+        />
       )}
 
       {/* Status line + Run Now */}
-      {botId && status && (
-        <div style={{
-          marginTop: 12, paddingTop: 10,
-          borderTop: `1px solid ${t.surfaceOverlay}`,
-          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-        }}>
-          <div style={{ fontSize: 10, color: t.textDim, lineHeight: 1.6 }}>
-            Last run: {fmtTime(status.last_run_at)}
-            {status.last_task_status && (
-              <span style={{
-                marginLeft: 6, padding: "1px 5px", borderRadius: 3, fontSize: 9,
-                background: status.last_task_status === "complete" ? t.successSubtle : t.surfaceOverlay,
-                color: status.last_task_status === "complete" ? t.success : t.textDim,
+      {botId && jobStatus && (
+        <div className="mt-3 pt-2.5 flex items-center justify-between" style={{ borderTop: `1px solid ${t.surfaceOverlay}` }}>
+          <div className="text-[10px] leading-relaxed" style={{ color: t.textDim }}>
+            Last run: {fmtTime(jobStatus.last_run_at)}
+            {jobStatus.last_task_status && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px]" style={{
+                background: jobStatus.last_task_status === "complete" ? t.successSubtle : t.surfaceOverlay,
+                color: jobStatus.last_task_status === "complete" ? t.success : t.textDim,
               }}>
-                {status.last_task_status}
+                {jobStatus.last_task_status}
               </span>
             )}
             <br />
-            Next run: {fmtTime(status.next_run_at)}
+            Next run: {fmtTime(jobStatus.next_run_at)}
           </div>
           <button
-            onClick={() => botId && triggerMut.mutate(botId)}
+            onClick={() => botId && triggerMut.mutate({ botId, jobType: cfg.jobType })}
             disabled={triggerMut.isPending}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium cursor-pointer transition-opacity"
             style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-              padding: "5px 10px", borderRadius: 5, fontSize: 11,
-              background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`,
-              color: t.purple, cursor: "pointer", fontWeight: 500,
-              opacity: triggerMut.isPending ? 0.6 : 1,
+              background: cfg.accentSubtle, border: `1px solid ${cfg.accentBorder}`,
+              color: cfg.accent, opacity: triggerMut.isPending ? 0.6 : 1,
             }}
           >
             <Play size={10} />
@@ -458,7 +562,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
 
       {/* Run history */}
       {botId && runsData && runsData.runs.length > 0 && (
-        <div style={{ marginTop: 12 }}>
+        <div className="mt-3">
           <HygieneHistoryList runs={runsData.runs} />
         </div>
       )}

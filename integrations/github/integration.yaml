@@ -27,6 +27,17 @@ api_permissions:
   - sessions:read
   - sessions:write
 
+events:
+  - { type: pull_request, label: Pull requests, description: "PR opened, closed, merged, or updated", category: webhook }
+  - { type: push, label: Pushes, description: "Code pushed to a branch", category: webhook }
+  - { type: issues, label: Issues, description: "Issue opened, closed, or updated", category: webhook }
+  - { type: issue_comment, label: "Issue/PR comments", description: "Comment on an issue or pull request", category: webhook }
+  - { type: pull_request_review, label: PR reviews, description: "Pull request review submitted", category: webhook }
+  - { type: pull_request_review_comment, label: "PR review comments", category: webhook }
+  - { type: release, label: Releases, description: "New release published", category: webhook }
+  - { type: discussion, label: Discussions, category: webhook }
+  - { type: discussion_comment, label: "Discussion comments", category: webhook }
+
 webhook:
   path: /integrations/github/webhook
   description: "GitHub webhook receiver (push, PR, issue events)"
@@ -46,16 +57,7 @@ binding:
       type: multiselect
       label: Event Filter
       description: "Which GitHub events to process (empty = all)"
-      options:
-        - { value: pull_request, label: Pull requests }
-        - { value: push, label: Pushes }
-        - { value: issues, label: Issues }
-        - { value: issue_comment, label: "Issue/PR comments" }
-        - { value: pull_request_review, label: PR reviews }
-        - { value: pull_request_review_comment, label: "PR review comments" }
-        - { value: release, label: Releases }
-        - { value: discussion, label: Discussions }
-        - { value: discussion_comment, label: "Discussion comments" }
+      # options auto-derived from top-level events: section
 
 capabilities:
   - text

@@ -790,22 +790,6 @@ async def assemble_context(
         )
         budget.consume("conversation_history", _existing_tokens)
 
-    # --- datetime ---
-    try:
-        from zoneinfo import ZoneInfo
-        _tz = ZoneInfo(settings.TIMEZONE)
-        _now_local = datetime.now(_tz)
-        _now_utc = datetime.now(timezone.utc)
-        messages.append({
-            "role": "system",
-            "content": (
-                f"Current time: {_now_local.strftime('%Y-%m-%d %H:%M %Z')} "
-                f"({_now_utc.strftime('%H:%M UTC')})"
-            ),
-        })
-    except Exception:
-        pass  # non-fatal if timezone lookup fails
-
     # --- channel-level tool/skill overrides ---
     _ch_row = None
     if channel_id is not None:
@@ -999,6 +983,36 @@ async def assemble_context(
             })
             _budget_consume("carapace_prompts", _carapace_prompt)
             yield {"type": "carapace_context", "count": len(_carapace_ids), "chars": len(_carapace_prompt)}
+
+    # --- pinned knowledge (stable per channel config — placed early for cache efficiency) ---
+    if client_id:
+        from app.agent.knowledge import get_pinned_knowledge_docs
+        pinned_docs, pinned_names = await get_pinned_knowledge_docs(
+            bot.id, client_id, session_id=session_id, channel_id=channel_id,
+        )
+        if pinned_docs:
+            _know_limit = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS
+            pinned_docs = [
+                d[:_know_limit] + ("…" if len(d) > _know_limit else "")
+                for d in pinned_docs
+            ]
+            _pinned_chars = sum(len(d) for d in pinned_docs)
+            _inject_chars["pinned_knowledge"] = _pinned_chars
+            yield {"type": "pinned_knowledge_context", "count": len(pinned_docs), "chars": _pinned_chars}
+            if correlation_id is not None:
+                asyncio.create_task(_record_trace_event(
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    bot_id=bot.id,
+                    client_id=client_id,
+                    event_type="pinned_knowledge_context",
+                    count=len(pinned_docs),
+                    data={"names": pinned_names, "chars": _pinned_chars},
+                ))
+            messages.append({
+                "role": "system",
+                "content": "Pinned knowledge (always available):\n\n" + "\n\n---\n\n".join(pinned_docs),
+            })
 
     # --- capability auto-discovery index (RAG-based) ---
     # Retrieve semantically relevant capabilities for the user's message,
@@ -1614,37 +1628,6 @@ async def assemble_context(
         yield {"type": "delegate_index", "count": len(_delegate_lines)}
 
     # --- DB memory injection REMOVED (deprecated — use memory_scheme='workspace-files') ---
-
-    # --- pinned knowledge ---
-    if client_id:
-        from app.agent.knowledge import get_pinned_knowledge_docs
-        pinned_docs, pinned_names = await get_pinned_knowledge_docs(
-            bot.id, client_id, session_id=session_id, channel_id=channel_id,
-        )
-        if pinned_docs:
-            _know_limit = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS
-            pinned_docs = [
-                d[:_know_limit] + ("…" if len(d) > _know_limit else "")
-                for d in pinned_docs
-            ]
-            _pinned_chars = sum(len(d) for d in pinned_docs)
-            _inject_chars["pinned_knowledge"] = _pinned_chars
-            yield {"type": "pinned_knowledge_context", "count": len(pinned_docs), "chars": _pinned_chars}
-            if correlation_id is not None:
-                asyncio.create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="pinned_knowledge_context",
-                    count=len(pinned_docs),
-                    data={"names": pinned_names, "chars": _pinned_chars},
-                ))
-            messages.append({
-                "role": "system",
-                "content": "Pinned knowledge (always available):\n\n" + "\n\n---\n\n".join(pinned_docs),
-            })
-
     # --- DB RAG knowledge injection REMOVED (deprecated — use skills/carapaces instead) ---
 
     # --- conversation section retrieval (structured mode) + section index (file mode) ---
@@ -1801,6 +1784,22 @@ async def assemble_context(
     result.pre_selected_tools = pre_selected_tools
     result.authorized_tool_names = _authorized_names
     result.effective_local_tools = list(bot.local_tools)
+
+    # --- datetime (injected late to avoid busting prompt cache prefix) ---
+    try:
+        from zoneinfo import ZoneInfo
+        _tz = ZoneInfo(settings.TIMEZONE)
+        _now_local = datetime.now(_tz)
+        _now_utc = datetime.now(timezone.utc)
+        messages.append({
+            "role": "system",
+            "content": (
+                f"Current time: {_now_local.strftime('%Y-%m-%d %H:%M %Z')} "
+                f"({_now_utc.strftime('%H:%M UTC')})"
+            ),
+        })
+    except Exception:
+        pass  # non-fatal if timezone lookup fails
 
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and _ch_row is not None:

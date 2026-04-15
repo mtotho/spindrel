@@ -299,52 +299,93 @@ async def admin_list_tasks(
 
 @router.get("/tasks/trigger-events")
 async def admin_list_trigger_events(
+    db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("tasks:read")),
 ):
     """List available trigger event sources and their events.
 
     Aggregates from:
-    - Internal EVENT_REGISTRY (system webhook events)
-    - Installed integration manifests (binding.config_fields where key == 'event_filter')
+    - Internal EVENT_REGISTRY (system lifecycle events)
+    - Installed integration manifests (top-level ``events:`` declarations)
+    - Active channel bindings (real instances, not YAML placeholders)
     """
+    from collections import defaultdict
+
+    from app.db.models import ChannelIntegration
     from app.services.webhooks import EVENT_REGISTRY
-    from integrations import discover_binding_metadata
+    from integrations import discover_integration_events
 
     sources: list[dict] = []
 
-    # Internal system events
+    # ── System events ────────────────────────────────────────────────
     system_events = [
         {"type": k, "label": k.replace("_", " ").title(), "description": v}
         for k, v in EVENT_REGISTRY.items()
     ]
     if system_events:
         sources.append({
-            "source": "internal",
+            "source": "system",
             "label": "System Events",
             "events": system_events,
         })
 
-    # Integration events from binding metadata
-    bindings = discover_binding_metadata()
-    for integration_id, binding in bindings.items():
-        config_fields = binding.get("config_fields", [])
-        for field in config_fields:
-            if field.get("key") != "event_filter":
-                continue
-            options = field.get("options", [])
-            if not options:
-                continue
-            events = [
-                {"type": opt["value"], "label": opt.get("label", opt["value"])}
-                for opt in options
-                if isinstance(opt, dict) and "value" in opt
-            ]
-            if events:
-                sources.append({
-                    "source": integration_id,
-                    "label": binding.get("display_name_placeholder", integration_id.title()),
-                    "events": events,
-                })
+    # ── Integration events from real bindings ────────────────────────
+    integration_events = discover_integration_events()
+
+    # Query all active bindings grouped by integration type
+    stmt = select(ChannelIntegration).where(ChannelIntegration.activated.is_(True))
+    bindings = (await db.execute(stmt)).scalars().all()
+
+    by_type: dict[str, list] = defaultdict(list)
+    for b in bindings:
+        by_type[b.integration_type].append(b)
+
+    for int_type, type_bindings in sorted(by_type.items()):
+        raw_events = integration_events.get(int_type, [])
+        event_list = [
+            {"type": e["type"], "label": e.get("label", e["type"]),
+             "description": e.get("description"), "category": e.get("category")}
+            for e in raw_events
+        ]
+        if not event_list:
+            continue
+
+        # Integration-wide source (matches any binding of this type)
+        sources.append({
+            "source": int_type,
+            "label": f"{int_type.title()} (any)",
+            "events": event_list,
+            "integration_type": int_type,
+        })
+
+        # Per-binding sources
+        for b in type_bindings:
+            label = b.display_name or b.client_id
+            sources.append({
+                "source": f"binding:{b.client_id}",
+                "label": label,
+                "events": event_list,
+                "integration_type": int_type,
+                "binding_id": str(b.id),
+            })
+
+    # Integrations with events but no active bindings (discovery hint)
+    for int_type, raw_events in sorted(integration_events.items()):
+        if int_type in by_type:
+            continue
+        event_list = [
+            {"type": e["type"], "label": e.get("label", e["type"]),
+             "description": e.get("description"), "category": e.get("category")}
+            for e in raw_events
+        ]
+        if event_list:
+            sources.append({
+                "source": int_type,
+                "label": f"{int_type.title()} (no bindings)",
+                "events": event_list,
+                "integration_type": int_type,
+                "disabled": True,
+            })
 
     return {"sources": sources}
 

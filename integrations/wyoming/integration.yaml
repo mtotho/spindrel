@@ -38,6 +38,12 @@ settings:
     default: ""
     secret: true
 
+events:
+  - { type: wake_word_detected, label: Wake word detected, description: "Device wake word triggered", category: device }
+  - { type: transcription_complete, label: Transcription complete, description: "Speech-to-text finished", category: device }
+  - { type: session_started, label: Voice session started, category: device }
+  - { type: session_ended, label: Voice session ended, category: device }
+
 binding:
   client_id_prefix: "wyoming:"
   client_id_placeholder: "wyoming:living-room"

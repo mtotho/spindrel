@@ -969,21 +969,18 @@ export default function IntegrationDetailScreen() {
 
   return (
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+      <PageHeader variant="detail"
+        parentLabel="Integrations"
+        backTo="/admin/integrations"
+        title={item.name}
+        right={<StatusBadge status={item.disabled ? "disabled" : item.status} />}
+      />
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: isWide ? 20 : 12, gap: 14, maxWidth: 720 }}
       >
-        {/* Header */}
-        <PageHeader variant="detail"
-          parentLabel="Integrations"
-          backTo="/admin/integrations"
-          title={item.name}
-          right={<StatusBadge status={item.disabled ? "disabled" : item.status} />}
-          inline
-        />
-
         {/* Disable/Enable toggle */}
         <DisableToggle item={item} />
 
@@ -1021,6 +1018,55 @@ export default function IntegrationDetailScreen() {
 
         {/* Manifest editor — Visual/YAML toggle with MCP server status */}
         <ManifestEditor integrationId={item.id} />
+
+        {/* Declared events */}
+        {item.events && item.events.length > 0 && (
+          <SectionBox title={`Events (${item.events.length})`}>
+            <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>
+              Events this integration can emit. Use in task triggers or channel binding filters.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {item.events.map((ev) => (
+                <div
+                  key={ev.type}
+                  style={{
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
+                    padding: "6px 10px", borderRadius: 6,
+                    background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+                  }}
+                >
+                  <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "monospace", color: t.accent, minWidth: 120 }}>
+                    {ev.type}
+                  </span>
+                  <span style={{ fontSize: 11, color: t.text, flex: 1 }}>
+                    {ev.label}
+                  </span>
+                  {ev.category && (
+                    <span style={{
+                      fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5,
+                      padding: "2px 6px", borderRadius: 4,
+                      background: ev.category === "webhook" ? "rgba(59,130,246,0.15)" :
+                                  ev.category === "message" ? "rgba(34,197,94,0.15)" :
+                                  ev.category === "poll" ? "rgba(234,179,8,0.15)" :
+                                  "rgba(168,85,247,0.15)",
+                      color: ev.category === "webhook" ? "#3b82f6" :
+                             ev.category === "message" ? "#22c55e" :
+                             ev.category === "poll" ? "#eab308" :
+                             "#a855f7",
+                    }}>
+                      {ev.category}
+                    </span>
+                  )}
+                  {ev.description && (
+                    <span style={{ fontSize: 10, color: t.textDim, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {ev.description}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </SectionBox>
+        )}
 
         {/* Detected tools / skills / capabilities */}
         {((item.tool_names && item.tool_names.length > 0) ||

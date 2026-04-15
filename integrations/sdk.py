@@ -17,6 +17,7 @@ tools, importable from one place::
         register_tool, get_settings,           # tool registration
         inject_message, get_or_create_session, # session/document helpers
         ingest_document, search_documents,
+        emit_integration_event,               # event trigger emission
         client_id,                             # utility
     )
 
@@ -104,6 +105,7 @@ from integrations.utils import (  # noqa: E402, F401
     get_or_create_session,
     ingest_document,
     search_documents,
+    emit_integration_event,
 )
 
 # ---------------------------------------------------------------------------
