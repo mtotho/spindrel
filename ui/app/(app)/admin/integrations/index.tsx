@@ -111,7 +111,6 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
   const envSetCount = item.env_vars.filter((v) => v.is_set).length;
   const activeCaps = [
     item.has_router && "router",
-    item.has_dispatcher && "dispatcher",
     item.has_hooks && "hooks",
     item.has_tools && "tools",
     item.has_skills && "skills",

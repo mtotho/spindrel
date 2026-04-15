@@ -1,0 +1,80 @@
+id: arr
+name: ARR Media Stack
+icon: Tv
+description: Media library management with Sonarr, Radarr, Prowlarr, qBittorrent, Jellyfin, Jellyseerr, and Bazarr.
+version: "1.0"
+
+settings:
+  # Sonarr
+  - key: SONARR_URL
+    type: string
+    label: "Sonarr base URL (e.g. http://192.168.1.x:8989)"
+  - key: SONARR_API_KEY
+    type: string
+    label: "Sonarr API key (Settings > General)"
+    secret: true
+  # Radarr
+  - key: RADARR_URL
+    type: string
+    label: "Radarr base URL (e.g. http://192.168.1.x:7878)"
+  - key: RADARR_API_KEY
+    type: string
+    label: "Radarr API key (Settings > General)"
+    secret: true
+  # qBittorrent
+  - key: QBIT_URL
+    type: string
+    label: "qBittorrent Web UI URL (e.g. http://192.168.1.x:8080)"
+  - key: QBIT_USERNAME
+    type: string
+    label: "qBittorrent Web UI username"
+  - key: QBIT_PASSWORD
+    type: string
+    label: "qBittorrent Web UI password"
+    secret: true
+  # Jellyfin
+  - key: JELLYFIN_URL
+    type: string
+    label: "Jellyfin base URL (e.g. http://192.168.1.x:8096)"
+  - key: JELLYFIN_API_KEY
+    type: string
+    label: "Jellyfin API key (Dashboard > API Keys)"
+    secret: true
+  # Jellyseerr
+  - key: JELLYSEERR_URL
+    type: string
+    label: "Jellyseerr base URL (e.g. http://192.168.1.x:5055)"
+  - key: JELLYSEERR_API_KEY
+    type: string
+    label: "Jellyseerr API key (Settings > General)"
+    secret: true
+  # Prowlarr
+  - key: PROWLARR_URL
+    type: string
+    label: "Prowlarr base URL (e.g. http://192.168.1.x:9696)"
+  - key: PROWLARR_API_KEY
+    type: string
+    label: "Prowlarr API key (Settings > General)"
+    secret: true
+  # Bazarr
+  - key: BAZARR_URL
+    type: string
+    label: "Bazarr base URL (e.g. http://192.168.1.x:6767)"
+  - key: BAZARR_API_KEY
+    type: string
+    label: "Bazarr API key (Settings > General)"
+    secret: true
+  # FlareSolverr
+  - key: FLARESOLVERR_URL
+    type: string
+    label: "FlareSolverr base URL (e.g. http://192.168.1.x:8191) -- Cloudflare bypass for indexers"
+
+activation:
+  carapaces: [arr]
+  includes: [mission_control]
+  requires_workspace: false
+  description: "Media library management with Sonarr, Radarr, Prowlarr, qBittorrent, Jellyfin, Jellyseerr, and Bazarr"
+
+provides:
+  - tools
+  - carapaces

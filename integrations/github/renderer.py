@@ -24,11 +24,10 @@ from typing import ClassVar
 
 import httpx
 
-from app.domain.capability import Capability
-from app.domain.channel_events import ChannelEvent, ChannelEventKind
-from app.domain.dispatch_target import DispatchTarget
-from app.domain.outbound_action import OutboundAction
-from app.integrations.renderer import DeliveryReceipt
+from integrations.sdk import (
+    Capability, ChannelEvent, ChannelEventKind,
+    DispatchTarget, OutboundAction, DeliveryReceipt,
+)
 from integrations.github.target import GitHubTarget
 
 logger = logging.getLogger(__name__)

@@ -1,0 +1,60 @@
+id: discord
+name: Discord
+icon: MessageSquare
+description: Discord bot integration with real-time messaging and emoji reactions.
+version: "1.0"
+
+settings:
+  - key: DISCORD_TOKEN
+    type: string
+    label: "Bot token from Discord Developer Portal > Bot > Token"
+    required: true
+    secret: true
+  - key: AGENT_API_KEY
+    type: string
+    label: "API key for the agent server"
+    required: true
+    secret: true
+  - key: AGENT_BASE_URL
+    type: string
+    label: "Agent server URL (default: http://localhost:8000)"
+
+api_permissions: slack_integration
+
+events:
+  - { type: message_received, label: Message received, description: "New message in a bound channel", category: message }
+  - { type: reaction_added, label: Reaction added, description: "Emoji reaction added to a message", category: message }
+
+binding:
+  client_id_prefix: "discord:"
+  client_id_placeholder: "discord:123456789012345678"
+  client_id_description: "Discord channel ID (enable Developer Mode, right-click channel > Copy Channel ID)"
+  display_name_placeholder: "#general"
+
+capabilities:
+  - text
+  - rich_text
+  - threading
+  - reactions
+  - attachments
+  - image_upload
+  - file_upload
+  - streaming_edit
+  - approval_buttons
+  - display_names
+  - mentions
+
+provides:
+  - target
+  - renderer
+  - hooks
+  - router
+  - tools
+  - carapaces
+  - skills
+
+process:
+  cmd: ["python", "integrations/discord/discord_bot.py"]
+  description: "Discord bot (gateway mode)"
+  required_env: ["DISCORD_TOKEN", "AGENT_API_KEY"]
+  watch_paths: ["integrations/discord/"]

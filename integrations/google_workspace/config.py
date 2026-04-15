@@ -1,30 +1,18 @@
 """Google Workspace integration configuration — DB-backed with env var fallback."""
 from __future__ import annotations
 
-import os
+from integrations.sdk import make_settings
+
+_Base = make_settings("google_workspace", {
+    "GWS_CLIENT_ID": "",
+    "GWS_CLIENT_SECRET": "",
+})
 
 
-def _get(key: str, default: str = "") -> str:
-    """Get a config value: DB cache > env var > default."""
-    try:
-        from app.services.integration_settings import get_value
-        return get_value("google_workspace", key, default)
-    except ImportError:
-        return os.environ.get(key, default)
-
-
-class _Settings:
-    @property
-    def GWS_CLIENT_ID(self) -> str:
-        return _get("GWS_CLIENT_ID")
-
-    @property
-    def GWS_CLIENT_SECRET(self) -> str:
-        return _get("GWS_CLIENT_SECRET")
-
+class _Settings(_Base):
     @property
     def GWS_TIMEOUT(self) -> int:
-        val = _get("GWS_TIMEOUT", "60")
+        val = self._get("GWS_TIMEOUT", "60")
         try:
             return int(val)
         except ValueError:

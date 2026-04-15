@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db
+from integrations.sdk import get_db
 from integrations.google_workspace.config import settings, SCOPE_MAP
 
 logger = logging.getLogger(__name__)

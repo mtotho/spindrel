@@ -14,7 +14,7 @@ don't re-litigate these decisions or re-introduce the same slop.
 |---|---|
 | Agent loop, RAG, tool system | Slack Bolt app, channel config logic |
 | Task worker, scheduler | Slack-specific message formatting |
-| Dispatcher registry + core dispatchers | Integration-specific dispatchers |
+| Renderer registry + outbox drainer | Integration-specific renderers |
 | DB models (generic) | Integration-specific config tables |
 | `/api/v1/` public REST API | `/integrations/<name>/` routers |
 
@@ -24,52 +24,90 @@ brand names (like "slack") in business logic. The word "slack" is allowed only i
 
 ---
 
-## Dispatcher Registry
+## Renderer Registry (Message Delivery)
 
-Dispatchers answer one question: **"Given a completed task result, where and how do I send it?"**
+Renderers answer one question: **"Given a channel event, how do I deliver it to the external service?"**
 
 ### How it works
 
-`app/agent/dispatchers.py` is the registry:
+`app/integrations/renderer_registry.py` is the registry. Integrations register their
+renderer in `renderer.py`, which is auto-imported by `integrations/__init__.py`:
 
 ```python
-from app.agent.dispatchers import register, get
+from integrations.sdk import (
+    ChannelRenderer, DeliveryReceipt, Capability,
+    ChannelEvent, ChannelEventKind, renderer_registry,
+)
 
-# Register a dispatcher for a dispatch_type
-register("mytype", MyDispatcher())
+class SlackRenderer(ChannelRenderer):
+    dispatch_type = "slack"
+    CAPABILITIES = {Capability.TEXT, Capability.RICH_TEXT, Capability.STREAMING_EDIT}
 
-# Look up a dispatcher (falls back to "none" if unknown)
-dispatcher = get(task.dispatch_type)
-await dispatcher.deliver(task, result_text, client_actions=...)
+    async def send(self, event: ChannelEvent) -> DeliveryReceipt:
+        # Deliver the event to Slack
+        ...
+
+renderer_registry.register(SlackRenderer())
 ```
 
-`tasks.py` uses `dispatchers.get()` — it has no knowledge of individual dispatchers.
+### Core renderers (always available)
 
-### Core dispatchers (always available)
+Registered in `app/integrations/core_renderers.py`:
 
-Registered in `app/agent/dispatchers.py` at import time:
+| `dispatch_type` | Behavior |
+|---|---|
+| `"none"` | Result stays in DB only; caller polls `get_task` |
+| `"webhook"` | HTTP POST event payload to `dispatch_config.url` |
+| `"internal"` | Injects result into a parent session as a user message |
+| `"web"` | Delivers to the web UI via SSE/WebSocket |
 
-| `dispatch_type` | Class | Behavior |
-|---|---|---|
-| `"none"` | `_NoneDispatcher` | Result stays in DB only; caller polls `get_task` |
-| `"webhook"` | `_WebhookDispatcher` | HTTP POST `{task_id, result}` to `dispatch_config.url` |
-| `"internal"` | `_InternalDispatcher` | Injects result into a parent session as a user message |
+### Outbox durability
 
-### Integration dispatchers (pluggable)
+Events are not delivered directly. Instead, the channel-events bus publishes typed
+`ChannelEvent` objects to the **outbox** (`app/services/outbox.py`). A background
+**drainer** (`app/services/outbox_drainer.py`) pulls rows, routes through the renderer
+registry, and handles retries:
 
-An integration registers its dispatcher by placing `dispatcher.py` in its folder.
-`integrations/__init__.py` auto-imports it during `discover_integrations()`.
+- State machine: `pending` → `in_flight` → `delivered` (or `dead_letter` after 10 attempts)
+- Only events matching the renderer's `CAPABILITIES` are delivered
+- Capabilities declared in `integration.yaml` override the renderer's ClassVar
 
+### Target Registry (Typed Dispatch Targets)
+
+Each renderer receives events with a typed **target** — a frozen dataclass describing
+where to deliver. Targets are registered in `app/domain/target_registry.py`.
+
+Integrations can declare targets in `integration.yaml` (auto-generates a dataclass)
+or in `target.py` (for custom logic):
+
+```yaml
+# integration.yaml — auto-generates SlackTarget
+target:
+  type: slack
+  fields:
+    channel_id: string
+    token: string
+    thread_ts: string?
 ```
-integrations/
-└── slack/
-    └── dispatcher.py   ← calls register("slack", SlackDispatcher()) at import time
+
+```python
+# target.py — manual registration
+from integrations.sdk import BaseTarget, target_registry
+
+class SlackTarget(BaseTarget, dispatch_type="slack"):
+    channel_id: str
+    token: str
+    thread_ts: str | None = None
+
+target_registry.register(SlackTarget)
 ```
 
-The `SlackDispatcher` handles `chat.postMessage` + file uploads for the task path.
-It is allowed to know about Slack — it's explicitly scoped to `dispatch_type="slack"`.
-All its HTTP calls go through `integrations/slack/client.py` (for messages) and
-`integrations/slack/uploads.py` (for files).
+### Historical: Dispatcher Registry (removed)
+
+The dispatcher registry (`app/agent/dispatchers.py`) was the original delivery mechanism.
+It was replaced by the renderer + outbox system in the Integration Delivery Layer Refactor
+(Phases A-G, completed 2026-04-11). The module has been deleted; integrations no longer
+need `dispatcher.py` files.
 
 ---
 
@@ -134,7 +172,7 @@ subscribes to lifecycle events:
 ## Integration Process Discovery
 
 Integrations that need a background process (e.g. Slack Bolt runs as a separate Python
-process in socket mode) declare it in `process.py`:
+process in socket mode) declare it in `integration.yaml` (preferred) or `process.py`:
 
 ```python
 # integrations/slack/process.py
@@ -239,7 +277,7 @@ served by `integrations/slack/router.py`. It does NOT query the DB directly.
 
 All known integration boundary violations have been resolved. Key completed items:
 
-- Dispatcher registry is pluggable — `app/agent/dispatchers.py` + integration-level `dispatcher.py`
+- Renderer registry is pluggable — `app/integrations/renderer_registry.py` + integration-level `renderer.py`
 - Hook registry is pluggable — `app/agent/hooks.py` + integration-level `hooks.py`
 - All Slack HTTP calls consolidated in `integrations/slack/`
 - No `from integrations.slack` imports remain in `app/` — user attribution, client ID prefixes, and display name resolution all go through the hook registry
@@ -254,7 +292,7 @@ All known integration boundary violations have been resolved. Key completed item
 Integrations can live **outside** the agent-server repo. Set `INTEGRATION_DIRS` (colon-separated
 paths) in `.env` to point to directories containing integration folders. Each directory is
 scanned the same way as the in-repo `integrations/` — any subfolder with `router.py`,
-`dispatcher.py`, `tools/*.py`, `skills/*.md`, or `process.py` is auto-discovered.
+`tools/*.py`, `skills/*.md`, `integration.yaml`, or `process.py` is auto-discovered.
 
 This enables:
 - **Private integrations** — keep personal/proprietary integrations in a separate repo
@@ -274,5 +312,5 @@ For Docker deployments, mount external integration directories as volumes and se
 - Delegation framework (`app/services/delegation.py`) — clean, routes through dispatcher registry
 - Provider abstraction — clean
 - `/api/v1/` public API — reasonable
-- `app/agent/dispatchers.py` — clean registry pattern
+- `app/integrations/renderer_registry.py` — clean registry pattern (replaced dispatchers)
 - `app/agent/hooks.py` — clean registry pattern (metadata + lifecycle)

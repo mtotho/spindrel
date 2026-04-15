@@ -356,12 +356,12 @@ def _auto_register_target(integration_id: str, target_spec: dict) -> bool:
 def _load_single_integration(
     candidate: Path, integration_id: str, is_external: bool, source: str,
 ) -> APIRouter | None:
-    """Load target, dispatcher, renderer, hooks, and router for a single integration.
+    """Load target, renderer, hooks, and router for a single integration.
 
     Returns the APIRouter if one exists, else None.
     """
     # Register target FIRST so the typed DispatchTarget subclass is
-    # available before anything downstream (renderer, dispatcher, router)
+    # available before anything downstream (renderer, router)
     # tries to construct one via `parse_dispatch_target`.
     # Prefers target.py (custom logic); falls back to YAML ``target`` section.
     target_file = candidate / "target.py"
@@ -380,15 +380,6 @@ def _load_single_integration(
                 _auto_register_target(integration_id, manifest["target"])
         except ImportError:
             pass
-
-    # Auto-import dispatcher.py to trigger register() (independent of router.py)
-    dispatcher_file = candidate / "dispatcher.py"
-    if dispatcher_file.exists():
-        try:
-            _import_module(integration_id, "dispatcher", dispatcher_file, is_external, source)
-            logger.debug("Loaded dispatcher for integration: %s", integration_id)
-        except Exception:
-            logger.exception("Failed to load dispatcher for integration %r", integration_id)
 
     # Auto-import renderer.py to trigger renderer_registry.register() (Phase F+).
     # Each integration's renderer self-registers via a `_register()` helper at
@@ -420,8 +411,6 @@ def _load_single_integration(
         and _get_manifest_field(integration_id, "target")
     ):
         detected_provides.add("target")
-    if dispatcher_file.exists():
-        detected_provides.add("dispatcher")
     if renderer_file.exists():
         detected_provides.add("renderer")
     if hooks_file.exists():
@@ -603,7 +592,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "source": source,
             "icon": "Plug",
             "has_router": (candidate / "router.py").exists(),
-            "has_dispatcher": (candidate / "dispatcher.py").exists(),
+            "has_dispatcher": False,  # legacy — dispatcher system removed
             "has_renderer": (candidate / "renderer.py").exists(),
             "has_hooks": (candidate / "hooks.py").exists(),
             "has_tools": any((candidate / "tools").glob("*.py")) if (candidate / "tools").is_dir() else False,

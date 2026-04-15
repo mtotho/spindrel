@@ -14,9 +14,8 @@ from dataclasses import dataclass
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db
-from app.services.channels import resolve_all_channels_by_client_id, ensure_active_session
 from integrations import utils
+from integrations.sdk import get_db, resolve_all_channels_by_client_id, ensure_active_session
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +87,7 @@ def parse_event(payload: dict) -> ParsedEvent | None:
 
     # Format the message (same logic as mqtt_listener.format_event_message)
     from integrations.frigate.mqtt_listener import format_event_message
-    from app.security.prompt_sanitize import sanitize_unicode
+    from integrations.sdk import sanitize_unicode
     message = sanitize_unicode(format_event_message(payload))
 
     return ParsedEvent(camera=camera, label=label, score=score, message=message)
@@ -190,8 +189,7 @@ async def frigate_webhook(
         results.append(result)
 
     # Fire task triggers for this integration event (fire-and-forget)
-    from app.utils import safe_create_task
-    from integrations.utils import emit_integration_event
+    from integrations.sdk import safe_create_task, emit_integration_event
     safe_create_task(emit_integration_event(
         "frigate", "object_detected",
         {"camera": event.camera, "label": event.label, "score": event.score},

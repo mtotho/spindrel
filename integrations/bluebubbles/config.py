@@ -3,8 +3,7 @@
 When running inside the agent server, values come from DB cache > env var > default.
 When running standalone (bb_client process), falls back to env vars only.
 """
-
-import os
+from integrations.sdk import make_settings
 
 IDENTITY_FIELDS = [
     {
@@ -14,60 +13,36 @@ IDENTITY_FIELDS = [
     },
 ]
 
+_Base = make_settings("bluebubbles", {
+    "BLUEBUBBLES_SERVER_URL": "",
+    "BLUEBUBBLES_PASSWORD": "",
+    "BB_DEFAULT_BOT": "default",
+    "BB_WAKE_WORDS": "",
+    "BB_WEBHOOK_TOKEN": "",
+    "BB_SEND_METHOD": "",
+})
 
-def _get(key: str, default: str = "") -> str:
-    """Get a config value: DB cache > env var > default."""
-    try:
-        from app.services.integration_settings import get_value
-        return get_value("bluebubbles", key, default)
-    except ImportError:
-        return os.environ.get(key, default)
 
-
-class _Settings:
-    @property
-    def BLUEBUBBLES_SERVER_URL(self) -> str:
-        return _get("BLUEBUBBLES_SERVER_URL")
-
-    @property
-    def BLUEBUBBLES_PASSWORD(self) -> str:
-        return _get("BLUEBUBBLES_PASSWORD")
-
-    @property
-    def BB_DEFAULT_BOT(self) -> str:
-        return _get("BB_DEFAULT_BOT", "default")
-
-    @property
-    def BB_WAKE_WORDS(self) -> str:
-        return _get("BB_WAKE_WORDS")
-
-    @property
-    def BB_WEBHOOK_TOKEN(self) -> str:
-        return _get("BB_WEBHOOK_TOKEN")
-
-    @property
-    def BB_SEND_METHOD(self) -> str:
-        return _get("BB_SEND_METHOD", "")
-
+class _Settings(_Base):
     @property
     def BB_SUGGEST_CHATS(self) -> bool:
-        return _get("BB_SUGGEST_CHATS", "true").lower() in ("true", "1", "yes")
+        return self._get("BB_SUGGEST_CHATS", "true").lower() in ("true", "1", "yes")
 
     @property
     def BB_SUGGEST_COUNT(self) -> int:
         try:
-            return max(1, min(50, int(_get("BB_SUGGEST_COUNT", "10"))))
+            return max(1, min(50, int(self._get("BB_SUGGEST_COUNT", "10"))))
         except ValueError:
             return 10
 
     @property
     def BB_SUGGEST_PREVIEW(self) -> bool:
-        return _get("BB_SUGGEST_PREVIEW", "true").lower() in ("true", "1", "yes")
+        return self._get("BB_SUGGEST_PREVIEW", "true").lower() in ("true", "1", "yes")
 
     @property
     def BB_ECHO_SUPPRESS_WINDOW(self) -> float:
         try:
-            return max(0.0, float(_get("BB_ECHO_SUPPRESS_WINDOW", "15")))
+            return max(0.0, float(self._get("BB_ECHO_SUPPRESS_WINDOW", "15")))
         except ValueError:
             return 15.0
 

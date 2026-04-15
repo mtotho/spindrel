@@ -1,0 +1,96 @@
+id: frigate
+name: Frigate NVR
+icon: Camera
+description: Security camera monitoring with Frigate NVR -- live events, clip management, detection alerts, and camera status.
+version: "1.0"
+
+settings:
+  - key: FRIGATE_URL
+    type: string
+    label: "Frigate NVR base URL (e.g. http://frigate:5000)"
+    required: true
+  - key: FRIGATE_API_KEY
+    type: string
+    label: "Bearer token for Frigate API auth"
+    secret: true
+  - key: FRIGATE_MAX_CLIP_BYTES
+    type: string
+    label: "Max clip download size (default 50MB)"
+  - key: FRIGATE_MQTT_BROKER
+    type: string
+    label: "MQTT broker hostname for push events"
+  - key: FRIGATE_MQTT_PORT
+    type: string
+    label: "MQTT broker port (default 1883)"
+  - key: FRIGATE_MQTT_USERNAME
+    type: string
+    label: "MQTT auth username"
+  - key: FRIGATE_MQTT_PASSWORD
+    type: string
+    label: "MQTT auth password"
+    secret: true
+  - key: FRIGATE_MQTT_TOPIC_PREFIX
+    type: string
+    label: "MQTT topic prefix (default: frigate)"
+  - key: FRIGATE_MQTT_CAMERAS
+    type: string
+    label: "Global camera filter for MQTT listener (empty = all)"
+  - key: FRIGATE_MQTT_LABELS
+    type: string
+    label: "Global label filter for MQTT listener (e.g. person,car)"
+  - key: FRIGATE_MQTT_MIN_SCORE
+    type: string
+    label: "Global minimum detection score for MQTT listener (default 0.6)"
+  - key: FRIGATE_MQTT_COOLDOWN
+    type: string
+    label: "Seconds between alerts for same camera+label (default 300)"
+  - key: FRIGATE_WEBHOOK_TOKEN
+    type: string
+    label: "Bearer token for webhook authentication (optional)"
+    secret: true
+
+webhook:
+  path: /integrations/frigate/webhook
+  description: "Frigate event receiver (MQTT listener posts here for channel fan-out)"
+
+events:
+  - { type: object_detected, label: Object detected, description: "New object detection event from Frigate", category: webhook }
+
+activation:
+  carapaces: [frigate]
+  requires_workspace: false
+  description: "Security camera monitoring with Frigate NVR -- live events, clip management, detection alerts, and camera status"
+
+binding:
+  client_id_prefix: "frigate:"
+  client_id_placeholder: "frigate:events"
+  client_id_description: "Frigate event stream (typically frigate:events)"
+  display_name_placeholder: "Frigate Events"
+  config_fields:
+    - key: cameras
+      type: string
+      label: Cameras
+      description: "Comma-separated camera names (empty = all)"
+      default: ""
+    - key: labels
+      type: string
+      label: Labels
+      description: "Comma-separated object labels (empty = all)"
+      default: ""
+    - key: min_score
+      type: number
+      label: Min Score
+      description: "Minimum detection score (0-1)"
+      default: 0.5
+
+process:
+  cmd: ["python", "integrations/frigate/mqtt_listener.py"]
+  description: "Frigate MQTT event listener"
+  required_env: ["FRIGATE_MQTT_BROKER"]
+  watch_paths: ["integrations/frigate/"]
+
+provides:
+  - router
+  - tools
+  - skills
+  - carapaces

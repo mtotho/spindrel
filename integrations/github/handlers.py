@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.security.prompt_sanitize import sanitize_unicode
+from integrations.sdk import sanitize_unicode
 
 logger = logging.getLogger(__name__)
 

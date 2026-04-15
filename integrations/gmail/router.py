@@ -8,7 +8,7 @@ import logging
 
 from fastapi import APIRouter, Depends
 
-from app.dependencies import verify_auth
+from integrations.sdk import verify_auth
 
 logger = logging.getLogger(__name__)
 

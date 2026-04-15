@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
-from app.dependencies import verify_auth_or_user
+from integrations.sdk import verify_auth_or_user
 from integrations.ingestion.config import INGESTION_DB_DIR
 from integrations.ingestion.store import IngestionStore
 

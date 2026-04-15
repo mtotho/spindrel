@@ -196,6 +196,7 @@ export function ForecastCards({ forecast }: { forecast: UsageForecast }) {
 const SOURCE_LABELS: Record<string, string> = {
   heartbeats: "Heartbeats",
   recurring_tasks: "Recurring Tasks",
+  maintenance_tasks: "Maintenance",
   trajectory: "Trajectory",
   fixed_plans: "Fixed Plans",
 };
@@ -204,6 +205,7 @@ const SOURCE_COLORS: Record<string, (t: ReturnType<typeof useThemeTokens>) => st
   trajectory: (t) => t.accent,
   heartbeats: (t) => t.success,
   recurring_tasks: (t) => t.warning,
+  maintenance_tasks: (t) => t.accentMuted,
   fixed_plans: (t) => t.purple,
 };
 

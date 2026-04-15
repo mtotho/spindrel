@@ -20,7 +20,6 @@ import {
   Paperclip,
   BarChart3,
   Layers,
-  Zap,
   Wrench,
   Cable,
   FileCode,
@@ -69,7 +68,6 @@ export const ADMIN_SECTIONS: SectionDef[] = [
     items: [
       { label: "Learning", href: "/admin/learning", icon: Brain },
       { label: "Tasks", href: "/admin/tasks", icon: ClipboardList },
-      { label: "Workflows", href: "/admin/workflows", icon: Zap },
     ],
   },
   {

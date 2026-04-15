@@ -1,0 +1,53 @@
+id: ingestion
+name: Content Feeds
+icon: Rss
+description: Content feed ingestion pipeline with classification and quarantine.
+version: "1.0"
+
+settings:
+  - key: INGESTION_CLASSIFIER_MODEL
+    type: model_selection
+    label: "LLM model for content classification"
+    default: "gpt-4o-mini"
+  - key: INGESTION_QUARANTINE_RETENTION_DAYS
+    type: string
+    label: "Days to keep quarantined items before cleanup"
+    default: "90"
+  - key: INGESTION_MAX_BODY_BYTES
+    type: string
+    label: "Maximum content size in bytes for classification"
+    default: "50000"
+  - key: INGESTION_CLASSIFIER_MAX_RETRIES
+    type: string
+    label: "Retry attempts on transient classifier errors"
+    default: "3"
+
+sidebar_section:
+  id: content-feeds
+  title: CONTENT FEEDS
+  icon: Rss
+  items:
+    - { label: Dashboard, href: /integration/ingestion, icon: Rss }
+
+web_ui:
+  static_dir: dashboard/dist
+
+activation:
+  description: "Content feed health monitoring and status strip"
+  carapaces: []
+  requires_workspace: false
+
+chat_hud:
+  - id: feed-status
+    style: status_strip
+    endpoint: /hud/status
+    poll_interval: 60
+    label: Feed Health
+    icon: Rss
+
+chat_hud_presets:
+  default: { label: "Feed Status Strip", widgets: [feed-status] }
+  none: { label: "No HUD", widgets: [] }
+
+provides:
+  - router

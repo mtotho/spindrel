@@ -4,7 +4,7 @@ import type { TaskItem } from "@/src/components/shared/TaskConstants";
 // Type aliases
 // ---------------------------------------------------------------------------
 export type ViewMode = "schedule" | "day" | "week" | "list" | "cron";
-export type TaskTypeFilter = "all" | "scheduled" | "delegation" | "exec" | "api" | "workflow";
+export type TaskTypeFilter = "all" | "scheduled" | "delegation" | "exec" | "api" | "pipeline";
 export type StatusFilter = "active" | "all" | "cancelled" | "failed";
 
 export type EditorState =
@@ -22,7 +22,7 @@ export const TASK_TYPE_FILTERS: { key: TaskTypeFilter; label: string }[] = [
   { key: "delegation", label: "Delegation" },
   { key: "exec", label: "Exec" },
   { key: "api", label: "API" },
-  { key: "workflow", label: "Workflow" },
+  { key: "pipeline", label: "Pipeline" },
 ];
 
 export const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [

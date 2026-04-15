@@ -7,9 +7,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db
-from app.services.channels import resolve_all_channels_by_client_id, ensure_active_session
 from integrations import utils
+from integrations.sdk import get_db, resolve_all_channels_by_client_id, ensure_active_session
 from integrations.github.config import settings
 from integrations.github.handlers import parse_event
 from integrations.github.validator import validate_signature
@@ -185,8 +184,7 @@ async def github_webhook(
         results.append(result)
 
     # Fire task triggers for this integration event (fire-and-forget)
-    from app.utils import safe_create_task
-    from integrations.utils import emit_integration_event
+    from integrations.sdk import safe_create_task, emit_integration_event
     safe_create_task(emit_integration_event(
         "github", event_type,
         {"owner": parsed.owner, "repo": parsed.repo,

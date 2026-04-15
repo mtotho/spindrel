@@ -1,0 +1,76 @@
+id: gmail
+name: Gmail
+icon: Mail
+description: Email ingestion and digest management via Gmail IMAP polling.
+version: "1.0"
+
+settings:
+  - key: GMAIL_EMAIL
+    type: string
+    label: "Gmail email address for IMAP login"
+    required: true
+  - key: GMAIL_APP_PASSWORD
+    type: string
+    label: "Gmail app password (not your regular password -- generate at myaccount.google.com/apppasswords)"
+    required: true
+    secret: true
+  - key: GMAIL_IMAP_HOST
+    type: string
+    label: "IMAP server hostname"
+    default: "imap.gmail.com"
+  - key: GMAIL_IMAP_PORT
+    type: string
+    label: "IMAP server port"
+    default: "993"
+  - key: GMAIL_POLL_INTERVAL
+    type: string
+    label: "Seconds between poll cycles"
+    default: "60"
+  - key: GMAIL_MAX_PER_POLL
+    type: string
+    label: "Maximum emails to fetch per poll cycle"
+    default: "25"
+  - key: GMAIL_FOLDERS
+    type: string
+    label: "Comma-separated IMAP folders to poll"
+    default: "INBOX"
+  - key: GMAIL_INITIAL_FETCH
+    type: string
+    label: "First poll behavior: 'new' (skip existing), 'recent:N' (last N days), 'all' (everything)"
+    default: "new"
+  - key: AGENT_BASE_URL
+    type: string
+    label: "Agent server base URL"
+    default: "http://localhost:8000"
+  - key: INGESTION_CLASSIFIER_MODEL
+    type: model_selection
+    label: "Model for email safety classification"
+    default: "gpt-4o-mini"
+
+api_permissions: slack_integration
+
+events:
+  - { type: new_email, label: New email received, description: "New email found during poll cycle", category: poll }
+
+activation:
+  carapaces: [gmail-feeds]
+  requires_workspace: true
+  description: "Email ingestion and digest management via Gmail IMAP"
+
+binding:
+  client_id_prefix: "gmail:"
+  client_id_placeholder: "gmail:user@gmail.com"
+  client_id_description: "Gmail address for this channel (e.g. gmail:user@gmail.com)"
+  display_name_placeholder: "user@gmail.com"
+  auto_client_id: "gmail:{GMAIL_EMAIL}"
+
+process:
+  cmd: ["python", "integrations/gmail/poller.py"]
+  description: "Gmail IMAP poller"
+  required_env: ["GMAIL_EMAIL", "GMAIL_APP_PASSWORD"]
+
+provides:
+  - router
+  - tools
+  - skills
+  - carapaces

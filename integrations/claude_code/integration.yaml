@@ -1,0 +1,29 @@
+id: claude_code
+name: Claude Code
+icon: Terminal
+description: Claude Code CLI integration for running agent tasks from the terminal.
+version: "1.0"
+
+settings:
+  - key: CLAUDE_CODE_MAX_TURNS
+    type: string
+    label: "Max agent turns per CLI invocation (default: 30)"
+  - key: CLAUDE_CODE_TIMEOUT
+    type: string
+    label: "Timeout in seconds for CLI execution (default: 1800 = 30 min)"
+  - key: CLAUDE_CODE_PERMISSION_MODE
+    type: string
+    label: "CLI permission mode: default, acceptEdits, plan, bypassPermissions (default: bypassPermissions)"
+  - key: CLAUDE_CODE_MODEL
+    type: string
+    label: "Model override (empty = CLI default)"
+  - key: CLAUDE_CODE_ALLOWED_TOOLS
+    type: string
+    label: "Comma-separated pre-approved tools (default: Read,Write,Edit,Bash,Glob,Grep)"
+  - key: CLAUDE_CODE_MAX_RESUME_RETRIES
+    type: string
+    label: "Resume attempts on failure (default: 1)"
+
+provides:
+  - tools
+  - skills

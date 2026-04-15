@@ -1,0 +1,176 @@
+id: bluebubbles
+name: BlueBubbles
+icon: MessageCircle
+description: iMessage relay via BlueBubbles -- connection status, wake words, and echo suppression.
+version: "1.0"
+
+settings:
+  - key: BLUEBUBBLES_SERVER_URL
+    type: string
+    label: "BlueBubbles server URL (e.g. http://192.168.1.50:1234)"
+    required: true
+  - key: BLUEBUBBLES_PASSWORD
+    type: string
+    label: "BlueBubbles server password"
+    required: true
+    secret: true
+  - key: AGENT_API_KEY
+    type: string
+    label: "API key for the agent server"
+    required: true
+    secret: true
+  - key: AGENT_BASE_URL
+    type: string
+    label: "Agent server URL (default: http://localhost:8000)"
+  - key: BB_DEFAULT_BOT
+    type: string
+    label: "Default bot ID for Socket.IO client (default: default). Not used by webhook path."
+  - key: BB_WAKE_WORDS
+    type: string
+    label: "Extra wake words (comma-separated). Added on top of automatic bot name/id wake words."
+  - key: BB_WEBHOOK_TOKEN
+    type: string
+    label: "Shared secret for webhook auth (?token=). If empty, webhook is unauthenticated."
+    secret: true
+  - key: BB_SEND_METHOD
+    type: string
+    label: "iMessage send method: 'apple-script' (default, reliable) or 'private-api' (requires Private API helper)"
+  - key: BB_SUGGEST_CHATS
+    type: string
+    label: "Show recent chats dropdown when binding (default: true)"
+  - key: BB_SUGGEST_COUNT
+    type: string
+    label: "Number of recent chats to show in binding dropdown (default: 10, max: 50)"
+  - key: BB_SUGGEST_PREVIEW
+    type: string
+    label: "Show last message preview in binding dropdown (default: true)"
+  - key: BB_ECHO_SUPPRESS_WINDOW
+    type: string
+    label: "Seconds to suppress echo re-triggers after bot replies (default: 15). Prevents infinite loops."
+
+api_permissions: bluebubbles_integration
+
+webhook:
+  path: /integrations/bluebubbles/webhook
+  description: "BlueBubbles new-message webhook receiver (optional ?token=BB_WEBHOOK_TOKEN auth)"
+
+python_dependencies:
+  - { package: python-socketio, import_name: socketio }
+  - { package: aiohttp, import_name: aiohttp }
+
+debug_actions:
+  - id: pause
+    label: Pause Webhooks
+    description: "Stop processing all incoming webhooks"
+    endpoint: pause
+    method: POST
+    style: warning
+  - id: resume
+    label: Resume Webhooks
+    description: "Resume processing webhooks after a pause"
+    endpoint: resume
+    method: POST
+    style: default
+  - id: diagnose
+    label: Run Diagnostics
+    description: "Check dispatcher, credentials, and channel bindings"
+    endpoint: diagnose
+    method: GET
+  - id: echo-state
+    label: Echo State
+    description: "View per-chat echo detection state (cooldowns, circuit breaker, suppress window)"
+    endpoint: echo-state
+    method: GET
+
+events:
+  - { type: message_received, label: Message received, description: "New iMessage received", category: message }
+
+activation:
+  description: "iMessage relay via BlueBubbles -- connection status and kill switch"
+  carapaces: []
+  requires_workspace: false
+
+chat_hud:
+  - id: bb-status
+    style: status_strip
+    endpoint: /hud/status
+    poll_interval: 30
+    label: iMessage
+    icon: MessageCircle
+  - id: bb-echo-diag
+    style: side_panel
+    endpoint: /hud/echo-diagnostics
+    poll_interval: 10
+    label: Echo Diagnostics
+    icon: Activity
+    collapsed_by_default: true
+    width: 300
+
+chat_hud_presets:
+  default:
+    label: Connection Status
+    description: "Shows iMessage connection state and pause/resume controls."
+    widgets: [bb-status]
+  diagnostics:
+    label: Diagnostics
+    description: "Connection status plus a collapsible echo detection diagnostics panel."
+    widgets: [bb-status, bb-echo-diag]
+  none:
+    label: No HUD
+    description: "Hide all BlueBubbles HUD widgets."
+    widgets: []
+
+binding:
+  client_id_prefix: "bb:"
+  client_id_placeholder: "bb:iMessage;-;+15551234567"
+  client_id_description: "BlueBubbles chat GUID (e.g. iMessage;-;+15551234567 for 1:1, iMessage;+;chat123 for group)"
+  display_name_placeholder: "+1 (555) 123-4567"
+  suggestions_endpoint: "/integrations/bluebubbles/binding-suggestions"
+  config_fields:
+    - key: extra_wake_words
+      type: string
+      label: Extra Wake Words
+      description: "Comma-separated additional wake words for this chat"
+      default: ""
+    - key: use_bot_wake_word
+      type: boolean
+      label: Use Bot Name as Wake Word
+      description: "Automatically use the channel bot's name and ID as wake words"
+      default: true
+    - key: echo_suppress_window
+      type: number
+      label: "Echo Suppress Window (seconds)"
+      description: "Seconds to suppress echo re-triggers after bot replies. Increase for aggressive autocorrect."
+      default: ""
+    - key: send_method
+      type: select
+      label: Send Method
+      description: "Override the global iMessage send method for this chat"
+      default: ""
+      options:
+        - { value: "", label: Use Global Default }
+        - { value: apple-script, label: "AppleScript (reliable)" }
+        - { value: private-api, label: "Private API (requires helper)" }
+    - key: text_footer
+      type: string
+      label: Text Footer
+      description: "Text appended to every outgoing message (e.g. ' - Michael Bot')"
+      default: ""
+    - key: typing_indicator
+      type: boolean
+      label: Typing Indicator
+      description: "Show typing indicator in iMessage while the bot is processing"
+      default: true
+
+capabilities:
+  - text
+  - threading
+  - attachments
+  - approval_buttons
+  - display_names
+
+provides:
+  - target
+  - renderer
+  - hooks
+  - router

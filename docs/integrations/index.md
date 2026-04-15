@@ -25,7 +25,7 @@ up automatically. No manual `INTEGRATION_DIRS` configuration needed.
 │       └── api_tool.py     # Custom tool — auto-discovered
 ├── my_webhook/
 │   ├── router.py            # Webhook endpoint
-│   ├── setup.py             # Env var declarations
+│   ├── integration.yaml     # Metadata + settings declarations
 │   └── tools/
 │       └── handler.py
 ```
@@ -45,7 +45,7 @@ INTEGRATION_DIRS=/home/you/my-integrations
 ```
 
 Colon-separated for multiple directories. Tilde (`~`) is expanded to your home directory. Each directory is scanned the same way as `integrations/` — any subfolder with a
-`router.py`, `dispatcher.py`, `tools/*.py`, `skills/*.md`, or `process.py` is discovered
+`router.py`, `tools/*.py`, `skills/*.md`, or `integration.yaml` is discovered
 automatically.
 
 **Docker deployment:** mount your external integrations directory into the container and
@@ -71,38 +71,43 @@ registration. See the "Creating an External Integration" section in [example.md]
 
 Each integration lives under `integrations/<name>/`. The auto-discovery system scans
 this directory at startup. All files are optional except your integration must have at
-least one of `router.py`, `dispatcher.py`, or `tools/*.py` to do anything useful.
+least one of `integration.yaml`, `router.py`, or `tools/*.py` to do anything useful.
 
 ```
 integrations/
 ├── __init__.py          # auto-discovery (don't edit)
-├── _register.py         # tool registration shim (don't edit)
+├── sdk.py               # single-import convenience module
 ├── utils.py             # helpers: ingest_document, inject_message, etc.
 └── mygithub/            # your integration folder
-    ├── __init__.py      # optional: id, name, version metadata
-    ├── config.py        # integration-specific settings (Pydantic BaseSettings)
+    ├── integration.yaml # metadata, settings, events, binding, capabilities
     ├── router.py        # HTTP endpoints → registered at /integrations/mygithub/
-    ├── dispatcher.py    # task result delivery → called by the task worker
-    ├── hooks.py         # integration metadata + lifecycle hooks
-    ├── process.py       # background process → auto-started by dev-server.sh
-    └── tools/
-        ├── __init__.py
-        └── my_tool.py   # agent tools — auto-discovered by the loader
+    ├── target.py        # typed dispatch target (optional — can be declared in YAML)
+    ├── renderer.py      # message delivery via the channel-events bus
+    ├── hooks.py         # lifecycle hooks (metadata auto-registered from YAML)
+    ├── config.py        # integration-specific settings (DB-backed properties)
+    ├── tools/
+    │   ├── __init__.py
+    │   └── my_tool.py   # agent tools — auto-discovered by the loader
+    ├── skills/
+    │   └── mygithub.md  # skill documents — synced at startup
+    └── carapaces/
+        └── mygithub.yaml # capability definitions
 ```
 
 ### What each file does
 
 | File | Auto-loaded? | Purpose |
 |---|---|---|
+| `integration.yaml` | Yes — seeded to DB on first startup | Metadata, settings, events, binding config, capabilities, process declaration |
 | `router.py` | Yes — registered at `/integrations/<name>/` | Receive webhooks, expose config endpoints |
-| `dispatcher.py` | Yes — imported to trigger `register()` | Deliver completed task results to your service |
-| `hooks.py` | Yes — imported to trigger `register_integration()` / `register_hook()` | Integration metadata + lifecycle hooks |
-| `process.py` | Via `dev-server.sh` | Declare a background process (e.g. a Bolt app) |
-| `__init__.py` | Yes (as package) | Optional metadata: `id`, `name`, `version` |
-| `config.py` | No (imported by your tools) | Integration-specific env var settings |
-| `setup.py` | Yes — scanned by admin API | Declare env vars, webhooks, sidebar sections, dashboard modules |
+| `target.py` | Yes — registers typed dispatch target | Define where/how to deliver messages (can also be declared in YAML `target:` section) |
+| `renderer.py` | Yes — registers with renderer registry | Deliver channel events (messages, streaming, reactions) to the external service |
+| `hooks.py` | Yes — registers metadata + lifecycle hooks | Integration metadata (auto-registered from YAML if not provided) + lifecycle event callbacks |
+| `config.py` | No (imported by your code) | Integration-specific settings with DB-backed `get_value()` accessors |
 | `tools/*.py` | Yes — auto-discovered | Agent tools (underscore-prefixed files skipped) |
 | `skills/*.md` | Yes — synced at startup | Skill documents ingested into the skill system |
+| `carapaces/*.yaml` | Yes — synced at startup | Capability definitions that can be activated on bots |
+| `setup.py` | *(legacy, deprecated)* | Old metadata format — use `integration.yaml` instead |
 
 ---
 
@@ -178,19 +183,58 @@ skips them): `integrations/<name>/tools/_helpers.py`.
 
 ## Quickstart
 
-### 1. Create the folder
+### 1. Create the folder and manifest
 
 ```bash
 mkdir integrations/mygithub
-touch integrations/mygithub/__init__.py
 ```
 
-### 2. Add optional metadata (`__init__.py`)
+Create `integrations/mygithub/integration.yaml`:
+
+```yaml
+id: mygithub
+name: GitHub Integration
+icon: Code2
+description: GitHub repository management.
+version: "1.0"
+
+settings:
+  - key: MYGITHUB_TOKEN
+    type: string
+    label: "Personal access token"
+    required: true
+    secret: true
+  - key: MYGITHUB_WEBHOOK_SECRET
+    type: string
+    label: "Webhook signature secret"
+    secret: true
+
+events:
+  - { type: pull_request, label: Pull requests, category: webhook }
+  - { type: push, label: Pushes, category: webhook }
+
+webhook:
+  path: /integrations/mygithub/webhook
+  description: "Receives push and PR events from GitHub"
+
+binding:
+  client_id_prefix: "mygithub:"
+  client_id_placeholder: "mygithub:owner/repo"
+  client_id_description: "GitHub owner/repo"
+
+activation:
+  carapaces: [mygithub]
+  description: "GitHub repository management"
+```
+
+See the [integration.yaml Reference](#integrationyaml-reference) section below for all
+available keys.
+
+### 2. Add `__init__.py`
 
 ```python
-id = "mygithub"
-name = "GitHub Integration"
-version = "0.1.0"
+# integrations/mygithub/__init__.py
+# (can be empty — metadata comes from integration.yaml)
 ```
 
 ### 3. Add a router (`router.py`)
@@ -234,48 +278,81 @@ async def github_webhook(request: Request):
     return {"ok": True}
 ```
 
-### 4. Add a dispatcher (`dispatcher.py`)
+### 4. Add a target and renderer (message delivery)
 
-A dispatcher is called by the task worker after an agent run completes. It delivers
-the result to your service. Add one only if your integration has its own delivery channel
-(e.g. posting to a different chat platform, calling a specific API).
+If your integration delivers messages to an external service (e.g. a chat platform),
+you need a **target** (where to send) and a **renderer** (how to send).
 
-```python
-import logging
-from app.agent.dispatchers import register
+**Targets** can be declared in `integration.yaml` (preferred for simple cases) or in
+`target.py` (for complex validation logic):
 
-logger = logging.getLogger(__name__)
-
-
-class MyDispatcher:
-    async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
-                      extra_metadata: dict | None = None) -> None:
-        cfg = task.dispatch_config or {}
-        target_url = cfg.get("webhook_url")
-        if not target_url:
-            return
-        # ... post result to your service ...
-
-    async def post_message(self, dispatch_config: dict, text: str, *,
-                           bot_id: str | None = None, reply_in_thread: bool = True,
-                           username: str | None = None, icon_emoji: str | None = None,
-                           icon_url: str | None = None,
-                           client_actions: list[dict] | None = None,
-                           extra_metadata: dict | None = None) -> bool:
-        # ... post a standalone message (used by delegation, heartbeat) ...
-        return False
-
-
-# Register at import time — this is what makes it pluggable
-register("mygithub", MyDispatcher())
+```yaml
+# integration.yaml — declarative target
+target:
+  type: mygithub
+  fields:
+    owner: string
+    repo: string
+    issue_number: int
+    token: string
 ```
 
-Both `deliver()` and `post_message()` must accept `extra_metadata` (used for delegation
-attribution). The `Dispatcher` protocol in `app/agent/dispatchers.py` defines the full
-signature — missing kwargs will cause `TypeError` at runtime.
+This auto-generates a frozen dataclass `MygithubTarget` and registers it. For custom
+logic, create `target.py` instead:
 
-The dispatcher is called when a task has `dispatch_type="mygithub"`. To create such a
-task, set `dispatch_type` and `dispatch_config` when calling `utils.inject_message()`.
+```python
+# target.py — manual target with custom methods
+from integrations.sdk import BaseTarget, target_registry
+
+class MyGitHubTarget(BaseTarget, dispatch_type="mygithub"):
+    owner: str
+    repo: str
+    issue_number: int
+    token: str
+
+target_registry.register(MyGitHubTarget)
+```
+
+**Renderers** handle the actual delivery. Create `renderer.py`:
+
+```python
+from integrations.sdk import (
+    ChannelRenderer, DeliveryReceipt, Capability,
+    ChannelEvent, ChannelEventKind, renderer_registry,
+)
+
+class MyGitHubRenderer(ChannelRenderer):
+    dispatch_type = "mygithub"
+    CAPABILITIES = {Capability.TEXT, Capability.RICH_TEXT}
+
+    async def send(self, event: ChannelEvent) -> DeliveryReceipt:
+        target = event.target  # MyGitHubTarget instance
+        if event.kind == ChannelEventKind.TURN_ENDED:
+            # Post the final response as a GitHub comment
+            await _post_comment(target.owner, target.repo, target.issue_number,
+                                event.text, target.token)
+        return DeliveryReceipt(success=True)
+
+renderer_registry.register(MyGitHubRenderer())
+```
+
+The renderer receives typed `ChannelEvent` objects from the outbox drainer. Only events
+matching the renderer's `CAPABILITIES` are delivered. The outbox provides durability
+(retry on failure, dead-letter after 10 attempts).
+
+**Capabilities** declared in `integration.yaml` override the renderer's `CAPABILITIES`
+ClassVar — use YAML to adjust without editing Python:
+
+```yaml
+# integration.yaml
+capabilities:
+  - text
+  - rich_text
+  - mentions
+```
+
+Skip this step if your integration is tool-only (no message delivery) or poll-only
+(no outbound messages).
 
 ### 5. Add hooks (`hooks.py`)
 
@@ -362,10 +439,23 @@ for setup details and signature verification examples.
 See `integrations/slack/hooks.py` for a real example: Slack uses `after_tool_call`
 to add emoji reactions as tool indicators and log tool calls to an audit channel.
 
-### 6. Add a background process (`process.py`)
+### 6. Add a background process
 
 If your integration needs a long-running process (e.g. a bot framework using socket mode),
-declare it here. `dev-server.sh` will auto-start it when all required env vars are set.
+declare it in `integration.yaml` (preferred) or `process.py`.
+
+**YAML declaration** (preferred):
+
+```yaml
+# integration.yaml
+process:
+  cmd: ["python", "integrations/mygithub/listener.py"]
+  description: "GitHub webhook listener"
+  required_env: ["GITHUB_WEBHOOK_SECRET", "GITHUB_TOKEN"]
+  watch_paths: ["integrations/mygithub/"]  # optional: auto-restart on file changes
+```
+
+**Legacy `process.py`** (still supported):
 
 ```python
 DESCRIPTION = "GitHub webhook listener"
@@ -373,8 +463,7 @@ CMD = ["python", "integrations/mygithub/listener.py"]
 REQUIRED_ENV = ["GITHUB_WEBHOOK_SECRET", "GITHUB_TOKEN"]
 ```
 
-`CMD` is a list of strings (passed to `shlex.join` for the shell). The process is
-only started if every var in `REQUIRED_ENV` is set in the environment.
+The process is only started if every var in `required_env` / `REQUIRED_ENV` is set.
 
 ---
 
@@ -585,7 +674,184 @@ return event-specific preambles, skills, and tools:
 
 ---
 
-## Setup Manifest (`setup.py`)
+## integration.yaml Reference
+
+`integration.yaml` is the preferred way to declare integration metadata. It is seeded
+to the database on first startup; after that, the DB is the source of truth (editable
+via the admin UI). The server reports drift if the file changes after seeding.
+
+### Full key reference
+
+```yaml
+# Required
+id: mygithub                    # unique integration identifier
+name: My GitHub                 # display name
+version: "1.0"                  # semver string
+
+# Optional metadata
+icon: Code2                     # lucide-react icon name (default: Plug)
+description: "Short description shown in admin UI"
+
+# Settings — rendered as a form in Admin > Integrations > [name]
+settings:
+  - key: MY_TOKEN               # env var name
+    type: string                # string | number | boolean
+    label: "Human-readable label"
+    required: true              # default: false
+    secret: true                # mask value in UI (default: false)
+    default: ""                 # default value if not set
+    description: "Optional longer help text"
+
+# Events — what this integration can emit (used by task trigger UI)
+events:
+  - type: pull_request          # event type identifier
+    label: Pull requests        # human-readable label
+    description: "PR opened, closed, merged"  # optional tooltip
+    category: webhook           # webhook | message | poll | device
+
+# Webhook — displayed in admin UI for users to configure in external services
+webhook:
+  path: /integrations/mygithub/webhook
+  description: "Receives events from GitHub"
+
+# Binding — how channels are linked to this integration
+binding:
+  client_id_prefix: "mygithub:"
+  client_id_placeholder: "mygithub:owner/repo"
+  client_id_description: "GitHub owner/repo"
+  display_name_placeholder: "octocat/hello-world"
+  suggestions_endpoint: "/integrations/mygithub/binding-suggestions"
+  config_fields:
+    - key: event_filter
+      type: multiselect
+      label: Event Filter
+      description: "Which events to process (empty = all)"
+      # options auto-derived from top-level events: section
+
+# Target — typed dispatch target (alternative to target.py)
+target:
+  type: mygithub
+  fields:
+    owner: string
+    repo: string
+    issue_number: int
+    token: string
+    thread_id: string?          # ? suffix = optional field
+    reply: bool = false         # default values supported
+
+# Capabilities — what the renderer supports (overrides renderer ClassVar)
+capabilities:
+  - text
+  - rich_text
+  - threading
+  - reactions
+  - attachments
+  - streaming_edit
+  - approval_buttons
+  # ... see app/domain/capability.py for full list
+
+# Activation — what gets activated when this integration is enabled on a bot
+activation:
+  carapaces: [mygithub]         # capability definitions to activate
+  requires_workspace: false
+  description: "GitHub repository management"
+
+# Provides — what modules this integration supplies (auto-detected if omitted)
+provides:
+  - target
+  - renderer
+  - router
+  - hooks
+  - tools
+  - skills
+  - carapaces
+
+# Process — background process declaration (alternative to process.py)
+process:
+  cmd: ["python", "integrations/mygithub/listener.py"]
+  description: "GitHub webhook listener"
+  required_env: ["MY_TOKEN"]
+  watch_paths: ["integrations/mygithub/"]
+
+# API permissions — scopes required for the integration's router
+api_permissions:
+  - chat
+  - bots:read
+  - channels:read
+
+# Sidebar navigation section
+sidebar_section:
+  id: my-dashboard
+  title: MY DASHBOARD
+  icon: LayoutDashboard
+  items:
+    - { label: Overview, href: /my-dashboard, icon: LayoutDashboard }
+
+# Dashboard modules
+dashboard_modules:
+  - { id: analytics, label: Analytics, icon: BarChart3, description: "Usage analytics" }
+
+# Chat HUD widgets
+chat_hud:
+  - { id: my-status, style: status_strip, endpoint: /hud/status, poll_interval: 30 }
+
+chat_hud_presets:
+  default: { label: "Status", widgets: [my-status] }
+  none: { label: "No HUD", widgets: [] }
+```
+
+All keys are optional except `id`. See `integrations/github/integration.yaml` and
+`integrations/slack/integration.yaml` for real-world examples.
+
+---
+
+## Polling Patterns
+
+For integrations that poll an external service (no inbound webhooks), the recommended
+pattern is a background process that calls the agent server's REST API.
+
+**Example: Gmail poller** (`integrations/gmail/poller.py`)
+
+The Gmail integration polls IMAP on an interval and injects messages via HTTP:
+
+1. Declare the process in `integration.yaml`:
+   ```yaml
+   process:
+     cmd: ["python", "integrations/gmail/poller.py"]
+     description: "Gmail IMAP poller"
+     required_env: ["GMAIL_EMAIL", "GMAIL_APP_PASSWORD"]
+   ```
+
+2. The poller loop fetches new items, then calls:
+   ```python
+   POST /api/v1/sessions/{session_id}/messages
+   {"content": "New email from ...", "source": "gmail", "run_agent": true}
+   ```
+
+3. Emit events for task triggers:
+   ```python
+   from integrations.sdk import emit_integration_event
+   emit_integration_event("gmail", "new_email", {"subject": "...", "from": "..."})
+   ```
+
+This pattern provides process isolation (poller crash doesn't affect the server),
+works with external integrations (no `app/` imports needed in the poller), and
+scales naturally (run multiple pollers for different accounts).
+
+**Cooldowns**: `emit_integration_event` has per-category defaults to prevent spam:
+- `webhook`: 0s (every event fires)
+- `message`: 300s (5-minute cooldown per source)
+- `poll`: 60s (1-minute cooldown)
+- `device`: 30s
+
+Override via `cooldown=0` parameter if you need every event.
+
+---
+
+## Setup Manifest (`setup.py`) *(legacy, deprecated)*
+
+> **Use `integration.yaml` instead.** `setup.py` is the legacy metadata format. Existing
+> integrations are being migrated to YAML. New integrations should not use `setup.py`.
 
 Each integration can provide a `setup.py` file with a `SETUP` dict that declares
 configuration, UI components, and capabilities. The admin UI reads this to render
@@ -825,13 +1091,13 @@ and how to create compatible templates.
 
 ---
 
-## Dispatch Config
+## Dispatch Targets
 
-When a task completes, the task worker looks up the dispatcher for `task.dispatch_type`
-and calls `dispatcher.deliver(task, result)`. The dispatcher reads `task.dispatch_config`
-for its delivery parameters.
+Each channel has a `dispatch_config` JSONB field that describes where to deliver messages.
+When a renderer receives a `ChannelEvent`, it reads the target from `event.target` — a
+typed dataclass built from `dispatch_config`.
 
-Standard shapes:
+Standard target shapes:
 
 ```json
 // dispatch_type = "slack"
@@ -847,7 +1113,8 @@ Standard shapes:
 {}
 ```
 
-For a custom dispatch type, add a `dispatcher.py` (see step 4 above).
+For a custom dispatch type, declare a `target:` section in `integration.yaml` or create
+a `target.py` (see step 4 above), then create a `renderer.py` to handle delivery.
 
 ---
 
@@ -868,9 +1135,8 @@ See [example.md](example.md) for the minimal `integrations/example/` scaffold.
 
 ## What Integration Code Must Not Do
 
-- Import from `app/` directly — use `integrations/_register.py` for tool registration, `integrations/utils.py` for helpers, and keep config in your own `config.py`
-  - Exception: dispatchers may import `app/agent/dispatchers` for `register()` and `app/agent/bots` for `get_bot()`
+- Import from `app/` directly — use `integrations/sdk.py` for all SDK imports, `integrations/utils.py` for helpers, and keep config in your own `config.py`
 - Put integration-specific config in `app/config.py` — create your own `integrations/<name>/config.py`
 - Duplicate Slack API call logic — use `integrations/slack/client.py` for messages and `integrations/slack/uploads.py` for file uploads
 - Add new columns to core models (`Bot`, `Task`, `Session`) for integration-specific data — use `dispatch_config`, `integration_config` JSONB fields, or add your own table
-- Edit `app/main.py`, `app/agent/tasks.py`, or `app/agent/dispatchers.py` (unless adding a core delivery mechanism)
+- Edit `app/main.py` or `app/agent/tasks.py` — integration code stays in `integrations/`

@@ -36,11 +36,11 @@ from typing import ClassVar
 
 import httpx
 
-from app.domain.capability import Capability
-from app.domain.channel_events import ChannelEvent, ChannelEventKind
-from app.domain.dispatch_target import DispatchTarget
-from app.domain.outbound_action import OutboundAction, UploadFile, UploadImage
-from app.integrations.renderer import DeliveryReceipt
+from integrations.sdk import (
+    Capability, ChannelEvent, ChannelEventKind,
+    DispatchTarget, OutboundAction, DeliveryReceipt,
+)
+from app.domain.outbound_action import UploadFile, UploadImage
 from integrations.bluebubbles.bb_api import send_attachment, send_text, set_typing
 from integrations.bluebubbles.echo_tracker import shared_tracker
 from integrations.bluebubbles.target import BlueBubblesTarget

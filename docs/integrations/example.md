@@ -19,7 +19,10 @@ integrations/example/
 
 | File | Purpose |
 |---|---|
-| `dispatcher.py` | Deliver task results to your service — calls `register("example", ...)` |
+| `integration.yaml` | Metadata, settings, events, binding config |
+| `target.py` | Typed dispatch target (or use YAML `target:` section) |
+| `renderer.py` | Message delivery via the channel-events bus |
+| `hooks.py` | Lifecycle hooks (metadata auto-registered from YAML) |
 | `process.py` | Declare a background process auto-started by `dev-server.sh` |
 
 See [Creating an Integration](index.md) for full documentation on each file.
@@ -94,4 +97,4 @@ services:
       - INTEGRATION_DIRS=/app/ext-integrations
 ```
 
-Restart the server. Your integration's tools, skills, routers, and dispatchers are discovered automatically.
+Restart the server. Your integration's tools, skills, and routers are discovered automatically.

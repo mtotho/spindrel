@@ -1,0 +1,32 @@
+id: web_search
+name: Web Search
+icon: Search
+description: Private web search via SearXNG (self-hosted) or DuckDuckGo (lightweight).
+version: "1.0"
+
+settings:
+  - key: WEB_SEARCH_MODE
+    type: string
+    label: "Search backend: searxng (self-hosted, private), ddgs (DuckDuckGo, lightweight), or disabled"
+    default: "searxng"
+  - key: WEB_SEARCH_CONTAINERS
+    type: string
+    label: "Start built-in SearXNG + Playwright containers (only needed in searxng mode with no external instance)"
+    default: "true"
+  - key: SEARXNG_URL
+    type: string
+    label: "URL of the SearXNG instance (only used in searxng mode). Default auto-detects Docker vs local."
+  - key: PLAYWRIGHT_WS_URL
+    type: string
+    label: "Playwright/Chromium WebSocket URL for JS-rendered page fetching. Default auto-detects Docker vs local."
+
+docker_compose:
+  file: docker-compose.yml
+  project_name: spindrel-web-search
+  enabled_setting: WEB_SEARCH_CONTAINERS
+  connect_networks: [agent-server_default]
+  config_files: [config/searxng/settings.yml]
+  description: "SearXNG + Playwright for private web search"
+
+provides:
+  - tools

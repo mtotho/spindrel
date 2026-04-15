@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import os
 
-from app.agent.hooks import IntegrationMeta, register_integration
+from integrations.sdk import IntegrationMeta, register_integration
 
 logger = logging.getLogger(__name__)
 

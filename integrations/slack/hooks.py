@@ -16,7 +16,7 @@ from pathlib import Path
 
 import httpx
 
-from app.agent.hooks import HookContext, IntegrationMeta, register_hook, register_integration
+from integrations.sdk import HookContext, IntegrationMeta, register_hook, register_integration
 
 logger = logging.getLogger(__name__)
 

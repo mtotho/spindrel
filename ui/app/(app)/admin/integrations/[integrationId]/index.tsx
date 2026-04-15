@@ -991,7 +991,7 @@ export default function IntegrationDetailScreen() {
         <SectionBox title="Overview">
           <div style={{ display: "flex", flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
             <CapBadge label="router" active={item.has_router} />
-            <CapBadge label="dispatcher" active={item.has_dispatcher} />
+            <CapBadge label="renderer" active={item.has_renderer} />
             <CapBadge label="hooks" active={item.has_hooks} />
             <CapBadge label="tools" active={item.has_tools} />
             <CapBadge label="skills" active={item.has_skills} />

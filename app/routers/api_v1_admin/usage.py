@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
-    Channel, ChannelHeartbeat, HeartbeatRun,
+    Bot, Channel, ChannelHeartbeat, HeartbeatRun,
     ProviderConfig, ProviderModel, Session, Task, TraceEvent,
 )
 from app.config import settings
@@ -977,6 +977,9 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
             avg_cost_per_run=round(avg_cost_per_hb, 6) if avg_cost_per_hb > 0 else None,
         ))
 
+    # Shared lazy-loaded model average cost map (used by recurring tasks + maintenance)
+    model_avg_cost: dict[str, float] | None = None
+
     # --- Recurring task forecast ---
     recurring_tasks = (await db.execute(
         select(Task).where(
@@ -1039,7 +1042,6 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
 
         # --- Phase 2: model-based fallback for tasks without correlation data ---
         # Build avg cost-per-call by model from recent 7-day usage (lazy, only if needed)
-        model_avg_cost: dict[str, float] | None = None
         templates_with_data = set(template_run_costs.keys())
 
         task_daily = 0.0
@@ -1089,6 +1091,124 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
             daily_cost=round(task_daily, 4),
             monthly_cost=round(task_daily * 30, 4),
             count=len(recurring_tasks),
+        ))
+
+    # --- Maintenance tasks forecast (memory_hygiene + skill_review) ---
+    from app.services.memory_hygiene import resolve_config as resolve_hygiene_config
+
+    maint_bots = (await db.execute(
+        select(Bot).where(Bot.memory_scheme == "workspace-files")
+    )).scalars().all()
+
+    maint_daily = 0.0
+    maint_count = 0
+
+    if maint_bots:
+        # Fetch recent completed + skipped maintenance tasks for cost & skip-rate
+        maint_types = ("memory_hygiene", "skill_review")
+        recent_maint = (await db.execute(
+            select(Task).where(
+                Task.task_type.in_(maint_types),
+                Task.status.in_(("completed", "skipped")),
+                Task.completed_at >= seven_days_ago,
+            )
+        )).scalars().all()
+
+        # Cost per run via correlation_id (completed tasks only)
+        completed_corr_ids = [
+            t.correlation_id for t in recent_maint
+            if t.status == "completed" and t.correlation_id
+        ]
+        type_run_costs: dict[str, list[float]] = {"memory_hygiene": [], "skill_review": []}
+        if completed_corr_ids:
+            maint_events = (await db.execute(
+                select(TraceEvent).where(
+                    TraceEvent.event_type == "token_usage",
+                    TraceEvent.correlation_id.in_(completed_corr_ids),
+                )
+            )).scalars().all()
+
+            # Sum cost per correlation_id
+            from collections import defaultdict as _defaultdict
+            corr_cost: dict[str, float] = _defaultdict(float)
+            for ev in maint_events:
+                cid = str(ev.correlation_id) if ev.correlation_id else None
+                if not cid:
+                    continue
+                d = ev.data or {}
+                cost = _resolve_event_cost(d, pricing, ptype_map)
+                if cost is not None:
+                    corr_cost[cid] += cost
+
+            # Map correlation_id back to task_type
+            corr_to_type = {
+                str(t.correlation_id): t.task_type
+                for t in recent_maint
+                if t.status == "completed" and t.correlation_id
+            }
+            for cid, run_cost in corr_cost.items():
+                tt = corr_to_type.get(cid)
+                if tt and tt in type_run_costs:
+                    type_run_costs[tt].append(run_cost)
+
+        # Skip rate per job type: fraction of runs that actually executed
+        type_skip_rate: dict[str, float] = {}
+        for tt in maint_types:
+            completed = sum(1 for t in recent_maint if t.task_type == tt and t.status == "completed")
+            skipped = sum(1 for t in recent_maint if t.task_type == tt and t.status == "skipped")
+            total = completed + skipped
+            type_skip_rate[tt] = completed / total if total > 0 else 0.5  # default 50% if no data
+
+        for bot in maint_bots:
+            for job_type in maint_types:
+                cfg = resolve_hygiene_config(bot, job_type)
+                if not cfg.enabled or cfg.interval_hours <= 0:
+                    continue
+
+                maint_count += 1
+                runs_per_day = 24.0 / cfg.interval_hours
+                # Apply empirical execution rate (accounts for only_if_active skips)
+                runs_per_day *= type_skip_rate.get(job_type, 0.5)
+
+                costs = type_run_costs.get(job_type, [])
+                if costs:
+                    avg_cost = sum(costs) / len(costs)
+                else:
+                    # Fallback: use model-based average (same lazy-load as recurring tasks)
+                    model = cfg.model
+                    if not model:
+                        from app.agent.bots import _registry as _bot_reg
+                        b = _bot_reg.get(bot.id)
+                        model = b.model if b else None
+                    if model and _is_plan_billed(None, model):
+                        continue
+                    if model_avg_cost is None:
+                        recent_events, _ = await _fetch_token_usage_events(db, after=seven_days_ago)
+                        _mcs2: dict[str, float] = {}
+                        _mcc2: dict[str, int] = {}
+                        for ev in recent_events:
+                            d = ev.data or {}
+                            ev_model = d.get("model")
+                            if not ev_model:
+                                continue
+                            c = _resolve_event_cost(d, pricing, ptype_map)
+                            if c is not None:
+                                _mcs2[ev_model] = _mcs2.get(ev_model, 0.0) + c
+                                _mcc2[ev_model] = _mcc2.get(ev_model, 0) + 1
+                        model_avg_cost = {
+                            m: _mcs2[m] / _mcc2[m] for m in _mcs2 if _mcc2[m] > 0
+                        }
+                    avg_cost = model_avg_cost.get(model, 0.0) if model else 0.0
+
+                maint_daily += runs_per_day * avg_cost
+
+    if maint_count > 0:
+        components.append(ForecastComponent(
+            source="maintenance_tasks",
+            label="Maintenance tasks",
+            daily_cost=round(maint_daily, 4),
+            monthly_cost=round(maint_daily * 30, 4),
+            count=maint_count,
         ))
 
     # --- Fixed plan costs ---

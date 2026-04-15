@@ -57,6 +57,7 @@ export interface IntegrationItem {
   source: "integration" | "package" | "external";
   has_router: boolean;
   has_dispatcher: boolean;
+  has_renderer: boolean;
   has_hooks: boolean;
   has_tools: boolean;
   has_skills: boolean;

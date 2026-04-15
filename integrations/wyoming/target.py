@@ -7,8 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Literal
 
-from app.domain import target_registry
-from app.domain.dispatch_target import _BaseTarget
+from integrations.sdk import target_registry, BaseTarget as _BaseTarget
 
 
 @dataclass(frozen=True)

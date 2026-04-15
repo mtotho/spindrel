@@ -357,19 +357,7 @@ export default function TaskDetailScreen() {
                 <SelectInput value={taskType} onChange={setTaskType} options={TASK_TYPE_OPTIONS_FULL} />
               </FormRow>
 
-              <FormRow label="Workflow Trigger" description="Run a workflow instead of a prompt">
-                <SelectInput
-                  value={workflowId || ""}
-                  onChange={(v) => {
-                    setWorkflowId(v || null);
-                    if (!v) setWorkflowSessionMode(null);
-                  }}
-                  options={[
-                    { label: "None", value: "" },
-                    ...(workflows || []).map((w) => ({ label: `${w.name} (${w.id})`, value: w.id })),
-                  ]}
-                />
-              </FormRow>
+              {/* Workflow trigger hidden — workflows deprecated in favor of task pipelines */}
               {workflowId && (
                 <FormRow label="Session Mode" description="Workflow step session isolation">
                   <SelectInput

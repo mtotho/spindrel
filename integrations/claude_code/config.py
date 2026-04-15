@@ -1,36 +1,29 @@
-"""Claude Code integration configuration — env var / DB settings based."""
+"""Claude Code integration configuration — DB-backed with env var fallback."""
 from __future__ import annotations
 
-import os
-
-
-def _get(key: str, default: str = "") -> str:
-    try:
-        from app.services.integration_settings import get_value
-        return get_value("claude_code", key, default)
-    except ImportError:
-        return os.environ.get(key, default)
-
+from integrations.sdk import make_settings
 
 _VALID_PERMISSION_MODES = {"default", "acceptEdits", "plan", "bypassPermissions"}
 
+_Base = make_settings("claude_code", {})
 
-class _Settings:
+
+class _Settings(_Base):
     @property
     def MAX_TURNS(self) -> int:
-        return int(_get("CLAUDE_CODE_MAX_TURNS", "30"))
+        return int(self._get("CLAUDE_CODE_MAX_TURNS", "30"))
 
     @property
     def TIMEOUT(self) -> int:
-        return int(_get("CLAUDE_CODE_TIMEOUT", "1800"))
+        return int(self._get("CLAUDE_CODE_TIMEOUT", "1800"))
 
     @property
     def MAX_RESUME_RETRIES(self) -> int:
-        return int(_get("CLAUDE_CODE_MAX_RESUME_RETRIES", "1"))
+        return int(self._get("CLAUDE_CODE_MAX_RESUME_RETRIES", "1"))
 
     @property
     def PERMISSION_MODE(self) -> str:
-        v = _get("CLAUDE_CODE_PERMISSION_MODE", "bypassPermissions")
+        v = self._get("CLAUDE_CODE_PERMISSION_MODE", "bypassPermissions")
         if v not in _VALID_PERMISSION_MODES:
             raise ValueError(
                 f"Invalid CLAUDE_CODE_PERMISSION_MODE={v!r}; "
@@ -40,12 +33,12 @@ class _Settings:
 
     @property
     def ALLOWED_TOOLS(self) -> list[str]:
-        raw = _get("CLAUDE_CODE_ALLOWED_TOOLS", "Read,Write,Edit,Bash,Glob,Grep")
+        raw = self._get("CLAUDE_CODE_ALLOWED_TOOLS", "Read,Write,Edit,Bash,Glob,Grep")
         return [t.strip() for t in raw.split(",") if t.strip()]
 
     @property
     def MODEL(self) -> str | None:
-        v = _get("CLAUDE_CODE_MODEL", "")
+        v = self._get("CLAUDE_CODE_MODEL", "")
         return v or None
 
 

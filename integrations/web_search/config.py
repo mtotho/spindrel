@@ -3,14 +3,11 @@ from __future__ import annotations
 
 import os
 
+from integrations.sdk import make_settings
 
-def _get(key: str, default: str = "") -> str:
-    """Get a config value: DB cache > env var > default."""
-    try:
-        from app.services.integration_settings import get_value
-        return get_value("web_search", key, default)
-    except ImportError:
-        return os.environ.get(key, default)
+_Base = make_settings("web_search", {
+    "WEB_SEARCH_MODE": "searxng",
+})
 
 
 def _in_docker() -> bool:
@@ -18,32 +15,26 @@ def _in_docker() -> bool:
     return os.path.exists("/.dockerenv")
 
 
-class _Settings:
-    @property
-    def WEB_SEARCH_MODE(self) -> str:
-        return _get("WEB_SEARCH_MODE", "searxng")
-
+class _Settings(_Base):
     @property
     def WEB_SEARCH_CONTAINERS(self) -> bool:
-        val = _get("WEB_SEARCH_CONTAINERS", "true")
+        val = self._get("WEB_SEARCH_CONTAINERS", "true")
         return val.lower() in ("true", "1", "yes")
 
     @property
     def SEARXNG_URL(self) -> str:
-        val = _get("SEARXNG_URL", "")
+        val = self._get("SEARXNG_URL", "")
         if val:
             return val
-        # Inside Docker: use container hostname; on host: use localhost
         if _in_docker():
             return "http://spindrel-searxng:8080"
         return "http://localhost:8080"
 
     @property
     def PLAYWRIGHT_WS_URL(self) -> str:
-        val = _get("PLAYWRIGHT_WS_URL", "")
+        val = self._get("PLAYWRIGHT_WS_URL", "")
         if val:
             return val
-        # Inside Docker: use container hostname; on host: use localhost
         if _in_docker():
             return "ws://spindrel-playwright:3000"
         return "ws://localhost:3000"

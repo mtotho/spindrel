@@ -13,12 +13,11 @@ from __future__ import annotations
 import logging
 from typing import ClassVar
 
-from app.domain.capability import Capability
-from app.domain.channel_events import ChannelEvent
-from app.domain.dispatch_target import DispatchTarget
-from app.domain.outbound_action import OutboundAction
-from app.integrations.renderer import DeliveryReceipt
-from app.integrations import renderer_registry
+from integrations.sdk import (
+    Capability, ChannelEvent,
+    DispatchTarget, OutboundAction, DeliveryReceipt,
+    renderer_registry,
+)
 
 logger = logging.getLogger(__name__)
 

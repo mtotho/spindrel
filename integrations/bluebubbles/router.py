@@ -17,9 +17,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, verify_admin_auth, verify_auth_or_user
-from app.services.channels import resolve_all_channels_by_client_id, ensure_active_session
 from integrations import utils
+from integrations.sdk import (
+    get_db, verify_admin_auth, verify_auth_or_user,
+    resolve_all_channels_by_client_id, ensure_active_session,
+)
 from integrations.bluebubbles.echo_tracker import shared_tracker
 
 logger = logging.getLogger(__name__)
@@ -990,7 +992,7 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         except (ValueError, TypeError):
             pass  # Non-numeric dateCreated — skip check
 
-    from app.security.prompt_sanitize import sanitize_unicode
+    from integrations.sdk import sanitize_unicode
     text = sanitize_unicode((data.get("text") or "").strip())
     if not text:
         logger.info("BB webhook: ignoring new-message with empty text")
@@ -1245,7 +1247,7 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
 
     # Fire task triggers for this integration event (fire-and-forget)
     if results:
-        from app.utils import safe_create_task
+        from integrations.sdk import safe_create_task
         from integrations.utils import emit_integration_event
         safe_create_task(emit_integration_event(
             "bluebubbles", "message_received",

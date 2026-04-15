@@ -1,0 +1,5 @@
+id: vscode
+name: VS Code Chat
+icon: Code2
+description: VS Code Chat extension for interacting with bots from the editor.
+version: "1.0"

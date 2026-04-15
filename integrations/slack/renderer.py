@@ -37,11 +37,10 @@ from typing import ClassVar
 
 import httpx
 
-from app.domain.capability import Capability
-from app.domain.channel_events import ChannelEvent, ChannelEventKind
-from app.domain.dispatch_target import DispatchTarget
-from app.domain.outbound_action import OutboundAction
-from app.integrations.renderer import DeliveryReceipt
+from integrations.sdk import (
+    Capability, ChannelEvent, ChannelEventKind,
+    DispatchTarget, OutboundAction, DeliveryReceipt,
+)
 from integrations.slack.client import bot_attribution
 from integrations.slack.formatting import markdown_to_slack_mrkdwn, split_for_slack
 from integrations.slack.rate_limit import slack_rate_limiter
