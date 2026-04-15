@@ -365,7 +365,8 @@ export function TaskEditor({
                   className="bg-input border border-surface-border rounded-lg px-3 py-[7px] text-text text-[13px] outline-none w-full focus:border-accent"
                 />
               </FormRow>
-              {/* Mode toggle: Prompt | Steps */}
+              {/* Mode toggle: Prompt | Steps (hidden when workflow selected) */}
+              {!workflowId && (
               <div className="flex flex-row items-center gap-1">
                 <button
                   onClick={() => {
@@ -402,6 +403,7 @@ export function TaskEditor({
                   Steps
                 </button>
               </div>
+              )}
 
               {/* Prompt mode */}
               {!stepsMode && (
@@ -504,20 +506,22 @@ export function TaskEditor({
                   />
                 </FormRow>
 
-                <FormRow label="Workflow Trigger" description="Run a workflow instead of a prompt">
-                  <SelectInput
-                    value={workflowId || ""}
-                    onChange={(v) => {
-                      setWorkflowId(v || null);
-                      if (!v) setWorkflowSessionMode(null);
-                    }}
-                    options={[
-                      { label: "None", value: "" },
-                      ...(workflows || []).map((w) => ({ label: `${w.name} (${w.id})`, value: w.id })),
-                    ]}
-                  />
-                </FormRow>
-                {workflowId && (
+                {!stepsMode && (
+                  <FormRow label="Workflow Trigger" description="Run a workflow instead of a prompt">
+                    <SelectInput
+                      value={workflowId || ""}
+                      onChange={(v) => {
+                        setWorkflowId(v || null);
+                        if (!v) setWorkflowSessionMode(null);
+                      }}
+                      options={[
+                        { label: "None", value: "" },
+                        ...(workflows || []).map((w) => ({ label: `${w.name} (${w.id})`, value: w.id })),
+                      ]}
+                    />
+                  </FormRow>
+                )}
+                {workflowId && !stepsMode && (
                   <FormRow label="Session Mode" description="Workflow step session isolation">
                     <SelectInput
                       value={workflowSessionMode || ""}

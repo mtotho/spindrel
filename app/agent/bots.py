@@ -238,6 +238,16 @@ class BotConfig:
     memory_hygiene_model: str | None = None
     memory_hygiene_model_provider_id: str | None = None
     memory_hygiene_target_hour: int | None = None
+    memory_hygiene_extra_instructions: str | None = None
+    # Skill review (periodic skill curation) — null = inherit global
+    skill_review_enabled: bool | None = None
+    skill_review_interval_hours: int | None = None
+    skill_review_prompt: str | None = None
+    skill_review_only_if_active: bool | None = None
+    skill_review_model: str | None = None
+    skill_review_model_provider_id: str | None = None
+    skill_review_target_hour: int | None = None
+    skill_review_extra_instructions: str | None = None
     # System prompt from workspace file
     system_prompt_workspace_file: bool = False
     system_prompt_write_protected: bool = False
@@ -461,6 +471,15 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         memory_hygiene_model=getattr(row, "memory_hygiene_model", None),
         memory_hygiene_model_provider_id=getattr(row, "memory_hygiene_model_provider_id", None),
         memory_hygiene_target_hour=getattr(row, "memory_hygiene_target_hour", None),
+        memory_hygiene_extra_instructions=getattr(row, "memory_hygiene_extra_instructions", None),
+        skill_review_enabled=getattr(row, "skill_review_enabled", None),
+        skill_review_interval_hours=getattr(row, "skill_review_interval_hours", None),
+        skill_review_prompt=getattr(row, "skill_review_prompt", None),
+        skill_review_only_if_active=getattr(row, "skill_review_only_if_active", None),
+        skill_review_model=getattr(row, "skill_review_model", None),
+        skill_review_model_provider_id=getattr(row, "skill_review_model_provider_id", None),
+        skill_review_target_hour=getattr(row, "skill_review_target_hour", None),
+        skill_review_extra_instructions=getattr(row, "skill_review_extra_instructions", None),
         system_prompt_workspace_file=getattr(row, "system_prompt_workspace_file", False),
         system_prompt_write_protected=getattr(row, "system_prompt_write_protected", False),
         source_type=getattr(row, "source_type", "manual"),
@@ -546,6 +565,15 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "memory_hygiene_model": data.get("memory_hygiene_model"),
         "memory_hygiene_model_provider_id": data.get("memory_hygiene_model_provider_id"),
         "memory_hygiene_target_hour": data.get("memory_hygiene_target_hour"),
+        "memory_hygiene_extra_instructions": data.get("memory_hygiene_extra_instructions"),
+        "skill_review_enabled": data.get("skill_review_enabled"),
+        "skill_review_interval_hours": data.get("skill_review_interval_hours"),
+        "skill_review_prompt": data.get("skill_review_prompt"),
+        "skill_review_only_if_active": data.get("skill_review_only_if_active"),
+        "skill_review_model": data.get("skill_review_model"),
+        "skill_review_model_provider_id": data.get("skill_review_model_provider_id"),
+        "skill_review_target_hour": data.get("skill_review_target_hour"),
+        "skill_review_extra_instructions": data.get("skill_review_extra_instructions"),
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }

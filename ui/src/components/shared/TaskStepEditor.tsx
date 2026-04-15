@@ -5,10 +5,10 @@
  * reorder controls, and an "Add Step" button. Used inside TaskCreateModal
  * and TaskEditor when the user toggles from single-prompt to steps mode.
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { ChevronUp, ChevronDown, Trash2, Terminal, Wrench, Bot, Plus, AlertCircle } from "lucide-react";
 import type { StepDef, StepType, StepState } from "@/src/api/hooks/useTasks";
-import { FormRow, SelectInput } from "./FormControls";
+import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { LlmModelDropdown } from "./LlmModelDropdown";
 
 // ---------------------------------------------------------------------------
@@ -38,6 +38,137 @@ function emptyStep(type: StepType): StepDef {
     prompt: "",
     on_failure: "abort",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Tool parameter scaffolding from JSON Schema
+// ---------------------------------------------------------------------------
+
+function scaffoldArgsFromSchema(tool: ToolItem): Record<string, any> {
+  const params = tool.parameters ?? tool.schema_?.parameters;
+  if (!params || typeof params !== "object") return {};
+  const properties = params.properties ?? params;
+  if (!properties || typeof properties !== "object") return {};
+  const scaffold: Record<string, any> = {};
+  for (const [key, def] of Object.entries(properties)) {
+    const d = def as any;
+    if (d.default !== undefined) {
+      scaffold[key] = d.default;
+    } else if (d.type === "string") {
+      scaffold[key] = "";
+    } else if (d.type === "number" || d.type === "integer") {
+      scaffold[key] = 0;
+    } else if (d.type === "boolean") {
+      scaffold[key] = false;
+    } else if (d.type === "array") {
+      scaffold[key] = [];
+    } else if (d.type === "object") {
+      scaffold[key] = {};
+    } else {
+      scaffold[key] = null;
+    }
+  }
+  return scaffold;
+}
+
+function getParamDescriptions(tool: ToolItem): Map<string, string> {
+  const descs = new Map<string, string>();
+  const params = tool.parameters ?? tool.schema_?.parameters;
+  if (!params || typeof params !== "object") return descs;
+  const properties = params.properties ?? params;
+  if (!properties || typeof properties !== "object") return descs;
+  const required = new Set<string>(params.required ?? []);
+  for (const [key, def] of Object.entries(properties)) {
+    const d = def as any;
+    const parts: string[] = [];
+    if (d.type) parts.push(d.type);
+    if (required.has(key)) parts.push("required");
+    if (d.description) parts.push(`— ${d.description}`);
+    descs.set(key, parts.join(" "));
+  }
+  return descs;
+}
+
+// ---------------------------------------------------------------------------
+// Tool selector with search
+// ---------------------------------------------------------------------------
+
+function ToolSelector({ value, tools, onChange }: {
+  value: string | null;
+  tools: ToolItem[];
+  onChange: (toolName: string, tool: ToolItem) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const filtered = useMemo(() => {
+    const term = search.toLowerCase();
+    return tools
+      .filter((t) => !term || t.tool_name.toLowerCase().includes(term) || (t.description ?? "").toLowerCase().includes(term))
+      .slice(0, 20);
+  }, [tools, search]);
+
+  const selectedTool = tools.find((t) => t.tool_name === value);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-2 w-full px-2.5 py-1.5 text-xs rounded-md border cursor-pointer text-left transition-colors ${
+          open ? "border-accent bg-surface" : "border-surface-border bg-input hover:border-accent/50"
+        }`}
+      >
+        <Wrench size={12} className="text-blue-400 shrink-0" />
+        <span className={`flex-1 truncate ${value ? "text-text" : "text-text-dim"}`}>
+          {selectedTool ? selectedTool.tool_name : "Select tool..."}
+        </span>
+        {selectedTool?.source_integration && (
+          <span className="text-[10px] text-text-dim px-1.5 py-0.5 rounded bg-surface-overlay shrink-0">
+            {selectedTool.source_integration}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-20 max-h-[260px] overflow-hidden flex flex-col">
+          <div className="p-2 border-b border-surface-border shrink-0">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search tools..."
+              autoFocus
+              className="w-full px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
+            />
+          </div>
+          <div className="overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-3 text-[11px] text-text-dim">No tools found</div>
+            ) : (
+              filtered.map((tool) => (
+                <button
+                  key={tool.tool_key}
+                  onClick={() => { onChange(tool.tool_name, tool); setOpen(false); setSearch(""); }}
+                  className="flex flex-col gap-0.5 w-full px-3 py-2 bg-transparent border-none cursor-pointer text-left transition-colors hover:bg-surface-raised"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-text">{tool.tool_name}</span>
+                    {tool.source_integration && (
+                      <span className="text-[10px] text-text-dim px-1.5 py-0.5 rounded bg-surface-overlay">
+                        {tool.source_integration}
+                      </span>
+                    )}
+                  </div>
+                  {tool.description && (
+                    <span className="text-[10px] text-text-dim line-clamp-1">{tool.description}</span>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +204,7 @@ function StepConditionEditor({ step, stepIndex, steps, onChange }: {
   const prevStep = stepIndex > 0 ? steps[stepIndex - 1] : null;
   const prevStepId = prevStep?.id ?? "step_0";
 
-  if (stepIndex === 0) return null; // First step can't have conditions
+  if (stepIndex === 0) return null;
 
   return (
     <div className="flex flex-row items-center gap-2 text-xs">
@@ -135,15 +266,111 @@ function StepResultBadge({ state }: { state: StepState }) {
 }
 
 // ---------------------------------------------------------------------------
+// Tool args editor with schema hints
+// ---------------------------------------------------------------------------
+
+function ToolArgsEditor({ step, tools, readOnly, onChange }: {
+  step: StepDef;
+  tools: ToolItem[];
+  readOnly?: boolean;
+  onChange: (args: Record<string, any> | null) => void;
+}) {
+  const [rawMode, setRawMode] = useState(false);
+  const [rawText, setRawText] = useState("");
+
+  const tool = tools.find((t) => t.tool_name === step.tool_name);
+  const paramDescs = tool ? getParamDescriptions(tool) : new Map();
+  const currentArgs = step.tool_args ?? {};
+
+  // If we have schema, show structured fields; otherwise show raw JSON
+  if (!rawMode && tool && paramDescs.size > 0 && !readOnly) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-text-dim font-semibold uppercase tracking-wider">Parameters</span>
+          <button
+            onClick={() => { setRawText(JSON.stringify(currentArgs, null, 2)); setRawMode(true); }}
+            className="text-[10px] text-text-dim bg-transparent border-none cursor-pointer hover:text-accent"
+          >
+            Edit JSON
+          </button>
+        </div>
+        {Array.from(paramDescs.entries()).map(([key, desc]) => (
+          <div key={key} className="flex flex-col gap-0.5">
+            <label className="text-[10px] text-text-dim">
+              {key} <span className="opacity-60">({desc})</span>
+            </label>
+            <input
+              type="text"
+              value={currentArgs[key] != null ? String(currentArgs[key]) : ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                const updated = { ...currentArgs };
+                // Try to preserve type from schema
+                if (val === "") {
+                  updated[key] = "";
+                } else if (val === "true" || val === "false") {
+                  updated[key] = val === "true";
+                } else if (!isNaN(Number(val)) && val.trim() !== "") {
+                  updated[key] = Number(val);
+                } else {
+                  updated[key] = val;
+                }
+                onChange(updated);
+              }}
+              className="bg-input border border-surface-border rounded-md px-2 py-1 text-text text-xs font-mono outline-none focus:border-accent w-full"
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Raw JSON mode or no schema
+  return (
+    <div className="flex flex-col gap-1">
+      {paramDescs.size > 0 && !readOnly && (
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-text-dim font-semibold uppercase tracking-wider">Arguments (JSON)</span>
+          <button
+            onClick={() => setRawMode(false)}
+            className="text-[10px] text-text-dim bg-transparent border-none cursor-pointer hover:text-accent"
+          >
+            Form view
+          </button>
+        </div>
+      )}
+      <textarea
+        value={rawMode ? rawText : (step.tool_args ? JSON.stringify(step.tool_args, null, 2) : "")}
+        onChange={(e) => {
+          if (rawMode) setRawText(e.target.value);
+          try {
+            const parsed = e.target.value ? JSON.parse(e.target.value) : null;
+            onChange(parsed);
+          } catch {
+            // Allow invalid JSON while typing
+          }
+        }}
+        readOnly={readOnly}
+        placeholder='{"key": "value"}'
+        rows={3}
+        className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none resize-y focus:border-accent w-full"
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Individual step card
 // ---------------------------------------------------------------------------
 
-function StepCard({ step, stepIndex, steps, stepState, readOnly, onChange, onDelete, onMove }: {
+function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange, onDelete, onMove }: {
   step: StepDef;
   stepIndex: number;
   steps: StepDef[];
   stepState?: StepState;
   readOnly?: boolean;
+  tools: ToolItem[];
   onChange: (updated: StepDef) => void;
   onDelete: () => void;
   onMove: (dir: -1 | 1) => void;
@@ -253,27 +480,27 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, onChange, onDel
 
         {step.type === "tool" && (
           <>
-            <input
-              type="text"
-              value={step.tool_name ?? ""}
-              onChange={(e) => update({ tool_name: e.target.value || null })}
+            {readOnly ? (
+              <div className="text-xs text-text font-mono">{step.tool_name ?? "No tool selected"}</div>
+            ) : (
+              <ToolSelector
+                value={step.tool_name ?? null}
+                tools={tools}
+                onChange={(toolName, tool) => {
+                  const scaffold = scaffoldArgsFromSchema(tool);
+                  update({
+                    tool_name: toolName,
+                    label: step.label || toolName,
+                    tool_args: Object.keys(scaffold).length > 0 ? scaffold : step.tool_args,
+                  });
+                }}
+              />
+            )}
+            <ToolArgsEditor
+              step={step}
+              tools={tools}
               readOnly={readOnly}
-              placeholder="Tool name (e.g., exec, web_search)"
-              className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs outline-none w-full focus:border-accent"
-            />
-            <textarea
-              value={step.tool_args ? JSON.stringify(step.tool_args, null, 2) : ""}
-              onChange={(e) => {
-                try {
-                  update({ tool_args: e.target.value ? JSON.parse(e.target.value) : null });
-                } catch {
-                  // Allow invalid JSON while typing
-                }
-              }}
-              readOnly={readOnly}
-              placeholder='{"key": "value"}'
-              rows={2}
-              className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none resize-y focus:border-accent w-full"
+              onChange={(args) => update({ tool_args: args })}
             />
           </>
         )}
@@ -289,15 +516,13 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, onChange, onDel
               className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs outline-none resize-y focus:border-accent w-full"
             />
             {!readOnly && (
-              <div className="flex flex-row gap-2">
-                <div className="flex-1">
-                  <LlmModelDropdown
-                    value={step.model ?? ""}
-                    onChange={(v) => update({ model: v || null })}
-                    placeholder="Inherit model"
-                    allowClear
-                  />
-                </div>
+              <div className="flex-1">
+                <LlmModelDropdown
+                  value={step.model ?? ""}
+                  onChange={(v) => update({ model: v || null })}
+                  placeholder="Inherit model"
+                  allowClear
+                />
               </div>
             )}
           </>
@@ -341,36 +566,43 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, onChange, onDel
 }
 
 // ---------------------------------------------------------------------------
-// Add step button with type picker
+// Add step button with inline type picker
 // ---------------------------------------------------------------------------
 
 function AddStepButton({ onAdd }: { onAdd: (type: StepType) => void }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-text-muted bg-transparent border border-dashed border-surface-border rounded-lg cursor-pointer hover:border-accent/50 hover:text-accent transition-colors"
-      >
-        <Plus size={13} />
-        Add Step
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-10 min-w-[140px]">
+    <div className="relative inline-flex">
+      {!open ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-text-muted bg-transparent border border-dashed border-surface-border rounded-lg cursor-pointer hover:border-accent/50 hover:text-accent transition-colors"
+        >
+          <Plus size={13} />
+          Add Step
+        </button>
+      ) : (
+        <div className="flex items-center gap-1">
           {STEP_TYPES.map((t) => {
             const Icon = t.icon;
             return (
               <button
                 key={t.value}
                 onClick={() => { onAdd(t.value); setOpen(false); }}
-                className="flex items-center gap-2 w-full px-3 py-2 text-xs bg-transparent border-none cursor-pointer text-text hover:bg-surface-raised transition-colors text-left"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-surface-raised border border-surface-border rounded-lg cursor-pointer text-text hover:border-accent/50 hover:text-accent transition-colors"
               >
                 <Icon size={13} className={t.color} />
                 {t.label}
               </button>
             );
           })}
+          <button
+            onClick={() => setOpen(false)}
+            className="px-2 py-1.5 text-xs text-text-dim bg-transparent border-none cursor-pointer hover:text-text"
+          >
+            Cancel
+          </button>
         </div>
       )}
     </div>
@@ -389,6 +621,9 @@ export interface TaskStepEditorProps {
 }
 
 export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskStepEditorProps) {
+  const { data: allTools } = useTools();
+  const tools = allTools ?? [];
+
   const updateStep = useCallback((index: number, updated: StepDef) => {
     const next = [...steps];
     next[index] = updated;
@@ -427,6 +662,7 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
           steps={steps}
           stepState={stepStates?.[i]}
           readOnly={readOnly}
+          tools={tools}
           onChange={(updated) => updateStep(i, updated)}
           onDelete={() => deleteStep(i)}
           onMove={(dir) => moveStep(i, dir)}
