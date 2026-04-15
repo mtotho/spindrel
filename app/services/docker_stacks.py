@@ -276,10 +276,6 @@ class StackService:
                 )
                 await db.commit()
 
-            # Connect workspace container to stack network if available
-            if network_name:
-                await self._connect_workspace(stack.created_by_bot, network_name)
-
             # Bridge stack containers into additional networks (integration stacks)
             if stack.connect_networks and container_ids:
                 for net in stack.connect_networks:
@@ -304,10 +300,6 @@ class StackService:
 
     async def stop(self, stack: DockerStack) -> DockerStack:
         """Stop all services in a stack."""
-        # Disconnect workspace first
-        if stack.network_name:
-            await self._disconnect_workspace(stack.created_by_bot, stack.network_name)
-
         result = await self._compose_cmd(stack, ["stop"])
         if result.exit_code != 0:
             logger.warning("docker compose stop failed for %s: %s", stack.project_name, result.stderr)
@@ -352,10 +344,6 @@ class StackService:
         """Tear down a stack completely and delete the DB row."""
         if stack.source == "integration":
             raise StackError("Integration stacks cannot be destroyed — they are managed by code")
-        # Disconnect workspace first
-        if stack.network_name:
-            await self._disconnect_workspace(stack.created_by_bot, stack.network_name)
-
         async with async_session() as db:
             await db.execute(
                 update(DockerStack)
@@ -768,44 +756,6 @@ class StackService:
 
         return container_ids, exposed_ports, network_name
 
-    async def _connect_workspace(self, bot_id: str, network_name: str) -> None:
-        """Connect the bot's workspace container to the stack network."""
-        container_name = await self._find_workspace_container(bot_id)
-        if not container_name:
-            return
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "network", "connect", network_name, container_name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await proc.communicate()
-            if proc.returncode == 0:
-                logger.info("Connected workspace %s to stack network %s", container_name, network_name)
-            elif b"already exists" in stderr:
-                pass  # Already connected
-            else:
-                logger.warning("Failed to connect workspace to stack network: %s", stderr.decode())
-        except Exception:
-            logger.warning("Error connecting workspace to stack network", exc_info=True)
-
-    async def _disconnect_workspace(self, bot_id: str, network_name: str) -> None:
-        """Disconnect the bot's workspace container from the stack network."""
-        container_name = await self._find_workspace_container(bot_id)
-        if not container_name:
-            return
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "network", "disconnect", network_name, container_name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.communicate()
-        except Exception:
-            pass  # Best-effort
-
     async def _connect_network(self, network: str, container_id: str) -> None:
         """Connect a container to an external Docker network."""
         try:
@@ -824,21 +774,6 @@ class StackService:
                                container_id, network, stderr.decode())
         except Exception:
             logger.warning("Error connecting container to network", exc_info=True)
-
-    async def _find_workspace_container(self, bot_id: str) -> str | None:
-        """Find the workspace container name for a bot."""
-        try:
-            from app.db.models import SharedWorkspaceBot, SharedWorkspace
-            async with async_session() as db:
-                result = await db.execute(
-                    select(SharedWorkspace.container_name)
-                    .join(SharedWorkspaceBot, SharedWorkspace.id == SharedWorkspaceBot.workspace_id)
-                    .where(SharedWorkspaceBot.bot_id == bot_id)
-                )
-                row = result.first()
-                return row[0] if row and row[0] else None
-        except Exception:
-            return None
 
 
 stack_service = StackService()

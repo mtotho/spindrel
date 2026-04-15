@@ -16,8 +16,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannel, useChannelContextBudget, useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
-import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
-import { useAuthStore, getAuthToken } from "@/src/stores/auth";
+import { useAuthStore } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
@@ -210,7 +209,6 @@ export default function ChatScreen() {
   // ---- Workspace / file explorer state ----
   const workspaceEnabled = channel?.channel_workspace_enabled;
   const workspaceId = channel?.resolved_workspace_id;
-  const enableEditorMutation = useEnableEditor(workspaceId ?? "");
   const expandDir = useFileBrowserStore((s) => s.expandDir);
   const explorerWidth = useFileBrowserStore((s) => s.channelExplorerWidth);
   const setExplorerWidth = useFileBrowserStore((s) => s.setChannelExplorerWidth);
@@ -292,18 +290,9 @@ export default function ChatScreen() {
   }, [workspaceId, channelId, expandDir]);
 
   const handleOpenEditor = useCallback(async () => {
-    if (!workspaceId || !channelId) return;
-    try {
-      await enableEditorMutation.mutateAsync();
-      const { serverUrl } = useAuthStore.getState();
-      const token = getAuthToken();
-      const folder = `/workspace/channels/${channelId}`;
-      const editorUrl = `${serverUrl}/api/v1/workspaces/${workspaceId}/editor/?tkn=${encodeURIComponent(token || "")}&folder=${encodeURIComponent(folder)}`;
-      window.open(editorUrl, `editor-${workspaceId}`);
-    } catch (err) {
-      console.error("Failed to open editor:", err);
-    }
-  }, [workspaceId, channelId, enableEditorMutation]);
+    // Editor was removed in the workspace container collapse.
+    // This callback is kept as a no-op for components that reference it.
+  }, []);
 
   const displayName = (channel as any)?.display_name || channel?.name || channel?.client_id || "Chat";
 

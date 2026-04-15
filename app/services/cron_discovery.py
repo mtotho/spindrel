@@ -76,7 +76,7 @@ async def _discover_container_crons(
     result = DiscoveryResult()
 
     async with async_session() as db:
-        stmt = select(SharedWorkspace).where(SharedWorkspace.status == "running")
+        stmt = select(SharedWorkspace)
         if workspace_id:
             stmt = stmt.where(SharedWorkspace.id == workspace_id)
         workspaces = (await db.execute(stmt)).scalars().all()
@@ -88,11 +88,9 @@ async def _discover_container_crons(
     )
 
     for ws in workspaces:
-        if not ws.container_name:
-            continue
         try:
             proc = await asyncio.create_subprocess_exec(
-                "docker", "exec", ws.container_name, "sh", "-c", cmd,
+                "sh", "-c", cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -102,16 +100,16 @@ async def _discover_container_crons(
             output = stdout_bytes.decode(errors="replace")
             entries = parse_crontab_lines(
                 output,
-                source_type="container",
-                source_name=ws.container_name,
+                source_type="workspace",
+                source_name=ws.name,
                 workspace_id=str(ws.id),
                 workspace_name=ws.name,
             )
             result.cron_jobs.extend(entries)
         except asyncio.TimeoutError:
-            result.errors.append(f"Timeout querying container {ws.container_name}")
+            result.errors.append(f"Timeout querying crons for workspace {ws.name}")
         except Exception as e:
-            result.errors.append(f"Error querying container {ws.container_name}: {e}")
+            result.errors.append(f"Error querying crons for workspace {ws.name}: {e}")
 
     return result
 

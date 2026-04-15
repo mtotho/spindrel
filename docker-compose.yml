@@ -16,7 +16,7 @@ services:
       # - ./mcp.yaml:/app/mcp.yaml:ro
       # External integrations (uncomment and adjust path):
       # - /path/to/my-integrations:/app/ext-integrations:ro
-      - /var/run/docker.sock:/var/run/docker.sock        # sibling container management
+      - /var/run/docker.sock:/var/run/docker.sock        # integration sidecar containers
       - ${WORKSPACE_HOST_DIR:-~/.spindrel-workspaces}:/workspace-data  # workspace files
       - fastembed-cache:/app/.fastembed-cache  # local embedding model cache
       # Config state auto-export: uncomment after first run creates the file
@@ -42,12 +42,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-    restart: unless-stopped
-
-  ui:
-    build: ./ui
-    ports:
-      - "8081:80"
     restart: unless-stopped
 
 volumes:

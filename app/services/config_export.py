@@ -280,19 +280,10 @@ async def assemble_config_state(db) -> dict:
             "id": str(ws.id),
             "name": ws.name,
             "description": ws.description,
-            "image": ws.image,
-            "network": ws.network,
             "env": ws.env,
-            "ports": ws.ports,
-            "mounts": ws.mounts,
-            "cpus": ws.cpus,
-            "memory_limit": ws.memory_limit,
-            "docker_user": ws.docker_user,
-            "read_only_root": ws.read_only_root,
-            "status": ws.status,
-            "startup_script": ws.startup_script,
             "workspace_base_prompt_enabled": ws.workspace_base_prompt_enabled,
             "indexing_config": ws.indexing_config,
+            "write_protected_paths": ws.write_protected_paths,
             "bots": [
                 {"bot_id": wb.bot_id, "role": wb.role, "cwd_override": wb.cwd_override}
                 for wb in ws.bots

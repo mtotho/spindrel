@@ -1,7 +1,7 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useState } from "react";
 import {
-  ExternalLink, Code, Plus, X, RefreshCw, FolderSearch,
+  ExternalLink, Plus, X, RefreshCw, FolderSearch,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
@@ -15,8 +15,6 @@ import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   useChannelWorkspaceFileContent,
 } from "@/src/api/hooks/useChannels";
-import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
-import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { apiFetch } from "@/src/api/client";
 import { ChannelFileBrowser } from "./ChannelFileBrowser";
@@ -59,30 +57,12 @@ function FileViewer({ channelId, path }: { channelId: string; path: string }) {
 // ---------------------------------------------------------------------------
 function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; channelId: string }) {
   const t = useThemeTokens();
-  const enableEditorMutation = useEnableEditor(workspaceId);
-  const [editorOpening, setEditorOpening] = useState(false);
   const expandDir = useFileBrowserStore((s) => s.expandDir);
 
   const handleBrowse = () => {
     const segments = ["channels", `channels/${channelId}`, `channels/${channelId}/workspace`];
     for (const seg of segments) {
       expandDir(seg);
-    }
-  };
-
-  const handleOpenEditor = async () => {
-    setEditorOpening(true);
-    try {
-      await enableEditorMutation.mutateAsync();
-      const { serverUrl } = useAuthStore.getState();
-      const token = getAuthToken();
-      const folder = `/workspace/channels/${channelId}`;
-      const editorUrl = `${serverUrl}/api/v1/workspaces/${workspaceId}/editor/?tkn=${encodeURIComponent(token || "")}&folder=${encodeURIComponent(folder)}`;
-      window.open(editorUrl, `editor-${workspaceId}`);
-    } catch (err) {
-      console.error("Failed to open editor:", err);
-    } finally {
-      setEditorOpening(false);
     }
   };
 
@@ -106,26 +86,6 @@ function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; chann
         <ExternalLink size={13} color={t.accent} />
         <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>Browse in Workspace</span>
       </Link>
-      <button type="button"
-        onClick={handleOpenEditor}
-        disabled={editorOpening || enableEditorMutation.isPending}
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          paddingLeft: 12, paddingRight: 12,
-          paddingTop: 8, paddingBottom: 8,
-          borderRadius: 6,
-          border: `1px solid ${t.surfaceBorder}`,
-          backgroundColor: t.surfaceOverlay,
-          opacity: editorOpening ? 0.5 : 1,
-        }}
-      >
-        <Code size={13} color={t.accent} />
-        <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>
-          {editorOpening ? "Opening..." : "Open in Editor"}
-        </span>
-      </button>
     </div>
   );
 }

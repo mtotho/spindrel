@@ -1,18 +1,14 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Columns2, FilePlus, FolderPlus, Upload, Settings, Play, Square, ChevronRight,
-  PanelLeft, Code,
+  Columns2, FilePlus, FolderPlus, Upload, Settings, ChevronRight,
+  PanelLeft,
 } from "lucide-react";
 import { useFileBrowserStore } from "../../stores/fileBrowser";
 import {
   useWriteWorkspaceFile,
   useMkdirWorkspace,
-  useStartWorkspace,
-  useStopWorkspace,
-  useEnableEditor,
 } from "../../api/hooks/useWorkspaces";
-import { useAuthStore, getAuthToken } from "../../stores/auth";
 import type { SharedWorkspace } from "../../types/api";
 import { useThemeTokens } from "../../theme/tokens";
 
@@ -33,30 +29,9 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
 
   const writeMutation = useWriteWorkspaceFile(workspace.id);
   const mkdirMutation = useMkdirWorkspace(workspace.id);
-  const startMutation = useStartWorkspace(workspace.id);
-  const stopMutation = useStopWorkspace(workspace.id);
-  const enableEditorMutation = useEnableEditor(workspace.id);
 
   const [creating, setCreating] = useState<"file" | "folder" | null>(null);
   const [newName, setNewName] = useState("");
-  const [editorOpening, setEditorOpening] = useState(false);
-
-  const isRunning = workspace.status === "running";
-
-  const handleOpenEditor = async () => {
-    setEditorOpening(true);
-    try {
-      await enableEditorMutation.mutateAsync();
-      const { serverUrl } = useAuthStore.getState();
-      const token = getAuthToken();
-      const editorUrl = `${serverUrl}/api/v1/workspaces/${workspace.id}/editor/?tkn=${encodeURIComponent(token || "")}`;
-      window.open(editorUrl, `editor-${workspace.id}`);
-    } catch (err) {
-      console.error("Failed to open editor:", err);
-    } finally {
-      setEditorOpening(false);
-    }
-  };
 
   // Determine current directory for new file/folder
   const currentDir = leftActive ? leftActive.substring(0, leftActive.lastIndexOf("/")) || "/" : "/";
@@ -83,10 +58,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
     }
   };
 
-  // Status colors
-  const statusColor =
-    workspace.status === "running" ? t.success :
-    workspace.status === "creating" ? t.accent : t.textDim;
+  const statusColor = t.success; // Always running (subprocess, no container)
 
   return (
     <div
@@ -170,9 +142,9 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
       )}
 
       {/* Action buttons */}
-      <ToolbarButton icon={<FilePlus size={14} />} title="New File" onClick={() => setCreating("file")} disabled={!isRunning} />
-      <ToolbarButton icon={<FolderPlus size={14} />} title="New Folder" onClick={() => setCreating("folder")} disabled={!isRunning} />
-      <ToolbarButton icon={<Upload size={14} />} title="Upload" onClick={onUpload} disabled={!isRunning} />
+      <ToolbarButton icon={<FilePlus size={14} />} title="New File" onClick={() => setCreating("file")} />
+      <ToolbarButton icon={<FolderPlus size={14} />} title="New Folder" onClick={() => setCreating("folder")} />
+      <ToolbarButton icon={<Upload size={14} />} title="Upload" onClick={onUpload} />
 
       {/* Split — hide on mobile */}
       {!isMobile && (
@@ -188,47 +160,6 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
       )}
 
       <div style={{ width: 1, height: 20, background: t.surfaceBorder, flexShrink: 0 }} />
-
-      {/* Container controls */}
-      {isRunning ? (
-        <ToolbarButton
-          icon={<Square size={14} />}
-          title="Stop Workspace"
-          onClick={() => stopMutation.mutate()}
-          disabled={stopMutation.isPending}
-        />
-      ) : (
-        <ToolbarButton
-          icon={<Play size={14} />}
-          title="Start Workspace"
-          onClick={() => startMutation.mutate()}
-          disabled={startMutation.isPending}
-        />
-      )}
-
-      <button
-        onClick={handleOpenEditor}
-        disabled={!isRunning || editorOpening || enableEditorMutation.isPending}
-        title={workspace.editor_enabled ? "Open VS Code in new tab" : "Enable editor & open in new tab"}
-        style={{
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          gap: 5,
-          padding: "4px 10px",
-          borderRadius: 5,
-          border: `1px solid ${t.accent}40`,
-          background: `${t.accent}12`,
-          color: (!isRunning || editorOpening) ? t.textDim : t.accent,
-          cursor: (!isRunning || editorOpening) ? "not-allowed" : "pointer",
-          fontSize: 12,
-          fontWeight: 600,
-          flexShrink: 0,
-          opacity: (!isRunning || editorOpening) ? 0.5 : 1,
-        }}
-      >
-        <Code size={13} />
-        {editorOpening || enableEditorMutation.isPending ? "Opening..." : "Editor"}
-      </button>
 
       <ToolbarButton
         icon={<Settings size={14} />}

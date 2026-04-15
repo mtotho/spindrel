@@ -535,10 +535,9 @@ def main() -> None:
 
     if deploy == "docker":
         print("  \033[1mNext steps:\033[0m")
-        print("  1. docker build -t agent-workspace:latest -f Dockerfile.workspace .")
-        print("  2. docker compose up -d")
-        print("  3. Open http://localhost:8081")
-        print("  4. The Orchestrator will greet you and walk you through setup.")
+        print("  1. docker compose up -d")
+        print("  2. Open http://localhost:8081")
+        print("  3. The Orchestrator will greet you and walk you through setup.")
         print()
 
         start_now = questionary.confirm(
@@ -547,10 +546,6 @@ def main() -> None:
             style=STYLE,
         ).ask()
         if start_now:
-            print("\n  Building workspace image...")
-            ws_rc = os.system("docker build -t agent-workspace:latest -f Dockerfile.workspace .")
-            if ws_rc != 0:
-                print("  \033[33m⚠\033[0m  Workspace image build failed — workspaces won't start until fixed")
             rc = os.system("docker compose up -d")
             if rc != 0:
                 print(f"\n  \033[31mDocker compose failed (exit {rc}). Start manually: docker compose up -d\033[0m")

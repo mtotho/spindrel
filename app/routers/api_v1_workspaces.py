@@ -1,4 +1,4 @@
-"""API v1 — Shared Workspaces CRUD + container controls."""
+"""API v1 — Shared Workspaces CRUD + file operations."""
 from __future__ import annotations
 
 import asyncio
@@ -115,16 +115,7 @@ async def _background_reindex(
 class WorkspaceCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    image: str = "agent-workspace:latest"
-    network: str = "none"
     env: dict = {}
-    ports: list = []
-    mounts: list = []
-    cpus: Optional[float] = None
-    memory_limit: Optional[str] = None
-    docker_user: Optional[str] = None
-    read_only_root: bool = False
-    startup_script: Optional[str] = "/workspace/startup.sh"
     created_by_user_id: Optional[str] = None
     write_protected_paths: list[str] = []
 
@@ -132,16 +123,7 @@ class WorkspaceCreate(BaseModel):
 class WorkspaceUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    image: Optional[str] = None
-    network: Optional[str] = None
     env: Optional[dict] = None
-    ports: Optional[list] = None
-    mounts: Optional[list] = None
-    cpus: Optional[float] = None
-    memory_limit: Optional[str] = None
-    docker_user: Optional[str] = None
-    read_only_root: Optional[bool] = None
-    startup_script: Optional[str] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     indexing_config: Optional[dict] = None
     write_protected_paths: Optional[list[str]] = None
@@ -151,26 +133,11 @@ class WorkspaceOut(BaseModel):
     id: str
     name: str
     description: Optional[str]
-    image: str
-    network: str
     env: dict
-    ports: list
-    mounts: list
-    cpus: Optional[float]
-    memory_limit: Optional[str]
-    docker_user: Optional[str]
-    read_only_root: bool
-    startup_script: Optional[str]
     workspace_base_prompt_enabled: bool = True
     indexing_config: Optional[dict] = None
-    editor_enabled: bool = False
-    editor_port: Optional[int] = None
     write_protected_paths: list[str] = []
-    container_id: Optional[str]
-    container_name: Optional[str]
-    status: str
-    image_id: Optional[str]
-    last_started_at: Optional[str]
+    status: str = "running"  # Always running (subprocess, no container)
     created_by_user_id: Optional[str]
     created_at: str
     updated_at: str
@@ -242,26 +209,10 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
         id=str(ws.id),
         name=ws.name,
         description=ws.description,
-        image=ws.image,
-        network=ws.network,
         env=ws.env or {},
-        ports=ws.ports or [],
-        mounts=ws.mounts or [],
-        cpus=ws.cpus,
-        memory_limit=ws.memory_limit,
-        docker_user=ws.docker_user,
-        read_only_root=ws.read_only_root,
-        startup_script=ws.startup_script,
         workspace_base_prompt_enabled=ws.workspace_base_prompt_enabled,
         indexing_config=ws.indexing_config,
-        editor_enabled=ws.editor_enabled,
-        editor_port=ws.editor_port,
         write_protected_paths=ws.write_protected_paths or [],
-        container_id=ws.container_id,
-        container_name=ws.container_name,
-        status=ws.status,
-        image_id=ws.image_id,
-        last_started_at=ws.last_started_at.isoformat() if ws.last_started_at else None,
         created_by_user_id=str(ws.created_by_user_id) if ws.created_by_user_id else None,
         created_at=ws.created_at.isoformat(),
         updated_at=ws.updated_at.isoformat(),
@@ -339,16 +290,7 @@ async def create_workspace(
     ws = SharedWorkspace(
         name=body.name.strip(),
         description=body.description,
-        image=body.image,
-        network=body.network,
         env={k: v for k, v in body.env.items() if k},
-        ports=body.ports,
-        mounts=body.mounts,
-        cpus=body.cpus,
-        memory_limit=body.memory_limit,
-        docker_user=body.docker_user,
-        read_only_root=body.read_only_root,
-        startup_script=body.startup_script,
         write_protected_paths=body.write_protected_paths,
         created_by_user_id=uuid.UUID(body.created_by_user_id) if body.created_by_user_id else None,
         created_at=now,
@@ -418,110 +360,6 @@ async def delete_workspace(
 
 # ── Container controls ──────────────────────────────────────────
 
-@router.post("/{workspace_id}/start", response_model=WorkspaceOut)
-async def start_workspace(
-    workspace_id: str,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:write")),
-):
-    ws_id = uuid.UUID(workspace_id)
-    ws = await db.get(SharedWorkspace, ws_id)
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-    try:
-        await shared_workspace_service.ensure_container(ws)
-    except Exception as exc:
-        logger.exception("Workspace start failed for %s", workspace_id)
-        raise HTTPException(500, f"Start failed: {exc}")
-    await db.refresh(ws)
-    sw_bots = (await db.execute(
-        select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws_id)
-    )).scalars().all()
-    return _ws_to_out(ws, sw_bots)
-
-
-@router.post("/{workspace_id}/stop", response_model=WorkspaceOut)
-async def stop_workspace(
-    workspace_id: str,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:write")),
-):
-    ws_id = uuid.UUID(workspace_id)
-    ws = await db.get(SharedWorkspace, ws_id)
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-    await shared_workspace_service.stop(ws)
-    await db.refresh(ws)
-    sw_bots = (await db.execute(
-        select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws_id)
-    )).scalars().all()
-    return _ws_to_out(ws, sw_bots)
-
-
-@router.post("/{workspace_id}/recreate", response_model=WorkspaceOut)
-async def recreate_workspace(
-    workspace_id: str,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:write")),
-):
-    ws_id = uuid.UUID(workspace_id)
-    ws = await db.get(SharedWorkspace, ws_id)
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-    try:
-        await shared_workspace_service.recreate(ws)
-    except Exception as exc:
-        raise HTTPException(500, f"Recreate failed: {exc}")
-    await db.refresh(ws)
-    sw_bots = (await db.execute(
-        select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws_id)
-    )).scalars().all()
-    return _ws_to_out(ws, sw_bots)
-
-
-@router.post("/{workspace_id}/pull")
-async def pull_workspace_image(
-    workspace_id: str,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:write")),
-):
-    ws_id = uuid.UUID(workspace_id)
-    ws = await db.get(SharedWorkspace, ws_id)
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-    ok, output = await shared_workspace_service.pull_image(ws.image)
-    return {"success": ok, "output": output}
-
-
-@router.get("/{workspace_id}/status")
-async def workspace_status(
-    workspace_id: str,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:read")),
-):
-    ws_id = uuid.UUID(workspace_id)
-    ws = await db.get(SharedWorkspace, ws_id)
-    if not ws:
-        raise HTTPException(404)
-    status = await shared_workspace_service.inspect_status(ws)
-    return {"status": status}
-
-
-@router.get("/{workspace_id}/logs")
-async def workspace_logs(
-    workspace_id: str,
-    tail: int = Query(300, ge=1, le=5000),
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:read")),
-):
-    ws_id = uuid.UUID(workspace_id)
-    ws = await db.get(SharedWorkspace, ws_id)
-    if not ws:
-        raise HTTPException(404)
-    logs = await shared_workspace_service.get_logs(ws, tail=tail)
-    return {"logs": logs}
-
-
 # ── Cron Jobs ─────────────────────────────────────────────────
 
 @router.get("/{workspace_id}/cron-jobs")
@@ -541,88 +379,6 @@ async def workspace_cron_jobs(
 
 
 # ── Code Editor ────────────────────────────────────────────────
-
-@router.post("/{workspace_id}/editor/enable")
-async def enable_workspace_editor(
-    workspace_id: str,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:write")),
-):
-    """Enable and start code-server for this workspace."""
-    from app.services.workspace_editor import ensure_editor
-    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-    result = await ensure_editor(ws)
-    await db.refresh(ws)
-    return result
-
-
-@router.post("/{workspace_id}/editor/disable")
-async def disable_workspace_editor(
-    workspace_id: str,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:write")),
-):
-    """Disable code-server for this workspace."""
-    from app.services.workspace_editor import disable_editor
-    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-    await disable_editor(ws)
-    return {"editor_enabled": False}
-
-
-@router.get("/{workspace_id}/editor/status")
-async def workspace_editor_status(
-    workspace_id: str,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:read")),
-):
-    """Get code-server status for this workspace."""
-    from app.services.workspace_editor import editor_status
-    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-    return await editor_status(ws)
-
-
-@router.post("/{workspace_id}/editor/session")
-async def create_editor_session(
-    workspace_id: str,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:read")),
-):
-    """Set an httpOnly session cookie for code-server access (new-tab loads)."""
-    from fastapi.responses import JSONResponse
-
-    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-    if not ws.editor_enabled:
-        raise HTTPException(400, "Editor not enabled")
-
-    # Extract the bearer token that was used to authenticate this request
-    auth_header = request.headers.get("authorization", "")
-    token = auth_header.removeprefix("Bearer ").strip()
-    if not token:
-        raise HTTPException(400, "No token available for session")
-
-    cookie_name = f"editor_session_{workspace_id.replace('-', '_')}"
-    cookie_path = f"/api/v1/workspaces/{workspace_id}/editor"
-
-    response = JSONResponse({"ok": True})
-    response.set_cookie(
-        key=cookie_name,
-        value=token,
-        path=cookie_path,
-        httponly=True,
-        samesite="lax",
-        max_age=3600,  # 1 hour
-    )
-    return response
-
 
 # ── Bot management ──────────────────────────────────────────────
 

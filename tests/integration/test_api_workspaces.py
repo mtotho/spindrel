@@ -19,7 +19,6 @@ pytestmark = pytest.mark.asyncio
 async def _create_workspace(client, **overrides) -> dict:
     payload = {
         "name": f"ws-{uuid.uuid4().hex[:8]}",
-        "image": "agent-workspace:latest",
         **overrides,
     }
     resp = await client.post("/api/v1/workspaces", json=payload, headers=AUTH_HEADERS)
@@ -62,16 +61,13 @@ class TestCreateWorkspace:
         with patch("app.routers.api_v1_workspaces.shared_workspace_service") as mock_svc:
             resp = await client.post(
                 "/api/v1/workspaces",
-                json={"name": "test-workspace", "image": "python:3.12-slim"},
+                json={"name": "test-workspace"},
                 headers=AUTH_HEADERS,
             )
         assert resp.status_code == 201
         body = resp.json()
         assert body["name"] == "test-workspace"
-        assert body["image"] == "python:3.12-slim"
-        assert body["status"] == "stopped"
-        assert body["network"] == "none"
-        assert body["read_only_root"] is False
+        assert body["status"] == "running"
         assert body["bots"] == []
         uuid.UUID(body["id"])
         mock_svc.ensure_host_dirs.assert_called_once_with(body["id"])
@@ -79,13 +75,7 @@ class TestCreateWorkspace:
     async def test_create_workspace_defaults(self, client):
         with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
             body = await _create_workspace(client)
-        assert body["image"] == "agent-workspace:latest"
-        assert body["network"] == "none"
         assert body["env"] == {}
-        assert body["ports"] == []
-        assert body["mounts"] == []
-        assert body["cpus"] is None
-        assert body["memory_limit"] is None
 
     async def test_create_workspace_with_description(self, client):
         with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
@@ -97,14 +87,12 @@ class TestCreateWorkspace:
             body = await _create_workspace(client, env={"FOO": "bar", "BAZ": "qux"})
         assert body["env"] == {"FOO": "bar", "BAZ": "qux"}
 
-    async def test_create_workspace_with_resources(self, client):
+    async def test_create_workspace_with_write_protection(self, client):
         with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
             body = await _create_workspace(
-                client, cpus=2.0, memory_limit="4g", read_only_root=True,
+                client, write_protected_paths=["/workspace/common"],
             )
-        assert body["cpus"] == 2.0
-        assert body["memory_limit"] == "4g"
-        assert body["read_only_root"] is True
+        assert body["write_protected_paths"] == ["/workspace/common"]
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +111,7 @@ class TestListWorkspaces:
         now = datetime.now(timezone.utc)
         for name in ("ws-a", "ws-b"):
             ws = SharedWorkspace(
-                name=name, image="img:latest", status="stopped",
+                name=name,
                 created_at=now, updated_at=now,
             )
             db_session.add(ws)
@@ -187,33 +175,6 @@ class TestUpdateWorkspace:
         assert resp.status_code == 200
         assert resp.json()["description"] == "Updated description"
 
-    async def test_update_image(self, client):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            created = await _create_workspace(client)
-        ws_id = created["id"]
-        resp = await client.put(
-            f"/api/v1/workspaces/{ws_id}",
-            json={"image": "ubuntu:24.04"},
-            headers=AUTH_HEADERS,
-        )
-        assert resp.status_code == 200
-        assert resp.json()["image"] == "ubuntu:24.04"
-
-    async def test_update_resources(self, client):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            created = await _create_workspace(client)
-        ws_id = created["id"]
-        resp = await client.put(
-            f"/api/v1/workspaces/{ws_id}",
-            json={"cpus": 4.0, "memory_limit": "8g", "read_only_root": True},
-            headers=AUTH_HEADERS,
-        )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["cpus"] == 4.0
-        assert body["memory_limit"] == "8g"
-        assert body["read_only_root"] is True
-
     async def test_update_not_found(self, client):
         resp = await client.put(
             f"/api/v1/workspaces/{uuid.uuid4()}",
@@ -245,86 +206,6 @@ class TestDeleteWorkspace:
             f"/api/v1/workspaces/{uuid.uuid4()}", headers=AUTH_HEADERS,
         )
         assert resp.status_code == 400
-
-
-# ---------------------------------------------------------------------------
-# Container controls — start/stop/recreate/pull/status/logs
-# ---------------------------------------------------------------------------
-
-class TestContainerControls:
-    async def test_start_workspace(self, client):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service") as mock_svc:
-            created = await _create_workspace(client)
-            ws_id = created["id"]
-            mock_svc.ensure_container = AsyncMock()
-            resp = await client.post(
-                f"/api/v1/workspaces/{ws_id}/start", headers=AUTH_HEADERS,
-            )
-        assert resp.status_code == 200
-        mock_svc.ensure_container.assert_awaited_once()
-
-    async def test_start_not_found(self, client):
-        resp = await client.post(
-            f"/api/v1/workspaces/{uuid.uuid4()}/start", headers=AUTH_HEADERS,
-        )
-        assert resp.status_code == 404
-
-    async def test_stop_workspace(self, client):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service") as mock_svc:
-            created = await _create_workspace(client)
-            ws_id = created["id"]
-            mock_svc.stop = AsyncMock()
-            resp = await client.post(
-                f"/api/v1/workspaces/{ws_id}/stop", headers=AUTH_HEADERS,
-            )
-        assert resp.status_code == 200
-        mock_svc.stop.assert_awaited_once()
-
-    async def test_recreate_workspace(self, client):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service") as mock_svc:
-            created = await _create_workspace(client)
-            ws_id = created["id"]
-            mock_svc.recreate = AsyncMock()
-            resp = await client.post(
-                f"/api/v1/workspaces/{ws_id}/recreate", headers=AUTH_HEADERS,
-            )
-        assert resp.status_code == 200
-        mock_svc.recreate.assert_awaited_once()
-
-    async def test_pull_image(self, client):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service") as mock_svc:
-            created = await _create_workspace(client)
-            ws_id = created["id"]
-            mock_svc.pull_image = AsyncMock(return_value=(True, "Pulled OK"))
-            resp = await client.post(
-                f"/api/v1/workspaces/{ws_id}/pull", headers=AUTH_HEADERS,
-            )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["success"] is True
-        assert body["output"] == "Pulled OK"
-
-    async def test_status(self, client):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service") as mock_svc:
-            created = await _create_workspace(client)
-            ws_id = created["id"]
-            mock_svc.inspect_status = AsyncMock(return_value="running")
-            resp = await client.get(
-                f"/api/v1/workspaces/{ws_id}/status", headers=AUTH_HEADERS,
-            )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "running"
-
-    async def test_logs(self, client):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service") as mock_svc:
-            created = await _create_workspace(client)
-            ws_id = created["id"]
-            mock_svc.get_logs = AsyncMock(return_value="line 1\nline 2")
-            resp = await client.get(
-                f"/api/v1/workspaces/{ws_id}/logs", headers=AUTH_HEADERS,
-            )
-        assert resp.status_code == 200
-        assert "line 1" in resp.json()["logs"]
 
 
 # ---------------------------------------------------------------------------

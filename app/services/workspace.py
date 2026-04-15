@@ -1,19 +1,15 @@
-"""Workspace service — unified execution layer wrapping sandbox + host_exec + shared workspaces."""
+"""Workspace service — unified execution layer wrapping shared workspaces + host_exec."""
 import logging
 import os
-import shlex
 from dataclasses import dataclass
-from pathlib import Path
 
 from app.agent.bots import (
     BotConfig,
-    BotSandboxConfig,
     HostExecConfig,
-    HostExecCommandEntry,
     WorkspaceConfig,
 )
 from app.config import settings
-from app.services.paths import local_workspace_base, local_to_host
+from app.services.paths import local_workspace_base
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +21,7 @@ class ExecResult:
     exit_code: int
     truncated: bool
     duration_ms: int
-    workspace_type: str  # "docker" | "host" | "shared"
+    workspace_type: str  # "host" | "shared"
 
 
 class WorkspaceError(Exception):
@@ -34,16 +30,11 @@ class WorkspaceError(Exception):
 
 class WorkspaceService:
     def get_workspace_root(self, bot_id: str, bot: BotConfig | None = None) -> str:
-        """Return the host-side workspace path for a bot.
-
-        All bots are in the shared workspace, so this always returns the
-        shared workspace path.
-        """
+        """Return the host-side workspace path for a bot."""
         if bot and bot.shared_workspace_id:
             from app.services.shared_workspace import shared_workspace_service
             sw_root = shared_workspace_service.get_host_root(bot.shared_workspace_id)
             return os.path.join(sw_root, "bots", bot_id)
-        # Fallback for when bot config is not available (e.g. orphan cleanup)
         base = local_workspace_base()
         return os.path.join(base, bot_id)
 
@@ -64,18 +55,14 @@ class WorkspaceService:
         working_dir: str = "",
         bot: BotConfig | None = None,
     ) -> ExecResult:
-        """Execute a command in the workspace, routing to shared workspace container."""
-        # All bots are in the shared workspace
+        """Execute a command in the workspace via subprocess."""
         if bot and bot.shared_workspace_id:
             return await self._exec_shared(bot, command, working_dir)
 
-        # Fallback for legacy standalone workspace (shouldn't happen in normal operation)
         if not workspace.enabled:
             raise WorkspaceError("Workspace is not enabled for this bot.")
 
-        if workspace.type == "docker":
-            return await self._exec_docker(bot_id, command, workspace, working_dir)
-        elif workspace.type == "host":
+        if workspace.type == "host":
             return await self._exec_host(bot_id, command, workspace, working_dir)
         else:
             raise WorkspaceError(f"Unknown workspace type: {workspace.type!r}")
@@ -86,7 +73,7 @@ class WorkspaceService:
         command: str,
         working_dir: str,
     ) -> ExecResult:
-        """Execute via the shared workspace container."""
+        """Execute via subprocess in the shared workspace directory."""
         from app.services.shared_workspace import shared_workspace_service
         from app.db.engine import async_session
         from app.db.models import SharedWorkspace
@@ -110,68 +97,6 @@ class WorkspaceService:
             workspace_type="shared",
         )
 
-    async def _exec_docker(
-        self,
-        bot_id: str,
-        command: str,
-        workspace: WorkspaceConfig,
-        working_dir: str,
-    ) -> ExecResult:
-        """Execute via the sandbox service's bot-local container."""
-        from app.services.sandbox import sandbox_service
-
-        host_root = self.ensure_host_dir(bot_id)
-
-        # Build a BotSandboxConfig from the workspace docker config
-        docker = workspace.docker
-        # Ensure the workspace volume mount is included
-        workspace_mount = {
-            "host_path": local_to_host(host_root),
-            "container_path": "/workspace",
-            "mode": "rw",
-        }
-        mounts = list(docker.mounts or [])
-        # Don't add duplicate workspace mount
-        if not any(m.get("container_path") == "/workspace" for m in mounts):
-            mounts.insert(0, workspace_mount)
-
-        sandbox_config = BotSandboxConfig(
-            enabled=True,
-            unrestricted=True,
-            image=docker.image,
-            network=docker.network,
-            env=docker.env,
-            ports=docker.ports,
-            mounts=mounts,
-            user=docker.user,
-        )
-
-        # Default working_dir to /workspace inside the container
-        if not working_dir:
-            working_dir = "/workspace"
-        # Prefix the command with cd to working_dir if it's not /workspace
-        if working_dir != "/workspace":
-            command = f"cd {shlex.quote(working_dir)} && {command}"
-        elif working_dir == "/workspace":
-            command = f"cd /workspace && {command}"
-
-        timeout = workspace.timeout
-        max_bytes = workspace.max_output_bytes
-
-        result = await sandbox_service.exec_bot_local(
-            bot_id, command, sandbox_config,
-            timeout=timeout,
-            max_bytes=max_bytes,
-        )
-        return ExecResult(
-            stdout=result.stdout,
-            stderr=result.stderr,
-            exit_code=result.exit_code,
-            truncated=result.truncated,
-            duration_ms=result.duration_ms,
-            workspace_type="docker",
-        )
-
     async def _exec_host(
         self,
         bot_id: str,
@@ -186,15 +111,13 @@ class WorkspaceService:
         root = host_cfg.root or self.get_workspace_root(bot_id)
         self.ensure_host_dir(bot_id) if not host_cfg.root else None
 
-        # Default working_dir to workspace root
         if not working_dir:
             working_dir = root
 
-        # Build HostExecConfig from workspace host config
         exec_config = HostExecConfig(
             enabled=True,
             dry_run=False,
-            working_dirs=[root],  # Restrict to workspace root
+            working_dirs=[root],
             commands=host_cfg.commands,
             blocked_patterns=host_cfg.blocked_patterns,
             env_passthrough=host_cfg.env_passthrough,
@@ -215,25 +138,17 @@ class WorkspaceService:
     def translate_path(self, bot_id: str, bot_path: str, workspace: WorkspaceConfig, bot: BotConfig | None = None) -> str:
         """Map a bot-side path to a host-side path.
 
-        Docker/Shared: /workspace/foo → host path
-        Host: identity (path is already on host)
+        Handles legacy /workspace/ paths from before the container collapse.
         """
-        # All bots are in the shared workspace
         if bot and bot.shared_workspace_id:
             from app.services.shared_workspace import shared_workspace_service
             return shared_workspace_service.translate_path(bot.shared_workspace_id, bot_path)
-        # Fallback for legacy standalone workspace
         host_root = self.get_workspace_root(bot_id)
         if bot_path.startswith("/workspace/"):
             return os.path.join(host_root, bot_path[len("/workspace/"):])
         elif bot_path == "/workspace":
             return host_root
         return bot_path
-
-    async def recreate(self, bot_id: str) -> None:
-        """Destroy and recreate the Docker container for a workspace."""
-        from app.services.sandbox import sandbox_service
-        await sandbox_service.recreate_bot_local(bot_id)
 
 
 workspace_service = WorkspaceService()

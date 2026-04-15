@@ -913,31 +913,15 @@ class SharedWorkspace(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
     name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    image: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'python:3.12-slim'"))
-    network: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'none'"))
     env: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
-    ports: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    mounts: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    cpus: Mapped[float | None] = mapped_column(Float, nullable=True)
-    memory_limit: Mapped[str | None] = mapped_column(Text, nullable=True)
-    docker_user: Mapped[str | None] = mapped_column(Text, nullable=True)
-    read_only_root: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    container_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    container_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'stopped'"))
-    image_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    last_started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-    startup_script: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'/workspace/startup.sh'"))
     workspace_base_prompt_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     indexing_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    editor_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    editor_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     write_protected_paths: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

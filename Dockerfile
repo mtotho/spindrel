@@ -1,18 +1,30 @@
+# ── Stage 1: Build the UI ────────────────────────────────────────────────────
+FROM node:22-slim AS ui-build
+WORKDIR /ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ .
+RUN npm run build
+
+# ── Stage 2: Server ─────────────────────────────────────────────────────────
 FROM python:3.12-slim
 
-# Node.js + claude CLI — required for the Claude Code integration.
-# Adds ~200MB. Remove this block if you don't use Claude Code.
-RUN apt-get update -qq && \
-    apt-get install -y -qq nodejs npm && \
-    npm install -g @anthropic-ai/claude-code && \
-    rm -rf /var/lib/apt/lists/*
+# Workspace tools — git, ripgrep, jq, build tools, etc.
+# These run in-process via subprocess when bots use exec_tool.
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    curl wget git jq ripgrep fd-find tree unzip zip \
+    build-essential sqlite3 openssh-client ca-certificates gnupg \
+    && rm -rf /var/lib/apt/lists/*
 
-# Docker CLI — needed for sibling container management (workspaces, sandboxes).
+# Node.js + claude CLI — required for the Claude Code integration.
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y -qq nodejs \
+    && npm install -g @anthropic-ai/claude-code \
+    && rm -rf /var/lib/apt/lists/*
+
+# Docker CLI — needed for integration sidecar containers (SearXNG, Wyoming, etc.)
 # Only the CLI binary; the daemon runs on the host via mounted socket.
-# Install from official Docker repo (docker.io from Debian is unreliable on slim).
-RUN apt-get update -qq && \
-    apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg && \
-    install -m 0755 -d /etc/apt/keyrings && \
+RUN install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list && \
     apt-get update -qq && \
@@ -24,6 +36,10 @@ WORKDIR /app
 COPY pyproject.toml .
 RUN pip install --no-cache-dir .
 
+# Extra Python packages for workspace use (not in pyproject.toml)
+RUN pip install --no-cache-dir \
+    toml beautifulsoup4 lxml pandas markdown python-dotenv
+
 COPY app/ app/
 COPY integrations/ integrations/
 COPY packages/ packages/
@@ -31,6 +47,10 @@ COPY prompts/ prompts/
 COPY carapaces/ carapaces/
 COPY alembic.ini .
 COPY migrations/ migrations/
+COPY scripts/entrypoint.sh /entrypoint.sh
+
+# UI — built in stage 1, served by FastAPI as static files
+COPY --from=ui-build /ui/dist /app/ui-dist
 
 # Build integration web UIs (dashboards served as static files via iframe).
 # Set --build-arg BUILD_DASHBOARDS=false to skip (saves ~30s + avoids npm).
@@ -55,4 +75,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD curl -sf http://localhost:8000/health || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/entrypoint.sh"]

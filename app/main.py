@@ -466,13 +466,12 @@ async def lifespan(application: FastAPI):
 
     _t = _tlog("Memory bootstrap, workspace dirs, integrations, endpoint catalog", _t)
 
-    # Auto-start shared workspace containers that were previously running
+    # Ensure shared workspace directories exist
     for _sw in _sw_rows:
-        if _sw.status == "running":
-            try:
-                await shared_workspace_service.ensure_container(_sw)
-            except Exception:
-                logger.warning("Failed to auto-start shared workspace %s", _sw.name)
+        try:
+            shared_workspace_service.ensure_host_dirs(str(_sw.id))
+        except Exception:
+            logger.warning("Failed to ensure workspace dirs for %s", _sw.name)
     # Start shared workspace watchers (fast — no embedding)
     _sw_watch_targets: list[tuple[str, str]] = [
         (str(_sw.id), shared_workspace_service.get_host_root(str(_sw.id)))
@@ -857,3 +856,24 @@ async def serve_integration_ui(integration_id: str, path: str = ""):
         detail=f"Dashboard not built for '{integration_id}'. "
                f"Run 'npm run build' in the dashboard directory.",
     )
+
+
+# ---------------------------------------------------------------------------
+# Main UI — serve built React SPA from ui-dist/ (baked into Docker image)
+# ---------------------------------------------------------------------------
+# Must be mounted LAST so /api/v1/*, /health, /integrations/* take priority.
+_UI_DIST = Path(__file__).resolve().parent.parent / "ui-dist"
+if _UI_DIST.is_dir():
+    from starlette.responses import FileResponse
+    from starlette.staticfiles import StaticFiles
+
+    # Serve hashed assets directly (JS, CSS, images under /assets/)
+    app.mount("/assets", StaticFiles(directory=_UI_DIST / "assets"), name="ui-assets")
+
+    # SPA fallback — any non-API, non-asset path serves index.html
+    @app.get("/{path:path}")
+    async def serve_ui(path: str = ""):
+        file_path = (_UI_DIST / path).resolve()
+        if str(file_path).startswith(str(_UI_DIST.resolve())) and file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(_UI_DIST / "index.html", media_type="text/html")

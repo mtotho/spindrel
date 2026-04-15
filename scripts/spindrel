@@ -211,7 +211,6 @@ def systemd_pull(repo, args):
     if result.returncode != 0:
         print("Pull failed — skipping restart.", file=sys.stderr)
         return
-    _build_workspace_image(repo)
     _build_integration_uis(repo)
     _rebuild_ui(repo)
     systemd_restart(repo, args)
