@@ -153,10 +153,15 @@ export function LlmModelDropdown({
   const downloadMutation = useDownloadEmbeddingModel();
   const t = useThemeTokens();
 
-  // Measure trigger position for portal dropdown
+  // Measure trigger position for portal dropdown.
+  // Auto-flip to upward when the trigger is in the bottom 40% of the viewport
+  // so the dropdown doesn't get clipped.
+  const [resolvedAnchor, setResolvedAnchor] = useState(anchor);
   const openDropdown = useCallback(() => {
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
+      const autoAnchor = anchor ?? (rect.bottom > window.innerHeight * 0.6 ? "top" : undefined);
+      setResolvedAnchor(autoAnchor);
       setPos({
         top: rect.bottom + 4,
         left: rect.left,
@@ -236,7 +241,7 @@ export function LlmModelDropdown({
               <div
                 style={{
                   position: "fixed",
-                  ...(anchor === "top"
+                  ...(resolvedAnchor === "top"
                     ? { bottom: pos.bottom, left: pos.left }
                     : { top: pos.top, left: pos.left }),
                   width: Math.max(pos.width, 320),
