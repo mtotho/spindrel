@@ -46,13 +46,25 @@ def get_repo_dir():
 
 
 def is_docker_mode(repo):
-    """Detect if running in Docker mode (docker-compose.yml exists and no systemd services)."""
+    """Detect if running in Docker mode.
+
+    Docker mode if: docker-compose.yml exists AND spindrel.service is not
+    actively running. A disabled/stopped systemd unit left over from a
+    previous host install does not force systemd mode.
+    """
     has_compose = os.path.isfile(os.path.join(repo, "docker-compose.yml"))
-    has_systemd = os.path.isfile("/etc/systemd/system/spindrel.service")
-    # If both exist, prefer systemd (explicit install-service.sh was run)
-    if has_systemd:
+    if not has_compose:
         return False
-    return has_compose
+    # Check if systemd service is actively running (not just installed)
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "--quiet", "spindrel.service"],
+            capture_output=True, timeout=5,
+        )
+        systemd_active = result.returncode == 0
+    except Exception:
+        systemd_active = False
+    return not systemd_active
 
 
 def run(cmd, check=True, shell=True, **kwargs):

@@ -134,6 +134,8 @@ async def store_passive_message_http(
             json=payload,
             headers={"Authorization": f"Bearer {API_KEY}"},
         )
+        if r.status_code >= 400:
+            print(f"[store_passive] {r.status_code} {r.url} body={r.text[:500]}", flush=True)
         r.raise_for_status()
 
 
