@@ -643,7 +643,7 @@ export default function SettingsScreen() {
           </div>
         )}
 
-        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1" contentContainerStyle={{ maxWidth: 640, padding: "16px 20px" }}>
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1" contentContainerStyle={{ maxWidth: 900, padding: "16px 20px" }}>
           {/* Mobile group selector */}
           {!isDesktop && (
             <div style={{ display: "flex", flexDirection: "row", gap: 6, overflowX: "auto", marginBottom: 16 }}>

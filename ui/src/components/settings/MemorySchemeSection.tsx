@@ -248,13 +248,13 @@ export function MemorySchemeSection() {
     <div className="mt-4 flex flex-col gap-4">
       {/* Header with help button */}
       <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-row items-center gap-2">
           <span className="text-text text-sm font-bold">
             Workspace Files Memory
           </span>
           <button
             onClick={() => setShowHelp(true)}
-            className="p-0.5 bg-transparent border-none cursor-pointer flex items-center"
+            className="p-0.5 bg-transparent border-none cursor-pointer flex flex-row items-center"
           >
             <HelpCircle size={15} className="text-text-dim" />
           </button>
@@ -274,7 +274,7 @@ export function MemorySchemeSection() {
         <div className="flex flex-col gap-3.5">
           {/* Status summary */}
           <div
-            className="flex items-center gap-3 rounded-lg p-3.5"
+            className="flex flex-row items-center gap-3 rounded-lg p-3.5"
             style={{
               backgroundColor: t.inputBg,
               border: `1px solid ${t.surfaceOverlay}`,
@@ -335,7 +335,7 @@ export function MemorySchemeSection() {
                 return (
                   <div
                     key={bot.id}
-                    className="flex items-center px-3.5 py-2"
+                    className="flex flex-row items-center px-3.5 py-2"
                     style={{
                       borderTop:
                         i > 0 ? `1px solid ${t.surfaceRaised}` : "none",
@@ -368,11 +368,11 @@ export function MemorySchemeSection() {
           )}
 
           {/* Action buttons */}
-          <div className="flex flex-wrap gap-2.5">
+          <div className="flex flex-row flex-wrap gap-2.5">
             <button
               onClick={handleEnableAll}
               disabled={isBusy || allEnabled}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg"
+              className="flex flex-row items-center gap-1.5 px-3.5 py-2 rounded-lg"
               style={{
                 backgroundColor: allEnabled ? t.surfaceRaised : t.purpleSubtle,
                 border: `1px solid ${allEnabled ? t.surfaceOverlay : t.purpleBorder}`,
@@ -396,7 +396,7 @@ export function MemorySchemeSection() {
             <button
               onClick={handleDisableAll}
               disabled={isBusy || noneEnabled}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg"
+              className="flex flex-row items-center gap-1.5 px-3.5 py-2 rounded-lg"
               style={{
                 backgroundColor: t.surfaceRaised,
                 border: `1px solid ${t.surfaceBorder}`,
@@ -430,7 +430,7 @@ export function MemorySchemeSection() {
           >
             <button
               onClick={() => setShowPrompt(!showPrompt)}
-              className="flex items-center gap-2 px-3.5 py-2.5 bg-transparent border-none cursor-pointer w-full text-left"
+              className="flex flex-row items-center gap-2 px-3.5 py-2.5 bg-transparent border-none cursor-pointer w-full text-left"
             >
               <ChevronDown
                 size={14}
@@ -458,7 +458,7 @@ export function MemorySchemeSection() {
                 {/* Toggle for custom override */}
                 <button
                   onClick={() => handleToggleCustom(!useCustomPrompt)}
-                  className="flex items-center gap-2 bg-transparent border-none cursor-pointer p-0 text-left"
+                  className="flex flex-row items-center gap-2 bg-transparent border-none cursor-pointer p-0 text-left"
                 >
                   <div
                     className="w-11 h-6 rounded-xl relative shrink-0 transition-colors duration-200"
@@ -497,11 +497,11 @@ export function MemorySchemeSection() {
                       fieldType="memory_scheme"
                       generateContext="Workspace-files memory system prompt. Instructs the bot how to use file-based memory."
                     />
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-row items-center gap-2">
                       <button
                         onClick={handleSavePrompt}
                         disabled={!promptDirty || updateSettings.isPending}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border-none"
+                        className="flex flex-row items-center gap-1.5 px-3 py-1.5 rounded-md border-none"
                         style={{
                           backgroundColor: promptDirty
                             ? t.warningSubtle
@@ -556,7 +556,7 @@ export function MemorySchemeSection() {
           >
             <button
               onClick={() => setShowFlush(!showFlush)}
-              className="flex items-center gap-2 px-3.5 py-2.5 bg-transparent border-none cursor-pointer w-full text-left"
+              className="flex flex-row items-center gap-2 px-3.5 py-2.5 bg-transparent border-none cursor-pointer w-full text-left"
             >
               <ChevronDown
                 size={14}

@@ -53,7 +53,7 @@ export function DreamingManagementSection() {
     <div className="flex flex-col gap-5 mt-4">
       {/* Section header */}
       <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-row items-center gap-2">
           <Moon size={15} className="text-purple-400" />
           <span className="text-text text-sm font-semibold">
             Dreaming — Per-Bot Management
@@ -68,7 +68,7 @@ export function DreamingManagementSection() {
       {/* Quick status banner */}
       <div className="rounded-lg p-3 bg-surface-raised border border-surface-border">
         <div className="flex flex-col gap-1.5 text-[11px] text-text-muted">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-row items-center gap-2">
             <span
               className="w-2 h-2 rounded-full shrink-0"
               style={{
@@ -82,7 +82,7 @@ export function DreamingManagementSection() {
               bots running maintenance
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-row items-center gap-2">
             <span
               className="w-2 h-2 rounded-full shrink-0"
               style={{
@@ -97,7 +97,7 @@ export function DreamingManagementSection() {
             </span>
           </div>
           {failures.length > 0 && (
-            <div className="flex items-center gap-2 mt-0.5 text-danger">
+            <div className="flex flex-row items-center gap-2 mt-0.5 text-danger">
               <AlertTriangle size={11} />
               <span>
                 {failures.map((b) => b.bot_name).join(", ")}: last run failed
@@ -113,14 +113,14 @@ export function DreamingManagementSection() {
       {/* Compact recent runs */}
       {recentRuns.length > 0 && (
         <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-row items-center justify-between">
             <span className="text-text text-xs font-semibold">
               Recent Runs
             </span>
             <button
               type="button"
               onClick={() => navigate("/admin/learning#Dreaming")}
-              className="flex items-center gap-1 text-[10px] text-accent hover:underline cursor-pointer bg-transparent border-none"
+              className="flex flex-row items-center gap-1 text-[10px] text-accent hover:underline cursor-pointer bg-transparent border-none"
             >
               View full history
               <ExternalLink size={10} />

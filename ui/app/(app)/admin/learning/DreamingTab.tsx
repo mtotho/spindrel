@@ -43,7 +43,7 @@ export function DreamingTab() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {/* Settings link */}
-      <div className="flex items-center gap-2 text-[11px] text-text-dim bg-surface-overlay/50 rounded-lg px-3 py-2">
+      <div className="flex flex-row items-center gap-2 text-[11px] text-text-dim bg-surface-overlay/50 rounded-lg px-3 py-2">
         <Moon size={12} className="text-purple-400" />
         <span>
           Configure dreaming prompts, models, and intervals in{" "}

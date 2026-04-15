@@ -5,6 +5,7 @@
  * with numbered circle nodes, colored type badges, and an "Add Step" button.
  */
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import ReactDOM from "react-dom";
 import { ChevronUp, ChevronDown, Trash2, Terminal, Wrench, Bot, Plus, CheckCircle2, XCircle, Clock, SkipForward, ChevronDown as ChevronDownIcon } from "lucide-react";
 import type { StepDef, StepType, StepState } from "@/src/api/hooks/useTasks";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
@@ -150,16 +151,32 @@ function ToolSelector({ value, tools, onChange }: {
 }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
 
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (
+        triggerRef.current && !triggerRef.current.contains(e.target as Node) &&
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+        setSearch("");
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
+
+  const openDropdown = () => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    }
+    setOpen(!open);
+  };
 
   const filtered = useMemo(() => {
     const term = search.toLowerCase();
@@ -171,9 +188,10 @@ function ToolSelector({ value, tools, onChange }: {
   const selectedTool = tools.find((t) => t.tool_name === value);
 
   return (
-    <div ref={ref} className="relative">
+    <div className="relative">
       <button
-        onClick={() => setOpen(!open)}
+        ref={triggerRef}
+        onClick={openDropdown}
         className={`flex flex-row items-center gap-2 w-full px-2.5 py-1.5 text-xs rounded-md border cursor-pointer text-left transition-colors ${
           open ? "border-accent bg-surface" : "border-surface-border bg-input hover:border-accent/50"
         }`}
@@ -189,8 +207,12 @@ function ToolSelector({ value, tools, onChange }: {
         )}
         <ChevronDownIcon size={12} className="text-text-dim shrink-0" />
       </button>
-      {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-50 max-h-[260px] overflow-hidden flex flex-col">
+      {open && ReactDOM.createPortal(
+        <div
+          ref={dropdownRef}
+          className="fixed bg-surface border border-surface-border rounded-lg shadow-xl z-[10001] max-h-[260px] overflow-hidden flex flex-col"
+          style={{ top: pos.top, left: pos.left, width: pos.width }}
+        >
           <div className="p-2 border-b border-surface-border shrink-0">
             <input
               type="text"
@@ -226,7 +248,8 @@ function ToolSelector({ value, tools, onChange }: {
               ))
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
