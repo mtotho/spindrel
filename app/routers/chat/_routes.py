@@ -234,6 +234,16 @@ async def _enqueue_chat_turn(
             status_code=202,
         )
 
+    # Pre-allocate a user message UUID so attachments can be linked at
+    # creation time instead of via the fragile orphan-linking sweep in
+    # persist_turn (which races with concurrent turns).
+    pre_user_msg_id: uuid.UUID | None = None
+    if req.file_metadata:
+        pre_user_msg_id = uuid.uuid4()
+        if req.msg_metadata is None:
+            req.msg_metadata = {}
+        req.msg_metadata["_pre_user_msg_id"] = str(pre_user_msg_id)
+
     # Eager attachment records so the agent loop can see them.
     # Capture the created rows and thread their UUIDs into ``att_payload``
     # so the LLM can reference them directly (e.g. via
@@ -243,6 +253,7 @@ async def _enqueue_chat_turn(
         source = (req.msg_metadata or {}).get("source", "web")
         created_attachments = await _create_attachments_from_metadata(
             req.file_metadata, channel_id, source, bot_id=req.bot_id,
+            message_id=pre_user_msg_id,
         )
         if att_payload:
             # file_metadata covers every upload (images + text), while
@@ -298,13 +309,18 @@ async def _enqueue_chat_turn(
         db.add(queued_task)
         # Persist the user message so the UI's DB refetch sees it
         # (prevents the optimistic message from vanishing).
-        user_msg = MessageModel(
+        _queued_meta = dict(req.msg_metadata or {})
+        _queued_meta.pop("_pre_user_msg_id", None)  # strip internal key
+        _queued_kw: dict = dict(
             session_id=session_id,
             role="user",
             content=message,
-            metadata_=req.msg_metadata or {},
+            metadata_=_queued_meta,
             created_at=datetime.now(timezone.utc),
         )
+        if pre_user_msg_id:
+            _queued_kw["id"] = pre_user_msg_id
+        user_msg = MessageModel(**_queued_kw)
         db.add(user_msg)
         await db.commit()
         await db.refresh(queued_task)

@@ -126,12 +126,15 @@ async def run_turn(
 
         # 1. Pre-persist the user message and publish NEW_MESSAGE so the bus
         #    sees the user input before the agent starts emitting tokens.
+        _meta = req.msg_metadata or {}
+        _pre_id_str = _meta.pop("_pre_user_msg_id", None)
         pre_user_msg_id = await _persist_and_publish_user_message(
             session_id=session_id,
             channel_id=channel_id,
             text=user_message,
             correlation_id=correlation_id,
-            metadata=req.msg_metadata or {},
+            metadata=_meta,
+            pre_allocated_id=uuid.UUID(_pre_id_str) if _pre_id_str else None,
         )
 
         # 2. Publish TURN_STARTED so renderers can post a "thinking…" placeholder.
@@ -439,16 +442,21 @@ async def _persist_and_publish_user_message(
     text: str,
     correlation_id: uuid.UUID,
     metadata: dict,
+    pre_allocated_id: uuid.UUID | None = None,
 ) -> uuid.UUID | None:
     """Insert the user message row and publish a NEW_MESSAGE event.
 
     Returns the row id so ``persist_turn`` can avoid double-inserting it.
     A failure here is logged and swallowed — persist_turn will create a
     fresh row and the bus subscriber sees a (delayed) NEW_MESSAGE later.
+
+    If *pre_allocated_id* is set (e.g. because attachments were already
+    linked to this ID), the message row will use that UUID instead of
+    auto-generating one.
     """
     try:
         async with async_session() as db:
-            row = MessageModel(
+            kw: dict = dict(
                 session_id=session_id,
                 role="user",
                 content=text,
@@ -456,6 +464,9 @@ async def _persist_and_publish_user_message(
                 metadata_=metadata,
                 created_at=datetime.now(timezone.utc),
             )
+            if pre_allocated_id:
+                kw["id"] = pre_allocated_id
+            row = MessageModel(**kw)
             db.add(row)
             await db.commit()
             await db.refresh(row)

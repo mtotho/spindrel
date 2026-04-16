@@ -214,11 +214,12 @@ export function useRunTaskNow() {
   });
 }
 
-export function useTaskChildren(taskId: string | undefined) {
+export function useTaskChildren(taskId: string | undefined, refetchInterval?: number | false) {
   return useQuery({
     queryKey: ["admin-task-children", taskId],
     queryFn: () => apiFetch<TaskDetail[]>(`/api/v1/admin/tasks/${taskId}/children`),
     enabled: !!taskId,
+    refetchInterval: refetchInterval ?? false,
   });
 }
 

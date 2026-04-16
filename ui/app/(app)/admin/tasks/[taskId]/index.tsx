@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/src/components/layout/PageHeader";
@@ -51,7 +51,16 @@ export default function TaskDetailScreen() {
     },
   });
 
-  const { data: children, isLoading: loadingChildren } = useTaskChildren(taskId);
+  const [pollRuns, setPollRuns] = useState(false);
+  const { data: children, isLoading: loadingChildren } = useTaskChildren(
+    taskId,
+    tab === "runs" && pollRuns ? 3000 : false,
+  );
+  const hasActiveRun = children?.some((c) => c.status === "running" || c.status === "pending");
+  useEffect(() => {
+    if (hasActiveRun) setPollRuns(true);
+    else if (children) setPollRuns(false);
+  }, [hasActiveRun, children]);
   const task = form.existingTask;
   const isSchedule = !!(task?.recurrence);
   const SYSTEM_TASK_TYPES = new Set(["memory_hygiene", "skill_review"]);
@@ -65,7 +74,9 @@ export default function TaskDetailScreen() {
   }, [taskId, form, navigate]);
 
   const handleRunNow = useCallback(() => {
-    if (taskId) runNowMut.mutate(taskId);
+    if (taskId) runNowMut.mutate(taskId, {
+      onSuccess: () => { setTab("runs"); setPollRuns(true); },
+    });
   }, [taskId, runNowMut]);
 
   if (form.loadingTask) {

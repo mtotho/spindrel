@@ -246,7 +246,7 @@ async def _run_exec_step(
         working_directory = step_def.get("working_directory")
 
         bot = get_bot(task.bot_id)
-        script = build_exec_script(command, args, working_directory)
+        script = build_exec_script(command, args, working_directory, stream_to=None)
 
         timeout = step_def.get("timeout", 120)
 
