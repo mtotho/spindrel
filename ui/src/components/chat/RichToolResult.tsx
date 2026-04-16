@@ -48,6 +48,15 @@ export function RichToolResult({ envelope, sessionId, channelId, botId, t }: Pro
   const [fetched, setFetched] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [showJson, setShowJson] = useState(false);
+
+  // Widget action context — provide whenever we have at least a channelId
+  // (botId may be missing on some persisted messages but actions can still work)
+  const dispatchAction = useWidgetAction(channelId, botId ?? "default");
+  const actionCtx = useMemo(
+    () => (channelId ? { dispatchAction } : null),
+    [channelId, dispatchAction],
+  );
 
   // body may be a pre-parsed object from JSONB metadata — normalize to string
   const rawBody = fetched ?? envelope.body;
@@ -114,51 +123,74 @@ export function RichToolResult({ envelope, sessionId, channelId, botId, t }: Pro
 
   if (body == null) return null;
 
-  // Provide widget action context for interactive components
-  const dispatchAction = useWidgetAction(channelId, botId);
-  const actionCtx = useMemo(
-    () => (channelId && botId ? { dispatchAction } : null),
-    [channelId, botId, dispatchAction],
-  );
+  // Components content type supports a JSON toggle for debugging
+  const isComponents = envelope.content_type === "application/vnd.spindrel.components+json";
 
   let content: React.ReactNode;
-  switch (envelope.content_type) {
-    case "text/markdown":
-      content = (
-        <div style={{ padding: "4px 0" }}>
-          <MarkdownContent text={body} t={t} />
-        </div>
-      );
-      break;
-    case "application/json":
-      content = <JsonTreeRenderer body={body} t={t} />;
-      break;
-    case "text/html":
-      content = <SandboxedHtmlRenderer body={body} t={t} />;
-      break;
-    case "application/vnd.spindrel.diff+text":
-      content = <DiffRenderer body={body} t={t} />;
-      break;
-    case "application/vnd.spindrel.file-listing+json":
-      content = <FileListingRenderer body={body} t={t} />;
-      break;
-    case "application/vnd.spindrel.components+json":
-      content = <ComponentRenderer body={body} t={t} />;
-      break;
-    case "text/plain":
-    default:
-      content = <TextRenderer body={body} t={t} />;
-      break;
+  if (isComponents && showJson) {
+    // Force JSON view of the component body
+    content = <JsonTreeRenderer body={body} t={t} />;
+  } else {
+    switch (envelope.content_type) {
+      case "text/markdown":
+        content = (
+          <div style={{ padding: "4px 0" }}>
+            <MarkdownContent text={body} t={t} />
+          </div>
+        );
+        break;
+      case "application/json":
+        content = <JsonTreeRenderer body={body} t={t} />;
+        break;
+      case "text/html":
+        content = <SandboxedHtmlRenderer body={body} t={t} />;
+        break;
+      case "application/vnd.spindrel.diff+text":
+        content = <DiffRenderer body={body} t={t} />;
+        break;
+      case "application/vnd.spindrel.file-listing+json":
+        content = <FileListingRenderer body={body} t={t} />;
+        break;
+      case "application/vnd.spindrel.components+json":
+        content = <ComponentRenderer body={body} t={t} />;
+        break;
+      case "text/plain":
+      default:
+        content = <TextRenderer body={body} t={t} />;
+        break;
+    }
   }
 
-  // Wrap in action context if available (enables interactive components)
-  if (actionCtx) {
+  const wrapped = actionCtx ? (
+    <WidgetActionContext.Provider value={actionCtx}>
+      {content}
+    </WidgetActionContext.Provider>
+  ) : content;
+
+  // For components content type, add a subtle JSON toggle
+  if (isComponents) {
     return (
-      <WidgetActionContext.Provider value={actionCtx}>
-        {content}
-      </WidgetActionContext.Provider>
+      <div>
+        {wrapped}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
+          <button
+            type="button"
+            onClick={() => setShowJson(!showJson)}
+            style={{
+              background: "none", border: "none", cursor: "pointer",
+              fontSize: 10, color: t.textDim, opacity: 0.6,
+              padding: "2px 4px",
+              transition: "opacity 0.15s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.6"; }}
+          >
+            {showJson ? "widget" : "json"}
+          </button>
+        </div>
+      </div>
     );
   }
 
-  return <>{content}</>;
+  return <>{wrapped}</>;
 }

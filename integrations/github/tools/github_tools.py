@@ -1,7 +1,11 @@
 """GitHub API tools for the agent."""
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import shlex
+import shutil
 
 import httpx
 
@@ -791,3 +795,102 @@ async def github_create_issue(
     r.raise_for_status()
     issue = r.json()
     return f"Issue created: #{issue['number']} — {issue.get('html_url', '')}"
+
+
+# ---------------------------------------------------------------------------
+# gh CLI wrapper
+# ---------------------------------------------------------------------------
+
+_GH_ALLOWED = frozenset({
+    "api", "browse", "cache", "codespace", "gist", "issue",
+    "label", "milestone", "pr", "project", "release", "repo",
+    "run", "search", "status", "workflow",
+})
+_GH_TIMEOUT = 60
+
+
+def _parse_gh_subcommand(command: str) -> str | None:
+    """Extract the first non-flag token (the subcommand) from a gh arg string."""
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return None
+    for part in parts:
+        if not part.startswith("-"):
+            return part
+    return None
+
+
+@reg.register({"type": "function", "function": {
+    "name": "gh",
+    "description": (
+        "Run a GitHub CLI (gh) command. Pass the arguments you would type after `gh`. "
+        "Examples: 'pr list --repo owner/repo', 'run list --repo owner/repo --limit 5', "
+        "'release list --repo owner/repo', 'api /repos/owner/repo/actions/runs'. "
+        "Allowed subcommands: " + ", ".join(sorted(_GH_ALLOWED)) + "."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": (
+                    "Arguments after 'gh'. "
+                    "Example: 'pr list --repo octocat/hello-world --state open'"
+                ),
+            },
+        },
+        "required": ["command"],
+    },
+}}, safety_tier="exec_capable")
+async def gh(command: str) -> str:
+    if not shutil.which("gh"):
+        return "Error: gh CLI is not installed. Install it from https://cli.github.com/"
+
+    subcommand = _parse_gh_subcommand(command)
+    if not subcommand:
+        return "Error: could not parse a subcommand from the command."
+    if subcommand not in _GH_ALLOWED:
+        return (
+            f"Error: subcommand '{subcommand}' is not allowed. "
+            f"Allowed: {', '.join(sorted(_GH_ALLOWED))}"
+        )
+
+    try:
+        args = shlex.split(command)
+    except ValueError as e:
+        return f"Error: invalid command syntax: {e}"
+
+    env = {**os.environ}
+    token = settings.GITHUB_TOKEN
+    if token:
+        env["GH_TOKEN"] = token
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "gh", *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_GH_TIMEOUT)
+    except asyncio.TimeoutError:
+        return f"Error: command timed out after {_GH_TIMEOUT}s"
+    except Exception as e:
+        return f"Error running gh: {e}"
+
+    out = stdout.decode("utf-8", errors="replace")
+    err = stderr.decode("utf-8", errors="replace").strip()
+
+    if proc.returncode != 0:
+        result = f"gh exited with code {proc.returncode}"
+        if err:
+            result += f"\nstderr: {err}"
+        if out.strip():
+            result += f"\nstdout: {out.strip()}"
+        return result
+
+    if len(out) > 100_000:
+        out = out[:100_000] + "\n... (output truncated at 100K chars)"
+
+    return out or "(no output)"

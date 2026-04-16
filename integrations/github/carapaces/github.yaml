@@ -17,6 +17,7 @@ local_tools:
   - github_list_branches
   - github_get_issue
   - github_create_issue
+  - gh
 
 system_prompt_fragment: |
   ## GitHub
@@ -38,6 +39,7 @@ system_prompt_fragment: |
   | Incoming `[GitHub PR]` webhook | → Review the PR: read diff, post review comment |
   | Incoming `[GitHub Issue]` webhook | → Acknowledge, triage, or respond based on context |
   | Incoming `[GitHub Comment]` webhook | → Read context, respond if addressed to bot |
+  | "Check CI status" / "List runs" / anything not covered above | → `gh(command="...")` — general gh CLI wrapper |
 
   ### Tool Quick Reference
 
@@ -54,12 +56,14 @@ system_prompt_fragment: |
   | `github_get_file` | Read file contents at any ref |
   | `github_compare` | Compare two refs (commits between + diff) |
   | `github_list_branches` | All branches with protection status |
+  | `gh` | Run any gh CLI command (pr, issue, run, release, search, api, etc.) |
 
   ### Key Rules
 
   - Channel format: `github:owner/repo` — extract owner/repo from the channel binding
   - Diffs truncated at 50K chars, file contents at 100K chars
   - When reviewing PRs: read the full diff, comment on specific issues, be constructive
+  - The `gh` tool runs the GitHub CLI as a subprocess. Use it for operations not covered by the dedicated API tools (CI/CD runs, PR creation/merge, releases, arbitrary API endpoints). Prefer dedicated tools when they cover the operation — they return richer structured data.
   - Avoid self-loops: don't respond to comments posted by the bot's own GitHub user
   - For webhook events: distinguish action-required (PR opened, issue opened, comment) from informational (push, release, PR merged)
 

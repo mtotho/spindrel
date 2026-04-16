@@ -826,66 +826,90 @@ function ToggleBlock({ node, t }: { node: ToggleNode; t: ThemeTokens }) {
   const dispatch = useAction();
   const [checked, setChecked] = useState(node.value);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleToggle = useCallback(async () => {
-    if (!dispatch) return;
+    if (!dispatch) {
+      setError("Not connected");
+      return;
+    }
+    setError(null);
     const next = !checked;
     if (node.action.optimistic) setChecked(next);
     setBusy(true);
     try {
       await dispatch(node.action, next);
       if (!node.action.optimistic) setChecked(next);
-    } catch {
-      if (node.action.optimistic) setChecked(!next); // revert
+    } catch (e) {
+      if (node.action.optimistic) setChecked(!next);
+      setError(e instanceof Error ? e.message : "Action failed");
     } finally {
       setBusy(false);
     }
   }, [dispatch, checked, node.action]);
 
-  const color = slotColor(node.color ?? (checked ? "success" : "muted"), t);
+  const accentColor = slotColor(node.color ?? "success", t);
+  const trackColor = checked ? accentColor : t.surfaceBorder;
 
   return (
-    <div
-      style={{
-        display: "flex", flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        padding: "4px 0",
-      }}
-    >
-      <button
-        type="button"
-        onClick={handleToggle}
-        disabled={busy || !dispatch}
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <div
         style={{
-          position: "relative",
-          width: 36,
-          height: 20,
-          borderRadius: 10,
-          border: "none",
-          background: checked ? color : t.surfaceBorder,
-          cursor: busy ? "wait" : dispatch ? "pointer" : "default",
-          transition: "background-color 0.2s",
-          flexShrink: 0,
-          opacity: busy ? 0.6 : 1,
+          display: "flex", flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          padding: "6px 0",
         }}
       >
-        <span
+        {/* 44px touch target wrapping the visual toggle */}
+        <button
+          type="button"
+          onClick={handleToggle}
+          disabled={busy}
+          aria-label={`${node.label}: ${checked ? "on" : "off"}`}
+          aria-checked={checked}
+          role="switch"
           style={{
-            position: "absolute",
-            top: 2,
-            left: checked ? 18 : 2,
-            width: 16,
-            height: 16,
-            borderRadius: "50%",
-            background: "#fff",
-            transition: "left 0.2s",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+            position: "relative",
+            width: 44,
+            height: 26,
+            borderRadius: 13,
+            border: `1.5px solid ${checked ? "transparent" : t.surfaceBorder}`,
+            background: trackColor,
+            cursor: busy ? "wait" : "pointer",
+            transition: "background-color 0.2s ease-out, border-color 0.2s ease-out",
+            flexShrink: 0,
+            opacity: busy ? 0.5 : 1,
+            padding: 0,
+            outline: "none",
           }}
-        />
-      </button>
-      <span style={{ fontSize: 12, color: t.contentText }}>{node.label}</span>
-      {busy && <Loader2 size={12} color={t.textMuted} className="animate-spin" />}
+          onFocus={(e) => { e.currentTarget.style.boxShadow = `0 0 0 2px ${t.accentSubtle}`; }}
+          onBlur={(e) => { e.currentTarget.style.boxShadow = "none"; }}
+        >
+          <span
+            style={{
+              position: "absolute",
+              top: 2,
+              left: checked ? 20 : 2,
+              width: 20,
+              height: 20,
+              borderRadius: "50%",
+              background: "#fff",
+              transition: "left 0.2s ease-out, box-shadow 0.2s ease-out",
+              boxShadow: checked
+                ? "0 1px 4px rgba(0,0,0,0.25)"
+                : "0 1px 3px rgba(0,0,0,0.2)",
+            }}
+          />
+        </button>
+        <span style={{ fontSize: 13, color: t.contentText, fontWeight: 500, userSelect: "none" }}>
+          {node.label}
+        </span>
+        {busy && <Loader2 size={14} color={t.textMuted} className="animate-spin" />}
+      </div>
+      {error && (
+        <span style={{ fontSize: 11, color: t.danger, paddingLeft: 56 }}>{error}</span>
+      )}
     </div>
   );
 }
@@ -893,47 +917,57 @@ function ToggleBlock({ node, t }: { node: ToggleNode; t: ThemeTokens }) {
 function ButtonBlock({ node, t }: { node: ButtonNode; t: ThemeTokens }) {
   const dispatch = useAction();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const variantStyles: Record<string, { bg: string; color: string; border: string }> = {
-    primary: { bg: t.accent, color: "#fff", border: t.accent },
-    danger: { bg: t.danger, color: "#fff", border: t.danger },
-    default: { bg: t.overlayLight, color: t.contentText, border: t.surfaceBorder },
+  const variantStyles: Record<string, { bg: string; color: string; border: string; hoverBg: string }> = {
+    primary: { bg: t.accent, color: "#fff", border: t.accent, hoverBg: t.accentMuted },
+    danger: { bg: t.danger, color: "#fff", border: t.danger, hoverBg: t.dangerMuted },
+    default: { bg: t.overlayLight, color: t.contentText, border: t.surfaceBorder, hoverBg: t.surfaceBorder },
   };
   const v = variantStyles[node.variant ?? "default"] ?? variantStyles.default;
+  const isDisabled = busy || node.disabled || !dispatch;
 
   return (
-    <button
-      type="button"
-      onClick={async () => {
-        if (!dispatch) return;
-        setBusy(true);
-        try {
-          await dispatch(node.action, true);
-        } finally {
-          setBusy(false);
-        }
-      }}
-      disabled={busy || node.disabled || !dispatch}
-      style={{
-        padding: "5px 14px",
-        borderRadius: 6,
-        border: `1px solid ${v.border}`,
-        background: v.bg,
-        color: v.color,
-        fontSize: 12,
-        fontWeight: 500,
-        cursor: busy || node.disabled ? "default" : dispatch ? "pointer" : "default",
-        opacity: busy || node.disabled ? 0.6 : 1,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        alignSelf: "flex-start",
-        transition: "opacity 0.15s",
-      }}
-    >
-      {busy && <Loader2 size={12} className="animate-spin" />}
-      {node.label}
-    </button>
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, alignSelf: "flex-start" }}>
+      <button
+        type="button"
+        onClick={async () => {
+          if (!dispatch) { setError("Not connected"); return; }
+          setError(null);
+          setBusy(true);
+          try {
+            await dispatch(node.action, true);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Action failed");
+          } finally {
+            setBusy(false);
+          }
+        }}
+        disabled={isDisabled}
+        style={{
+          padding: "6px 16px",
+          borderRadius: 6,
+          border: `1px solid ${v.border}`,
+          background: v.bg,
+          color: v.color,
+          fontSize: 12,
+          fontWeight: 500,
+          cursor: isDisabled ? "default" : "pointer",
+          opacity: isDisabled ? 0.4 : 1,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          transition: "opacity 0.15s, background-color 0.15s",
+          minHeight: 32,
+        }}
+        onMouseEnter={(e) => { if (!isDisabled) e.currentTarget.style.backgroundColor = v.hoverBg; }}
+        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = v.bg; }}
+      >
+        {busy && <Loader2 size={12} className="animate-spin" />}
+        {node.label}
+      </button>
+      {error && <span style={{ fontSize: 11, color: t.danger }}>{error}</span>}
+    </div>
   );
 }
 
@@ -943,9 +977,9 @@ function SelectBlock({ node, t }: { node: SelectNode; t: ThemeTokens }) {
   const [busy, setBusy] = useState(false);
 
   return (
-    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: "4px 0" }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, padding: "4px 0" }}>
       {node.label && (
-        <span style={{ fontSize: 12, color: t.textMuted, whiteSpace: "nowrap" }}>{node.label}</span>
+        <label style={{ fontSize: 12, color: t.textMuted, whiteSpace: "nowrap", fontWeight: 500 }}>{node.label}</label>
       )}
       <select
         value={value}
@@ -958,20 +992,22 @@ function SelectBlock({ node, t }: { node: SelectNode; t: ThemeTokens }) {
           try {
             await dispatch(node.action, next);
           } catch {
-            setValue(value); // revert
+            setValue(value);
           } finally {
             setBusy(false);
           }
         }}
         style={{
-          padding: "4px 8px",
+          padding: "5px 10px",
           borderRadius: 6,
           border: `1px solid ${t.surfaceBorder}`,
           background: t.overlayLight,
           color: t.contentText,
           fontSize: 12,
           cursor: dispatch ? "pointer" : "default",
-          opacity: busy ? 0.6 : 1,
+          opacity: busy ? 0.5 : 1,
+          minHeight: 32,
+          transition: "opacity 0.15s",
         }}
       >
         {node.options.map((opt) => (
@@ -980,7 +1016,7 @@ function SelectBlock({ node, t }: { node: SelectNode; t: ThemeTokens }) {
           </option>
         ))}
       </select>
-      {busy && <Loader2 size={12} color={t.textMuted} className="animate-spin" />}
+      {busy && <Loader2 size={14} color={t.textMuted} className="animate-spin" />}
     </div>
   );
 }
@@ -1001,9 +1037,9 @@ function InputBlock({ node, t }: { node: InputNode; t: ThemeTokens }) {
   }, [dispatch, value, node.action]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: "4px 0" }}>
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, padding: "4px 0" }}>
       {node.label && (
-        <span style={{ fontSize: 12, color: t.textMuted, whiteSpace: "nowrap" }}>{node.label}</span>
+        <label style={{ fontSize: 12, color: t.textMuted, whiteSpace: "nowrap", fontWeight: 500 }}>{node.label}</label>
       )}
       <input
         type="text"
@@ -1013,7 +1049,7 @@ function InputBlock({ node, t }: { node: InputNode; t: ThemeTokens }) {
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
         style={{
-          padding: "4px 8px",
+          padding: "5px 10px",
           borderRadius: 6,
           border: `1px solid ${t.surfaceBorder}`,
           background: t.overlayLight,
@@ -1021,10 +1057,15 @@ function InputBlock({ node, t }: { node: InputNode; t: ThemeTokens }) {
           fontSize: 12,
           flex: 1,
           minWidth: 0,
-          opacity: busy ? 0.6 : 1,
+          minHeight: 32,
+          opacity: busy ? 0.5 : 1,
+          transition: "border-color 0.15s, opacity 0.15s",
+          outline: "none",
         }}
+        onFocus={(e) => { e.currentTarget.style.borderColor = t.accent; }}
+        onBlur={(e) => { e.currentTarget.style.borderColor = t.surfaceBorder; }}
       />
-      {busy && <Loader2 size={12} color={t.textMuted} className="animate-spin" />}
+      {busy && <Loader2 size={14} color={t.textMuted} className="animate-spin" />}
     </div>
   );
 }
@@ -1046,10 +1087,10 @@ function FormBlock({
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: 6,
-        padding: "8px 10px",
+        gap: 8,
+        padding: "10px 12px",
         border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: 6,
+        borderRadius: 8,
         background: t.overlayLight,
       }}
     >
@@ -1069,7 +1110,7 @@ function FormBlock({
         }}
         disabled={busy || !dispatch}
         style={{
-          padding: "5px 14px",
+          padding: "6px 16px",
           borderRadius: 6,
           border: `1px solid ${t.accent}`,
           background: t.accent,
@@ -1077,13 +1118,14 @@ function FormBlock({
           fontSize: 12,
           fontWeight: 500,
           cursor: busy ? "wait" : dispatch ? "pointer" : "default",
-          opacity: busy ? 0.6 : 1,
+          opacity: busy ? 0.5 : 1,
           display: "inline-flex",
           alignItems: "center",
           gap: 6,
           alignSelf: "flex-start",
           transition: "opacity 0.15s",
           marginTop: 4,
+          minHeight: 32,
         }}
       >
         {busy && <Loader2 size={12} className="animate-spin" />}

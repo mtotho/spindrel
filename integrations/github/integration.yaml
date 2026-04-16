@@ -19,6 +19,12 @@ settings:
     type: string
     label: "GitHub username of the bot/PAT owner (to ignore its own comments)"
 
+dependencies:
+  system:
+    - binary: gh
+      apt_package: gh
+      install_hint: "Requires GitHub's apt repo. See https://github.com/cli/cli/blob/trunk/docs/install_linux.md"
+
 api_permissions:
   - chat
   - bots:read

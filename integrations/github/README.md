@@ -120,6 +120,20 @@ The agent can proactively interact with GitHub via these tools:
 - **`github_search_issues`** — Search issues/PRs with GitHub search syntax
 - **`github_post_comment`** — Post a comment on any issue or PR
 - **`github_list_prs`** — List PRs for a repo (open/closed/all)
+- **`gh`** — General GitHub CLI wrapper for any `gh` subcommand (pr, issue, run, release, search, api, etc.)
+
+### System Dependencies
+
+The `gh` tool requires the [GitHub CLI](https://cli.github.com/) (`gh`) binary. It is declared as a system dependency in `integration.yaml` and the server will attempt auto-install via apt. However, `gh` requires adding GitHub's apt repo first:
+
+```bash
+type -p curl >/dev/null || sudo apt install curl -y
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+sudo apt update && sudo apt install gh -y
+```
+
+No separate `gh auth login` is needed — the tool uses the `GITHUB_TOKEN` setting automatically.
 
 ### Bot Configuration
 

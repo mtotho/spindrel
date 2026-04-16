@@ -19,6 +19,17 @@ GitHub integration with webhook-driven events and API tools. Incoming webhook ev
 - `github_list_commits` — list commits on a branch/path with filters. Parameters: `owner`, `repo`, `sha` (branch/tag), `path`, `author`, `since`, `until`, `per_page`
 - `github_get_commit` — full commit details with message, stats, changed files, and diff. Parameters: `owner`, `repo`, `ref` (SHA/branch/tag)
 
+### GitHub CLI (General)
+- `gh` — run any GitHub CLI command. Parameters: `command` (everything after `gh`).
+  - Allowed subcommands: api, browse, cache, codespace, gist, issue, label, milestone, pr, project, release, repo, run, search, status, workflow.
+  - Examples:
+    - `gh(command="pr list --repo owner/repo --state open")`
+    - `gh(command="run list --repo owner/repo --limit 5")`
+    - `gh(command="release list --repo owner/repo")`
+    - `gh(command="api /repos/owner/repo/actions/runs --paginate -q '.workflow_runs[:3] | .[].name'")`
+    - `gh(command="search repos --topic=python --limit=5")`
+  - Prefer the dedicated tools (github_get_pr, etc.) when they cover the operation — they return richer structured data. Use `gh` for everything else.
+
 ### Code Browsing
 - `github_get_file` — read a file's contents at a specific ref. Parameters: `owner`, `repo`, `path`, `ref` (branch/tag/SHA, optional)
 - `github_compare` — compare two refs showing commits and combined diff. Parameters: `owner`, `repo`, `base`, `head`
@@ -78,6 +89,16 @@ Events arrive as messages describing what happened. The system auto-responds to 
 - `github_search_issues(query="is:pr is:merged auth")` — merged PRs about auth (cross-repo)
 - `github_search_issues(query="author:username is:open")` — open items by a specific user
 - `github_list_commits(owner="...", repo="...", author="username", since="2026-03-01T00:00:00Z")` — recent commits by someone
+
+### Check CI/CD status
+1. `gh(command="run list --repo owner/repo --limit 5")` — recent workflow runs
+2. `gh(command="run view RUN_ID --repo owner/repo")` — details of a specific run
+3. `gh(command="run view RUN_ID --repo owner/repo --log-failed")` — failed step logs
+
+### Create and manage PRs
+1. `gh(command="pr create --repo owner/repo --title 'Fix bug' --body 'Description' --base main --head feature-branch")`
+2. `gh(command="pr merge 123 --repo owner/repo --merge")` — merge a PR
+3. `gh(command="pr checks 123 --repo owner/repo")` — check CI status on a PR
 
 ## Common Patterns
 - **Channel format**: `github:owner/repo` — all events for a repo share one channel/session
