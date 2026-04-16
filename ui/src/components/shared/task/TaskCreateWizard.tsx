@@ -13,7 +13,7 @@ import { ContentFields, ExecutionFields, TriggerFields } from "./TaskFormFields"
 
 export interface TaskCreateWizardProps {
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (createdTaskId?: string) => void;
   defaultChannelId?: string;
   defaultBotId?: string;
   cloneFromId?: string;

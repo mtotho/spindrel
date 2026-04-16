@@ -1,27 +1,17 @@
-import { useCallback, useState, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/src/components/layout/PageHeader";
-import { useTask, useUpdateTask, useDeleteTask } from "@/src/api/hooks/useTasks";
-import { useWorkflowRun, useWorkflows } from "@/src/api/hooks/useWorkflows";
-import { useBots } from "@/src/api/hooks/useBots";
-import { useChannels } from "@/src/api/hooks/useChannels";
-import { Trash2, Zap } from "lucide-react";
-import { Link } from "react-router-dom";
-import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
-import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
-import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
-import { FormRow, TextInput as FormTextInput, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
-import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
-import { isoToLocalInput, localInputToISO } from "@/src/utils/time";
-import { useThemeTokens } from "@/src/theme/tokens";
+import { useTask, useTaskChildren, useRunTaskNow, type TaskDetail } from "@/src/api/hooks/useTasks";
+import { useTaskFormState } from "@/src/components/shared/task/useTaskFormState";
+import { ContentFields, ExecutionFields, TriggerFields } from "@/src/components/shared/task/TaskFormFields";
+import { Trash2, Play, ExternalLink } from "lucide-react";
+import { Section } from "@/src/components/shared/FormControls";
 import {
   EnableToggle,
   InfoRow,
-  STATUS_OPTIONS,
-  TASK_TYPE_OPTIONS_FULL,
 } from "@/src/components/shared/SchedulingPickers";
-import { TriggerSection, type TriggerConfig } from "@/src/components/shared/TriggerSection";
+import { TaskStatusBadge, TypeBadge, BotDot } from "@/src/components/shared/TaskConstants";
 
 function fmtDatetime(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -30,431 +20,360 @@ function fmtDatetime(iso: string | null | undefined) {
   });
 }
 
-function WorkflowRunLink({ runId, stepIndex, t }: { runId: string; stepIndex?: number; t: ReturnType<typeof useThemeTokens> }) {
-  const { data: run } = useWorkflowRun(runId);
-  const href = run ? `/admin/workflows/${run.workflow_id}` : undefined;
-  return (
-    <div>
-      <div style={{ fontSize: 11, color: t.textDim, marginBottom: 6, display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
-        <Zap size={11} color="#ea580c" />
-        Workflow Step
+function durationStr(start: string | null | undefined, end: string | null | undefined): string {
+  if (!start || !end) return "\u2014";
+  const ms = new Date(end).getTime() - new Date(start).getTime();
+  if (ms < 1000) return `${ms}ms`;
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  return `${mins}m ${remSecs}s`;
+}
+
+type Tab = "overview" | "runs";
+
+export default function TaskDetailScreen() {
+  const { taskId } = useParams<{ taskId: string }>();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [tab, setTab] = useState<Tab>("overview");
+  const [savedFlash, setSavedFlash] = useState(false);
+  const runNowMut = useRunTaskNow();
+
+  const form = useTaskFormState({
+    mode: "edit",
+    taskId,
+    onSaved: () => {
+      qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2000);
+    },
+  });
+
+  const { data: children, isLoading: loadingChildren } = useTaskChildren(taskId);
+  const task = form.existingTask;
+  const isSchedule = !!(task?.recurrence);
+
+  const handleDelete = useCallback(async () => {
+    if (!taskId || !confirm("Delete this task?")) return;
+    await form.handleDelete();
+    navigate("/admin/tasks");
+  }, [taskId, form, navigate]);
+
+  const handleRunNow = useCallback(() => {
+    if (taskId) runNowMut.mutate(taskId);
+  }, [taskId, runNowMut]);
+
+  if (form.loadingTask) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center bg-surface">
+        <div className="chat-spinner" />
       </div>
-      <div style={{
-        display: "flex", flexDirection: "column", gap: 6,
-        padding: 8, borderRadius: 6, background: "rgba(249,115,22,0.06)",
-        border: "1px solid rgba(249,115,22,0.15)",
-      }}>
-        <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: t.textDim }}>Run</span>
-          {href ? (
-            <Link to={href} style={{ fontSize: 11, color: t.accent, fontFamily: "monospace" } as any}>
-              {runId.slice(0, 8)}...
-            </Link>
-          ) : (
-            <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>{runId.slice(0, 8)}...</span>
-          )}
-        </div>
-        {stepIndex != null && (
-          <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: 11, color: t.textDim }}>Step Index</span>
-            <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{stepIndex}</span>
+    );
+  }
+
+  if (!task) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center bg-surface">
+        <span className="text-text-dim text-sm">Task not found</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col flex-1 bg-surface overflow-hidden">
+      {/* Header */}
+      <PageHeader variant="detail"
+        parentLabel="Tasks"
+        backTo="/admin/tasks"
+        title={task.title || task.prompt?.substring(0, 50) || "Task"}
+        subtitle={`${task.bot_id} \u00b7 ${task.task_type || "task"}`}
+        right={
+          <div className="flex flex-row items-center gap-2">
+            <button
+              onClick={handleRunNow}
+              disabled={runNowMut.isPending}
+              title="Run now"
+              className={`flex flex-row items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border-none rounded-lg cursor-pointer transition-colors ${
+                runNowMut.isPending
+                  ? "bg-accent/30 text-accent animate-pulse"
+                  : "bg-accent/10 text-accent hover:bg-accent/20"
+              }`}
+            >
+              <Play size={12} fill="currentColor" />
+              Run Now
+            </button>
+            <EnableToggle
+              enabled={form.status !== "cancelled"}
+              onChange={(on) => {
+                form.setStatus(on ? (isSchedule ? "active" : "pending") : "cancelled");
+              }}
+              compact
+            />
+            <button
+              onClick={handleDelete}
+              disabled={form.deleteMut.isPending}
+              title="Delete"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-danger/30 rounded-lg bg-transparent text-danger cursor-pointer hover:bg-danger/10 transition-colors"
+            >
+              <Trash2 size={13} />
+            </button>
+            <button
+              onClick={form.handleSave}
+              disabled={form.saving || !form.canSave}
+              className={`px-4 py-1.5 text-xs font-semibold border-none rounded-lg transition-all duration-150 ${
+                savedFlash
+                  ? "bg-success text-white"
+                  : form.canSave
+                    ? "bg-accent text-white cursor-pointer hover:bg-accent-hover"
+                    : "bg-surface-border text-text-dim cursor-not-allowed"
+              } ${form.saving ? "opacity-70" : ""}`}
+            >
+              {form.saving ? "..." : savedFlash ? "Saved!" : "Save"}
+            </button>
           </div>
+        }
+      />
+
+      {/* Error display */}
+      {form.error && (
+        <div className="px-5 py-2 bg-danger/[0.08] text-danger text-xs">
+          {form.error?.message || "An error occurred"}
+        </div>
+      )}
+
+      {/* Tab bar */}
+      <div className="flex flex-row items-center gap-0.5 px-5 border-b border-surface-border">
+        {(["overview", "runs"] as Tab[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-4 py-2.5 text-xs font-semibold border-none bg-transparent cursor-pointer capitalize transition-colors relative ${
+              tab === t
+                ? "text-accent"
+                : "text-text-muted hover:text-text"
+            }`}
+          >
+            {t === "runs" ? `Runs (${children?.length ?? task.run_count ?? 0})` : t}
+            {tab === t && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent rounded-full" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {tab === "overview" ? (
+          <OverviewTab form={form} task={task} />
+        ) : (
+          <RunsTab
+            taskId={taskId!}
+            task={task}
+            children={children}
+            loading={loadingChildren}
+            onRunNow={handleRunNow}
+            runningNow={runNowMut.isPending}
+          />
         )}
       </div>
     </div>
   );
 }
 
-export default function TaskDetailScreen() {
-  const t = useThemeTokens();
-  const { taskId } = useParams<{ taskId: string }>();
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-  const { data: task, isLoading } = useTask(taskId);
-  const updateMut = useUpdateTask(taskId);
-  const deleteMut = useDeleteTask();
-  const { data: bots } = useBots();
-  const { data: channels } = useChannels();
-  const { data: workflows } = useWorkflows();
-
-  const [isWide, setIsWide] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
-  useEffect(() => {
-    const handler = () => setIsWide(window.innerWidth >= 768);
-    window.addEventListener("resize", handler);
-    return () => window.removeEventListener("resize", handler);
-  }, []);
-
-  const [title, setTitle] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [promptTemplateId, setPromptTemplateId] = useState<string | null>(null);
-  const [workspaceFilePath, setWorkspaceFilePath] = useState<string | null>(null);
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [botId, setBotId] = useState("");
-  const [status, setStatus] = useState("pending");
-  const [taskType, setTaskType] = useState("scheduled");
-  const [scheduledAt, setScheduledAt] = useState("");
-  const [recurrence, setRecurrence] = useState("");
-  const [triggerConfig, setTriggerConfig] = useState<TriggerConfig>({ type: "schedule" });
-  const [triggerRagLoop, setTriggerRagLoop] = useState(false);
-  const [modelOverride, setModelOverride] = useState("");
-  const [workflowId, setWorkflowId] = useState<string | null>(null);
-  const [workflowSessionMode, setWorkflowSessionMode] = useState<string | null>(null);
-  const [initialized, setInitialized] = useState(false);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [snapshot, setSnapshot] = useState("");
-
-  if (task && !initialized) {
-    setTitle(task.title || "");
-    setPrompt(task.prompt || "");
-    setPromptTemplateId(task.prompt_template_id || null);
-    setWorkspaceFilePath(task.workspace_file_path ?? null);
-    setWorkspaceId(task.workspace_id ?? null);
-    setBotId(task.bot_id || "");
-    setStatus(task.status || "pending");
-    setTaskType(task.task_type || "scheduled");
-    setScheduledAt(task.scheduled_at ? isoToLocalInput(task.scheduled_at) : "");
-    setRecurrence(task.recurrence || "");
-    if (task.trigger_config) {
-      setTriggerConfig(task.trigger_config as TriggerConfig);
-    } else if (task.recurrence) {
-      setTriggerConfig({ type: "schedule" });
-    }
-    setTriggerRagLoop(task.trigger_rag_loop ?? task.callback_config?.trigger_rag_loop ?? false);
-    setModelOverride(task.model_override || task.callback_config?.model_override || "");
-    setWorkflowId(task.workflow_id ?? null);
-    setWorkflowSessionMode(task.workflow_session_mode ?? null);
-    setInitialized(true);
-    setSnapshot(JSON.stringify([
-      task.title || "", task.prompt || "", task.prompt_template_id || null,
-      task.workspace_file_path ?? null, task.workspace_id ?? null, task.bot_id || "",
-      task.status || "pending", task.task_type || "scheduled",
-      task.scheduled_at ? isoToLocalInput(task.scheduled_at) : "",
-      task.recurrence || "",
-      task.trigger_rag_loop ?? task.callback_config?.trigger_rag_loop ?? false,
-      task.model_override || task.callback_config?.model_override || "",
-      task.workflow_id ?? null, task.workflow_session_mode ?? null,
-    ]));
-  }
-
-  const hasPromptOrWorkflow = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath || !!workflowId;
-  const currentSnap = JSON.stringify([
-    title, prompt, promptTemplateId, workspaceFilePath, workspaceId, botId,
-    status, taskType, scheduledAt, recurrence, triggerRagLoop, modelOverride,
-    workflowId, workflowSessionMode,
-  ]);
-  const isDirty = initialized && currentSnap !== snapshot;
-
-  const handleSave = useCallback(async () => {
-    if (!hasPromptOrWorkflow || !botId) return;
-    const scheduledAtISO = localInputToISO(scheduledAt) || null;
-    await updateMut.mutateAsync({
-      prompt,
-      title: title || null,
-      prompt_template_id: promptTemplateId,
-      workspace_file_path: workspaceFilePath,
-      workspace_id: workspaceId,
-      bot_id: botId,
-      status,
-      scheduled_at: scheduledAtISO,
-      recurrence: recurrence || null,
-      task_type: taskType,
-      trigger_rag_loop: triggerRagLoop,
-      model_override: modelOverride || null,
-      workflow_id: workflowId || null,
-      workflow_session_mode: workflowSessionMode || null,
-    });
-    qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
-    setSnapshot(currentSnap);
-    setSavedFlash(true);
-    setTimeout(() => setSavedFlash(false), 2000);
-  }, [prompt, title, promptTemplateId, workspaceFilePath, workspaceId, botId, status, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, workflowId, workflowSessionMode, hasPromptOrWorkflow, updateMut, qc, currentSnap]);
-
-  const handleDelete = useCallback(async () => {
-    if (!taskId || !confirm("Delete this task?")) return;
-    await deleteMut.mutateAsync(taskId);
-    qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
-    navigate("/admin/tasks");
-  }, [taskId, deleteMut, qc, navigate]);
-
-  const botOptions = (bots || []).map((b) => ({ label: b.name || b.id, value: b.id }));
-
-  if (isLoading) {
-    return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: t.surface }}>
-        <div className="chat-spinner" />
-      </div>
-    );
-  }
-
+// ---------------------------------------------------------------------------
+// Overview Tab — reuses shared form fields
+// ---------------------------------------------------------------------------
+function OverviewTab({ form, task }: { form: ReturnType<typeof useTaskFormState>; task: TaskDetail }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, background: t.surface, overflow: "hidden" }}>
-      {/* Header */}
-      <PageHeader variant="detail"
-        parentLabel="Tasks"
-        backTo="/admin/tasks"
-        title="Edit Task"
-        subtitle={taskId?.slice(0, 8)}
-        right={<>
-          <button
-            onClick={handleDelete}
-            disabled={deleteMut.isPending}
-            title="Delete"
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
-              padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
-              background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
-            }}
-          >
-            <Trash2 size={14} />
-            {isWide && "Delete"}
-          </button>
-          <EnableToggle
-            enabled={status !== "cancelled"}
-            onChange={(on) => {
-              const isSchedule = !!recurrence;
-              setStatus(on ? (isSchedule ? "active" : "pending") : "cancelled");
-            }}
-            compact={!isWide}
-          />
-          <button
-            onClick={handleSave}
-            disabled={updateMut.isPending || !hasPromptOrWorkflow || !botId || !isDirty}
-            style={{
-              padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
-              border: "none", borderRadius: 6, flexShrink: 0,
-              background: savedFlash ? t.success : (!hasPromptOrWorkflow || !botId || !isDirty) ? t.surfaceBorder : t.accent,
-              color: savedFlash ? "#fff" : (!hasPromptOrWorkflow || !botId || !isDirty) ? t.textDim : "#fff",
-              cursor: (!hasPromptOrWorkflow || !botId || !isDirty) ? "default" : "pointer",
-              transition: "background 0.2s",
-            }}
-          >
-            {updateMut.isPending ? "..." : savedFlash ? "Saved!" : isDirty ? "Save" : "Saved"}
-          </button>
-        </>}
-      />
+    <div className="flex flex-col gap-0 max-w-4xl">
+      <div className="px-5 py-5 flex flex-col gap-4">
+        <ContentFields form={form} promptRows={10} />
+      </div>
+      <div className="px-5 py-5 border-t border-surface-border flex flex-col gap-4">
+        <ExecutionFields form={form} />
+      </div>
+      <div className="px-5 py-5 border-t border-surface-border flex flex-col gap-4">
+        <TriggerFields form={form} />
+      </div>
 
-      {/* Error display */}
-      {(updateMut.error || deleteMut.error) && (
-        <div style={{ padding: "8px 20px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
-          {(updateMut.error || deleteMut.error)?.message || "An error occurred"}
+      {/* Timing info */}
+      <div className="px-5 py-5 border-t border-surface-border">
+        <Section title="Timing">
+          <div className="flex flex-col gap-2">
+            <InfoRow label="Created" value={fmtDatetime(task.created_at)} />
+            <InfoRow label="Scheduled" value={fmtDatetime(task.scheduled_at)} />
+            <InfoRow label="Run At" value={fmtDatetime(task.run_at)} />
+            <InfoRow label="Completed" value={fmtDatetime(task.completed_at)} />
+            {task.run_count > 0 && <InfoRow label="Run Count" value={String(task.run_count)} />}
+            {task.retry_count > 0 && <InfoRow label="Retry Count" value={String(task.retry_count)} />}
+          </div>
+        </Section>
+      </div>
+
+      {/* Result/Error for one-shot tasks */}
+      {task.result && (
+        <div className="px-5 py-5 border-t border-surface-border">
+          <Section title="Result">
+            <pre className="text-xs text-success font-mono whitespace-pre-wrap bg-input p-3 rounded-lg border border-surface-border max-h-72 overflow-auto m-0">
+              {task.result}
+            </pre>
+          </Section>
         </div>
       )}
-
-      {/* Body */}
-      <div style={{
-        flex: 1, overflowY: "auto", minHeight: 0,
-        ...(isWide ? { display: "flex", flexDirection: "row" as const } : {}),
-      }}>
-        {/* Prompt + Result/Error */}
-        <div style={{
-          ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),
-          display: "flex", flexDirection: "column",
-        }}>
-          <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
-            <FormRow label="Title">
-              <FormTextInput
-                value={title}
-                onChangeText={setTitle}
-                placeholder="Short task title (optional)"
-              />
-            </FormRow>
-            {(() => {
-              const selectedBot = bots?.find((b: any) => b.id === botId);
-              const botWsId = selectedBot?.shared_workspace_id;
-              return (
-                <>
-                  <WorkspaceFilePrompt
-                    workspaceId={workspaceId ?? botWsId}
-                    filePath={workspaceFilePath}
-                    onLink={(path, wsId) => { setWorkspaceFilePath(path); setWorkspaceId(wsId); setPromptTemplateId(null); }}
-                    onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
-                  />
-                  {!workspaceFilePath && (
-                    <>
-                      <PromptTemplateLink
-                        templateId={promptTemplateId}
-                        onLink={(id) => setPromptTemplateId(id)}
-                        onUnlink={() => setPromptTemplateId(null)}
-                      />
-                      <LlmPrompt
-                        value={prompt}
-                        onChange={setPrompt}
-                        label="Prompt"
-                        placeholder={workflowId ? "Optional — workflow will be triggered directly" : promptTemplateId ? "Using linked template..." : "Task prompt..."}
-                        rows={isWide ? 12 : 6}
-                        fieldType="task_prompt"
-                        botId={botId}
-                        channelId={task?.channel_id ?? undefined}
-                      />
-                    </>
-                  )}
-                </>
-              );
-            })()}
-
-            {task?.result && (
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Result</div>
-                <div style={{
-                  padding: 12, borderRadius: 8, background: t.inputBg, border: `1px solid ${t.surfaceRaised}`,
-                  fontSize: 12, color: t.success, whiteSpace: "pre-wrap",
-                  maxHeight: 300, overflow: "auto", fontFamily: "monospace",
-                }}>
-                  {task.result}
-                </div>
-              </div>
-            )}
-
-            {task?.error && (
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Error</div>
-                <div style={{
-                  padding: 12, borderRadius: 8, background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
-                  fontSize: 12, color: t.danger, whiteSpace: "pre-wrap",
-                  maxHeight: 200, overflow: "auto", fontFamily: "monospace",
-                }}>
-                  {task.error}
-                </div>
-              </div>
-            )}
-          </div>
+      {task.error && (
+        <div className="px-5 py-5 border-t border-surface-border">
+          <Section title="Error">
+            <pre className="text-xs text-danger font-mono whitespace-pre-wrap bg-danger/5 p-3 rounded-lg border border-danger/20 max-h-48 overflow-auto m-0">
+              {task.error}
+            </pre>
+          </Section>
         </div>
+      )}
+    </div>
+  );
+}
 
-        {/* Metadata fields */}
-        <div style={{
-          ...(isWide ? { flex: 2 } : {}),
-          padding: "16px 20px",
-          borderTop: isWide ? "none" : `1px solid ${t.surfaceOverlay}`,
-        }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <Section title="Configuration">
-              <FormRow label="Bot">
-                <SelectInput value={botId} onChange={setBotId} options={botOptions} />
-              </FormRow>
+// ---------------------------------------------------------------------------
+// Runs Tab — child task history
+// ---------------------------------------------------------------------------
+function RunsTab({ taskId, task, children, loading, onRunNow, runningNow }: {
+  taskId: string;
+  task: TaskDetail;
+  children: TaskDetail[] | undefined;
+  loading: boolean;
+  onRunNow: () => void;
+  runningNow: boolean;
+}) {
+  const navigate = useNavigate();
+  const runs = children ?? [];
+  // Show most recent first
+  const sortedRuns = [...runs].sort((a, b) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
 
-              <FormRow label="Channel">
-                {task?.channel_id ? (
-                  <Link to={`/channels/${task.channel_id}` as any}
-                    style={{ fontSize: 13, color: t.accent, padding: "7px 0" } as any}
-                  >
-                    {channels?.find((c: any) => String(c.id) === String(task.channel_id))?.display_name
-                      || channels?.find((c: any) => String(c.id) === String(task.channel_id))?.name
-                      || task.channel_id}
-                  </Link>
-                ) : (
-                  <span style={{ fontSize: 13, color: t.textDim, padding: "7px 0" }}>
-                    No channel
-                  </span>
-                )}
-              </FormRow>
+  // For one-shot tasks with no children, show own result
+  const isOneShot = !task.recurrence && runs.length === 0;
 
-              <FormRow label="Status">
-                <SelectInput value={status} onChange={setStatus} options={STATUS_OPTIONS} />
-              </FormRow>
-
-              <FormRow label="Task Type">
-                <SelectInput value={taskType} onChange={setTaskType} options={TASK_TYPE_OPTIONS_FULL} />
-              </FormRow>
-
-              {/* Workflow trigger hidden — workflows deprecated in favor of task pipelines */}
-              {workflowId && (
-                <FormRow label="Session Mode" description="Workflow step session isolation">
-                  <SelectInput
-                    value={workflowSessionMode || ""}
-                    onChange={(v) => setWorkflowSessionMode(v || null)}
-                    options={[
-                      { label: "Default (from workflow)", value: "" },
-                      { label: "Shared", value: "shared" },
-                      { label: "Isolated", value: "isolated" },
-                    ]}
-                  />
-                </FormRow>
-              )}
-            </Section>
-
-            <Section title="Trigger">
-              <TriggerSection
-                triggerConfig={triggerConfig}
-                onTriggerConfigChange={setTriggerConfig}
-                scheduledAt={scheduledAt}
-                onScheduledAtChange={setScheduledAt}
-                recurrence={recurrence}
-                onRecurrenceChange={setRecurrence}
-              />
-            </Section>
-
-            <Section title="Options">
-              <Toggle
-                value={triggerRagLoop}
-                onChange={setTriggerRagLoop}
-                label="Trigger RAG Loop"
-                description="Create follow-up agent turn after task completes"
-              />
-
-              <FormRow label="Model Override">
-                <LlmModelDropdown
-                  value={modelOverride}
-                  onChange={setModelOverride}
-                  placeholder="Inherit from bot"
-                  allowClear
-                />
-              </FormRow>
-            </Section>
-
-            {task && (
-              <Section title="Timing">
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <InfoRow label="Created" value={fmtDatetime(task.created_at)} />
-                  <InfoRow label="Scheduled" value={fmtDatetime(task.scheduled_at)} />
-                  <InfoRow label="Run At" value={fmtDatetime(task.run_at)} />
-                  <InfoRow label="Completed" value={fmtDatetime(task.completed_at)} />
-                  <InfoRow label="Retry Count" value={String(task.retry_count)} />
-                  {task.run_count > 0 && (
-                    <InfoRow label="Run Count" value={String(task.run_count)} />
-                  )}
-                </div>
-              </Section>
-            )}
-
-            {task && (
-              <Section title="Dispatch">
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <InfoRow label="Type" value={task.dispatch_type} />
-                  {task.dispatch_config && (
-                    <div>
-                      <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Config</div>
-                      <pre style={{
-                        fontSize: 10, color: t.textMuted, background: t.inputBg, padding: 8,
-                        borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
-                      }}>
-                        {JSON.stringify(task.dispatch_config, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                  {task.callback_config?.workflow_run_id ? (
-                    <WorkflowRunLink
-                      runId={task.callback_config.workflow_run_id}
-                      stepIndex={task.callback_config.workflow_step_index}
-                      t={t}
-                    />
-                  ) : task.callback_config ? (
-                    <div>
-                      <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Callback Config</div>
-                      <pre style={{
-                        fontSize: 10, color: t.textMuted, background: t.inputBg, padding: 8,
-                        borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
-                      }}>
-                        {JSON.stringify(task.callback_config, null, 2)}
-                      </pre>
-                    </div>
-                  ) : null}
-                </div>
-              </Section>
-            )}
-          </div>
-        </div>
+  return (
+    <div className="flex flex-col">
+      {/* Action bar */}
+      <div className="flex flex-row items-center justify-between px-5 py-3 border-b border-surface-border">
+        <span className="text-xs text-text-muted">
+          {isOneShot ? "Single execution" : `${runs.length} run${runs.length !== 1 ? "s" : ""}`}
+        </span>
+        <button
+          onClick={onRunNow}
+          disabled={runningNow}
+          className={`flex flex-row items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border-none rounded-lg cursor-pointer transition-colors ${
+            runningNow
+              ? "bg-accent/30 text-accent animate-pulse"
+              : "bg-accent/10 text-accent hover:bg-accent/20"
+          }`}
+        >
+          <Play size={12} fill="currentColor" />
+          Run Now
+        </button>
       </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <div className="chat-spinner" />
+        </div>
+      ) : isOneShot ? (
+        <OneShotResult task={task} />
+      ) : runs.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-text-dim text-sm">
+          No runs yet. Click "Run Now" to trigger the first execution.
+        </div>
+      ) : (
+        <div className="flex flex-col">
+          {/* Table header */}
+          <div className="flex flex-row items-center gap-3 px-5 py-2 text-[10px] font-semibold text-text-dim uppercase tracking-wider border-b border-surface-border bg-surface-raised/30">
+            <div className="w-24 shrink-0">Status</div>
+            <div className="w-36 shrink-0">Started</div>
+            <div className="w-36 shrink-0">Completed</div>
+            <div className="w-16 shrink-0 text-right">Duration</div>
+            <div className="flex-1 min-w-0">Result</div>
+            <div className="w-10 shrink-0" />
+          </div>
+
+          {/* Run rows */}
+          {sortedRuns.map((run) => (
+            <div
+              key={run.id}
+              className="flex flex-row items-center gap-3 px-5 py-2.5 border-b border-surface-border/50 hover:bg-surface-overlay/30 transition-colors"
+            >
+              <div className="w-24 shrink-0">
+                <TaskStatusBadge status={run.status} />
+              </div>
+              <div className="w-36 shrink-0 text-[11px] text-text-muted">
+                {fmtDatetime(run.run_at || run.scheduled_at)}
+              </div>
+              <div className="w-36 shrink-0 text-[11px] text-text-muted">
+                {fmtDatetime(run.completed_at)}
+              </div>
+              <div className="w-16 shrink-0 text-right text-[11px] text-text-dim font-mono">
+                {durationStr(run.run_at || run.scheduled_at, run.completed_at)}
+              </div>
+              <div className="flex-1 min-w-0">
+                {run.error ? (
+                  <span className="text-[11px] text-danger truncate block">{run.error.substring(0, 100)}</span>
+                ) : run.result ? (
+                  <span className="text-[11px] text-text-muted truncate block">{run.result.substring(0, 100)}</span>
+                ) : run.status === "running" ? (
+                  <span className="text-[11px] text-accent">Running...</span>
+                ) : (
+                  <span className="text-[11px] text-text-dim">\u2014</span>
+                )}
+              </div>
+              <div className="w-10 shrink-0 flex justify-end">
+                {run.correlation_id && (
+                  <button
+                    onClick={() => navigate(`/admin/logs/${run.correlation_id}`)}
+                    title="View trace"
+                    className="flex items-center justify-center w-7 h-7 rounded-md bg-transparent border-none cursor-pointer text-text-muted hover:text-accent hover:bg-accent/10 transition-colors"
+                  >
+                    <ExternalLink size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// One-shot result display
+// ---------------------------------------------------------------------------
+function OneShotResult({ task }: { task: TaskDetail }) {
+  return (
+    <div className="px-5 py-5 flex flex-col gap-4">
+      <div className="flex flex-row items-center gap-3">
+        <TaskStatusBadge status={task.status} />
+        <span className="text-[11px] text-text-dim">
+          {task.run_at ? `Started ${fmtDatetime(task.run_at)}` : "Not yet run"}
+        </span>
+        {task.completed_at && (
+          <span className="text-[11px] text-text-dim">
+            {durationStr(task.run_at, task.completed_at)}
+          </span>
+        )}
+      </div>
+      {task.result && (
+        <pre className="text-xs text-success font-mono whitespace-pre-wrap bg-input p-3 rounded-lg border border-surface-border max-h-72 overflow-auto m-0">
+          {task.result}
+        </pre>
+      )}
+      {task.error && (
+        <pre className="text-xs text-danger font-mono whitespace-pre-wrap bg-danger/5 p-3 rounded-lg border border-danger/20 max-h-48 overflow-auto m-0">
+          {task.error}
+        </pre>
+      )}
     </div>
   );
 }

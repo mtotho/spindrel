@@ -3,7 +3,7 @@ import type { TaskItem } from "@/src/components/shared/TaskConstants";
 // ---------------------------------------------------------------------------
 // Type aliases
 // ---------------------------------------------------------------------------
-export type ViewMode = "schedule" | "day" | "week" | "list" | "cron";
+export type ViewMode = "definitions" | "schedule" | "day" | "week" | "list" | "cron";
 export type TaskTypeFilter = "all" | "scheduled" | "delegation" | "exec" | "api" | "pipeline";
 export type StatusFilter = "active" | "all" | "cancelled" | "failed";
 

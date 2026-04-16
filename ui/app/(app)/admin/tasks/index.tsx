@@ -4,9 +4,10 @@ import { RefreshableScrollView } from "@/src/components/shared/RefreshableScroll
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChevronLeft, ChevronRight, Plus, Calendar, CalendarDays, CalendarRange, List, Terminal,
+  ChevronLeft, ChevronRight, Plus, Calendar, CalendarDays, CalendarRange, List, Terminal, ListChecks,
 } from "lucide-react";
 import { AlertCircle } from "lucide-react";
+import { useRunTaskNow } from "@/src/api/hooks/useTasks";
 import { apiFetch } from "@/src/api/client";
 import { useBots } from "@/src/api/hooks/useBots";
 import { TaskEditor } from "@/src/components/shared/TaskEditor";
@@ -20,6 +21,7 @@ import { CronJobsView } from "./CronJobsView";
 import { DayColumn, MobileWeekSummary } from "./TaskTimelineComponents";
 import { ScheduleView } from "./ScheduleView";
 import { TaskListView } from "./TaskListView";
+import { TaskDefinitionsView } from "./TaskDefinitionsView";
 import { TaskFilters } from "./TaskFilters";
 import {
   type ViewMode, type TaskTypeFilter, type StatusFilter, type EditorState,
@@ -32,9 +34,9 @@ import {
 // ---------------------------------------------------------------------------
 export default function TasksScreen() {
   const t = useThemeTokens();
-  const [viewMode, setViewMode] = useState<ViewMode>("day");
+  const [viewMode, setViewMode] = useState<ViewMode>("definitions");
   const [baseDate, setBaseDate] = useState(() => startOfDay(new Date()));
-  const [typeFilter, setTypeFilter] = useState<TaskTypeFilter>("scheduled");
+  const [typeFilter, setTypeFilter] = useState<TaskTypeFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [botFilter, setBotFilter] = useState<string>("");
   const [editorState, setEditorState] = useState<EditorState>({ mode: "closed" });
@@ -44,6 +46,7 @@ export default function TasksScreen() {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const { data: bots } = useBots();
+  const runNowMut = useRunTaskNow();
 
   const isCalendar = viewMode === "day" || viewMode === "week";
   const rangeDays = viewMode === "day" ? 1 : viewMode === "week" ? 7 : 1;
@@ -146,18 +149,30 @@ export default function TasksScreen() {
   const goNext = () => setBaseDate(addDays(baseDate, rangeDays));
 
   const handleEditorClose = () => setEditorState({ mode: "closed" });
-  const handleEditorSaved = () => {
+  const handleEditorSaved = (createdTaskId?: string) => {
     setEditorState({ mode: "closed" });
     qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
+    if (createdTaskId) {
+      navigate(`/admin/tasks/${createdTaskId}`);
+    }
   };
 
   const handleTaskPress = (task: TaskItem) => {
+    if (viewMode === "definitions") {
+      const taskId = task.is_virtual && task._schedule_id ? task._schedule_id : task.id;
+      navigate(`/admin/tasks/${taskId}`);
+      return;
+    }
     if (task.task_type === "workflow") {
       navigate(`/admin/tasks/${task.id}`);
       return;
     }
     const taskId = task.is_virtual && task._schedule_id ? task._schedule_id : task.id;
     setEditorState({ mode: "edit", taskId });
+  };
+
+  const handleRunNow = (taskId: string) => {
+    runNowMut.mutate(taskId);
   };
 
   const editorOpen = editorState.mode !== "closed";
@@ -182,6 +197,7 @@ export default function TasksScreen() {
   };
 
   const VIEW_MODES: { key: ViewMode; label: string; icon?: typeof Calendar }[] = [
+    { key: "definitions", label: "Definitions", icon: ListChecks },
     { key: "schedule", label: "Schedule", icon: Calendar },
     { key: "day", label: "Day", icon: CalendarDays },
     { key: "week", label: "Week", icon: CalendarRange },
@@ -321,8 +337,8 @@ export default function TasksScreen() {
         </div>
       )}
 
-      {/* Filter rows (hidden in cron mode) */}
-      {viewMode !== "cron" && (
+      {/* Filter rows (hidden in cron and definitions mode) */}
+      {viewMode !== "cron" && viewMode !== "definitions" && (
         <TaskFilters
           typeFilter={typeFilter}
           setTypeFilter={setTypeFilter}
@@ -359,7 +375,23 @@ export default function TasksScreen() {
       )}
 
       {/* Body */}
-      {viewMode === "cron" ? (
+      {viewMode === "definitions" ? (
+        isLoading ? (
+          <div className="flex flex-1 items-center justify-center">
+            <div className="chat-spinner" />
+          </div>
+        ) : (
+          <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
+            <TaskDefinitionsView
+              tasks={data?.tasks ?? []}
+              schedules={data?.schedules ?? []}
+              onTaskPress={handleTaskPress}
+              onRunNow={handleRunNow}
+              runningTaskId={runNowMut.isPending ? (runNowMut.variables ?? null) : null}
+            />
+          </RefreshableScrollView>
+        )
+      ) : viewMode === "cron" ? (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
           <CronJobsView />
         </RefreshableScrollView>

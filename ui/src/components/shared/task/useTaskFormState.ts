@@ -21,7 +21,7 @@ export interface UseTaskFormStateOptions {
   defaultBotId?: string;
   defaultChannelId?: string;
   extraQueryKeysToInvalidate?: string[][];
-  onSaved: () => void;
+  onSaved: (createdTaskId?: string) => void;
 }
 
 export function useTaskFormState(opts: UseTaskFormStateOptions) {
@@ -163,7 +163,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       const toolsPayload = selectedToolKeys.length > 0 ? selectedToolKeys : null;
 
       if (isCreate) {
-        await createMut.mutateAsync({
+        const created = await createMut.mutateAsync({
           prompt: prompt || undefined,
           title: title || null,
           prompt_template_id: promptTemplateId,
@@ -185,6 +185,9 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           tools: toolsPayload,
           steps: effectiveSteps,
         });
+        invalidateExtra();
+        onSaved(created.id);
+        return;
       } else {
         await updateMut.mutateAsync({
           prompt,

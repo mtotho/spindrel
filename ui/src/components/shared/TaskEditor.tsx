@@ -25,7 +25,7 @@ import { FormRow, SelectInput, Section } from "@/src/components/shared/FormContr
 export interface TaskEditorProps {
   taskId: string | null;        // null = create mode
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (createdTaskId?: string) => void;
   defaultChannelId?: string;
   defaultBotId?: string;
   onClone?: (taskId: string) => void;

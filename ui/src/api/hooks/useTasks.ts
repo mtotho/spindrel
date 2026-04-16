@@ -201,6 +201,19 @@ export function useDeleteTask() {
   });
 }
 
+export function useRunTaskNow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) =>
+      apiFetch<TaskDetail>(`/api/v1/admin/tasks/${taskId}/run`, { method: "POST" }),
+    onSuccess: (_data, taskId) => {
+      qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
+      qc.invalidateQueries({ queryKey: ["admin-task", taskId] });
+      qc.invalidateQueries({ queryKey: ["admin-task-children", taskId] });
+    },
+  });
+}
+
 export function useTaskChildren(taskId: string | undefined) {
   return useQuery({
     queryKey: ["admin-task-children", taskId],
