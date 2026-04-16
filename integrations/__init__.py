@@ -613,6 +613,22 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             )
         else:
             entry["tool_files"] = []
+        # Self-healing: if tools exist on disk but aren't loaded, and
+        # the integration is active, load them now.
+        if entry["tool_files"] and not entry["tool_names"]:
+            try:
+                from app.services.integration_settings import is_active as _is_active
+                if _is_active(integration_id):
+                    from app.tools.loader import load_integration_tools
+                    _loaded = load_integration_tools(candidate)
+                    if _loaded:
+                        logger.info("Self-healed tool loading for %s: %s", integration_id, _loaded)
+                        entry["tool_names"] = sorted(
+                            name for name, meta in _reg_tools.items()
+                            if meta.get("source_integration") == integration_id
+                        )
+            except Exception:
+                pass
         skills_dir = candidate / "skills"
         if skills_dir.is_dir():
             entry["skill_files"] = sorted(

@@ -665,17 +665,24 @@ class StackService:
         args: list[str],
         timeout: int | None = None,
     ) -> ExecResult:
-        """Run: docker compose -p {project_name} -f {host_path} {args}"""
+        """Run: docker compose -p {project_name} -f {local_path} {args}
+
+        The CLI runs inside the container, so ``-f`` must be the local
+        (container-side) path.  ``--project-directory`` is set to the
+        **host-side** stack directory so that relative bind-mount paths
+        in the compose YAML resolve to host paths for the Docker daemon.
+        """
         if not stack.project_name.startswith(PROJECT_PREFIX):
             raise StackError("Invalid project name prefix — refusing to operate")
 
         compose_file = _compose_path(str(stack.id))
-        host_file = local_to_host(compose_file)
+        host_stack_dir = local_to_host(_stack_dir(str(stack.id)))
 
         cmd = [
             "docker", "compose",
             "-p", stack.project_name,
-            "-f", host_file,
+            "-f", compose_file,
+            "--project-directory", host_stack_dir,
             *args,
         ]
         effective_timeout = timeout or settings.DOCKER_STACK_COMPOSE_TIMEOUT

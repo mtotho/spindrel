@@ -254,6 +254,20 @@ async def dispatch_tool_call(
         result_obj.result = json.dumps({"error": _auth_err})
         result_obj.result_for_llm = result_obj.result
         result_obj.tool_event = {"type": "tool_result", "tool": name, "error": _auth_err}
+        safe_create_task(_record_tool_call(
+            session_id=session_id,
+            client_id=client_id,
+            bot_id=bot_id,
+            tool_name=name,
+            tool_type="unknown",
+            server_name=None,
+            iteration=iteration,
+            arguments=json.loads(args or "{}") if args else {},
+            result=result_obj.result,
+            error=_auth_err,
+            duration_ms=0,
+            correlation_id=correlation_id,
+        ))
         return result_obj
 
     # --- Policy check ---
@@ -272,10 +286,25 @@ async def dispatch_tool_call(
             )
             if decision is not None:
                 if decision.action == "deny":
-                    result_obj.result = json.dumps({"error": f"Tool call denied by policy: {decision.reason or 'no reason'}"})
+                    _deny_err = f"Tool call denied by policy: {decision.reason or 'no reason'}"
+                    result_obj.result = json.dumps({"error": _deny_err})
                     result_obj.result_for_llm = result_obj.result
                     result_obj.tool_event = {"type": "tool_result", "tool": name, "error": f"Denied by policy: {decision.reason or 'no reason'}"}
                     _trace("✗ %s denied by policy (rule %s)", name, decision.rule_id)
+                    safe_create_task(_record_tool_call(
+                        session_id=session_id,
+                        client_id=client_id,
+                        bot_id=bot_id,
+                        tool_name=name,
+                        tool_type="unknown",
+                        server_name=None,
+                        iteration=iteration,
+                        arguments=_tc_args_for_policy,
+                        result=result_obj.result,
+                        error=_deny_err,
+                        duration_ms=0,
+                        correlation_id=correlation_id,
+                    ))
                     return result_obj
                 elif decision.action == "require_approval":
                     # Determine tool type for the approval record

@@ -253,6 +253,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const isKeyboardNav = useRef(false);
 
   // Animation state
   const [mounted, setMounted] = useState(false);
@@ -368,11 +369,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       .slice(0, 30);
   }, [query, allItems]);
 
-  // Group results by category for display
+  // Group results by category for display, then assign flatIndex in VISUAL order
   const groupedResults = useMemo(() => {
     const groups: { category: string; items: { scored: ScoredItem; flatIndex: number }[] }[] = [];
     const catMap = new Map<string, { scored: ScoredItem; flatIndex: number }[]>();
-    let flatIndex = 0;
 
     for (const scored of scoredResults) {
       const cat = scored.item.category;
@@ -382,11 +382,27 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         catMap.set(cat, arr);
         groups.push({ category: cat, items: arr });
       }
-      arr.push({ scored, flatIndex });
-      flatIndex++;
+      // flatIndex assigned below after grouping
+      arr.push({ scored, flatIndex: 0 });
     }
 
-    return { groups, totalCount: flatIndex };
+    // Assign flatIndex in visual (rendered) order so keyboard nav matches display
+    let flatIndex = 0;
+    for (const group of groups) {
+      for (const entry of group.items) {
+        entry.flatIndex = flatIndex++;
+      }
+    }
+
+    // Build flat lookup in visual order for Enter-key navigation
+    const flat: ScoredItem[] = [];
+    for (const group of groups) {
+      for (const entry of group.items) {
+        flat.push(entry.scored);
+      }
+    }
+
+    return { groups, totalCount: flatIndex, flat };
   }, [scoredResults]);
 
   // Reset state on open
@@ -397,9 +413,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     }
   }, [open]);
 
-  // Scroll selected item into view
+  // Scroll selected item into view (only for keyboard navigation)
   useEffect(() => {
-    if (!listRef.current) return;
+    if (!listRef.current || !isKeyboardNav.current) return;
     const el = listRef.current.querySelector(`[data-idx="${selectedIndex}"]`) as HTMLElement | null;
     el?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
@@ -433,17 +449,19 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         onClose();
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
+        isKeyboardNav.current = true;
         setSelectedIndex((i) => (totalCount > 0 ? Math.min(i + 1, totalCount - 1) : 0));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
+        isKeyboardNav.current = true;
         setSelectedIndex((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        const scored = scoredResults[selectedIndex];
+        const scored = groupedResults.flat[selectedIndex];
         if (scored) go(scored.item.href);
       }
     },
-    [onClose, scoredResults, selectedIndex, go, totalCount],
+    [onClose, groupedResults, selectedIndex, go, totalCount],
   );
 
   if (!mounted || typeof document === "undefined") return null;
@@ -585,7 +603,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                     key={item.id}
                     data-idx={flatIndex}
                     onClick={() => go(item.href)}
-                    onMouseEnter={() => setSelectedIndex(flatIndex)}
+                    onMouseMove={() => {
+                      isKeyboardNav.current = false;
+                      setSelectedIndex(flatIndex);
+                    }}
                     style={{
                       display: "flex", flexDirection: "row",
                       alignItems: "center",
