@@ -116,8 +116,18 @@ function sameDay(a: Date, b: Date): boolean {
 
 export function DateTimePicker({ value, onChange, placeholder = "Pick a date & time..." }: Props) {
   const [open, setOpen] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const display = useMemo(() => formatDisplay(value), [value]);
+
+  // Flip popover upward if it would overflow the viewport bottom
+  useEffect(() => {
+    if (!open || !ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const popoverHeight = 420; // approximate max height
+    const spaceBelow = window.innerHeight - rect.bottom;
+    setFlipUp(spaceBelow < popoverHeight && rect.top > popoverHeight);
+  }, [open]);
 
   // Calendar view state
   const now = new Date();
@@ -203,7 +213,9 @@ export function DateTimePicker({ value, onChange, placeholder = "Pick a date & t
 
       {/* Popover */}
       {open && (
-        <div className="absolute top-full left-0 mt-1.5 z-50 bg-surface border border-surface-border rounded-xl shadow-xl w-[280px] max-sm:w-[calc(100vw-32px)] max-sm:left-auto max-sm:right-0">
+        <div className={`absolute left-0 z-50 bg-surface border border-surface-border rounded-xl shadow-xl w-[280px] max-sm:w-[calc(100vw-32px)] max-sm:left-auto max-sm:right-0 ${
+          flipUp ? "bottom-full mb-1.5" : "top-full mt-1.5"
+        }`}>
           {/* Quick picks */}
           <div className="flex flex-row gap-1 flex-wrap p-2.5 pb-2 border-b border-surface-border/50">
             {QUICK_PICKS.map((qp) => (

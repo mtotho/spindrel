@@ -110,9 +110,9 @@ async def _warm_model_info_cache() -> None:
     if settings.LLM_BASE_URL:
         targets.append((None, settings.LLM_BASE_URL, _litellm_mgmt_key(None)))
 
-    # DB litellm providers
+    # DB providers that support /model/info (litellm proxies and openai-compatible)
     for row in _registry.values():
-        if row.provider_type == "litellm":
+        if row.provider_type in ("litellm", "openai-compatible"):
             base = row.base_url or settings.LLM_BASE_URL
             if base:
                 targets.append((row.id, base, _litellm_mgmt_key(row)))

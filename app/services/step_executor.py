@@ -16,6 +16,7 @@ import copy
 import json
 import logging
 import re
+import traceback
 import uuid
 from datetime import datetime, timezone
 
@@ -238,25 +239,25 @@ async def _run_exec_step(
     from app.services.sandbox import sandbox_service
     from app.tools.local.exec_tool import build_exec_script
 
-    raw_command = step_def.get("prompt", "")
-    command = render_prompt(raw_command, {}, step_states, steps)
-    args = step_def.get("args", [])
-    working_directory = step_def.get("working_directory")
-
-    bot = get_bot(task.bot_id)
-    script = build_exec_script(command, args, working_directory)
-
-    timeout = step_def.get("timeout", 120)
-
-    # Build env vars with prior results
-    env_vars = _build_prior_results_env(steps, step_states, step_index)
-
-    # Prepend env var exports to the script
-    if env_vars:
-        exports = "\n".join(f'export {k}={json.dumps(v)}' for k, v in env_vars.items())
-        script = exports + "\n" + script
-
     try:
+        raw_command = step_def.get("prompt", "")
+        command = render_prompt(raw_command, {}, step_states, steps)
+        args = step_def.get("args", [])
+        working_directory = step_def.get("working_directory")
+
+        bot = get_bot(task.bot_id)
+        script = build_exec_script(command, args, working_directory)
+
+        timeout = step_def.get("timeout", 120)
+
+        # Build env vars with prior results
+        env_vars = _build_prior_results_env(steps, step_states, step_index)
+
+        # Prepend env var exports to the script
+        if env_vars:
+            exports = "\n".join(f'export {k}={json.dumps(v)}' for k, v in env_vars.items())
+            script = exports + "\n" + script
+
         async def _do_exec():
             if bot.workspace.enabled or bot.shared_workspace_id:
                 from app.services.workspace import workspace_service
@@ -365,7 +366,25 @@ async def run_task_pipeline(task: Task) -> None:
         flag_modified(t, "step_states")
         await db.commit()
 
-    await _advance_pipeline(task, steps, step_states)
+    try:
+        await _advance_pipeline(task, steps, step_states)
+    except Exception:
+        logger.exception("Pipeline task %s failed with unhandled error", task.id)
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "failed"
+                t.error = traceback.format_exc()[-4000:]
+                t.completed_at = datetime.now(timezone.utc)
+                # Also update step_states so the failing step shows its error
+                if t.step_states:
+                    for ss in t.step_states:
+                        if ss.get("status") == "running":
+                            ss["status"] = "failed"
+                            ss["error"] = "Pipeline crashed"
+                            ss["completed_at"] = datetime.now(timezone.utc).isoformat()
+                    flag_modified(t, "step_states")
+                await db.commit()
 
 
 async def _advance_pipeline(
@@ -403,6 +422,7 @@ async def _advance_pipeline(
         state["status"] = "running"
         state["started_at"] = now.isoformat()
         await _persist_step_states(task.id, step_states)
+        logger.info("Pipeline %s step %d/%d started (type=%s)", task.id, i + 1, len(steps), step_type)
 
         if step_type == "exec":
             status, result, error = await _run_exec_step(task, step_def, i, steps, step_states)
@@ -411,6 +431,7 @@ async def _advance_pipeline(
             state["error"] = error
             state["completed_at"] = datetime.now(timezone.utc).isoformat()
             await _persist_step_states(task.id, step_states)
+            logger.info("Pipeline %s step %d exec → %s%s", task.id, i + 1, status, f" error={error}" if error else "")
 
             if status == "failed" and step_def.get("on_failure", "abort") == "abort":
                 await _finalize_pipeline(task, steps, step_states, failed=True)
@@ -423,6 +444,7 @@ async def _advance_pipeline(
             state["error"] = error
             state["completed_at"] = datetime.now(timezone.utc).isoformat()
             await _persist_step_states(task.id, step_states)
+            logger.info("Pipeline %s step %d tool → %s%s", task.id, i + 1, status, f" error={error}" if error else "")
 
             if status == "failed" and step_def.get("on_failure", "abort") == "abort":
                 await _finalize_pipeline(task, steps, step_states, failed=True)
@@ -584,5 +606,7 @@ async def _finalize_pipeline(
                 t.error = "; ".join(errors)[:4000] if errors else "Pipeline step failed"
             await db.commit()
 
+    status = "failed" if failed else "complete"
+    logger.info("Pipeline %s finalized → %s", task.id, status)
     from app.agent.tasks import _fire_task_complete
-    await _fire_task_complete(task, "failed" if failed else "complete")
+    await _fire_task_complete(task, status)

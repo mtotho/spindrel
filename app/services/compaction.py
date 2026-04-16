@@ -339,7 +339,6 @@ async def _flush_member_bots(
     channel: Channel,
     session_id: uuid.UUID,
     messages: list[dict],
-    correlation_id: uuid.UUID | None = None,
 ) -> None:
     """Trigger memory flush for each member bot in a multi-bot channel.
 
@@ -371,7 +370,7 @@ async def _flush_member_bots(
         if member_bot.memory_scheme != "workspace-files":
             continue
         try:
-            await _run_memory_flush(channel, member_bot, session_id, messages, correlation_id=correlation_id)
+            await _run_memory_flush(channel, member_bot, session_id, messages, correlation_id=uuid.uuid4())
             logger.info("Member bot %s memory flush complete for channel %s", bot_id, channel.id)
         except Exception:
             logger.warning("Member bot %s memory flush failed for channel %s", bot_id, channel.id, exc_info=True)
@@ -992,7 +991,7 @@ async def run_compaction_stream(
             logger.warning("Memory flush failed before compaction for channel %s", channel.id, exc_info=True)
         # Also flush member bots in multi-bot channels
         if channel:
-            await _flush_member_bots(channel, session_id, messages, correlation_id)
+            await _flush_member_bots(channel, session_id, messages)
     elif _resolve_trigger_heartbeat(channel) and channel:
         # Legacy fallback: trigger heartbeat if memory flush not enabled
         from app.services.heartbeat import trigger_channel_heartbeat
@@ -1359,7 +1358,7 @@ async def run_compaction_forced(
             logger.warning("Memory flush failed before forced compaction for channel %s", channel.id, exc_info=True)
         # Also flush member bots in multi-bot channels
         if channel:
-            await _flush_member_bots(channel, session_id, messages, correlation_id)
+            await _flush_member_bots(channel, session_id, messages)
     elif _resolve_trigger_heartbeat(channel) and channel:
         # Legacy fallback: trigger heartbeat if memory flush not enabled
         from app.services.heartbeat import trigger_channel_heartbeat

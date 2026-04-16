@@ -87,9 +87,9 @@ export function ConflictBanner({ warnings }: { warnings: string[] }) {
 // Task card on timeline (Day/Week views)
 // ---------------------------------------------------------------------------
 export function TaskCard({
-  task, isPast, onClick, compact, style: extraStyle,
+  task, isPast, onClick, compact, superCompact, style: extraStyle,
 }: {
-  task: TaskItem; isPast: boolean; onClick: () => void; compact?: boolean; style?: React.CSSProperties;
+  task: TaskItem; isPast: boolean; onClick: () => void; compact?: boolean; superCompact?: boolean; style?: React.CSSProperties;
 }) {
   const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
@@ -111,6 +111,45 @@ export function TaskCard({
     ? (hovered ? t.accent : t.surfaceBorder)
     : hovered ? t.accent : isPast ? t.surfaceRaised : t.surfaceOverlay;
 
+  const typeFg = (TYPE_BADGE_COLORS[task.task_type ?? "agent"] || TYPE_BADGE_COLORS.agent)?.fg || borderColor;
+
+  // Super-compact: single-line pip — just status dot + short title
+  if (superCompact) {
+    return (
+      <div
+        onClick={onClick}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        title={`${displayTitle(task)} — ${task.bot_id} — ${time ? formatTime(time) : ""}`}
+        style={{
+          padding: "2px 6px",
+          borderRadius: 4,
+          background: bg,
+          border: `1px solid ${borderColor}`,
+          borderLeft: `3px solid ${typeFg}`,
+          borderStyle: isVirtual ? "dashed" : "solid",
+          opacity: isCancelled ? 0.35 : isVirtual ? (hovered ? 0.85 : 0.55) : (isPast && !hovered ? 0.45 : 1),
+          transition: "opacity 0.15s, box-shadow 0.15s",
+          cursor: "pointer",
+          boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.15)" : "none",
+          zIndex: hovered ? 100 : undefined,
+          ...extraStyle,
+        }}
+      >
+        <div className="flex flex-row items-center gap-1 min-w-0">
+          <Icon size={8} color={s.fg} className="shrink-0" />
+          <span className="text-[9px] font-semibold text-text flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+            {displayTitle(task).split(" ")[0]}
+          </span>
+          <BotDot botId={task.bot_id} size={5} />
+        </div>
+      </div>
+    );
+  }
+
+  // Truncate bot name in compact week view
+  const botLabel = compact ? task.bot_id.slice(0, 8) : task.bot_id;
+
   return (
     <div
       onClick={onClick}
@@ -121,7 +160,7 @@ export function TaskCard({
         borderRadius: compact ? 6 : 8,
         background: bg,
         border: `1px solid ${borderColor}`,
-        borderLeft: `3px solid ${(TYPE_BADGE_COLORS[task.task_type ?? "agent"] || TYPE_BADGE_COLORS.agent)?.fg || borderColor}`,
+        borderLeft: `3px solid ${typeFg}`,
         borderStyle: isVirtual ? "dashed" : "solid",
         opacity: isCancelled ? 0.35 : isVirtual ? (hovered ? 0.85 : 0.55) : (isPast && !hovered ? 0.45 : 1),
         transition: "opacity 0.2s, box-shadow 0.2s, border-color 0.2s, transform 0.15s",
@@ -156,10 +195,10 @@ export function TaskCard({
 
       <div className={`flex flex-row items-center ${compact ? "gap-1 mt-0.5" : "gap-1.5 mt-1"}`}>
         <BotDot botId={task.bot_id} size={compact ? 6 : 8} />
-        <span className={`${compact ? "text-[9px]" : "text-[10px]"} text-text-dim`}>{task.bot_id}</span>
+        <span className={`${compact ? "text-[9px]" : "text-[10px]"} text-text-dim overflow-hidden text-ellipsis whitespace-nowrap`}>{botLabel}</span>
         {!compact && task.task_type && <TypeBadge type={task.task_type} />}
         {compact && (
-          <span className="text-[9px] text-text-dim ml-auto">
+          <span className="text-[9px] text-text-dim ml-auto shrink-0">
             {time ? formatTime(time) : ""}
           </span>
         )}
@@ -178,8 +217,8 @@ export function TaskCard({
 // ---------------------------------------------------------------------------
 const CARD_HEIGHT_PX = 70;
 const CARD_COMPACT_HEIGHT_PX = 46;
-const CARD_SUPER_COMPACT_HEIGHT_PX = 36;
-const CARD_MIN_GAP = 4;
+const CARD_SUPER_COMPACT_HEIGHT_PX = 24;
+const CARD_MIN_GAP = 6;
 
 /** Lane-based layout: assign overlapping cards to side-by-side lanes (like Google Calendar). */
 function assignLanes(sorted: { task: TaskItem; topPx: number }[], cardHeight: number): { task: TaskItem; topPx: number; lane: number; totalLanes: number }[] {
@@ -222,7 +261,102 @@ function assignLanes(sorted: { task: TaskItem; topPx: number }[], cardHeight: nu
   return result;
 }
 
-export function DayColumn({ date, tasks, onTaskPress, compact, showHourLabels = true }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void; compact?: boolean; showHourLabels?: boolean }) {
+// ---------------------------------------------------------------------------
+// Cluster overlapping tasks within a time window (for week view)
+// ---------------------------------------------------------------------------
+const CLUSTER_WINDOW_MIN = 90; // tasks within 90 minutes get clustered
+const CLUSTER_THRESHOLD = 3;   // cluster when > this many tasks overlap
+
+interface Cluster {
+  tasks: TaskItem[];
+  topPx: number;    // earliest task position
+  bottomPx: number; // latest task position
+}
+
+function buildClusters(sorted: { task: TaskItem; topPx: number }[]): Cluster[] {
+  if (sorted.length === 0) return [];
+  const clusters: Cluster[] = [];
+  let current: Cluster = { tasks: [sorted[0].task], topPx: sorted[0].topPx, bottomPx: sorted[0].topPx };
+
+  for (let i = 1; i < sorted.length; i++) {
+    const { task, topPx } = sorted[i];
+    if (topPx - current.topPx <= CLUSTER_WINDOW_MIN) {
+      current.tasks.push(task);
+      current.bottomPx = Math.max(current.bottomPx, topPx);
+    } else {
+      clusters.push(current);
+      current = { tasks: [task], topPx, bottomPx: topPx };
+    }
+  }
+  clusters.push(current);
+  return clusters;
+}
+
+// ---------------------------------------------------------------------------
+// Cluster chip — summary for many overlapping tasks in week view
+// ---------------------------------------------------------------------------
+function ClusterChip({ cluster, onClick, isPast, style }: {
+  cluster: Cluster;
+  onClick: () => void;
+  isPast: boolean;
+  style?: React.CSSProperties;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const completedCount = cluster.tasks.filter(t => t.status === "complete").length;
+  const failedCount = cluster.tasks.filter(t => t.status === "failed").length;
+  const runningCount = cluster.tasks.filter(t => t.status === "running").length;
+
+  // Collect unique bot dots
+  const uniqueBots = [...new Set(cluster.tasks.map(t => t.bot_id))];
+
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      title={cluster.tasks.map(t => displayTitle(t)).join("\n")}
+      className="cursor-pointer transition-all duration-150"
+      style={{
+        padding: "4px 8px",
+        borderRadius: 8,
+        background: hovered ? "var(--color-surface-overlay, rgba(255,255,255,0.08))" : "var(--color-surface-raised, rgba(255,255,255,0.04))",
+        border: `1px solid ${hovered ? "var(--color-accent, #3b82f6)" : "var(--color-surface-border, #333)"}`,
+        opacity: isPast ? 0.5 : 1,
+        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.15)" : "0 1px 3px rgba(0,0,0,0.06)",
+        zIndex: hovered ? 100 : undefined,
+        ...style,
+      }}
+    >
+      <div className="flex flex-row items-center gap-1.5">
+        <span className="text-[11px] font-bold text-text">{cluster.tasks.length}</span>
+        <span className="text-[9px] text-text-dim">tasks</span>
+      </div>
+      <div className="flex flex-row items-center gap-1 mt-0.5 flex-wrap">
+        {/* Status summary dots */}
+        {completedCount > 0 && (
+          <span className="text-[8px] font-bold text-success">{completedCount}<span className="text-[7px]">ok</span></span>
+        )}
+        {failedCount > 0 && (
+          <span className="text-[8px] font-bold text-danger">{failedCount}<span className="text-[7px]">err</span></span>
+        )}
+        {runningCount > 0 && (
+          <span className="text-[8px] font-bold text-accent">{runningCount}<span className="text-[7px]">run</span></span>
+        )}
+        {/* Bot dots */}
+        <div className="flex flex-row items-center -space-x-0.5 ml-auto">
+          {uniqueBots.slice(0, 4).map(botId => (
+            <BotDot key={botId} botId={botId} size={5} />
+          ))}
+          {uniqueBots.length > 4 && <span className="text-[7px] text-text-dim ml-0.5">+{uniqueBots.length - 4}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function DayColumn({ date, tasks, onTaskPress, onDayPress, compact, showHourLabels = true }: {
+  date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void; onDayPress?: (date: Date) => void; compact?: boolean; showHourLabels?: boolean;
+}) {
   const now = new Date();
   const showNow = isToday(date);
 
@@ -237,16 +371,23 @@ export function DayColumn({ date, tasks, onTaskPress, compact, showHourLabels = 
 
   const autoCompact = effectiveCardHeight <= CARD_COMPACT_HEIGHT_PX;
 
-  const positioned = useMemo(() => {
-    const sorted = [...tasks]
+  // Sort tasks by time
+  const sorted = useMemo(() => {
+    return [...tasks]
       .sort((a, b) => getTaskTime(a).getTime() - getTaskTime(b).getTime())
       .map((task) => {
         const taskTime = getTaskTime(task);
         const topPx = taskTime.getHours() * 60 + taskTime.getMinutes();
         return { task, topPx: Math.min(topPx, 1440 - effectiveCardHeight) };
       });
-    return assignLanes(sorted, effectiveCardHeight);
   }, [tasks, effectiveCardHeight]);
+
+  // In compact (week) mode, cluster overlapping tasks; in day mode, use lanes
+  const clusters = useMemo(() => compact ? buildClusters(sorted) : [], [compact, sorted]);
+  const positioned = useMemo(() => !compact ? assignLanes(sorted, effectiveCardHeight) : [], [compact, sorted, effectiveCardHeight]);
+
+  // Determine cluster card height — taller than individual cards
+  const clusterCardHeight = CARD_COMPACT_HEIGHT_PX;
 
   return (
     <div className="flex-1 min-w-0 relative">
@@ -264,7 +405,53 @@ export function DayColumn({ date, tasks, onTaskPress, compact, showHourLabels = 
         {showHourLabels && <HourLabels />}
         {showNow && <NowLine />}
 
-        {positioned.map(({ task: tk, topPx, lane, totalLanes }) => {
+        {/* Week (compact) mode: clustered rendering */}
+        {compact && clusters.map((cluster, ci) => {
+          const topPx = cluster.topPx;
+          if (cluster.tasks.length <= CLUSTER_THRESHOLD) {
+            // Small group — render individual compact cards stacked
+            return cluster.tasks.map((tk, ti) => {
+              const taskTopPx = getTaskTime(tk).getHours() * 60 + getTaskTime(tk).getMinutes();
+              return (
+                <TaskCard
+                  key={tk.id}
+                  task={tk}
+                  isPast={getTaskTime(tk) < now && tk.status !== "running"}
+                  onClick={() => onTaskPress(tk)}
+                  compact
+                  style={{
+                    position: "absolute",
+                    top: Math.min(taskTopPx, 1440 - CARD_COMPACT_HEIGHT_PX),
+                    left: 52,
+                    right: 8,
+                    maxHeight: CARD_COMPACT_HEIGHT_PX,
+                    overflow: "hidden",
+                  }}
+                />
+              );
+            });
+          }
+          // Large group — render cluster chip
+          return (
+            <ClusterChip
+              key={`cluster-${ci}`}
+              cluster={cluster}
+              onClick={() => onDayPress?.(date)}
+              isPast={cluster.tasks.every(t => getTaskTime(t) < now && t.status !== "running")}
+              style={{
+                position: "absolute",
+                top: topPx,
+                left: 52,
+                right: 8,
+                maxHeight: clusterCardHeight,
+                overflow: "hidden",
+              }}
+            />
+          );
+        })}
+
+        {/* Day mode: lane-based rendering */}
+        {!compact && positioned.map(({ task: tk, topPx, lane, totalLanes }) => {
           const contentWidth = `calc(100% - 60px)`;
           const laneWidth = `calc(${contentWidth} / ${totalLanes})`;
           const laneLeft = `calc(52px + (${contentWidth} / ${totalLanes}) * ${lane})`;
@@ -274,7 +461,7 @@ export function DayColumn({ date, tasks, onTaskPress, compact, showHourLabels = 
               task={tk}
               isPast={getTaskTime(tk) < now && tk.status !== "running"}
               onClick={() => onTaskPress(tk)}
-              compact={autoCompact || compact}
+              compact={autoCompact}
               style={{
                 position: "absolute",
                 top: topPx,

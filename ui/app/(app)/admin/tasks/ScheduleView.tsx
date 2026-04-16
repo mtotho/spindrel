@@ -1,7 +1,6 @@
 import { useState, useMemo, Fragment } from "react";
 import { ChevronRight, ChevronDown, RefreshCw, AlertTriangle } from "lucide-react";
 import { formatTime } from "@/src/utils/time";
-import { useThemeTokens } from "@/src/theme/tokens";
 import {
   type TaskItem, STATUS_CFG,
   botColor, displayTitle, TaskStatusBadge as StatusBadge, BotDot,
@@ -24,7 +23,6 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
   statusFilter: StatusFilter;
   conflicts: Map<string, string[]>;
 }) {
-  const t = useThemeTokens();
   const [collapsedBots, setCollapsedBots] = useState<Set<string>>(new Set());
   const now = new Date();
 
@@ -122,7 +120,7 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
 
   if (!grouped.length) {
     return (
-      <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
+      <div className="p-10 text-center text-text-dim text-[13px]">
         No tasks found.
       </div>
     );
@@ -142,11 +140,10 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0, padding: "0 0 24px" }}>
+    <div className="flex flex-col pb-6">
       {grouped.map(([botId, botTasks]) => {
         const c = botColor(botId);
         const isCollapsed = collapsedBots.has(botId);
-        // Filter out schedule reference items (is_schedule && !is_virtual && status === "active") — they're shown as headers
         const displayTasks = botTasks.filter(t => !(t.is_schedule && !t.is_virtual && t.status === "active"));
         const scheduleCount = botTasks.filter(t => t.is_schedule && !t.is_virtual && (t.status === "active" || t.status === "cancelled")).length;
         const cancelledCount = botTasks.filter(t => t.status === "cancelled").length;
@@ -161,43 +158,32 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
 
         return (
           <div key={botId}>
-            {/* Bot section header */}
+            {/* Bot section header — border-left and bg are runtime bot colors */}
             <div
               onClick={() => toggleBot(botId)}
-              style={{
-                display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
-                padding: "12px 20px",
-                borderLeft: `3px solid ${c.border}`,
-                background: c.bg,
-                cursor: "pointer",
-                userSelect: "none",
-                position: "sticky", top: 0, zIndex: 2,
-              }}
+              className="flex flex-row items-center gap-2.5 px-5 py-3 cursor-pointer select-none sticky top-0 z-[2]"
+              style={{ borderLeft: `3px solid ${c.border}`, background: c.bg }}
             >
-              {isCollapsed ? <ChevronRight size={14} color={t.textDim} /> : <ChevronDown size={14} color={t.textDim} />}
+              {isCollapsed
+                ? <ChevronRight size={14} className="text-text-dim" />
+                : <ChevronDown size={14} className="text-text-dim" />
+              }
               <BotDot botId={botId} size={10} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>
+              <span className="text-[13px] font-bold text-text">
                 {botName(botId)}
               </span>
-              <span style={{ fontSize: 11, color: t.textDim }}>
+              <span className="text-[11px] text-text-dim">
                 {displayTasks.length} task{displayTasks.length !== 1 ? "s" : ""}
                 {scheduleCount > 0 && ` \u00b7 ${scheduleCount} schedule${scheduleCount !== 1 ? "s" : ""}`}
               </span>
               {cancelledCount > 0 && statusFilter === "all" && (
-                <span style={{
-                  fontSize: 10, fontWeight: 600, color: t.textDim,
-                  background: t.surfaceRaised, padding: "1px 6px", borderRadius: 4,
-                }}>
+                <span className="text-[10px] font-semibold text-text-dim bg-surface-raised px-1.5 rounded">
                   {cancelledCount} cancelled
                 </span>
               )}
               {botConflicts && (
-                <span style={{
-                  display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-                  fontSize: 10, fontWeight: 700, color: t.warningMuted,
-                  background: t.warningSubtle, padding: "2px 8px", borderRadius: 4,
-                }}>
-                  <AlertTriangle size={10} color={t.warningMuted} />
+                <span className="inline-flex flex-row items-center gap-1 text-[10px] font-bold text-warning-muted bg-warning/[0.08] px-2 py-0.5 rounded">
+                  <AlertTriangle size={10} className="text-warning-muted" />
                   Overlap
                 </span>
               )}
@@ -212,20 +198,16 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
             {!isCollapsed && Object.entries(byDate).map(([dayStr, dayTasks]) => (
               <div key={dayStr}>
                 {/* Date sub-header */}
-                <div style={{
-                  padding: "6px 20px 6px 36px",
-                  borderLeft: `3px solid ${c.border}`,
-                  borderBottom: `1px solid ${t.surfaceRaised}`,
-                }}>
-                  <span style={{
-                    fontSize: 11, fontWeight: 600,
-                    color: isToday(new Date(dayStr)) ? t.accent : t.textDim,
-                  }}>
+                <div
+                  className="py-1.5 px-5 pl-9 border-b border-surface-raised"
+                  style={{ borderLeft: `3px solid ${c.border}` }}
+                >
+                  <span className={`text-[11px] font-semibold ${isToday(new Date(dayStr)) ? "text-accent" : "text-text-dim"}`}>
                     {dateSectionLabel(new Date(dayStr))}
                   </span>
                 </div>
 
-                {/* Task cards */}
+                {/* Task rows */}
                 {dayTasks.map((tk, idx) => {
                   const s = STATUS_CFG[tk.status] || STATUS_CFG.pending;
                   const Icon = s.icon;
@@ -233,7 +215,6 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
                   const isPast = getTaskTime(tk) < now && tk.status !== "running" && tk.status !== "active";
                   const isVirtual = tk.is_virtual;
                   const isCancelled = tk.status === "cancelled";
-                  const pastBg = isPast && !isCancelled ? "rgba(107,114,128,0.04)" : "transparent";
 
                   // Show NOW divider between past and future items on today
                   const prevTask = idx > 0 ? dayTasks[idx - 1] : null;
@@ -242,44 +223,23 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
                     : false;
                   const showNowDivider = isToday(new Date(dayStr)) && !isPast && !isCancelled && prevIsPast;
 
+                  const opacityClass = isCancelled ? "opacity-35" : isVirtual ? "opacity-50" : isPast ? "opacity-35" : "";
+                  const bgClass = isPast && !isCancelled ? "bg-gray-500/[0.04]" : "";
+
                   return (
                     <Fragment key={tk.id}>
                       {showNowDivider && (
-                        <div style={{
-                          display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-                          padding: "6px 20px 6px 36px",
-                          borderLeft: `3px solid ${c.border}`,
-                        }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 4, background: t.danger }} />
-                          <div style={{ flex: 1, height: 1, background: t.danger }} />
-                          <span style={{ fontSize: 9, fontWeight: 700, color: t.danger, textTransform: "uppercase", letterSpacing: 1 }}>NOW</span>
-                          <div style={{ flex: 1, height: 1, background: t.danger }} />
-                        </div>
+                        <NowDivider borderColor={c.border} />
                       )}
                       <div
                         onClick={() => onTaskPress(tk)}
-                        style={{
-                          display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
-                          padding: "10px 20px 10px 36px",
-                          borderLeft: `3px solid ${isCancelled ? t.surfaceBorder : c.border}`,
-                          borderBottom: `1px solid ${t.surfaceRaised}`,
-                          cursor: "pointer",
-                          opacity: isCancelled ? 0.35 : isVirtual ? 0.5 : isPast ? 0.35 : 1,
-                          background: pastBg,
-                          transition: "background 0.1s, opacity 0.1s",
-                        }}
-                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay; }}
-                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = pastBg; }}
+                        className={`flex flex-row items-center gap-2.5 py-2.5 px-5 pl-9 border-b border-surface-raised cursor-pointer transition-colors duration-100 hover:bg-surface-overlay ${opacityClass} ${bgClass}`}
+                        style={{ borderLeft: `3px solid ${isCancelled ? "var(--color-surface-border, #333)" : c.border}` }}
                       >
-                        <Icon size={14} color={s.fg} style={{ flexShrink: 0 }} />
+                        <Icon size={14} color={s.fg} className="shrink-0" />
 
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{
-                            fontSize: 13, fontWeight: 600,
-                            color: isCancelled ? t.textDim : t.text,
-                            textDecoration: isCancelled ? "line-through" : "none",
-                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                          }}>
+                        <div className="flex-1 min-w-0">
+                          <div className={`text-[13px] font-semibold overflow-hidden text-ellipsis whitespace-nowrap ${isCancelled ? "text-text-dim line-through" : "text-text"}`}>
                             {displayTitle(tk)}
                           </div>
                         </div>
@@ -287,19 +247,17 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
                         <StatusBadge status={tk.status} />
 
                         {tk.recurrence && (
-                          <span style={{
-                            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
-                            background: isCancelled ? t.surfaceRaised : t.warningSubtle,
-                            color: isCancelled ? t.textDim : t.warning,
-                            padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
-                            flexShrink: 0,
-                          }}>
-                            <RefreshCw size={9} color={isCancelled ? t.textDim : t.warning} />
+                          <span className={`inline-flex flex-row items-center gap-[3px] px-[7px] rounded-[10px] text-[10px] font-bold shrink-0 ${
+                            isCancelled
+                              ? "bg-surface-raised text-text-dim"
+                              : "bg-warning/[0.08] text-warning"
+                          }`}>
+                            <RefreshCw size={9} className={isCancelled ? "text-text-dim" : "text-warning"} />
                             {tk.recurrence}
                           </span>
                         )}
 
-                        <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0, minWidth: 90, textAlign: "right" }}>
+                        <span className="text-[10px] text-text-dim shrink-0 min-w-[90px] text-right">
                           {time ? formatTime(time) : "\u2014"}
                         </span>
                       </div>
@@ -310,22 +268,30 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
                 {isToday(new Date(dayStr)) && dayTasks.length > 0 && dayTasks.every(tk =>
                   getTaskTime(tk) < now && tk.status !== "running" && tk.status !== "active"
                 ) && (
-                  <div style={{
-                    display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-                    padding: "6px 20px 6px 36px",
-                    borderLeft: `3px solid ${c.border}`,
-                  }}>
-                    <div style={{ width: 8, height: 8, borderRadius: 4, background: t.danger }} />
-                    <div style={{ flex: 1, height: 1, background: t.danger }} />
-                    <span style={{ fontSize: 9, fontWeight: 700, color: t.danger, textTransform: "uppercase", letterSpacing: 1 }}>NOW</span>
-                    <div style={{ flex: 1, height: 1, background: t.danger }} />
-                  </div>
+                  <NowDivider borderColor={c.border} />
                 )}
               </div>
             ))}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// NOW divider — extracted to avoid duplication
+// ---------------------------------------------------------------------------
+function NowDivider({ borderColor }: { borderColor: string }) {
+  return (
+    <div
+      className="flex flex-row items-center gap-2 py-1.5 px-5 pl-9"
+      style={{ borderLeft: `3px solid ${borderColor}` }}
+    >
+      <div className="w-2 h-2 rounded-full bg-danger" />
+      <div className="flex-1 h-px bg-danger" />
+      <span className="text-[9px] font-bold text-danger uppercase tracking-widest">NOW</span>
+      <div className="flex-1 h-px bg-danger" />
     </div>
   );
 }

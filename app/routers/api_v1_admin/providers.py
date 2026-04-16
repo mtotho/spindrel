@@ -515,12 +515,17 @@ async def admin_sync_provider_models(
     for m in enriched:
         mid = m["id"]
         if mid in existing_map:
-            # Update display name if not manually set
             row = existing_map[mid]
             changed = False
             if m.get("display") and not row.display_name:
                 row.display_name = m["display"]
                 changed = True
+            # Always update cost/capability fields from enriched data
+            for field in ("input_cost_per_1m", "output_cost_per_1m", "max_tokens"):
+                val = m.get(field)
+                if val is not None and getattr(row, field) != val:
+                    setattr(row, field, val)
+                    changed = True
             if changed:
                 updated += 1
         else:
@@ -528,6 +533,9 @@ async def admin_sync_provider_models(
                 provider_id=provider_id,
                 model_id=mid,
                 display_name=m.get("display"),
+                input_cost_per_1m=m.get("input_cost_per_1m"),
+                output_cost_per_1m=m.get("output_cost_per_1m"),
+                max_tokens=m.get("max_tokens"),
             )
             db.add(row)
             created += 1

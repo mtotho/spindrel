@@ -39,7 +39,9 @@ module.exports = {
           DEFAULT: "rgb(var(--color-danger) / <alpha-value>)",
           muted: "rgb(var(--color-danger-muted) / <alpha-value>)",
         },
-        purple: "rgb(var(--color-purple) / <alpha-value>)",
+        purple: {
+          DEFAULT: "rgb(var(--color-purple) / <alpha-value>)",
+        },
         skeleton: "rgb(var(--color-skeleton) / <alpha-value>)",
       },
     },

@@ -7,7 +7,7 @@
 import { useCallback } from "react";
 import ReactDOM from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Trash2, Copy, FileText } from "lucide-react";
+import { ChevronLeft, Trash2, Copy, FileText, ArrowUpRight } from "lucide-react";
 import { useTaskFormState } from "./task/useTaskFormState";
 import { ContentFields, ExecutionFields, TriggerFields } from "./task/TaskFormFields";
 import { formatDateTime } from "@/src/utils/time";
@@ -155,6 +155,23 @@ export function TaskEditor({
         <div className="px-5 py-2 bg-danger/[0.08] text-danger text-xs shrink-0">
           {form.error?.message || "An error occurred"}
         </div>
+      )}
+
+      {/* Parent definition banner — shown when viewing a task run (child) */}
+      {!isCreate && form.existingTask?.parent_task_id && (
+        <button
+          onClick={() => {
+            onClose();
+            navigate(`/admin/tasks/${form.existingTask!.parent_task_id}`);
+          }}
+          className="flex flex-row items-center gap-2 px-5 py-2 bg-accent/[0.06] border-b border-accent/[0.15] text-xs text-accent cursor-pointer hover:bg-accent/[0.10] transition-colors w-full border-none text-left"
+        >
+          <ArrowUpRight size={13} className="shrink-0" />
+          <span>
+            This is a run instance.{" "}
+            <span className="font-semibold underline decoration-accent/30">View task definition</span>
+          </span>
+        </button>
       )}
 
       {/* Body */}

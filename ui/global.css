@@ -107,6 +107,27 @@ html, body {
   background-color: rgb(var(--color-surface));
 }
 
+/* Root viewport — CSS owns the base layout; JS only overrides for keyboard.
+   100dvh tracks the actual visible viewport on mobile (accounts for browser
+   chrome). The 100vh fallback is for the rare browser without dvh support. */
+#root {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding:
+    env(safe-area-inset-top, 0px)
+    env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
+}
+
 /* Prevent pull-to-overscroll bounce revealing background */
 body {
   overscroll-behavior: none;

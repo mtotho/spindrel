@@ -184,6 +184,7 @@ async def admin_list_tasks(
     after: Optional[str] = None,
     before: Optional[str] = None,
     include_children: bool = False,
+    definitions_only: bool = False,
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -210,6 +211,12 @@ async def admin_list_tasks(
     if not include_children:
         stmt = stmt.where(Task.parent_task_id.is_(None))
         count_stmt = count_stmt.where(Task.parent_task_id.is_(None))
+
+    # Definitions mode: only user-created task types (scheduled, pipeline)
+    if definitions_only:
+        user_types = ["scheduled", "pipeline"]
+        stmt = stmt.where(Task.task_type.in_(user_types))
+        count_stmt = count_stmt.where(Task.task_type.in_(user_types))
 
     # Schedule templates query (always returned — both active and disabled)
     sched_stmt = select(Task).where(is_schedule_template)

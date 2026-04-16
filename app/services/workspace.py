@@ -62,10 +62,9 @@ class WorkspaceService:
         if not workspace.enabled:
             raise WorkspaceError("Workspace is not enabled for this bot.")
 
-        if workspace.type == "host":
-            return await self._exec_host(bot_id, command, workspace, working_dir)
-        else:
-            raise WorkspaceError(f"Unknown workspace type: {workspace.type!r}")
+        # All workspace types execute in the same process environment —
+        # the "docker" vs "host" distinction is legacy.
+        return await self._exec_host(bot_id, command, workspace, working_dir)
 
     async def _exec_shared(
         self,

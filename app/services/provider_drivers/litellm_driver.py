@@ -73,6 +73,25 @@ class LiteLLMDriver(ProviderDriver):
         except Exception:
             return []
 
+    async def list_models_enriched(
+        self, config: ProviderConfigRow
+    ) -> list[dict]:
+        """Return model list merged with pricing data from /model/info."""
+        ids = await self.list_models(config)
+        pricing = await self.fetch_pricing(config)
+        result = []
+        for mid in ids:
+            entry: dict = {"id": mid, "display": mid}
+            info = pricing.get(mid, {})
+            if info.get("input_cost_per_1m"):
+                entry["input_cost_per_1m"] = info["input_cost_per_1m"]
+            if info.get("output_cost_per_1m"):
+                entry["output_cost_per_1m"] = info["output_cost_per_1m"]
+            if info.get("max_tokens"):
+                entry["max_tokens"] = info["max_tokens"]
+            result.append(entry)
+        return result
+
     async def fetch_pricing(
         self, config: ProviderConfigRow
     ) -> dict[str, dict]:

@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useMemo, useCallback } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +10,6 @@ import { AlertCircle } from "lucide-react";
 import { useRunTaskNow } from "@/src/api/hooks/useTasks";
 import { apiFetch } from "@/src/api/client";
 import { useBots } from "@/src/api/hooks/useBots";
-import { TaskEditor } from "@/src/components/shared/TaskEditor";
 import { TaskCreateModal } from "@/src/components/shared/TaskCreateModal";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
@@ -32,13 +31,46 @@ import {
 // ---------------------------------------------------------------------------
 // Main Tasks screen
 // ---------------------------------------------------------------------------
+const VIEW_MODE_SET = new Set<ViewMode>(["definitions", "schedule", "day", "week", "list", "cron"]);
+const TYPE_FILTER_SET = new Set<TaskTypeFilter>(["all", "scheduled", "delegation", "exec", "api", "pipeline"]);
+const STATUS_FILTER_SET = new Set<StatusFilter>(["active", "all", "cancelled", "failed"]);
+
 export default function TasksScreen() {
   const t = useThemeTokens();
-  const [viewMode, setViewMode] = useState<ViewMode>("definitions");
-  const [baseDate, setBaseDate] = useState(() => startOfDay(new Date()));
-  const [typeFilter, setTypeFilter] = useState<TaskTypeFilter>("all");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
-  const [botFilter, setBotFilter] = useState<string>("");
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Read initial state from URL, fall back to defaults
+  const viewMode = (VIEW_MODE_SET.has(searchParams.get("view") as ViewMode) ? searchParams.get("view") : "definitions") as ViewMode;
+  const typeFilter = (TYPE_FILTER_SET.has(searchParams.get("type") as TaskTypeFilter) ? searchParams.get("type") : "all") as TaskTypeFilter;
+  const statusFilter = (STATUS_FILTER_SET.has(searchParams.get("status") as StatusFilter) ? searchParams.get("status") : "active") as StatusFilter;
+  const botFilter = searchParams.get("bot") || "";
+  const baseDateParam = searchParams.get("date");
+  const baseDate = useMemo(() => {
+    if (baseDateParam) {
+      const d = new Date(baseDateParam);
+      if (!isNaN(d.getTime())) return startOfDay(d);
+    }
+    return startOfDay(new Date());
+  }, [baseDateParam]);
+
+  // Update URL params — replaces history entry to avoid flooding back stack
+  const updateParams = useCallback((updates: Record<string, string | null>) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      for (const [k, v] of Object.entries(updates)) {
+        if (v === null || v === "") next.delete(k);
+        else next.set(k, v);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setViewMode = useCallback((v: ViewMode) => updateParams({ view: v === "definitions" ? null : v }), [updateParams]);
+  const setTypeFilter = useCallback((v: TaskTypeFilter) => updateParams({ type: v === "all" ? null : v }), [updateParams]);
+  const setStatusFilter = useCallback((v: StatusFilter) => updateParams({ status: v === "active" ? null : v }), [updateParams]);
+  const setBotFilter = useCallback((v: string) => updateParams({ bot: v || null }), [updateParams]);
+  const setBaseDate = useCallback((d: Date) => updateParams({ date: d.toISOString().slice(0, 10) }), [updateParams]);
+
   const [editorState, setEditorState] = useState<EditorState>({ mode: "closed" });
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -58,11 +90,12 @@ export default function TasksScreen() {
   const dateParams = isCalendar
     ? `&after=${rangeStart.toISOString()}&before=${rangeEnd.toISOString()}`
     : "";
+  const defsParam = viewMode === "definitions" ? "&definitions_only=true" : "";
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-tasks-timeline", viewMode, rangeStart.toISOString(), rangeEnd.toISOString(), typeFilter, botFilter],
     queryFn: () => apiFetch<TasksResponse>(
-      `/api/v1/admin/tasks?limit=200${dateParams}${typeParam}${botParam}`
+      `/api/v1/admin/tasks?limit=200${dateParams}${typeParam}${botParam}${defsParam}`
     ),
   });
 
@@ -158,25 +191,14 @@ export default function TasksScreen() {
   };
 
   const handleTaskPress = (task: TaskItem) => {
-    if (viewMode === "definitions") {
-      const taskId = task.is_virtual && task._schedule_id ? task._schedule_id : task.id;
-      navigate(`/admin/tasks/${taskId}`);
-      return;
-    }
-    if (task.task_type === "workflow") {
-      navigate(`/admin/tasks/${task.id}`);
-      return;
-    }
     const taskId = task.is_virtual && task._schedule_id ? task._schedule_id : task.id;
-    setEditorState({ mode: "edit", taskId });
+    navigate(`/admin/tasks/${taskId}`);
   };
 
   const handleRunNow = (taskId: string) => {
     runNowMut.mutate(taskId);
   };
 
-  const editorOpen = editorState.mode !== "closed";
-  const editorTaskId = editorState.mode === "edit" ? editorState.taskId : null;
   const editorCloneFromId = editorState.mode === "clone" ? editorState.cloneFromId : undefined;
 
   const conflictCount = scheduleConflicts.size;
@@ -192,8 +214,7 @@ export default function TasksScreen() {
     : undefined;
 
   const handleDayPress = (date: Date) => {
-    setBaseDate(startOfDay(date));
-    setViewMode("day");
+    updateParams({ date: startOfDay(date).toISOString().slice(0, 10), view: "day" });
   };
 
   const VIEW_MODES: { key: ViewMode; label: string; icon?: typeof Calendar }[] = [
@@ -364,7 +385,7 @@ export default function TasksScreen() {
             {invalidSchedules.map((s) => (
               <span
                 key={s.id}
-                onClick={() => setEditorState({ mode: "edit", taskId: s.id })}
+                onClick={() => navigate(`/admin/tasks/${s.id}`)}
                 className="inline-flex flex-row items-center gap-1 text-[11px] text-danger cursor-pointer mr-3 underline decoration-danger/30"
               >
                 {s.title || s.prompt?.substring(0, 40) || s.id.slice(0, 8)} ({s.recurrence})
@@ -438,6 +459,7 @@ export default function TasksScreen() {
                   date={new Date(dayStr)}
                   tasks={tasks}
                   onTaskPress={handleTaskPress}
+                  onDayPress={handleDayPress}
                   compact={viewMode === "week"}
                   showHourLabels={viewMode === "day" || idx === 0}
                 />
@@ -459,15 +481,6 @@ export default function TasksScreen() {
           cloneFromId={editorCloneFromId}
           onClose={handleEditorClose}
           onSaved={handleEditorSaved}
-        />
-      )}
-      {/* Task Editor overlay (edit) */}
-      {editorState.mode === "edit" && (
-        <TaskEditor
-          taskId={editorTaskId}
-          onClose={handleEditorClose}
-          onSaved={handleEditorSaved}
-          onClone={(id) => setEditorState({ mode: "clone", cloneFromId: id })}
         />
       )}
     </div>

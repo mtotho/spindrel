@@ -36,36 +36,19 @@ function useApplyThemeClass() {
 }
 
 /**
- * Mobile-web viewport: safe-area padding + iOS keyboard handling.
+ * Mobile-web viewport: iOS keyboard handling.
  *
- * Normal state uses `position: fixed; inset: 0` so the browser sizes the
- * root element to the exact viewport — no JS/CSS measurement mismatch.
- * Only when the iOS keyboard opens do we switch to pixel-based height to
- * shrink above the keyboard.
- *
- * Meta tags (viewport-fit, apple-mobile-web-app-*, manifest, icons) are
- * all set in index.html — no JS duplication needed.
+ * Base layout (position, height, safe-area padding) is set via CSS on #root
+ * in global.css using 100dvh — this tracks the visible viewport correctly on
+ * mobile (no bottom cutoff from browser chrome). Only when the iOS keyboard
+ * opens do we override to pixel-based height so the app shrinks above the
+ * keyboard.
  */
 function useWebViewportFix() {
   useEffect(() => {
     const root = document.getElementById("root");
-    if (root) {
-      Object.assign(root.style, {
-        position: "fixed",
-        inset: "0",
-        display: "flex",
-        flexDirection: "column",
-        boxSizing: "border-box",
-        overflow: "hidden",
-        paddingTop: "env(safe-area-inset-top, 0px)",
-        paddingBottom: "env(safe-area-inset-bottom, 0px)",
-        paddingLeft: "env(safe-area-inset-left, 0px)",
-        paddingRight: "env(safe-area-inset-right, 0px)",
-      });
-    }
-
     const vv = window.visualViewport;
-    if (!vv || !root) return;
+    if (!root || !vv) return;
 
     const initialHeight = vv.height;
     let pending = false;
@@ -79,15 +62,13 @@ function useWebViewportFix() {
 
       if (isKeyboard) {
         root.style.top = vv.offsetTop + "px";
-        root.style.bottom = "auto";
         root.style.height = vv.height + "px";
         root.style.paddingBottom = "0px";
         keyboardOpen = true;
       } else if (keyboardOpen) {
-        root.style.top = "0";
-        root.style.bottom = "0";
+        root.style.top = "";
         root.style.height = "";
-        root.style.paddingBottom = "env(safe-area-inset-bottom, 0px)";
+        root.style.paddingBottom = "";
         keyboardOpen = false;
       }
     }

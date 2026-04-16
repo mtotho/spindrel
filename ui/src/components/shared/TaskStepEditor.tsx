@@ -16,9 +16,9 @@ import { LlmModelDropdown } from "./LlmModelDropdown";
 // ---------------------------------------------------------------------------
 
 const STEP_TYPES: { value: StepType; label: string; icon: typeof Terminal; color: string; bgBadge: string; nodeActive: string; borderAccent: string; cardBg: string }[] = [
-  { value: "exec", label: "Shell", icon: Terminal, color: "text-amber-600 dark:text-amber-400", bgBadge: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30", nodeActive: "bg-amber-500 text-white", borderAccent: "border-l-amber-500/50 dark:border-l-amber-400/60", cardBg: "bg-amber-500/[0.06] dark:bg-amber-400/10" },
-  { value: "tool", label: "Tool", icon: Wrench, color: "text-blue-600 dark:text-blue-400", bgBadge: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30", nodeActive: "bg-blue-500 text-white", borderAccent: "border-l-blue-500/50 dark:border-l-blue-400/60", cardBg: "bg-blue-500/[0.06] dark:bg-blue-400/10" },
-  { value: "agent", label: "LLM", icon: Bot, color: "text-purple-600 dark:text-purple-400", bgBadge: "bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30", nodeActive: "bg-purple-500 text-white", borderAccent: "border-l-purple-500/50 dark:border-l-purple-400/60", cardBg: "bg-purple-500/[0.06] dark:bg-purple-400/10" },
+  { value: "exec", label: "Shell", icon: Terminal, color: "text-amber-700 dark:text-amber-300", bgBadge: "bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700", nodeActive: "bg-amber-500 text-white", borderAccent: "border-l-amber-400 dark:border-l-amber-500", cardBg: "bg-amber-50 dark:bg-amber-950/40" },
+  { value: "tool", label: "Tool", icon: Wrench, color: "text-blue-700 dark:text-blue-300", bgBadge: "bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-700", nodeActive: "bg-blue-500 text-white", borderAccent: "border-l-blue-400 dark:border-l-blue-500", cardBg: "bg-blue-50 dark:bg-blue-950/40" },
+  { value: "agent", label: "LLM", icon: Bot, color: "text-purple-700 dark:text-purple-300", bgBadge: "bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-200 border-purple-300 dark:border-purple-700", nodeActive: "bg-purple-500 text-white", borderAccent: "border-l-purple-400 dark:border-l-purple-500", cardBg: "bg-purple-50 dark:bg-purple-950/40" },
 ];
 
 function stepMeta(type: StepType) {
