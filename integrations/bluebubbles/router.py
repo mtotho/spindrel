@@ -33,6 +33,47 @@ _echo_state_loaded: dict[str, bool] = {}
 # Set via POST /integrations/bluebubbles/pause
 _paused: bool = False
 
+# Cached owner phone number — fetched from BB server info on first webhook.
+# This is the phone number of the iMessage account running the BB server,
+# used as the sender identity for is_from_me messages.
+_owner_address: dict[str, str] = {}  # {"phone": "+1..."} or empty
+
+
+async def _fetch_owner_address(server_url: str, password: str) -> str | None:
+    """Fetch the BB server owner's primary phone number from /api/v1/server/info.
+
+    The response includes ``iMessageAliases`` — the list of phone numbers
+    and emails registered on the Mac's iMessage account. We pick the first
+    phone number (starts with ``+``) as the owner's address.
+
+    Cached in ``_owner_address`` so we only call the API once per process.
+    """
+    if "phone" in _owner_address:
+        return _owner_address["phone"]
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"{server_url}/api/v1/server/info",
+                params={"password": password},
+            )
+            r.raise_for_status()
+            data = r.json().get("data", {})
+            aliases = data.get("iMessageAliases") or []
+            for alias in aliases:
+                alias = alias.strip()
+                if alias.startswith("+"):
+                    _owner_address["phone"] = alias
+                    logger.info("BB owner phone resolved: %s", alias)
+                    return alias
+            # No phone found — cache empty so we don't retry
+            _owner_address["phone"] = ""
+            logger.warning("BB server/info returned no phone aliases: %s", aliases)
+            return ""
+    except Exception:
+        logger.debug("BB _fetch_owner_address failed", exc_info=True)
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Persistent GUID dedup — survives server restarts via DB
@@ -963,6 +1004,8 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         await shared_tracker.load_from_db()
         await _guid_dedup.load_from_db()
         await cancel_stale_pending_tasks()
+        # Fetch owner's iMessage phone from BB server (cached after first call)
+        await _fetch_owner_address(bb_settings.BLUEBUBBLES_SERVER_URL, bb_settings.BLUEBUBBLES_PASSWORD)
         _echo_state_loaded["done"] = True
 
     try:
@@ -1062,9 +1105,12 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
                         "Create a binding via Admin > Channels > Integrations tab.", client_id, chat_guid)
         return {"status": "ignored", "reason": "unbound", "client_id": client_id}
 
-    # Extract sender info
+    # Extract sender info.
+    # For is_from_me: BB doesn't include a handle (the handle is the REMOTE
+    # participant). Use the cached owner phone from /api/v1/server/info.
     handle = data.get("handle") or {}
-    sender = handle.get("address", "unknown") if not is_from_me else "me"
+    _cached_owner = _owner_address.get("phone", "")
+    sender = handle.get("address", "unknown") if not is_from_me else (_cached_owner or "unknown")
     # Sender display name is resolved per-binding below (needs binding.display_name)
 
     # Read BB credentials
@@ -1127,12 +1173,15 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
                 or (_handle_address if not is_from_me else None)
             )
         # Label used in message content so the LLM can distinguish speakers.
-        # is_from_me → "Me", otherwise → contact's display name or raw address.
+        # is_from_me → owner's phone number (from BB server/info), so the bot
+        # sees a real identity instead of the ambiguous "Me". If the user links
+        # their phone in the profile UI, downstream display resolves to their name.
+        # Non-is_from_me → contact's display name or raw address.
         # In group chats, append the address as a stable disambiguator when the
         # display name doesn't already contain it — so two participants who
         # share a first name don't blur into one identity in the agent's view.
         if is_from_me:
-            _sender_label = "Me"
+            _sender_label = _cached_owner or "unknown"
         else:
             _sender_label = sender_display or sender
             if (
@@ -1205,8 +1254,9 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         # agent context builder can attribute messages properly in group
         # chats. ``message_guid`` is included so tools (e.g. reactions)
         # can reference the specific inbound message.
+        _sender_address = handle.get("address", "unknown") if not is_from_me else (_cached_owner or "unknown")
         extra_metadata: dict = {
-            "sender_id": f"bb:{handle.get('address', 'unknown')}",
+            "sender_id": f"bb:{_sender_address}",
             "sender_type": "human",
             "is_from_me": is_from_me,
             "message_guid": data.get("guid", ""),

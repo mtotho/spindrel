@@ -15,6 +15,7 @@ interface UIState {
   fileExplorerOpen: boolean;
   fileExplorerSplit: boolean;
   hudCollapsedChannels: string[];
+  recentPages: string[];
   toggleSidebar: () => void;
   openMobileSidebar: () => void;
   closeMobileSidebar: () => void;
@@ -25,6 +26,7 @@ interface UIState {
   setFileExplorerOpen: (open: boolean) => void;
   toggleFileExplorerSplit: () => void;
   toggleHudCollapsed: (channelId: string) => void;
+  recordPageVisit: (href: string) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -37,6 +39,7 @@ export const useUIStore = create<UIState>()(
       fileExplorerOpen: false,
       fileExplorerSplit: false,
       hudCollapsedChannels: [],
+      recentPages: [],
       toggleSidebar: () =>
         set((s) => ({
           sidebarCollapsed: !s.sidebarCollapsed,
@@ -63,6 +66,10 @@ export const useUIStore = create<UIState>()(
             ? s.hudCollapsedChannels.filter((id) => id !== channelId)
             : [...s.hudCollapsedChannels, channelId],
         })),
+      recordPageVisit: (href) =>
+        set((s) => ({
+          recentPages: [href, ...s.recentPages.filter((h) => h !== href)].slice(0, 10),
+        })),
     }),
     {
       name: "spindrel-ui",
@@ -72,6 +79,7 @@ export const useUIStore = create<UIState>()(
         fileExplorerOpen: state.fileExplorerOpen,
         fileExplorerSplit: state.fileExplorerSplit,
         hudCollapsedChannels: state.hudCollapsedChannels,
+        recentPages: state.recentPages,
       }),
     },
   ),

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { DetailPanel } from "./DetailPanel";
 import { SystemPauseBanner } from "./SystemPauseBanner";
@@ -23,6 +23,14 @@ export function AppShell() {
   const anyStreaming = useChatStore(
     (s) => Object.values(s.channels).some((ch) => Object.keys(ch.turns).length > 0),
   );
+
+  // Record every page visit for command palette recents
+  const location = useLocation();
+  const recordPageVisit = useUIStore((s) => s.recordPageVisit);
+  useEffect(() => {
+    const href = location.pathname + (location.hash || "");
+    recordPageVisit(href);
+  }, [location.pathname, location.hash, recordPageVisit]);
 
   // Warn on tab close / refresh when a stream is active
   useEffect(() => {

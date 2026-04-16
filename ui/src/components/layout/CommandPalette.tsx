@@ -3,7 +3,7 @@
  * Fuzzy-searches channels, bots, admin screens, skills, and integration pages.
  */
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import ReactDOM from "react-dom";
 import {
   Search,
@@ -248,6 +248,8 @@ export function useCommandPaletteShortcut() {
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useThemeTokens();
   const navigate = useNavigate();
+  const location = useLocation();
+  const currentHref = location.pathname + (location.hash || "");
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
@@ -345,11 +347,41 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     return items;
   }, [channels, bots, sidebarData, integrationsData]);
 
+  // Recent pages from persisted store
+  const recentPages = useUIStore((s) => s.recentPages);
+  const recordPageVisit = useUIStore((s) => s.recordPageVisit);
+
   // Filter + sort by fuzzy score, preserving match indices
   const scoredResults = useMemo<ScoredItem[]>(() => {
     if (!query.trim()) {
-      // Group by category for empty state
-      return allItems.slice(0, 24).map((item) => ({ item, score: 1, matchIndices: [] }));
+      // Resolve recent hrefs to PaletteItems, skipping the current page
+      const recentItems: ScoredItem[] = [];
+      const recentHrefSet = new Set<string>();
+      for (const href of recentPages) {
+        if (recentItems.length >= 3) break;
+        if (href === currentHref) continue;
+        const match = allItems.find((it) => it.href === href);
+        if (match) {
+          recentItems.push({ item: { ...match, category: "Recent" }, score: 2, matchIndices: [] });
+          recentHrefSet.add(href);
+        }
+      }
+      // Fill remaining slots with default items, skipping those already in recents
+      const rest = allItems
+        .filter((it) => !recentHrefSet.has(it.href))
+        .slice(0, 24 - recentItems.length)
+        .map((item) => ({ item, score: 1, matchIndices: [] as number[] }));
+      return [...recentItems, ...rest];
+    }
+
+    // Build a map of recency bonuses (decaying: 15, 10, 5), skipping current page
+    const recencyBonus = new Map<string, number>();
+    let bonusSlot = 0;
+    for (const href of recentPages) {
+      if (bonusSlot >= 3) break;
+      if (href === currentHref) continue;
+      recencyBonus.set(href, 15 - bonusSlot * 5);
+      bonusSlot++;
     }
 
     return allItems
@@ -358,16 +390,17 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         const [hintScore] = item.hint ? fuzzyMatch(query, item.hint) : [0, []];
         const [catScore] = fuzzyMatch(query, item.category);
         const bestScore = Math.max(labelScore, hintScore * 0.5, catScore * 0.3);
+        const bonus = recencyBonus.get(item.href) ?? 0;
         return {
           item,
-          score: bestScore,
+          score: bestScore + bonus,
           matchIndices: labelScore >= hintScore * 0.5 ? labelIndices : [],
         };
       })
       .filter((r) => r.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 30);
-  }, [query, allItems]);
+  }, [query, allItems, recentPages, currentHref]);
 
   // Group results by category for display, then assign flatIndex in VISUAL order
   const groupedResults = useMemo(() => {
@@ -422,6 +455,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   const go = useCallback(
     (href: string) => {
+      recordPageVisit(href);
       onClose();
       closeMobileSidebar();
       const hashIdx = href.indexOf("#");
@@ -437,7 +471,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         navigate(href);
       }
     },
-    [onClose, closeMobileSidebar, navigate],
+    [onClose, closeMobileSidebar, navigate, recordPageVisit],
   );
 
   const totalCount = groupedResults.totalCount;
