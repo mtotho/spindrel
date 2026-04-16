@@ -213,13 +213,18 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
     }
   }, [text, handleChange]);
 
-  // Copy to clipboard
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { /* ignore */ }
+  // Copy to clipboard (textarea fallback for non-HTTPS)
+  const handleCopy = useCallback(() => {
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.style.position = "fixed";
+    el.style.left = "-9999px";
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand("copy");
+    document.body.removeChild(el);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }, [text]);
 
   // Format / pretty-print
@@ -283,24 +288,40 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
         <div
           ref={lineNumRef}
           aria-hidden
-          className="w-10 shrink-0 pt-4 pr-2 text-right font-mono text-[13px] leading-[1.6] text-text-dim/50 select-none pointer-events-none overflow-hidden border-r border-surface-border/30"
+          className="w-10 shrink-0 text-right text-text-dim/50 select-none pointer-events-none overflow-hidden border-r border-surface-border/30"
+          style={{
+            paddingTop: 16,
+            paddingRight: 8,
+            fontFamily: "monospace",
+            fontSize: 13,
+            lineHeight: "1.6",
+          }}
         >
           {Array.from({ length: lineCount }, (_, i) => (
             <div key={i}>{i + 1}</div>
           ))}
         </div>
 
-        {/* Code area */}
+        {/* Code area — pre and textarea MUST share identical font metrics */}
         <div className="relative flex-1 min-w-0">
           {/* Highlighted pre (background) */}
           <pre
             ref={preRef}
             aria-hidden
-            className="absolute inset-0 m-0 p-4 pl-3 font-mono text-[13px] leading-[1.6] text-text overflow-auto whitespace-pre pointer-events-none"
+            className="absolute inset-0 m-0 overflow-auto pointer-events-none"
+            style={{
+              padding: "16px 16px 16px 12px",
+              fontFamily: "monospace",
+              fontSize: 13,
+              lineHeight: "1.6",
+              whiteSpace: "pre",
+              wordWrap: "normal",
+              tabSize: 2,
+            }}
             dangerouslySetInnerHTML={{ __html: highlighted + "\n" }}
           />
 
-          {/* Textarea (foreground — invisible text) */}
+          {/* Textarea (foreground — invisible text, handles input) */}
           <textarea
             ref={textareaRef}
             value={text}
@@ -311,8 +332,19 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            className="absolute inset-0 w-full h-full m-0 p-4 pl-3 font-mono text-[13px] leading-[1.6] text-transparent caret-text bg-transparent border-none outline-none resize-none overflow-auto whitespace-pre"
-            style={{ WebkitTextFillColor: "transparent", tabSize: 2 }}
+            className="absolute inset-0 w-full h-full m-0 bg-transparent border-none outline-none resize-none caret-text"
+            style={{
+              padding: "16px 16px 16px 12px",
+              fontFamily: "monospace",
+              fontSize: 13,
+              lineHeight: "1.6",
+              color: "transparent",
+              WebkitTextFillColor: "transparent",
+              whiteSpace: "pre",
+              wordWrap: "normal",
+              overflow: "auto",
+              tabSize: 2,
+            }}
           />
         </div>
       </div>

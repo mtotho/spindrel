@@ -118,7 +118,7 @@ Spawns a child task that runs as an LLM conversation. Prior step results are aut
 | Field | Type | Description |
 |-------|------|-------------|
 | `prompt` | string | The prompt sent to the LLM. Prior results are auto-prepended |
-| `model` | string \| null | Model override (e.g. `"gpt-4o"`, `"claude-sonnet-4-20250514"`). Null = inherit from task |
+| `model` | string \| null | Model override (e.g. `"gpt-4o"`, `"claude-sonnet-4-20250514"`). Null = inherit from task. See Model Tiers below for guidance |
 | `tools` | string[] \| null | Tool names available to the agent during this step |
 | `carapaces` | string[] \| null | Capability/skill IDs to activate for this step |
 
@@ -410,6 +410,20 @@ During and after execution, each step has a corresponding entry in `step_states`
   }
 ]
 ```
+
+## Model Tiers
+
+The system defines 5 model tiers from cheapest to most capable. When choosing a `model` for an agent step, pick the tier that matches the step's complexity — don't burn frontier-tier tokens on summarization.
+
+| Tier | Use Case | Example Tasks |
+|------|----------|---------------|
+| **Free** | Zero-cost / rate-limited | Simple echo, formatting |
+| **Fast** | Trivial extraction, scanning | Summarize output, extract a field, format text |
+| **Standard** | Research, code review | Analyze logs, review diffs, search synthesis |
+| **Capable** | Multi-step reasoning | Root cause analysis, planning, complex tool use |
+| **Frontier** | Complex / high-stakes | Multi-tool orchestration, critical decisions |
+
+The actual model mapped to each tier is configured per-instance in Settings → Model Tiers. Use the Schema modal in the pipeline editor to see your instance's current mappings.
 
 ## Design Tips
 

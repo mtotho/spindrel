@@ -1,12 +1,16 @@
 /**
  * StepsSchemaModal — pipeline authoring reference with selective copy.
  *
- * Shows schema + examples in the main area, tool groups as toggleable sections.
- * "Copy for AI" includes the schema plus only the tool groups you've toggled on.
+ * Left pane: schema + examples. Right pane: toggleable sections (models, tiers,
+ * tool groups) that get appended to the copy text when checked.
  */
 import { useState, useCallback, useMemo } from "react";
 import { X, Copy, Check, HelpCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
+import { useModelGroups } from "@/src/api/hooks/useModels";
+import { apiFetch } from "@/src/api/client";
+import type { ModelGroup } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
 // Static schema (mirrors skills/pipeline_authoring.md)
@@ -116,6 +120,66 @@ Shell values auto-escaped. Tool args support templates. Unresolved templates pre
 5. Conditions > LLM judgment for branching.`;
 
 // ---------------------------------------------------------------------------
+// Tier definitions (matches ModelTiersSection)
+// ---------------------------------------------------------------------------
+
+const TIER_ORDER = ["free", "fast", "standard", "capable", "frontier"] as const;
+type TierName = (typeof TIER_ORDER)[number];
+
+const TIER_LABELS: Record<TierName, { label: string; hint: string }> = {
+  free: { label: "Free", hint: "Zero-cost / rate-limited" },
+  fast: { label: "Fast", hint: "Trivial extraction, scanning" },
+  standard: { label: "Standard", hint: "Research, code review" },
+  capable: { label: "Capable", hint: "Multi-step reasoning" },
+  frontier: { label: "Frontier", hint: "Complex / high-stakes" },
+};
+
+interface TierEntry { model: string; provider_id?: string | null }
+type TiersMap = Partial<Record<TierName, TierEntry>>;
+
+function useGlobalModelTiers() {
+  return useQuery({
+    queryKey: ["global-model-tiers"],
+    queryFn: () => apiFetch<{ tiers: TiersMap }>("/api/v1/admin/global-model-tiers"),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Text builders for copy
+// ---------------------------------------------------------------------------
+
+function buildModelsText(modelGroups: ModelGroup[]): string {
+  if (modelGroups.length === 0) return "";
+  let text = "\n\n## Available LLM Models\n\nUse exact model IDs in agent step `model` field.\n";
+  for (const group of modelGroups) {
+    text += `\n### ${group.provider_name}\n\n`;
+    for (const m of group.models) {
+      const tokens = m.max_tokens ? ` (${(m.max_tokens / 1000).toFixed(0)}k ctx)` : "";
+      text += `- ${m.id}${tokens}\n`;
+    }
+  }
+  return text;
+}
+
+function buildTiersText(tiers: TiersMap): string {
+  let text = "\n\n## Model Tiers\n\nInstead of hardcoding a model, you can select a tier appropriate to the step's complexity.\n\n";
+  text += "| Tier | Use Case | Currently Mapped To |\n";
+  text += "|------|----------|---------------------|\n";
+  for (const tier of TIER_ORDER) {
+    const meta = TIER_LABELS[tier];
+    const entry = tiers[tier];
+    const model = entry?.model ?? "(not configured)";
+    text += `| ${meta.label} | ${meta.hint} | ${model} |\n`;
+  }
+  text += "\nWhen authoring pipelines, consider which tier fits each agent step:\n";
+  text += "- Summarization, formatting → fast or standard\n";
+  text += "- Analysis, reasoning → capable\n";
+  text += "- Complex multi-tool orchestration → frontier\n";
+  return text;
+}
+
+// ---------------------------------------------------------------------------
 // Tool group helpers
 // ---------------------------------------------------------------------------
 
@@ -157,68 +221,96 @@ function toolGroupToText(group: ToolGroup): string {
 }
 
 // ---------------------------------------------------------------------------
+// Sidebar section keys
+// ---------------------------------------------------------------------------
+
+// Special keys for non-tool sections
+const KEY_MODELS = "__models__";
+const KEY_TIERS = "__tiers__";
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export function StepsSchemaModal() {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
   const { data: tools } = useTools();
+  const { data: modelGroups } = useModelGroups();
+  const { data: tiersData } = useGlobalModelTiers();
 
   const toolGroups = useMemo(() => buildToolGroups(tools ?? []), [tools]);
+  const tiers = tiersData?.tiers ?? {};
 
-  const toggleGroup = useCallback((key: string) => {
-    setSelectedGroups(prev => {
+  const toggle = useCallback((key: string) => {
+    setSelected(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   }, []);
 
-  const toggleExpanded = useCallback((key: string) => {
-    setExpandedGroups(prev => {
+  const toggleExp = useCallback((key: string) => {
+    setExpanded(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   }, []);
 
-  const selectAll = useCallback(() => {
-    setSelectedGroups(new Set(toolGroups.map(g => g.key)));
+  const allKeys = useMemo(() => {
+    const keys = [KEY_MODELS, KEY_TIERS, ...toolGroups.map(g => g.key)];
+    return keys;
   }, [toolGroups]);
 
-  const selectNone = useCallback(() => {
-    setSelectedGroups(new Set());
-  }, []);
+  const selectAll = useCallback(() => setSelected(new Set(allKeys)), [allKeys]);
+  const selectNone = useCallback(() => setSelected(new Set()), []);
 
+  // Build the copy text
   const copyText = useMemo(() => {
     let text = SCHEMA_TEXT;
-    if (selectedGroups.size > 0) {
-      text += `\n\n## Available Tools\n`;
-      for (const group of toolGroups) {
-        if (selectedGroups.has(group.key)) {
-          text += toolGroupToText(group);
-        }
+    if (selected.has(KEY_MODELS) && modelGroups) {
+      text += buildModelsText(modelGroups);
+    }
+    if (selected.has(KEY_TIERS)) {
+      text += buildTiersText(tiers);
+    }
+    const selectedToolGroups = toolGroups.filter(g => selected.has(g.key));
+    if (selectedToolGroups.length > 0) {
+      text += "\n\n## Available Tools\n";
+      for (const group of selectedToolGroups) {
+        text += toolGroupToText(group);
       }
     }
     return text;
-  }, [selectedGroups, toolGroups]);
+  }, [selected, toolGroups, modelGroups, tiers]);
 
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(copyText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { /* ignore */ }
+  const handleCopy = useCallback(() => {
+    const el = document.createElement("textarea");
+    el.value = copyText;
+    el.style.position = "fixed";
+    el.style.left = "-9999px";
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand("copy");
+    document.body.removeChild(el);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }, [copyText]);
 
-  const toolCount = selectedGroups.size > 0
-    ? toolGroups.filter(g => selectedGroups.has(g.key)).reduce((n, g) => n + g.tools.length, 0)
-    : 0;
+  // Count selected extras
+  const extraCount = useMemo(() => {
+    let count = 0;
+    if (selected.has(KEY_MODELS)) count += modelGroups?.reduce((n, g) => n + g.models.length, 0) ?? 0;
+    if (selected.has(KEY_TIERS)) count += TIER_ORDER.length;
+    count += toolGroups.filter(g => selected.has(g.key)).reduce((n, g) => n + g.tools.length, 0);
+    return count;
+  }, [selected, toolGroups, modelGroups]);
+
+  const modelCount = modelGroups?.reduce((n, g) => n + g.models.length, 0) ?? 0;
 
   return (
     <>
@@ -242,7 +334,7 @@ export function StepsSchemaModal() {
               <div className="flex flex-col gap-0.5">
                 <h3 className="text-sm font-semibold text-text m-0">Pipeline Authoring Reference</h3>
                 <span className="text-[11px] text-text-dim">
-                  Schema + examples{toolCount > 0 ? ` + ${toolCount} selected tools` : ""}
+                  Schema + examples{extraCount > 0 ? ` + ${extraCount} items selected` : ""}
                 </span>
               </div>
               <div className="flex flex-row items-center gap-2">
@@ -262,7 +354,7 @@ export function StepsSchemaModal() {
               </div>
             </div>
 
-            {/* Body — two-pane: schema left, tool picker right */}
+            {/* Body — two-pane */}
             <div className="flex flex-row flex-1 min-h-0 overflow-hidden">
               {/* Schema pane */}
               <div className="flex-1 overflow-y-auto px-5 py-4 border-r border-surface-border min-w-0">
@@ -271,76 +363,102 @@ export function StepsSchemaModal() {
                 </pre>
               </div>
 
-              {/* Tool picker pane */}
+              {/* Include pane */}
               <div className="w-[240px] shrink-0 flex flex-col overflow-hidden max-sm:hidden">
                 <div className="flex flex-row items-center justify-between px-3 py-2.5 border-b border-surface-border shrink-0">
                   <span className="text-[11px] font-semibold text-text-dim uppercase tracking-wider">
-                    Include Tools
+                    Include in Copy
                   </span>
                   <div className="flex flex-row items-center gap-1.5">
-                    <button
-                      onClick={selectAll}
-                      className="text-[10px] text-text-dim bg-transparent border-none cursor-pointer hover:text-accent transition-colors"
-                    >
-                      All
-                    </button>
+                    <button onClick={selectAll} className="text-[10px] text-text-dim bg-transparent border-none cursor-pointer hover:text-accent transition-colors">All</button>
                     <span className="text-text-dim/30 text-[10px]">|</span>
-                    <button
-                      onClick={selectNone}
-                      className="text-[10px] text-text-dim bg-transparent border-none cursor-pointer hover:text-accent transition-colors"
-                    >
-                      None
-                    </button>
+                    <button onClick={selectNone} className="text-[10px] text-text-dim bg-transparent border-none cursor-pointer hover:text-accent transition-colors">None</button>
                   </div>
                 </div>
+
                 <div className="flex-1 overflow-y-auto py-1">
-                  {toolGroups.map((group) => {
-                    const isSelected = selectedGroups.has(group.key);
-                    const isExpanded = expandedGroups.has(group.key);
-                    return (
-                      <div key={group.key}>
-                        <div className="flex flex-row items-center gap-1.5 px-3 py-1.5 hover:bg-surface-raised/50 transition-colors">
-                          <button
-                            onClick={() => toggleExpanded(group.key)}
-                            className="p-0 bg-transparent border-none cursor-pointer text-text-dim hover:text-text shrink-0"
-                          >
-                            {isExpanded
-                              ? <ChevronDown size={11} />
-                              : <ChevronRight size={11} />
-                            }
-                          </button>
-                          <label className="flex flex-row items-center gap-2 flex-1 min-w-0 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => toggleGroup(group.key)}
-                              className="accent-accent shrink-0 w-3.5 h-3.5 cursor-pointer"
-                            />
-                            <span className="text-xs text-text truncate">{group.label}</span>
-                            <span className="text-[10px] text-text-dim ml-auto shrink-0">{group.tools.length}</span>
-                          </label>
+                  {/* --- Models section --- */}
+                  <SectionHeader label="Models" />
+                  <CheckRow
+                    label="Available LLMs"
+                    count={modelCount}
+                    checked={selected.has(KEY_MODELS)}
+                    onToggle={() => toggle(KEY_MODELS)}
+                    expanded={expanded.has(KEY_MODELS)}
+                    onExpand={() => toggleExp(KEY_MODELS)}
+                  />
+                  {expanded.has(KEY_MODELS) && modelGroups && (
+                    <div className="pl-9 pr-3 pb-1">
+                      {modelGroups.map(g => (
+                        <div key={g.provider_name}>
+                          <div className="text-[10px] text-text-dim/70 font-semibold pt-1">{g.provider_name}</div>
+                          {g.models.slice(0, 10).map(m => (
+                            <div key={m.id} className="text-[10px] text-text-dim py-0.5 truncate" title={m.display}>{m.id}</div>
+                          ))}
+                          {g.models.length > 10 && (
+                            <div className="text-[10px] text-text-dim/50 py-0.5">+{g.models.length - 10} more</div>
+                          )}
                         </div>
-                        {isExpanded && (
-                          <div className="pl-9 pr-3 pb-1">
-                            {group.tools.slice(0, 20).map((t) => (
-                              <div key={t.tool_key} className="text-[10px] text-text-dim py-0.5 truncate" title={t.description ?? t.tool_name}>
-                                {t.tool_name}
-                              </div>
-                            ))}
-                            {group.tools.length > 20 && (
-                              <div className="text-[10px] text-text-dim/50 py-0.5">
-                                +{group.tools.length - 20} more
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {toolGroups.length === 0 && (
-                    <div className="px-3 py-4 text-[11px] text-text-dim text-center">
-                      No tools registered
+                      ))}
                     </div>
+                  )}
+
+                  <CheckRow
+                    label="Model Tiers"
+                    count={TIER_ORDER.length}
+                    checked={selected.has(KEY_TIERS)}
+                    onToggle={() => toggle(KEY_TIERS)}
+                    expanded={expanded.has(KEY_TIERS)}
+                    onExpand={() => toggleExp(KEY_TIERS)}
+                  />
+                  {expanded.has(KEY_TIERS) && (
+                    <div className="pl-9 pr-3 pb-1">
+                      {TIER_ORDER.map(tier => {
+                        const meta = TIER_LABELS[tier];
+                        const entry = tiers[tier];
+                        return (
+                          <div key={tier} className="text-[10px] text-text-dim py-0.5 truncate" title={meta.hint}>
+                            <span className="font-medium">{meta.label}</span>
+                            <span className="text-text-dim/50"> → {entry?.model ?? "—"}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* --- Tools section --- */}
+                  {toolGroups.length > 0 && (
+                    <>
+                      <SectionHeader label="Tools" />
+                      {toolGroups.map(group => (
+                        <div key={group.key}>
+                          <CheckRow
+                            label={group.label}
+                            count={group.tools.length}
+                            checked={selected.has(group.key)}
+                            onToggle={() => toggle(group.key)}
+                            expanded={expanded.has(group.key)}
+                            onExpand={() => toggleExp(group.key)}
+                          />
+                          {expanded.has(group.key) && (
+                            <div className="pl-9 pr-3 pb-1">
+                              {group.tools.slice(0, 20).map(t => (
+                                <div key={t.tool_key} className="text-[10px] text-text-dim py-0.5 truncate" title={t.description ?? t.tool_name}>
+                                  {t.tool_name}
+                                </div>
+                              ))}
+                              {group.tools.length > 20 && (
+                                <div className="text-[10px] text-text-dim/50 py-0.5">+{group.tools.length - 20} more</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {toolGroups.length === 0 && !modelGroups?.length && (
+                    <div className="px-3 py-4 text-[11px] text-text-dim text-center">No data loaded</div>
                   )}
                 </div>
               </div>
@@ -349,5 +467,47 @@ export function StepsSchemaModal() {
         </div>
       )}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar sub-components
+// ---------------------------------------------------------------------------
+
+function SectionHeader({ label }: { label: string }) {
+  return (
+    <div className="px-3 py-1.5 mt-1 first:mt-0">
+      <span className="text-[10px] font-bold text-text-dim/60 uppercase tracking-widest">{label}</span>
+    </div>
+  );
+}
+
+function CheckRow({ label, count, checked, onToggle, expanded, onExpand }: {
+  label: string;
+  count: number;
+  checked: boolean;
+  onToggle: () => void;
+  expanded: boolean;
+  onExpand: () => void;
+}) {
+  return (
+    <div className="flex flex-row items-center gap-1.5 px-3 py-1.5 hover:bg-surface-raised/50 transition-colors">
+      <button
+        onClick={onExpand}
+        className="p-0 bg-transparent border-none cursor-pointer text-text-dim hover:text-text shrink-0"
+      >
+        {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+      </button>
+      <label className="flex flex-row items-center gap-2 flex-1 min-w-0 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+          className="accent-accent shrink-0 w-3.5 h-3.5 cursor-pointer"
+        />
+        <span className="text-xs text-text truncate">{label}</span>
+        <span className="text-[10px] text-text-dim ml-auto shrink-0">{count}</span>
+      </label>
+    </div>
   );
 }
