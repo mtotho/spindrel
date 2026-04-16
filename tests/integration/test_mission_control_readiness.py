@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent.bots import BotConfig, KnowledgeConfig, MemoryConfig
+from app.agent.bots import BotConfig, MemoryConfig
 from tests.integration.conftest import AUTH_HEADERS
 
 pytestmark = pytest.mark.asyncio
@@ -70,7 +70,6 @@ class TestMCReadiness:
             model="test/model",
             system_prompt="You are a test bot.",
             memory=MemoryConfig(enabled=False),
-            knowledge=KnowledgeConfig(enabled=False),
             memory_scheme="workspace-files",
         )
 
@@ -116,7 +115,6 @@ class TestMCReadiness:
             model="test/model",
             system_prompt="You are a test bot.",
             memory=MemoryConfig(enabled=False),
-            knowledge=KnowledgeConfig(enabled=False),
             memory_scheme="workspace-files",
         )
 

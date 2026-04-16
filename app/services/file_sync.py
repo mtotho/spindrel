@@ -1,4 +1,4 @@
-"""File-based sync service for skills and knowledge.
+"""File-based sync service for skills.
 
 Scans structured directories on startup and via a watchfiles watcher.
 Hash-based change detection; auto-deletes orphaned DB rows.
@@ -6,10 +6,7 @@ Hash-based change detection; auto-deletes orphaned DB rows.
 Supported directories:
   skills/*.md                        → skills (source_type='file', global)
   bots/{id}/skills/*.md              → skills (source_type='file', name='bots/{id}/{stem}')
-  knowledge/*.md                     → bot_knowledge (bot_id=NULL, source_type='file')
-  bots/{id}/knowledge/*.md           → bot_knowledge (bot_id=id, source_type='file')
   integrations/{id}/skills/*.md      → skills (source_type='integration')
-  integrations/{id}/knowledge/*.md   → bot_knowledge (bot_id=NULL, source_type='integration')
   prompts/**/*.md                    → prompt_templates (source_type='file')
   integrations/{id}/prompts/**/*.md  → prompt_templates (source_type='integration')
 """
@@ -29,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.embeddings import embed_text as _embed_text, embed_batch as _embed_batch
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import BotKnowledge, Carapace as CarapaceRow, PromptTemplate, Skill as SkillRow
+from app.db.models import Carapace as CarapaceRow, PromptTemplate, Skill as SkillRow
 
 logger = logging.getLogger(__name__)
 
@@ -87,20 +84,6 @@ async def _embed_skill_from_content(skill_id: str, content: str, content_hash: s
     """Re-embed a skill row using the shared skill embedding logic."""
     from app.agent.skills import _embed_skill_row
     await _embed_skill_row(skill_id, content, content_hash)
-
-
-async def _embed_knowledge_row(row: BotKnowledge) -> None:
-    """Compute embedding for a knowledge row and update it."""
-    try:
-        emb = await _embed_text(row.content)
-        async with async_session() as db:
-            r = await db.get(BotKnowledge, row.id)
-            if r:
-                r.embedding = emb
-                r.updated_at = datetime.now(timezone.utc)
-                await db.commit()
-    except Exception:
-        logger.exception("Failed to embed knowledge row '%s'", row.name)
 
 
 def _integration_dirs() -> list[Path]:
@@ -199,47 +182,6 @@ def _collect_skill_files() -> list[tuple[Path, str, str]]:
                         # carapaces) so skill IDs are stable across installs
                         skill_id = f"carapaces/{c_dir.name}/{p.stem}"
                         items.append((p, skill_id, SOURCE_INTEGRATION))
-
-    return items
-
-
-def _collect_knowledge_files() -> list[tuple[Path, str, str | None, str]]:
-    """Return (path, name, bot_id_or_none, source_type) for all discoverable knowledge .md files."""
-    items: list[tuple[Path, str, str | None, str]] = []
-
-    # knowledge/*.md (global, cross-bot)
-    knowledge_dir = Path("knowledge")
-    if knowledge_dir.is_dir():
-        for p in sorted(knowledge_dir.glob("*.md")):
-            items.append((p, p.stem, None, SOURCE_FILE))
-
-    # bots/{id}/knowledge/*.md
-    bots_dir = Path("bots")
-    if bots_dir.is_dir():
-        for bot_dir in sorted(bots_dir.iterdir()):
-            if not bot_dir.is_dir():
-                continue
-            bot_knowledge = bot_dir / "knowledge"
-            if bot_knowledge.is_dir():
-                for p in sorted(bot_knowledge.glob("*.md")):
-                    items.append((p, p.stem, bot_dir.name, SOURCE_FILE))
-
-    # integrations/*/knowledge/*.md (in-repo + external)
-    try:
-        from app.services.integration_settings import inactive_integration_ids
-        _inactive_k = inactive_integration_ids()
-    except Exception:
-        _inactive_k = set()
-    for integrations_dir in _integration_dirs():
-        if not integrations_dir.is_dir():
-            continue
-        for intg_dir in sorted(integrations_dir.iterdir()):
-            if not intg_dir.is_dir() or intg_dir.name in _inactive_k:
-                continue
-            intg_knowledge = intg_dir / "knowledge"
-            if intg_knowledge.is_dir():
-                for p in sorted(intg_knowledge.glob("*.md")):
-                    items.append((p, p.stem, None, SOURCE_INTEGRATION))
 
     return items
 
@@ -394,79 +336,6 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                 f"Found 0 files on disk but {existing_count} file-sourced skills in DB — "
                 f"skipping orphan deletion (possible mount issue, cwd={cwd})"
             )
-
-    # --- Knowledge ---
-    knowledge_files = _collect_knowledge_files()
-    seen_knowledge_paths: set[str] = set()
-
-    for path, name, bot_id, source_type in knowledge_files:
-        source_path = str(path.resolve())
-        seen_knowledge_paths.add(source_path)
-        try:
-            raw = path.read_text(encoding="utf-8")
-        except Exception:
-            logger.exception("Cannot read knowledge file %s", path)
-            continue
-
-        content_hash = _sha256(raw)
-
-        async with async_session() as session:
-            stmt = select(BotKnowledge).where(
-                BotKnowledge.source_path == source_path,
-                BotKnowledge.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION]),
-            )
-            existing = (await session.execute(stmt)).scalar_one_or_none()
-
-            if existing is None:
-                # Create new row (no session_id, no client_id — global)
-                row = BotKnowledge(
-                    name=name,
-                    content=raw,
-                    bot_id=bot_id,
-                    client_id=None,
-                    session_id=None,
-                    created_by_bot="file_sync",
-                    source_path=source_path,
-                    source_type=source_type,
-                    editable_from_tool=False,
-                    updated_at=datetime.now(timezone.utc),
-                )
-                session.add(row)
-                await session.flush()
-                try:
-                    row.embedding = await _embed_text(raw)
-                except Exception:
-                    logger.exception("Failed to embed knowledge '%s'", name)
-                await session.commit()
-                counts["added"] += 1
-                logger.info("file_sync: added knowledge '%s' from %s", name, path)
-            elif existing.content != raw:
-                existing.content = raw
-                existing.name = name
-                existing.bot_id = bot_id
-                existing.source_type = source_type
-                existing.editable_from_tool = False
-                existing.updated_at = datetime.now(timezone.utc)
-                try:
-                    existing.embedding = await _embed_text(raw)
-                except Exception:
-                    logger.exception("Failed to re-embed knowledge '%s'", name)
-                await session.commit()
-                counts["updated"] += 1
-                logger.info("file_sync: updated knowledge '%s' from %s", name, path)
-
-    # Delete orphaned file/integration knowledge rows
-    async with async_session() as session:
-        stmt = select(BotKnowledge).where(
-            BotKnowledge.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
-        )
-        all_file_knowledge = list((await session.execute(stmt)).scalars().all())
-        for row in all_file_knowledge:
-            if row.source_path not in seen_knowledge_paths:
-                await session.delete(row)
-                counts["deleted"] += 1
-                logger.info("file_sync: deleted orphaned knowledge '%s'", row.name)
-        await session.commit()
 
     # --- Prompt Templates ---
     template_files = _collect_prompt_template_files()
@@ -796,11 +665,6 @@ async def sync_changed_file(path: Path) -> None:
             rows = list((await session.execute(stmt)).scalars().all())
             for row in rows:
                 await session.delete(row)
-            # Knowledge
-            stmt2 = select(BotKnowledge).where(BotKnowledge.source_path == path_str)
-            rows2 = list((await session.execute(stmt2)).scalars().all())
-            for row in rows2:
-                await session.delete(row)
             # Prompt templates
             stmt3 = select(PromptTemplate).where(PromptTemplate.source_path == path_str)
             rows3 = list((await session.execute(stmt3)).scalars().all())
@@ -882,44 +746,6 @@ async def sync_changed_file(path: Path) -> None:
                 await session.commit()
                 logger.info("file_sync(watch): updated skill '%s'", skill_id)
                 await _embed_skill_from_content(skill_id, raw, content_hash)
-    elif kind == "knowledge":
-        name = skill_id_or_name
-        async with async_session() as session:
-            stmt = select(BotKnowledge).where(
-                BotKnowledge.source_path == path_str,
-                BotKnowledge.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION]),
-            )
-            existing = (await session.execute(stmt)).scalar_one_or_none()
-            if existing is None:
-                row = BotKnowledge(
-                    name=name,
-                    content=raw,
-                    bot_id=bot_id,
-                    client_id=None,
-                    session_id=None,
-                    created_by_bot="file_sync",
-                    source_path=path_str,
-                    source_type=source_type,
-                    editable_from_tool=False,
-                    updated_at=datetime.now(timezone.utc),
-                )
-                session.add(row)
-                await session.flush()
-                try:
-                    row.embedding = await _embed_text(raw)
-                except Exception:
-                    logger.exception("Failed to embed knowledge '%s'", name)
-                await session.commit()
-                logger.info("file_sync(watch): added knowledge '%s'", name)
-            elif existing.content != raw:
-                existing.content = raw
-                existing.updated_at = datetime.now(timezone.utc)
-                try:
-                    existing.embedding = await _embed_text(raw)
-                except Exception:
-                    logger.exception("Failed to re-embed knowledge '%s'", name)
-                await session.commit()
-                logger.info("file_sync(watch): updated knowledge '%s'", name)
     elif kind == "prompt_template":
         name = skill_id_or_name
         meta, _ = _parse_frontmatter(raw)
@@ -1094,18 +920,6 @@ def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
         skill_id = f"integrations/{parts[1]}/{Path(parts[3]).stem}"
         return ("skill", skill_id, None, SOURCE_INTEGRATION)
 
-    # knowledge/*.md
-    if len(parts) == 2 and parts[0] == "knowledge" and parts[1].endswith(".md"):
-        return ("knowledge", Path(parts[1]).stem, None, SOURCE_FILE)
-
-    # bots/{id}/knowledge/*.md
-    if len(parts) == 4 and parts[0] == "bots" and parts[2] == "knowledge" and parts[3].endswith(".md"):
-        return ("knowledge", Path(parts[3]).stem, parts[1], SOURCE_FILE)
-
-    # integrations/{id}/knowledge/*.md
-    if len(parts) == 4 and parts[0] == "integrations" and parts[2] == "knowledge" and parts[3].endswith(".md"):
-        return ("knowledge", Path(parts[3]).stem, None, SOURCE_INTEGRATION)
-
     # prompts/**/*.md (recursive — supports category subfolders)
     if len(parts) >= 2 and parts[0] == "prompts" and parts[-1].endswith(".md"):
         return ("prompt_template", Path(parts[-1]).stem, None, SOURCE_FILE)
@@ -1168,7 +982,7 @@ async def watch_files() -> None:
     backoff = 1.0
     while True:
         watch_dirs: list[str] = []
-        for d in ["skills", "knowledge", "bots", "integrations", "packages", "prompts", "carapaces", "workflows"]:
+        for d in ["skills", "bots", "integrations", "packages", "prompts", "carapaces", "workflows"]:
             p = Path(d)
             if p.exists():
                 watch_dirs.append(str(p))

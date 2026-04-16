@@ -188,14 +188,13 @@ class TestParseExecResult:
 class TestRunInContainer:
 
     def _make_bot(self, **overrides):
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         defaults = dict(
             id="test_bot",
             name="Test Bot",
             model="gpt-4",
             system_prompt="You are a test bot.",
             memory=MemoryConfig(),
-            knowledge=KnowledgeConfig(),
         )
         defaults.update(overrides)
         return BotConfig(**defaults)
@@ -376,12 +375,12 @@ class TestWorkspaceToSandboxConfig:
     """Test the workspace_to_sandbox_config standalone function."""
 
     def _make_bot(self, *, shared_workspace_id=None, mounts=None, image="node:20"):
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, WorkspaceConfig, WorkspaceDockerConfig
+        from app.agent.bots import BotConfig, MemoryConfig, WorkspaceConfig, WorkspaceDockerConfig
         docker_cfg = WorkspaceDockerConfig(image=image, mounts=mounts or [])
         ws_cfg = WorkspaceConfig(enabled=True, type="docker", docker=docker_cfg)
         return BotConfig(
             id="test_bot", name="Test", model="gpt-4",
-            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            system_prompt="test", memory=MemoryConfig(),
             workspace=ws_cfg,
             shared_workspace_id=shared_workspace_id,
         )

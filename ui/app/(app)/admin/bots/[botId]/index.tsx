@@ -4,6 +4,7 @@ import { Spinner } from "@/src/components/shared/Spinner";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { AlertTriangle, Save, Search, Trash2, X } from "lucide-react";
 import { useBotEditorData, useUpdateBot, useCreateBot, useDeleteBot } from "@/src/api/hooks/useBots";
+import { useSettings } from "@/src/api/hooks/useSettings";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { CarapacesSection } from "./CarapacesSection";
@@ -17,7 +18,7 @@ import {
 } from "@/src/components/shared/FormControls";
 import type { BotConfig, BotEditorData } from "@/src/types/api";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { MemorySection, KnowledgeSection } from "./MemoryKnowledgeSections";
+import { MemorySection } from "./MemoryKnowledgeSections";
 import { SECTIONS, SECTION_KEYS, MOBILE_NAV_BREAKPOINT, type SectionKey } from "./constants";
 import { BigTextarea } from "./BigTextarea";
 import { SectionNav } from "./SectionNav";
@@ -59,6 +60,20 @@ export default function BotEditorScreen() {
   const [deleteChannelWarning, setDeleteChannelWarning] = useState<string | null>(null);
   const deleteMutation = useDeleteBot();
 
+  // Global settings — used to show inherited values in attachment fields
+  const { data: settingsData } = useSettings();
+  const globalAttach = useMemo(() => {
+    if (!settingsData) return { enabled: true, model: "", maxChars: "40000", concurrency: "3" };
+    const all = settingsData.groups.flatMap((g) => g.settings);
+    const get = (key: string) => all.find((s) => s.key === key);
+    return {
+      enabled: get("ATTACHMENT_SUMMARY_ENABLED")?.value ?? true,
+      model: String(get("ATTACHMENT_SUMMARY_MODEL")?.value ?? ""),
+      maxChars: String(get("ATTACHMENT_TEXT_MAX_CHARS")?.value ?? "40000"),
+      concurrency: String(get("ATTACHMENT_VISION_CONCURRENCY")?.value ?? "3"),
+    };
+  }, [settingsData]);
+
   useEffect(() => {
     if (editorData?.bot && !draft) {
       setDraft({ ...editorData.bot });
@@ -78,7 +93,6 @@ export default function BotEditorScreen() {
     if (!draft) return;
     const payload: any = { ...draft };
     if (draft.memory) { payload.memory_config = draft.memory; delete payload.memory; }
-    if (draft.knowledge) { payload.knowledge_config = draft.knowledge; delete payload.knowledge; }
     if (!isNew) { delete payload.id; }
     delete payload.created_at; delete payload.updated_at;
     for (const key of Object.keys(payload)) { if (payload[key] === undefined) delete payload[key]; }
@@ -109,7 +123,6 @@ export default function BotEditorScreen() {
       learning: ["learning", "authored", "surfac", "knowledge"],
       carapaces: ["capability", "carapace", "bundle", "expert"],
       memory: ["memory", "cross", "channel"],
-      knowledge: ["knowledge"],
       attachments: ["attachment", "summarization", "vision"],
       workspace: ["workspace", "docker", "host", "exec", "sandbox", "index", "command", "port", "mount"],
       delegation: ["delegat", "bot"],
@@ -443,15 +456,12 @@ export default function BotEditorScreen() {
             <MemorySection draft={draft} update={update} botId={botId} />
           )}
 
-          {activeSection === "knowledge" && (
-            <KnowledgeSection />
-          )}
 
           {activeSection === "attachments" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Attachment Summarization</div>
               <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
-                When enabled, incoming attachments are eagerly summarized before the agent loop begins.
+                Pre-processes incoming attachments before the agent loop begins.
                 Override the global defaults here, or{" "}
                 <a href="/settings#Attachments" style={{ color: t.accent, textDecoration: "none" }}>
                   edit global attachment settings &rarr;
@@ -462,12 +472,27 @@ export default function BotEditorScreen() {
                 background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6, padding: 14,
                 display: "flex", flexDirection: "column", gap: 6,
               }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Processing Pipeline</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>How It Works</div>
                 <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
-                  <strong style={{ color: t.text }}>Images</strong> are sent to the vision/summary model and replaced with
-                  a text description. <strong style={{ color: t.text }}>Text files</strong> (code, markdown, PDF text, etc.)
-                  are extracted and truncated to the max-chars limit. Multiple vision requests run concurrently up to
-                  the concurrency cap. All summarization happens before the first LLM call.
+                  <strong style={{ color: t.text }}>Images</strong> are sent to the summary model below to generate a short
+                  text description, which is stored with the attachment. <strong style={{ color: t.text }}>Text files</strong>{" "}
+                  (code, markdown, PDF text, etc.) are extracted and truncated to the max-chars limit. Multiple
+                  vision requests run concurrently up to the concurrency cap. All summarization happens before
+                  the first LLM call.
+                </div>
+              </div>
+
+              <div style={{
+                background: `rgb(var(--color-accent) / 0.06)`, border: `1px solid rgb(var(--color-accent) / 0.15)`, borderRadius: 6, padding: 14,
+                display: "flex", flexDirection: "column", gap: 6,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Interaction with Agent Vision</div>
+                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
+                  This is <strong style={{ color: t.text }}>separate from the bot&apos;s own vision capability</strong>.
+                  If the bot&apos;s model supports vision, the raw image is sent directly to the model as a native
+                  image input — the model sees the actual pixels. The pre-generated summary is included alongside
+                  it as additional context. If the model does <em>not</em> support vision, the summary is the only
+                  way the model can understand the image.
                 </div>
               </div>
 
@@ -477,7 +502,7 @@ export default function BotEditorScreen() {
               }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Supported Types</div>
                 <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.7, fontFamily: "monospace" }}>
-                  <div><span style={{ color: "#6b9" }}>Images</span> — JPEG, PNG, GIF, WebP (sent to vision model)</div>
+                  <div><span style={{ color: "#6b9" }}>Images</span> — JPEG, PNG, GIF, WebP (summarized + sent natively if model has vision)</div>
                   <div><span style={{ color: "#6b9" }}>Text</span> — .txt, .md, .csv, .json, .py, .js, .ts, etc. (extracted &amp; truncated)</div>
                   <div><span style={{ color: "#6b9" }}>PDF</span> — text extracted, then truncated to max-chars</div>
                   <div><span style={{ color: "#e66" }}>Audio/Video</span> — not supported (ignored)</div>
@@ -499,17 +524,17 @@ export default function BotEditorScreen() {
               <SelectInput
                 value={draft.attachment_summarization_enabled === true ? "true" : draft.attachment_summarization_enabled === false ? "false" : ""}
                 onChange={(v) => update({ attachment_summarization_enabled: v === "true" ? true : v === "false" ? false : null })}
-                options={[{ label: "Inherit (default)", value: "" }, { label: "Enabled", value: "true" }, { label: "Disabled", value: "false" }]}
+                options={[{ label: `Inherit (${globalAttach.enabled ? "Enabled" : "Disabled"})`, value: "" }, { label: "Enabled", value: "true" }, { label: "Disabled", value: "false" }]}
                 style={{ maxWidth: 300 }}
               />
               <Row>
                 <Col>
-                  <FormRow label="Vision / Summary Model">
+                  <FormRow label="Summary Model">
                     <LlmModelDropdown
                       value={draft.attachment_summary_model ?? ""}
                       selectedProviderId={draft.attachment_summary_model_provider_id ?? undefined}
                       onChange={(v, pid) => update({ attachment_summary_model: v || undefined, attachment_summary_model_provider_id: pid ?? undefined })}
-                      placeholder="inherit"
+                      placeholder={globalAttach.model ? `inherit (${globalAttach.model.split("/").pop()})` : "inherit"}
                       allowClear
                     />
                   </FormRow>
@@ -517,14 +542,14 @@ export default function BotEditorScreen() {
                 <Col>
                   <FormRow label="Text Max Chars">
                     <TextInput value={String(draft.attachment_text_max_chars ?? "")}
-                      onChangeText={(v) => update({ attachment_text_max_chars: v ? parseInt(v) : null })} placeholder="40000" type="number" />
+                      onChangeText={(v) => update({ attachment_text_max_chars: v ? parseInt(v) : null })} placeholder={globalAttach.maxChars} type="number" />
                   </FormRow>
                 </Col>
               </Row>
               <div style={{ maxWidth: 300 }}>
-                <FormRow label="Vision Concurrency">
+                <FormRow label="Summary Concurrency">
                   <TextInput value={String(draft.attachment_vision_concurrency ?? "")}
-                    onChangeText={(v) => update({ attachment_vision_concurrency: v ? parseInt(v) : null })} placeholder="3" type="number" />
+                    onChangeText={(v) => update({ attachment_vision_concurrency: v ? parseInt(v) : null })} placeholder={globalAttach.concurrency} type="number" />
                 </FormRow>
               </div>
             </div>

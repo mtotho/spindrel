@@ -15,11 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models import (
-    BotKnowledge,
     Channel,
     ConversationSection,
-    KnowledgeAccess,
-    Memory,
     Message,
     Session,
 )
@@ -280,25 +277,6 @@ async def compute_context_breakdown(
             key="delegation_index", label="Delegation Index", chars=dele_chars,
             tokens_approx=0, percentage=0, category="rag",
             description=f"{len(bot.delegate_bots)} delegatable bot(s)",
-        ))
-
-    # Memory RAG — DEPRECATED (DB memory no longer in use)
-    # Knowledge RAG — DEPRECATED (DB knowledge no longer in use)
-
-    # Pinned knowledge
-    pinned_k_count = (await db.execute(
-        select(func.count()).select_from(KnowledgeAccess)
-        .where(
-            KnowledgeAccess.scope_type == "channel",
-            KnowledgeAccess.scope_key == str(channel_id),
-            KnowledgeAccess.mode == "pinned",
-        )
-    )).scalar_one()
-    if pinned_k_count:
-        categories.append(ContextCategory(
-            key="knowledge_pinned", label="Pinned Knowledge", chars=pinned_k_count * 2000,
-            tokens_approx=0, percentage=0, category="rag",
-            description=f"{pinned_k_count} pinned knowledge doc(s)",
         ))
 
     # Channel workspace active files (injected every turn as static context)
@@ -585,7 +563,6 @@ async def compute_context_breakdown(
             settings.COMPACTION_KEEP_TURNS, "compaction_keep_turns",
         ),
         "memory_enabled": EffectiveSetting(value=False, source="deprecated"),
-        "knowledge_enabled": EffectiveSetting(value=False, source="deprecated"),
         "max_iterations": _resolve_setting(
             channel.max_iterations, None, settings.AGENT_MAX_ITERATIONS, "max_iterations",
         ),

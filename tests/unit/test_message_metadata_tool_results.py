@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.bots import BotConfig, MemoryConfig
 from app.db.models import Message, Session
 from app.services.sessions import persist_turn
 from tests.integration.conftest import engine, db_session  # noqa: F401
@@ -26,7 +26,6 @@ def bot():
         model="test/model",
         system_prompt="You are a test bot.",
         memory=MemoryConfig(enabled=False),
-        knowledge=KnowledgeConfig(enabled=False),
     )
 
 

@@ -285,10 +285,10 @@ class TestRunTask:
         mock_dispatcher = MagicMock()
         mock_dispatcher.deliver = AsyncMock()
 
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         bot = BotConfig(
             id="test_bot", name="Test", model="gpt-4",
-            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            system_prompt="test", memory=MemoryConfig(),
         )
 
         with patch("app.agent.tasks.async_session", return_value=cm), \
@@ -319,10 +319,10 @@ class TestRunTask:
         mock_dispatcher = MagicMock()
         mock_dispatcher.deliver = AsyncMock()
 
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         bot = BotConfig(
             id="test_bot", name="Test", model="gpt-4",
-            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            system_prompt="test", memory=MemoryConfig(),
         )
 
         with patch("app.agent.tasks.async_session", return_value=cm), \
@@ -347,10 +347,10 @@ class TestRunTask:
         task = self._make_task()
         cm, db = self._mock_db_session(task)
 
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         bot = BotConfig(
             id="test_bot", name="Test", model="gpt-4",
-            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            system_prompt="test", memory=MemoryConfig(),
         )
 
         with patch("app.agent.tasks.async_session", return_value=cm), \
@@ -372,10 +372,10 @@ class TestRunTask:
         task = self._make_task(retry_count=0)
         cm, db = self._mock_db_session(task)
 
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         bot = BotConfig(
             id="test_bot", name="Test", model="gpt-4",
-            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            system_prompt="test", memory=MemoryConfig(),
         )
 
         rate_err = openai.RateLimitError(
@@ -434,10 +434,10 @@ class TestRunTask:
         mock_dispatcher = MagicMock()
         mock_dispatcher.deliver = AsyncMock()
 
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         bot = BotConfig(
             id="test_bot", name="Test", model="gpt-4",
-            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            system_prompt="test", memory=MemoryConfig(),
         )
 
         with patch("app.agent.tasks.async_session", return_value=cm), \
@@ -469,10 +469,10 @@ class TestRunTask:
         mock_dispatcher = MagicMock()
         mock_dispatcher.deliver = AsyncMock()
 
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         bot = BotConfig(
             id="test_bot", name="Test", model="gpt-4",
-            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            system_prompt="test", memory=MemoryConfig(),
         )
 
         with patch("app.agent.tasks.async_session", return_value=cm), \

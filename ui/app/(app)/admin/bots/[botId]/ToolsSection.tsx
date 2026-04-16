@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useSettings } from "@/src/api/hooks/useSettings";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { Search, X, Info, AlertTriangle, Plus, Pin } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -778,6 +779,20 @@ export function ToolsSection({
 }) {
   const t = useThemeTokens();
 
+  // Global settings — show inherited values in tool result summarization fields
+  const { data: settingsData } = useSettings();
+  const globalToolSum = useMemo(() => {
+    if (!settingsData) return { enabled: true, threshold: "3000", model: "", maxTokens: "300" };
+    const all = settingsData.groups.flatMap((g) => g.settings);
+    const get = (key: string) => all.find((s) => s.key === key);
+    return {
+      enabled: get("TOOL_RESULT_SUMMARIZE_ENABLED")?.value ?? true,
+      threshold: String(get("TOOL_RESULT_SUMMARIZE_THRESHOLD")?.value ?? "3000"),
+      model: String(get("TOOL_RESULT_SUMMARIZE_MODEL")?.value ?? ""),
+      maxTokens: String(get("TOOL_RESULT_SUMMARIZE_MAX_TOKENS")?.value ?? "300"),
+    };
+  }, [settingsData]);
+
   const retrieval = draft.tool_retrieval ?? true;
   const discovery = retrieval && (draft.tool_discovery ?? true);
 
@@ -882,7 +897,7 @@ export function ToolsSection({
                   update({ tool_result_config: trc });
                 }}
                 options={[
-                  { label: "Inherit global", value: "" },
+                  { label: `Inherit (${globalToolSum.enabled ? "On" : "Off"})`, value: "" },
                   { label: "Force on", value: "true" },
                   { label: "Force off", value: "false" },
                 ]}
@@ -893,7 +908,7 @@ export function ToolsSection({
                 <TextInput
                   value={String((draft.tool_result_config as any)?.threshold ?? "")}
                   onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, threshold: v ? parseInt(v) : undefined } })}
-                  placeholder="global (3000)" type="number"
+                  placeholder={`inherit (${globalToolSum.threshold})`} type="number"
                 />
               </FormRow>
             </Col>
@@ -902,7 +917,7 @@ export function ToolsSection({
                 <LlmModelDropdown
                   value={(draft.tool_result_config as any)?.model ?? ""}
                   onChange={(v) => update({ tool_result_config: { ...draft.tool_result_config, model: v || undefined } })}
-                  placeholder="global model"
+                  placeholder={globalToolSum.model ? `inherit (${globalToolSum.model.split("/").pop()})` : "inherit"}
                 />
               </FormRow>
             </Col>
@@ -911,7 +926,7 @@ export function ToolsSection({
                 <TextInput
                   value={String((draft.tool_result_config as any)?.max_tokens ?? "")}
                   onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, max_tokens: v ? parseInt(v) : undefined } })}
-                  placeholder="global (300)" type="number"
+                  placeholder={`inherit (${globalToolSum.maxTokens})`} type="number"
                 />
               </FormRow>
             </Col>

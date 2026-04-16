@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent.bots import BotConfig, KnowledgeConfig, MemoryConfig, WorkspaceConfig, WorkspaceIndexingConfig, IndexSegment
+from app.agent.bots import BotConfig, MemoryConfig, WorkspaceConfig, WorkspaceIndexingConfig, IndexSegment
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ def _bot(
     )
     defaults = dict(
         id=bot_id, name="Test", model="gpt-4", system_prompt="Test.",
-        memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+        memory=MemoryConfig(),
         workspace=WorkspaceConfig(enabled=True, indexing=idx),
         memory_scheme=memory_scheme,
         shared_workspace_id=shared_workspace_id,

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.agent.bots import (
-    BotConfig, KnowledgeConfig, MemoryConfig,
+    BotConfig, MemoryConfig,
     WorkspaceConfig, WorkspaceIndexingConfig,
 )
 from app.services.memory_search import hybrid_memory_search
@@ -23,7 +23,7 @@ def _bot(
     )
     return BotConfig(
         id=bot_id, name="Test", model="gpt-4", system_prompt="You are helpful.",
-        memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+        memory=MemoryConfig(),
         memory_scheme=memory_scheme,
         workspace=ws,
         _workspace_raw=_workspace_raw or {},

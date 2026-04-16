@@ -52,9 +52,8 @@ async def diagnostics_indexing(
     }
 
     # --- 2. File-sourced skills ---
-    from app.services.file_sync import _collect_skill_files, _collect_knowledge_files
+    from app.services.file_sync import _collect_skill_files
     skill_files = _collect_skill_files()
-    knowledge_files = _collect_knowledge_files()
     db_skill_count = (await db.execute(select(func.count()).select_from(SkillRow))).scalar_one()
     db_file_skills = (await db.execute(
         select(func.count()).select_from(SkillRow).where(SkillRow.source_type == "file")
@@ -69,7 +68,6 @@ async def diagnostics_indexing(
         "skills_in_db_total": db_skill_count,
         "skills_in_db_file_sourced": db_file_skills,
         "skill_document_chunks": skill_doc_count,
-        "knowledge_files_on_disk": len(knowledge_files),
     }
 
     # --- 3. Filesystem indexing (per bot) ---

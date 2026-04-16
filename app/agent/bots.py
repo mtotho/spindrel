@@ -34,12 +34,6 @@ class MemoryConfig:
     wipe_on_session_delete: bool = False
 
 @dataclass
-class KnowledgeConfig:
-    """DEPRECATED — DB knowledge is no longer in use. Use skills/carapaces instead."""
-    enabled: bool = False
-
-
-@dataclass
 class SkillConfig:
     id: str
     mode: str = "on_demand"          # kept for backward compat parsing, ignored at runtime
@@ -179,7 +173,6 @@ class BotConfig:
     compaction_prompt_template_id: str | None = None
     audio_input: str = "transcribe"  # "transcribe" or "native"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
-    knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
     filesystem_indexes: list[FilesystemIndexConfig] = field(default_factory=list)
     docker_sandbox_profiles: list[str] = field(default_factory=list)
     docker_stacks: DockerStackConfig = field(default_factory=DockerStackConfig)
@@ -193,7 +186,6 @@ class BotConfig:
     # None values inherit from global TOOL_RESULT_SUMMARIZE_* settings.
     tool_result_config: dict = field(default_factory=dict)
     # Per-bot RAG injection limits (chars per item). None = use global settings.
-    knowledge_max_inject_chars: int | None = None
     memory_max_inject_chars: int | None = None
     # Delegation
     delegate_bots: list[str] = field(default_factory=list)   # allowed bot_ids for delegation
@@ -297,10 +289,9 @@ def _parse_docker_stacks_config(raw: dict) -> DockerStackConfig:
 
 def _bot_row_to_config(row: BotRow) -> BotConfig:
     """Convert a DB BotRow to a BotConfig dataclass."""
-    # MemoryConfig and KnowledgeConfig are DEPRECATED — always use defaults.
-    # DB columns memory_config/knowledge_config are ignored.
+    # MemoryConfig is DEPRECATED — always use defaults.
+    # DB column memory_config is ignored.
     memory_cfg = MemoryConfig()
-    knowledge_cfg = KnowledgeConfig()
     fs_raw = row.filesystem_indexes or []
     filesystem_indexes = [
         FilesystemIndexConfig(
@@ -438,7 +429,6 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         compaction_prompt_template_id=str(row.compaction_prompt_template_id) if getattr(row, "compaction_prompt_template_id", None) else None,
         audio_input=row.audio_input or "transcribe",
         memory=memory_cfg,
-        knowledge=knowledge_cfg,
         filesystem_indexes=filesystem_indexes,
         docker_sandbox_profiles=row.docker_sandbox_profiles or [],
         docker_stacks=_parse_docker_stacks_config(getattr(row, "docker_stacks_config", None) or {}),
@@ -448,7 +438,6 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         avatar_url=row.avatar_url,
         integration_config=row.integration_config or {},
         tool_result_config=row.tool_result_config or {},
-        knowledge_max_inject_chars=row.knowledge_max_inject_chars,
         memory_max_inject_chars=row.memory_max_inject_chars,
         delegate_bots=list(row.delegation_config.get("delegate_bots", [])) if row.delegation_config else [],
         cross_workspace_access=bool(row.delegation_config.get("cross_workspace_access", False)) if row.delegation_config else False,
@@ -535,7 +524,6 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "compaction_prompt_template_id": data.get("compaction_prompt_template_id"),
         "audio_input": data.get("audio_input", "transcribe"),
         "memory_config": {},  # DEPRECATED — ignored at load time
-        "knowledge_config": {},  # DEPRECATED — ignored at load time
         "filesystem_indexes": data.get("filesystem_indexes", []),
         "host_exec_config": _parse_host_exec_yaml(data.get("host_exec", {})),
         "filesystem_access": [
@@ -546,7 +534,6 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "avatar_url": data.get("avatar_url"),
         "integration_config": data.get("integration_config", {}),
         "tool_result_config": data.get("tool_result_config", {}),
-        "knowledge_max_inject_chars": data.get("knowledge_max_inject_chars"),
         "memory_max_inject_chars": data.get("memory_max_inject_chars"),
         "delegation_config": {
             "delegate_bots": data.get("delegate_bots", []),
@@ -742,7 +729,6 @@ async def ensure_default_bot() -> None:
             "context_compaction": True,
             "audio_input": "transcribe",
             "memory_config": {},
-            "knowledge_config": {},
             "filesystem_indexes": [],
             "host_exec_config": {},
             "filesystem_access": [],

@@ -433,40 +433,6 @@ class IntegrationDocument(Base):
     )
 
 
-class Memory(Base):
-    __tablename__ = "memories"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    session_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("sessions.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    channel_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("channels.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    client_id: Mapped[str] = mapped_column(Text, nullable=False)
-    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS))
-    message_range_start: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True
-    )
-    message_range_end: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True
-    )
-    message_count: Mapped[int | None] = mapped_column(nullable=True)
-    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=text("now()"),
-    )
-
-
 class BotPersona(Base):
     __tablename__ = "bot_personas"
 
@@ -502,38 +468,6 @@ class ToolEmbedding(Base):
     __table_args__ = (
         Index("ix_tool_embeddings_server_name", "server_name"),
     )
-
-
-class BotKnowledge(Base):
-    __tablename__ = "bot_knowledge"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(Text, nullable=False)        # "project_xyz", "home_network"
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS))
-    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)    # NULL = cross-bot
-    client_id: Mapped[str | None] = mapped_column(Text, nullable=True) # NULL = cross-client
-    session_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("sessions.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    created_by_bot: Mapped[str] = mapped_column(Text, nullable=False)
-    similarity_threshold: Mapped[float | None] = mapped_column(nullable=True)
-    source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'tool'"))
-    editable_from_tool: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-
-
-class KnowledgePin(Base):
-    __tablename__ = "knowledge_pins"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    knowledge_name: Mapped[str] = mapped_column(Text, nullable=False)
-    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)    # NULL = any bot
-    client_id: Mapped[str | None] = mapped_column(Text, nullable=True) # NULL = any client
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
 
 class ToolCall(Base):
@@ -598,48 +532,6 @@ class UsageLimit(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-
-
-class KnowledgeAccess(Base):
-    __tablename__ = "knowledge_access"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    knowledge_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("bot_knowledge.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    scope_type: Mapped[str] = mapped_column(Text, nullable=False)  # 'channel' | 'bot' | 'global'
-    scope_key: Mapped[str | None] = mapped_column(Text, nullable=True)  # channel UUID or bot_id or NULL
-    mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'rag'"))  # 'rag' | 'pinned' | 'tag_only'
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-
-    knowledge: Mapped["BotKnowledge"] = relationship("BotKnowledge", backref="access_entries")
-
-
-class KnowledgeWrite(Base):
-    __tablename__ = "knowledge_writes"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    bot_knowledge_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("bot_knowledge.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    knowledge_name: Mapped[str] = mapped_column(Text, nullable=False)
-    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    channel_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("channels.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=text("now()"),
-    )
 
 
 class FilesystemChunk(Base):
@@ -812,7 +704,6 @@ class Bot(Base):
     )
     audio_input: Mapped[str] = mapped_column(Text, nullable=False, default="transcribe")
     memory_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
-    knowledge_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     filesystem_indexes: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     host_exec_config: Mapped[dict] = mapped_column(JSONB, server_default=text('\'{"enabled": false}\'::jsonb'))
     filesystem_access: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
@@ -820,7 +711,6 @@ class Bot(Base):
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     integration_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     tool_result_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
-    knowledge_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     memory_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     delegation_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     model_params: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))

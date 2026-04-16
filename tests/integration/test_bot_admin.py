@@ -219,11 +219,11 @@ class TestBotSourceType:
         await _create_bot(db_session, "typed-bot", source_type="file")
 
         # Patch registry to include the typed bot
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         typed_bot = BotConfig(
             id="typed-bot", name="Typed Bot", model="test/model",
             system_prompt="test", source_type="file",
-            memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            memory=MemoryConfig(),
         )
         registry = {**_TEST_REGISTRY, "typed-bot": typed_bot}
 

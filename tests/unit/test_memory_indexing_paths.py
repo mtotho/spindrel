@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.agent.bots import BotConfig, KnowledgeConfig, MemoryConfig
+from app.agent.bots import BotConfig, MemoryConfig
 
 
 def _bot(
@@ -23,7 +23,7 @@ def _bot(
 ) -> BotConfig:
     defaults = dict(
         id=bot_id, name="Test", model="gpt-4", system_prompt="You are helpful.",
-        memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+        memory=MemoryConfig(),
         memory_scheme=memory_scheme,
         shared_workspace_id=shared_workspace_id,
         shared_workspace_role=shared_workspace_role,

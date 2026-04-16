@@ -1,9 +1,8 @@
 """Parse and resolve @mention tags for explicit context/tool injection.
 
 Supported syntax:
-  @name             — auto-detect type: skill → tool → bot → knowledge
+  @name             — auto-detect type: skill → tool → bot
   @skill:name       — force inject skill by ID (bypasses similarity threshold)
-  @knowledge:name   — force inject knowledge doc by name
   @tool:name        — force include tool in this request's tool list
   @bot:name         — force ephemeral delegation to bot by ID
 
@@ -23,14 +22,14 @@ logger = logging.getLogger(__name__)
 # Names must start with a letter or underscore (not a digit).
 # Allows slashes for path-style IDs (e.g. packages/slides/slides).
 # tool-pack must appear before tool in the alternation to avoid partial matching.
-_TAG_RE = re.compile(r"(?<![<\w@])@((?:skill|knowledge|tool-pack|tool|bot):)?([A-Za-z_][\w\-\./]*)")
+_TAG_RE = re.compile(r"(?<![<\w@])@((?:skill|tool-pack|tool|bot):)?([A-Za-z_][\w\-\./]*)")
 
 
 @dataclass
 class ResolvedTag:
     raw: str       # original text, e.g. "@arch_linux" or "@skill:arch_linux"
     name: str      # resolved name, e.g. "arch_linux"
-    tag_type: str  # "skill", "knowledge", or "tool"
+    tag_type: str  # "skill", "tool", or "bot"
 
 
 def _match_skill_short_name(short: str, skill_set: set[str]) -> str | None:
@@ -51,13 +50,12 @@ async def resolve_tags(
     client_id: str | None,
     session_id: uuid.UUID | None = None,
 ) -> list[ResolvedTag]:
-    """Parse @tags from a message and resolve each to skill/knowledge/tool/bot.
+    """Parse @tags from a message and resolve each to skill/tool/bot.
 
     Resolution order for un-namespaced tags:
       1. skill  (checked against bot's skills list)
       2. tool   (checked against bot's local + client tools)
       3. bot    (checked against bot registry — enables ephemeral delegation)
-      4. knowledge (DB lookup for remaining candidates)
     """
     raw_tags: list[tuple[str, str | None, str]] = []
     seen_names: set[str] = set()
@@ -83,13 +81,10 @@ async def resolve_tags(
     bot_id_set = set(_bot_registry.keys())
 
     resolved: list[ResolvedTag] = []
-    knowledge_candidates: list[tuple[str, str]] = []  # (raw, name)
 
     for raw, forced_type, name in raw_tags:
         if forced_type == "skill":
             resolved.append(ResolvedTag(raw=raw, name=name, tag_type="skill"))
-        elif forced_type == "knowledge":
-            resolved.append(ResolvedTag(raw=raw, name=name, tag_type="knowledge"))
         elif forced_type == "tool":
             resolved.append(ResolvedTag(raw=raw, name=name, tag_type="tool"))
         elif forced_type == "tool-pack":
@@ -111,24 +106,6 @@ async def resolve_tags(
             # @bot-id → ephemeral delegation override (skip tagging the current bot)
             resolved.append(ResolvedTag(raw=raw, name=name, tag_type="bot"))
         else:
-            # May be a knowledge doc — defer to a single batch DB lookup
-            knowledge_candidates.append((raw, name))
-
-    if knowledge_candidates and client_id:
-        from app.agent.knowledge import list_knowledge_bases
-        try:
-            known_names = {e["name"] for e in await list_knowledge_bases(
-                bot_id=bot_id,
-                client_id=client_id,
-                session_id=session_id,
-                ignore_session_scope=True,
-            )}
-            for raw, name in knowledge_candidates:
-                if name in known_names:
-                    resolved.append(ResolvedTag(raw=raw, name=name, tag_type="knowledge"))
-                else:
-                    logger.info("Tag @%s not resolved: not a skill, tool, bot, or known knowledge doc", name)
-        except Exception:
-            logger.exception("Failed to look up knowledge names for tag resolution")
+            logger.info("Tag @%s not resolved: not a skill, tool, or bot", name)
 
     return resolved

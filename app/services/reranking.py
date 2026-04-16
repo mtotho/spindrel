@@ -27,11 +27,10 @@ logger = logging.getLogger(__name__)
 
 _RAG_PREFIXES: list[tuple[str, str]] = [
     ("Relevant memories from past conversations", "memory"),
-    ("Relevant knowledge:\n\n", "knowledge"),
     ("Relevant files from workspace", "filesystem"),
     ("Relevant code/files", "filesystem"),
     ("Relevant conversation history sections:\n\n", "conversation_sections"),
-    # Note: pinned skills/knowledge and memory bootstrap/log messages are in
+    # Note: pinned skills and memory bootstrap/log messages are in
     # _EXCLUDED_PREFIXES — they're always-present content that should never be
     # reranked or filtered out.
 ]
@@ -39,9 +38,7 @@ _RAG_PREFIXES: list[tuple[str, str]] = [
 # Prefixes that are NEVER re-ranked (pinned content, user explicitly requested, or structural)
 _EXCLUDED_PREFIXES: list[str] = [
     "Pinned skill context",
-    "Pinned knowledge (always available)",
     "Tagged skill context",
-    "Tagged knowledge",
     "Your persistent memory (memory/MEMORY.md",
     "Today's daily log (memory/logs/",
     "Yesterday's daily log (memory/logs/",

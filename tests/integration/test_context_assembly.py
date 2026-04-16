@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, SkillConfig
+from app.agent.bots import BotConfig, MemoryConfig, SkillConfig
 from app.agent.context_assembly import assemble_context, AssemblyResult
 
 
@@ -26,7 +26,6 @@ def _make_bot(**overrides) -> BotConfig:
         model="test/model",
         system_prompt="You are a test bot.",
         memory=MemoryConfig(enabled=False),
-        knowledge=KnowledgeConfig(enabled=False),
         tool_retrieval=False,  # disable tool RAG by default to reduce mocking
     )
     defaults.update(overrides)
@@ -50,7 +49,6 @@ def _session_factory(engine):
 _COMMON_PATCHES = {
     "app.agent.hooks.fire_hook": AsyncMock(),
     "app.agent.recording._record_trace_event": AsyncMock(),
-    "app.agent.knowledge.get_pinned_knowledge_docs": AsyncMock(return_value=([], [])),
 }
 
 
@@ -75,7 +73,6 @@ class TestBasicPipeline:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
         ):
             events = await _collect(assemble_context(
                 messages=messages,
@@ -124,7 +121,6 @@ class TestBasicPipeline:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
         ):
             events = await _collect(assemble_context(
                 messages=messages,
@@ -171,7 +167,6 @@ class TestBasicPipeline:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
         ):
             events = await _collect(assemble_context(
                 messages=messages,
@@ -222,7 +217,6 @@ class TestWithChannel:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
         ):
             events = await _collect(assemble_context(
                 messages=messages,
@@ -266,7 +260,6 @@ class TestWithChannel:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
         ):
             events = await _collect(assemble_context(
                 messages=messages,
@@ -334,8 +327,7 @@ class TestWithChannel:
                 patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
                 patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
                 patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-                patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
-                patch("integrations.get_activation_manifests", return_value=manifests),
+                    patch("integrations.get_activation_manifests", return_value=manifests),
                 patch("app.agent.rag.fetch_skill_chunks_by_id", new_callable=AsyncMock, return_value=[]),
             ):
                 events = await _collect(assemble_context(
@@ -387,7 +379,6 @@ class TestWithChannel:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
         ):
             events = await _collect(assemble_context(
                 messages=messages,
@@ -451,8 +442,7 @@ class TestWithChannel:
                 patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
                 patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
                 patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-                patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
-                patch("app.agent.rag.fetch_skill_chunks_by_id", new_callable=AsyncMock, return_value=[]),
+                    patch("app.agent.rag.fetch_skill_chunks_by_id", new_callable=AsyncMock, return_value=[]),
             ):
                 events = await _collect(assemble_context(
                     messages=messages,
@@ -521,8 +511,7 @@ class TestWithChannel:
                 patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
                 patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
                 patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-                patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
-                patch("app.agent.rag.fetch_skill_chunks_by_id", new_callable=AsyncMock, return_value=[]),
+                    patch("app.agent.rag.fetch_skill_chunks_by_id", new_callable=AsyncMock, return_value=[]),
             ):
                 events = await _collect(assemble_context(
                     messages=messages,
@@ -579,7 +568,6 @@ class TestSkillInjection:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
             patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
             patch("app.agent.capability_rag.retrieve_capabilities", new_callable=AsyncMock, return_value=([], 0.0)),
         ):
@@ -622,7 +610,6 @@ class TestSkillInjection:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
             patch(
                 "app.agent.context_assembly.fetch_skill_chunks_by_id",
                 new_callable=AsyncMock,
@@ -698,7 +685,6 @@ class TestSkillAutoInject:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
             patch("app.agent.rag.rank_enrolled_skills", _mock_rank),
             patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
             patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
@@ -763,7 +749,6 @@ class TestSkillAutoInject:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
             patch("app.agent.rag.rank_enrolled_skills", _mock_rank),
             patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
             patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
@@ -833,7 +818,6 @@ class TestSkillAutoInject:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", _mock_tags),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
             patch("app.agent.rag.rank_enrolled_skills", _mock_rank),
             patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
             # Patch both import paths: top-level (used by @-tag injection) and rag module (used by auto-inject)
@@ -913,7 +897,6 @@ class TestSkillAutoInject:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
             patch("app.agent.rag.rank_enrolled_skills", _mock_rank),
             patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
             patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
@@ -971,8 +954,7 @@ class TestDelegateIndex:
                 patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
                 patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
                 patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-                patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
-            ):
+                ):
                 events = await _collect(assemble_context(
                     messages=messages,
                     bot=bot,
@@ -1016,7 +998,6 @@ class TestMessageOrdering:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
         ):
             events = await _collect(assemble_context(
                 messages=messages,
@@ -1065,7 +1046,6 @@ class TestMessageOrdering:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
         ):
             events = await _collect(assemble_context(
                 messages=messages,
@@ -1117,8 +1097,7 @@ class TestMessageOrdering:
                 patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
                 patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
                 patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-                patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
-            ):
+                ):
                 await _collect(assemble_context(
                     messages=messages,
                     bot=bot,
@@ -1171,7 +1150,6 @@ class TestContextBudget:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
         ):
             events = await _collect(assemble_context(
                 messages=messages,
@@ -1224,7 +1202,6 @@ class TestContextPruning:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
         ):
             events = await _collect(assemble_context(
                 messages=messages,
@@ -1276,7 +1253,6 @@ class TestToolRetrieval:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
             patch(
                 "app.agent.context_assembly._all_tool_schemas_by_name",
                 new_callable=AsyncMock,
@@ -1320,7 +1296,6 @@ class TestToolRetrieval:
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
-            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
         ):
             events = await _collect(assemble_context(
                 messages=messages,

@@ -81,7 +81,7 @@ def _compile_timestamp_sqlite(type_, compiler, **kw):
     return "TIMESTAMP"
 
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig  # noqa: E402
+from app.agent.bots import BotConfig, MemoryConfig  # noqa: E402
 from app.db.models import Base  # noqa: E402
 from app.dependencies import ApiKeyAuth, get_db, verify_auth, verify_admin_auth, verify_auth_or_user  # noqa: E402
 
@@ -95,7 +95,6 @@ TEST_BOT = BotConfig(
     model="test/model",
     system_prompt="You are a test bot.",
     memory=MemoryConfig(enabled=False),
-    knowledge=KnowledgeConfig(enabled=False),
 )
 
 DEFAULT_BOT = BotConfig(
@@ -104,7 +103,6 @@ DEFAULT_BOT = BotConfig(
     model="test/default-model",
     system_prompt="You are the default bot.",
     memory=MemoryConfig(enabled=False),
-    knowledge=KnowledgeConfig(enabled=False),
 )
 
 _TEST_REGISTRY = {"test-bot": TEST_BOT, "default": DEFAULT_BOT}

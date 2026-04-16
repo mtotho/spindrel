@@ -18,12 +18,10 @@ from sqlalchemy.orm import selectinload
 
 from app.agent.bots import get_bot
 from app.db.models import (
-    BotKnowledge,
     Channel,
     ChannelHeartbeat,
     CompactionLog,
     HeartbeatRun,
-    KnowledgeAccess,
     Message,
     Plan,
     Session,
@@ -1411,44 +1409,6 @@ async def admin_channel_plans(
 
 
 # ---------------------------------------------------------------------------
-# Knowledge
-# ---------------------------------------------------------------------------
-
-@router.get("/channels/{channel_id}/knowledge")
-async def get_channel_knowledge(
-    channel_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:read")),
-):
-    """Return knowledge entries scoped to this channel."""
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    stmt = (
-        select(BotKnowledge, KnowledgeAccess.mode)
-        .join(KnowledgeAccess, KnowledgeAccess.knowledge_id == BotKnowledge.id)
-        .where(
-            KnowledgeAccess.scope_type == "channel",
-            KnowledgeAccess.scope_key == str(channel_id),
-        )
-        .order_by(BotKnowledge.updated_at.desc())
-    )
-    rows = (await db.execute(stmt)).all()
-    return [
-        {
-            "id": str(k.id),
-            "title": k.name,
-            "content": k.content[:500] if k.content else None,
-            "content_length": len(k.content) if k.content else 0,
-            "bot_id": k.bot_id,
-            "mode": mode,
-            "updated_at": k.updated_at.isoformat() if k.updated_at else None,
-        }
-        for k, mode in rows
-    ]
-
-
 # ---------------------------------------------------------------------------
 # Backfill sections
 # ---------------------------------------------------------------------------
@@ -1912,8 +1872,6 @@ async def admin_channel_config_overhead(
         "memory_enabled": bot.memory.enabled if bot.memory else False,
         "memory_similarity_threshold": getattr(bot.memory, "similarity_threshold", None),
         "memory_max_inject_chars": getattr(bot.memory, "max_inject_chars", None),
-        "knowledge_enabled": bot.knowledge.enabled if bot.knowledge else False,
-        "knowledge_max_inject_chars": getattr(bot.knowledge, "max_inject_chars", None),
         "filesystem_indexes": bot.filesystem_indexes or [],
         "delegation_config": {"delegate_bots": list(bot.delegate_bots)} if bot.delegate_bots else {},
         "history_mode": bot.history_mode,
@@ -2081,7 +2039,7 @@ async def admin_channel_context_preview(
                 lines.append(f"  \u2022 {did}")
         blocks.append({"label": f"Delegation Index ({len(bot.delegate_bots)})", "role": "system", "content": "Available sub-agents (delegate via delegate_to_agent or @bot-id in your reply):\n" + "\n".join(lines)})
 
-    # Memory / Knowledge placeholders — deprecated (DB memory/knowledge no longer in use)
+    # Memory placeholder — deprecated (DB memory no longer in use)
 
     # --- Section index (file mode) ---
     hist_mode = _get_history_mode(bot, channel)

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.bots import BotConfig, MemoryConfig
 from app.services.compaction import (
     _select_section_prompt,
     _parse_section_response,

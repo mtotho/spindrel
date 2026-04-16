@@ -13,7 +13,6 @@ from app.db.models import Message, Task, ToolCall, TraceEvent
 
 from ._schemas import (
     BotOut,
-    KnowledgeConfigOut,
     MemoryConfigOut,
     SkillConfigOut,
 )
@@ -76,8 +75,6 @@ def _bot_to_out(
             similarity_threshold=bot.memory.similarity_threshold,
         ),
         memory_max_inject_chars=getattr(bot, "memory_max_inject_chars", None),
-        knowledge=KnowledgeConfigOut(enabled=bot.knowledge.enabled),
-        knowledge_max_inject_chars=getattr(bot, "knowledge_max_inject_chars", None),
         delegate_bots=bot.delegate_bots,
         model_provider_id=bot.model_provider_id,
         fallback_models=getattr(bot, "fallback_models", []),

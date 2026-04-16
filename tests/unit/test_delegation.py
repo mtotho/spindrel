@@ -20,7 +20,7 @@ from app.services.delegation import (
 
 
 def _make_parent_bot(**overrides):
-    from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+    from app.agent.bots import BotConfig, MemoryConfig
 
     defaults = dict(
         id="parent-bot",
@@ -29,14 +29,13 @@ def _make_parent_bot(**overrides):
         system_prompt="You are a parent bot.",
         delegate_bots=["child-bot"],
         memory=MemoryConfig(),
-        knowledge=KnowledgeConfig(),
     )
     defaults.update(overrides)
     return BotConfig(**defaults)
 
 
 def _make_child_bot(**overrides):
-    from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+    from app.agent.bots import BotConfig, MemoryConfig
 
     defaults = dict(
         id="child-bot",
@@ -44,7 +43,6 @@ def _make_child_bot(**overrides):
         model="gpt-4",
         system_prompt="You are a child bot.",
         memory=MemoryConfig(),
-        knowledge=KnowledgeConfig(),
     )
     defaults.update(overrides)
     return BotConfig(**defaults)

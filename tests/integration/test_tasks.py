@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.bots import BotConfig, MemoryConfig
 from app.db.models import Channel, Message, Session, Task
 from tests.integration.conftest import engine, db_session
 
@@ -22,7 +22,6 @@ def _bot(**overrides) -> BotConfig:
         id="test-bot", name="Test Bot", model="test/model",
         system_prompt="System prompt.",
         memory=MemoryConfig(enabled=False),
-        knowledge=KnowledgeConfig(enabled=False),
     )
     defaults.update(overrides)
     return BotConfig(**defaults)

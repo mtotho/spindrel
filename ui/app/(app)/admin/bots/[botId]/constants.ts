@@ -7,7 +7,6 @@ export const SECTIONS = [
   { key: "learning", label: "Learning" },
   { key: "carapaces", label: "Capabilities" },
   { key: "memory", label: "Memory" },
-  { key: "knowledge", label: "Knowledge" },
   { key: "attachments", label: "Attachments" },
   { key: "workspace", label: "Workspace" },
   { key: "delegation", label: "Delegation" },

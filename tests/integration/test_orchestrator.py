@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.bots import BotConfig, MemoryConfig
 from app.db.models import Bot as BotRow, Channel, Session
 from tests.integration.conftest import AUTH_HEADERS
 
@@ -26,7 +26,6 @@ def _make_orchestrator_bot(**overrides) -> BotConfig:
         delegate_bots=["*"],
         local_tools=["get_system_status", "manage_bot", "manage_channel", "manage_integration"],
         memory=MemoryConfig(enabled=False),
-        knowledge=KnowledgeConfig(enabled=False),
     )
     defaults.update(overrides)
     return BotConfig(**defaults)
@@ -39,7 +38,6 @@ def _make_test_bot(bot_id="test-bot", **overrides) -> BotConfig:
         model="test/model",
         system_prompt="Test bot.",
         memory=MemoryConfig(enabled=False),
-        knowledge=KnowledgeConfig(enabled=False),
     )
     defaults.update(overrides)
     return BotConfig(**defaults)

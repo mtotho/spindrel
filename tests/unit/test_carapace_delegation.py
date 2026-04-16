@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.bots import BotConfig, MemoryConfig
 from app.agent.carapaces import (
     DelegateEntry,
     ResolvedCarapace,
@@ -66,7 +66,6 @@ def _make_bot(**overrides):
         delegate_bots=["child-bot"],
         carapaces=["orchestrator"],
         memory=MemoryConfig(),
-        knowledge=KnowledgeConfig(),
     )
     defaults.update(overrides)
     return BotConfig(**defaults)

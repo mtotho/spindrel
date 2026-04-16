@@ -709,14 +709,14 @@ class TestReindexWorkspace:
 
     async def test_reindex_memory_only_bot(self, client, db_session):
         """Bot with workspace-files memory + no segments → Phase 1 runs, Phase 2 skips."""
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, WorkspaceConfig, WorkspaceIndexingConfig
+        from app.agent.bots import BotConfig, MemoryConfig, WorkspaceConfig, WorkspaceIndexingConfig
 
         ws_id = await self._setup_workspace_with_bot(client, db_session)
 
         mock_bot = BotConfig(
             id="test-bot", name="Test", model="test/model",
             system_prompt="test",
-            memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            memory=MemoryConfig(),
             memory_scheme="workspace-files",
             workspace=WorkspaceConfig(enabled=True, indexing=WorkspaceIndexingConfig(enabled=True)),
             shared_workspace_id=ws_id,
@@ -749,14 +749,14 @@ class TestReindexWorkspace:
 
     async def test_reindex_with_segments(self, client, db_session):
         """Bot with segments configured → Phase 2 runs."""
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, WorkspaceConfig, WorkspaceIndexingConfig
+        from app.agent.bots import BotConfig, MemoryConfig, WorkspaceConfig, WorkspaceIndexingConfig
 
         ws_id = await self._setup_workspace_with_bot(client, db_session)
 
         mock_bot = BotConfig(
             id="test-bot", name="Test", model="test/model",
             system_prompt="test",
-            memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            memory=MemoryConfig(),
             memory_scheme="workspace-files",
             workspace=WorkspaceConfig(enabled=True, indexing=WorkspaceIndexingConfig(enabled=True)),
             shared_workspace_id=ws_id,
@@ -787,14 +787,14 @@ class TestReindexWorkspace:
 
     async def test_reindex_cleanup_stale_roots(self, client, db_session):
         """Phase 0: cleanup_stale_roots should be called."""
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, WorkspaceConfig, WorkspaceIndexingConfig
+        from app.agent.bots import BotConfig, MemoryConfig, WorkspaceConfig, WorkspaceIndexingConfig
 
         ws_id = await self._setup_workspace_with_bot(client, db_session)
 
         mock_bot = BotConfig(
             id="test-bot", name="Test", model="test/model",
             system_prompt="test",
-            memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            memory=MemoryConfig(),
             workspace=WorkspaceConfig(enabled=True, indexing=WorkspaceIndexingConfig(enabled=False)),
             shared_workspace_id=ws_id,
             _workspace_raw={},

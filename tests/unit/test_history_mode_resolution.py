@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.bots import BotConfig, MemoryConfig
 from app.services.compaction import _get_history_mode
 
 
@@ -20,7 +20,6 @@ def _make_bot(**overrides) -> BotConfig:
         compaction_keep_turns=4,
         compaction_model=None,
         memory=MemoryConfig(),
-        knowledge=KnowledgeConfig(),
         persona=False,
     )
     defaults.update(overrides)

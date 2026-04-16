@@ -114,7 +114,7 @@ class TestContextAssemblyActivation:
 
     async def test_activated_integration_injects_carapace(self):
         """An activated MC integration should inject the mission-control carapace."""
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         from dataclasses import replace as _dc_replace
 
         bot = BotConfig(
@@ -123,7 +123,6 @@ class TestContextAssemblyActivation:
             model="test/model",
             system_prompt="Test",
             memory=MemoryConfig(enabled=False),
-            knowledge=KnowledgeConfig(enabled=False),
             carapaces=[],
         )
 
@@ -152,7 +151,7 @@ class TestContextAssemblyActivation:
 
     async def test_carapaces_disabled_overrides_activation(self):
         """carapaces_disabled should prevent activated integrations from injecting."""
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         from dataclasses import replace as _dc_replace
 
         bot = BotConfig(
@@ -161,7 +160,6 @@ class TestContextAssemblyActivation:
             model="test/model",
             system_prompt="Test",
             memory=MemoryConfig(enabled=False),
-            knowledge=KnowledgeConfig(enabled=False),
             carapaces=[],
         )
 
@@ -190,7 +188,7 @@ class TestContextAssemblyActivation:
 
     async def test_non_activated_integration_not_injected(self):
         """Integrations with activated=false should not inject carapaces."""
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         from dataclasses import replace as _dc_replace
 
         bot = BotConfig(
@@ -199,7 +197,6 @@ class TestContextAssemblyActivation:
             model="test/model",
             system_prompt="Test",
             memory=MemoryConfig(enabled=False),
-            knowledge=KnowledgeConfig(enabled=False),
             carapaces=[],
         )
 
@@ -234,7 +231,7 @@ class TestContextAssemblyActivation:
 class TestValidateActivation:
     async def test_validate_activation_no_warnings_when_tools_present(self):
         """No warnings when the bot has all required tools."""
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         from app.services.feature_validation import validate_activation
 
         bot = BotConfig(
@@ -243,7 +240,6 @@ class TestValidateActivation:
             model="test/model",
             system_prompt="test",
             memory=MemoryConfig(enabled=False),
-            knowledge=KnowledgeConfig(enabled=False),
             local_tools=["create_task_card", "move_task_card"],
         )
 
@@ -269,7 +265,7 @@ class TestValidateActivation:
 
     async def test_validate_activation_warns_on_missing_tools(self):
         """Warning returned when required tools are missing."""
-        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        from app.agent.bots import BotConfig, MemoryConfig
         from app.services.feature_validation import validate_activation
 
         bot = BotConfig(
@@ -278,7 +274,6 @@ class TestValidateActivation:
             model="test/model",
             system_prompt="test",
             memory=MemoryConfig(enabled=False),
-            knowledge=KnowledgeConfig(enabled=False),
             local_tools=[],
         )
 

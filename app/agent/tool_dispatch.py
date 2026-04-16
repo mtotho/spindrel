@@ -19,7 +19,6 @@ from app.tools.client_tools import is_client_tool
 from app.tools.mcp import call_mcp_tool, get_mcp_server_for_tool, is_mcp_tool
 from app.tools.registry import call_local_tool, is_local_tool
 from app.tools.local.persona import call_persona_tool
-from app.tools.local.knowledge import call_knowledge_tool
 
 logger = logging.getLogger(__name__)
 
@@ -433,27 +432,6 @@ async def dispatch_tool_call(
         _tc_type = "local"
         if name in ("update_persona", "append_to_persona", "edit_persona"):
             _tool_coro = call_persona_tool(name, args or "{}", bot_id)
-        elif name in (
-            "upsert_knowledge",
-            "get_knowledge",
-            "search_knowledge",
-            "list_knowledge_bases",
-            "append_to_knowledge",
-            "edit_knowledge",
-            "delete_knowledge",
-            "pin_knowledge",
-            "unpin_knowledge",
-            "set_knowledge_similarity_threshold",
-        ) and client_id:
-            _tool_coro = call_knowledge_tool(
-                name,
-                args or "{}",
-                bot_id,
-                client_id,
-                session_id=session_id,
-                channel_id=channel_id,
-                fallback_threshold=settings.KNOWLEDGE_SIMILARITY_THRESHOLD,
-            )
         else:
             _tool_coro = call_local_tool(name, args)
     elif is_mcp_tool(name):

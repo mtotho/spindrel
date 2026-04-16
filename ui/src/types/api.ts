@@ -17,10 +17,6 @@ export interface MemoryConfig {
   similarity_threshold?: number;
 }
 
-export interface KnowledgeConfig {
-  enabled?: boolean;
-}
-
 export interface SkillConfig {
   id: string;
   mode?: string;
@@ -57,8 +53,6 @@ export interface BotConfig {
   audio_input?: string;
   memory?: MemoryConfig;
   memory_max_inject_chars?: number | null;
-  knowledge?: KnowledgeConfig;
-  knowledge_max_inject_chars?: number | null;
   delegate_bots?: string[];
   integration_config?: Record<string, any>;
   workspace?: Record<string, any>;
@@ -639,7 +633,6 @@ export interface ClientAction {
 export type SSEEventType =
   | "skill_context"
   | "memory_context"
-  | "knowledge_context"
   | "tool_start"
   | "tool_request"
   | "tool_result"
@@ -982,8 +975,6 @@ export interface DockerStackServiceStatus {
 // Admin types
 export interface AdminStats {
   sessions: number;
-  memories: number;
-  knowledge: number;
   tools: number;
   sandboxes: number;
 }

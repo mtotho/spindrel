@@ -489,9 +489,7 @@ class BotUpdateIn(BaseModel):
     history_mode: Optional[str] = None
     audio_input: Optional[str] = None
     memory_config: Optional[dict] = None
-    knowledge_config: Optional[dict] = None
     memory_max_inject_chars: Optional[int] = None
-    knowledge_max_inject_chars: Optional[int] = None
     integration_config: Optional[dict] = None
     workspace: Optional[dict] = None
     docker_sandbox_profiles: Optional[list[str]] = None
@@ -548,9 +546,6 @@ async def admin_bot_update(
 
     if "memory_config" in updates:
         row.memory_config = updates.pop("memory_config")
-    if "knowledge_config" in updates:
-        row.knowledge_config = updates.pop("knowledge_config")
-
     if "skills" in updates:
         row.skills = updates.pop("skills")
 
@@ -685,9 +680,7 @@ class BotCreateIn(BaseModel):
     history_mode: Optional[str] = "file"
     audio_input: Optional[str] = "transcribe"
     memory_config: Optional[dict] = None
-    knowledge_config: Optional[dict] = None
     memory_max_inject_chars: Optional[int] = None
-    knowledge_max_inject_chars: Optional[int] = None
     integration_config: Optional[dict] = None
     workspace: Optional[dict] = None
     docker_sandbox_profiles: Optional[list[str]] = None
@@ -755,8 +748,6 @@ async def admin_bot_create(
 
     if "memory_config" in fields:
         row.memory_config = fields.pop("memory_config")
-    if "knowledge_config" in fields:
-        row.knowledge_config = fields.pop("knowledge_config")
     if "skills" in fields:
         row.skills = fields.pop("skills")
 

@@ -7,13 +7,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.agent.bots import BotConfig, KnowledgeConfig, MemoryConfig, _bot_row_to_config
+from app.agent.bots import BotConfig, MemoryConfig, _bot_row_to_config
 
 
 def _bot(memory_scheme=None, **overrides) -> BotConfig:
     defaults = dict(
         id="test_bot", name="Test", model="gpt-4", system_prompt="You are helpful.",
-        memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+        memory=MemoryConfig(),
         memory_scheme=memory_scheme,
     )
     defaults.update(overrides)
@@ -54,7 +54,6 @@ class TestBotConfigMemoryScheme:
         row.memory_knowledge_compaction_prompt = None
         row.audio_input = "transcribe"
         row.memory_config = {}
-        row.knowledge_config = {}
         row.filesystem_indexes = []
         row.docker_sandbox_profiles = []
         row.host_exec_config = {}
@@ -63,7 +62,6 @@ class TestBotConfigMemoryScheme:
         row.avatar_url = None
         row.integration_config = {}
         row.tool_result_config = {}
-        row.knowledge_max_inject_chars = None
         row.memory_max_inject_chars = None
         row.delegation_config = {}
         row.model_params = {}

@@ -105,7 +105,6 @@ function capSummary(bot: BotConfig): string {
 function featureBadges(bot: BotConfig): string[] {
   const badges: string[] = [];
   if (bot.memory?.enabled) badges.push("Memory");
-  if (bot.knowledge?.enabled) badges.push("Knowledge");
   if (bot.context_compaction) badges.push("Compaction");
   if (bot.persona) badges.push("Persona");
   if ((bot.delegate_bots?.length ?? 0) > 0) badges.push("Delegation");

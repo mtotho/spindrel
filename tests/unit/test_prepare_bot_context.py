@@ -15,7 +15,7 @@ import pytest
 
 
 def _make_bot(**overrides):
-    from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+    from app.agent.bots import BotConfig, MemoryConfig
 
     defaults = dict(
         id="primary-bot",
@@ -24,7 +24,6 @@ def _make_bot(**overrides):
         system_prompt="You are a bot.",
         delegate_bots=[],
         memory=MemoryConfig(),
-        knowledge=KnowledgeConfig(),
     )
     defaults.update(overrides)
     return BotConfig(**defaults)

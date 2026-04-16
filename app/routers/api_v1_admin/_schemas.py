@@ -19,12 +19,6 @@ class MemoryConfigOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class KnowledgeConfigOut(BaseModel):
-    enabled: bool = False
-
-    model_config = {"from_attributes": True}
-
-
 class SkillConfigOut(BaseModel):
     id: str
     mode: str = "on_demand"
@@ -60,8 +54,6 @@ class BotOut(BaseModel):
     audio_input: str = "transcribe"
     memory: MemoryConfigOut = MemoryConfigOut()
     memory_max_inject_chars: Optional[int] = None
-    knowledge: KnowledgeConfigOut = KnowledgeConfigOut()
-    knowledge_max_inject_chars: Optional[int] = None
     delegate_bots: list[str] = []
     model_provider_id: Optional[str] = None
     fallback_models: list[dict] = []

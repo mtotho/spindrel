@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.bots import BotConfig, MemoryConfig
 from app.services.compaction import (
     _get_compaction_interval,
     _get_compaction_keep_turns,
@@ -26,7 +26,6 @@ def _make_bot(**overrides) -> BotConfig:
         compaction_keep_turns=4,
         compaction_model=None,
         memory=MemoryConfig(),
-        knowledge=KnowledgeConfig(),
         persona=False,
     )
     defaults.update(overrides)

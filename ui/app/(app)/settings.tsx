@@ -729,6 +729,22 @@ export default function SettingsScreen() {
           {/* Memory & Learning: dreaming bot management at bottom */}
           {isMemoryGroup && <DreamingManagementSection />}
 
+          {activeGroup === "Attachments" && (
+            <div style={{
+              background: `rgb(var(--color-accent) / 0.06)`, border: `1px solid rgb(var(--color-accent) / 0.15)`,
+              borderRadius: 6, padding: 14, marginBottom: 12,
+              display: "flex", flexDirection: "column", gap: 6,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>How Summarization Relates to Agent Vision</div>
+              <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
+                <strong style={{ color: t.text }}>Summarization</strong> pre-processes attachments into text descriptions
+                using the summary model configured below. This is <strong style={{ color: t.text }}>separate</strong> from
+                the bot&apos;s own model vision. When a bot&apos;s model supports vision, it receives the raw image as
+                a native image input <em>alongside</em> the summary. When it doesn&apos;t, the summary is the only way
+                the model can understand the image. Text files are extracted and truncated regardless of vision support.
+              </div>
+            </div>
+          )}
           {(activeGroup === "Attachments" || activeGroup === "Model Elevation") && (
             <BotOverridesList group={activeGroup} />
           )}

@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Channel, ChannelBotMember, ChannelHeartbeat, ChannelIntegration, KnowledgeAccess, Message, Session, Task
+from app.db.models import Attachment, Channel, ChannelBotMember, ChannelHeartbeat, ChannelIntegration, Message, Session, Task
 from app.dependencies import ApiKeyAuth, get_db, require_scopes
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
@@ -147,17 +147,6 @@ class ResetResponse(BaseModel):
     channel_id: uuid.UUID
     new_session_id: uuid.UUID
     previous_session_id: Optional[uuid.UUID]
-
-
-class KnowledgeAccessOut(BaseModel):
-    id: uuid.UUID
-    knowledge_id: uuid.UUID
-    knowledge_name: Optional[str] = None
-    scope_type: str
-    scope_key: Optional[str]
-    mode: str
-
-    model_config = {"from_attributes": True}
 
 
 class HistoryMessageOut(BaseModel):
@@ -927,42 +916,6 @@ async def switch_session(
         new_session_id=body.session_id,
         previous_session_id=previous,
     )
-
-
-@router.get("/{channel_id}/knowledge", response_model=list[KnowledgeAccessOut])
-async def list_channel_knowledge(
-    channel_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:read")),
-):
-    """List knowledge entries accessible to this channel."""
-    from app.db.models import BotKnowledge
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    entries = (await db.execute(
-        select(KnowledgeAccess)
-        .join(BotKnowledge, KnowledgeAccess.knowledge_id == BotKnowledge.id)
-        .where(
-            KnowledgeAccess.scope_type == "channel",
-            KnowledgeAccess.scope_key == str(channel_id),
-        )
-        .order_by(BotKnowledge.name)
-    )).scalars().all()
-
-    result = []
-    for e in entries:
-        bk = await db.get(BotKnowledge, e.knowledge_id)
-        result.append(KnowledgeAccessOut(
-            id=e.id,
-            knowledge_id=e.knowledge_id,
-            knowledge_name=bk.name if bk else None,
-            scope_type=e.scope_type,
-            scope_key=e.scope_key,
-            mode=e.mode,
-        ))
-    return result
 
 
 @router.get("/{channel_id}/messages/search", response_model=list[HistoryMessageOut])

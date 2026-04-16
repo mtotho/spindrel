@@ -271,7 +271,6 @@ def _make_bot(carapaces=None):
         tool_similarity_threshold=None,
         context_pruning=None,
         api_permissions=None,
-        knowledge_max_inject_chars=None,
         persona=False,
         audio_input=None,
         channel_workspace_enabled=False,

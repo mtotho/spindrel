@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from app.agent import bots
 from app.agent.bots import (
-    BotConfig, MemoryConfig, KnowledgeConfig,
+    BotConfig, MemoryConfig,
     resolve_bot_id, get_bot, _bot_row_to_config,
 )
 
@@ -14,7 +14,7 @@ from app.agent.bots import (
 def _bot(id: str, name: str) -> BotConfig:
     return BotConfig(
         id=id, name=name, model="gpt-4", system_prompt="test",
-        memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+        memory=MemoryConfig(),
     )
 
 
@@ -118,7 +118,6 @@ def _make_bot_row(**overrides):
         "cross_bot": False,
         "prompt": "Remember things.",
     })
-    row.knowledge_config = overrides.get("knowledge_config", {"enabled": True})
     row.filesystem_indexes = overrides.get("filesystem_indexes", [])
     row.docker_sandbox_profiles = overrides.get("docker_sandbox_profiles", ["python-scratch"])
     row.host_exec_config = overrides.get("host_exec_config", {
@@ -132,7 +131,6 @@ def _make_bot_row(**overrides):
     row.avatar_url = overrides.get("avatar_url", "https://example.com/avatar.png")
     row.integration_config = overrides.get("integration_config", {})
     row.tool_result_config = overrides.get("tool_result_config", {})
-    row.knowledge_max_inject_chars = overrides.get("knowledge_max_inject_chars", 5000)
     row.memory_max_inject_chars = overrides.get("memory_max_inject_chars", 3000)
     row.delegation_config = overrides.get("delegation_config", {
         "delegate_bots": ["child_bot"],
@@ -162,12 +160,6 @@ class TestBotRowToConfig:
         assert config.memory.enabled is False
         assert config.memory.cross_channel is False
         assert config.memory.prompt is None
-
-    def test_knowledge_config_always_defaults(self):
-        """Knowledge config is deprecated — always returns defaults."""
-        row = _make_bot_row()
-        config = _bot_row_to_config(row)
-        assert config.knowledge.enabled is False
 
     def test_skills_parsed(self):
         row = _make_bot_row()
@@ -260,17 +252,15 @@ class TestBotRowToConfig:
 
 
 class TestYamlDataToRowDict:
-    def test_yaml_with_memory_and_knowledge_loads_gracefully(self):
-        """Old YAML configs with memory/knowledge keys should load without error."""
+    def test_yaml_with_memory_loads_gracefully(self):
+        """Old YAML configs with memory keys should load without error."""
         from app.agent.bots import _yaml_data_to_row_dict
         data = {
             "id": "test_bot",
             "model": "gpt-4",
             "memory": {"enabled": True, "cross_channel": True, "prompt": "Remember things."},
-            "knowledge": {"enabled": True},
         }
         result = _yaml_data_to_row_dict(data)
         assert result["id"] == "test_bot"
-        # memory_config and knowledge_config should be empty dicts (deprecated)
+        # memory_config should be empty dict (deprecated)
         assert result["memory_config"] == {}
-        assert result["knowledge_config"] == {}

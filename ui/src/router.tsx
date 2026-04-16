@@ -44,7 +44,6 @@ const AdminDockerStacks = lazy(() => import("@/app/(app)/admin/docker-stacks/ind
 const AdminDockerStackDetail = lazy(() => import("@/app/(app)/admin/docker-stacks/[stackId]"));
 const AdminIntegrationsIndex = lazy(() => import("@/app/(app)/admin/integrations/index"));
 const AdminIntegrationDetail = lazy(() => import("@/app/(app)/admin/integrations/[integrationId]/index"));
-const AdminKnowledge = lazy(() => import("@/app/(app)/admin/knowledge/index"));
 const AdminLearning = lazy(() => import("@/app/(app)/admin/learning/index"));
 const AdminLogsIndex = lazy(() => import("@/app/(app)/admin/logs/index"));
 const AdminLogsFallbacks = lazy(() => import("@/app/(app)/admin/logs/fallbacks"));
@@ -144,7 +143,6 @@ export const router = createBrowserRouter([
               { path: "docker-stacks/:stackId", element: <AdminDockerStackDetail /> },
               { path: "integrations", element: <AdminIntegrationsIndex /> },
               { path: "integrations/:integrationId", element: <AdminIntegrationDetail /> },
-              { path: "knowledge", element: <AdminKnowledge /> },
               { path: "learning", element: <AdminLearning /> },
               { path: "logs", element: <AdminLogsIndex /> },
               { path: "logs/fallbacks", element: <AdminLogsFallbacks /> },

@@ -985,36 +985,6 @@ async def assemble_context(
             _budget_consume("carapace_prompts", _carapace_prompt)
             yield {"type": "carapace_context", "count": len(_carapace_ids), "chars": len(_carapace_prompt)}
 
-    # --- pinned knowledge (stable per channel config — placed early for cache efficiency) ---
-    if client_id:
-        from app.agent.knowledge import get_pinned_knowledge_docs
-        pinned_docs, pinned_names = await get_pinned_knowledge_docs(
-            bot.id, client_id, session_id=session_id, channel_id=channel_id,
-        )
-        if pinned_docs:
-            _know_limit = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS
-            pinned_docs = [
-                d[:_know_limit] + ("…" if len(d) > _know_limit else "")
-                for d in pinned_docs
-            ]
-            _pinned_chars = sum(len(d) for d in pinned_docs)
-            _inject_chars["pinned_knowledge"] = _pinned_chars
-            yield {"type": "pinned_knowledge_context", "count": len(pinned_docs), "chars": _pinned_chars}
-            if correlation_id is not None:
-                asyncio.create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="pinned_knowledge_context",
-                    count=len(pinned_docs),
-                    data={"names": pinned_names, "chars": _pinned_chars},
-                ))
-            messages.append({
-                "role": "system",
-                "content": "Pinned knowledge (always available):\n\n" + "\n\n---\n\n".join(pinned_docs),
-            })
-
     # --- capability auto-discovery index (RAG-based) ---
     # Retrieve semantically relevant capabilities for the user's message,
     # excluding already-active and disabled ones.
@@ -1137,7 +1107,6 @@ async def assemble_context(
         session_id=session_id,
     )
     _tagged_skill_names = [t.name for t in _tagged if t.tag_type == "skill"]
-    _tagged_knowledge_names = [t.name for t in _tagged if t.tag_type == "knowledge"]
     _tagged_tool_names = [t.name for t in _tagged if t.tag_type == "tool"]
     _tagged_bot_names = [t.name for t in _tagged if t.tag_type == "bot"]
     result.tagged_tool_names = _tagged_tool_names
@@ -1164,34 +1133,10 @@ async def assemble_context(
                                + "\n\n---\n\n".join(_tagged_skill_chunks),
                 })
 
-        # Inject tagged knowledge docs (bypasses similarity threshold)
-        if _tagged_knowledge_names and client_id:
-            from app.agent.knowledge import get_knowledge_by_name
-            _tagged_know_chunks: list[str] = []
-            for _kname in _tagged_knowledge_names:
-                _doc = await get_knowledge_by_name(
-                    _kname,
-                    bot.id,
-                    client_id,
-                    session_id=session_id,
-                    ignore_session_scope=True,
-                )
-                if _doc:
-                    _tagged_know_chunks.append(_doc)
-                else:
-                    logger.warning("Tagged knowledge %r not found", _kname)
-            if _tagged_know_chunks:
-                messages.append({
-                    "role": "system",
-                    "content": "Tagged knowledge (explicitly requested):\n\n"
-                               + "\n\n---\n\n".join(_tagged_know_chunks),
-                })
-
         yield {
             "type": "tagged_context",
             "tags": [t.raw for t in _tagged],
             "skills": _tagged_skill_names,
-            "knowledge": _tagged_knowledge_names,
             "tools": _tagged_tool_names,
             "bots": _tagged_bot_names,
         }
@@ -1206,8 +1151,7 @@ async def assemble_context(
                 data={
                     "tags": [t.raw for t in _tagged],
                     "skills": _tagged_skill_names,
-                    "knowledge": _tagged_knowledge_names,
-                    "tools": _tagged_tool_names,
+                            "tools": _tagged_tool_names,
                     "bots": _tagged_bot_names,
                 },
             ))

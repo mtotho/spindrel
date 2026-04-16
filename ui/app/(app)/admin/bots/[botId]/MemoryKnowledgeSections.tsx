@@ -712,30 +712,3 @@ export function MemorySection({ draft, update, botId }: {
 }
 
 // ---------------------------------------------------------------------------
-// Knowledge section — managed by workspace files
-// ---------------------------------------------------------------------------
-export function KnowledgeSection() {
-  const t = useThemeTokens();
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Knowledge</div>
-      <div style={{
-        background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`,
-        borderRadius: 8, padding: "14px 16px",
-      }}>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: t.purple }}>
-            Managed by Workspace Files
-          </span>
-        </div>
-        <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
-          Knowledge lives in <code style={{ color: t.purpleMuted }}>memory/reference/</code> files.
-          Searchable via <code style={{ color: t.purpleMuted }}>search_memory</code> and readable
-          via <code style={{ color: t.purpleMuted }}>get_memory_file</code>. DB knowledge tools are
-          hidden automatically.
-        </div>
-      </div>
-    </div>
-  );
-}

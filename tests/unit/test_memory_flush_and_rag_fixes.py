@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.bots import BotConfig, MemoryConfig
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +31,6 @@ def _make_bot(**overrides) -> BotConfig:
         compaction_keep_turns=4,
         compaction_model=None,
         memory=MemoryConfig(),
-        knowledge=KnowledgeConfig(),
         persona=False,
         history_mode="summary",
     )

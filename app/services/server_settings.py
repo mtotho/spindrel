@@ -81,11 +81,9 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "TOOL_RETRIEVAL_TOP_K": {"group": "Embeddings & RAG", "label": "Tool Retrieval Top-K", "description": "Number of tools returned by retrieval", "type": "int", "min": 1, "max": 50},
     "MEMORY_RETRIEVAL_LIMIT": {"group": "Embeddings & RAG", "label": "Memory Retrieval Limit", "description": "Max memory items to retrieve", "type": "int", "min": 1, "max": 50},
     "MEMORY_SIMILARITY_THRESHOLD": {"group": "Embeddings & RAG", "label": "Memory Similarity Threshold", "description": "Minimum similarity for memory retrieval", "type": "float", "min": 0.0, "max": 1.0},
-    "KNOWLEDGE_SIMILARITY_THRESHOLD": {"group": "Embeddings & RAG", "label": "Knowledge Similarity Threshold", "description": "Minimum similarity for knowledge retrieval", "type": "float", "min": 0.0, "max": 1.0},
-    "KNOWLEDGE_MAX_INJECT_CHARS": {"group": "Embeddings & RAG", "label": "Knowledge Max Inject Chars", "description": "Max chars per knowledge doc injected", "type": "int", "min": 500, "max": 50000},
     "MEMORY_MAX_INJECT_CHARS": {"group": "Embeddings & RAG", "label": "Memory Max Inject Chars", "description": "Max chars per memory item injected", "type": "int", "min": 500, "max": 50000},
     # --- RAG Re-ranking ---
-    "RAG_RERANK_ENABLED": {"group": "RAG Re-ranking", "label": "Enabled", "description": "Filter dynamically-retrieved RAG chunks by relevance. Pinned skills/knowledge are never filtered.", "type": "bool"},
+    "RAG_RERANK_ENABLED": {"group": "RAG Re-ranking", "label": "Enabled", "description": "Filter dynamically-retrieved RAG chunks by relevance. Pinned skills are never filtered.", "type": "bool"},
     "RAG_RERANK_BACKEND": {"group": "RAG Re-ranking", "label": "Backend", "description": "cross-encoder (recommended): fast local ONNX model, ~120ms, zero API cost. llm: full LLM call, ~2s, API cost per request", "type": "string", "options": ["cross-encoder", "llm"]},
     "RAG_RERANK_MODEL": {"group": "RAG Re-ranking", "label": "LLM Model", "description": "Model for LLM backend only. A small/fast model works well (e.g. gemini-2.0-flash-lite). Empty = compaction model", "type": "string", "widget": "model"},
     "RAG_RERANK_MODEL_PROVIDER_ID": {"group": "RAG Re-ranking", "label": "Rerank Model Provider", "type": "string", "description": "Provider for rerank model", "ui_hidden": True},
@@ -157,11 +155,11 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "HEARTBEAT_REPETITION_THRESHOLD": {"group": "Heartbeat", "label": "Repetition Threshold", "description": "Similarity ratio (0-1) above which consecutive outputs are considered repetitive", "type": "float", "min": 0.0, "max": 1.0},
     "HEARTBEAT_REPETITION_WARNING": {"group": "Heartbeat", "label": "Repetition Warning", "description": "Warning text injected when repetition is detected", "type": "string", "widget": "textarea"},
     # --- Attachments ---
-    "ATTACHMENT_SUMMARY_ENABLED": {"group": "Attachments", "label": "Summary Enabled", "description": "Auto-summarize attachments", "type": "bool"},
-    "ATTACHMENT_SUMMARY_MODEL": {"group": "Attachments", "label": "Summary Model", "description": "Model for attachment summarization", "type": "string", "widget": "model"},
+    "ATTACHMENT_SUMMARY_ENABLED": {"group": "Attachments", "label": "Summary Enabled", "description": "Pre-generate text descriptions of attachments before the agent loop", "type": "bool"},
+    "ATTACHMENT_SUMMARY_MODEL": {"group": "Attachments", "label": "Summary Model", "description": "Vision-capable model used to describe images (separate from the bot's agent model)", "type": "string", "widget": "model"},
     "ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID": {"group": "Attachments", "label": "Summary Model Provider", "type": "string", "description": "Provider for attachment summary model", "ui_hidden": True},
-    "ATTACHMENT_VISION_CONCURRENCY": {"group": "Attachments", "label": "Vision Concurrency", "description": "Max concurrent vision API calls", "type": "int", "min": 1, "max": 20},
-    "ATTACHMENT_TEXT_MAX_CHARS": {"group": "Attachments", "label": "Text Max Chars", "description": "Max chars for text summarization", "type": "int", "min": 1000, "max": 200000},
+    "ATTACHMENT_VISION_CONCURRENCY": {"group": "Attachments", "label": "Summary Concurrency", "description": "Max concurrent summarization API calls", "type": "int", "min": 1, "max": 20},
+    "ATTACHMENT_TEXT_MAX_CHARS": {"group": "Attachments", "label": "Text Max Chars", "description": "Max chars when extracting text from files and PDFs", "type": "int", "min": 1000, "max": 200000},
     "ATTACHMENT_RETENTION_DAYS": {"group": "Attachments", "label": "Retention Days", "description": "Days to keep attachments (empty = forever)", "type": "int", "min": 1, "max": 3650, "nullable": True},
     "ATTACHMENT_MAX_SIZE_BYTES": {"group": "Attachments", "label": "Max Size (bytes)", "description": "Max attachment size (empty = no limit)", "type": "int", "min": 1024, "max": 1073741824, "nullable": True},
     # --- Data Retention ---

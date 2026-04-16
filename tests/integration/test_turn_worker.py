@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.agent.bots import BotConfig, KnowledgeConfig, MemoryConfig
+from app.agent.bots import BotConfig, MemoryConfig
 from app.domain.channel_events import ChannelEventKind
 from app.routers.chat._context import BotContext
 from app.routers.chat._schemas import ChatRequest
@@ -30,7 +30,6 @@ def _bot() -> BotConfig:
         model="test/model",
         system_prompt="You are a test bot.",
         memory=MemoryConfig(enabled=False),
-        knowledge=KnowledgeConfig(enabled=False),
     )
 
 

@@ -9,7 +9,7 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.bots import BotConfig, MemoryConfig
 from app.db.models import Message, Session
 from tests.integration.conftest import engine, db_session, TEST_BOT, DEFAULT_BOT, _TEST_REGISTRY
 
@@ -52,7 +52,7 @@ class TestLoadOrCreate:
         bot_with_persona = BotConfig(
             id="persona-bot", name="Persona Bot", model="test/model",
             system_prompt="System prompt.", persona=True,
-            memory=MemoryConfig(enabled=False), knowledge=KnowledgeConfig(enabled=False),
+            memory=MemoryConfig(enabled=False),
         )
         with (
             patch("app.services.sessions.get_bot", return_value=bot_with_persona),

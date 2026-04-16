@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.bots import BotConfig, MemoryConfig
 from app.agent.llm import AccumulatedMessage
 
 
@@ -12,7 +12,7 @@ def _make_bot(**overrides) -> BotConfig:
     defaults = dict(
         id="test", name="Test", model="gpt-4",
         system_prompt="You are a test bot.",
-        memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+        memory=MemoryConfig(),
     )
     defaults.update(overrides)
     return BotConfig(**defaults)

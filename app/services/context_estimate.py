@@ -104,13 +104,6 @@ async def estimate_bot_context(
     except (TypeError, ValueError):
         mem_max = settings.MEMORY_MAX_INJECT_CHARS
 
-    know_enabled = bool(draft.get("knowledge_enabled"))
-    know_sim = settings.KNOWLEDGE_SIMILARITY_THRESHOLD
-    try:
-        know_max = int(draft.get("knowledge_max_inject_chars") or settings.KNOWLEDGE_MAX_INJECT_CHARS)
-    except (TypeError, ValueError):
-        know_max = settings.KNOWLEDGE_MAX_INJECT_CHARS
-
     fs_indexes = draft.get("filesystem_indexes") or []
     if isinstance(fs_indexes, str):
         try:
@@ -131,13 +124,12 @@ async def estimate_bot_context(
 
     # --- base prompt (universal platform preamble) ---
     from app.agent.base_prompt import render_base_prompt
-    from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, SkillConfig
+    from app.agent.bots import BotConfig, MemoryConfig, SkillConfig
     _draft_bot = BotConfig(
         id=bot_id, name=draft.get("name", bot_id), model=draft.get("model", ""),
         system_prompt=system_prompt,
         skills=[SkillConfig(id=e["id"] if isinstance(e, dict) else e) for e in skills_raw],
         memory=MemoryConfig(enabled=mem_enabled),
-        knowledge=KnowledgeConfig(enabled=know_enabled),
         delegate_bots=delegate_bots,
         base_prompt=bool(draft.get("base_prompt", True)),
     )
@@ -313,27 +305,12 @@ async def estimate_bot_context(
         if dele_lines:
             lines.append(EstimateLine("sys:delegate_index", dele_chars, f"{dele_lines} bot(s)"))
 
-    # Memory / knowledge / fs / pinned knowledge / plans — heuristics (query-dependent)
+    # Memory / fs / plans — heuristics (query-dependent)
     if mem_enabled:
         mem_h = _memory_knowledge_hit_factor(mem_sim)
         est_mem = int(settings.MEMORY_RETRIEVAL_LIMIT * mem_max * 0.55 * mem_h)
         wrap = len("Relevant memories from past conversations (automatically recalled based on the user's message; you can use these directly):\n\n---\n\n")
         lines.append(EstimateLine("sys:memory (typical)", wrap + est_mem, "semantic recall; varies by query + store"))
-
-    if know_enabled:
-        kh = _memory_knowledge_hit_factor(know_sim)
-        # retrieve_knowledge limits to 3 docs
-        est_k = int(3 * know_max * 0.45 * kh)
-        wrap = len("Relevant knowledge:\n\n---\n\n")
-        lines.append(EstimateLine("sys:knowledge (typical)", wrap + est_k, "up to 3 docs; per-doc similarity overrides"))
-
-    lines.append(
-        EstimateLine(
-            "sys:pinned_knowledge (typical)",
-            min(6000, int(know_max * 0.45)),
-            "only when the client has pinned docs",
-        )
-    )
 
     if fs_indexes:
         roots = len(fs_indexes)
