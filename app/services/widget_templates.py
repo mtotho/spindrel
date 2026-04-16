@@ -73,8 +73,14 @@ def apply_widget_template(tool_name: str, raw_result: str) -> ToolResultEnvelope
     """Apply a widget template to a raw tool result, returning an envelope or None.
 
     Returns None if no template exists or if the result can't be parsed as JSON.
+    MCP tool names are often prefixed with the server name (e.g., "homeassistant-HassTurnOn"),
+    so we try both the full name and the bare name (after stripping the server prefix).
     """
     tmpl = _widget_templates.get(tool_name)
+    # Try stripping MCP server prefix: "server-ToolName" → "ToolName"
+    if not tmpl and "-" in tool_name:
+        bare_name = tool_name.split("-", 1)[1]
+        tmpl = _widget_templates.get(bare_name)
     if not tmpl:
         return None
 

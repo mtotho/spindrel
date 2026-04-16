@@ -105,6 +105,21 @@ class TestApplyWidgetTemplate:
         assert body["v"] == 1
         assert body["components"][0]["text"] == "action_done"
 
+    def test_server_prefixed_name(self):
+        """MCP tools are often named 'server-ToolName' — template lookup strips the prefix."""
+        _widget_templates["HassTurnOn"] = {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "template": {"v": 1, "components": [{"type": "status", "text": "on", "color": "success"}]},
+            "integration_id": "homeassistant",
+        }
+        raw = json.dumps({"response_type": "action_done", "data": {}})
+        # Full prefixed name should still match
+        env = apply_widget_template("homeassistant-HassTurnOn", raw)
+        assert env is not None
+        body = json.loads(env.body)
+        assert body["components"][0]["text"] == "on"
+
     def test_non_json_result(self):
         _widget_templates["TestTool"] = {
             "content_type": "application/vnd.spindrel.components+json",

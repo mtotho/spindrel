@@ -73,6 +73,8 @@ export interface IntegrationItem {
   tool_files?: string[];
   skill_files?: string[];
   carapace_files?: string[];
+  has_tool_widgets: boolean;
+  tool_widget_names?: string[];
   has_process: boolean;
   process_launchable?: boolean;
   process_description?: string | null;

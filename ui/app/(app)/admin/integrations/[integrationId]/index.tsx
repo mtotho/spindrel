@@ -1056,6 +1056,7 @@ export default function IntegrationDetailScreen() {
             <CapBadge label="tools" active={item.has_tools} />
             <CapBadge label="skills" active={item.has_skills} />
             <CapBadge label="capabilities" active={item.has_carapaces} />
+            <CapBadge label="widgets" active={item.has_tool_widgets} />
             <CapBadge label="process" active={item.has_process} />
           </div>
           <WebhookRow webhook={item.webhook} />
@@ -1132,7 +1133,8 @@ export default function IntegrationDetailScreen() {
         {((item.tool_names && item.tool_names.length > 0) ||
           (item.tool_files && item.tool_files.length > 0) ||
           (item.skill_files && item.skill_files.length > 0) ||
-          (item.carapace_files && item.carapace_files.length > 0)) && (
+          (item.carapace_files && item.carapace_files.length > 0) ||
+          (item.tool_widget_names && item.tool_widget_names.length > 0)) && (
           <SectionBox title="Detected Assets">
             {/* Tools — prefer live registered names, fall back to file names */}
             {(() => {
@@ -1200,6 +1202,27 @@ export default function IntegrationDetailScreen() {
                         fontSize: 11, fontFamily: "monospace",
                         padding: "2px 8px", borderRadius: 4,
                         background: "rgba(34,197,94,0.1)", color: "#22c55e",
+                      }}
+                    >
+                      {n}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {item.tool_widget_names && item.tool_widget_names.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Tool Widgets ({item.tool_widget_names.length})
+                </span>
+                <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
+                  {item.tool_widget_names.map((n) => (
+                    <span
+                      key={n}
+                      style={{
+                        fontSize: 11, fontFamily: "monospace",
+                        padding: "2px 8px", borderRadius: 4,
+                        background: "rgba(168,85,247,0.1)", color: "#a855f7",
                       }}
                     >
                       {n}

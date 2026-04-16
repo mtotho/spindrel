@@ -650,6 +650,19 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
         else:
             entry["carapace_files"] = []
 
+        # Tool widget templates (declared in integration.yaml tool_widgets section)
+        _tw_names: list[str] = []
+        try:
+            from app.services.widget_templates import get_widget_template
+            from app.services.integration_manifests import get_manifest
+            _manifest = get_manifest(integration_id)
+            if _manifest and isinstance(_manifest.get("tool_widgets"), dict):
+                _tw_names = sorted(_manifest["tool_widgets"].keys())
+        except Exception:
+            pass
+        entry["has_tool_widgets"] = len(_tw_names) > 0
+        entry["tool_widget_names"] = _tw_names
+
         # Check if globally disabled
         try:
             from app.services.integration_settings import is_disabled
