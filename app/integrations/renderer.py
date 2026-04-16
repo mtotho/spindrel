@@ -43,6 +43,7 @@ acceptance test that the abstraction holds.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Protocol, runtime_checkable
 
@@ -51,6 +52,8 @@ if TYPE_CHECKING:
     from app.domain.channel_events import ChannelEvent
     from app.domain.dispatch_target import DispatchTarget
     from app.domain.outbound_action import OutboundAction
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -141,3 +144,162 @@ class ChannelRenderer(Protocol):
         returns this bool to its caller.
         """
         ...
+
+
+class SimpleRenderer:
+    """Base class for non-streaming integration renderers.
+
+    Encodes the delivery contract documented in
+    ``docs/integrations/design.md``:
+
+    - ``NEW_MESSAGE`` (durable, via outbox) is the **only** text delivery
+      path. Subclasses implement ``send_text()`` and the base class calls
+      it for user-visible NEW_MESSAGE events.
+    - ``TURN_ENDED`` (ephemeral, via bus) is a **no-op** — non-streaming
+      renderers have no placeholder to finalize.
+    - Echo prevention for own-origin user messages is automatic.
+    - Internal roles (``tool``, ``system``) are automatically skipped.
+
+    **Anti-pattern this prevents**: posting new messages from
+    ``TURN_ENDED``. Every assistant response is persisted as a
+    ``NEW_MESSAGE`` in the outbox AND published as ``TURN_ENDED`` on the
+    bus. Without dedup, renderers that handle both will deliver the
+    response twice. Streaming renderers (Slack, Discord) handle this via
+    idempotent ``chat.update`` / PATCH on an existing placeholder.
+    Non-streaming renderers have no edit API, so the framework must
+    prevent the overlap entirely — which is what this class does.
+
+    Subclass and implement:
+
+    - ``send_text(target, text) -> bool`` — deliver one text chunk.
+    - ``send_error(target, error) -> bool`` — deliver an error message
+      (optional override; default calls ``send_text`` with a prefix).
+
+    Example::
+
+        class TelegramRenderer(SimpleRenderer):
+            integration_id = "telegram"
+            capabilities = frozenset({Capability.TEXT})
+
+            async def send_text(self, target, text: str) -> bool:
+                resp = await httpx.post(f"{target.api_url}/sendMessage", ...)
+                return resp.status_code == 200
+
+        renderer_registry.register(TelegramRenderer())
+    """
+
+    integration_id: ClassVar[str]
+    capabilities: ClassVar["frozenset[Capability]"]
+
+    async def send_text(
+        self,
+        target: "DispatchTarget",
+        text: str,
+    ) -> bool:
+        """Deliver a single text chunk to the external service.
+
+        Returns True on success, False on failure (triggers outbox retry).
+        Called once per chunk — long messages are NOT pre-split by the
+        base class (subclasses that need chunking should override
+        ``render`` or split inside ``send_text``).
+        """
+        raise NotImplementedError
+
+    async def send_error(
+        self,
+        target: "DispatchTarget",
+        error: str,
+    ) -> bool:
+        """Deliver an error message. Override to customize formatting."""
+        return await self.send_text(target, f"Agent error: {error}")
+
+    async def render(
+        self,
+        event: "ChannelEvent",
+        target: "DispatchTarget",
+    ) -> DeliveryReceipt:
+        """Route a channel event through the delivery contract.
+
+        Subclasses should NOT override this unless they need custom event
+        handling beyond text delivery. The base implementation ensures
+        the TURN_ENDED / NEW_MESSAGE contract is followed correctly.
+        """
+        from app.domain.channel_events import ChannelEventKind
+
+        kind = event.kind
+
+        # TURN_ENDED is ephemeral — no placeholder to update for
+        # non-streaming renderers. Response delivery is NEW_MESSAGE's job.
+        if kind == ChannelEventKind.TURN_ENDED:
+            return DeliveryReceipt.skipped(
+                "non-streaming renderer — delivery via NEW_MESSAGE"
+            )
+
+        if kind == ChannelEventKind.NEW_MESSAGE:
+            return await self._handle_new_message(event, target)
+
+        return DeliveryReceipt.skipped(
+            f"{self.integration_id} does not handle {kind.value}"
+        )
+
+    async def _handle_new_message(
+        self,
+        event: "ChannelEvent",
+        target: "DispatchTarget",
+    ) -> DeliveryReceipt:
+        """Process a NEW_MESSAGE event with standard echo prevention."""
+        payload = event.payload
+        msg = getattr(payload, "message", None)
+        if msg is None:
+            return DeliveryReceipt.skipped("new_message without message payload")
+
+        role = getattr(msg, "role", "") or ""
+
+        # Internal roles are never user-facing.
+        if role in ("tool", "system"):
+            return DeliveryReceipt.skipped(f"skips internal role={role}")
+
+        # Echo prevention: own-origin user messages must not be sent back.
+        if role == "user":
+            msg_metadata = getattr(msg, "metadata", None) or {}
+            if msg_metadata.get("source") == self.integration_id:
+                return DeliveryReceipt.skipped(
+                    f"{self.integration_id} skips own-origin user message "
+                    f"(echo prevention)"
+                )
+
+        text = (getattr(msg, "content", "") or "").strip()
+        if not text:
+            return DeliveryReceipt.skipped("new_message with empty content")
+
+        # Error messages from failed turns.
+        error = getattr(msg, "error", None)
+        if error and not text:
+            ok = await self.send_error(target, error)
+        else:
+            ok = await self.send_text(target, text)
+
+        if ok:
+            return DeliveryReceipt.ok()
+        return DeliveryReceipt.failed(
+            f"{self.integration_id} send failed", retryable=True,
+        )
+
+    async def handle_outbound_action(
+        self,
+        action: "OutboundAction",
+        target: "DispatchTarget",
+    ) -> DeliveryReceipt:
+        """Default: skip all outbound actions. Override to support uploads etc."""
+        return DeliveryReceipt.skipped(
+            f"{self.integration_id} does not handle outbound action "
+            f"{getattr(action, 'type', type(action).__name__)}"
+        )
+
+    async def delete_attachment(
+        self,
+        attachment_metadata: dict,
+        target: "DispatchTarget",
+    ) -> bool:
+        """Default: no delete support."""
+        return False

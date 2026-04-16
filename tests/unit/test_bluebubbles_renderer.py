@@ -1,17 +1,18 @@
-"""Phase G — BlueBubblesRenderer unit tests.
+"""BlueBubblesRenderer unit tests.
 
-Mirror of ``tests/unit/test_discord_renderer.py``. BB is simpler than
-Slack/Discord because there's no streaming edit / placeholder
-lifecycle, so the test surface focuses on:
+BB is a non-streaming renderer: ``NEW_MESSAGE`` is the sole text
+delivery path. ``TURN_ENDED`` is a no-op (no placeholder to finalize).
+
+Test surface:
 
 - Self-registration via the renderer registry.
 - Capability declarations (specifically: STREAMING_EDIT NOT present).
 - Target type validation.
-- ``TURN_ENDED`` rendering: footer + chunking + echo-tracker wiring.
-- ``NEW_MESSAGE`` rendering for member-bot fanout / passive mirroring.
+- ``TURN_ENDED`` is skipped (delivery contract enforcement).
+- ``NEW_MESSAGE`` is the sole delivery path: footer, chunking,
+  echo-tracker wiring, echo prevention, internal role filtering.
 - ``APPROVAL_REQUESTED`` text-based fallback.
-- The events the renderer should silently skip (TURN_STARTED,
-  TURN_STREAM_*, ATTACHMENT_DELETED).
+- Silent skips for streaming events.
 
 The renderer is patched at ``send_text`` so we can record what would
 have hit the BB REST API and at ``shared_tracker`` so we can verify
@@ -211,86 +212,39 @@ class TestTargetValidation:
 
 
 # ---------------------------------------------------------------------------
-# TURN_ENDED — primary delivery path
+# TURN_ENDED — no-op (delivery contract)
 # ---------------------------------------------------------------------------
 
 
 class TestTurnEnded:
-    async def test_happy_path_sends_one_message(self, fake_send_text, fake_tracker):
+    async def test_turn_ended_skipped_no_text_sent(self, fake_send_text, fake_tracker):
+        """TURN_ENDED must NOT send messages — that's NEW_MESSAGE's job.
+
+        iMessage has no edit/update API, so posting from both TURN_ENDED
+        and NEW_MESSAGE would duplicate every response. See
+        docs/integrations/design.md §Anti-pattern.
+        """
         renderer = BlueBubblesRenderer()
         receipt = await renderer.render(
-            _turn_ended(result="All tests pass."), _target("iMessage;-;+15555"),
+            _turn_ended(result="All tests pass."), _target(),
         )
         assert receipt.success is True
-        assert len(fake_send_text.calls) == 1
-        call = fake_send_text.calls[0]
-        assert call["chat_guid"] == "iMessage;-;+15555"
-        assert call["text"] == "All tests pass."
-        assert call["method"] is None  # no override on the target
+        assert "NEW_MESSAGE" in (receipt.skip_reason or "")
+        assert fake_send_text.calls == []
 
-    async def test_send_method_threaded_through(self, fake_send_text, fake_tracker):
+    async def test_turn_ended_with_error_still_skipped(self, fake_send_text, fake_tracker):
+        """Even error responses must flow through NEW_MESSAGE, not TURN_ENDED."""
         renderer = BlueBubblesRenderer()
-        target = _target(send_method="apple-script")
-        await renderer.render(_turn_ended(), target)
-        assert fake_send_text.calls[0]["method"] == "apple-script"
-
-    async def test_text_footer_appended_before_chunking(self, fake_send_text, fake_tracker):
-        renderer = BlueBubblesRenderer()
-        target = _target(text_footer="-- via Spindrel")
-        await renderer.render(_turn_ended(result="Hello world."), target)
-        assert len(fake_send_text.calls) == 1
-        assert fake_send_text.calls[0]["text"] == "Hello world.\n-- via Spindrel"
-
-    async def test_long_text_chunks_with_footer_on_each_chunk(
-        self, fake_send_text, fake_tracker,
-    ):
-        renderer = BlueBubblesRenderer()
-        target = _target(text_footer="-- via Spindrel")
-        long = "x" * 25_000  # > _MAX_MSG_LEN (20_000)
-        await renderer.render(_turn_ended(result=long), target)
-        # The footer is appended BEFORE chunking, so it appears once at
-        # the end of the joined body. The renderer matches the legacy
-        # dispatcher behavior: the footer rides along with whichever
-        # chunk it ends up in after the split.
-        assert len(fake_send_text.calls) >= 2
-        # Final chunk should contain the footer.
-        assert "-- via Spindrel" in fake_send_text.calls[-1]["text"]
-
-    async def test_send_failure_returns_retryable_failed(
-        self, fake_send_text, fake_tracker,
-    ):
-        renderer = BlueBubblesRenderer()
-        fake_send_text.set_return(None)  # send_text returns None on failure
-        receipt = await renderer.render(_turn_ended(), _target())
-        assert receipt.success is False
-        assert receipt.retryable is True
-
-    async def test_empty_result_with_error_renders_error_text(
-        self, fake_send_text, fake_tracker,
-    ):
-        renderer = BlueBubblesRenderer()
-        await renderer.render(
+        receipt = await renderer.render(
             _turn_ended(result=None, error="rate limited"), _target(),
         )
-        assert len(fake_send_text.calls) == 1
-        body = fake_send_text.calls[0]["text"]
-        assert "Agent error" in body
-        assert "rate limited" in body
-
-    async def test_empty_result_and_error_skips_silently(
-        self, fake_send_text, fake_tracker,
-    ):
-        renderer = BlueBubblesRenderer()
-        receipt = await renderer.render(
-            _turn_ended(result=None, error=None), _target(),
-        )
         assert receipt.success is True
-        assert "no result" in (receipt.skip_reason or "")
+        assert "NEW_MESSAGE" in (receipt.skip_reason or "")
         assert fake_send_text.calls == []
 
 
 # ---------------------------------------------------------------------------
-# Echo-tracker ordering — load-bearing
+# Echo-tracker ordering — load-bearing (on NEW_MESSAGE path)
 # ---------------------------------------------------------------------------
 
 
@@ -315,7 +269,7 @@ class TestEchoTrackerOrdering:
 
         fake_send_text.side_effect = _wrapped
 
-        await renderer.render(_turn_ended(), _target())
+        await renderer.render(_new_message("hello"), _target())
 
         # The sequence MUST be: track → save → send (per chunk).
         assert fake_tracker.sequence == ["track", "save", "send"]
@@ -422,6 +376,32 @@ class TestNewMessage:
         assert receipt.success is True
         assert "internal role" in (receipt.skip_reason or "")
         assert fake_send_text.calls == []
+
+    async def test_send_method_threaded_through(self, fake_send_text, fake_tracker):
+        renderer = BlueBubblesRenderer()
+        target = _target(send_method="apple-script")
+        await renderer.render(_new_message("hello"), target)
+        assert fake_send_text.calls[0]["method"] == "apple-script"
+
+    async def test_text_footer_appended_before_chunking(self, fake_send_text, fake_tracker):
+        renderer = BlueBubblesRenderer()
+        target = _target(text_footer="-- via Spindrel")
+        await renderer.render(_new_message("Hello world."), target)
+        assert len(fake_send_text.calls) == 1
+        assert fake_send_text.calls[0]["text"] == "Hello world.\n-- via Spindrel"
+
+    async def test_long_text_chunks(self, fake_send_text, fake_tracker):
+        renderer = BlueBubblesRenderer()
+        long = "x" * 25_000  # > _MAX_MSG_LEN (20_000)
+        await renderer.render(_new_message(long), _target())
+        assert len(fake_send_text.calls) >= 2
+
+    async def test_send_failure_returns_retryable(self, fake_send_text, fake_tracker):
+        renderer = BlueBubblesRenderer()
+        fake_send_text.set_return(None)
+        receipt = await renderer.render(_new_message("hello"), _target())
+        assert receipt.success is False
+        assert receipt.retryable is True
 
 
 # ---------------------------------------------------------------------------

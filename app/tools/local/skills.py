@@ -391,6 +391,13 @@ async def _increment_auto_inject_count(skill_id: str, bot_id: str) -> None:
                     auto_inject_count=BotSkillEnrollment.auto_inject_count + 1,
                 )
             )
+            # Update global last_surfaced_at so Learning Center "Last Active"
+            # reflects any activity, not just get_skill() calls.
+            await db.execute(
+                update(SkillRow)
+                .where(SkillRow.id == skill_id)
+                .values(last_surfaced_at=now)
+            )
             await db.commit()
     except Exception:
         logger.debug("Failed to update auto-inject count for %s/%s", bot_id, skill_id, exc_info=True)

@@ -67,7 +67,7 @@ local_tools:
   - cancel_task
   - update_task
   - get_task_result
-  - manage_workflow
+  # manage_workflow removed — use schedule_task with steps, or call_api
   - manage_docker_stack
   - manage_secret
   - get_skill
@@ -146,28 +146,21 @@ system_prompt_fragment: |
   3. Configure channel prompts, heartbeats, and workspace schemas
   4. Document the setup in workspace MEMORY.md
 
-  ### Delegation & Workflows
+  ### Delegation & Pipelines
   Prefer delegation over doing everything yourself. Use `delegate_to_agent` for
   one-off bot work, `run_claude_code` for code editing tasks (via the Claude Code integration),
-  and `manage_workflow(action="trigger")` for repeatable multi-step processes.
+  and `schedule_task` with `steps` for repeatable multi-step pipelines.
   Use `exec_command` only for orchestrator-level operations (file placement, coordination).
 
-  Workflow steps support three types: `agent` (default, LLM call), `exec` (shell command
-  in sandbox, no LLM), `tool` (call local tool directly, no LLM, no task — instant).
-  When building workflows, use `type: exec` for deterministic commands (backups, scripts)
+  Pipeline steps support three types: `agent` (LLM call), `exec` (shell command,
+  no LLM), `tool` (call local tool directly, no LLM — instant and free).
+  Use `type: exec` for deterministic commands (backups, scripts)
   and `type: tool` for quick API lookups or data fetches to avoid unnecessary LLM costs.
 
-  When asked to optimize, refactor, or convert a workflow — or to analyze a previous
-  run and identify steps that could be deterministic tool/exec calls instead of LLM
-  calls — fetch `get_skill('carapaces/orchestrator/workflow-compiler')` for the full
-  optimization process, conversion patterns, and tool reference.
-
-  Also fetch that skill when asked to compile, export, or script a workflow, or to
-  explain what a workflow run actually did (forensic analysis).
-
-  **Key get_run params for analysis:** Use `include_definitions=true` to see each step's
-  prompt/tool_name/conditions, and `full_results=true` to see complete step output
-  (not just previews). Both are essential for optimization work.
+  For the full step JSON schema, conditions, templates, and failure handling:
+  → `get_skill('pipeline_authoring')`
+  For decision guidance on when to pipeline and step type selection:
+  → `get_skill('pipeline_creation')`
 
   ### Deep Knowledge Index
 
@@ -181,8 +174,8 @@ system_prompt_fragment: |
   | Channels, memory patterns, base template, checklists | `get_skill('carapaces/orchestrator/workspace-management')` |
   | Designing new carapaces (fragment-as-index architecture) | `get_skill('carapaces/orchestrator/carapace-architect')` |
   | Cost optimization, model tier selection for delegation | `get_skill('carapaces/orchestrator/model-efficiency')` |
-  | Reusable workflows: YAML format, conditions, approval gates, triggers | `get_skill('carapaces/orchestrator/workflows')` |
-  | Optimize/refactor workflow, convert agent steps to tool/exec, reduce LLM costs, analyze a run, compile/export/script | `get_skill('carapaces/orchestrator/workflow-compiler')` |
+  | Pipeline creation: when to pipeline, step type selection, optimization | `get_skill('pipeline_creation')` |
+  | Pipeline step JSON schema, conditions, templates, failure handling | `get_skill('pipeline_authoring')` |
   | Create custom integration, scaffold, hot-reload, SETUP manifest, tool writing | `get_skill('carapaces/orchestrator/integration-builder')` |
   | Docker Compose stacks (databases, caches, multi-container services) | `get_skill('docker_stacks')` |
   | Channel workspace schemas, file organization, workspace features | `get_skill('channel_workspaces')` |
@@ -197,9 +190,9 @@ system_prompt_fragment: |
   | Scenario | Tool |
   |---|---|
   | One-off domain work by a specialized bot | `delegate_to_agent` |
-  | Repeatable multi-step process with conditions | `manage_workflow` (trigger) |
+  | Repeatable multi-step process with conditions | `schedule_task` with `steps` |
   | Deferred or recurring task | `schedule_task` (with `scheduled_at` + optional `recurrence`) |
-  | Periodic detection → multi-step remediation | Heartbeat with `workflow_id` set |
+  | Recurring multi-step pipeline | `schedule_task` with `steps` + `recurrence` |
   | Code editing / debugging / refactoring | `run_claude_code` |
   | Coordination / file placement / synthesis | `exec_command` directly |
   | Checking a bot's prior work | `search_bot_memory` |
@@ -211,27 +204,23 @@ system_prompt_fragment: |
   - **Recurring tasks with absolute anchor:** For daily tasks, use `scheduled_at` with a specific local time + `recurrence: "+1d"`. Example: nightly at 3 AM → `scheduled_at: "2026-04-04T03:00:00-04:00"` + `recurrence: "+1d"`.
   - **Reusable prompts:** For recurring tasks, put the prompt in a workspace file (e.g., `prompts/nightly-health-check.md`) and use `workspace_file_path` instead of inline `prompt`. The file is read fresh at execution time, so edits take effect without rescheduling.
 
-  ### Heartbeats & Workflows
+  ### Heartbeats
   - **Heartbeats** are periodic check-ins on a channel (configured per-channel, not in bot YAML). They run a prompt on a timer with quiet hours. Use for lightweight detection.
-  - **Heartbeat → workflow** is the pattern for "detect then remediate" — set `workflow_id` on the heartbeat config. When the heartbeat fires, it triggers the workflow instead of running an inline prompt. Deduplication prevents concurrent runs of the same workflow.
-  - **Workflow dispatch modes:** `dispatch: "always"` posts every heartbeat result. `dispatch: "optional"` gives the bot a `post_heartbeat_to_channel` tool so it can decide whether to post.
+  - **Dispatch modes:** `dispatch: "always"` posts every heartbeat result. `dispatch: "optional"` gives the bot a `post_heartbeat_to_channel` tool so it can decide whether to post.
 
   ### Where Things Live
-  - **Workflows:** `workflows/*.yaml` (file-based, server-level) or created via UI/tool (stored in DB). NOT in channel workspaces.
   - **Reusable prompts:** Bot workspace `prompts/` dir (e.g., `prompts/daily-review.md`). Referenced by `workspace_file_path` in `schedule_task` or heartbeat config.
   - **Channel workspace files:** `~/.agent-workspaces/{bot}/channels/{channel_id}/` — active `.md` files auto-injected, `archive/` searchable, `data/` listed.
   - **Carapaces:** `carapaces/*.yaml` (file-based) or created via tool/UI. Integration carapaces in `integrations/*/carapaces/`.
   - **Skills:** `skills/*.md` (user-created, gitignored), or carapace-bundled in `carapaces/*/skills/`.
 
-  ### Workflow Quick Reference
-  These facts must be known without loading the workflow skill:
-  - **Template variables:** `{{param_name}}`, `{{steps.step_id.result}}`, `{{steps.step_id.status}}`. The key is `.result` (not `.output`). Unresolved variables are left as-is.
-  - **Condition syntax:** `step` + `status` (done/failed/skipped), `output_contains`, `output_not_contains` (case-insensitive), `param` + `equals`, combinators `all`/`any`/`not`.
+  ### Pipeline Quick Reference
+  These facts must be known without loading the pipeline skill:
+  - **Template variables:** `{{steps.step_id.result}}`, `{{steps.step_id.status}}`, `{{steps.1.result}}` (1-indexed). Unresolved variables are left as-is.
+  - **Condition syntax:** `step` + `status` (done/failed/skipped), `output_contains`, `output_not_contains`, `param` + `equals`, combinators `all`/`any`/`not`.
   - **Step types:** `agent` (LLM, creates Task), `tool` (direct call, inline, no Task, instant), `exec` (shell command, creates Task).
   - **result_max_chars:** Truncates the *stored* result string, not just display. Default 2000 chars.
-  - **Defaults cascade:** workflow `defaults` → step-level overrides. Works for `model`, `carapaces`, `tools`, `timeout`, `inject_prior_results`, `prior_result_max_chars`, `result_max_chars`.
-  - **Session modes:** `isolated` (default, each step gets fresh context, steps communicate via templates) vs `shared` (all steps share one conversation, outputs appear in chat).
-  - **Execution flow:** trigger → validate params/secrets → snapshot definition → advance steps → tool steps execute inline, agent/exec steps create Tasks → task worker runs them → completion hook advances workflow.
+  - **on_failure:** `abort` (default, stop pipeline) or `continue` (mark failed, proceed).
 
   ### Secrets
   Use `manage_secret` to store API keys, tokens, and credentials that tools need but

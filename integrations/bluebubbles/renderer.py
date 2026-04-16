@@ -1,19 +1,16 @@
-"""BlueBubblesRenderer — Phase G of the Integration Delivery refactor.
+"""BlueBubblesRenderer — iMessage delivery via BlueBubbles.
 
-The single, in-process BlueBubbles delivery path. Replaces
-``integrations/bluebubbles/dispatcher.py`` (the legacy task-based path)
-which was the last consumer of ``app/agent/dispatchers.py``.
+Non-streaming renderer: ``NEW_MESSAGE`` (outbox-durable) is the **only**
+text delivery path. ``TURN_ENDED`` is a no-op because iMessage has no
+edit/update API — there's no streaming placeholder to finalize.
 
-iMessage is intentionally simpler than Slack/Discord because the
-underlying API doesn't support edits, threads, or interactive
-components:
+See ``docs/integrations/design.md`` §Delivery Contract for background.
 
-- No ``STREAMING_EDIT`` — there's no ``message.update`` equivalent, so
-  ``TURN_STARTED`` / ``TURN_STREAM_*`` events are silently skipped and
-  the renderer only sends a single ``TURN_ENDED`` final message.
-- No interactive buttons — ``APPROVAL_REQUESTED`` is delivered as a
-  plain-text description with the approval id; the user approves via
-  the web UI or CLI.
+iMessage specifics:
+
+- No ``STREAMING_EDIT`` — no ``message.update`` equivalent.
+- No interactive buttons — ``APPROVAL_REQUESTED`` is delivered as
+  plain text; the user approves via the web UI.
 - No edit/delete API — ``ATTACHMENT_DELETED`` is a no-op.
 
 Echo-tracker wiring is load-bearing: ``track_sent`` + ``save_to_db``
@@ -23,10 +20,7 @@ input. ``EchoTracker.is_own_content`` (the primary defense in
 ``router.py``'s inbound path) reads from the same ``_sent_content``
 dict that ``track_sent`` populates.
 
-Self-registers via ``_register()`` at module import time. The
-integration discovery loop in ``integrations/__init__.py:_load_single_integration``
-auto-imports this file alongside ``dispatcher.py``/``hooks.py``, so
-``app/main.py`` does not need any explicit import.
+Self-registers via ``_register()`` at module import time.
 """
 from __future__ import annotations
 
@@ -122,9 +116,9 @@ def _apply_footer(text: str, target: BlueBubblesTarget) -> str:
 class BlueBubblesRenderer:
     """Channel renderer for BlueBubbles / iMessage delivery.
 
-    iMessage's narrow capability surface drives the renderer shape:
-    only the final ``TURN_ENDED`` event maps to a network send for
-    a typical agent turn. Streaming token events have nothing to update.
+    Non-streaming: ``NEW_MESSAGE`` is the sole text delivery path.
+    ``TURN_ENDED`` is skipped (no placeholder to finalize). See the
+    delivery contract in ``docs/integrations/design.md``.
     """
 
     integration_id: ClassVar[str] = "bluebubbles"
@@ -228,46 +222,26 @@ class BlueBubblesRenderer:
     async def _handle_turn_ended(
         self, event: ChannelEvent, target: BlueBubblesTarget,
     ) -> DeliveryReceipt:
-        """Send the final agent response as one or more iMessage bubbles.
+        """No-op — iMessage has no streaming placeholder to finalize.
 
-        Renders ``payload.result`` (or a user-visible error fallback),
-        appends the per-target footer, splits into bubble-sized chunks,
-        and sends each chunk through ``_bb_send`` (which handles
-        echo-tracking before the network call).
+        Response delivery is ``NEW_MESSAGE``'s responsibility (the
+        outbox-durable path). Posting text here would duplicate every
+        response because iMessage has no edit/update API to make it
+        idempotent. See ``docs/integrations/design.md`` §Anti-pattern.
         """
-        payload = event.payload
-        result_text = (getattr(payload, "result", None) or "").strip()
-        error_text = (getattr(payload, "error", None) or "").strip()
-
-        if result_text:
-            body_text = result_text
-        elif error_text:
-            body_text = f"⚠️ Agent error: {error_text}"
-        else:
-            return DeliveryReceipt.skipped(
-                "turn_ended with no result and no error — nothing to send"
-            )
-
-        body_text = _apply_footer(body_text, target)
-        chunks = _split_text(body_text)
-        for chunk in chunks:
-            if not await _bb_send(target, chunk):
-                return DeliveryReceipt.failed(
-                    f"BB send_text failed for chat {target.chat_guid}",
-                    retryable=True,
-                )
-        return DeliveryReceipt.ok()
+        return DeliveryReceipt.skipped(
+            "non-streaming renderer — delivery via NEW_MESSAGE"
+        )
 
     async def _handle_new_message(
         self, event: ChannelEvent, target: BlueBubblesTarget,
     ) -> DeliveryReceipt:
-        """Send a passive / member-bot / mirror message to the iMessage chat.
+        """Deliver a message to the iMessage chat (the durable path).
 
-        ``NEW_MESSAGE`` events are produced by ``persist_turn``,
-        member-bot fanout (``delegation.post_child_response``), and
-        cross-integration mirroring (``inject_message`` with
-        ``notify=True``). The renderer treats them all as "post this
-        text to the chat" — there's no edit lifecycle to coordinate.
+        This is the **sole** text delivery path for BB. All assistant
+        responses arrive here via the outbox drainer after
+        ``persist_turn`` enqueues them. Delegation fanout and cross-
+        integration mirrors also use this path.
         """
         payload = event.payload
         msg = getattr(payload, "message", None)
@@ -278,11 +252,9 @@ class BlueBubblesRenderer:
         if role in ("tool", "system"):
             return DeliveryReceipt.skipped(f"bb skips internal role={role}")
 
-        # Echo prevention — mirrors the Slack renderer pattern.
-        # BB-origin user messages reach the bus via turn_worker's
-        # _persist_and_publish_user_message, which the outbox drainer
-        # routes right back to this renderer. Without this guard every
-        # inbound iMessage is echoed back as a bot reply.
+        # Echo prevention — BB-origin user messages reach the outbox via
+        # turn_worker's _persist_and_publish_user_message. Without this
+        # guard every inbound iMessage is re-sent as a bot reply.
         if role == "user":
             msg_metadata = getattr(msg, "metadata", None) or {}
             if msg_metadata.get("source") == "bluebubbles":

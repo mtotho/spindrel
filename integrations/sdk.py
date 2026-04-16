@@ -71,7 +71,7 @@ from app.domain import target_registry  # noqa: E402, F401
 # Renderer authoring
 # ---------------------------------------------------------------------------
 
-from app.integrations.renderer import ChannelRenderer, DeliveryReceipt  # noqa: E402, F401
+from app.integrations.renderer import ChannelRenderer, DeliveryReceipt, SimpleRenderer  # noqa: E402, F401
 from app.integrations import renderer_registry  # noqa: E402, F401
 from app.domain.capability import Capability  # noqa: E402, F401
 from app.domain.channel_events import ChannelEvent, ChannelEventKind  # noqa: E402, F401

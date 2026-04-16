@@ -117,8 +117,16 @@ class TestSkillToolInjection:
         assert "get_skill_list" in result.local_tools
 
 
-class TestHistoryModeInjection:
-    """history_mode=file injects read_conversation_history."""
+class TestChannelAwarenessInjection:
+    """list_channels and read_conversation_history are always injected."""
+
+    def test_injects_list_channels(self):
+        bot = _bot(memory_scheme=None, history_mode="standard")
+        eff = _eff()
+        result = apply_auto_injections(eff, bot)
+
+        assert "list_channels" in result.local_tools
+        assert "list_channels" in result.pinned_tools
 
     def test_injects_read_history(self):
         bot = _bot(history_mode="file")
@@ -128,12 +136,13 @@ class TestHistoryModeInjection:
         assert "read_conversation_history" in result.local_tools
         assert "read_conversation_history" in result.pinned_tools
 
-    def test_no_injection_for_default_history(self):
+    def test_injects_read_history_even_for_standard_mode(self):
         bot = _bot(history_mode="standard")
         eff = _eff()
         result = apply_auto_injections(eff, bot)
 
-        assert "read_conversation_history" not in result.local_tools
+        assert "read_conversation_history" in result.local_tools
+        assert "read_conversation_history" in result.pinned_tools
 
 
 class TestActivateCapability:
@@ -168,8 +177,8 @@ class TestCombinedInjections:
             "get_tool_info",
             # skills
             "get_skill", "get_skill_list",
-            # history
-            "read_conversation_history",
+            # channel awareness
+            "list_channels", "read_conversation_history",
             # always
             "activate_capability",
         }

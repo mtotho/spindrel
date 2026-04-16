@@ -108,20 +108,20 @@ delegate_to_agent(
 
 ### 5. Workflow-Based Orchestration
 
-For repeatable multi-step processes, use workflows instead of ad-hoc delegation chains. Workflows handle sequencing, conditions, and failure policies deterministically.
+For repeatable multi-step processes, use pipeline tasks instead of ad-hoc delegation chains. Pipelines handle sequencing, conditions, and failure policies deterministically.
 
 ```python
-# Trigger an existing workflow
-manage_workflow(
-    action="trigger",
-    id="media-troubleshoot",
-    params='{"title": "The Pitt S02E13"}',
+# Create a pipeline task
+schedule_task(
+    title="Media troubleshoot",
+    steps='[{"id": "check", "type": "exec", "prompt": "curl -s http://sonarr:8989/api/v3/health"},
+            {"id": "analyze", "type": "agent", "prompt": "Diagnose the issue and recommend a fix."}]'
 )
 ```
 
-**When to reach for workflows vs delegation:**
+**When to reach for pipelines vs delegation:**
 - Delegation: one-off, creative, exploratory work
-- Workflows: repeatable, structured, conditional — same process, different parameters
+- Pipelines: repeatable, structured, conditional — same process, different inputs
 - Workflows + heartbeat: "detect then remediate" — heartbeat triggers workflow when conditions are met
 
 For workflow design patterns:

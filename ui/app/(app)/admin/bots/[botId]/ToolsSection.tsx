@@ -294,9 +294,9 @@ function FullToolList({
     autoInjectedTools.add("file");
     autoInjectedTools.add("manage_bot_skill");
   }
-  if (draft.history_mode === "file" || draft.history_mode === "structured") {
-    autoInjectedTools.add("read_conversation_history");
-  }
+  // Channel awareness — any bot can list channels and read history
+  autoInjectedTools.add("list_channels");
+  autoInjectedTools.add("read_conversation_history");
   // Tool retrieval: get_tool_info is always injected when tool_retrieval is on
   if (draft.tool_retrieval !== false) {
     autoInjectedTools.add("get_tool_info");

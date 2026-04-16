@@ -17,7 +17,8 @@ _SCHEMA = {
     "function": {
         "name": "read_conversation_history",
         "description": (
-            "Read archived conversation history. Pass section='index' for a table of contents, "
+            "Read conversation history. Pass section='recent' for the latest messages (useful for new channels "
+            "or catching up), 'index' for a table of contents of archived sections, "
             "a section number (e.g. '12') to read the full transcript, "
             "'search:<query>' to find sections by topic, content, or semantic similarity, "
             "or 'tool:<id>' to retrieve full output of a summarized tool call."
@@ -28,7 +29,8 @@ _SCHEMA = {
                 "section": {
                     "type": "string",
                     "description": (
-                        "'index' to list all sections, a section number (e.g. '12'), "
+                        "'recent' for latest messages, 'index' to list archived sections, "
+                        "a section number (e.g. '12'), "
                         "'search:<query>' to find sections by topic/content/similarity, "
                         "or 'tool:<id>' to retrieve full tool call output."
                     ),
@@ -284,7 +286,7 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
             sections = result.scalars().all()
 
         if not sections:
-            return "No archived conversation sections found for this channel."
+            return "No archived conversation sections found for this channel. Try section='recent' to see the latest messages."
 
         lines = ["Archived conversation sections:\n"]
         for s in sections:
@@ -295,6 +297,63 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
                 f"({s.message_count} msgs, {date_str}){tag_str}\n"
                 f"  {s.summary}"
             )
+        return "\n".join(lines)
+
+    # Recent messages — reads live messages from the channel's latest session
+    if section.lower() == "recent":
+        from app.db.models import Message, Session as SessionModel
+        _RECENT_LIMIT = 50
+
+        async with async_session() as db:
+            # Find the most recent session for this channel
+            latest_session = (await db.execute(
+                select(SessionModel)
+                .where(SessionModel.channel_id == resolved_channel_id)
+                .order_by(SessionModel.last_active.desc())
+                .limit(1)
+            )).scalar_one_or_none()
+
+            if not latest_session:
+                return "No conversation found for this channel."
+
+            # Load recent messages (newest first, then reverse for chronological order)
+            msg_result = await db.execute(
+                select(Message)
+                .where(
+                    Message.session_id == latest_session.id,
+                    Message.role.in_(["user", "assistant"]),
+                )
+                .order_by(Message.created_at.desc())
+                .limit(_RECENT_LIMIT)
+            )
+            messages = list(reversed(msg_result.scalars().all()))
+
+        if not messages:
+            return "No messages found in this channel's latest session."
+
+        lines = [f"Recent messages ({len(messages)} shown):\n"]
+        for msg in messages:
+            ts = msg.created_at.strftime("%Y-%m-%d %H:%M") if msg.created_at else "?"
+            content = msg.content or ""
+            # Skip empty assistant messages (tool-call-only turns)
+            if not content.strip() and msg.role == "assistant":
+                continue
+            # Truncate very long messages
+            if len(content) > 500:
+                content = content[:500] + "..."
+            sender = msg.metadata_.get("sender_id") or msg.role
+            lines.append(f"[{ts}] {sender}: {content}")
+
+        # Hint about archived sections if they exist
+        async with async_session() as db:
+            section_count = (await db.execute(
+                select(ConversationSection.id)
+                .where(ConversationSection.channel_id == resolved_channel_id)
+                .limit(1)
+            )).scalar_one_or_none()
+        if section_count:
+            lines.append("\nOlder history available — use section='index' to browse archived sections.")
+
         return "\n".join(lines)
 
     # Smart search: keyword + transcript grep + semantic
@@ -382,6 +441,6 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
         return transcript_text
 
     return (
-        f"Invalid section: '{section}'. Pass 'index', a section number (e.g. '12'), "
+        f"Invalid section: '{section}'. Pass 'recent', 'index', a section number (e.g. '12'), "
         "'search:<query>', or 'tool:<id>'."
     )

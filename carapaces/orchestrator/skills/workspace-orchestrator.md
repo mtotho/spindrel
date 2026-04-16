@@ -70,12 +70,10 @@ Memory files are auto-indexed and injected each turn. For safe write patterns (a
 | Scenario | Tool |
 |---|---|
 | One-off domain work by a specialized bot | `delegate_to_agent` |
-| Repeatable multi-step process with conditions | `manage_workflow` (trigger) |
-| Diagnostic chain (check → diagnose → fix → report) | `manage_workflow` (trigger) |
+| Repeatable multi-step process with conditions | `schedule_task` with `steps` |
+| Diagnostic chain (check → diagnose → fix → report) | `schedule_task` with `steps` |
 | Deferred or recurring task | `schedule_task` (with `scheduled_at` + optional `recurrence`) |
-| Periodic detection → multi-step remediation | Heartbeat with `workflow_id` set |
-| Optimize/refactor workflow, convert steps to tool calls | `get_skill('carapaces/orchestrator/workflow-compiler')` then `manage_workflow` (get_run + create) |
-| Analyze what a workflow run did | `manage_workflow(action="get_run", ..., include_definitions=true, full_results=true)` |
+| Recurring multi-step pipeline | `schedule_task` with `steps` + `recurrence` |
 | Create a custom integration | `manage_integration(action="scaffold")` then `manage_integration(action="reload")` |
 | Code editing / debugging / refactoring | `run_claude_code` |
 | Coordination / file placement / synthesis | `exec_command` directly |

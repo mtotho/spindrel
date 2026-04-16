@@ -82,7 +82,10 @@ _SCHEDULE_TASK_SCHEMA = {
             "Defaults to the current bot in the current channel. "
             "To schedule work for a DIFFERENT bot, pass bot_id — the task "
             "will run in that bot's primary channel automatically. "
-            "The result is dispatched back to the target channel/thread."
+            "The result is dispatched back to the target channel/thread. "
+            "For multi-step pipelines, pass steps instead of prompt — "
+            "each step can be exec (shell), tool (direct call), or agent (LLM). "
+            "See the Pipeline Authoring skill for the full step schema."
         ),
         "parameters": {
             "type": "object",
@@ -93,7 +96,30 @@ _SCHEDULE_TASK_SCHEMA = {
                 },
                 "prompt": {
                     "type": "string",
-                    "description": "The full prompt/instruction to run when the task executes.",
+                    "description": (
+                        "The full prompt/instruction to run when the task executes. "
+                        "Required for single-prompt tasks. For pipeline tasks (when steps "
+                        "is provided), this is optional — a placeholder is auto-generated."
+                    ),
+                },
+                "steps": {
+                    "type": "string",
+                    "description": (
+                        "JSON array of pipeline step definitions. Each step needs at minimum "
+                        "id and type ('exec', 'tool', or 'agent'). Providing steps creates "
+                        "a pipeline task that executes steps sequentially. "
+                        "Example: '[{\"id\":\"search\",\"type\":\"tool\",\"tool_name\":\"web_search\","
+                        "\"tool_args\":{\"query\":\"latest news\"}},{\"id\":\"analyze\",\"type\":\"agent\","
+                        "\"prompt\":\"Summarize the search results.\"}]'"
+                    ),
+                },
+                "execution_config": {
+                    "type": "string",
+                    "description": (
+                        "JSON object with execution overrides. Valid keys: "
+                        "model_override (string), tools (list of tool names), "
+                        "skills (list of skill IDs). Applied to agent steps."
+                    ),
                 },
                 "bot_id": {
                     "type": "string",
@@ -150,7 +176,6 @@ _SCHEDULE_TASK_SCHEMA = {
                     ),
                 },
             },
-            "required": ["prompt"],
         },
     },
 }
@@ -175,8 +200,10 @@ async def _resolve_bot_channel(bot_id: str, db) -> tuple[uuid.UUID | None, str |
 
 @register(_SCHEDULE_TASK_SCHEMA, safety_tier="control_plane")
 async def schedule_task(
-    prompt: str,
+    prompt: str = "",
     title: str | None = None,
+    steps: str | None = None,
+    execution_config: str | None = None,
     workspace_file_path: str | None = None,
     scheduled_at: str | None = None,
     bot_id: str | None = None,
@@ -190,6 +217,36 @@ async def schedule_task(
     if count >= _MAX_TASK_CREATIONS_PER_REQUEST:
         return json.dumps({"error": f"Task creation limit reached for this request (max {_MAX_TASK_CREATIONS_PER_REQUEST})."})
     task_creation_count.set(count + 1)
+
+    # Parse pipeline steps
+    parsed_steps = None
+    if steps:
+        try:
+            parsed_steps = json.loads(steps)
+        except json.JSONDecodeError:
+            return json.dumps({"error": "Invalid JSON in steps parameter."})
+        if not isinstance(parsed_steps, list) or not parsed_steps:
+            return json.dumps({"error": "steps must be a non-empty JSON array."})
+
+    # Parse execution config
+    parsed_ec = None
+    if execution_config:
+        try:
+            parsed_ec = json.loads(execution_config)
+        except json.JSONDecodeError:
+            return json.dumps({"error": "Invalid JSON in execution_config parameter."})
+
+    # Must have at least one of prompt, steps, or workspace_file_path
+    if not prompt and not parsed_steps and not workspace_file_path:
+        return json.dumps({"error": "Provide at least one of: prompt, steps, or workspace_file_path."})
+
+    # Determine task type and effective prompt
+    effective_task_type = "scheduled"
+    effective_prompt = prompt
+    if parsed_steps:
+        effective_task_type = "pipeline"
+        if not effective_prompt:
+            effective_prompt = f"[Pipeline: {len(parsed_steps)} steps]"
 
     scheduled = _parse_scheduled_at(scheduled_at)
 
@@ -257,11 +314,13 @@ async def schedule_task(
             client_id=client_id,
             session_id=session_id,
             channel_id=ch_id,
-            prompt=prompt,
+            prompt=effective_prompt,
             title=title or None,
             scheduled_at=scheduled,
             status=initial_status,
-            task_type="scheduled",
+            task_type=effective_task_type,
+            steps=parsed_steps,
+            execution_config=parsed_ec,
             dispatch_type=dispatch_type,
             dispatch_config=dispatch_config,
             callback_config=callback_cfg,
@@ -277,6 +336,7 @@ async def schedule_task(
 
     recur_suffix = f" Repeats every {recurrence}." if recurrence else ""
     bot_suffix = f" (bot={effective_bot_id})" if cross_bot else ""
+    pipeline_suffix = f" Pipeline with {len(parsed_steps)} steps." if parsed_steps else ""
     if scheduled:
         from zoneinfo import ZoneInfo
         from app.config import settings
@@ -284,9 +344,9 @@ async def schedule_task(
         when_local = local_dt.strftime("%Y-%m-%d %H:%M %Z")
         when_utc = scheduled.strftime("%H:%M UTC")
         ws_info = f" Using workspace file '{ws_file_path}'." if ws_file_path else ""
-        return f"Task {task.id} scheduled for {when_local} ({when_utc}).{bot_suffix}{recur_suffix}{ws_info}"
+        return f"Task {task.id} scheduled for {when_local} ({when_utc}).{bot_suffix}{recur_suffix}{pipeline_suffix}{ws_info}"
     ws_info = f" Using workspace file '{ws_file_path}'." if ws_file_path else ""
-    return f"Task {task.id} queued (runs immediately).{bot_suffix}{recur_suffix}{ws_info}"
+    return f"Task {task.id} queued (runs immediately).{bot_suffix}{recur_suffix}{pipeline_suffix}{ws_info}"
 
 
 @register({

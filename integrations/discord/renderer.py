@@ -90,6 +90,20 @@ class _DiscordRenderRegistry:
         bucket = self._by_channel.get(channel_id)
         return bucket.get(turn_id) if bucket else None
 
+    def find_by_turn_id(self, turn_id: str) -> tuple[str, _DiscordTurnContext] | None:
+        """Look up a turn context by turn_id across all channels.
+
+        Returns ``(channel_id, ctx)`` if found, else ``None``. Used by
+        the ``NEW_MESSAGE`` placeholder handoff to locate the streaming
+        context via the message's ``correlation_id`` (which equals the
+        turn_id).
+        """
+        for channel_id, bucket in self._by_channel.items():
+            ctx = bucket.get(turn_id)
+            if ctx is not None:
+                return (channel_id, ctx)
+        return None
+
     def discard(self, channel_id: str, turn_id: str) -> None:
         bucket = self._by_channel.get(channel_id)
         if bucket is None:
@@ -249,6 +263,18 @@ class DiscordRenderer:
         target: DiscordTarget,
         ctx: "_DiscordTurnContext | None",
     ) -> DeliveryReceipt:
+        """Streaming UX finalization — best-effort only.
+
+        Updates the thinking placeholder with the final response text.
+        Never posts new messages — that's the outbox's job via
+        ``NEW_MESSAGE``. If the placeholder update fails, the outbox
+        still delivers the message durably.
+        """
+        if ctx is None or not ctx.thinking_message_id:
+            # No placeholder to update — outbox NEW_MESSAGE handles
+            # delivery. Nothing for the streaming path to do.
+            return DeliveryReceipt.ok()
+
         payload = event.payload
         turn_id = str(getattr(payload, "turn_id", "") or "")
         result_text = getattr(payload, "result", None) or ""
@@ -264,34 +290,30 @@ class DiscordRenderer:
         formatted = format_response_for_discord(body_text)
         chunks = split_for_discord(formatted) or [formatted]
 
-        if ctx and ctx.thinking_message_id:
-            edit_result = await self._edit_message(
-                target, ctx.thinking_message_id, chunks[0],
-            )
-            if not edit_result.success:
-                discord_render_contexts.discard(target.channel_id, turn_id)
-                return edit_result
-            chunks = chunks[1:]
-
-        for chunk in chunks:
-            post_result = await self._post_message(target, content=chunk)
-            if not post_result.success:
-                discord_render_contexts.discard(target.channel_id, turn_id)
-                return post_result
-
-        # Upload any image / file actions attached to the turn.
-        client_actions = getattr(payload, "client_actions", None) or []
-        if client_actions:
-            await self._upload_actions(target, client_actions)
+        # Update the placeholder with the first chunk (best-effort).
+        edit_result = await self._edit_message(
+            target, ctx.thinking_message_id, chunks[0],
+        )
+        # Don't post overflow chunks here — NEW_MESSAGE owns final delivery.
+        # The placeholder edit is purely cosmetic so the "thinking..." text
+        # doesn't linger. If the edit fails, no loss — outbox delivers it.
 
         discord_render_contexts.discard(target.channel_id, turn_id)
         return DeliveryReceipt.ok(
-            external_id=ctx.thinking_message_id if ctx else None,
+            external_id=ctx.thinking_message_id,
         )
 
     async def _handle_new_message(
         self, event: ChannelEvent, target: DiscordTarget
     ) -> DeliveryReceipt:
+        """Deliver a message to Discord (the durable path).
+
+        This is the sole durable delivery path. If a streaming
+        placeholder exists for this turn (via ``correlation_id``),
+        update it with the final text (idempotent). Otherwise post
+        as a new message. Matches the Slack renderer's handoff pattern
+        documented in ``docs/integrations/design.md``.
+        """
         payload = event.payload
         msg = getattr(payload, "message", None)
         if msg is None:
@@ -309,7 +331,33 @@ class DiscordRenderer:
 
         text = getattr(msg, "content", "") or ""
         formatted = format_response_for_discord(text)
-        for chunk in split_for_discord(formatted) or [formatted]:
+        chunks = split_for_discord(formatted) or [formatted]
+
+        # Placeholder handoff: if a thinking message exists for this turn,
+        # update it with the first chunk instead of posting a new message.
+        # The update is idempotent — if TURN_ENDED already wrote the same
+        # text, this is a no-op from Discord's perspective.
+        correlation_id = str(getattr(msg, "correlation_id", "") or "")
+        ctx_info = (
+            discord_render_contexts.find_by_turn_id(correlation_id)
+            if correlation_id else None
+        )
+        placeholder_used = False
+        if ctx_info is not None:
+            ctx_channel_id, ctx = ctx_info
+            if ctx.thinking_message_id:
+                edit_result = await self._edit_message(
+                    target, ctx.thinking_message_id, chunks[0],
+                )
+                if edit_result.success:
+                    placeholder_used = True
+                    chunks = chunks[1:]
+            # Context cleanup — NEW_MESSAGE owns this.
+            discord_render_contexts.discard(ctx_channel_id, correlation_id)
+
+        # Post remaining chunks (all of them if no placeholder, or
+        # overflow chunks if the placeholder took the first).
+        for chunk in chunks:
             result = await self._post_message(target, content=chunk)
             if not result.success:
                 return result

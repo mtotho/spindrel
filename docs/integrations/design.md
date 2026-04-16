@@ -131,6 +131,26 @@ The key: `NEW_MESSAGE` owns the final state. If `TURN_ENDED` already updated the
 placeholder, `NEW_MESSAGE`'s update is idempotent. If `TURN_ENDED` failed, `NEW_MESSAGE`
 still delivers the message. No message is ever lost.
 
+### Which base class?
+
+| Use case | Base class | Import |
+|----------|-----------|--------|
+| Most integrations (no streaming) | `SimpleRenderer` | `from integrations.sdk import SimpleRenderer` |
+| Streaming (thinking placeholders, live token updates) | `ChannelRenderer` Protocol | `from integrations.sdk import ChannelRenderer` |
+
+**`SimpleRenderer`** (recommended for new integrations): encodes the delivery contract
+automatically. You implement `send_text(target, text) -> bool` and optionally
+`send_error()`. The base class handles:
+
+- `NEW_MESSAGE` → echo prevention + role filtering + calls `send_text()`
+- `TURN_ENDED` → no-op (non-streaming renderers have no placeholder to finalize)
+- `handle_outbound_action` → skipped by default (override to support uploads)
+- `delete_attachment` → `False` by default
+
+**`ChannelRenderer` Protocol** (Slack, Discord, or any integration with live editing):
+full control. You handle all event kinds yourself. Must follow the delivery contract
+manually — see the [Anti-pattern](#delivery-contract-streaming-vs-durable) above.
+
 ### Target Registry (Typed Dispatch Targets)
 
 Each renderer receives events with a typed **target** — a frozen dataclass describing

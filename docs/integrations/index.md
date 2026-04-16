@@ -313,40 +313,38 @@ class MyGitHubTarget(BaseTarget, dispatch_type="mygithub"):
 target_registry.register(MyGitHubTarget)
 ```
 
-**Renderers** handle the actual delivery. Create `renderer.py`:
+**Renderers** handle the actual delivery. Create `renderer.py`. For most integrations,
+use `SimpleRenderer` — it encodes the delivery contract automatically so you only need
+to implement `send_text()`:
 
 ```python
-from integrations.sdk import (
-    ChannelRenderer, DeliveryReceipt, Capability,
-    ChannelEvent, ChannelEventKind, DispatchTarget,
-    renderer_registry,
-)
+from integrations.sdk import SimpleRenderer, Capability, renderer_registry
 
-class MyGitHubRenderer(ChannelRenderer):
+class MyGitHubRenderer(SimpleRenderer):
     integration_id = "mygithub"
-    capabilities = frozenset({Capability.TEXT, Capability.RICH_TEXT})
+    capabilities = frozenset({Capability.TEXT})
 
-    async def render(
-        self, event: ChannelEvent, target: DispatchTarget,
-    ) -> DeliveryReceipt:
-        if event.kind == ChannelEventKind.NEW_MESSAGE:
-            # NEW_MESSAGE is the durable delivery path — always handle it.
-            msg = event.payload.message
-            if msg.role == "assistant":
-                await _post_comment(
-                    target.owner, target.repo, target.issue_number,
-                    msg.content, target.token,
-                )
-                return DeliveryReceipt.ok()
-        # Skip event kinds this renderer doesn't handle.
-        return DeliveryReceipt.skipped(f"mygithub does not handle {event.kind.value}")
+    async def send_text(self, target, text: str) -> bool:
+        resp = await _post_comment(
+            target.owner, target.repo, target.issue_number,
+            text, target.token,
+        )
+        return resp.status_code == 200
 
 renderer_registry.register(MyGitHubRenderer())
 ```
 
-The renderer receives typed `ChannelEvent` objects from the outbox drainer. Only events
-matching the renderer's `capabilities` are delivered. The outbox provides durability
-(retry on failure, dead-letter after 10 attempts).
+`SimpleRenderer` handles the delivery contract for you:
+
+- **`NEW_MESSAGE`** (durable, via outbox) calls your `send_text()` for user-visible messages.
+- **`TURN_ENDED`** (ephemeral, via bus) is automatically skipped — non-streaming renderers have
+  no placeholder to finalize.
+- **Echo prevention**: own-origin user messages are filtered automatically.
+- **Internal roles** (`tool`, `system`) are filtered automatically.
+
+For streaming integrations that need progressive UX (thinking placeholders, live token
+updates), use the raw `ChannelRenderer` Protocol instead — see
+[Which base class?](design.md#which-base-class) for guidance.
 
 > **Important: delivery path contract.** `NEW_MESSAGE` is the sole durable delivery path —
 > it flows through the outbox with retry guarantees. Streaming kinds (`TURN_STARTED`,

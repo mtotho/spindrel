@@ -307,8 +307,10 @@ class TestTurnEnded:
         final = fake_http.calls[1]
         assert "Agent error" in final["body"]["content"]
 
-    async def test_no_placeholder_falls_back_to_post(self, fake_http):
-        fake_http.set_response({"id": "msg-2"})
+    async def test_no_placeholder_skips_delivery(self, fake_http):
+        """TURN_ENDED without a placeholder is a no-op — delivery is
+        NEW_MESSAGE's job. Posting from TURN_ENDED would duplicate every
+        response. See docs/integrations/design.md §Anti-pattern."""
         renderer = DiscordRenderer()
         turn_id = uuid.uuid4()
         target = _target("888")
@@ -318,9 +320,7 @@ class TestTurnEnded:
         )
 
         assert receipt.success is True
-        assert len(fake_http.calls) == 1
-        assert fake_http.calls[0]["method"] == "POST"
-        assert "standalone" in fake_http.calls[0]["body"]["content"]
+        assert fake_http.calls == []
 
     async def test_turn_ended_serializes_against_inflight_flush(self, fake_http):
         """Mirror of the Slack regression — DiscordRenderer is invoked

@@ -1,12 +1,7 @@
-"""Tests for manage_workflow tool — context defaults, get_run, list_runs."""
-import json
-import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
-
+"""Tests for manage_workflow tool — SKIPPED: tool removed in workflow→pipeline migration."""
 import pytest
 
-from app.tools.local.workflows import manage_workflow
+pytestmark = pytest.mark.skip(reason="manage_workflow tool removed — replaced by schedule_task with steps")
 
 
 # ---------------------------------------------------------------------------
