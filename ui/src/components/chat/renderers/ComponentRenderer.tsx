@@ -6,14 +6,18 @@
  * Body schema:
  *   { v: 1, components: ComponentNode[] }
  *
- * Integrations compose rich output from ~10 typed primitives (heading, properties,
- * table, links, code, image, status, divider, section, text) without needing
- * custom React renderers. Inspired by Slack Block Kit / Discord Components v2.
+ * Integrations compose rich output from ~15 typed primitives (heading, properties,
+ * table, links, code, image, status, divider, section, text, toggle, button,
+ * select, input, form) without needing custom React renderers.
+ * Inspired by Slack Block Kit / Discord Components v2.
+ *
+ * Interactive primitives (toggle, button, select, input, form) carry a WidgetAction
+ * that fires via the WidgetActionContext provided by the parent RichToolResult.
  *
  * Unknown component types render as a muted JSON dump (forward-compatible).
  * Unknown schema versions fall back to plain_body via the parent.
  */
-import { useState } from "react";
+import { createContext, useContext, useState, useCallback } from "react";
 import {
   ChevronRight,
   ChevronDown,
@@ -23,9 +27,19 @@ import {
   Mail,
   FileText,
   Link as LinkIcon,
+  Loader2,
 } from "lucide-react";
 import type { ThemeTokens } from "../../../theme/tokens";
+import type { WidgetAction } from "../../../types/api";
 import { MarkdownContent } from "../MarkdownContent";
+
+// ── Widget action context ──
+
+export interface WidgetActionDispatcher {
+  dispatchAction: (action: WidgetAction, value: unknown) => Promise<unknown>;
+}
+
+export const WidgetActionContext = createContext<WidgetActionDispatcher | null>(null);
 
 // ── Schema types ──
 
@@ -45,6 +59,11 @@ type ComponentNode =
   | StatusNode
   | DividerNode
   | SectionNode
+  | ToggleNode
+  | ButtonNode
+  | SelectNode
+  | InputNode
+  | FormNode
   | { type: string; [key: string]: unknown }; // forward-compat catch-all
 
 interface TextNode {
@@ -113,6 +132,45 @@ interface SectionNode {
   label?: string;
   collapsible?: boolean;
   defaultOpen?: boolean;
+}
+
+interface ToggleNode {
+  type: "toggle";
+  label: string;
+  value: boolean;
+  action: WidgetAction;
+  color?: SemanticSlot;
+}
+
+interface ButtonNode {
+  type: "button";
+  label: string;
+  action: WidgetAction;
+  variant?: "default" | "primary" | "danger";
+  disabled?: boolean;
+}
+
+interface SelectNode {
+  type: "select";
+  label?: string;
+  value: string;
+  options: { value: string; label: string }[];
+  action: WidgetAction;
+}
+
+interface InputNode {
+  type: "input";
+  label?: string;
+  value: string;
+  placeholder?: string;
+  action: WidgetAction;
+}
+
+interface FormNode {
+  type: "form";
+  children: ComponentNode[];
+  submit_action: WidgetAction;
+  submit_label?: string;
 }
 
 type SemanticSlot =
@@ -260,6 +318,16 @@ function RenderNode({
       return <DividerBlock node={node as DividerNode} t={t} />;
     case "section":
       return <SectionBlock node={node as SectionNode} t={t} depth={depth} />;
+    case "toggle":
+      return <ToggleBlock node={node as ToggleNode} t={t} />;
+    case "button":
+      return <ButtonBlock node={node as ButtonNode} t={t} />;
+    case "select":
+      return <SelectBlock node={node as SelectNode} t={t} />;
+    case "input":
+      return <InputBlock node={node as InputNode} t={t} />;
+    case "form":
+      return <FormBlock node={node as FormNode} t={t} depth={depth} />;
     default:
       return <UnknownBlock node={node as Record<string, unknown> & { type: string }} t={t} />;
   }
@@ -743,6 +811,284 @@ function SectionBlock({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Interactive primitives ──
+
+function useAction() {
+  const ctx = useContext(WidgetActionContext);
+  return ctx?.dispatchAction ?? null;
+}
+
+function ToggleBlock({ node, t }: { node: ToggleNode; t: ThemeTokens }) {
+  const dispatch = useAction();
+  const [checked, setChecked] = useState(node.value);
+  const [busy, setBusy] = useState(false);
+
+  const handleToggle = useCallback(async () => {
+    if (!dispatch) return;
+    const next = !checked;
+    if (node.action.optimistic) setChecked(next);
+    setBusy(true);
+    try {
+      await dispatch(node.action, next);
+      if (!node.action.optimistic) setChecked(next);
+    } catch {
+      if (node.action.optimistic) setChecked(!next); // revert
+    } finally {
+      setBusy(false);
+    }
+  }, [dispatch, checked, node.action]);
+
+  const color = slotColor(node.color ?? (checked ? "success" : "muted"), t);
+
+  return (
+    <div
+      style={{
+        display: "flex", flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        padding: "4px 0",
+      }}
+    >
+      <button
+        type="button"
+        onClick={handleToggle}
+        disabled={busy || !dispatch}
+        style={{
+          position: "relative",
+          width: 36,
+          height: 20,
+          borderRadius: 10,
+          border: "none",
+          background: checked ? color : t.surfaceBorder,
+          cursor: busy ? "wait" : dispatch ? "pointer" : "default",
+          transition: "background-color 0.2s",
+          flexShrink: 0,
+          opacity: busy ? 0.6 : 1,
+        }}
+      >
+        <span
+          style={{
+            position: "absolute",
+            top: 2,
+            left: checked ? 18 : 2,
+            width: 16,
+            height: 16,
+            borderRadius: "50%",
+            background: "#fff",
+            transition: "left 0.2s",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+          }}
+        />
+      </button>
+      <span style={{ fontSize: 12, color: t.contentText }}>{node.label}</span>
+      {busy && <Loader2 size={12} color={t.textMuted} className="animate-spin" />}
+    </div>
+  );
+}
+
+function ButtonBlock({ node, t }: { node: ButtonNode; t: ThemeTokens }) {
+  const dispatch = useAction();
+  const [busy, setBusy] = useState(false);
+
+  const variantStyles: Record<string, { bg: string; color: string; border: string }> = {
+    primary: { bg: t.accent, color: "#fff", border: t.accent },
+    danger: { bg: t.danger, color: "#fff", border: t.danger },
+    default: { bg: t.overlayLight, color: t.contentText, border: t.surfaceBorder },
+  };
+  const v = variantStyles[node.variant ?? "default"] ?? variantStyles.default;
+
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        if (!dispatch) return;
+        setBusy(true);
+        try {
+          await dispatch(node.action, true);
+        } finally {
+          setBusy(false);
+        }
+      }}
+      disabled={busy || node.disabled || !dispatch}
+      style={{
+        padding: "5px 14px",
+        borderRadius: 6,
+        border: `1px solid ${v.border}`,
+        background: v.bg,
+        color: v.color,
+        fontSize: 12,
+        fontWeight: 500,
+        cursor: busy || node.disabled ? "default" : dispatch ? "pointer" : "default",
+        opacity: busy || node.disabled ? 0.6 : 1,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        alignSelf: "flex-start",
+        transition: "opacity 0.15s",
+      }}
+    >
+      {busy && <Loader2 size={12} className="animate-spin" />}
+      {node.label}
+    </button>
+  );
+}
+
+function SelectBlock({ node, t }: { node: SelectNode; t: ThemeTokens }) {
+  const dispatch = useAction();
+  const [value, setValue] = useState(node.value);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: "4px 0" }}>
+      {node.label && (
+        <span style={{ fontSize: 12, color: t.textMuted, whiteSpace: "nowrap" }}>{node.label}</span>
+      )}
+      <select
+        value={value}
+        disabled={busy || !dispatch}
+        onChange={async (e) => {
+          const next = e.target.value;
+          setValue(next);
+          if (!dispatch) return;
+          setBusy(true);
+          try {
+            await dispatch(node.action, next);
+          } catch {
+            setValue(value); // revert
+          } finally {
+            setBusy(false);
+          }
+        }}
+        style={{
+          padding: "4px 8px",
+          borderRadius: 6,
+          border: `1px solid ${t.surfaceBorder}`,
+          background: t.overlayLight,
+          color: t.contentText,
+          fontSize: 12,
+          cursor: dispatch ? "pointer" : "default",
+          opacity: busy ? 0.6 : 1,
+        }}
+      >
+        {node.options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      {busy && <Loader2 size={12} color={t.textMuted} className="animate-spin" />}
+    </div>
+  );
+}
+
+function InputBlock({ node, t }: { node: InputNode; t: ThemeTokens }) {
+  const dispatch = useAction();
+  const [value, setValue] = useState(node.value);
+  const [busy, setBusy] = useState(false);
+
+  const submit = useCallback(async () => {
+    if (!dispatch || !value) return;
+    setBusy(true);
+    try {
+      await dispatch(node.action, value);
+    } finally {
+      setBusy(false);
+    }
+  }, [dispatch, value, node.action]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: "4px 0" }}>
+      {node.label && (
+        <span style={{ fontSize: 12, color: t.textMuted, whiteSpace: "nowrap" }}>{node.label}</span>
+      )}
+      <input
+        type="text"
+        value={value}
+        placeholder={node.placeholder}
+        disabled={busy || !dispatch}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+        style={{
+          padding: "4px 8px",
+          borderRadius: 6,
+          border: `1px solid ${t.surfaceBorder}`,
+          background: t.overlayLight,
+          color: t.contentText,
+          fontSize: 12,
+          flex: 1,
+          minWidth: 0,
+          opacity: busy ? 0.6 : 1,
+        }}
+      />
+      {busy && <Loader2 size={12} color={t.textMuted} className="animate-spin" />}
+    </div>
+  );
+}
+
+function FormBlock({
+  node,
+  t,
+  depth,
+}: {
+  node: FormNode;
+  t: ThemeTokens;
+  depth: number;
+}) {
+  const dispatch = useAction();
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        padding: "8px 10px",
+        border: `1px solid ${t.surfaceBorder}`,
+        borderRadius: 6,
+        background: t.overlayLight,
+      }}
+    >
+      {node.children?.map((child, i) => (
+        <RenderNode key={i} node={child} t={t} depth={depth + 1} />
+      ))}
+      <button
+        type="button"
+        onClick={async () => {
+          if (!dispatch) return;
+          setBusy(true);
+          try {
+            await dispatch(node.submit_action, true);
+          } finally {
+            setBusy(false);
+          }
+        }}
+        disabled={busy || !dispatch}
+        style={{
+          padding: "5px 14px",
+          borderRadius: 6,
+          border: `1px solid ${t.accent}`,
+          background: t.accent,
+          color: "#fff",
+          fontSize: 12,
+          fontWeight: 500,
+          cursor: busy ? "wait" : dispatch ? "pointer" : "default",
+          opacity: busy ? 0.6 : 1,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          alignSelf: "flex-start",
+          transition: "opacity 0.15s",
+          marginTop: 4,
+        }}
+      >
+        {busy && <Loader2 size={12} className="animate-spin" />}
+        {node.submit_label ?? "Submit"}
+      </button>
     </div>
   );
 }

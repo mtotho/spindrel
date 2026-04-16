@@ -107,7 +107,7 @@ If you connect a new MCP server and want to add an intelligence layer:
 2. Write a skill with domain knowledge
 3. Optionally create a workspace schema template
 
-See the [Custom Tools & Extensions](custom-tools.md) guide for the full walkthrough, or use the `home-assistant` capability as a reference: `integrations/mission_control/carapaces/home-assistant.yaml`.
+See the [Custom Tools & Extensions](custom-tools.md) guide for the full walkthrough, or use the `home-assistant` capability as a reference: `integrations/homeassistant/carapaces/home-assistant.yaml`.
 
 ## Worked Example: Home Assistant
 

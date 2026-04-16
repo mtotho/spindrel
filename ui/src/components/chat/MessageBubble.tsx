@@ -145,7 +145,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const messageContent = (
     <>
       {richEnvelope ? (
-        <RichToolResult envelope={richEnvelope} sessionId={message.session_id} t={t} />
+        <RichToolResult envelope={richEnvelope} sessionId={message.session_id} channelId={channelId} botId={(meta.sender_bot_id as string) ?? undefined} t={t} />
       ) : displayContent.length > 0 ? (
         <MarkdownContent text={displayContent} t={t} />
       ) : null}
@@ -159,6 +159,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           toolCalls={msgToolCalls}
           toolResults={toolResults}
           sessionId={message.session_id}
+          channelId={channelId}
+          botId={(meta.sender_bot_id as string) ?? undefined}
           compact={compact}
           autoExpand={isLatestBotMessage}
           t={t}

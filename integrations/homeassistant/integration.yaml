@@ -1,0 +1,65 @@
+id: homeassistant
+name: Home Assistant
+icon: Home
+description: Smart home control via Home Assistant MCP integration.
+version: "1.0"
+
+# MCP servers are configured externally (official HA MCP + community ha-mcp).
+# No settings needed — this integration provides skills and widget templates.
+
+tool_widgets:
+  # Official HA MCP tools — intent-based
+  # Result shape: {response_type, data: {targets[], success[{name, type, id}], failed[]}}
+  HassTurnOn:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    template:
+      v: 1
+      components:
+        - type: status
+          text: "Turned on"
+          color: success
+        - type: properties
+          layout: inline
+          items: "{{data.success | map: {label: name, value: id} }}"
+        - type: toggle
+          label: "Power"
+          value: true
+          action:
+            dispatch: tool
+            tool: HassTurnOff
+            args:
+              area: "{{data.success[0].id}}"
+            optimistic: true
+
+  HassTurnOff:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    template:
+      v: 1
+      components:
+        - type: status
+          text: "Turned off"
+          color: muted
+        - type: toggle
+          label: "Power"
+          value: false
+          action:
+            dispatch: tool
+            tool: HassTurnOn
+            args:
+              area: "{{data.success[0].id}}"
+            optimistic: true
+
+  HassLightSet:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    template:
+      v: 1
+      components:
+        - type: status
+          text: "Light adjusted"
+          color: accent
+        - type: properties
+          layout: inline
+          items: "{{data.success | map: {label: name, value: id} }}"

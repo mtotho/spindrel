@@ -57,7 +57,7 @@ These intent-based tools are available when using the built-in HA MCP integratio
 
 HA scripts that are exposed to voice assistants appear as named tools — e.g.,
 `bedroom_set_scene_based_on_time`, `kitchen_set_scene_based_on_time`. These
-run the full script sequence when called. Track what each one does in `routines.md`.
+run the full script sequence when called.
 
 ### Exposing More Entities
 
@@ -72,9 +72,6 @@ To add entities to the official HA MCP tools:
 ---
 
 ## Entity Domains Quick Reference
-
-Home Assistant organizes devices by domain. This matters for ha-mcp service calls
-and for understanding what the official tools can control.
 
 | Domain | Examples | Key Services (ha-mcp) | Official Tool |
 |--------|----------|----------------------|---------------|
@@ -158,10 +155,6 @@ ha_call_service("climate", "set_temperature", entity_id="climate.thermostat",
 # Set mode
 ha_call_service("climate", "set_hvac_mode", entity_id="climate.thermostat",
     data={"hvac_mode": "auto"})
-
-# Dual setpoint
-ha_call_service("climate", "set_temperature", entity_id="climate.thermostat",
-    data={"target_temp_low": 68, "target_temp_high": 74})
 ```
 
 ### Media
@@ -170,18 +163,6 @@ ha_call_service("climate", "set_temperature", entity_id="climate.thermostat",
 # Set volume (0.0 to 1.0)
 ha_call_service("media_player", "volume_set", entity_id="media_player.tv",
     data={"volume_level": 0.4})
-
-# Select input
-ha_call_service("media_player", "select_source", entity_id="media_player.tv",
-    data={"source": "HDMI 1"})
-```
-
-### Covers
-
-```
-# Position: 0 = closed, 100 = fully open
-ha_call_service("cover", "set_cover_position", entity_id="cover.living_room_blinds",
-    data={"position": 50})
 ```
 
 ### Bulk Operations
@@ -191,8 +172,6 @@ ha_bulk_control(commands=[
     {"domain": "light", "service": "turn_on", "entity_id": "light.living_room",
      "data": {"brightness": 128, "color_temp": 370}},
     {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"},
-    {"domain": "cover", "service": "close_cover", "entity_id": "cover.blinds"},
-    {"domain": "media_player", "service": "turn_on", "entity_id": "media_player.tv"}
 ])
 ```
 
@@ -248,17 +227,6 @@ ha_config_set_automation(
 | `calendar` | Calendar event starts/ends |
 | `template` | Custom Jinja2 condition becomes true |
 
-### Debugging Automations
-
-1. `ha_get_automation_traces(automation_id)` — execution history, what triggered, what failed
-2. `ha_get_logbook(entity_id="automation.name")` — when it fired
-3. Verify trigger entities are in expected states
-4. Common issues:
-   - Automation disabled — state should be `on`
-   - Wrong entity_id — use `ha_search_entities` to verify
-   - Condition blocking — traces show which condition failed
-   - Service call data wrong — check domain reference
-
 ## Helper Entities (ha-mcp only)
 
 Virtual entities for storing state — useful for preferences and modes.
@@ -279,7 +247,7 @@ Virtual entities for storing state — useful for preferences and modes.
 
 ## Preference Tracking (preferences.md)
 
-Maintain preferences.md as a living document. Structure it by room and category:
+Maintain preferences.md in the channel workspace as a living document. Structure by room and category:
 
 ```markdown
 ## Living Room
@@ -288,22 +256,10 @@ Maintain preferences.md as a living document. Structure it by room and category:
 - **Evening (after sunset)**: 50% brightness, 2700K warm — adjusted 2026-03-15 (was 60%, "too bright")
 - **Movie mode**: 12% brightness, 2200K candlelight
 - **Morning**: 80% brightness, 4000K neutral
-- **Preferred bulb mode**: color_temp (not RGB)
 
 ### Climate
 - **Daytime**: 72°F
 - **Night**: 68°F
-- **Preferred mode**: auto
-
-### Covers
-- **Morning**: open fully by 8:00 AM
-- **Movie mode**: closed
-- **Night**: closed by sunset + 30min
-
-## Bedroom
-### Lighting
-- **Evening**: 25% brightness, 2200K — never above 40% after 9 PM
-- **Wake-up**: gradual from 0→60% over 15 min starting at alarm time
 ```
 
 **When to update preferences.md**:
@@ -311,12 +267,10 @@ Maintain preferences.md as a living document. Structure it by room and category:
 - User manually sets a specific value → note it with context
 - User defines a routine → record all settings
 - User corrects your choice → update with the correction and reason
-- Seasonal changes → note the date and season
 
 ## Routine Definitions (routines.md)
 
-Track named routines with the exact tool calls for each step. Adapt to whichever
-tools are available:
+Track named routines with the exact tool calls for each step in the channel workspace:
 
 ```markdown
 ## Morning
@@ -328,22 +282,6 @@ tools are available:
 2. `HassLightSet` → Kitchen, brightness 100%
 3. `HassTurnOn` → Cover: living room blinds
 4. `HassClimateSetTemperature` → 72°F
-
-### Steps (ha-mcp)
-1. `ha_call_service("light", "turn_on", "light.living_room", {"brightness": 204, "color_temp": 250})`
-2. `ha_call_service("light", "turn_on", "light.kitchen", {"brightness": 255, "color_temp": 250})`
-3. `ha_call_service("cover", "open_cover", "cover.living_room_blinds")`
-4. `ha_call_service("climate", "set_temperature", "climate.thermostat", {"temperature": 72})`
-
-## Good Night
-
-**Trigger phrases**: "good night", "going to bed", "lights out"
-
-1. All lights → off (except nightlights)
-2. All doors → lock
-3. Thermostat → 68°F (night setpoint)
-4. Blinds → close all
-5. TV/speakers → off
 ```
 
 **Tip**: If the user has custom script tools (like `bedroom_set_scene_based_on_time`),
@@ -359,8 +297,7 @@ For heartbeats or status requests:
 4. `ha_get_states(domain="sensor")` → battery sensors below threshold
 5. `ha_get_logbook(hours=24)` → unusual events or errors
 
-For the official HA MCP: use `GetLiveContext` for a status snapshot. No detailed
-health checks available — note this limitation in status.md.
+For the official HA MCP: use `GetLiveContext` for a status snapshot.
 
 ## Common Pitfalls
 

@@ -604,7 +604,15 @@ async def dispatch_tool_call(
             _envelope_optin["plain_body"] = _redact_secrets(_envelope_optin["plain_body"])
         result_obj.envelope = _build_envelope_from_optin(_envelope_optin, result_obj.result)
     else:
-        result_obj.envelope = _build_default_envelope(result_obj.result)
+        # Check for widget template (MCP tools that have integration-declared widgets)
+        _widget_envelope: ToolResultEnvelope | None = None
+        if _tc_type == "mcp":
+            from app.services.widget_templates import apply_widget_template
+            _widget_envelope = apply_widget_template(name, result_obj.result)
+        if _widget_envelope is not None:
+            result_obj.envelope = _widget_envelope
+        else:
+            result_obj.envelope = _build_default_envelope(result_obj.result)
 
     # Pre-generate tool call ID so we can reference it in the retrieval hint.
     # Store full result for any result large enough to be pruned later, so the

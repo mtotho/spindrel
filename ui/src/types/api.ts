@@ -586,6 +586,24 @@ export interface ToolResultEnvelope {
   truncated: boolean;
   record_id: string | null;
   byte_size: number;
+  widget_type?: string;
+}
+
+/** Action definition for interactive widget components (toggle, button, select, etc.) */
+export interface WidgetAction {
+  /** "tool" dispatches through tool_dispatch, "api" calls a REST endpoint directly */
+  dispatch: "tool" | "api";
+  /** For dispatch:"tool" — the tool name to call */
+  tool?: string;
+  /** For dispatch:"api" — the endpoint path (allowlisted internal paths only) */
+  endpoint?: string;
+  method?: "POST" | "PUT" | "PATCH" | "DELETE";
+  /** Static args merged with the dynamic value from the interactive element */
+  args?: Record<string, unknown>;
+  /** Key name for the dynamic value (e.g., toggle sends {[value_key]: true/false}) */
+  value_key?: string;
+  /** Flip the value client-side before server confirms */
+  optimistic?: boolean;
 }
 
 // Chat types

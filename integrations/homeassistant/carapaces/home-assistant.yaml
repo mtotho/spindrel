@@ -13,11 +13,6 @@ tags: [smart-home, home-assistant, automation, iot, lighting, climate]
 #   - Community ha-mcp (ha_* tools — 92+ tools, full HA API coverage)
 # The prompt fragment handles both tool naming conventions.
 
-local_tools:
-  - create_task_card
-  - move_task_card
-  - append_timeline_event
-
 system_prompt_fragment: |
   ## Home Assistant
 
@@ -92,4 +87,4 @@ system_prompt_fragment: |
 
   | When you need... | Fetch this skill |
   |---|---|
-  | Entity domains, service call patterns, automation creation (ha-mcp only), helper entities, debugging, energy monitoring, brightness/color temp reference | `get_skill('integrations/mission_control/home-assistant')` |
+  | Entity domains, service call patterns, automation creation (ha-mcp only), helper entities, debugging, energy monitoring, brightness/color temp reference | `get_skill('integrations/homeassistant/home-assistant')` |

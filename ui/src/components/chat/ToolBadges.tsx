@@ -109,6 +109,8 @@ export function ToolBadges({
   toolCalls,
   toolResults,
   sessionId,
+  channelId,
+  botId,
   compact = false,
   autoExpand = false,
   t,
@@ -117,6 +119,8 @@ export function ToolBadges({
   toolCalls?: ToolCall[];
   toolResults?: ToolResultEnvelope[];
   sessionId?: string;
+  channelId?: string;
+  botId?: string;
   compact?: boolean;
   autoExpand?: boolean;
   t: ThemeTokens;
@@ -409,9 +413,9 @@ export function ToolBadges({
                           }}
                         >
                           {isError ? (
-                            <ErrorResult env={env} t={t} sessionId={sessionId} />
+                            <ErrorResult env={env} t={t} sessionId={sessionId} channelId={channelId} botId={botId} />
                           ) : (
-                            <RichToolResult envelope={env} sessionId={sessionId} t={t} />
+                            <RichToolResult envelope={env} sessionId={sessionId} channelId={channelId} botId={botId} t={t} />
                           )}
                           {isCapped && (env.byte_size > 2000 || (env.body ?? "").length > 1500) && (
                             <div
@@ -470,10 +474,14 @@ function ErrorResult({
   env,
   t,
   sessionId,
+  channelId,
+  botId,
 }: {
   env: ToolResultEnvelope;
   t: ThemeTokens;
   sessionId?: string;
+  channelId?: string;
+  botId?: string;
 }) {
   const body = env.body ?? env.plain_body ?? "";
   let errorMsg = body;
@@ -506,5 +514,5 @@ function ErrorResult({
     );
   }
 
-  return <RichToolResult envelope={env} sessionId={sessionId} t={t} />;
+  return <RichToolResult envelope={env} sessionId={sessionId} channelId={channelId} botId={botId} t={t} />;
 }
