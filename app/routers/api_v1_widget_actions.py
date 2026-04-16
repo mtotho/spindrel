@@ -28,6 +28,7 @@ from app.agent.tool_dispatch import (
     _build_default_envelope,
     _build_envelope_from_optin,
 )
+from app.services.widget_templates import apply_widget_template
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
         return WidgetActionResponse(ok=True, envelope=None)
 
     # Build envelope from result
-    envelope = _build_result_envelope(result)
+    envelope = _build_result_envelope(resolved_name, result)
 
     logger.info(
         "Widget action: tool=%s channel=%s bot=%s source=%s",
@@ -187,8 +188,11 @@ async def _dispatch_api(req: WidgetActionRequest) -> WidgetActionResponse:
     return WidgetActionResponse(ok=True, api_response=data)
 
 
-def _build_result_envelope(raw_result: str) -> ToolResultEnvelope:
-    """Build a ToolResultEnvelope from a raw tool result string."""
+def _build_result_envelope(tool_name: str, raw_result: str) -> ToolResultEnvelope:
+    """Build a ToolResultEnvelope from a raw tool result string.
+
+    Tries in order: _envelope opt-in → widget template → default envelope.
+    """
     # Try to parse as JSON and check for _envelope opt-in
     try:
         parsed = json.loads(raw_result)
@@ -196,5 +200,10 @@ def _build_result_envelope(raw_result: str) -> ToolResultEnvelope:
             return _build_envelope_from_optin(parsed["_envelope"], raw_result)
     except (json.JSONDecodeError, TypeError):
         pass
+
+    # Try widget template from integration manifests
+    widget_env = apply_widget_template(tool_name, raw_result)
+    if widget_env is not None:
+        return widget_env
 
     return _build_default_envelope(raw_result)

@@ -221,6 +221,20 @@ def _apply_transform(value: Any, transform: str, data: dict) -> Any:
         intermediate = _apply_transform(value, left.strip(), data)
         return _apply_transform(intermediate, right, data)
 
+    # default: fallback_value — return fallback if value is None
+    default_match = re.match(r"default:\s*(.*)", transform)
+    if default_match:
+        if value is None:
+            fallback = default_match.group(1).strip()
+            try:
+                return int(fallback)
+            except ValueError:
+                try:
+                    return float(fallback)
+                except ValueError:
+                    return fallback
+        return value
+
     # join: separator
     join_match = re.match(r"join(?::\s*(.*))?", transform)
     if join_match and isinstance(value, list):

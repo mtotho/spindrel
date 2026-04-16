@@ -1,14 +1,16 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import { DelegationCard } from "./DelegationCard";
 import { MarkdownContent } from "./MarkdownContent";
 import { AttachmentImages } from "./AttachmentDisplay";
 import { ToolBadges } from "./ToolBadges";
+import { WidgetCard } from "./WidgetCard";
 import { MessageActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
 import { RichToolResult } from "./RichToolResult";
 import { extractDisplayText, parseSlackPrefix, stripBBPrefix, resolveDisplay, avatarColor } from "./messageUtils";
+import { normalizeToolCall } from "../../types/api";
 import { useToolResultCompact } from "../../stores/toolResultPref";
 import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
 
@@ -115,6 +117,40 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             ? { label: "heartbeat", icon: "\ud83d\udc93", color: "#ec4899" }
             : null;
 
+  // Partition tool results: extract inline widget envelopes for WidgetCard rendering
+  // (must be above early returns to satisfy rules of hooks)
+  const { inlineWidgets, remainingToolNames, remainingToolCalls, remainingToolResults } = useMemo(() => {
+    const inlineWidgets: { envelope: ToolResultEnvelope; toolName: string; recordId?: string }[] = [];
+    const remainingToolNames: string[] = [];
+    const remainingToolCalls: ToolCall[] = [];
+    const remainingToolResults: (ToolResultEnvelope | undefined)[] = [];
+
+    const calls = msgToolCalls ?? [];
+    const names = toolsUsed;
+    const results = toolResults;
+    const count = Math.max(calls.length, names.length);
+
+    for (let i = 0; i < count; i++) {
+      const env = results?.[i];
+      const call = calls[i];
+      const name = call ? normalizeToolCall(call).name : names[i];
+
+      if (
+        env &&
+        env.display === "inline" &&
+        env.content_type === "application/vnd.spindrel.components+json"
+      ) {
+        inlineWidgets.push({ envelope: env, toolName: name ?? "", recordId: env.record_id ?? undefined });
+      } else {
+        if (call) remainingToolCalls.push(call);
+        else if (names[i]) remainingToolNames.push(names[i]);
+        remainingToolResults.push(env);
+      }
+    }
+
+    return { inlineWidgets, remainingToolNames, remainingToolCalls, remainingToolResults };
+  }, [msgToolCalls, toolsUsed, toolResults]);
+
   // Collapsed non-dispatched heartbeat messages
   const isNonDispatchedHeartbeat = (trigger === "heartbeat" || meta.is_heartbeat) && meta.dispatched === false;
   if (isNonDispatchedHeartbeat) {
@@ -142,10 +178,12 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     );
   }
 
+  const senderBotId = (meta.sender_bot_id as string) ?? undefined;
+
   const messageContent = (
     <>
       {richEnvelope ? (
-        <RichToolResult envelope={richEnvelope} sessionId={message.session_id} channelId={channelId} botId={(meta.sender_bot_id as string) ?? undefined} t={t} />
+        <RichToolResult envelope={richEnvelope} sessionId={message.session_id} channelId={channelId} botId={senderBotId} t={t} />
       ) : displayContent.length > 0 ? (
         <MarkdownContent text={displayContent} t={t} />
       ) : null}
@@ -153,14 +191,28 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         <AttachmentImages attachments={message.attachments} t={t} />
       )}
       {autoInjectedSkills.length > 0 && <SkillBadges skills={autoInjectedSkills} t={t} />}
-      {(toolsUsed.length > 0 || (msgToolCalls && msgToolCalls.length > 0)) && (
-        <ToolBadges
-          toolNames={toolsUsed}
-          toolCalls={msgToolCalls}
-          toolResults={toolResults}
+      {/* Inline widget cards — rendered outside ToolBadges chrome */}
+      {inlineWidgets.map((w, i) => (
+        <WidgetCard
+          key={w.recordId ?? i}
+          envelope={w.envelope}
+          toolName={w.toolName}
           sessionId={message.session_id}
           channelId={channelId}
-          botId={(meta.sender_bot_id as string) ?? undefined}
+          botId={senderBotId}
+          widgetId={w.recordId}
+          t={t}
+        />
+      ))}
+      {/* Remaining tool badges for non-widget results */}
+      {(remainingToolNames.length > 0 || remainingToolCalls.length > 0) && (
+        <ToolBadges
+          toolNames={remainingToolNames}
+          toolCalls={remainingToolCalls}
+          toolResults={remainingToolResults as ToolResultEnvelope[]}
+          sessionId={message.session_id}
+          channelId={channelId}
+          botId={senderBotId}
           compact={compact}
           autoExpand={isLatestBotMessage}
           t={t}

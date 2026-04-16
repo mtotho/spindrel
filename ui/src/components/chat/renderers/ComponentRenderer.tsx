@@ -17,7 +17,7 @@
  * Unknown component types render as a muted JSON dump (forward-compatible).
  * Unknown schema versions fall back to plain_body via the parent.
  */
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import {
   ChevronRight,
   ChevronDown,
@@ -35,8 +35,10 @@ import { MarkdownContent } from "../MarkdownContent";
 
 // ── Widget action context ──
 
+import type { WidgetActionResult } from "../../../api/hooks/useWidgetAction";
+
 export interface WidgetActionDispatcher {
-  dispatchAction: (action: WidgetAction, value: unknown) => Promise<unknown>;
+  dispatchAction: (action: WidgetAction, value: unknown) => Promise<WidgetActionResult>;
 }
 
 export const WidgetActionContext = createContext<WidgetActionDispatcher | null>(null);
@@ -64,6 +66,7 @@ type ComponentNode =
   | SelectNode
   | InputNode
   | FormNode
+  | SliderNode
   | { type: string; [key: string]: unknown }; // forward-compat catch-all
 
 interface TextNode {
@@ -171,6 +174,18 @@ interface FormNode {
   children: ComponentNode[];
   submit_action: WidgetAction;
   submit_label?: string;
+}
+
+interface SliderNode {
+  type: "slider";
+  label?: string;
+  value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  action: WidgetAction;
+  color?: SemanticSlot;
 }
 
 type SemanticSlot =
@@ -328,6 +343,8 @@ function RenderNode({
       return <InputBlock node={node as InputNode} t={t} />;
     case "form":
       return <FormBlock node={node as FormNode} t={t} depth={depth} />;
+    case "slider":
+      return <SliderBlock node={node as SliderNode} t={t} />;
     default:
       return <UnknownBlock node={node as Record<string, unknown> & { type: string }} t={t} />;
   }
@@ -1131,6 +1148,81 @@ function FormBlock({
         {busy && <Loader2 size={12} className="animate-spin" />}
         {node.submit_label ?? "Submit"}
       </button>
+    </div>
+  );
+}
+
+function SliderBlock({ node, t }: { node: SliderNode; t: ThemeTokens }) {
+  const dispatch = useAction();
+  const [value, setValue] = useState(node.value);
+  const [busy, setBusy] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const min = node.min ?? 0;
+  const max = node.max ?? 100;
+  const step = node.step ?? 1;
+  const pct = ((value - min) / (max - min)) * 100;
+  const accentColor = slotColor(node.color ?? "accent", t);
+
+  const debouncedDispatch = useCallback((v: number) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      if (!dispatch) return;
+      setBusy(true);
+      try {
+        await dispatch(node.action, v);
+      } catch {
+        // error silently — slider stays at user's chosen position
+      } finally {
+        setBusy(false);
+      }
+    }, 300);
+  }, [dispatch, node.action]);
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "4px 0" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        {node.label && (
+          <span style={{ fontSize: 12, color: t.textMuted, fontWeight: 500 }}>{node.label}</span>
+        )}
+        <span style={{
+          fontSize: 12,
+          color: t.contentText,
+          fontVariantNumeric: "tabular-nums",
+          fontFamily: "'Menlo', monospace",
+          minWidth: 36,
+          textAlign: "right",
+        }}>
+          {value}{node.unit ?? ""}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          setValue(v);
+          debouncedDispatch(v);
+        }}
+        disabled={busy || !dispatch}
+        style={{
+          width: "100%",
+          height: 4,
+          cursor: dispatch ? "pointer" : "default",
+          opacity: busy ? 0.5 : 1,
+          accentColor,
+          background: `linear-gradient(to right, ${accentColor} 0%, ${accentColor} ${pct}%, ${t.surfaceBorder} ${pct}%, ${t.surfaceBorder} 100%)`,
+          borderRadius: 2,
+          appearance: "none" as const,
+          outline: "none",
+          transition: "opacity 0.15s",
+        }}
+      />
     </div>
   );
 }

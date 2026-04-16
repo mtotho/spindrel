@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { apiFetch } from "../client";
-import type { WidgetAction } from "../../types/api";
+import type { WidgetAction, ToolResultEnvelope } from "../../types/api";
 
 interface WidgetActionRequest {
   dispatch: "tool" | "api";
@@ -21,9 +21,14 @@ interface WidgetActionResponse {
   api_response?: Record<string, unknown> | null;
 }
 
+export interface WidgetActionResult {
+  envelope: ToolResultEnvelope | null;
+  apiResponse: Record<string, unknown> | null;
+}
+
 export function useWidgetAction(channelId?: string, botId?: string) {
   const dispatchAction = useCallback(
-    async (action: WidgetAction, value: unknown): Promise<unknown> => {
+    async (action: WidgetAction, value: unknown): Promise<WidgetActionResult> => {
       if (!channelId || !botId) {
         throw new Error("Missing channelId or botId for widget action");
       }
@@ -62,7 +67,10 @@ export function useWidgetAction(channelId?: string, botId?: string) {
         throw new Error(resp.error ?? "Widget action failed");
       }
 
-      return resp.envelope ?? resp.api_response;
+      return {
+        envelope: (resp.envelope as ToolResultEnvelope | undefined) ?? null,
+        apiResponse: resp.api_response ?? null,
+      };
     },
     [channelId, botId],
   );
