@@ -1,4 +1,4 @@
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useEffect, useRef } from "react";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import { DelegationCard } from "./DelegationCard";
@@ -91,9 +91,17 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
 
   const handlePinWidget = useCallback(
     (info: { widgetId: string; envelope: ToolResultEnvelope; toolName: string; channelId: string; botId: string }) => {
+      // Extract entity name from envelope body for a meaningful display name
+      // e.g. "entity: Office Light Switch" → "Office Light Switch"
+      const bodyStr = typeof info.envelope.body === "string" ? info.envelope.body : JSON.stringify(info.envelope.body ?? "");
+      const entityMatch = bodyStr.match(/entity:\s*([^"}\],]+)/i);
+      const entityName = entityMatch?.[1]?.trim();
+      const toolShort = info.toolName.includes("-") ? info.toolName.slice(info.toolName.indexOf("-") + 1) : info.toolName;
+      const displayName = entityName || toolShort;
+
       pinWidget(info.channelId, {
         tool_name: info.toolName,
-        display_name: info.toolName.includes("-") ? info.toolName.slice(info.toolName.indexOf("-") + 1) : info.toolName,
+        display_name: displayName,
         bot_id: info.botId,
         envelope: info.envelope,
       });
@@ -182,6 +190,22 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
 
     return { inlineWidgets, remainingToolNames, remainingToolCalls, remainingToolResults };
   }, [msgToolCalls, toolsUsed, toolResults]);
+
+  // Cross-update pinned widgets when new tool results arrive.
+  // When a tool fires in chat (e.g. HassTurnOff), update any pinned widget
+  // that controls the same entity so it reflects the current state.
+  const crossUpdateRef = useRef<string | null>(null);
+  const crossUpdate = usePinnedWidgetsStore((s) => s.crossUpdateFromToolResult);
+  useEffect(() => {
+    if (!channelId || !inlineWidgets.length) return;
+    // Key by message id to only fire once per message
+    const key = message.id;
+    if (crossUpdateRef.current === key) return;
+    crossUpdateRef.current = key;
+    for (const w of inlineWidgets) {
+      crossUpdate(channelId, w.toolName, w.envelope);
+    }
+  }, [channelId, message.id, inlineWidgets, crossUpdate]);
 
   // Collapsed non-dispatched heartbeat messages
   const isNonDispatchedHeartbeat = (trigger === "heartbeat" || meta.is_heartbeat) && meta.dispatched === false;

@@ -32,10 +32,40 @@ interface PinnedWidgetsState {
     widgetId: string,
     envelope: ToolResultEnvelope,
   ) => void;
+
+  /**
+   * Cross-update: when a new tool result arrives in chat, check if any pinned
+   * widget should be updated. Matches by integration group (same prefix) and
+   * entity overlap in the body content.
+   */
+  crossUpdateFromToolResult: (
+    channelId: string,
+    toolName: string,
+    envelope: ToolResultEnvelope,
+  ) => void;
 }
 
 function generateId(): string {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/**
+ * Extract entity identifiers from a widget envelope body.
+ * Looks for "entity:" labels in the rendered component JSON — these are the
+ * property chips that HA templates emit (e.g., "entity: Office Light Switch").
+ */
+function extractEntities(body: string | null): Set<string> {
+  const entities = new Set<string>();
+  if (!body) return entities;
+  const text = typeof body === "string" ? body : JSON.stringify(body);
+  // Match "entity: <name>" patterns in the body (from properties components)
+  const re = /entity:\s*([^"}\],]+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const val = m[1].trim();
+    if (val) entities.add(val.toLowerCase());
+  }
+  return entities;
 }
 
 export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
@@ -155,6 +185,42 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
             ),
           },
         })),
+
+      crossUpdateFromToolResult: (channelId, toolName, envelope) => {
+        const widgets = get().byChannel[channelId];
+        if (!widgets?.length) return;
+
+        // Extract integration prefix: "homeassistant-HassTurnOn" → "homeassistant"
+        const prefix = toolName.includes("-") ? toolName.split("-")[0] : "";
+
+        // Extract entity identifiers from the new envelope body
+        const newEntities = extractEntities(envelope.body);
+        if (!newEntities.size && !prefix) return;
+
+        set((s) => ({
+          byChannel: {
+            ...s.byChannel,
+            [channelId]: (s.byChannel[channelId] ?? []).map((w) => {
+              // Same integration prefix?
+              const wPrefix = w.tool_name.includes("-") ? w.tool_name.split("-")[0] : "";
+              if (prefix && wPrefix !== prefix) return w;
+              if (!prefix && w.tool_name !== toolName) return w;
+
+              // Check entity overlap in bodies
+              const pinnedEntities = extractEntities(w.envelope.body);
+              if (pinnedEntities.size === 0 && newEntities.size === 0) {
+                // No entities to compare — same tool name is enough
+                return { ...w, envelope };
+              }
+              // At least one shared entity → update
+              for (const e of newEntities) {
+                if (pinnedEntities.has(e)) return { ...w, envelope };
+              }
+              return w;
+            }),
+          },
+        }));
+      },
     }),
     {
       name: "spindrel-pinned-widgets",

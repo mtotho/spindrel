@@ -59,17 +59,19 @@ export function WidgetCard({
   const [showJson, setShowJson] = useState(false);
   const [manualExpand, setManualExpand] = useState<boolean | null>(null);
 
-  // Check if this widget is already pinned (match by tool_name + record_id when available)
+  // Check if this exact widget is already pinned.
+  // Identity: record_id when available, else body content (distinguishes same tool on different entities)
   const isPinned = usePinnedWidgetsStore((s) => {
     if (!channelId) return false;
     return (s.byChannel[channelId] ?? []).some((w) => {
       if (w.tool_name !== toolName) return false;
-      // If both have record_id, use it for precise match
       if (w.envelope.record_id && envelope.record_id) {
         return w.envelope.record_id === envelope.record_id;
       }
-      // Fallback: same tool name is close enough (prevents double-pin)
-      return true;
+      // Fallback: compare body content — different entities produce different bodies
+      const pinnedBody = typeof w.envelope.body === "string" ? w.envelope.body : JSON.stringify(w.envelope.body);
+      const thisBody = typeof envelope.body === "string" ? envelope.body : JSON.stringify(envelope.body);
+      return pinnedBody === thisBody;
     });
   });
 
