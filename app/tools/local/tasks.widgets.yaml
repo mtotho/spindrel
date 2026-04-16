@@ -1,0 +1,116 @@
+# Widget templates for task tools (list_tasks detail, get_task_result)
+
+list_tasks:
+  content_type: application/vnd.spindrel.components+json
+  display: inline
+  template:
+    v: 1
+    components:
+      - type: heading
+        text: "{{title | default: Task}}"
+        level: 3
+      - type: status
+        text: "{{status}}"
+        color: "{{status | status_color}}"
+      - type: properties
+        layout: inline
+        items:
+          - label: Bot
+            value: "{{bot_id}}"
+          - label: Recurrence
+            value: "{{recurrence}}"
+            when: "{{recurrence | not_empty}}"
+          - label: Run count
+            value: "{{run_count}}"
+            when: "{{run_count | not_empty}}"
+          - label: Last run
+            value: "{{run_at}}"
+            when: "{{run_at | not_empty}}"
+          - label: Completed
+            value: "{{completed_at}}"
+            when: "{{completed_at | not_empty}}"
+          - label: Next run
+            value: "{{scheduled_at}}"
+            when: "{{scheduled_at | not_empty}}"
+          - label: Template
+            value: "{{prompt_template}}"
+            when: "{{prompt_template | not_empty}}"
+          - label: File
+            value: "{{workspace_file_path}}"
+            when: "{{workspace_file_path | not_empty}}"
+          - label: Dispatch
+            value: "{{dispatch_type}}"
+            when: "{{dispatch_type | not_empty}}"
+      - type: section
+        label: Error
+        collapsible: true
+        defaultOpen: true
+        when: "{{error | not_empty}}"
+        children:
+          - type: code
+            content: "{{error}}"
+      - type: section
+        label: Last result
+        collapsible: true
+        defaultOpen: false
+        when: "{{result | not_empty}}"
+        children:
+          - type: text
+            content: "{{result}}"
+      - type: button
+        label: Cancel
+        variant: danger
+        when: "{{status | in: pending,active}}"
+        action:
+          dispatch: tool
+          tool: cancel_task
+          args:
+            task_id: "{{id}}"
+
+get_task_result:
+  content_type: application/vnd.spindrel.components+json
+  display: inline
+  template:
+    v: 1
+    components:
+      - type: heading
+        text: "{{title | default: Task Result}}"
+        level: 3
+      - type: status
+        text: "{{status}}"
+        color: "{{status | status_color}}"
+      - type: properties
+        layout: inline
+        items:
+          - label: Type
+            value: "{{task_type}}"
+          - label: Bot
+            value: "{{bot_id}}"
+          - label: Run count
+            value: "{{run_count}}"
+            when: "{{run_count | not_empty}}"
+          - label: Last run
+            value: "{{run_at}}"
+            when: "{{run_at | not_empty}}"
+          - label: Completed
+            value: "{{completed_at}}"
+            when: "{{completed_at | not_empty}}"
+          - label: Child tasks
+            value: "{{child_task_count}}"
+            when: "{{child_task_count | not_empty}}"
+      - type: section
+        label: Error
+        collapsible: true
+        defaultOpen: true
+        when: "{{error | not_empty}}"
+        children:
+          - type: code
+            content: "{{error}}"
+      - type: section
+        label: Result
+        collapsible: true
+        defaultOpen: false
+        when: "{{result | not_empty}}"
+        children:
+          - type: text
+            content: "{{result}}"

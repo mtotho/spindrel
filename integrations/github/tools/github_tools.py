@@ -798,6 +798,111 @@ async def github_create_issue(
 
 
 # ---------------------------------------------------------------------------
+# PR / Issue mutation tools (used by interactive widgets + direct calls)
+# ---------------------------------------------------------------------------
+
+@reg.register({"type": "function", "function": {
+    "name": "github_update_pr",
+    "description": "Update a pull request's state (open/closed) or title.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "owner": {"type": "string", "description": "Repository owner"},
+            "repo": {"type": "string", "description": "Repository name"},
+            "pull_number": {"type": "integer", "description": "PR number"},
+            "state": {"type": "string", "enum": ["open", "closed"], "description": "New state"},
+            "title": {"type": "string", "description": "New title (optional)"},
+        },
+        "required": ["owner", "repo", "pull_number"],
+    },
+}}, safety_tier="exec_capable")
+async def github_update_pr(
+    owner: str, repo: str, pull_number: int,
+    state: str | None = None, title: str | None = None,
+) -> str:
+    payload: dict = {}
+    if state:
+        payload["state"] = state
+    if title:
+        payload["title"] = title
+    if not payload:
+        return json.dumps({"error": "Provide at least state or title."})
+
+    r = await _http.patch(
+        f"{_GITHUB_API}/repos/{owner}/{repo}/pulls/{pull_number}",
+        headers=_headers(), json=payload,
+    )
+    r.raise_for_status()
+    pr = r.json()
+    new_state = "merged" if pr.get("merged") else pr.get("state", "unknown")
+    return await github_get_pr(owner, repo, pull_number)
+
+
+@reg.register({"type": "function", "function": {
+    "name": "github_merge_pr",
+    "description": "Merge a pull request.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "owner": {"type": "string", "description": "Repository owner"},
+            "repo": {"type": "string", "description": "Repository name"},
+            "pull_number": {"type": "integer", "description": "PR number"},
+            "merge_method": {"type": "string", "enum": ["merge", "squash", "rebase"],
+                             "description": "Merge strategy. Default: merge."},
+        },
+        "required": ["owner", "repo", "pull_number"],
+    },
+}}, safety_tier="exec_capable")
+async def github_merge_pr(
+    owner: str, repo: str, pull_number: int,
+    merge_method: str = "merge",
+) -> str:
+    r = await _http.put(
+        f"{_GITHUB_API}/repos/{owner}/{repo}/pulls/{pull_number}/merge",
+        headers=_headers(), json={"merge_method": merge_method},
+    )
+    if r.status_code == 405:
+        return json.dumps({"error": "PR cannot be merged (conflicts, checks failing, or not mergeable)."})
+    r.raise_for_status()
+    return await github_get_pr(owner, repo, pull_number)
+
+
+@reg.register({"type": "function", "function": {
+    "name": "github_update_issue",
+    "description": "Update an issue's state (open/closed) or title.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "owner": {"type": "string", "description": "Repository owner"},
+            "repo": {"type": "string", "description": "Repository name"},
+            "issue_number": {"type": "integer", "description": "Issue number"},
+            "state": {"type": "string", "enum": ["open", "closed"], "description": "New state"},
+            "title": {"type": "string", "description": "New title (optional)"},
+        },
+        "required": ["owner", "repo", "issue_number"],
+    },
+}}, safety_tier="exec_capable")
+async def github_update_issue(
+    owner: str, repo: str, issue_number: int,
+    state: str | None = None, title: str | None = None,
+) -> str:
+    payload: dict = {}
+    if state:
+        payload["state"] = state
+    if title:
+        payload["title"] = title
+    if not payload:
+        return json.dumps({"error": "Provide at least state or title."})
+
+    r = await _http.patch(
+        f"{_GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}",
+        headers=_headers(), json=payload,
+    )
+    r.raise_for_status()
+    return await github_get_issue(owner, repo, issue_number)
+
+
+# ---------------------------------------------------------------------------
 # gh CLI wrapper
 # ---------------------------------------------------------------------------
 

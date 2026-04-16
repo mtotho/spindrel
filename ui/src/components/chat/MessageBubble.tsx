@@ -91,11 +91,17 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
 
   const handlePinWidget = useCallback(
     (info: { widgetId: string; envelope: ToolResultEnvelope; toolName: string; channelId: string; botId: string }) => {
-      // Extract entity name from envelope body for a meaningful display name
-      // e.g. "entity: Office Light Switch" → "Office Light Switch"
-      const bodyStr = typeof info.envelope.body === "string" ? info.envelope.body : JSON.stringify(info.envelope.body ?? "");
-      const entityMatch = bodyStr.match(/entity:\s*([^"}\],]+)/i);
-      const entityName = entityMatch?.[1]?.trim();
+      // Extract entity name from the component JSON for a meaningful display name
+      let entityName: string | undefined;
+      try {
+        const parsed = typeof info.envelope.body === "string" ? JSON.parse(info.envelope.body) : info.envelope.body;
+        for (const c of parsed?.components ?? []) {
+          if (c.type === "properties" && Array.isArray(c.items)) {
+            const ent = c.items.find((it: any) => typeof it.label === "string" && it.label.toLowerCase() === "entity");
+            if (ent?.value) { entityName = ent.value; break; }
+          }
+        }
+      } catch { /* not JSON */ }
       const toolShort = info.toolName.includes("-") ? info.toolName.slice(info.toolName.indexOf("-") + 1) : info.toolName;
       const displayName = entityName || toolShort;
 

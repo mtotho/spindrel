@@ -77,3 +77,106 @@ provides:
   - tools
   - carapaces
   - skills
+
+# Interactive widget buttons for GitHub tools.
+# These tools already emit _envelope with components from Python code —
+# the _envelope opt-in takes priority over these YAML templates.
+# These templates serve as the YAML-first definition for when the
+# tools are migrated away from inline _envelope construction.
+# For now, the mutation tools (update_pr, merge_pr, update_issue)
+# are defined here so widget actions can dispatch to them.
+
+tool_widgets:
+  github_get_pr:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "PR #{{number}}: {{title}}"
+          level: 2
+        - type: status
+          text: "{{state}}"
+          color: "{{state | status_color}}"
+        - type: properties
+          layout: vertical
+          items:
+            - label: Author
+              value: "{{user.login}}"
+            - label: Branch
+              value: "{{head.ref}} → {{base.ref}}"
+            - label: Stats
+              value: "+{{additions}} −{{deletions}} across {{changed_files}} files"
+        - type: divider
+          when: "{{state == 'open'}}"
+        - type: button
+          label: Merge
+          variant: primary
+          when: "{{state == 'open'}}"
+          action:
+            dispatch: tool
+            tool: github_merge_pr
+            args:
+              owner: "{{base.repo.owner.login}}"
+              repo: "{{base.repo.name}}"
+              pull_number: "{{number}}"
+        - type: button
+          label: Close
+          variant: danger
+          when: "{{state == 'open'}}"
+          action:
+            dispatch: tool
+            tool: github_update_pr
+            args:
+              owner: "{{base.repo.owner.login}}"
+              repo: "{{base.repo.name}}"
+              pull_number: "{{number}}"
+              state: closed
+
+  github_get_issue:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "Issue #{{number}}: {{title}}"
+          level: 2
+        - type: status
+          text: "{{state}}"
+          color: "{{state | status_color}}"
+        - type: properties
+          layout: vertical
+          items:
+            - label: Author
+              value: "{{user.login}}"
+            - label: Created
+              value: "{{created_at}}"
+            - label: Updated
+              value: "{{updated_at}}"
+        - type: divider
+        - type: button
+          label: Close
+          variant: danger
+          when: "{{state == 'open'}}"
+          action:
+            dispatch: tool
+            tool: github_update_issue
+            args:
+              owner: "{{repository.owner.login}}"
+              repo: "{{repository.name}}"
+              issue_number: "{{number}}"
+              state: closed
+        - type: button
+          label: Reopen
+          variant: default
+          when: "{{state == 'closed'}}"
+          action:
+            dispatch: tool
+            tool: github_update_issue
+            args:
+              owner: "{{repository.owner.login}}"
+              repo: "{{repository.name}}"
+              issue_number: "{{number}}"
+              state: open

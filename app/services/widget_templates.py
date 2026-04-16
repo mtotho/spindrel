@@ -1,9 +1,9 @@
-"""Widget template engine — renders MCP tool results as interactive components.
+"""Widget template engine — renders tool results as interactive components.
 
-Integrations declare `tool_widgets:` in their YAML, mapping tool names to
-declarative component vocabulary templates. When an MCP tool returns raw JSON,
-the engine checks for a matching template, substitutes variables from the
-result data, and produces a ToolResultEnvelope.
+Integrations declare `tool_widgets:` in their YAML, and core tools use
+co-located `*.widgets.yaml` files. When a tool returns JSON, the engine
+checks for a matching template, substitutes variables from the result data,
+and produces a ToolResultEnvelope.
 
 Template syntax:
   - {{key}}          — simple key lookup from the parsed tool result JSON
@@ -11,57 +11,126 @@ Template syntax:
   - {{a[0].b}}       — array index + dot-path
   - {{a == 'x'}}     — equality expression → boolean
   - {{a | map: {label: name, value: id}}} — array map transform
+  - {{a | in: x,y,z}} — membership test → boolean
+  - {{a | not_empty}} — truthy test → boolean
+  - {{a | status_color}} — map status strings to color names
+
+Component-level features:
+  - when: "{{expr}}"   — conditionally include/exclude a component
+  - each: "{{array}}"  — iterate over an array to produce rows/items
+    template: [...]     — template applied per item (use {{_.field}})
+
+Code extensions:
+  - transform: "module.path:function_name" — post-substitution Python hook
+    receives (data: dict, components: list[dict]) → list[dict]
 """
 from __future__ import annotations
 
 import copy
+import importlib
 import json
 import logging
 import re
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from app.agent.tool_dispatch import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
 
-# Global map: tool_name → { content_type, display, template }
+# Global map: tool_name → { content_type, display, template, transform? }
 _widget_templates: dict[str, dict] = {}
 
 # Template variable pattern — matches {{...}}
 _VAR_PATTERN = re.compile(r"\{\{(.+?)\}\}")
 
+# Status → color mapping (used by the status_color transform)
+_STATUS_COLORS: dict[str, str] = {
+    "active": "accent",
+    "running": "info",
+    "complete": "success",
+    "completed": "success",
+    "done": "success",
+    "failed": "danger",
+    "error": "danger",
+    "cancelled": "muted",
+    "canceled": "muted",
+    "pending": "warning",
+    "skipped": "muted",
+    "open": "success",
+    "closed": "muted",
+    "merged": "accent",
+}
+
+
+# ── Template loading ──
+
+def _register_widgets(source: str, widgets: dict) -> int:
+    """Register tool_widgets from a source (integration ID, file path, etc.).
+
+    Returns the number of templates registered. Later registrations do NOT
+    override earlier ones — first-registered wins (integration > core).
+    """
+    count = 0
+    for tool_name, widget_def in widgets.items():
+        if not isinstance(widget_def, dict) or "template" not in widget_def:
+            logger.warning(
+                "%s: tool_widgets[%s] missing 'template', skipping",
+                source, tool_name,
+            )
+            continue
+
+        if tool_name in _widget_templates:
+            logger.debug(
+                "%s: tool_widgets[%s] already registered (from %s), skipping",
+                source, tool_name, _widget_templates[tool_name].get("source", "?"),
+            )
+            continue
+
+        _widget_templates[tool_name] = {
+            "content_type": widget_def.get("content_type", "application/vnd.spindrel.components+json"),
+            "display": widget_def.get("display", "inline"),
+            "template": widget_def["template"],
+            "transform": widget_def.get("transform"),
+            "source": source,
+        }
+        count += 1
+    return count
+
 
 def load_widget_templates_from_manifests() -> None:
-    """Scan all integration manifests for tool_widgets and build the lookup map."""
+    """Load widget templates from all sources.
+
+    Priority order (first-registered wins):
+    1. Integration manifests (tool_widgets in integration.yaml)
+    2. Core tool templates (*.widgets.yaml co-located with tool files)
+    """
     from app.services.integration_manifests import get_all_manifests
 
     _widget_templates.clear()
-    count = 0
+    total = 0
 
+    # 1. Integration manifests — highest priority
     for integration_id, manifest in get_all_manifests().items():
         tool_widgets = manifest.get("tool_widgets")
-        if not tool_widgets or not isinstance(tool_widgets, dict):
-            continue
+        if tool_widgets and isinstance(tool_widgets, dict):
+            total += _register_widgets(f"integration:{integration_id}", tool_widgets)
 
-        for tool_name, widget_def in tool_widgets.items():
-            if not isinstance(widget_def, dict) or "template" not in widget_def:
-                logger.warning(
-                    "integration '%s': tool_widgets[%s] missing 'template', skipping",
-                    integration_id, tool_name,
-                )
-                continue
+    # 2. Core tool widget templates — co-located *.widgets.yaml
+    core_dir = Path(__file__).parent.parent / "tools" / "local"
+    if core_dir.is_dir():
+        for yaml_path in sorted(core_dir.glob("*.widgets.yaml")):
+            try:
+                raw = yaml.safe_load(yaml_path.read_text())
+                if isinstance(raw, dict):
+                    total += _register_widgets(f"core:{yaml_path.stem}", raw)
+            except Exception:
+                logger.warning("Failed to load core widget template %s", yaml_path, exc_info=True)
 
-            _widget_templates[tool_name] = {
-                "content_type": widget_def.get("content_type", "application/vnd.spindrel.components+json"),
-                "display": widget_def.get("display", "inline"),
-                "template": widget_def["template"],
-                "integration_id": integration_id,
-            }
-            count += 1
-
-    if count:
-        logger.info("Loaded %d widget templates from %d integrations",
-                     count, len({t["integration_id"] for t in _widget_templates.values()}))
+    if total:
+        logger.info("Loaded %d widget templates", total)
 
 
 def get_widget_template(tool_name: str) -> dict | None:
@@ -98,6 +167,13 @@ def apply_widget_template(tool_name: str, raw_result: str) -> ToolResultEnvelope
     # Deep-copy the template and substitute variables
     filled = _substitute(copy.deepcopy(tmpl["template"]), data)
 
+    # Apply code extension if declared
+    transform_ref = tmpl.get("transform")
+    if transform_ref and isinstance(filled, dict):
+        components = filled.get("components")
+        if isinstance(components, list):
+            filled["components"] = _apply_code_transform(transform_ref, data, components)
+
     body = json.dumps(filled)
     plain_body = f"Widget: {tool_name}"
 
@@ -109,6 +185,23 @@ def apply_widget_template(tool_name: str, raw_result: str) -> ToolResultEnvelope
     )
 
 
+# ── Code extension hook ──
+
+def _apply_code_transform(ref: str, data: dict, components: list[dict]) -> list[dict]:
+    """Call a Python transform function: 'module.path:function_name'.
+
+    The function receives (data, components) and returns a modified components list.
+    """
+    try:
+        module_path, func_name = ref.rsplit(":", 1)
+        module = importlib.import_module(module_path)
+        func = getattr(module, func_name)
+        return func(data, components)
+    except Exception:
+        logger.warning("Widget transform '%s' failed, using template as-is", ref, exc_info=True)
+        return components
+
+
 # ── Variable substitution ──
 
 def _substitute(obj: Any, data: dict) -> Any:
@@ -116,10 +209,67 @@ def _substitute(obj: Any, data: dict) -> Any:
     if isinstance(obj, str):
         return _substitute_string(obj, data)
     elif isinstance(obj, dict):
-        return {k: _substitute(v, data) for k, v in obj.items()}
+        # Handle `each:` expansion before recursing
+        if "each" in obj and "template" in obj:
+            return _expand_each(obj, data)
+        return {k: _substitute(v, data) for k, v in obj.items() if k != "when"}
     elif isinstance(obj, list):
-        return [_substitute(item, data) for item in obj]
+        # Filter items with `when:` conditionals, then substitute
+        result = []
+        for item in obj:
+            if isinstance(item, dict) and "when" in item:
+                condition = _substitute_string(item["when"], data) if isinstance(item["when"], str) else item["when"]
+                if not _is_truthy(condition):
+                    continue
+            result.append(_substitute(item, data))
+        return result
     return obj
+
+
+def _is_truthy(value: Any) -> bool:
+    """Determine if a value is truthy for `when:` conditionals."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value not in ("", "false", "False", "null", "None", "0")
+    if isinstance(value, (list, dict)):
+        return len(value) > 0
+    if isinstance(value, (int, float)):
+        return value != 0
+    return True
+
+
+def _expand_each(obj: dict, data: dict) -> Any:
+    """Expand an `each:` directive into a list of items.
+
+    ```yaml
+    each: "{{items}}"
+    template: ["{{_.name}}", "{{_.value}}"]
+    ```
+
+    Iterates over the resolved array, substituting `_` as the current item.
+    """
+    array_expr = obj["each"]
+    template = obj["template"]
+
+    # Resolve the array
+    if isinstance(array_expr, str):
+        array = _substitute_string(array_expr, data)
+    else:
+        array = array_expr
+
+    if not isinstance(array, list):
+        return []
+
+    result = []
+    for item in array:
+        # Create a data overlay with `_` as the current item
+        item_data = {**data, "_": item}
+        row = _substitute(copy.deepcopy(template), item_data)
+        result.append(row)
+    return result
 
 
 def _substitute_string(s: str, data: dict) -> Any:
@@ -139,6 +289,8 @@ def _substitute_string(s: str, data: dict) -> Any:
         result = _evaluate_expression(match.group(1).strip(), data)
         if isinstance(result, bool):
             return "true" if result else "false"
+        if result is None:
+            return ""
         return str(result)
 
     return _VAR_PATTERN.sub(replacer, s)
@@ -211,6 +363,13 @@ def _apply_transform(value: Any, transform: str, data: dict) -> Any:
       - map: {label: name, value: id}  → map each item to a new dict
       - pluck: key                      → extract a single field from each item
       - join: separator                 → join list items with separator (default ", ")
+      - where: key=value                → filter list items
+      - first                           → take first item from list
+      - default: fallback               → use fallback if value is None
+      - in: val1,val2,val3              → returns true if value is in the set
+      - not_empty                       → returns true if value is truthy
+      - status_color                    → map status string to a color name
+      - count                           → return length of a list
     """
     # Chained transforms: "pluck: name | join: , "
     # Split on " | " (with spaces) to preserve separators like ", " in join
@@ -220,6 +379,28 @@ def _apply_transform(value: Any, transform: str, data: dict) -> Any:
         right = transform[idx + 3:]  # skip " | "
         intermediate = _apply_transform(value, left.strip(), data)
         return _apply_transform(intermediate, right, data)
+
+    # in: val1,val2,val3 — membership test
+    in_match = re.match(r"in:\s*(.+)", transform)
+    if in_match:
+        members = {m.strip() for m in in_match.group(1).split(",")}
+        return str(value) in members if value is not None else False
+
+    # not_empty — truthy test
+    if transform.strip() == "not_empty":
+        return _is_truthy(value)
+
+    # status_color — map status strings to color names
+    if transform.strip() == "status_color":
+        if isinstance(value, str):
+            return _STATUS_COLORS.get(value.lower(), "muted")
+        return "muted"
+
+    # count — length of a list
+    if transform.strip() == "count":
+        if isinstance(value, (list, dict)):
+            return len(value)
+        return 0
 
     # default: fallback_value — return fallback if value is None
     default_match = re.match(r"default:\s*(.*)", transform)

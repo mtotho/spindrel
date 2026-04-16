@@ -51,19 +51,28 @@ function generateId(): string {
 
 /**
  * Extract entity identifiers from a widget envelope body.
- * Looks for "entity:" labels in the rendered component JSON — these are the
- * property chips that HA templates emit (e.g., "entity: Office Light Switch").
+ * Parses the component JSON and finds properties items with label "entity".
  */
 function extractEntities(body: string | null): Set<string> {
   const entities = new Set<string>();
   if (!body) return entities;
-  const text = typeof body === "string" ? body : JSON.stringify(body);
-  // Match "entity: <name>" patterns in the body (from properties components)
-  const re = /entity:\s*([^"}\],]+)/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    const val = m[1].trim();
-    if (val) entities.add(val.toLowerCase());
+  try {
+    const parsed = typeof body === "string" ? JSON.parse(body) : body;
+    for (const c of parsed?.components ?? []) {
+      if (c.type === "properties" && Array.isArray(c.items)) {
+        for (const item of c.items) {
+          if (
+            typeof item.label === "string" &&
+            item.label.toLowerCase() === "entity" &&
+            typeof item.value === "string"
+          ) {
+            entities.add(item.value.toLowerCase());
+          }
+        }
+      }
+    }
+  } catch {
+    // Not valid JSON
   }
   return entities;
 }

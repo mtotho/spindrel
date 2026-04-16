@@ -1,0 +1,23 @@
+# Widget template for manage_bot_skill (list action)
+# Only applies when result contains a "skills" array (list action).
+
+manage_bot_skill:
+  content_type: application/vnd.spindrel.components+json
+  display: inline
+  template:
+    v: 1
+    components:
+      - type: heading
+        text: "Bot Skills ({{total}})"
+        level: 3
+      - type: table
+        columns: ["Skill", "Category", "Surfaced"]
+        rows:
+          each: "{{skills}}"
+          template: ["{{_.name}}", "{{_.category | default: —}}", "{{_.surface_count | default: 0}}"]
+        compact: true
+        when: "{{skills | not_empty}}"
+      - type: status
+        text: "No skills yet"
+        color: muted
+        when: "{{skills | not_empty | in: false,False}}"

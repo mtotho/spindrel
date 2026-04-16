@@ -20,23 +20,46 @@ function cleanToolName(name: string): string {
   return idx >= 0 ? name.slice(idx + 1) : name;
 }
 
-/** Extract entity name from envelope body (e.g. "entity: Office Light Switch") */
-function extractEntityName(body: string | null): string | null {
+/**
+ * Extract a meaningful display name from the widget's component JSON body.
+ * Parses the component tree and looks for a properties component with an
+ * "entity" label, which is the standard HA template pattern.
+ */
+function extractDisplayNameFromBody(body: string | null): string | null {
   if (!body) return null;
-  const text = typeof body === "string" ? body : JSON.stringify(body);
-  const m = text.match(/entity:\s*([^"}\],]+)/i);
-  return m?.[1]?.trim() || null;
+  try {
+    const parsed = typeof body === "string" ? JSON.parse(body) : body;
+    const components: any[] = parsed?.components;
+    if (!Array.isArray(components)) return null;
+
+    for (const c of components) {
+      if (c.type === "properties" && Array.isArray(c.items)) {
+        for (const item of c.items) {
+          if (
+            typeof item.label === "string" &&
+            item.label.toLowerCase() === "entity" &&
+            typeof item.value === "string"
+          ) {
+            return item.value;
+          }
+        }
+      }
+    }
+  } catch {
+    // Not valid JSON — skip
+  }
+  return null;
 }
 
 /** Get the best display name: entity from body > stored display_name > cleaned tool name */
 function resolveDisplayName(widget: PinnedWidget): string {
-  // If display_name is already an entity name (not a tool name), use it
   const toolShort = cleanToolName(widget.tool_name);
+  // If display_name is already meaningful (not just the tool name), use it
   if (widget.display_name && widget.display_name !== toolShort) {
     return widget.display_name;
   }
-  // Try extracting from current envelope body
-  const entity = extractEntityName(widget.envelope?.body ?? null);
+  // Parse the component body for an entity name
+  const entity = extractDisplayNameFromBody(widget.envelope?.body ?? null);
   return entity || widget.display_name || toolShort;
 }
 
