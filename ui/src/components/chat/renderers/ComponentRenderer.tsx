@@ -845,6 +845,11 @@ function ToggleBlock({ node, t }: { node: ToggleNode; t: ThemeTokens }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Sync local state when envelope replacement changes node.value
+  useEffect(() => {
+    setChecked(node.value);
+  }, [node.value]);
+
   const handleToggle = useCallback(async () => {
     if (!dispatch) {
       setError("Not connected");

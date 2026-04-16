@@ -28,7 +28,7 @@ tool_widgets:
             dispatch: tool
             tool: HassTurnOff
             args:
-              area: "{{data.success[0].id}}"
+              name: "{{data.success[0].name}}"
             optimistic: true
         - type: properties
           layout: inline
@@ -50,7 +50,7 @@ tool_widgets:
             dispatch: tool
             tool: HassTurnOn
             args:
-              area: "{{data.success[0].id}}"
+              name: "{{data.success[0].name}}"
             optimistic: true
         - type: properties
           layout: inline
@@ -65,6 +65,16 @@ tool_widgets:
         - type: status
           text: "Light adjusted"
           color: accent
+        - type: toggle
+          label: Power
+          value: true
+          color: success
+          action:
+            dispatch: tool
+            tool: HassTurnOff
+            args:
+              name: "{{data.success[0].name}}"
+            optimistic: true
         - type: slider
           label: Brightness
           value: "{{data.brightness | default: 100}}"
@@ -77,7 +87,7 @@ tool_widgets:
             dispatch: tool
             tool: HassLightSet
             args:
-              area: "{{data.success[0].id}}"
+              name: "{{data.success[0].name}}"
             value_key: brightness
         - type: properties
           layout: inline
