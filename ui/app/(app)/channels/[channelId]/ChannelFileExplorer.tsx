@@ -29,7 +29,7 @@ import { Spinner } from "@/src/components/shared/Spinner";
  * the project's 1000-line split rule.
  */
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { X, Plus, FolderPlus, Search, Upload, RefreshCw } from "lucide-react";
+import { X, Plus, FolderPlus, Search, Upload, RefreshCw, ChevronDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
@@ -118,6 +118,8 @@ interface ChannelFileExplorerProps {
   onClose: () => void;
   width?: number;
   fullWidth?: boolean;
+  /** When provided, title bar shows a collapse chevron instead of the X close button */
+  onCollapseFiles?: () => void;
 }
 
 export function ChannelFileExplorer({
@@ -131,6 +133,7 @@ export function ChannelFileExplorer({
   onClose,
   width = 260,
   fullWidth = false,
+  onCollapseFiles,
 }: ChannelFileExplorerProps) {
   const t = useThemeTokens();
   const queryClient = useQueryClient();
@@ -637,12 +640,23 @@ export function ChannelFileExplorer({
           display: "flex",
           flexDirection: "row",
           alignItems: "center",
-          paddingLeft: 10,
+          paddingLeft: onCollapseFiles ? 4 : 10,
           paddingRight: 4,
           height: 28,
           gap: 2,
         }}
       >
+        {onCollapseFiles && (
+          <button
+            type="button"
+            onClick={onCollapseFiles}
+            className="header-icon-btn"
+            style={{ padding: 4, borderRadius: 3, cursor: "pointer", background: "none", border: "none" }}
+            title="Collapse files"
+          >
+            <ChevronDown size={12} color={t.textMuted} />
+          </button>
+        )}
         <span
           style={{
             flex: 1,
@@ -653,7 +667,7 @@ export function ChannelFileExplorer({
             letterSpacing: 0.8,
           }}
         >
-          Explorer
+          {onCollapseFiles ? "Files" : "Explorer"}
         </span>
         <button type="button"
           className="header-icon-btn"
@@ -687,13 +701,13 @@ export function ChannelFileExplorer({
         >
           <RefreshCw size={11} color={t.textDim} />
         </button>
-        <button type="button"
+        {!onCollapseFiles && <button type="button"
           className="header-icon-btn"
           onClick={onClose}
           style={{ padding: 5, borderRadius: 3, cursor: "pointer", background: "none", border: "none" }}
         >
           <X size={13} color={t.textDim} />
-        </button>
+        </button>}
       </div>
 
       {/* IN CONTEXT card (channel-scoped) */}

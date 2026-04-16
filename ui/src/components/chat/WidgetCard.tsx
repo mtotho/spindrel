@@ -33,7 +33,9 @@ interface WidgetCardProps {
   t: ThemeTokens;
   /** Stable identity for pin references (derived from tool call record_id) */
   widgetId?: string;
-  /** Future: callback when user pins this widget to a side panel */
+  /** When true, this is part of the latest bot message — keep expanded */
+  isLatestBotMessage?: boolean;
+  /** Callback when user pins this widget to a side panel */
   onPin?: (info: {
     widgetId: string;
     envelope: ToolResultEnvelope;
@@ -50,10 +52,12 @@ export function WidgetCard({
   botId,
   t,
   widgetId,
+  isLatestBotMessage,
   onPin,
 }: WidgetCardProps) {
   const [currentEnvelope, setCurrentEnvelope] = useState(envelope);
   const [showJson, setShowJson] = useState(false);
+  const [manualExpand, setManualExpand] = useState<boolean | null>(null);
 
   // Check if this widget is already pinned (match by tool_name + record_id when available)
   const isPinned = usePinnedWidgetsStore((s) => {
@@ -102,6 +106,10 @@ export function WidgetCard({
 
   const displayName = cleanToolName(toolName);
 
+  // Auto-collapse older widget cards when pinned (user can manually expand)
+  const autoCollapsed = isPinned && !isLatestBotMessage;
+  const isCollapsed = manualExpand !== null ? !manualExpand : autoCollapsed;
+
   const content = showJson ? (
     <JsonTreeRenderer body={body} t={t} />
   ) : (
@@ -114,24 +122,75 @@ export function WidgetCard({
     </WidgetActionContext.Provider>
   ) : content;
 
+  // Collapsed state: compact one-liner with pinned badge
+  if (isCollapsed) {
+    return (
+      <button
+        type="button"
+        onClick={() => setManualExpand(true)}
+        className="rounded-lg border mt-1.5 px-3 py-1.5 flex items-center gap-2 w-full text-left hover:bg-white/[0.02] transition-colors duration-150"
+        style={{
+          borderColor: isPinned ? `${t.accent}40` : t.surfaceBorder,
+          backgroundColor: t.surfaceRaised,
+          maxWidth: 400,
+        }}
+      >
+        <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: t.textDim }}>
+          {displayName}
+        </span>
+        {isPinned && (
+          <span className="flex items-center gap-0.5">
+            <Pin size={9} fill={t.accent} style={{ color: t.accent }} />
+            <span className="text-[9px] font-medium" style={{ color: t.accent, opacity: 0.8 }}>
+              pinned
+            </span>
+          </span>
+        )}
+        <span className="ml-auto text-[10px]" style={{ color: t.textDim, opacity: 0.4 }}>
+          expand
+        </span>
+      </button>
+    );
+  }
+
   return (
     <div
       className="rounded-lg border mt-1.5"
       style={{
-        borderColor: t.surfaceBorder,
+        borderColor: isPinned ? `${t.accent}40` : t.surfaceBorder,
         backgroundColor: t.surfaceRaised,
         maxWidth: 400,
       }}
     >
-      {/* Header: tool name + pin */}
-      <div className="px-3 pt-2 pb-0.5 flex items-center justify-between">
+      {/* Header: tool name + pinned badge + pin button */}
+      <div className="px-3 pt-2 pb-0.5 flex items-center gap-2">
         <span
           className="text-[10px] font-medium uppercase tracking-wider"
           style={{ color: t.textDim }}
         >
           {displayName}
         </span>
-        {channelId && botId && onPin && (
+        {isPinned && (
+          <span className="flex items-center gap-0.5">
+            <Pin size={9} fill={t.accent} style={{ color: t.accent }} />
+            <span className="text-[9px] font-medium" style={{ color: t.accent, opacity: 0.8 }}>
+              pinned
+            </span>
+          </span>
+        )}
+        <span className="flex-1" />
+        {autoCollapsed && (
+          <button
+            type="button"
+            onClick={() => setManualExpand(false)}
+            className="text-[10px] px-1 py-0.5 transition-opacity"
+            style={{ color: t.textDim, opacity: 0.4, background: "none", border: "none", cursor: "pointer" }}
+            title="Collapse"
+          >
+            collapse
+          </button>
+        )}
+        {channelId && onPin && !isPinned && (
           <button
             type="button"
             onClick={() =>
@@ -140,17 +199,13 @@ export function WidgetCard({
                 envelope: currentEnvelope,
                 toolName,
                 channelId,
-                botId,
+                botId: botId ?? "default",
               })
             }
             className="p-0.5 rounded hover:bg-white/[0.06] transition-colors duration-150"
-            title={isPinned ? "Already pinned" : "Pin to side panel"}
+            title="Pin to side panel"
           >
-            <Pin
-              size={12}
-              fill={isPinned ? t.accent : "none"}
-              style={{ color: isPinned ? t.accent : t.textDim, opacity: isPinned ? 1 : 0.5 }}
-            />
+            <Pin size={12} style={{ color: t.textDim, opacity: 0.5 }} />
           </button>
         )}
       </div>

@@ -8,7 +8,7 @@
  * The panel is always available — no longer gated on workspaceId.
  */
 import { useCallback, useEffect, useRef, useMemo } from "react";
-import { ChevronDown, Pin, Layers } from "lucide-react";
+import { ChevronRight, Pin, Layers } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -129,25 +129,7 @@ export function OmniPanel({
       {/* ── Files Section ── */}
       {hasWorkspace && (
         <>
-          <button
-            type="button"
-            onClick={toggleFilesCollapsed}
-            className="flex items-center gap-1 px-2.5 h-7 hover:bg-white/[0.04] transition-colors duration-150"
-          >
-            <span
-              className="transition-transform duration-150"
-              style={{ transform: filesSectionCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}
-            >
-              <ChevronDown size={12} color={t.textMuted} />
-            </span>
-            <span
-              className="flex-1 text-left uppercase tracking-wider"
-              style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}
-            >
-              Files
-            </span>
-          </button>
-          {showFilesSection && (
+          {showFilesSection ? (
             <div className="flex-1 min-h-0 overflow-hidden">
               <ChannelFileExplorer
                 channelId={channelId}
@@ -158,9 +140,24 @@ export function OmniPanel({
                 activeFile={activeFile}
                 onSelectFile={onSelectFile}
                 onClose={onClose}
+                onCollapseFiles={toggleFilesCollapsed}
                 fullWidth
               />
             </div>
+          ) : (
+            <button
+              type="button"
+              onClick={toggleFilesCollapsed}
+              className="flex items-center gap-1 px-2.5 h-7 hover:bg-white/[0.04] transition-colors duration-150"
+            >
+              <ChevronRight size={12} color={t.textMuted} />
+              <span
+                className="flex-1 text-left uppercase tracking-wider"
+                style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}
+              >
+                Files
+              </span>
+            </button>
           )}
           {/* Subtle divider between sections */}
           <div className="h-px mx-2" style={{ backgroundColor: `${t.surfaceBorder}33` }} />

@@ -134,7 +134,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             ? { label: "heartbeat", icon: "\ud83d\udc93", color: "#ec4899" }
             : null;
 
-  // Partition tool results: extract inline widget envelopes for WidgetCard rendering
+  // Partition tool results: extract inline widget envelopes for WidgetCard rendering.
+  // Widget tools are fully owned by WidgetCard — no badge or collapsed result shown.
   // (must be above early returns to satisfy rules of hooks)
   const { inlineWidgets, remainingToolNames, remainingToolCalls, remainingToolResults } = useMemo(() => {
     const inlineWidgets: { envelope: ToolResultEnvelope; toolName: string; recordId?: string }[] = [];
@@ -147,22 +148,36 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     const results = toolResults;
     const count = Math.max(calls.length, names.length);
 
+    // First pass: identify which indices are inline widgets
+    const inlineIndices = new Set<number>();
     for (let i = 0; i < count; i++) {
       const env = results?.[i];
-      const call = calls[i];
-      const name = call ? normalizeToolCall(call).name : names[i];
-
       if (
         env &&
         env.display === "inline" &&
         env.content_type === "application/vnd.spindrel.components+json"
       ) {
+        const call = calls[i];
+        const name = call ? normalizeToolCall(call).name : names[i];
         inlineWidgets.push({ envelope: env, toolName: name ?? "", recordId: env.record_id ?? undefined });
-      } else {
-        if (call) remainingToolCalls.push(call);
-        else if (names[i]) remainingToolNames.push(names[i]);
-        remainingToolResults.push(env);
+        inlineIndices.add(i);
       }
+    }
+
+    // Build the set of inline widget tool names for dedup across misaligned arrays
+    const inlineToolNames = new Set(inlineWidgets.map((w) => w.toolName));
+
+    // Second pass: collect remaining (non-widget) entries, skipping any that were inlined
+    for (let i = 0; i < count; i++) {
+      if (inlineIndices.has(i)) continue;
+      const call = calls[i];
+      const name = call ? normalizeToolCall(call).name : names[i];
+      // Skip if this tool name was already captured as an inline widget (dedup)
+      if (name && inlineToolNames.has(name)) continue;
+      const env = results?.[i];
+      if (call) remainingToolCalls.push(call);
+      else if (names[i]) remainingToolNames.push(names[i]);
+      remainingToolResults.push(env);
     }
 
     return { inlineWidgets, remainingToolNames, remainingToolCalls, remainingToolResults };
@@ -219,6 +234,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           botId={senderBotId}
           widgetId={w.recordId}
           t={t}
+          isLatestBotMessage={isLatestBotMessage}
           onPin={handlePinWidget}
         />
       ))}
