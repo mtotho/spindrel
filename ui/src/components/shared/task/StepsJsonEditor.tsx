@@ -1,8 +1,9 @@
 /**
  * StepsJsonEditor — syntax-highlighted JSON editor for pipeline steps.
  *
- * Uses the same transparent-textarea-over-highlighted-pre pattern as YamlEditor,
- * but with JSON tokenization and Tailwind styling.
+ * Uses the transparent-textarea-over-highlighted-pre pattern (same as YamlEditor).
+ * The global CSS forces `font-size: 16px !important` on textareas for iOS zoom
+ * prevention, so we must use 16px as the shared font size for both layers.
  */
 import { useRef, useCallback, useMemo, useState, useEffect } from "react";
 import { AlertTriangle, CheckCircle2, Copy, Check } from "lucide-react";
@@ -14,24 +15,20 @@ import type { StepDef } from "@/src/api/hooks/useTasks";
 
 type TokenType = "key" | "string" | "number" | "boolean" | "null" | "punctuation" | "text";
 
-const TOKEN_CLASSES: Record<TokenType, string> = {
-  key: "text-rose-400",
-  string: "text-emerald-400",
-  number: "text-amber-400",
-  boolean: "text-purple-400",
-  null: "text-purple-400",
-  punctuation: "text-cyan-400",
-  text: "text-text",
+const TOKEN_COLORS: Record<TokenType, string> = {
+  key: "#e06c75",
+  string: "#98c379",
+  number: "#d19a66",
+  boolean: "#c678dd",
+  null: "#c678dd",
+  punctuation: "#56b6c2",
+  text: "#abb2bf",
 };
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/**
- * Simple line-by-line JSON highlighter.
- * Not a full parser — works on the pretty-printed output of JSON.stringify.
- */
 function highlightJson(text: string): string {
   return text.split("\n").map((line) => {
     let result = "";
@@ -40,71 +37,50 @@ function highlightJson(text: string): string {
     while (i < line.length) {
       const ch = line[i];
 
-      // Whitespace
       if (ch === " " || ch === "\t") {
         let ws = "";
-        while (i < line.length && (line[i] === " " || line[i] === "\t")) {
-          ws += line[i];
-          i++;
-        }
+        while (i < line.length && (line[i] === " " || line[i] === "\t")) { ws += line[i]; i++; }
         result += ws;
         continue;
       }
 
-      // Punctuation: { } [ ] , :
       if ("{}[],:".includes(ch)) {
-        result += `<span class="${TOKEN_CLASSES.punctuation}">${escapeHtml(ch)}</span>`;
+        result += `<span style="color:${TOKEN_COLORS.punctuation}">${escapeHtml(ch)}</span>`;
         i++;
         continue;
       }
 
-      // String (key or value)
       if (ch === '"') {
         let str = '"';
         i++;
         while (i < line.length) {
-          if (line[i] === "\\") {
-            str += line[i] + (line[i + 1] ?? "");
-            i += 2;
-          } else if (line[i] === '"') {
-            str += '"';
-            i++;
-            break;
-          } else {
-            str += line[i];
-            i++;
-          }
+          if (line[i] === "\\") { str += line[i] + (line[i + 1] ?? ""); i += 2; }
+          else if (line[i] === '"') { str += '"'; i++; break; }
+          else { str += line[i]; i++; }
         }
-        // Check if this string is a key (followed by colon)
         const rest = line.slice(i).trimStart();
         const isKey = rest.startsWith(":");
-        const cls = isKey ? TOKEN_CLASSES.key : TOKEN_CLASSES.string;
-        result += `<span class="${cls}">${escapeHtml(str)}</span>`;
+        const color = isKey ? TOKEN_COLORS.key : TOKEN_COLORS.string;
+        result += `<span style="color:${color}">${escapeHtml(str)}</span>`;
         continue;
       }
 
-      // Number
       if (ch === "-" || (ch >= "0" && ch <= "9")) {
         let num = "";
-        while (i < line.length && /[0-9eE.+-]/.test(line[i])) {
-          num += line[i];
-          i++;
-        }
-        result += `<span class="${TOKEN_CLASSES.number}">${escapeHtml(num)}</span>`;
+        while (i < line.length && /[0-9eE.+-]/.test(line[i])) { num += line[i]; i++; }
+        result += `<span style="color:${TOKEN_COLORS.number}">${escapeHtml(num)}</span>`;
         continue;
       }
 
-      // Boolean / null
       const remaining = line.slice(i);
       const kwMatch = remaining.match(/^(true|false|null)\b/);
       if (kwMatch) {
-        const cls = kwMatch[1] === "null" ? TOKEN_CLASSES.null : TOKEN_CLASSES.boolean;
-        result += `<span class="${cls}">${kwMatch[1]}</span>`;
+        const color = kwMatch[1] === "null" ? TOKEN_COLORS.null : TOKEN_COLORS.boolean;
+        result += `<span style="color:${color}">${kwMatch[1]}</span>`;
         i += kwMatch[1].length;
         continue;
       }
 
-      // Fallback
       result += escapeHtml(ch);
       i++;
     }
@@ -122,7 +98,6 @@ function validateSteps(text: string): { steps: StepDef[] | null; error: string |
   try {
     const parsed = JSON.parse(text);
     if (!Array.isArray(parsed)) return { steps: null, error: "Root must be an array of steps" };
-    // Basic structural validation
     for (let i = 0; i < parsed.length; i++) {
       const s = parsed[i];
       if (!s || typeof s !== "object") return { steps: null, error: `Step ${i + 1}: must be an object` };
@@ -135,11 +110,20 @@ function validateSteps(text: string): { steps: StepDef[] | null; error: string |
     }
     return { steps: parsed, error: null };
   } catch (e: any) {
-    // Extract useful position info from JSON parse errors
-    const msg = e.message ?? "Invalid JSON";
-    return { steps: null, error: msg };
+    return { steps: null, error: e.message ?? "Invalid JSON" };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Shared font metrics — must match between pre and textarea.
+// Global CSS forces textarea { font-size: 16px !important } for iOS zoom
+// prevention, so we use 16px everywhere to stay aligned.
+// ---------------------------------------------------------------------------
+
+const FONT = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
+const FONT_SIZE = 16;
+const LINE_HEIGHT = "1.5";
+const PADDING = "12px 16px 12px 12px";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -157,12 +141,10 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
   const lineNumRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
 
-  // Local text state for editing — syncs from props on mount / external change
   const canonical = useMemo(() => JSON.stringify(steps, null, 2), [steps]);
   const [text, setText] = useState(canonical);
   const [parseError, setParseError] = useState<string | null>(null);
 
-  // Sync from parent when steps change externally (e.g. visual editor changes)
   const lastCanonicalRef = useRef(canonical);
   useEffect(() => {
     if (canonical !== lastCanonicalRef.current) {
@@ -185,20 +167,13 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
     }
   }, [onChange]);
 
-  // Sync scroll
   const handleScroll = useCallback(() => {
     if (!textareaRef.current) return;
     const { scrollTop, scrollLeft } = textareaRef.current;
-    if (preRef.current) {
-      preRef.current.scrollTop = scrollTop;
-      preRef.current.scrollLeft = scrollLeft;
-    }
-    if (lineNumRef.current) {
-      lineNumRef.current.scrollTop = scrollTop;
-    }
+    if (preRef.current) { preRef.current.scrollTop = scrollTop; preRef.current.scrollLeft = scrollLeft; }
+    if (lineNumRef.current) { lineNumRef.current.scrollTop = scrollTop; }
   }, []);
 
-  // Tab indentation
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Tab") {
       e.preventDefault();
@@ -207,13 +182,10 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
       const end = ta.selectionEnd;
       const newVal = text.substring(0, start) + "  " + text.substring(end);
       handleChange(newVal);
-      requestAnimationFrame(() => {
-        ta.selectionStart = ta.selectionEnd = start + 2;
-      });
+      requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = start + 2; });
     }
   }, [text, handleChange]);
 
-  // Copy to clipboard (textarea fallback for non-HTTPS)
   const handleCopy = useCallback(() => {
     const el = document.createElement("textarea");
     el.value = text;
@@ -227,20 +199,17 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
     setTimeout(() => setCopied(false), 2000);
   }, [text]);
 
-  // Format / pretty-print
   const handleFormat = useCallback(() => {
     try {
       const parsed = JSON.parse(text);
-      const formatted = JSON.stringify(parsed, null, 2);
-      handleChange(formatted);
-    } catch { /* keep current text if invalid */ }
+      handleChange(JSON.stringify(parsed, null, 2));
+    } catch { /* keep current text */ }
   }, [text, handleChange]);
 
   return (
     <div className="flex flex-col gap-2 flex-1 min-h-0">
       {/* Toolbar */}
-      <div className="flex flex-row items-center gap-2">
-        {/* Validation status */}
+      <div className="flex flex-row items-center gap-2 flex-wrap">
         <div className={`flex flex-row items-center gap-1.5 px-2 py-1 rounded-md text-xs ${
           parseError
             ? "bg-red-500/10 text-red-400 border border-red-500/20"
@@ -259,10 +228,7 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
             </>
           )}
         </div>
-
         <div className="flex-1" />
-
-        {/* Actions */}
         {!readOnly && (
           <button
             onClick={handleFormat}
@@ -281,20 +247,37 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
       </div>
 
       {/* Editor */}
-      <div className={`relative flex flex-row rounded-lg border overflow-hidden min-h-[300px] max-h-[600px] ${
-        parseError ? "border-red-500/30" : "border-surface-border"
-      } bg-[#0d1117]`}>
+      <div
+        style={{
+          position: "relative",
+          display: "flex",
+          flexDirection: "row",
+          minHeight: 300,
+          maxHeight: 600,
+          borderRadius: 8,
+          border: `1px solid ${parseError ? "rgba(239,68,68,0.3)" : "var(--surface-border, #333)"}`,
+          background: "#0d1117",
+          overflow: "hidden",
+        }}
+      >
         {/* Line numbers */}
         <div
           ref={lineNumRef}
           aria-hidden
-          className="w-10 shrink-0 text-right text-text-dim/50 select-none pointer-events-none overflow-hidden border-r border-surface-border/30"
           style={{
-            paddingTop: 16,
+            width: 44,
+            flexShrink: 0,
+            padding: PADDING,
             paddingRight: 8,
-            fontFamily: "monospace",
-            fontSize: 13,
-            lineHeight: "1.6",
+            textAlign: "right",
+            fontFamily: FONT,
+            fontSize: FONT_SIZE,
+            lineHeight: LINE_HEIGHT,
+            color: "rgba(255,255,255,0.25)",
+            userSelect: "none",
+            pointerEvents: "none",
+            overflow: "hidden",
+            borderRight: "1px solid rgba(255,255,255,0.08)",
           }}
         >
           {Array.from({ length: lineCount }, (_, i) => (
@@ -302,20 +285,25 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
           ))}
         </div>
 
-        {/* Code area — pre and textarea MUST share identical font metrics */}
-        <div className="relative flex-1 min-w-0">
-          {/* Highlighted pre (background) */}
+        {/* Code area (pre + textarea layered) */}
+        <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+          {/* Highlighted pre (background layer) */}
           <pre
             ref={preRef}
             aria-hidden
-            className="absolute inset-0 m-0 overflow-auto pointer-events-none"
             style={{
-              padding: "16px 16px 16px 12px",
-              fontFamily: "monospace",
-              fontSize: 13,
-              lineHeight: "1.6",
+              position: "absolute",
+              top: 0, left: 0, right: 0, bottom: 0,
+              margin: 0,
+              padding: PADDING,
+              fontFamily: FONT,
+              fontSize: FONT_SIZE,
+              lineHeight: LINE_HEIGHT,
+              color: TOKEN_COLORS.text,
+              overflow: "auto",
               whiteSpace: "pre",
               wordWrap: "normal",
+              pointerEvents: "none",
               tabSize: 2,
             }}
             dangerouslySetInnerHTML={{ __html: highlighted + "\n" }}
@@ -332,17 +320,26 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            className="absolute inset-0 w-full h-full m-0 bg-transparent border-none outline-none resize-none caret-text"
             style={{
-              padding: "16px 16px 16px 12px",
-              fontFamily: "monospace",
-              fontSize: 13,
-              lineHeight: "1.6",
+              position: "absolute",
+              top: 0, left: 0, right: 0, bottom: 0,
+              width: "100%",
+              height: "100%",
+              margin: 0,
+              padding: PADDING,
+              fontFamily: FONT,
+              fontSize: FONT_SIZE,
+              lineHeight: LINE_HEIGHT,
               color: "transparent",
-              WebkitTextFillColor: "transparent",
+              caretColor: "#e6edf3",
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              resize: "none",
+              overflow: "auto",
               whiteSpace: "pre",
               wordWrap: "normal",
-              overflow: "auto",
+              WebkitTextFillColor: "transparent",
               tabSize: 2,
             }}
           />

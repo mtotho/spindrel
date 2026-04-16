@@ -295,18 +295,24 @@ async def _run_exec_step(
     step_states: list[dict],
 ) -> tuple[str, str | None, str | None]:
     """Run a shell command step. Returns (status, result, error)."""
+    import shlex as _shlex
     from app.agent.bots import get_bot
     from app.services.sandbox import sandbox_service
-    from app.tools.local.exec_tool import build_exec_script
 
     try:
         raw_command = step_def.get("prompt", "").strip()
         command = render_prompt(raw_command, {}, step_states, steps, shell_escape=True)
-        args = step_def.get("args", [])
         working_directory = step_def.get("working_directory")
 
         bot = get_bot(task.bot_id)
-        script = build_exec_script(command, args, working_directory, stream_to=None)
+
+        # Build script directly — the command is already a shell string,
+        # don't pass through shlex.join which would re-quote it.
+        script_parts: list[str] = []
+        if working_directory:
+            script_parts.append(f"cd {_shlex.quote(working_directory)}")
+        script_parts.append(command)
+        script = " && ".join(script_parts)
 
         timeout = step_def.get("timeout", 120)
 
