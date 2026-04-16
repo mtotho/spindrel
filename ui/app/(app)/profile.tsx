@@ -64,7 +64,7 @@ function AccountSection({ user }: { user: AuthUser }) {
   });
 
   return (
-    <div className="flex gap-4">
+    <div className="flex flex-col gap-4">
       <span className="text-text font-semibold text-base">Account</span>
 
       {/* Avatar preview */}
@@ -93,7 +93,7 @@ function AccountSection({ user }: { user: AuthUser }) {
       </div>
 
       {/* Fields */}
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2">
         <span className="text-text-dim text-xs">Display Name</span>
         <input
           className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
@@ -101,7 +101,7 @@ function AccountSection({ user }: { user: AuthUser }) {
           onChange={(e) => setDisplayName(e.target.value)}
         />
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2">
         <span className="text-text-dim text-xs">Avatar URL</span>
         <input
           className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
@@ -197,7 +197,7 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
 
   if (isLoading) {
     return (
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-4">
         <span className="text-text font-semibold text-base">Integrations</span>
         <Spinner size={16} color={t.accent} />
       </div>
@@ -206,7 +206,7 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
 
   if (!integrations?.length) {
     return (
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-4">
         <span className="text-text font-semibold text-base">Integrations</span>
         <span className="text-text-muted text-sm">No integrations configured.</span>
       </div>
@@ -214,7 +214,7 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className="flex gap-4">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-row items-center gap-2">
         <Link2 size={16} color="#9ca3af" />
         <span className="text-text font-semibold text-base">Integrations</span>
@@ -226,11 +226,11 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
       {integrations.map((integration) => (
         <div
           key={integration.id}
-          className="flex bg-surface-raised border border-surface-border rounded-lg p-4 gap-3"
+          className="flex flex-col bg-surface-raised border border-surface-border rounded-lg p-4 gap-3"
         >
           <span className="text-text font-medium">{integration.name}</span>
           {integration.fields.map((field) => (
-            <div key={field.key} className="flex gap-1">
+            <div key={field.key} className="flex flex-col gap-1">
               <span className="text-text-dim text-xs">{field.label}</span>
               <input
                 className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
@@ -316,7 +316,7 @@ function SecuritySection({ user }: { user: AuthUser }) {
 
   if (user.auth_method !== "local") {
     return (
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-4">
         <div className="flex flex-row items-center gap-2">
           <Lock size={16} color="#9ca3af" />
           <span className="text-text font-semibold text-base">Security</span>
@@ -329,16 +329,16 @@ function SecuritySection({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className="flex gap-4">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-row items-center gap-2">
         <Lock size={16} color="#9ca3af" />
         <span className="text-text font-semibold text-base">Security</span>
       </div>
 
-      <div className="flex bg-surface-raised border border-surface-border rounded-lg p-4 gap-3">
+      <div className="flex flex-col bg-surface-raised border border-surface-border rounded-lg p-4 gap-3">
         <span className="text-text font-medium text-sm">Change Password</span>
 
-        <div className="flex gap-1">
+        <div className="flex flex-col gap-1">
           <span className="text-text-dim text-xs">Current Password</span>
           <div className="flex flex-row items-center">
             <input
@@ -361,7 +361,7 @@ function SecuritySection({ user }: { user: AuthUser }) {
           </div>
         </div>
 
-        <div className="flex gap-1">
+        <div className="flex flex-col gap-1">
           <span className="text-text-dim text-xs">New Password</span>
           <div className="flex flex-row items-center">
             <input
@@ -384,7 +384,7 @@ function SecuritySection({ user }: { user: AuthUser }) {
           </div>
         </div>
 
-        <div className="flex gap-1">
+        <div className="flex flex-col gap-1">
           <span className="text-text-dim text-xs">Confirm New Password</span>
           <input
             className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
@@ -439,7 +439,7 @@ export default function ProfileScreen() {
       <PageHeader variant="list" title="Profile" />
 
       <div className="flex-1 p-6 overflow-auto">
-        <div className="flex gap-8 max-w-lg">
+        <div className="flex flex-col gap-8 max-w-lg">
           <AccountSection user={user} />
 
           <div className="h-px bg-surface-border" />

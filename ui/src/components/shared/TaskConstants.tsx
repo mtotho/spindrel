@@ -43,27 +43,28 @@ export interface TasksResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Color maps
+// Color maps — `fg` is still used by status dots and other inline-style consumers
 // ---------------------------------------------------------------------------
-export const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
-  scheduled: { bg: "rgba(59,130,246,0.12)", fg: "#3b82f6" },
-  heartbeat: { bg: "rgba(234,179,8,0.12)", fg: "#ca8a04" },
-  delegation: { bg: "rgba(168,85,247,0.12)", fg: "#9333ea" },
-  exec: { bg: "rgba(107,114,128,0.12)", fg: "#6b7280" },
-  callback: { bg: "rgba(239,68,68,0.12)", fg: "#dc2626" },
-  api: { bg: "rgba(34,197,94,0.12)", fg: "#16a34a" },
-  workflow: { bg: "rgba(249,115,22,0.12)", fg: "#ea580c" },
-  agent: { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af" },
+export const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string; tw: string }> = {
+  scheduled:  { bg: "rgba(59,130,246,0.12)",  fg: "#3b82f6", tw: "bg-blue-500/[0.12] text-blue-600 dark:text-blue-400" },
+  heartbeat:  { bg: "rgba(234,179,8,0.12)",   fg: "#ca8a04", tw: "bg-yellow-500/[0.12] text-yellow-700 dark:text-yellow-400" },
+  delegation: { bg: "rgba(168,85,247,0.12)",  fg: "#9333ea", tw: "bg-purple-500/[0.12] text-purple-700 dark:text-purple-400" },
+  exec:       { bg: "rgba(107,114,128,0.12)", fg: "#6b7280", tw: "bg-gray-500/[0.12] text-gray-600 dark:text-gray-400" },
+  callback:   { bg: "rgba(239,68,68,0.12)",   fg: "#dc2626", tw: "bg-red-500/[0.12] text-red-600 dark:text-red-400" },
+  api:        { bg: "rgba(34,197,94,0.12)",   fg: "#16a34a", tw: "bg-green-500/[0.12] text-green-700 dark:text-green-400" },
+  workflow:   { bg: "rgba(249,115,22,0.12)",  fg: "#ea580c", tw: "bg-orange-500/[0.12] text-orange-700 dark:text-orange-400" },
+  agent:      { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af", tw: "bg-gray-500/[0.08] text-gray-500 dark:text-gray-400" },
+  pipeline:   { bg: "rgba(168,85,247,0.12)",  fg: "#9333ea", tw: "bg-purple-500/[0.12] text-purple-700 dark:text-purple-400" },
 };
 
-export const STATUS_CFG: Record<string, { bg: string; fg: string; icon: any; label: string }> = {
-  pending:   { bg: "rgba(107,114,128,0.12)", fg: "#6b7280",  icon: Clock,        label: "Pending" },
-  running:   { bg: "rgba(59,130,246,0.12)",  fg: "#3b82f6",  icon: Loader2,      label: "Running" },
-  complete:  { bg: "rgba(34,197,94,0.12)",   fg: "#16a34a",  icon: CheckCircle2, label: "Complete" },
-  failed:    { bg: "rgba(239,68,68,0.12)",   fg: "#dc2626",  icon: AlertCircle,  label: "Failed" },
-  active:    { bg: "rgba(234,179,8,0.12)",   fg: "#ca8a04",  icon: RefreshCw,    label: "Active" },
-  upcoming:  { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af",  icon: Clock,        label: "Upcoming" },
-  cancelled: { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af",  icon: XCircle,      label: "Cancelled" },
+export const STATUS_CFG: Record<string, { bg: string; fg: string; icon: any; label: string; tw: string }> = {
+  pending:   { bg: "rgba(107,114,128,0.12)", fg: "#6b7280",  icon: Clock,        label: "Pending",   tw: "bg-gray-500/[0.12] text-gray-600 dark:text-gray-400" },
+  running:   { bg: "rgba(59,130,246,0.12)",  fg: "#3b82f6",  icon: Loader2,      label: "Running",   tw: "bg-blue-500/[0.12] text-blue-600 dark:text-blue-400" },
+  complete:  { bg: "rgba(34,197,94,0.12)",   fg: "#16a34a",  icon: CheckCircle2, label: "Complete",  tw: "bg-green-500/[0.12] text-green-700 dark:text-green-400" },
+  failed:    { bg: "rgba(239,68,68,0.12)",   fg: "#dc2626",  icon: AlertCircle,  label: "Failed",    tw: "bg-red-500/[0.12] text-red-600 dark:text-red-400" },
+  active:    { bg: "rgba(234,179,8,0.12)",   fg: "#ca8a04",  icon: RefreshCw,    label: "Active",    tw: "bg-yellow-500/[0.12] text-yellow-700 dark:text-yellow-400" },
+  upcoming:  { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af",  icon: Clock,        label: "Upcoming",  tw: "bg-gray-500/[0.08] text-gray-500 dark:text-gray-400" },
+  cancelled: { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af",  icon: XCircle,      label: "Cancelled", tw: "bg-gray-500/[0.08] text-gray-500 dark:text-gray-400" },
 };
 
 export const BOT_COLORS = [
@@ -102,12 +103,7 @@ export function displayTitle(task: TaskItem): string {
 export function TypeBadge({ type }: { type: string }) {
   const c = TYPE_BADGE_COLORS[type] || TYPE_BADGE_COLORS.agent;
   return (
-    <span style={{
-      display: "inline-block",
-      background: c.bg, color: c.fg,
-      padding: "1px 6px", borderRadius: 4, fontSize: 9, fontWeight: 600,
-      textTransform: "uppercase", letterSpacing: 0.5,
-    }}>
+    <span className={`inline-block px-1.5 py-px rounded text-[9px] font-semibold uppercase tracking-wider ${c.tw}`}>
       {type}
     </span>
   );
@@ -117,13 +113,8 @@ export function TaskStatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CFG[status] || STATUS_CFG.pending;
   const Icon = cfg.icon;
   return (
-    <span style={{
-      display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-      background: cfg.bg, color: cfg.fg,
-      padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-      flexShrink: 0, whiteSpace: "nowrap",
-    }}>
-      <Icon size={10} color={cfg.fg} />
+    <span className={`inline-flex flex-row items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold shrink-0 whitespace-nowrap ${cfg.tw}`}>
+      <Icon size={10} />
       {cfg.label}
     </span>
   );
@@ -132,9 +123,9 @@ export function TaskStatusBadge({ status }: { status: string }) {
 export function BotDot({ botId, size = 8 }: { botId: string; size?: number }) {
   const c = botColor(botId);
   return (
-    <div style={{
-      width: size, height: size, borderRadius: size / 2,
-      background: c.dot, flexShrink: 0,
-    }} />
+    <div
+      className="rounded-full shrink-0"
+      style={{ width: size, height: size, background: c.dot }}
+    />
   );
 }

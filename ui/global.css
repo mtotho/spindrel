@@ -2,19 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── RN compat: column default ─────────────────────────── */
-/* Elements that become flex containers (via inline display:"flex" or
-   Tailwind `flex` class) default to column direction, matching the
-   React Native layout model most pages were built against.
-   Harmless on non-flex elements (browser ignores flex-direction on block). */
-@layer base {
-  div, button, a {
-    flex-direction: column;
-  }
-  p a, span a, li a {
-    display: inline;
-  }
-}
 
 /* ── Sidebar component classes ──────────────────────────── */
 @layer components {

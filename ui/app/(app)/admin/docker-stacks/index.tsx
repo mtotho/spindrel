@@ -88,7 +88,7 @@ function StackCard({
       }}
     >
       <div className="flex flex-row items-start justify-between">
-        <div className="flex flex-1 gap-1">
+        <div className="flex flex-col flex-1 gap-1">
           <div className="flex flex-row items-center gap-2">
             <Boxes size={16} color={t.accent} />
             <span className="text-base font-semibold" style={{ color: t.text }}>
@@ -127,7 +127,7 @@ function StackCard({
             )}
           </div>
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex flex-col items-end gap-2">
           <StatusBadge status={stack.status} t={t} />
           <div className="flex flex-row gap-1">
             {stack.status === "stopped" && (
@@ -270,11 +270,11 @@ export default function DockerStacksPage() {
         </div>
 
         {isLoading ? (
-          <div className="flex items-center py-12">
+          <div className="flex flex-col items-center py-12">
             <Spinner />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex items-center py-12 gap-2">
+          <div className="flex flex-col items-center py-12 gap-2">
             <Boxes size={40} color={t.textDim} />
             <span className="text-base" style={{ color: t.textMuted }}>
               {search ? "No stacks match your search" : "No Docker stacks yet"}
@@ -326,7 +326,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-col gap-2">
       <div className="flex flex-row items-center gap-2">
         <span className="text-sm font-semibold" style={{ color: t.textMuted }}>
           {title}

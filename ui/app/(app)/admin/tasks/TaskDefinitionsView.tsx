@@ -41,9 +41,11 @@ export function TaskDefinitionsView({ tasks, schedules, onTaskPress, onRunNow, r
 
     // Top-level non-schedule tasks (one-shots, pipelines without recurrence)
     // Filter out internal types that aren't user-created
-    const internalTypes = new Set(["delegation", "callback", "memory_hygiene", "skill_review", "heartbeat"]);
+    // Only show user-created task types — the wizard creates "scheduled" or "pipeline".
+    // "agent" is excluded: 99% are ephemeral chat-response tasks, not user definitions.
+    const userTypes = new Set(["scheduled", "pipeline"]);
     for (const t of tasks) {
-      if (!t.parent_task_id && !internalTypes.has(t.task_type || "")) {
+      if (!t.parent_task_id && userTypes.has(t.task_type || "")) {
         defs.push(t);
       }
     }
@@ -63,7 +65,7 @@ export function TaskDefinitionsView({ tasks, schedules, onTaskPress, onRunNow, r
 
   if (!definitions.length) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-text-dim text-sm">
+      <div className="flex items-center justify-center py-20 text-text-dim text-sm">
         No task definitions yet.
       </div>
     );
@@ -144,12 +146,12 @@ function DefinitionRow({ def, onPress, onRunNow, isRunning }: {
       </div>
 
       {/* Type */}
-      <div className="w-16 shrink-0 flex justify-center">
+      <div className="w-16 shrink-0 flex flex-col justify-center">
         {def.task_type && <TypeBadge type={def.task_type} />}
       </div>
 
       {/* Trigger */}
-      <div className="w-20 shrink-0 flex justify-center">
+      <div className="w-20 shrink-0 flex flex-col justify-center">
         <span className={`inline-flex flex-row items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
           def.recurrence
             ? "bg-warning/10 text-warning"

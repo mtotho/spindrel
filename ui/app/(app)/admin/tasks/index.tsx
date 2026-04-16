@@ -206,7 +206,7 @@ export default function TasksScreen() {
   ];
 
   return (
-    <div className="flex flex-1 min-h-0 bg-surface overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 bg-surface overflow-hidden">
       <PageHeader variant="list"
         title="Tasks"
         subtitle={!isMobile ? subtitle : undefined}

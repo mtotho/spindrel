@@ -713,7 +713,7 @@ export function ChannelFileExplorer({
       {showFilter && (
         <div style={{ paddingLeft: 8, paddingRight: 8, paddingBottom: 4 }}>
           <div
-            className="flex items-center"
+            className="flex flex-row items-center"
             style={{
               gap: 5,
               background: t.inputBg,

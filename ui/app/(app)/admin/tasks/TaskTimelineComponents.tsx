@@ -301,7 +301,7 @@ export function MobileWeekSummary({ tasksByDay, onDayPress, onTaskPress }: {
 }) {
   const now = new Date();
   return (
-    <div className="flex">
+    <div className="flex flex-col">
       {Object.entries(tasksByDay).map(([dayStr, tasks]) => {
         const date = new Date(dayStr);
         const today = isToday(date);
@@ -322,7 +322,7 @@ export function MobileWeekSummary({ tasksByDay, onDayPress, onTaskPress }: {
               </div>
             </button>
             {tasks.length > 0 && (
-              <div className="flex gap-2 px-4 py-2">
+              <div className="flex flex-col gap-2 px-4 py-2">
                 {tasks.slice(0, 3).map((tk) => (
                   <TaskCard
                     key={tk.id}

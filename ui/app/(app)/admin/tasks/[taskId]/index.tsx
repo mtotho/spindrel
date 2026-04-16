@@ -67,7 +67,7 @@ export default function TaskDetailScreen() {
 
   if (form.loadingTask) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-surface">
+      <div className="flex flex-1 items-center justify-center bg-surface">
         <div className="chat-spinner" />
       </div>
     );
@@ -75,7 +75,7 @@ export default function TaskDetailScreen() {
 
   if (!task) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-surface">
+      <div className="flex flex-1 items-center justify-center bg-surface">
         <span className="text-text-dim text-sm">Task not found</span>
       </div>
     );
@@ -90,19 +90,19 @@ export default function TaskDetailScreen() {
         title={task.title || task.prompt?.substring(0, 50) || "Task"}
         subtitle={`${task.bot_id} \u00b7 ${task.task_type || "task"}`}
         right={
-          <div className="flex flex-row items-center gap-2">
+          <div className="flex flex-row items-center gap-1.5 sm:gap-2">
             <button
               onClick={handleRunNow}
               disabled={runNowMut.isPending}
               title="Run now"
-              className={`flex flex-row items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border-none rounded-lg cursor-pointer transition-colors ${
+              className={`flex flex-row items-center gap-1 px-2 sm:px-3 py-1.5 text-xs font-semibold border-none rounded-lg cursor-pointer transition-colors ${
                 runNowMut.isPending
                   ? "bg-accent/30 text-accent animate-pulse"
                   : "bg-accent/10 text-accent hover:bg-accent/20"
               }`}
             >
               <Play size={12} fill="currentColor" />
-              Run Now
+              <span className="hidden sm:inline">Run Now</span>
             </button>
             <EnableToggle
               enabled={form.status !== "cancelled"}
@@ -115,14 +115,14 @@ export default function TaskDetailScreen() {
               onClick={handleDelete}
               disabled={form.deleteMut.isPending}
               title="Delete"
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-danger/30 rounded-lg bg-transparent text-danger cursor-pointer hover:bg-danger/10 transition-colors"
+              className="hidden sm:flex flex-row items-center gap-1 px-2.5 py-1.5 text-xs border border-danger/30 rounded-lg bg-transparent text-danger cursor-pointer hover:bg-danger/10 transition-colors"
             >
               <Trash2 size={13} />
             </button>
             <button
               onClick={form.handleSave}
               disabled={form.saving || !form.canSave}
-              className={`px-4 py-1.5 text-xs font-semibold border-none rounded-lg transition-all duration-150 ${
+              className={`px-3 sm:px-4 py-1.5 text-xs font-semibold border-none rounded-lg transition-all duration-150 ${
                 savedFlash
                   ? "bg-success text-white"
                   : form.canSave
@@ -284,7 +284,7 @@ function RunsTab({ taskId, task, children, loading, onRunNow, runningNow }: {
       ) : isOneShot ? (
         <OneShotResult task={task} />
       ) : runs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-text-dim text-sm">
+        <div className="flex items-center justify-center py-16 text-text-dim text-sm">
           No runs yet. Click "Run Now" to trigger the first execution.
         </div>
       ) : (
@@ -328,7 +328,7 @@ function RunsTab({ taskId, task, children, loading, onRunNow, runningNow }: {
                   <span className="text-[11px] text-text-dim">\u2014</span>
                 )}
               </div>
-              <div className="w-10 shrink-0 flex justify-end">
+              <div className="w-10 shrink-0 flex flex-col justify-end">
                 {run.correlation_id && (
                   <button
                     onClick={() => navigate(`/admin/logs/${run.correlation_id}`)}

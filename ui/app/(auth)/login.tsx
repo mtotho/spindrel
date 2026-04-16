@@ -126,15 +126,15 @@ export default function LoginScreen() {
   if (!serverChecked) {
     return (
       <div className="flex flex-1 bg-surface items-center justify-center p-6">
-        <div className="flex w-full max-w-sm gap-6">
-          <div className="flex items-center gap-2 mb-4">
+        <div className="flex flex-col w-full max-w-sm gap-6">
+          <div className="flex flex-col items-center gap-2 mb-4">
             <span className="text-text text-2xl font-bold">Spindrel</span>
             <span className="text-text-muted text-sm">
               Enter your server URL to get started
             </span>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2">
             <div className="flex flex-row items-center gap-2">
               <Server size={16} color={t.textMuted} />
               <span className="text-text-muted text-sm">Server URL</span>
@@ -186,7 +186,7 @@ export default function LoginScreen() {
         </div>
 
         {/* Email */}
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2">
           <div className="flex flex-row items-center gap-2">
             <Mail size={16} color={t.textMuted} />
             <span className="text-text-muted text-sm">Email</span>
@@ -202,7 +202,7 @@ export default function LoginScreen() {
         </div>
 
         {/* Password */}
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2">
           <div className="flex flex-row items-center gap-2">
             <Lock size={16} color={t.textMuted} />
             <span className="text-text-muted text-sm">Password</span>
@@ -253,8 +253,8 @@ export default function LoginScreen() {
         </button>
 
         {showApiKey && (
-          <div className="flex gap-4">
-            <div className="flex gap-2">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
               <div className="flex flex-row items-center gap-2">
                 <Key size={16} color={t.textMuted} />
                 <span className="text-text-muted text-sm">API Key</span>
@@ -288,7 +288,7 @@ export default function LoginScreen() {
             setServerChecked(false);
             setError(null);
           }}
-          className="flex items-center"
+          className="flex flex-col items-center"
         >
           <span className="text-text-dim text-xs">Change server</span>
         </button>

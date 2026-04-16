@@ -2,9 +2,9 @@
 
 ## Project Knowledge
 
-Detailed project knowledge lives in an Obsidian vault at `../vault/Projects/agent-server/`. Start with `Roadmap.md` for current state and priorities.
+Detailed project knowledge lives in an Obsidian vault at `../vault/Projects/agent-server/`. On session start, read **Tier 1 files**: `Roadmap.md` (current state) and `Loose Ends.md` (open bugs). Read Track files only when touching that area.
 
-**Keep the vault updated as you work** — mark items done, add loose ends, record decisions, note anything a future session would benefit from knowing. Don't wait until session end. See global CLAUDE.md for full vault update guidelines.
+**Cleanup is same-edit, not later.** When you fix a bug from Loose Ends → move it to Fix Log in the same edit. When all track phases ship → close the track immediately. See `dotfiles/claude/rules/vault-updates.md` for the full vault organization system (document taxonomy, track lifecycle, cleanup discipline).
 
 ## Commands
 

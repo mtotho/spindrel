@@ -16,9 +16,9 @@ import { LlmModelDropdown } from "./LlmModelDropdown";
 // ---------------------------------------------------------------------------
 
 const STEP_TYPES: { value: StepType; label: string; icon: typeof Terminal; color: string; bgBadge: string; nodeActive: string; borderAccent: string; cardBg: string }[] = [
-  { value: "exec", label: "Shell", icon: Terminal, color: "text-amber-400", bgBadge: "bg-amber-400/10 text-amber-400 border-amber-400/25", nodeActive: "bg-amber-400 text-white", borderAccent: "border-l-amber-400/60", cardBg: "bg-amber-400/[0.03]" },
-  { value: "tool", label: "Tool", icon: Wrench, color: "text-blue-400", bgBadge: "bg-blue-400/10 text-blue-400 border-blue-400/25", nodeActive: "bg-blue-400 text-white", borderAccent: "border-l-blue-400/60", cardBg: "bg-blue-400/[0.03]" },
-  { value: "agent", label: "LLM", icon: Bot, color: "text-purple-400", bgBadge: "bg-purple-400/10 text-purple-400 border-purple-400/25", nodeActive: "bg-purple-400 text-white", borderAccent: "border-l-purple-400/60", cardBg: "bg-purple-400/[0.03]" },
+  { value: "exec", label: "Shell", icon: Terminal, color: "text-amber-600 dark:text-amber-400", bgBadge: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30", nodeActive: "bg-amber-500 text-white", borderAccent: "border-l-amber-500/50 dark:border-l-amber-400/60", cardBg: "bg-amber-500/[0.06] dark:bg-amber-400/10" },
+  { value: "tool", label: "Tool", icon: Wrench, color: "text-blue-600 dark:text-blue-400", bgBadge: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30", nodeActive: "bg-blue-500 text-white", borderAccent: "border-l-blue-500/50 dark:border-l-blue-400/60", cardBg: "bg-blue-500/[0.06] dark:bg-blue-400/10" },
+  { value: "agent", label: "LLM", icon: Bot, color: "text-purple-600 dark:text-purple-400", bgBadge: "bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30", nodeActive: "bg-purple-500 text-white", borderAccent: "border-l-purple-500/50 dark:border-l-purple-400/60", cardBg: "bg-purple-500/[0.06] dark:bg-purple-400/10" },
 ];
 
 function stepMeta(type: StepType) {
@@ -1029,11 +1029,11 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
 
       {/* Timeline container */}
       {steps.length > 0 && (
-        <div className="relative pl-5">
+        <div className="relative pl-3 sm:pl-5">
           {/* Vertical timeline line */}
           {steps.length > 1 && (
             <div
-              className="absolute left-[11px] top-[22px] bottom-[22px] w-[2px] bg-surface-border rounded-full"
+              className="absolute left-[7px] sm:left-[11px] top-[18px] sm:top-[22px] bottom-[18px] sm:bottom-[22px] w-[2px] bg-surface-border rounded-full"
             />
           )}
 
@@ -1052,7 +1052,7 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
               return (
                 <div key={step.id} className="relative">
                   {/* Timeline node */}
-                  <div className={`absolute -left-5 top-[11px] flex items-center justify-center w-[22px] h-[22px] rounded-full text-[10px] font-bold z-10 ${nodeColor} shadow-sm`}>
+                  <div className={`absolute -left-3 sm:-left-5 top-[11px] flex items-center justify-center w-[18px] h-[18px] sm:w-[22px] sm:h-[22px] rounded-full text-[9px] sm:text-[10px] font-bold z-10 ${nodeColor} shadow-sm`}>
                     {stepState?.status === "done" ? (
                       <CheckCircle2 size={12} />
                     ) : stepState?.status === "failed" ? (
@@ -1083,14 +1083,14 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
 
       {/* Add step button */}
       {!readOnly && steps.length > 0 && (
-        <div className="mt-3 pl-5">
+        <div className="mt-3 pl-3 sm:pl-5">
           <AddStepButton onAdd={addStep} />
         </div>
       )}
 
       {/* Hint */}
       {!readOnly && steps.length > 0 && (
-        <p className="text-[10px] text-text-dim mt-3 pl-5">
+        <p className="text-[10px] text-text-dim mt-3 pl-3 sm:pl-5">
           Prior step results are auto-injected. Use <code className="text-accent/80 bg-accent/5 px-1 py-0.5 rounded text-[10px]">{"{{steps.<id>.result}}"}</code> for explicit references.
         </p>
       )}

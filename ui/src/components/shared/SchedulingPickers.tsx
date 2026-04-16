@@ -5,7 +5,6 @@
  * Includes: ScheduledAtPicker, RecurrencePicker, EnableToggle, ScheduleSummary.
  */
 import { useMemo } from "react";
-import { useThemeTokens } from "../../theme/tokens";
 import { FormRow } from "./FormControls";
 import { DateTimePicker } from "./DateTimePicker";
 import { parseRecurrenceMs, isValidRecurrence } from "@/app/(app)/admin/tasks/taskUtils";
@@ -55,31 +54,25 @@ function resolveRelative(value: string): Date | null {
 // ScheduledAtPicker
 // ---------------------------------------------------------------------------
 export function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const t = useThemeTokens();
   const isNow = !value;
 
   return (
     <FormRow label="Start">
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <button
-            onClick={() => onChange("")}
-            style={{
-              padding: "6px 14px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
-              borderRadius: 6, flexShrink: 0,
-              background: isNow ? t.accent : t.surfaceRaised,
-              color: isNow ? "#fff" : t.textMuted,
-            }}
-          >
-            Now
-          </button>
-          <div style={{ flex: 1 }}>
-            <DateTimePicker
-              value={value}
-              onChange={onChange}
-              placeholder="Pick a date & time..."
-            />
-          </div>
+      <div className="flex flex-row items-center gap-2">
+        <button
+          onClick={() => onChange("")}
+          className={`px-3.5 py-1.5 text-xs font-semibold border-none cursor-pointer rounded-md shrink-0 transition-colors ${
+            isNow ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text"
+          }`}
+        >
+          Now
+        </button>
+        <div className="flex-1">
+          <DateTimePicker
+            value={value}
+            onChange={onChange}
+            placeholder="Pick a date & time..."
+          />
         </div>
       </div>
     </FormRow>
@@ -97,7 +90,6 @@ const RECURRENCE_UNITS = [
 ];
 
 export function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const t = useThemeTokens();
   const parsed = value ? parseRecurrence(value) : null;
   const hasRecurrence = !!value;
   const isValid = !value || isValidRecurrence(value);
@@ -124,41 +116,32 @@ export function RecurrencePicker({ value, onChange }: { value: string; onChange:
 
   return (
     <FormRow label="Repeat">
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-row items-center gap-2">
           <button
             onClick={handleToggle}
-            style={{
-              padding: "6px 14px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
-              borderRadius: 6, flexShrink: 0,
-              background: !hasRecurrence ? t.surfaceRaised : t.warningSubtle,
-              color: !hasRecurrence ? t.textMuted : t.warning,
-            }}
+            className={`px-3.5 py-1.5 text-xs font-semibold border-none cursor-pointer rounded-md shrink-0 transition-colors ${
+              hasRecurrence ? "bg-warning/10 text-warning" : "bg-surface-raised text-text-muted hover:text-text"
+            }`}
           >
             {hasRecurrence ? "Repeating" : "No repeat"}
           </button>
           {hasRecurrence && (
-            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 12, color: t.textMuted }}>every</span>
+            <div className="flex flex-row items-center gap-1.5">
+              <span className="text-xs text-text-muted">every</span>
               <input
                 type="number"
                 min={1}
                 value={numValue}
                 onChange={(e) => handleNumChange(parseInt(e.target.value) || 1)}
-                style={{
-                  width: 56, padding: "6px 8px", fontSize: 13, textAlign: "center",
-                  background: t.inputBg, border: `1px solid ${isValid ? t.surfaceBorder : t.danger}`,
-                  borderRadius: 6, color: t.text, outline: "none",
-                }}
+                className={`w-14 px-2 py-1.5 text-[13px] text-center bg-input border rounded-md text-text outline-none focus:border-accent ${
+                  isValid ? "border-surface-border" : "border-danger"
+                }`}
               />
               <select
                 value={unitValue}
                 onChange={(e) => handleUnitChange(e.target.value)}
-                style={{
-                  padding: "6px 8px", fontSize: 13,
-                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
-                  borderRadius: 6, color: t.text, outline: "none", cursor: "pointer",
-                }}
+                className="px-2 py-1.5 text-[13px] bg-input border border-surface-border rounded-md text-text outline-none cursor-pointer focus:border-accent"
               >
                 {RECURRENCE_UNITS.map((u) => (
                   <option key={u.value} value={u.value}>{u.label}</option>
@@ -168,7 +151,7 @@ export function RecurrencePicker({ value, onChange }: { value: string; onChange:
           )}
         </div>
         {hasRecurrence && !isValid && (
-          <span style={{ fontSize: 10, color: t.danger }}>
+          <span className="text-[10px] text-danger">
             Invalid recurrence value
           </span>
         )}
@@ -187,8 +170,6 @@ export function ScheduleSummary({
   scheduledAt: string;
   recurrence: string;
 }) {
-  const t = useThemeTokens();
-
   const summary = useMemo(() => {
     if (!recurrence && !scheduledAt) return null;
 
@@ -245,16 +226,15 @@ export function ScheduleSummary({
     }
 
     const runs: Date[] = [];
-    let t = startMs;
-    // If start is in the past, advance to next occurrence
+    let cur = startMs;
     const now = Date.now();
-    if (t < now) {
-      const steps = Math.ceil((now - t) / intervalMs);
-      t += steps * intervalMs;
+    if (cur < now) {
+      const steps = Math.ceil((now - cur) / intervalMs);
+      cur += steps * intervalMs;
     }
     for (let i = 0; i < 3; i++) {
-      runs.push(new Date(t));
-      t += intervalMs;
+      runs.push(new Date(cur));
+      cur += intervalMs;
     }
     return runs;
   }, [scheduledAt, recurrence]);
@@ -262,30 +242,21 @@ export function ScheduleSummary({
   if (!summary && nextRuns.length === 0) return null;
 
   return (
-    <div style={{
-      padding: "10px 12px", borderRadius: 8,
-      background: t.surfaceRaised,
-      border: `1px solid ${t.surfaceBorder}`,
-      display: "flex", flexDirection: "column", gap: 6,
-    }}>
+    <div className="px-3 py-2.5 rounded-lg bg-surface-raised border border-surface-border flex flex-col gap-1.5">
       {summary && (
-        <div style={{ fontSize: 12, color: t.text, fontWeight: 500 }}>
+        <div className="text-xs font-medium text-text">
           {summary}
         </div>
       )}
       {nextRuns.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <span style={{ fontSize: 10, color: t.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] text-text-dim font-semibold uppercase tracking-wider">
             Next runs
           </span>
           {nextRuns.map((d, i) => (
-            <div key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <span style={{
-                width: 4, height: 4, borderRadius: 2,
-                background: i === 0 ? t.accent : t.textDim,
-                flexShrink: 0,
-              }} />
-              <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
+            <div key={i} className="flex flex-row items-center gap-1.5">
+              <span className={`w-1 h-1 rounded-full shrink-0 ${i === 0 ? "bg-accent" : "bg-text-dim"}`} />
+              <span className="text-[11px] text-text-muted font-mono">
                 {d.toLocaleString(undefined, {
                   weekday: "short", month: "short", day: "numeric",
                   hour: "2-digit", minute: "2-digit",
@@ -307,30 +278,22 @@ export function EnableToggle({ enabled, onChange, compact }: {
   onChange: (v: boolean) => void;
   compact?: boolean;
 }) {
-  const t = useThemeTokens();
   return (
     <button
       onClick={() => onChange(!enabled)}
       title={enabled ? "Enabled" : "Disabled"}
-      style={{
-        display: "flex", flexDirection: "row", alignItems: "center", gap: compact ? 0 : 6,
-        padding: compact ? "5px 6px" : "5px 12px", fontSize: 12, fontWeight: 600,
-        border: "none", cursor: "pointer", borderRadius: 6, flexShrink: 0,
-        background: enabled ? t.successSubtle : t.dangerSubtle,
-        color: enabled ? t.success : t.danger,
-      }}
+      className={`flex flex-row items-center shrink-0 border-none cursor-pointer rounded-md text-xs font-semibold transition-colors ${
+        compact ? "gap-0 px-1.5 py-[5px]" : "gap-1.5 px-3 py-[5px]"
+      } ${
+        enabled ? "bg-success/10 text-success" : "bg-danger/10 text-danger"
+      }`}
     >
-      <div style={{
-        width: 28, height: 16, borderRadius: 8, position: "relative",
-        background: enabled ? t.success : t.textDim,
-        transition: "background 0.2s",
-      }}>
-        <div style={{
-          width: 12, height: 12, borderRadius: 6, background: "#fff",
-          position: "absolute", top: 2,
-          left: enabled ? 14 : 2,
-          transition: "left 0.2s",
-        }} />
+      <div className={`relative w-7 h-4 rounded-full transition-colors duration-200 ${
+        enabled ? "bg-success" : "bg-text-dim"
+      }`}>
+        <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-[left] duration-200 ${
+          enabled ? "left-3.5" : "left-0.5"
+        }`} />
       </div>
       {!compact && (enabled ? "Enabled" : "Disabled")}
     </button>
@@ -341,11 +304,10 @@ export function EnableToggle({ enabled, onChange, compact }: {
 // InfoRow (shared read-only metadata row)
 // ---------------------------------------------------------------------------
 export function InfoRow({ label, value }: { label: string; value: string }) {
-  const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
-      <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{value}</span>
+    <div className="flex flex-row justify-between items-center">
+      <span className="text-[11px] text-text-dim">{label}</span>
+      <span className="text-[11px] text-text font-mono">{value}</span>
     </div>
   );
 }
@@ -380,4 +342,3 @@ export const TASK_TYPE_OPTIONS_CREATE = [
   { label: "API", value: "api" },
   { label: "Agent", value: "agent" },
 ];
-

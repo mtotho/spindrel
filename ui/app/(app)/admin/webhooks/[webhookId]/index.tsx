@@ -535,7 +535,7 @@ export default function WebhookDetailScreen() {
           {!isNew && (
             <Section title="Recent Deliveries">
               {deliveriesLoading ? (
-                <div className="flex items-center py-4">
+                <div className="flex flex-col items-center py-4">
                   <Spinner />
                 </div>
               ) : deliveries && deliveries.length > 0 ? (

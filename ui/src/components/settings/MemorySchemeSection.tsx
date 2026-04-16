@@ -102,7 +102,7 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
         style={{ border: `1px solid ${t.surfaceOverlay}` }}
       >
         <div
-          className="flex items-center justify-between px-4 py-3.5"
+          className="flex flex-row items-center justify-between px-4 py-3.5"
           style={{ borderBottom: `1px solid ${t.surfaceRaised}` }}
         >
           <span className="text-text text-sm font-bold">

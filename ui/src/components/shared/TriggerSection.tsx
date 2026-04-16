@@ -70,7 +70,7 @@ export function TriggerSection({
   const selectedEvents = selectedSource?.events ?? [];
 
   return (
-    <div className="flex gap-3">
+    <div className="flex flex-col gap-3">
       {/* Segmented control */}
       <div className="flex flex-row gap-0.5 bg-surface-raised rounded-[10px] border border-surface-border p-[3px]">
         {TRIGGER_TYPES.map((tt) => (
@@ -259,9 +259,9 @@ function EventTriggerFields({
   }
 
   return (
-    <div className="flex gap-4">
+    <div className="flex flex-col gap-4">
       {/* Source card picker */}
-      <div className="flex gap-1">
+      <div className="flex flex-col gap-1">
         <div className="text-[11px] text-text-dim font-semibold uppercase tracking-wider mb-1">
           Source
         </div>
@@ -337,7 +337,7 @@ function EventTriggerFields({
               {/* Expanded bindings */}
               {expanded && hasBindings && (
                 <div
-                  className="flex gap-px mt-px ml-4 pl-3 border-l"
+                  className="flex flex-col gap-px mt-px ml-4 pl-3 border-l"
                   style={{ borderLeftColor: color.border + "30" }}
                 >
                   {/* "Any" option */}
@@ -371,7 +371,7 @@ function EventTriggerFields({
 
       {/* Event type selector — only after a source is picked */}
       {triggerConfig.event_source && selectedEvents.length > 0 && (
-        <div className="flex gap-1.5">
+        <div className="flex flex-col gap-1.5">
           <div className="flex flex-row items-center gap-2 mb-0.5">
             <span className="text-[11px] text-text-dim font-semibold uppercase tracking-wider">
               Event type
@@ -403,7 +403,7 @@ function EventTriggerFields({
 
       {/* Filter conditions */}
       {triggerConfig.event_source && (
-        <div className="flex gap-1.5">
+        <div className="flex flex-col gap-1.5">
           <div className="text-[11px] text-text-dim font-semibold uppercase tracking-wider">
             Filter conditions
           </div>

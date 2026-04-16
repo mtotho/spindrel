@@ -113,14 +113,14 @@ function ServicesTab({
 }) {
   if (isLoading) {
     return (
-      <div className="flex items-center py-8">
+      <div className="flex flex-col items-center py-8">
         <Spinner color={t.accent} />
       </div>
     );
   }
   if (!services || services.length === 0) {
     return (
-      <div className="flex items-center py-8">
+      <div className="flex flex-col items-center py-8">
         <span className="text-sm" style={{ color: t.textDim }}>
           No services running
         </span>
@@ -128,7 +128,7 @@ function ServicesTab({
     );
   }
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-col gap-2">
       {services.map((svc) => {
         const stStyle = getStatusStyle(svc.state, t);
         return (
@@ -215,7 +215,7 @@ function LogsTab({
   const { data: logsData, isLoading } = useDockerStackLogs(stackId, selectedService);
 
   return (
-    <div className="flex gap-3">
+    <div className="flex flex-col gap-3">
       {/* Service filter */}
       {services && services.length > 0 && (
         <div className="flex flex-row flex-wrap gap-1.5">
@@ -309,7 +309,7 @@ export default function DockerStackDetailPage() {
 
   if (!stack) {
     return (
-      <div className="flex flex-1 bg-surface items-center justify-center gap-2">
+      <div className="flex flex-col flex-1 bg-surface items-center justify-center gap-2">
         <span className="text-base" style={{ color: t.textMuted }}>
           Stack not found
         </span>
@@ -344,7 +344,7 @@ export default function DockerStackDetailPage() {
 
         {/* Info bar */}
         <div
-          className="flex rounded-lg p-4 gap-2"
+          className="flex flex-col rounded-lg p-4 gap-2"
           style={{
             backgroundColor: t.surfaceRaised,
             border: `1px solid ${t.surfaceBorder}`,

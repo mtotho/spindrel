@@ -132,7 +132,7 @@ export function TaskCreateWizard({
 
         {/* Body — scrollable content area for current step */}
         {cloneFromId && form.loadingTask ? (
-          <div className="flex flex-col flex-1 items-center justify-center p-10">
+          <div className="flex flex-1 items-center justify-center p-10">
             <div className="chat-spinner" />
           </div>
         ) : (
