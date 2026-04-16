@@ -270,6 +270,48 @@ class TestRenderPrompt:
         result = render_prompt("echo {{name}}", {"name": 'hello "world"'}, [], [], shell_escape=True)
         assert result == """echo 'hello "world"'"""
 
+    def test_json_field_access(self):
+        """{{steps.1.result.key}} extracts a JSON field from the result."""
+        steps = [{"id": "s", "type": "tool"}]
+        states = [{"status": "done", "result": '{"count": 30, "summary": "all good"}'}]
+        result = render_prompt("Got {{steps.1.result.count}} items: {{steps.1.result.summary}}", {}, states, steps)
+        assert result == "Got 30 items: all good"
+
+    def test_json_field_nested(self):
+        """Dotted access drills into nested JSON."""
+        steps = [{"id": "s", "type": "tool"}]
+        states = [{"status": "done", "result": '{"data": {"name": "test"}}'}]
+        result = render_prompt("{{steps.1.result.data.name}}", {}, states, steps)
+        assert result == "test"
+
+    def test_json_field_missing_key_unresolved(self):
+        """Missing JSON key leaves template unresolved."""
+        steps = [{"id": "s", "type": "tool"}]
+        states = [{"status": "done", "result": '{"count": 30}'}]
+        result = render_prompt("{{steps.1.result.missing}}", {}, states, steps)
+        assert result == "{{steps.1.result.missing}}"
+
+    def test_json_field_on_non_json_unresolved(self):
+        """Field access on non-JSON result leaves template unresolved."""
+        steps = [{"id": "s", "type": "exec"}]
+        states = [{"status": "done", "result": "plain text output"}]
+        result = render_prompt("{{steps.1.result.key}}", {}, states, steps)
+        assert result == "{{steps.1.result.key}}"
+
+    def test_json_field_returns_object_as_json(self):
+        """If the extracted value is a dict/list, it's serialized as JSON."""
+        steps = [{"id": "s", "type": "tool"}]
+        states = [{"status": "done", "result": '{"items": [1, 2, 3]}'}]
+        result = render_prompt("{{steps.1.result.items}}", {}, states, steps)
+        assert result == "[1, 2, 3]"
+
+    def test_json_field_shell_escaped(self):
+        """JSON field values are shell-escaped when flag is set."""
+        steps = [{"id": "s", "type": "tool"}]
+        states = [{"status": "done", "result": '{"msg": "hello \'world\'"}'}]
+        result = render_prompt("echo {{steps.1.result.msg}}", {}, states, steps, shell_escape=True)
+        assert result == "echo 'hello '\\''world'\\'''"
+
 
 # ---------------------------------------------------------------------------
 # build_condition_context
@@ -393,6 +435,33 @@ class TestBuildPriorResultsEnv:
         states = [{"status": "done", "result": "x" * 10000}]
         env = _build_prior_results_env(steps, states, 1)
         assert len(env["STEP_1_RESULT"]) == 4000
+
+    def test_json_fields_extracted(self):
+        """JSON result keys are auto-extracted as individual env vars."""
+        steps = [{"id": "s", "type": "tool"}]
+        states = [{"status": "done", "result": '{"count": 30, "summary": "all good"}'}]
+        env = _build_prior_results_env(steps, states, 1)
+        assert env["STEP_1_count"] == "30"
+        assert env["STEP_1_summary"] == "all good"
+        # Full result still available
+        assert "count" in env["STEP_1_RESULT"]
+
+    def test_json_nested_value_serialized(self):
+        """Nested JSON values are serialized as JSON strings."""
+        steps = [{"id": "s", "type": "tool"}]
+        states = [{"status": "done", "result": '{"data": {"a": 1}}'}]
+        env = _build_prior_results_env(steps, states, 1)
+        assert env["STEP_1_data"] == '{"a": 1}'
+
+    def test_non_json_result_no_extra_keys(self):
+        """Plain text results don't generate extra env vars."""
+        steps = [{"id": "s", "type": "exec"}]
+        states = [{"status": "done", "result": "just text"}]
+        env = _build_prior_results_env(steps, states, 1)
+        assert "STEP_1_RESULT" in env
+        # No extra keys beyond RESULT, STATUS, and id-based variants
+        json_keys = [k for k in env if not k.endswith("_RESULT") and not k.endswith("_STATUS")]
+        assert json_keys == []
 
 
 # ---------------------------------------------------------------------------

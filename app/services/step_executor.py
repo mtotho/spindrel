@@ -100,6 +100,17 @@ def evaluate_condition(condition: dict | None, context: dict) -> bool:
 _TEMPLATE_RE = re.compile(r"\{\{(.+?)\}\}")
 
 
+def _parse_result_json(result: str | None) -> dict | None:
+    """Try to parse a step result as JSON. Returns dict or None."""
+    if not result:
+        return None
+    try:
+        parsed = json.loads(result)
+        return parsed if isinstance(parsed, dict) else None
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 def render_prompt(
     template: str,
     params: dict,
@@ -110,9 +121,10 @@ def render_prompt(
     """Render a step prompt template with parameter and step result substitution.
 
     Supports:
-        {{param_name}}           -> param value
-        {{steps.step_id.result}} -> prior step's result text
-        {{steps.step_id.status}} -> prior step's status
+        {{param_name}}                    -> param value
+        {{steps.step_id.result}}          -> prior step's result text
+        {{steps.step_id.status}}          -> prior step's status
+        {{steps.step_id.result.json_key}} -> JSON field from result
 
     When shell_escape=True, substituted values are wrapped in single quotes
     so they're safe for shell interpolation.
@@ -134,13 +146,29 @@ def render_prompt(
     def _replace(match: re.Match) -> str:
         key = match.group(1).strip()
 
-        # Steps reference: steps.step_id.field
+        # Steps reference: steps.step_id.field[.json_key]
         if key.startswith("steps."):
-            parts = key.split(".", 2)
-            if len(parts) == 3:
-                _, step_id, field = parts
+            parts = key.split(".")
+            if len(parts) >= 3:
+                step_id = parts[1]
+                field = parts[2]
                 state = step_lookup.get(step_id, {})
                 val = state.get(field)
+                # Drill into JSON result: steps.1.result.some_key
+                if val is not None and len(parts) > 3:
+                    parsed = _parse_result_json(str(val))
+                    if parsed is not None:
+                        json_key = ".".join(parts[3:])
+                        # Support simple dotted access
+                        obj: any = parsed
+                        for k in parts[3:]:
+                            if isinstance(obj, dict) and k in obj:
+                                obj = obj[k]
+                            else:
+                                return match.group(0)  # unresolved
+                        val = json.dumps(obj) if isinstance(obj, (dict, list)) else str(obj)
+                    else:
+                        return match.group(0)  # not valid JSON
                 return _quote(str(val)) if val is not None else match.group(0)
             return match.group(0)
 
@@ -192,7 +220,16 @@ def _build_prior_results_preamble(steps: list[dict], step_states: list[dict], cu
 
 
 def _build_prior_results_env(steps: list[dict], step_states: list[dict], current_index: int) -> dict[str, str]:
-    """Build env vars for prior step results (for exec steps)."""
+    """Build env vars for prior step results (for exec steps).
+
+    For each prior step, exports:
+        STEP_{n}_RESULT  — full result text
+        STEP_{n}_STATUS  — done|failed
+        STEP_{id}_RESULT — same, keyed by step id
+
+    If the result is valid JSON with top-level keys, also exports each key:
+        STEP_{n}_{key}   — value of that JSON field
+    """
     env = {}
     for i in range(current_index):
         if i >= len(step_states):
@@ -211,6 +248,13 @@ def _build_prior_results_env(steps: list[dict], step_states: list[dict], current
         safe_id = re.sub(r"[^a-zA-Z0-9_]", "_", sid).upper()
         env[f"STEP_{safe_id}_RESULT"] = result[:4000]
         env[f"STEP_{safe_id}_STATUS"] = state.get("status", "")
+        # Auto-extract top-level JSON keys
+        parsed = _parse_result_json(result)
+        if parsed:
+            for key, val in parsed.items():
+                safe_key = re.sub(r"[^a-zA-Z0-9_]", "_", key)
+                str_val = json.dumps(val) if isinstance(val, (dict, list)) else str(val)
+                env[f"STEP_{n}_{safe_key}"] = str_val[:4000]
     return env
 
 
@@ -269,9 +313,12 @@ async def _run_exec_step(
         # Build env vars with prior results
         env_vars = _build_prior_results_env(steps, step_states, step_index)
 
-        # Prepend env var exports to the script
+        # Prepend env var exports to the script (single-quoted to prevent
+        # shell interpretation of backticks, $, etc. in result text)
         if env_vars:
-            exports = "\n".join(f'export {k}={json.dumps(v)}' for k, v in env_vars.items())
+            def _sq(v: str) -> str:
+                return "'" + v.replace("'", "'\\''") + "'"
+            exports = "\n".join(f'export {k}={_sq(v)}' for k, v in env_vars.items())
             script = exports + "\n" + script
 
         async def _do_exec():
