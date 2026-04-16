@@ -209,6 +209,8 @@ async def run_turn(
             system_preamble=ctx.system_preamble,
         )
         _auto_injected_skills: list[dict] = []
+        _llm_retries: int = 0
+        _llm_fallback_model: str | None = None
         async for event in emit_run_stream_events(
             _run_stream_iter,
             channel_id=channel_id,
@@ -291,9 +293,21 @@ async def run_turn(
                     )
                 continue
 
+            if etype == "llm_retry":
+                _llm_retries += 1
+                continue
+
+            if etype == "llm_fallback":
+                _llm_fallback_model = event.get("to_model")
+                continue
+
+            if etype == "llm_cooldown_skip":
+                _llm_fallback_model = event.get("using")
+                continue
+
             # Anything else (transcript, thinking_content, warning, fallback,
-            # context_pruning, rate_limit_wait): no typed kind exists yet.
-            # The follow-up UI session will decide which deserve new kinds.
+            # context_pruning, rate_limit_wait) — forwarded but no caller-side
+            # action needed.
 
         # 4b. Tag the last assistant message with auto-injected skill info
         #     so persist_turn can carry it into the DB row's metadata.
@@ -301,6 +315,19 @@ async def run_turn(
             for _m in reversed(messages[from_index:]):
                 if _m.get("role") == "assistant":
                     _m["_auto_injected_skills"] = _auto_injected_skills
+                    break
+
+        # 4c. Tag the last assistant message with LLM retry/fallback info
+        #     so persist_turn can carry it into the DB row's metadata.
+        if _llm_retries > 0 or _llm_fallback_model:
+            _llm_info: dict = {}
+            if _llm_retries > 0:
+                _llm_info["retries"] = _llm_retries
+            if _llm_fallback_model:
+                _llm_info["fallback_model"] = _llm_fallback_model
+            for _m in reversed(messages[from_index:]):
+                if _m.get("role") == "assistant":
+                    _m["_llm_status"] = _llm_info
                     break
 
         # 5. Persist the turn (DB write + outbox enqueue + bus publish).

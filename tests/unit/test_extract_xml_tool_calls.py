@@ -66,11 +66,12 @@ class TestExtractXmlToolCalls:
         blocks = ['<invoke name="web_search">{"query": "a"}</invoke>']
         assert extract_xml_tool_calls(blocks, set()) == []
 
-    def test_invoke_with_malformed_json_passes_raw(self):
+    def test_invoke_with_malformed_json_wraps_in_json(self):
         blocks = ['<invoke name="web_search">not json at all</invoke>']
         tcs = extract_xml_tool_calls(blocks, KNOWN_TOOLS)
         assert len(tcs) == 1
-        assert tcs[0]["function"]["arguments"] == "not json at all"
+        # Raw body is wrapped in valid JSON so downstream providers don't choke
+        assert json.loads(tcs[0]["function"]["arguments"]) == {"input": "not json at all"}
 
     def test_tool_call_with_malformed_json_skipped(self):
         blocks = ["<tool_call>not json</tool_call>"]

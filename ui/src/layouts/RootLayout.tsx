@@ -36,53 +36,25 @@ function useApplyThemeClass() {
 }
 
 /**
- * Fix mobile-web viewport, safe areas, and iOS keyboard behavior.
+ * Mobile-web viewport: safe-area padding + iOS keyboard handling.
  *
- * Production HTML may lack viewport-fit=cover, safe area padding, and the
- * visualViewport keyboard handler. We inject all of that client-side here
- * so it works regardless of how the HTML is generated.
+ * Normal state uses `position: fixed; inset: 0` so the browser sizes the
+ * root element to the exact viewport — no JS/CSS measurement mismatch.
+ * Only when the iOS keyboard opens do we switch to pixel-based height to
+ * shrink above the keyboard.
+ *
+ * Meta tags (viewport-fit, apple-mobile-web-app-*, manifest, icons) are
+ * all set in index.html — no JS duplication needed.
  */
 function useWebViewportFix() {
   useEffect(() => {
-    const vp = document.querySelector('meta[name="viewport"]');
-    if (vp) {
-      vp.setAttribute(
-        "content",
-        "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
-      );
-    }
-
-    const ensureMeta = (name: string, content: string) => {
-      if (!document.querySelector(`meta[name="${name}"]`)) {
-        const m = document.createElement("meta");
-        m.name = name;
-        m.content = content;
-        document.head.appendChild(m);
-      }
-    };
-    ensureMeta("apple-mobile-web-app-capable", "yes");
-    ensureMeta("apple-mobile-web-app-status-bar-style", "black-translucent");
-    ensureMeta("theme-color", "#111111");
-
-    const ensureLink = (rel: string, href: string) => {
-      if (!document.querySelector(`link[rel="${rel}"][href="${href}"]`)) {
-        const l = document.createElement("link");
-        l.rel = rel;
-        l.href = href;
-        document.head.appendChild(l);
-      }
-    };
-    ensureLink("manifest", "/manifest.json");
-    ensureLink("apple-touch-icon", "/assets/images/icon-192.png");
-
     const root = document.getElementById("root");
     if (root) {
       Object.assign(root.style, {
         position: "fixed",
-        top: "0",
-        left: "0",
-        right: "0",
-        height: "100dvh",
+        inset: "0",
+        display: "flex",
+        flexDirection: "column",
         boxSizing: "border-box",
         overflow: "hidden",
         paddingTop: "env(safe-area-inset-top, 0px)",
@@ -97,16 +69,26 @@ function useWebViewportFix() {
 
     const initialHeight = vv.height;
     let pending = false;
+    let keyboardOpen = false;
 
     function sync() {
       pending = false;
       if (!root || !vv) return;
-      root.style.top = vv.offsetTop + "px";
-      root.style.height = vv.height + "px";
-      if (vv.height < initialHeight * 0.85) {
+
+      const isKeyboard = vv.height < initialHeight * 0.85;
+
+      if (isKeyboard) {
+        root.style.top = vv.offsetTop + "px";
+        root.style.bottom = "auto";
+        root.style.height = vv.height + "px";
         root.style.paddingBottom = "0px";
-      } else {
+        keyboardOpen = true;
+      } else if (keyboardOpen) {
+        root.style.top = "0";
+        root.style.bottom = "0";
+        root.style.height = "";
         root.style.paddingBottom = "env(safe-area-inset-bottom, 0px)";
+        keyboardOpen = false;
       }
     }
 

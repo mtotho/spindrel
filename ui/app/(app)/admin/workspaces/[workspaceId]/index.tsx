@@ -135,7 +135,7 @@ export default function WorkspaceDetailScreen() {
     }
   }, [initialized, currentSnapshot]);
 
-  const isDirty = isNew || (initialized && currentSnapshot !== savedSnapshot.current);
+  const isDirty = isNew ? !!name.trim() : (initialized && savedSnapshot.current !== "" && currentSnapshot !== savedSnapshot.current);
   const [justSaved, setJustSaved] = useState(false);
 
   // -- Warn on navigate away with unsaved changes --

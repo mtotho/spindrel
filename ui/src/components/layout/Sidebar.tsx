@@ -432,7 +432,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                 </Link>
               </div>
               <div className="mx-1">
-                <Link to={`/admin/workspaces/${ws.id}/files`} onClick={closeMobile}>
+                <Link to={`/admin/workspaces/${ws.id}`} onClick={closeMobile}>
                   <div className="sidebar-nav-item flex flex-row items-center gap-2.5 px-3 py-2 cursor-pointer rounded-lg">
                     <span
                       className={cn(

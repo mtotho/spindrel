@@ -323,6 +323,25 @@ class SkillAutoInjectPayload:
 
 
 @dataclass(frozen=True)
+class LlmStatusPayload:
+    """Payload for ``llm_status`` events -- LLM retry/fallback/cooldown status.
+
+    Published during the retry/fallback chain so the UI can reset its
+    observer timeout and display retry status to the user.
+    """
+
+    bot_id: str
+    turn_id: uuid.UUID
+    status: str  # "retry" | "fallback" | "cooldown_skip"
+    model: str = ""
+    reason: str = ""
+    attempt: int = 0
+    max_retries: int = 0
+    wait_seconds: float = 0.0
+    fallback_model: str = ""
+
+
+@dataclass(frozen=True)
 class PinnedFileUpdatedPayload:
     """Payload for ``pinned_file_updated`` events — a pinned file's content changed.
 
@@ -357,4 +376,5 @@ ChannelEventPayload = (
     | ContextBudgetPayload
     | MemorySchemeBootstrapPayload
     | PinnedFileUpdatedPayload
+    | LlmStatusPayload
 )

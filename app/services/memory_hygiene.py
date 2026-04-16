@@ -332,8 +332,8 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
     if all_protected:
         lines.append("")
         lines.append(
-            "**All skills are protected (enrolled < 14 days or authored). "
-            "Skip pruning this cycle — focus on reflections and coverage gaps.**"
+            "**All skills are protected — skip pruning. But still review authored skills "
+            "for quality: merge overlaps, improve weak triggers, patch outdated content.**"
         )
 
     lines.append("")

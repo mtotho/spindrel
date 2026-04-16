@@ -394,6 +394,29 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
           return;
         }
 
+        case "llm_status": {
+          const turnId = payload?.turn_id as string | undefined;
+          if (!turnId) return;
+          if (!store.getChannel(chId).turns[turnId]) return;
+          // Reset the observer timeout — the server is still working
+          // (retrying / falling back). Prevents the 60s timeout from
+          // killing the turn during long rate-limit waits.
+          startObserverTimeout(chId, turnId);
+          store.handleTurnEvent(chId, turnId, {
+            event: "llm_status",
+            data: {
+              status: payload?.status,
+              model: payload?.model,
+              reason: payload?.reason,
+              attempt: payload?.attempt,
+              max_retries: payload?.max_retries,
+              wait_seconds: payload?.wait_seconds,
+              fallback_model: payload?.fallback_model,
+            },
+          });
+          return;
+        }
+
         case "turn_ended": {
           const turnId = payload?.turn_id as string | undefined;
           if (!turnId) return;

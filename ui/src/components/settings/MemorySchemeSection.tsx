@@ -565,26 +565,24 @@ export function MemorySchemeSection() {
                 }`}
               />
               <span className="text-text-muted text-xs font-semibold">
-                Memory Flush Prompt
+                Flush Prompt
               </span>
               <span
                 className="text-[9px] font-semibold px-1.5 py-0.5 rounded ml-1"
                 style={{
-                  backgroundColor: t.warningSubtle,
-                  color: t.warning,
+                  backgroundColor: t.purpleSubtle,
+                  color: t.purpleMuted,
                 }}
               >
-                overridden
+                built-in
               </span>
             </button>
             {showFlush && (
               <div className="px-3.5 pb-3.5">
                 <span
-                  className="text-[11px] mb-2 block"
-                  style={{ color: t.warning }}
+                  className="text-[11px] mb-2 block text-text-dim"
                 >
-                  Workspace-files bots use this flush prompt instead of the
-                  Memory Flush Default Prompt:
+                  Prompt used before context compaction for workspace-files bots:
                 </span>
                 <pre className="m-0 text-[11px] leading-relaxed text-text-muted font-mono whitespace-pre-wrap rounded-md p-3 bg-surface-overlay">
                   {builtInFlushPrompt}

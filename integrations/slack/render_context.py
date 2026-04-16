@@ -63,6 +63,7 @@ class TurnContext:
     """Envelopes collected from TURN_STREAM_TOOL_RESULT events during the
     turn. Used by _handle_turn_ended to render Block Kit blocks for tools
     that produce component-vocabulary output."""
+    created_at: float = field(default_factory=time.monotonic)
 
 
 @dataclass
@@ -81,9 +82,13 @@ class SlackRenderContextRegistry:
     def __init__(self) -> None:
         self._by_channel: dict[str, _RegistryEntry] = {}
 
+    # Contexts older than this are considered stale and pruned.
+    _STALE_SECONDS = 300  # 5 minutes
+
     def get_or_create(
         self, slack_channel_id: str, turn_id: str, *, bot_id: str
     ) -> TurnContext:
+        self._prune_stale()
         entry = self._by_channel.get(slack_channel_id)
         if entry is None:
             entry = _RegistryEntry()
@@ -119,6 +124,40 @@ class SlackRenderContextRegistry:
         """
         entry = self._by_channel.get(slack_channel_id)
         return entry is not None and bool(entry.by_turn)
+
+    def find_by_turn_id(self, turn_id: str) -> tuple[str, TurnContext] | None:
+        """Look up a TurnContext by turn_id across all channels.
+
+        Returns ``(slack_channel_id, ctx)`` or None. Used by NEW_MESSAGE
+        to find the thinking placeholder for a turn via the message's
+        ``correlation_id``.
+        """
+        for channel_id, entry in self._by_channel.items():
+            ctx = entry.by_turn.get(turn_id)
+            if ctx is not None:
+                return (channel_id, ctx)
+        return None
+
+    def _prune_stale(self) -> None:
+        """Remove contexts older than ``_STALE_SECONDS``.
+
+        Guards against leaks if NEW_MESSAGE never arrives (e.g. persist
+        failed silently). Called on ``get_or_create`` so the cost is
+        amortized across normal turn traffic.
+        """
+        cutoff = time.monotonic() - self._STALE_SECONDS
+        empty_channels: list[str] = []
+        for channel_id, entry in self._by_channel.items():
+            stale = [
+                tid for tid, ctx in entry.by_turn.items()
+                if ctx.created_at < cutoff
+            ]
+            for tid in stale:
+                del entry.by_turn[tid]
+            if not entry.by_turn:
+                empty_channels.append(channel_id)
+        for channel_id in empty_channels:
+            del self._by_channel[channel_id]
 
     def reset(self) -> None:
         """Test helper — wipe all state."""

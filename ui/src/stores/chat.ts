@@ -39,6 +39,15 @@ export interface TurnState {
   autoInjectedSkills: AutoInjectedSkill[];
   correlationId?: string | null;
   error?: string;
+  llmStatus?: {
+    status: string; // "retry" | "fallback" | "cooldown_skip"
+    model?: string;
+    reason?: string;
+    attempt?: number;
+    maxRetries?: number;
+    waitSeconds?: number;
+    fallbackModel?: string;
+  } | null;
 }
 
 interface ChatChannelState {
@@ -142,6 +151,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 toolCalls: [],
                 autoInjectedSkills: [],
                 correlationId: turnId,
+                llmStatus: null,
               },
             },
             // A new turn implies the channel is no longer in the
@@ -167,6 +177,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           updated = {
             ...turn,
             streamingContent: turn.streamingContent + (data.delta ?? ""),
+            llmStatus: null, // Clear retry status — actual content is flowing
           };
           break;
         }
@@ -298,6 +309,30 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 source: data.source ?? "unknown",
               },
             ],
+          };
+          break;
+        }
+        case "llm_status": {
+          const data = event.data as {
+            status?: string;
+            model?: string;
+            reason?: string;
+            attempt?: number;
+            max_retries?: number;
+            wait_seconds?: number;
+            fallback_model?: string;
+          };
+          updated = {
+            ...turn,
+            llmStatus: {
+              status: data.status ?? "retry",
+              model: data.model,
+              reason: data.reason,
+              attempt: data.attempt,
+              maxRetries: data.max_retries,
+              waitSeconds: data.wait_seconds,
+              fallbackModel: data.fallback_model,
+            },
           };
           break;
         }

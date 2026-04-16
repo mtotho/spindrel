@@ -167,7 +167,7 @@ function StringField({
       readOnly={item.read_only}
       placeholder="—"
       style={{
-        maxWidth: 280,
+        maxWidth: 480,
         flex: 1,
         padding: "5px 10px",
         borderRadius: 6,
@@ -323,7 +323,8 @@ function SettingRow({
     );
   };
 
-  const isComplex = item.widget === "textarea" || item.widget === "model" || item.widget === "embedding_model";
+  const isLongString = !item.widget && item.type === "string" && String(localValue ?? "").length > 30;
+  const isComplex = item.widget === "textarea" || item.widget === "model" || item.widget === "embedding_model" || isLongString;
 
   const resetBtn = item.overridden && !item.read_only ? (
     <button
@@ -392,7 +393,7 @@ function SettingRow({
 // Sub-section headers
 // ---------------------------------------------------------------------------
 const SUB_SECTION_HEADERS: Record<string, { title: string; desc?: string }> = {
-  MEMORY_FLUSH_ENABLED: { title: "Memory Flush", desc: "Save memories before context compaction" },
+  MEMORY_FLUSH_ENABLED: { title: "Memory Flush", desc: "Save memories before context compaction. Workspace-files bots use a built-in flush prompt (shown above)." },
   MEMORY_HYGIENE_ENABLED: { title: "Dreaming — Memory Maintenance", desc: "Periodic background review of bot memory files" },
   SKILL_REVIEW_ENABLED: { title: "Dreaming — Skill Review", desc: "Periodic skill curation and cross-channel reflection" },
   MEMORY_MD_NUDGE_THRESHOLD: { title: "Memory Size" },

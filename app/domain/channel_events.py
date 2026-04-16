@@ -29,6 +29,7 @@ from app.domain.payloads import (
     ContextBudgetPayload,
     DeliveryFailedPayload,
     HeartbeatTickPayload,
+    LlmStatusPayload,
     MemorySchemeBootstrapPayload,
     MessagePayload,
     MessageUpdatedPayload,
@@ -67,6 +68,7 @@ class ChannelEventKind(StrEnum):
     MEMORY_SCHEME_BOOTSTRAP = "memory_scheme_bootstrap"
     PINNED_FILE_UPDATED = "pinned_file_updated"
     SKILL_AUTO_INJECT = "skill_auto_inject"
+    LLM_STATUS = "llm_status"
 
     def required_capabilities(self) -> frozenset[Capability]:
         """The capability set a renderer must declare to receive this kind.
@@ -127,6 +129,7 @@ _REQUIRED_CAPS: dict[ChannelEventKind, frozenset[Capability]] = {
     ChannelEventKind.REPLAY_LAPSED: frozenset(),
     ChannelEventKind.PINNED_FILE_UPDATED: frozenset({Capability.TEXT}),
     ChannelEventKind.SKILL_AUTO_INJECT: frozenset(),
+    ChannelEventKind.LLM_STATUS: frozenset({Capability.STREAMING_EDIT}),
 }
 
 
@@ -160,6 +163,7 @@ _KIND_PAYLOAD: dict[ChannelEventKind, type] = {
     ChannelEventKind.MEMORY_SCHEME_BOOTSTRAP: MemorySchemeBootstrapPayload,
     ChannelEventKind.PINNED_FILE_UPDATED: PinnedFileUpdatedPayload,
     ChannelEventKind.SKILL_AUTO_INJECT: SkillAutoInjectPayload,
+    ChannelEventKind.LLM_STATUS: LlmStatusPayload,
 }
 
 

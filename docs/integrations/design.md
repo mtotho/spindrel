@@ -36,15 +36,18 @@ renderer in `renderer.py`, which is auto-imported by `integrations/__init__.py`:
 ```python
 from integrations.sdk import (
     ChannelRenderer, DeliveryReceipt, Capability,
-    ChannelEvent, ChannelEventKind, renderer_registry,
+    ChannelEvent, ChannelEventKind, DispatchTarget,
+    renderer_registry,
 )
 
 class SlackRenderer(ChannelRenderer):
-    dispatch_type = "slack"
-    CAPABILITIES = {Capability.TEXT, Capability.RICH_TEXT, Capability.STREAMING_EDIT}
+    integration_id = "slack"
+    capabilities = frozenset({Capability.TEXT, Capability.RICH_TEXT, Capability.STREAMING_EDIT})
 
-    async def send(self, event: ChannelEvent) -> DeliveryReceipt:
-        # Deliver the event to Slack
+    async def render(
+        self, event: ChannelEvent, target: DispatchTarget,
+    ) -> DeliveryReceipt:
+        # Handle NEW_MESSAGE (durable) and streaming events (best-effort)
         ...
 
 renderer_registry.register(SlackRenderer())
@@ -71,6 +74,62 @@ registry, and handles retries:
 - State machine: `pending` → `in_flight` → `delivered` (or `dead_letter` after 10 attempts)
 - Only events matching the renderer's `CAPABILITIES` are delivered
 - Capabilities declared in `integration.yaml` override the renderer's ClassVar
+
+### Delivery Contract: Streaming vs. Durable
+
+Channel events split into two delivery paths with different guarantees:
+
+| Path | Events | Transport | Guarantees |
+|------|--------|-----------|------------|
+| **Durable** | `NEW_MESSAGE` | Outbox drainer | Retried on failure, dead-letter after 10 attempts. The message is always delivered. |
+| **Ephemeral** | `TURN_STARTED`, `TURN_STREAM_TOKEN`, `TURN_STREAM_TOOL_START`, `TURN_STREAM_TOOL_RESULT`, `TURN_ENDED` | Channel-events bus | Best-effort. If missed, nothing retries. |
+
+**`NEW_MESSAGE` is the sole durable delivery path.** This is the most important rule
+for renderer authors. The outbox guarantees that every persisted assistant message
+reaches every bound integration — if the renderer returns `DeliveryReceipt.failed(retryable=True)`,
+the drainer retries. If it returns `.ok()` or `.skipped()`, the row is marked delivered.
+
+**Streaming events are for progressive UX only.** Integrations that support real-time
+updates (e.g. Slack's "thinking..." placeholder) can subscribe to streaming events to
+provide a richer experience, but these events are inherently lossy:
+
+- `TURN_STARTED` — post a "thinking..." placeholder (best-effort)
+- `TURN_STREAM_TOKEN` — update the placeholder with accumulated text (best-effort)
+- `TURN_ENDED` — finalize the placeholder with the complete response text (best-effort)
+
+If any streaming event fails (API error, rate limit, process crash), the message is
+not lost — `NEW_MESSAGE` delivers it durably via the outbox.
+
+**Anti-pattern: relying on `TURN_ENDED` for delivery.** Do not post new messages from
+`TURN_ENDED`. Its job is updating an existing placeholder. If you need to post the
+final message, that's `NEW_MESSAGE`'s responsibility. The Slack renderer learned this
+the hard way — when `TURN_ENDED` was responsible for delivery and the outbox was told
+to skip, messages were silently lost on any transient failure.
+
+#### DeliveryReceipt semantics
+
+| Receipt | When to use | Outbox behavior |
+|---------|-------------|-----------------|
+| `.ok(external_id=...)` | Delivery succeeded. `external_id` is the external message ID (e.g. Slack `ts`). | Row marked `DELIVERED`. |
+| `.skipped(reason)` | Renderer intentionally chose not to deliver (echo prevention, unsupported kind, etc.). | Row marked `DELIVERED` with reason logged. |
+| `.failed(error, retryable=True)` | Transient failure (5xx, 429, network error). | Row retried (up to 10 attempts), then `DEAD_LETTER`. |
+| `.failed(error, retryable=False)` | Permanent failure (invalid auth, channel not found). | Row immediately `DEAD_LETTER`. |
+
+#### Placeholder handoff pattern (optional, for streaming integrations)
+
+Integrations that support streaming edits (e.g. Slack `chat.update`) can implement
+the placeholder handoff:
+
+1. `TURN_STARTED` → post a placeholder message, store its ID in a turn context
+2. `TURN_STREAM_TOKEN` → update the placeholder with accumulated text (debounced)
+3. `TURN_ENDED` → finalize the placeholder with the complete response (best-effort update only)
+4. `NEW_MESSAGE` → if a placeholder exists for this turn (via `msg.correlation_id`),
+   update it with the final text (idempotent). Otherwise post as a new message.
+   Post overflow chunks and tool blocks. Clean up the turn context.
+
+The key: `NEW_MESSAGE` owns the final state. If `TURN_ENDED` already updated the
+placeholder, `NEW_MESSAGE`'s update is idempotent. If `TURN_ENDED` failed, `NEW_MESSAGE`
+still delivers the message. No message is ever lost.
 
 ### Target Registry (Typed Dispatch Targets)
 

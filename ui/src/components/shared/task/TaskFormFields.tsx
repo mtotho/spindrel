@@ -10,11 +10,13 @@ import type { StepDef } from "@/src/api/hooks/useTasks";
 import { LlmPrompt } from "../LlmPrompt";
 import { PromptTemplateLink } from "../PromptTemplateLink";
 import { WorkspaceFilePrompt } from "../WorkspaceFilePrompt";
-import { FormRow, SelectInput, Toggle } from "../FormControls";
+import { FormRow, Toggle } from "../FormControls";
 import { LlmModelDropdown } from "../LlmModelDropdown";
 import { FallbackModelList } from "../FallbackModelList";
 import { TriggerSection, type TriggerConfig } from "../TriggerSection";
 import { TaskStepEditor } from "../TaskStepEditor";
+import { BotPicker } from "../BotPicker";
+import { ChannelPicker } from "../ChannelPicker";
 import { ChipPicker } from "./ChipPicker";
 import type { TaskFormState } from "./useTaskFormState";
 
@@ -142,26 +144,28 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
     selectedToolKeys, setSelectedToolKeys,
     modelOverride, setModelOverride,
     fallbackModels, setFallbackModels,
-    botOptions, channelOptions, skillOptions, toolOptions,
+    bots, channels, skillOptions, toolOptions,
     isCreate,
   } = form;
 
   return (
     <div className="flex flex-col gap-5">
       <FormRow label="Bot">
-        <SelectInput
+        <BotPicker
           value={botId}
           onChange={setBotId}
-          options={botOptions}
+          bots={bots ?? []}
         />
       </FormRow>
 
       <FormRow label="Channel" description="Assign to a channel for dispatch">
-        <SelectInput
+        <ChannelPicker
           value={channelId}
           onChange={disableChannel ? () => {} : setChannelId}
-          options={channelOptions}
-          style={disableChannel ? { opacity: 0.5, pointerEvents: "none" } : {}}
+          channels={channels ?? []}
+          bots={bots}
+          allowNone
+          disabled={disableChannel}
         />
       </FormRow>
 

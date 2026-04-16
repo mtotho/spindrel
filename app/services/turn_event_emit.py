@@ -31,6 +31,7 @@ from app.domain.payloads import (
     ApprovalRequestedPayload,
     ApprovalResolvedPayload,
     ContextBudgetPayload,
+    LlmStatusPayload,
     MemorySchemeBootstrapPayload,
     SkillAutoInjectPayload,
     TurnStreamTokenPayload,
@@ -221,6 +222,58 @@ async def emit_run_stream_events(
                         turn_id=turn_id,
                         scheme=str(event.get("scheme") or event.get("memory_scheme") or ""),
                         files_loaded=int(event.get("files_loaded") or 0),
+                    ),
+                ),
+            )
+
+        elif etype == "llm_retry":
+            publish_typed(
+                channel_id,
+                ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.LLM_STATUS,
+                    payload=LlmStatusPayload(
+                        bot_id=bot_id,
+                        turn_id=turn_id,
+                        status="retry",
+                        model=str(event.get("model", "")),
+                        reason=str(event.get("reason", "")),
+                        attempt=int(event.get("attempt", 0)),
+                        max_retries=int(event.get("max_retries", 0)),
+                        wait_seconds=float(event.get("wait_seconds", 0)),
+                    ),
+                ),
+            )
+
+        elif etype == "llm_fallback":
+            publish_typed(
+                channel_id,
+                ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.LLM_STATUS,
+                    payload=LlmStatusPayload(
+                        bot_id=bot_id,
+                        turn_id=turn_id,
+                        status="fallback",
+                        model=str(event.get("from_model", "")),
+                        reason=str(event.get("reason", "")),
+                        fallback_model=str(event.get("to_model", "")),
+                    ),
+                ),
+            )
+
+        elif etype == "llm_cooldown_skip":
+            publish_typed(
+                channel_id,
+                ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.LLM_STATUS,
+                    payload=LlmStatusPayload(
+                        bot_id=bot_id,
+                        turn_id=turn_id,
+                        status="cooldown_skip",
+                        model=str(event.get("model", "")),
+                        fallback_model=str(event.get("using", "")),
                     ),
                 ),
             )

@@ -176,27 +176,40 @@ gws sheets spreadsheets.values clear --params '{"spreadsheetId":"SHEET_ID","rang
 
 ### Key Commands
 ```bash
-# Create a document
+# Create a document (⚠️ Docs API ignores "parents" — create first, then move via Drive)
 gws docs documents create --json '{"title":"My Document"}'
+
+# Move doc to a folder after creation
+gws drive files update --params '{"fileId":"DOC_ID","addParents":"FOLDER_ID","removeParents":"root"}'
 
 # Get document content
 gws docs documents get --params '{"documentId":"DOC_ID"}'
 
-# Batch update (insert text)
+# Insert text (index 1 = start of document body)
 gws docs documents batchUpdate --params '{"documentId":"DOC_ID"}' --json '{"requests":[{"insertText":{"location":{"index":1},"text":"Hello World"}}]}'
 ```
 
+> **Note:** Docs and Slides APIs require enablement in your GCP project. Read operations (list, get, search) work without extra config.
+
 ## Google Slides
+
+> **⚠️ Path syntax:** Use dots for sub-resources — `slides presentations.pages get` works, `slides presentations pages get` (space) fails silently.
 
 ```bash
 # Create a presentation
 gws slides presentations create --json '{"title":"My Presentation"}'
 
-# Get presentation
+# Get presentation (includes slide/page IDs)
 gws slides presentations get --params '{"presentationId":"PRES_ID"}'
 
 # Get a specific page/slide
 gws slides presentations.pages get --params '{"presentationId":"PRES_ID","pageObjectId":"PAGE_ID"}'
+
+# Insert text into a shape (⚠️ default title slide placeholders are locked — create a blank slide first)
+gws slides presentations.batchUpdate --params '{"presentationId":"PRES_ID"}' --json '{"requests":[{"insertText":{"objectId":"SHAPE_ID","text":"Hello","insertionIndex":0}}]}'
+
+# Create a blank slide (use layoutIndex, NOT predefinedLayout — predefinedLayout is unsupported)
+gws slides presentations.batchUpdate --params '{"presentationId":"PRES_ID"}' --json '{"requests":[{"createSlide":{"slideLayoutReference":{"layoutIndex":1}}}]}'
 ```
 
 ## Google Tasks

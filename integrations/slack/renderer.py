@@ -271,15 +271,25 @@ class SlackRenderer:
         target: SlackTarget,
         ctx: TurnContext | None,
     ) -> DeliveryReceipt:
+        """Streaming UX finalization — best-effort only.
+
+        Updates the thinking placeholder with the final response text.
+        Never posts new messages — that's the outbox's job via
+        NEW_MESSAGE. If the placeholder update fails, the outbox still
+        delivers the message durably.
+        """
         payload = event.payload
         turn_id = str(getattr(payload, "turn_id", "") or "")
         bot_id = getattr(payload, "bot_id", "") or ""
+
+        if ctx is None or not ctx.thinking_ts or not ctx.thinking_channel:
+            # No placeholder to update — outbox NEW_MESSAGE handles
+            # delivery. Nothing for the streaming path to do.
+            return DeliveryReceipt.ok()
+
         result_text = getattr(payload, "result", None) or ""
         error_text = getattr(payload, "error", None) or ""
 
-        attrs = bot_attribution(bot_id) if bot_id else {}
-
-        # Final body: prefer result; fall back to a user-visible error.
         if result_text:
             body_text = result_text
         elif error_text:
@@ -289,64 +299,35 @@ class SlackRenderer:
 
         slack_text = markdown_to_slack_mrkdwn(body_text)
         chunks = split_for_slack(slack_text) or [slack_text]
+        attrs = bot_attribution(bot_id) if bot_id else {}
 
-        # If we have a thinking placeholder, update it with the first chunk.
-        if ctx and ctx.thinking_ts and ctx.thinking_channel:
-            first_chunk = chunks[0]
-            update_body: dict = {
-                "channel": ctx.thinking_channel,
-                "ts": ctx.thinking_ts,
-                "text": first_chunk,
-                **attrs,
-            }
-            update_result = await self._call_slack(
-                "chat.update", target.token, update_body
-            )
-            if not update_result.success:
-                slack_render_contexts.discard(target.channel_id, turn_id)
-                return update_result
-            chunks = chunks[1:]
-
-        # Post any remaining chunks as new messages in the same thread.
-        for chunk in chunks:
-            post_body: dict = {
-                "channel": target.channel_id,
-                "text": chunk,
-                **attrs,
-            }
-            if target.thread_ts and target.reply_in_thread:
-                post_body["thread_ts"] = target.thread_ts
-            post_result = await self._call_slack(
-                "chat.postMessage", target.token, post_body
-            )
-            if not post_result.success:
-                slack_render_contexts.discard(target.channel_id, turn_id)
-                return post_result
-
-        # Render component-vocabulary tool envelopes as Block Kit blocks.
-        tool_blocks = _components_to_blocks(ctx.tool_envelopes if ctx else [])
-        if tool_blocks:
-            # Slack caps blocks at 50 per message.
-            tool_blocks = tool_blocks[:50]
-            # Post as a follow-up — chat.update with blocks would replace
-            # the text content, and the blocks are supplementary detail.
-            block_body: dict = {
-                "channel": target.channel_id,
-                "text": "(tool results)",  # fallback for notifications
-                "blocks": tool_blocks,
-                **attrs,
-            }
-            if target.thread_ts and target.reply_in_thread:
-                block_body["thread_ts"] = target.thread_ts
-            await self._call_slack("chat.postMessage", target.token, block_body)
+        # Update the thinking placeholder with the first chunk.
+        update_body: dict = {
+            "channel": ctx.thinking_channel,
+            "ts": ctx.thinking_ts,
+            "text": chunks[0],
+            **attrs,
+        }
+        update_result = await self._call_slack(
+            "chat.update", target.token, update_body
+        )
+        if not update_result.success:
+            # Placeholder update failed — discard context so NEW_MESSAGE
+            # falls through to posting as a new message.
+            slack_render_contexts.discard(target.channel_id, turn_id)
+            return update_result
 
         # Upload any image / file actions attached to the turn.
+        # These are supplementary (not the message itself) and only
+        # exist on TurnEndedPayload, so they stay here.
         client_actions = getattr(payload, "client_actions", None) or []
         if client_actions:
             await self._upload_actions(target, attrs, client_actions)
 
-        slack_render_contexts.discard(target.channel_id, turn_id)
-        return DeliveryReceipt.ok(external_id=ctx.thinking_ts if ctx else None)
+        # Do NOT discard context — NEW_MESSAGE needs the thinking_ts
+        # to update the placeholder instead of posting a duplicate.
+        # NEW_MESSAGE owns context cleanup.
+        return DeliveryReceipt.ok(external_id=ctx.thinking_ts)
 
     async def _handle_new_message(
         self, event: ChannelEvent, target: SlackTarget
@@ -392,19 +373,6 @@ class SlackRenderer:
                     "slack skips own-origin user message (echo prevention)"
                 )
 
-        # Assistant messages that land on the bus during an active turn
-        # are the persisted form of the reply that TURN_ENDED has
-        # already delivered via the streaming ``chat.update`` path. Posting
-        # them again would duplicate every bot reply. Workflow-authored
-        # assistant messages (``workflow_executor.py``) arrive outside
-        # any turn context and are still posted.
-        if role == "assistant" and slack_render_contexts.has_active_turn(
-            target.channel_id
-        ):
-            return DeliveryReceipt.skipped(
-                "assistant new_message during active turn — TURN_ENDED handles"
-            )
-
         # Use the message's actor for display attribution. Bot
         # messages get bot_attribution; user messages get the user's
         # display name. The legacy mirror path used the same pattern.
@@ -421,7 +389,43 @@ class SlackRenderer:
         if not text.strip():
             return DeliveryReceipt.skipped("new_message with empty content")
         slack_text = markdown_to_slack_mrkdwn(text)
-        for chunk in split_for_slack(slack_text) or [slack_text]:
+        chunks = split_for_slack(slack_text) or [slack_text]
+
+        # If a thinking placeholder exists for this turn, update it
+        # with the first chunk instead of posting a new message. This
+        # is the handoff from the streaming path (TURN_ENDED updated
+        # the placeholder best-effort) to the durable outbox path.
+        # The update is idempotent — if TURN_ENDED already wrote the
+        # same text, this is a no-op from Slack's perspective.
+        correlation_id = str(getattr(msg, "correlation_id", "") or "")
+        ctx_info = (
+            slack_render_contexts.find_by_turn_id(correlation_id)
+            if correlation_id else None
+        )
+        placeholder_used = False
+        if ctx_info is not None:
+            ctx_channel_id, ctx = ctx_info
+            if ctx.thinking_ts and ctx.thinking_channel:
+                update_body: dict = {
+                    "channel": ctx.thinking_channel,
+                    "ts": ctx.thinking_ts,
+                    "text": chunks[0],
+                    **attrs,
+                }
+                update_result = await self._call_slack(
+                    "chat.update", target.token, update_body
+                )
+                if update_result.success:
+                    placeholder_used = True
+                    chunks = chunks[1:]
+                # If update failed (placeholder deleted, etc.), fall
+                # through to posting all chunks as new messages.
+            # Context cleanup — NEW_MESSAGE owns this.
+            slack_render_contexts.discard(ctx_channel_id, correlation_id)
+
+        # Post chunks as new messages (all of them if no placeholder,
+        # or remaining overflow chunks if the placeholder took the first).
+        for chunk in chunks:
             body: dict = {
                 "channel": target.channel_id,
                 "text": chunk,

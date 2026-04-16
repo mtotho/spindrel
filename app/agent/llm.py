@@ -482,7 +482,9 @@ def extract_xml_tool_calls(
                 if params:
                     args_str = json.dumps({k: v for k, v in params})
                 else:
-                    args_str = body
+                    # Wrap raw body in JSON so downstream providers (Gemini/LiteLLM)
+                    # don't choke on json.loads(arguments).
+                    args_str = json.dumps({"input": body})
             tool_calls.append({
                 "id": f"xml-tc-{uuid.uuid4().hex[:12]}",
                 "type": "function",
@@ -1100,6 +1102,46 @@ def _is_non_transient_500(exc: openai.InternalServerError) -> bool:
     return bool(re.search(r"\b400\b", msg))
 
 
+def _sanitize_tool_call_arguments(messages: list) -> list:
+    """Ensure all tool_call arguments in message history are valid JSON.
+
+    Some code paths (extract_xml_tool_calls fallback, legacy providers) can
+    produce non-JSON argument strings.  LiteLLM / Gemini reject these with
+    json.loads failures when converting to provider-native format.  This
+    normalizes them before sending to the LLM.
+    """
+    result = []
+    for msg in messages:
+        tool_calls = msg.get("tool_calls")
+        if not tool_calls:
+            result.append(msg)
+            continue
+        patched = False
+        new_tcs = []
+        for tc in tool_calls:
+            fn = tc.get("function") or {}
+            args_str = fn.get("arguments", "")
+            if not args_str:
+                patched = True
+                new_tcs.append({**tc, "function": {**fn, "arguments": "{}"}})
+                continue
+            try:
+                json.loads(args_str)
+                new_tcs.append(tc)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                patched = True
+                logger.warning(
+                    "Sanitizing non-JSON tool_call arguments for %s: %r",
+                    fn.get("name", "?"), args_str[:200],
+                )
+                new_tcs.append({**tc, "function": {**fn, "arguments": json.dumps({"_raw": args_str})}})
+        if patched:
+            result.append({**msg, "tool_calls": new_tcs})
+        else:
+            result.append(msg)
+    return result
+
+
 @dataclass
 class _CallParams:
     """Prepared parameters for an LLM API call."""
@@ -1154,6 +1196,8 @@ def _prepare_call_params(
 
     if not model_supports_vision(model):
         eff_msgs = _strip_images_from_messages(eff_msgs)
+
+    eff_msgs = _sanitize_tool_call_arguments(eff_msgs)
 
     eff_tools = tools_param
     eff_tool_choice = tool_choice

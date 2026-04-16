@@ -141,7 +141,59 @@ function getParamDescriptions(tool: ToolItem): Map<string, string> {
 }
 
 // ---------------------------------------------------------------------------
-// Tool selector with search
+// Tool selector utilities
+// ---------------------------------------------------------------------------
+
+/** "google_workspace" → "Google Workspace", "homeassistant" → "Home Assistant" */
+function humanizeSource(s: string): string {
+  // Known special cases where underscore/casing isn't enough
+  const SPECIAL: Record<string, string> = {
+    homeassistant: "Home Assistant",
+    bluebubbles: "Blue Bubbles",
+    claude_code: "Claude Code",
+    mission_control: "Mission Control",
+    web_search: "Web Search",
+  };
+  if (SPECIAL[s]) return SPECIAL[s];
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Split on -, _, and camelCase boundaries → lowercase tokens */
+function tokenize(s: string): string[] {
+  return s
+    .replace(/([a-z])([A-Z])/g, "$1 $2")   // camelCase → camel Case
+    .replace(/[-_]/g, " ")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/** Compute the source key for grouping: integration name, "mcp:{server}", or "core" */
+function toolSourceKey(t: ToolItem): string {
+  if (t.source_integration) return t.source_integration;
+  if (t.server_name) return `mcp:${t.server_name}`;
+  return "core";
+}
+
+/** Human-readable label for a source key */
+function sourceLabel(key: string): string {
+  if (key === "core") return "Core";
+  if (key.startsWith("mcp:")) return `MCP: ${key.slice(4)}`;
+  return humanizeSource(key);
+}
+
+/** Strip redundant integration prefix from tool name for display under a group header */
+function shortToolName(tool: ToolItem): string {
+  if (!tool.source_integration) return tool.tool_name;
+  const prefix = tool.source_integration + "-";
+  if (tool.tool_name.startsWith(prefix)) return tool.tool_name.slice(prefix.length);
+  const prefixUnderscore = tool.source_integration + "_";
+  if (tool.tool_name.startsWith(prefixUnderscore)) return tool.tool_name.slice(prefixUnderscore.length);
+  return tool.tool_name;
+}
+
+// ---------------------------------------------------------------------------
+// Tool selector with search + source filter
 // ---------------------------------------------------------------------------
 
 function ToolSelector({ value, tools, onChange }: {
@@ -150,11 +202,15 @@ function ToolSelector({ value, tools, onChange }: {
   onChange: (toolName: string, tool: ToolItem) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const sourceRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
 
+  // Close main dropdown on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -164,28 +220,114 @@ function ToolSelector({ value, tools, onChange }: {
       ) {
         setOpen(false);
         setSearch("");
+        setSourceMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  // Close source submenu on outside click
+  useEffect(() => {
+    if (!sourceMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (sourceRef.current && !sourceRef.current.contains(e.target as Node)) {
+        setSourceMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [sourceMenuOpen]);
+
   const openDropdown = () => {
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+      setPos({ top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 320) });
     }
     setOpen(!open);
   };
 
+  // Build source groups with counts
+  const sourceGroups = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of tools) {
+      const key = toolSourceKey(t);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    // Sort: "core" first, then by count descending
+    return [...counts.entries()]
+      .sort((a, b) => {
+        if (a[0] === "core") return -1;
+        if (b[0] === "core") return 1;
+        return b[1] - a[1];
+      })
+      .map(([key, count]) => ({ key, label: sourceLabel(key), count }));
+  }, [tools]);
+
+  // Filter + search
   const filtered = useMemo(() => {
-    const term = search.toLowerCase();
-    return tools
-      .filter((t) => !term || t.tool_name.toLowerCase().includes(term) || (t.description ?? "").toLowerCase().includes(term))
-      .slice(0, 20);
-  }, [tools, search]);
+    let pool = tools;
+
+    // Source filter
+    if (sourceFilter) {
+      pool = pool.filter((t) => toolSourceKey(t) === sourceFilter);
+    }
+
+    // Search with token matching
+    if (search.trim()) {
+      const queryTokens = tokenize(search);
+      pool = pool.filter((t) => {
+        const haystack = [
+          ...tokenize(t.tool_name),
+          ...tokenize(t.description ?? ""),
+          ...tokenize(t.source_integration ?? ""),
+          ...tokenize(t.server_name ?? ""),
+        ].join(" ");
+        return queryTokens.every((qt) => haystack.includes(qt));
+      });
+    }
+
+    return pool.slice(0, 50);
+  }, [tools, search, sourceFilter]);
+
+  // Group filtered tools by source (only when not searching)
+  const grouped = useMemo(() => {
+    if (search.trim() || sourceFilter) return null; // flat list when searching or filtered
+    const groups = new Map<string, ToolItem[]>();
+    for (const t of filtered) {
+      const key = toolSourceKey(t);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(t);
+    }
+    // Sort groups same as sourceGroups order
+    const order = sourceGroups.map((g) => g.key);
+    return [...groups.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
+  }, [filtered, search, sourceFilter, sourceGroups]);
 
   const selectedTool = tools.find((t) => t.tool_name === value);
+  const isSearching = search.trim().length > 0;
+
+  const renderToolButton = (tool: ToolItem, showSource: boolean, useShortName: boolean) => (
+    <button
+      key={tool.tool_key}
+      onClick={() => { onChange(tool.tool_name, tool); setOpen(false); setSearch(""); setSourceFilter(null); }}
+      className="flex flex-col gap-0.5 w-full px-3 py-2 bg-transparent border-none cursor-pointer text-left transition-colors hover:bg-surface-raised"
+    >
+      <div className="flex flex-row items-center gap-2">
+        <span className="text-xs font-medium text-text truncate">
+          {useShortName ? shortToolName(tool) : tool.tool_name}
+        </span>
+        {showSource && (tool.source_integration || tool.server_name) && (
+          <span className="text-[10px] text-text-dim px-1.5 py-0.5 rounded bg-surface-overlay shrink-0">
+            {sourceLabel(toolSourceKey(tool))}
+          </span>
+        )}
+      </div>
+      {tool.description && (
+        <span className="text-[10px] text-text-dim line-clamp-1">{tool.description}</span>
+      )}
+    </button>
+  );
 
   return (
     <div className="relative">
@@ -202,7 +344,7 @@ function ToolSelector({ value, tools, onChange }: {
         </span>
         {selectedTool?.source_integration && (
           <span className="text-[10px] text-text-dim px-1.5 py-0.5 rounded bg-surface-overlay shrink-0">
-            {selectedTool.source_integration}
+            {humanizeSource(selectedTool.source_integration)}
           </span>
         )}
         <ChevronDownIcon size={12} className="text-text-dim shrink-0" />
@@ -210,42 +352,104 @@ function ToolSelector({ value, tools, onChange }: {
       {open && ReactDOM.createPortal(
         <div
           ref={dropdownRef}
-          className="fixed bg-surface border border-surface-border rounded-lg shadow-xl z-[10001] max-h-[260px] overflow-hidden flex flex-col"
-          style={{ top: pos.top, left: pos.left, width: pos.width }}
+          className="fixed bg-surface border border-surface-border rounded-lg shadow-xl z-[10001] max-h-[360px] sm:max-h-[360px] max-sm:max-h-[70vh] overflow-hidden flex flex-col"
+          style={{ top: pos.top, left: pos.left, width: pos.width, maxWidth: "calc(100vw - 24px)" }}
         >
-          <div className="p-2 border-b border-surface-border shrink-0">
+          {/* Search + source filter row */}
+          <div className="flex flex-row items-center gap-1.5 p-2 border-b border-surface-border shrink-0">
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search tools..."
               autoFocus
-              className="w-full px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
+              className="flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
             />
+            <div ref={sourceRef} className="relative shrink-0">
+              <button
+                onClick={() => setSourceMenuOpen(!sourceMenuOpen)}
+                className={`flex flex-row items-center gap-1 px-2 py-1.5 text-[11px] rounded-md border cursor-pointer transition-colors whitespace-nowrap ${
+                  sourceFilter
+                    ? "border-accent/40 bg-accent/10 text-accent"
+                    : "border-surface-border bg-input text-text-dim hover:border-accent/30"
+                }`}
+              >
+                <span className="truncate max-w-[100px]">
+                  {sourceFilter ? sourceLabel(sourceFilter) : "All sources"}
+                </span>
+                {sourceFilter ? (
+                  <span
+                    onClick={(e) => { e.stopPropagation(); setSourceFilter(null); setSourceMenuOpen(false); }}
+                    className="ml-0.5 hover:text-text cursor-pointer"
+                  >×</span>
+                ) : (
+                  <ChevronDownIcon size={10} className="opacity-60" />
+                )}
+              </button>
+              {sourceMenuOpen && (
+                <div className="absolute top-full right-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-[10002] min-w-[180px] max-h-[280px] overflow-y-auto py-1">
+                  <button
+                    onClick={() => { setSourceFilter(null); setSourceMenuOpen(false); }}
+                    className={`flex flex-row items-center justify-between w-full px-3 py-1.5 text-xs border-none cursor-pointer text-left transition-colors ${
+                      !sourceFilter ? "bg-accent/10 text-accent font-medium" : "bg-transparent text-text hover:bg-surface-raised"
+                    }`}
+                  >
+                    <span>All sources</span>
+                    <span className="text-[10px] text-text-dim">{tools.length}</span>
+                  </button>
+                  <div className="h-px bg-surface-border my-1" />
+                  {sourceGroups.map((g) => (
+                    <button
+                      key={g.key}
+                      onClick={() => { setSourceFilter(g.key); setSourceMenuOpen(false); }}
+                      className={`flex flex-row items-center justify-between w-full px-3 py-1.5 text-xs border-none cursor-pointer text-left transition-colors ${
+                        sourceFilter === g.key ? "bg-accent/10 text-accent font-medium" : "bg-transparent text-text hover:bg-surface-raised"
+                      }`}
+                    >
+                      <span className="truncate">{g.label}</span>
+                      <span className="text-[10px] text-text-dim ml-2 shrink-0">{g.count}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Tool count */}
+          <div className="px-3 py-1 text-[10px] text-text-dim border-b border-surface-border/50 shrink-0">
+            {filtered.length} tool{filtered.length !== 1 ? "s" : ""}
+            {sourceFilter && <span> in {sourceLabel(sourceFilter)}</span>}
+            {isSearching && filtered.length === 50 && <span> (showing first 50)</span>}
+          </div>
+
+          {/* Tool list */}
           <div className="overflow-y-auto">
             {filtered.length === 0 ? (
-              <div className="px-3 py-3 text-[11px] text-text-dim">No tools found</div>
-            ) : (
-              filtered.map((tool) => (
-                <button
-                  key={tool.tool_key}
-                  onClick={() => { onChange(tool.tool_name, tool); setOpen(false); setSearch(""); }}
-                  className="flex flex-col gap-0.5 w-full px-3 py-2 bg-transparent border-none cursor-pointer text-left transition-colors hover:bg-surface-raised"
-                >
-                  <div className="flex flex-row items-center gap-2">
-                    <span className="text-xs font-medium text-text">{tool.tool_name}</span>
-                    {tool.source_integration && (
-                      <span className="text-[10px] text-text-dim px-1.5 py-0.5 rounded bg-surface-overlay">
-                        {tool.source_integration}
-                      </span>
-                    )}
+              <div className="px-3 py-4 text-[11px] text-text-dim text-center">
+                No tools found
+                {sourceFilter && (
+                  <button
+                    onClick={() => setSourceFilter(null)}
+                    className="block mx-auto mt-1 text-accent bg-transparent border-none cursor-pointer text-[11px] hover:underline"
+                  >
+                    Clear source filter
+                  </button>
+                )}
+              </div>
+            ) : grouped ? (
+              // Grouped view (no search, no source filter)
+              grouped.map(([sourceKey, groupTools]) => (
+                <div key={sourceKey}>
+                  <div className="sticky top-0 px-3 py-1.5 text-[10px] font-semibold text-text-dim uppercase tracking-wider bg-surface-raised/80 backdrop-blur-sm border-b border-surface-border/30">
+                    {sourceLabel(sourceKey)}
+                    <span className="ml-1.5 font-normal opacity-60">{groupTools.length}</span>
                   </div>
-                  {tool.description && (
-                    <span className="text-[10px] text-text-dim line-clamp-1">{tool.description}</span>
-                  )}
-                </button>
+                  {groupTools.map((tool) => renderToolButton(tool, false, true))}
+                </div>
               ))
+            ) : (
+              // Flat view (searching or source-filtered)
+              filtered.map((tool) => renderToolButton(tool, isSearching, !!sourceFilter))
             )}
           </div>
         </div>,
@@ -527,10 +731,10 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
   return (
     <div className={`rounded-lg border border-surface-border ${meta.borderAccent} border-l-[3px] shadow-sm group transition-shadow hover:shadow-md ${meta.cardBg}`}>
       {/* Header row */}
-      <div className="flex flex-row items-center gap-2.5 px-3.5 py-2.5">
+      <div className="flex flex-row items-center gap-2.5 px-2.5 sm:px-3.5 py-2.5">
         {/* Reorder controls */}
         {!readOnly && (
-          <div className="flex flex-col shrink-0 -my-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex flex-col shrink-0 -my-1 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               onClick={() => onMove(-1)}
               disabled={isFirst}
@@ -574,9 +778,9 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
         {/* Status badge */}
         {stepState && <StepResultBadge state={stepState} />}
 
-        {/* Actions — hover revealed */}
+        {/* Actions — always visible on mobile, hover on desktop */}
         {!readOnly && (
-          <div className="flex flex-row items-center gap-1.5 ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex flex-row items-center gap-1.5 ml-auto shrink-0 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity">
             <MiniDropdown
               value={step.on_failure ?? "abort"}
               options={ON_FAILURE_OPTIONS}
@@ -593,7 +797,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
       </div>
 
       {/* Body — type-specific fields */}
-      <div className="px-3.5 py-3 flex flex-col gap-2.5 border-t border-surface-border/50">
+      <div className="px-2.5 sm:px-3.5 py-3 flex flex-col gap-2.5 border-t border-surface-border/50">
         {step.type === "exec" && (
           <>
             <textarea

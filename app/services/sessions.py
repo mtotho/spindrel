@@ -533,6 +533,9 @@ async def persist_turn(
         # Carry forward auto-injected skills for UI display on persisted messages
         if msg.get("_auto_injected_skills"):
             meta = {**meta, "auto_injected_skills": msg["_auto_injected_skills"]}
+        # Carry forward LLM retry/fallback info for UI display on persisted messages
+        if msg.get("_llm_status"):
+            meta = {**meta, "llm_status": msg["_llm_status"]}
         # Extract delegation info from delegate_to_agent tool calls
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
             _delegations = []

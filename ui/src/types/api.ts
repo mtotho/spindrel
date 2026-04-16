@@ -664,7 +664,8 @@ export type SSEEventType =
   | "stream_meta"
   | "pending_member_stream"
   | "context_budget"
-  | "skill_auto_inject";
+  | "skill_auto_inject"
+  | "llm_status";
 
 export interface SSEEvent {
   event: SSEEventType;

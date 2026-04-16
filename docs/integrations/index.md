@@ -318,27 +318,42 @@ target_registry.register(MyGitHubTarget)
 ```python
 from integrations.sdk import (
     ChannelRenderer, DeliveryReceipt, Capability,
-    ChannelEvent, ChannelEventKind, renderer_registry,
+    ChannelEvent, ChannelEventKind, DispatchTarget,
+    renderer_registry,
 )
 
 class MyGitHubRenderer(ChannelRenderer):
-    dispatch_type = "mygithub"
-    CAPABILITIES = {Capability.TEXT, Capability.RICH_TEXT}
+    integration_id = "mygithub"
+    capabilities = frozenset({Capability.TEXT, Capability.RICH_TEXT})
 
-    async def send(self, event: ChannelEvent) -> DeliveryReceipt:
-        target = event.target  # MyGitHubTarget instance
-        if event.kind == ChannelEventKind.TURN_ENDED:
-            # Post the final response as a GitHub comment
-            await _post_comment(target.owner, target.repo, target.issue_number,
-                                event.text, target.token)
-        return DeliveryReceipt(success=True)
+    async def render(
+        self, event: ChannelEvent, target: DispatchTarget,
+    ) -> DeliveryReceipt:
+        if event.kind == ChannelEventKind.NEW_MESSAGE:
+            # NEW_MESSAGE is the durable delivery path — always handle it.
+            msg = event.payload.message
+            if msg.role == "assistant":
+                await _post_comment(
+                    target.owner, target.repo, target.issue_number,
+                    msg.content, target.token,
+                )
+                return DeliveryReceipt.ok()
+        # Skip event kinds this renderer doesn't handle.
+        return DeliveryReceipt.skipped(f"mygithub does not handle {event.kind.value}")
 
 renderer_registry.register(MyGitHubRenderer())
 ```
 
 The renderer receives typed `ChannelEvent` objects from the outbox drainer. Only events
-matching the renderer's `CAPABILITIES` are delivered. The outbox provides durability
+matching the renderer's `capabilities` are delivered. The outbox provides durability
 (retry on failure, dead-letter after 10 attempts).
+
+> **Important: delivery path contract.** `NEW_MESSAGE` is the sole durable delivery path —
+> it flows through the outbox with retry guarantees. Streaming kinds (`TURN_STARTED`,
+> `TURN_STREAM_TOKEN`, `TURN_ENDED`) flow via the ephemeral bus and are best-effort only.
+> Renderers that support streaming can use them for progressive UX (e.g. updating a
+> "thinking..." placeholder), but must never rely on them for final message delivery.
+> See [Delivery Contract](design.md#delivery-contract-streaming-vs-durable) for details.
 
 **Capabilities** declared in `integration.yaml` override the renderer's `CAPABILITIES`
 ClassVar — use YAML to adjust without editing Python:

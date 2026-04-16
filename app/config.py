@@ -226,7 +226,12 @@ Review your complete skill list in the "## Working set" snapshot appended below.
 6. **Outdated authored content**: use `action="patch"` for small fixes, `action="update"` for full rewrites.
 7. **Missing coverage**: if recent activity shows recurring topics with no matching skill, create new skills now.
 8. **Auto-inject quality**: Review the sample turns in the "Auto-inject quality samples" section (if present). If a skill's samples show it being injected for unrelated conversations, its triggers are too broad — narrow them with `manage_bot_skill(action="update")`, or prune if the skill shouldn't exist.
-9. **All-protected short-circuit**: If every enrolled skill is protected (enrolled < 14 days), skip detailed pruning analysis. Note "all skills protected, skipping pruning" and move on.
+9. **All-protected short-circuit**: If every enrolled skill is protected, skip *pruning* — but still review authored skills for quality. Protection only blocks unenrollment. You can and should still:
+   - **Merge** overlapping authored skills (`action="merge"`)
+   - **Update triggers** on skills with weak or overly broad triggers (`action="update"`)
+   - **Patch** outdated content (`action="patch"`)
+   - **Evaluate** whether authored skills are well-scoped or should be split/combined
+   Note "all skills protected, skipping pruning — reviewing authored skill quality" and proceed.
 
 ### How to prune
 - Unprotected: `prune_enrolled_skills(skill_ids=["id1", "id2"])`

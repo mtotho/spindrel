@@ -9,8 +9,9 @@ import {
   useGlobalActivatableIntegrations,
   useChannelCategories,
 } from "@/src/api/hooks/useChannels";
-import { Section, SelectInput, TextInput, Toggle } from "@/src/components/shared/FormControls";
+import { Section, TextInput, Toggle } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { BotPicker } from "@/src/components/shared/BotPicker";
 import { IntegrationActivationList } from "@/src/components/channels/IntegrationActivationList";
 
 type WizardStep = "basics" | "integrations";
@@ -195,10 +196,10 @@ export default function NewChannelScreen() {
 
                 {useBotMode && (
                   <Section title="Bot">
-                    <SelectInput
+                    <BotPicker
                       value={botId}
                       onChange={setBotId}
-                      options={botOptions}
+                      bots={bots ?? []}
                     />
                   </Section>
                 )}

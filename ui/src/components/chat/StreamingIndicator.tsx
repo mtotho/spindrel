@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Wrench, Check, XCircle, ShieldAlert, Sparkles, Pin, ChevronRight, ChevronDown, Brain, BookOpen } from "lucide-react";
+import { Loader2, Wrench, Check, XCircle, ShieldAlert, Sparkles, Pin, ChevronRight, ChevronDown, Brain, BookOpen, RefreshCw, ArrowRightLeft } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { formatToolArgs } from "./toolCallUtils";
@@ -537,9 +537,55 @@ interface Props {
   botName?: string;
   botId?: string;
   thinkingContent?: string;
+  llmStatus?: {
+    status: string;
+    model?: string;
+    reason?: string;
+    attempt?: number;
+    maxRetries?: number;
+    waitSeconds?: number;
+    fallbackModel?: string;
+  } | null;
 }
 
-export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, botName, botId, thinkingContent }: Props) {
+/** Badge showing LLM retry/fallback status during streaming */
+function LlmStatusBadge({ status, t }: { status: NonNullable<Props["llmStatus"]>; t: ReturnType<typeof useThemeTokens> }) {
+  let icon: React.ReactNode;
+  let label: string;
+
+  if (status.status === "fallback") {
+    icon = <ArrowRightLeft size={11} color={t.warning} />;
+    label = status.fallbackModel
+      ? `Switching to ${status.fallbackModel}...`
+      : "Switching model...";
+  } else if (status.status === "cooldown_skip") {
+    icon = <ArrowRightLeft size={11} color={t.textMuted} />;
+    label = status.fallbackModel
+      ? `Using ${status.fallbackModel} (primary cooling down)`
+      : "Using fallback (primary cooling down)";
+  } else {
+    // retry
+    icon = <RefreshCw size={11} color={t.warning} className="animate-spin" />;
+    const parts = ["Retrying"];
+    if (status.attempt && status.maxRetries) {
+      parts[0] = `Retrying (${status.attempt}/${status.maxRetries})`;
+    }
+    if (status.reason === "rate_limited") {
+      parts.push("rate limited");
+    }
+    label = parts.join(" — ");
+  }
+
+  return (
+    <div className="flex flex-row items-center gap-1.5 rounded px-2 py-0.5"
+      style={{ backgroundColor: t.overlayLight, border: `1px solid ${t.overlayBorder}` }}>
+      {icon}
+      <span className="text-[11px] font-medium" style={{ color: t.textMuted }}>{label}</span>
+    </div>
+  );
+}
+
+export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, botName, botId, thinkingContent, llmStatus }: Props) {
   const name = botName || "Bot";
   const bg = avatarColor(name);
   const t = useThemeTokens();
@@ -591,13 +637,26 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
             />
           </div>
         ) : toolCalls.length === 0 ? (
-          /* Typing indicator dots */
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, padding: "4px 0" }}>
-            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+          /* Typing indicator dots — with optional LLM status badge */
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
+            {llmStatus ? (
+              <LlmStatusBadge status={llmStatus} t={t} />
+            ) : (
+              <>
+                <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+                <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+                <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+              </>
+            )}
           </div>
         ) : null}
+
+        {/* LLM status badge shown alongside tool calls or streaming content */}
+        {llmStatus && (toolCalls.length > 0 || displayContent) && (
+          <div style={{ padding: "2px 0" }}>
+            <LlmStatusBadge status={llmStatus} t={t} />
+          </div>
+        )}
       </div>
     </div>
   );

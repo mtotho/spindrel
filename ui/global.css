@@ -176,16 +176,6 @@ textarea::placeholder {
   opacity: 1;
 }
 
-/* ── Mobile web safe areas ──────────────────────────────── */
-
-/* CSS env() is more reliable than JS-based useSafeAreaInsets() on iOS Safari.
-   The JS hook can return 0 on initial render or after viewport changes.
-   Apply this class on web instead of using the JS hook's padding values. */
-.safe-area-pad {
-  padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
 /* ── Chat ───────────────────────────────────────────────── */
 
 /* Web chat scroll — column-reverse on the outer container pins the visual

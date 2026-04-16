@@ -198,6 +198,7 @@ def _new_message_event(
     msg_id: uuid.UUID | None = None,
     actor: ActorRef | None = None,
     metadata: dict | None = None,
+    correlation_id: uuid.UUID | None = None,
 ) -> ChannelEvent:
     cid = channel_id if channel_id is not None else uuid.uuid4()
     if actor is None:
@@ -220,6 +221,7 @@ def _new_message_event(
                 content=content,
                 created_at=datetime.now(timezone.utc),
                 actor=actor,
+                correlation_id=correlation_id,
                 metadata=metadata or {},
                 channel_id=cid,
             ),
@@ -449,9 +451,10 @@ class TestTurnEnded:
         assert "Agent error" in final_call["body"]["text"]
         assert "cancelled" in final_call["body"]["text"]
 
-    async def test_no_placeholder_falls_back_to_post_message(self, fake_http):
-        # If TURN_ENDED arrives without a prior TURN_STARTED, the
-        # renderer posts a fresh chat.postMessage instead of crashing.
+    async def test_no_placeholder_is_noop(self, fake_http):
+        # If TURN_ENDED arrives without a prior TURN_STARTED, there's
+        # no placeholder to update. The outbox NEW_MESSAGE handles
+        # delivery — TURN_ENDED is just the streaming UX path.
         fake_http.set_response({"ok": True, "ts": "1700000001.456"})
         renderer = SlackRenderer()
         turn_id = uuid.uuid4()
@@ -462,11 +465,10 @@ class TestTurnEnded:
         )
 
         assert receipt.success is True
-        assert len(fake_http.calls) == 1
-        assert fake_http.calls[0]["url"] == "https://slack.com/api/chat.postMessage"
-        assert "standalone" in fake_http.calls[0]["body"]["text"]
+        assert len(fake_http.calls) == 0  # no HTTP calls — outbox handles it
 
-    async def test_clears_render_context_after_turn(self, fake_http):
+    async def test_preserves_render_context_for_new_message(self, fake_http):
+        # TURN_ENDED no longer discards context — NEW_MESSAGE owns cleanup.
         fake_http.set_response({
             "ok": True, "ts": "1700000000.123", "channel": "C123",
         })
@@ -478,7 +480,37 @@ class TestTurnEnded:
         assert slack_render_contexts.get("C123", str(turn_id)) is not None
 
         await renderer.render(_turn_ended_event(turn_id), target)
-        assert slack_render_contexts.get("C123", str(turn_id)) is None
+        # Context preserved for NEW_MESSAGE to pick up the thinking_ts.
+        assert slack_render_contexts.get("C123", str(turn_id)) is not None
+
+    async def test_does_not_post_overflow_chunks(self, fake_http):
+        # TURN_ENDED only updates the placeholder — no chat.postMessage
+        # for overflow chunks. That's NEW_MESSAGE's job.
+        fake_http.set_response({
+            "ok": True, "ts": "1700000000.123", "channel": "C123",
+        })
+        renderer = SlackRenderer()
+        turn_id = uuid.uuid4()
+        target = _slack_target("C123")
+
+        await renderer.render(_turn_started_event(turn_id), target)
+        # A very long result that would split into multiple chunks.
+        long_result = "A" * 5000
+        await renderer.render(
+            _turn_ended_event(turn_id, result=long_result), target,
+        )
+
+        # Only placeholder POST + one chat.update — no overflow postMessages.
+        post_calls = [
+            c for c in fake_http.calls
+            if "chat.postMessage" in c["url"]
+        ]
+        update_calls = [
+            c for c in fake_http.calls
+            if "chat.update" in c["url"]
+        ]
+        assert len(post_calls) == 1  # just the placeholder
+        assert len(update_calls) == 1  # just the final update
 
     async def test_turn_ended_serializes_against_inflight_flush(self, fake_http):
         """Regression for the Phase F race.
@@ -590,25 +622,58 @@ class TestNewMessage:
         assert receipt.skip_reason is not None
         assert len(fake_http.calls) == 0
 
-    async def test_skips_assistant_during_active_turn(self, fake_http):
-        """Regression: persist_turn publishes NEW_MESSAGE for the
-        assistant reply, but TURN_ENDED's streaming chat.update has
-        already delivered that reply via the placeholder ts. Posting
-        NEW_MESSAGE too creates a second copy of every bot reply — the
-        symptom the user saw as permanent duplicates in Slack."""
+    async def test_assistant_during_active_turn_updates_placeholder(self, fake_http):
+        """When an assistant NEW_MESSAGE arrives during an active turn,
+        the outbox updates the thinking placeholder instead of posting a
+        duplicate. TURN_ENDED handles the streaming UX; NEW_MESSAGE is
+        the sole durable delivery path."""
         fake_http.set_response({"ok": True, "ts": "1700000002.3"})
         renderer = SlackRenderer()
         target = _slack_target("C123")
 
-        # Simulate an active turn on this channel (TURN_STARTED has run
-        # and created a render context, TURN_ENDED has not yet run).
+        # Simulate an active turn with a thinking placeholder.
         turn_id = uuid.uuid4()
-        slack_render_contexts.get_or_create("C123", str(turn_id), bot_id="test-bot")
+        ctx = slack_render_contexts.get_or_create(
+            "C123", str(turn_id), bot_id="test-bot"
+        )
+        ctx.thinking_ts = "1700000000.123"
+        ctx.thinking_channel = "C123"
 
-        receipt = await renderer.render(_new_message_event(role="assistant"), target)
+        ev = _new_message_event(
+            role="assistant",
+            content="Final answer from outbox",
+            correlation_id=turn_id,
+        )
 
-        assert receipt.skip_reason is not None
-        assert len(fake_http.calls) == 0
+        receipt = await renderer.render(ev, target)
+
+        assert receipt.success is True
+        assert receipt.skip_reason is None
+        # Should use chat.update (not chat.postMessage) for the placeholder.
+        assert len(fake_http.calls) == 1
+        assert fake_http.calls[0]["url"] == "https://slack.com/api/chat.update"
+        assert "Final answer" in fake_http.calls[0]["body"]["text"]
+        # Context should be cleaned up by NEW_MESSAGE.
+        assert slack_render_contexts.get("C123", str(turn_id)) is None
+
+    async def test_assistant_no_turn_context_posts_new_message(self, fake_http):
+        """When no turn context exists (TURN_ENDED failed and discarded
+        it, or process restarted), NEW_MESSAGE posts as a new message
+        via the outbox — the durable fallback."""
+        fake_http.set_response({"ok": True, "ts": "1700000002.4"})
+        renderer = SlackRenderer()
+        target = _slack_target("C123")
+
+        assert not slack_render_contexts.has_active_turn("C123")
+
+        receipt = await renderer.render(
+            _new_message_event(role="assistant", content="durable delivery"),
+            target,
+        )
+
+        assert receipt.success is True
+        assert len(fake_http.calls) == 1
+        assert fake_http.calls[0]["url"] == "https://slack.com/api/chat.postMessage"
 
     async def test_workflow_assistant_still_posts(self, fake_http):
         """Assistant messages published outside any active turn context
