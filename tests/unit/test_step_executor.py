@@ -217,6 +217,59 @@ class TestRenderPrompt:
         result = render_prompt("{{steps.check}}", {}, [], [])
         assert result == "{{steps.check}}"
 
+    def test_zero_based_index_no_longer_works(self):
+        """0-based indexing was removed to prevent collision with 1-based."""
+        steps = [{"id": "s0", "type": "exec"}, {"id": "s1", "type": "exec"}]
+        states = [
+            {"status": "done", "result": "first"},
+            {"status": "done", "result": "second"},
+        ]
+        # {{steps.0.result}} is unresolved since we only support 1-based
+        result = render_prompt("{{steps.0.result}}", {}, states, steps)
+        assert result == "{{steps.0.result}}"
+
+    def test_1_based_does_not_collide_with_second_step(self):
+        """Regression: 0-based str(1) for step 2 used to overwrite 1-based str(1) for step 1."""
+        steps = [{"id": "a", "type": "exec"}, {"id": "b", "type": "exec"}]
+        states = [
+            {"status": "done", "result": "FIRST"},
+            {"status": "running", "result": None},
+        ]
+        # {{steps.1.result}} must resolve to the first step, not the running second step
+        result = render_prompt("{{steps.1.result}}", {}, states, steps)
+        assert result == "FIRST"
+
+    def test_shell_escape_quotes_values(self):
+        """shell_escape=True wraps substituted values in single quotes."""
+        steps = [{"id": "s", "type": "tool"}]
+        states = [{"status": "done", "result": '{"key": "value"}'}]
+        result = render_prompt("echo {{steps.1.result}}", {}, states, steps, shell_escape=True)
+        assert result == """echo '{"key": "value"}'"""
+
+    def test_shell_escape_handles_single_quotes_in_value(self):
+        """Single quotes in the value are escaped properly."""
+        steps = [{"id": "s", "type": "exec"}]
+        states = [{"status": "done", "result": "it's working"}]
+        result = render_prompt("echo {{steps.1.result}}", {}, states, steps, shell_escape=True)
+        assert result == "echo 'it'\\''s working'"
+
+    def test_shell_escape_multiline(self):
+        """Multiline results are safely quoted for shell."""
+        steps = [{"id": "s", "type": "tool"}]
+        states = [{"status": "done", "result": "line1\nline2\nline3"}]
+        result = render_prompt("echo {{steps.1.result}}", {}, states, steps, shell_escape=True)
+        assert result == "echo 'line1\nline2\nline3'"
+
+    def test_shell_escape_preserves_unresolved(self):
+        """Unresolved templates are not shell-escaped."""
+        result = render_prompt("echo {{steps.99.result}}", {}, [], [], shell_escape=True)
+        assert result == "echo {{steps.99.result}}"
+
+    def test_shell_escape_params(self):
+        """Params are also shell-escaped when flag is set."""
+        result = render_prompt("echo {{name}}", {"name": 'hello "world"'}, [], [], shell_escape=True)
+        assert result == """echo 'hello "world"'"""
+
 
 # ---------------------------------------------------------------------------
 # build_condition_context

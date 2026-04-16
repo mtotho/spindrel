@@ -100,13 +100,22 @@ def evaluate_condition(condition: dict | None, context: dict) -> bool:
 _TEMPLATE_RE = re.compile(r"\{\{(.+?)\}\}")
 
 
-def render_prompt(template: str, params: dict, step_states: list[dict], steps: list[dict]) -> str:
+def render_prompt(
+    template: str,
+    params: dict,
+    step_states: list[dict],
+    steps: list[dict],
+    shell_escape: bool = False,
+) -> str:
     """Render a step prompt template with parameter and step result substitution.
 
     Supports:
         {{param_name}}           -> param value
         {{steps.step_id.result}} -> prior step's result text
         {{steps.step_id.status}} -> prior step's status
+
+    When shell_escape=True, substituted values are wrapped in single quotes
+    so they're safe for shell interpolation.
     """
     step_lookup: dict[str, dict] = {}
     for i, step_def in enumerate(steps):
@@ -115,6 +124,12 @@ def render_prompt(template: str, params: dict, step_states: list[dict], steps: l
             step_lookup[sid] = step_states[i]
             # Index by 1-based position to match UI numbering
             step_lookup[str(i + 1)] = step_states[i]
+
+    def _quote(val: str) -> str:
+        if not shell_escape:
+            return val
+        # Shell single-quote: replace ' with '\'' then wrap in ''
+        return "'" + val.replace("'", "'\\''") + "'"
 
     def _replace(match: re.Match) -> str:
         key = match.group(1).strip()
@@ -126,12 +141,12 @@ def render_prompt(template: str, params: dict, step_states: list[dict], steps: l
                 _, step_id, field = parts
                 state = step_lookup.get(step_id, {})
                 val = state.get(field)
-                return str(val) if val is not None else match.group(0)
+                return _quote(str(val)) if val is not None else match.group(0)
             return match.group(0)
 
         # Param reference
         if key in params:
-            return str(params[key])
+            return _quote(str(params[key]))
 
         # Leave unresolved templates as-is
         return match.group(0)
@@ -242,7 +257,7 @@ async def _run_exec_step(
 
     try:
         raw_command = step_def.get("prompt", "").strip()
-        command = render_prompt(raw_command, {}, step_states, steps)
+        command = render_prompt(raw_command, {}, step_states, steps, shell_escape=True)
         args = step_def.get("args", [])
         working_directory = step_def.get("working_directory")
 

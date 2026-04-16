@@ -5,7 +5,7 @@
  * Each receives a slice of TaskFormState and renders the appropriate form controls.
  */
 import { useState, useRef } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Code2, LayoutList } from "lucide-react";
 import type { StepDef } from "@/src/api/hooks/useTasks";
 import { LlmPrompt } from "../LlmPrompt";
 import { PromptTemplateLink } from "../PromptTemplateLink";
@@ -15,9 +15,11 @@ import { LlmModelDropdown } from "../LlmModelDropdown";
 import { FallbackModelList } from "../FallbackModelList";
 import { TriggerSection, type TriggerConfig } from "../TriggerSection";
 import { TaskStepEditor } from "../TaskStepEditor";
+import { StepsJsonEditor } from "./StepsJsonEditor";
+import { StepsSchemaModal } from "./StepsSchemaModal";
 import { BotPicker } from "../BotPicker";
 import { ChannelPicker } from "../ChannelPicker";
-import { ChipPicker } from "./ChipPicker";
+import { ChipPicker, ToolMultiPicker } from "./ChipPicker";
 import type { TaskFormState } from "./useTaskFormState";
 
 // ---------------------------------------------------------------------------
@@ -34,6 +36,7 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
   } = form;
 
   const stashedSteps = useRef<StepDef[] | null>(null);
+  const [jsonMode, setJsonMode] = useState(false);
 
   const toggleToSteps = () => {
     if (!stepsMode) {
@@ -132,12 +135,50 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
 
       {/* Steps mode */}
       {stepsMode && (
-        <TaskStepEditor
-          steps={steps!}
-          onChange={setSteps}
-          stepStates={existingTask?.parent_task_id ? existingTask?.step_states : undefined}
-          readOnly={false}
-        />
+        <>
+          {/* Visual / JSON toggle + schema help */}
+          <div className="flex flex-row items-center gap-2">
+            <div className="flex flex-row items-center gap-0 bg-surface-raised rounded-md border border-surface-border p-0.5">
+              <button
+                onClick={() => setJsonMode(false)}
+                className={`flex flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border-none transition-colors ${
+                  !jsonMode
+                    ? "bg-surface text-text shadow-sm"
+                    : "bg-transparent text-text-dim hover:text-text cursor-pointer"
+                }`}
+              >
+                <LayoutList size={12} />
+                Visual
+              </button>
+              <button
+                onClick={() => setJsonMode(true)}
+                className={`flex flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border-none transition-colors ${
+                  jsonMode
+                    ? "bg-surface text-text shadow-sm"
+                    : "bg-transparent text-text-dim hover:text-text cursor-pointer"
+                }`}
+              >
+                <Code2 size={12} />
+                JSON
+              </button>
+            </div>
+            {jsonMode && <StepsSchemaModal />}
+          </div>
+
+          {jsonMode ? (
+            <StepsJsonEditor
+              steps={steps!}
+              onChange={setSteps}
+            />
+          ) : (
+            <TaskStepEditor
+              steps={steps!}
+              onChange={setSteps}
+              stepStates={existingTask?.parent_task_id ? existingTask?.step_states : undefined}
+              readOnly={false}
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -154,7 +195,7 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
     selectedToolKeys, setSelectedToolKeys,
     modelOverride, setModelOverride,
     fallbackModels, setFallbackModels,
-    bots, channels, skillOptions, toolOptions,
+    bots, channels, skillOptions, allTools,
     isCreate,
   } = form;
 
@@ -188,9 +229,8 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
           onAdd={(id) => setSelectedSkillIds([...selectedSkillIds, id])}
           onRemove={(id) => setSelectedSkillIds(selectedSkillIds.filter((x) => x !== id))}
         />
-        <ChipPicker
-          label="Tools"
-          items={toolOptions}
+        <ToolMultiPicker
+          tools={allTools}
           selected={selectedToolKeys}
           onAdd={(key) => setSelectedToolKeys([...selectedToolKeys, key])}
           onRemove={(key) => setSelectedToolKeys(selectedToolKeys.filter((x) => x !== key))}

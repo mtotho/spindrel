@@ -288,6 +288,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     channelOptions,
     skillOptions,
     toolOptions,
+    allTools: allTools ?? [],
   };
 }
 
