@@ -115,8 +115,6 @@ def render_prompt(template: str, params: dict, step_states: list[dict], steps: l
             step_lookup[sid] = step_states[i]
             # Index by 1-based position to match UI numbering
             step_lookup[str(i + 1)] = step_states[i]
-            # Keep 0-based for backwards compat
-            step_lookup[str(i)] = step_states[i]
 
     def _replace(match: re.Match) -> str:
         key = match.group(1).strip()

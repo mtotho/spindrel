@@ -173,7 +173,8 @@ class TestRenderPrompt:
             {"status": "done", "result": "first"},
             {"status": "done", "result": "second"},
         ]
-        result = render_prompt("{{steps.0.result}} then {{steps.1.result}}", {}, states, steps)
+        # 1-based indexing to match UI numbering
+        result = render_prompt("{{steps.1.result}} then {{steps.2.result}}", {}, states, steps)
         assert result == "first then second"
 
     def test_unresolved_template_preserved(self):

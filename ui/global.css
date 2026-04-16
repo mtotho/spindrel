@@ -90,18 +90,27 @@ button, [role="button"], nav, a {
   user-select: text;
 }
 
-/* Full-height app shell — standard percentage chain, no position:fixed hacks */
-html, body, #root {
+/* Full-height app shell — matches Expo web output pattern.
+   overflow:hidden must NOT be on html — iOS standalone WKWebView won't
+   expand the viewport to fill the screen if html clips overflow. */
+html {
+  height: 100%;
+}
+body {
   height: 100%;
   margin: 0;
   padding: 0;
   overflow: hidden;
+  overscroll-behavior: none;
   background-color: rgb(var(--color-surface));
 }
 #root {
+  height: 100%;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  overflow: hidden;
+  background-color: rgb(var(--color-surface));
   padding:
     env(safe-area-inset-top, 0px)
     env(safe-area-inset-right, 0px)
@@ -112,11 +121,6 @@ html, body, #root {
 /* Prevent iOS auto-zoom on input focus (16px is the threshold) */
 input, textarea, select {
   font-size: 16px !important;
-}
-
-/* Prevent pull-to-overscroll bounce revealing background */
-body {
-  overscroll-behavior: none;
 }
 
 /* System font stack */

@@ -135,7 +135,7 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
         <TaskStepEditor
           steps={steps!}
           onChange={setSteps}
-          stepStates={existingTask?.step_states}
+          stepStates={existingTask?.parent_task_id ? existingTask?.step_states : undefined}
           readOnly={false}
         />
       )}
