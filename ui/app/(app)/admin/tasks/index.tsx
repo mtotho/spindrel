@@ -409,6 +409,7 @@ export default function TasksScreen() {
               onTaskPress={handleTaskPress}
               onRunNow={handleRunNow}
               runningTaskId={runNowMut.isPending ? (runNowMut.variables ?? null) : null}
+              isMobile={isMobile}
             />
           </RefreshableScrollView>
         )

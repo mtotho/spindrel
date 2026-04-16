@@ -792,3 +792,230 @@ class TestOnPipelineStepCompleted:
         mock_persist.assert_called_once()
         mock_finalize.assert_called_once()
         mock_advance.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Shell script integration tests — actually run commands through sh
+#
+# These catch the class of bugs where templates render correctly as strings
+# but break when the shell interprets them (quoting, backticks, newlines, etc.)
+# ---------------------------------------------------------------------------
+
+import asyncio
+import shlex
+import re as _re
+
+
+def _build_pipeline_script(
+    command: str,
+    prior_steps: list[dict],
+    prior_states: list[dict],
+    step_index: int | None = None,
+) -> str:
+    """Build the exact script that _run_exec_step would produce, minus bot/workspace.
+
+    Returns the full shell script string including env var exports.
+    """
+    if step_index is None:
+        step_index = len(prior_steps)
+
+    all_steps = prior_steps + [{"id": f"step_{step_index}", "type": "exec"}]
+    all_states = prior_states + [{"status": "running", "result": None}]
+
+    rendered = render_prompt(command, {}, all_states, all_steps, shell_escape=True)
+
+    # Build script without shlex.join (matching _run_exec_step)
+    script = rendered
+
+    # Add env var exports (matching _run_exec_step)
+    env_vars = _build_prior_results_env(all_steps, all_states, step_index)
+    if env_vars:
+        def _sq(v: str) -> str:
+            return "'" + v.replace("'", "'\\''") + "'"
+        exports = "\n".join(f'export {k}={_sq(v)}' for k, v in env_vars.items())
+        script = exports + "\n" + script
+
+    return script
+
+
+async def _run_shell(script: str) -> tuple[int, str, str]:
+    """Run a script through sh and return (exit_code, stdout, stderr)."""
+    proc = await asyncio.create_subprocess_exec(
+        "sh", "-c", script,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+    return proc.returncode or 0, stdout.decode(), stderr.decode()
+
+
+class TestShellScriptIntegration:
+    """Tests that actually execute the generated scripts through sh.
+
+    These catch bugs that unit tests miss: quoting, backticks, newlines,
+    variable expansion, and shlex double-quoting.
+    """
+
+    @pytest.mark.asyncio
+    async def test_simple_echo(self):
+        """Basic command runs without error."""
+        script = _build_pipeline_script("echo hello", [], [])
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert stdout.strip() == "hello"
+
+    @pytest.mark.asyncio
+    async def test_env_var_simple_result(self):
+        """$STEP_1_RESULT works for plain text results."""
+        prior_steps = [{"id": "s1", "type": "exec"}]
+        prior_states = [{"status": "done", "result": "file1.txt file2.txt"}]
+        script = _build_pipeline_script('echo "$STEP_1_RESULT"', prior_steps, prior_states)
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert "file1.txt file2.txt" in stdout
+
+    @pytest.mark.asyncio
+    async def test_env_var_with_backticks(self):
+        """Backticks in results don't trigger command substitution."""
+        result_with_backticks = "- `abc123` Fix bug\n- `def456` Add feature"
+        prior_steps = [{"id": "s1", "type": "exec"}]
+        prior_states = [{"status": "done", "result": result_with_backticks}]
+        script = _build_pipeline_script('echo "$STEP_1_RESULT"', prior_steps, prior_states)
+        code, stdout, stderr = await _run_shell(script)
+        assert code == 0
+        assert "abc123" in stdout
+        assert "not found" not in stderr
+
+    @pytest.mark.asyncio
+    async def test_env_var_with_dollar_signs(self):
+        """Dollar signs in results don't trigger variable expansion."""
+        result = "price is $100 and $PATH should not expand"
+        prior_steps = [{"id": "s1", "type": "exec"}]
+        prior_states = [{"status": "done", "result": result}]
+        script = _build_pipeline_script('echo "$STEP_1_RESULT"', prior_steps, prior_states)
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert "$100" in stdout
+
+    @pytest.mark.asyncio
+    async def test_env_var_with_single_quotes(self):
+        """Single quotes in results are properly escaped."""
+        result = "it's a test with 'quotes'"
+        prior_steps = [{"id": "s1", "type": "exec"}]
+        prior_states = [{"status": "done", "result": result}]
+        script = _build_pipeline_script('echo "$STEP_1_RESULT"', prior_steps, prior_states)
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert "it's a test" in stdout
+
+    @pytest.mark.asyncio
+    async def test_env_var_multiline_result(self):
+        """Multiline results are preserved in env vars."""
+        result = "line1\nline2\nline3"
+        prior_steps = [{"id": "s1", "type": "exec"}]
+        prior_states = [{"status": "done", "result": result}]
+        script = _build_pipeline_script('echo "$STEP_1_RESULT"', prior_steps, prior_states)
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert "line1" in stdout
+        assert "line3" in stdout
+
+    @pytest.mark.asyncio
+    async def test_env_var_json_result(self):
+        """JSON results with special chars work in env vars."""
+        result = '{"llm": "30 commit(s):\\n- `abc` Fix\\n- `def` Add", "count": 30}'
+        prior_steps = [{"id": "s1", "type": "tool"}]
+        prior_states = [{"status": "done", "result": result}]
+        script = _build_pipeline_script('echo "$STEP_1_RESULT"', prior_steps, prior_states)
+        code, stdout, stderr = await _run_shell(script)
+        assert code == 0
+        assert "not found" not in stderr
+
+    @pytest.mark.asyncio
+    async def test_env_var_json_field_extraction(self):
+        """Auto-extracted JSON fields are available as env vars."""
+        result = '{"count": 42, "status": "ok"}'
+        prior_steps = [{"id": "s1", "type": "tool"}]
+        prior_states = [{"status": "done", "result": result}]
+        script = _build_pipeline_script('echo "$STEP_1_count"', prior_steps, prior_states)
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert stdout.strip() == "42"
+
+    @pytest.mark.asyncio
+    async def test_template_substitution_in_shell(self):
+        """{{steps.1.result}} renders and executes correctly in shell."""
+        prior_steps = [{"id": "s1", "type": "exec"}]
+        prior_states = [{"status": "done", "result": "hello world"}]
+        script = _build_pipeline_script("echo {{steps.1.result}}", prior_steps, prior_states)
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert "hello world" in stdout
+
+    @pytest.mark.asyncio
+    async def test_template_substitution_with_special_chars(self):
+        """{{steps.1.result}} with backticks and quotes is shell-safe."""
+        result = '`commit1` said "hello $USER"'
+        prior_steps = [{"id": "s1", "type": "exec"}]
+        prior_states = [{"status": "done", "result": result}]
+        script = _build_pipeline_script("echo {{steps.1.result}}", prior_steps, prior_states)
+        code, stdout, stderr = await _run_shell(script)
+        assert code == 0
+        assert "commit1" in stdout
+        assert "not found" not in stderr
+
+    @pytest.mark.asyncio
+    async def test_template_json_field_in_shell(self):
+        """{{steps.1.result.key}} JSON field extraction works in shell."""
+        result = '{"message": "deploy complete", "version": "1.2.3"}'
+        prior_steps = [{"id": "s1", "type": "tool"}]
+        prior_states = [{"status": "done", "result": result}]
+        script = _build_pipeline_script("echo {{steps.1.result.version}}", prior_steps, prior_states)
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert "1.2.3" in stdout
+
+    @pytest.mark.asyncio
+    async def test_command_not_re_quoted(self):
+        """Multi-word commands like 'echo hello' are not re-quoted into a single token."""
+        script = _build_pipeline_script("echo hello world", [], [])
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert "hello world" in stdout
+
+    @pytest.mark.asyncio
+    async def test_pipe_between_commands(self):
+        """Shell pipes work in step commands."""
+        script = _build_pipeline_script("echo 'a b c' | wc -w", [], [])
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert stdout.strip() == "3"
+
+    @pytest.mark.asyncio
+    async def test_chained_steps_env_vars(self):
+        """Step 2 can use step 1's result, step 3 can use both."""
+        s1_result = "alpha"
+        s2_result = "beta"
+        prior_steps = [
+            {"id": "s1", "type": "exec"},
+            {"id": "s2", "type": "exec"},
+        ]
+        prior_states = [
+            {"status": "done", "result": s1_result},
+            {"status": "done", "result": s2_result},
+        ]
+        script = _build_pipeline_script(
+            'echo "$STEP_1_RESULT $STEP_2_RESULT"',
+            prior_steps, prior_states, step_index=2,
+        )
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert "alpha beta" in stdout
+
+    @pytest.mark.asyncio
+    async def test_trailing_whitespace_stripped(self):
+        """Trailing whitespace in command doesn't break execution."""
+        script = _build_pipeline_script("echo hello   ", [], [])
+        code, stdout, _ = await _run_shell(script)
+        assert code == 0
+        assert "hello" in stdout

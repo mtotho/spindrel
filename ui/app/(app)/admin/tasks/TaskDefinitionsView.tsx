@@ -32,9 +32,10 @@ interface Props {
   onTaskPress: (task: TaskItem) => void;
   onRunNow: (taskId: string) => void;
   runningTaskId?: string | null;
+  isMobile?: boolean;
 }
 
-export function TaskDefinitionsView({ tasks, schedules, onTaskPress, onRunNow, runningTaskId }: Props) {
+export function TaskDefinitionsView({ tasks, schedules, onTaskPress, onRunNow, runningTaskId, isMobile }: Props) {
   const definitions = useMemo(() => {
     // Schedules are always definitions
     const defs: TaskItem[] = schedules.map(s => ({ ...s, is_schedule: true }));
@@ -71,6 +72,22 @@ export function TaskDefinitionsView({ tasks, schedules, onTaskPress, onRunNow, r
     );
   }
 
+  if (isMobile) {
+    return (
+      <div className="flex flex-col gap-2 px-3 pb-6 pt-2">
+        {definitions.map((def) => (
+          <MobileDefinitionCard
+            key={def.id}
+            def={def}
+            onPress={() => onTaskPress(def)}
+            onRunNow={() => onRunNow(def.id)}
+            isRunning={runningTaskId === def.id}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col px-4 pb-6">
       {/* Table header */}
@@ -95,6 +112,81 @@ export function TaskDefinitionsView({ tasks, schedules, onTaskPress, onRunNow, r
           isRunning={runningTaskId === def.id}
         />
       ))}
+    </div>
+  );
+}
+
+function MobileDefinitionCard({ def, onPress, onRunNow, isRunning }: {
+  def: TaskItem;
+  onPress: () => void;
+  onRunNow: () => void;
+  isRunning: boolean;
+}) {
+  const isCancelled = def.status === "cancelled";
+  const statusCfg = STATUS_CFG[def.status] || STATUS_CFG.pending;
+  const lastRunTime = def.completed_at || def.run_at;
+  const hasRun = !!(def.run_count && def.run_count > 0);
+
+  return (
+    <div
+      onClick={onPress}
+      className={`flex flex-col gap-2 px-3.5 py-3 rounded-lg bg-surface-raised border border-surface-border cursor-pointer transition-colors active:bg-surface-overlay/60 ${
+        isCancelled ? "opacity-40" : ""
+      }`}
+    >
+      {/* Top row: status dot + name + play button */}
+      <div className="flex flex-row items-center gap-2.5">
+        <div
+          className="w-2.5 h-2.5 rounded-full shrink-0"
+          style={{ background: statusCfg.fg }}
+        />
+        <span className={`flex-1 min-w-0 text-sm font-semibold truncate ${
+          isCancelled ? "text-text-dim line-through" : "text-text"
+        }`}>
+          {displayTitle(def)}
+        </span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onRunNow(); }}
+          disabled={isRunning}
+          title="Run now"
+          className={`flex items-center justify-center w-8 h-8 rounded-md border-none cursor-pointer shrink-0 transition-colors ${
+            isRunning
+              ? "bg-accent/20 text-accent animate-pulse"
+              : "bg-transparent text-text-muted hover:bg-accent/10 hover:text-accent"
+          }`}
+        >
+          <Play size={14} fill="currentColor" />
+        </button>
+      </div>
+
+      {/* Bottom row: bot, type, trigger, last run */}
+      <div className="flex flex-row items-center gap-2 flex-wrap">
+        <span className="inline-flex flex-row items-center gap-1.5 text-[11px] text-text-muted">
+          <BotDot botId={def.bot_id} />
+          {def.bot_id}
+        </span>
+
+        {def.task_type && <TypeBadge type={def.task_type} />}
+
+        <span className={`inline-flex flex-row items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+          def.recurrence
+            ? "bg-warning/10 text-warning"
+            : "bg-surface-overlay text-text-dim"
+        }`}>
+          {def.recurrence ? <RefreshCw size={9} /> : def.trigger_config?.type === "event" ? <Zap size={9} /> : <Calendar size={9} />}
+          {triggerLabel(def)}
+        </span>
+
+        <span className="text-[10px] text-text-dim ml-auto">
+          {hasRun && lastRunTime
+            ? relativeTime(lastRunTime)
+            : hasRun
+              ? `${def.run_count} runs`
+              : "never"
+          }
+          {hasRun && ` · ${def.run_count ?? 0} runs`}
+        </span>
+      </div>
     </div>
   );
 }
