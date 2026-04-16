@@ -30,20 +30,6 @@ tool_widgets:
             args:
               name: "{{data.success | where: type=entity | pluck: name | first}}"
             optimistic: true
-        - type: slider
-          label: Brightness
-          value: "{{data.brightness | default: 100}}"
-          min: 0
-          max: 100
-          step: 5
-          unit: "%"
-          color: accent
-          action:
-            dispatch: tool
-            tool: HassLightSet
-            args:
-              name: "{{data.success | where: type=entity | pluck: name | first}}"
-            value_key: brightness
         - type: properties
           layout: inline
           items: "{{data.success | map: {label: type, value: name}}}"

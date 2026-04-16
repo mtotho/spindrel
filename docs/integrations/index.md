@@ -1095,6 +1095,75 @@ lets users disable the HUD entirely without removing the integration.
 
 ![Integration configuration with HUD presets](../images/channel-integration-config.png)
 
+### `tool_widgets` — Interactive tool result widgets
+
+Integrations can declare widget templates that transform MCP tool results into
+interactive component UIs rendered inline in chat. When a tool returns raw JSON,
+the template engine matches the tool name, substitutes variables from the result
+data, and produces a rich component envelope.
+
+```yaml
+tool_widgets:
+  MyToolName:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    template:
+      v: 1
+      components:
+        - type: status
+          text: "Done"
+          color: success
+        - type: toggle
+          label: Power
+          value: true
+          action:
+            dispatch: tool
+            tool: MyInverseTool
+            args:
+              name: "{{data.result_field}}"
+            optimistic: true
+        - type: properties
+          layout: inline
+          items: "{{data.items | map: {label: type, value: name}}}"
+```
+
+**Template fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content_type` | `str` | Output MIME type. Use `application/vnd.spindrel.components+json` for interactive widgets. |
+| `display` | `str` | `"inline"` renders as a standalone card below the message. `"badge"` renders inside ToolBadges. |
+| `template` | `object` | Component body with `v: 1` schema version and `components` array. |
+
+**Component primitives:** `text`, `heading`, `status`, `properties`, `table`, `toggle`,
+`button`, `select`, `input`, `slider`, `form`, `section`, `divider`, `code`, `image`, `links`.
+
+**Interactive components** carry a `WidgetAction` with `dispatch: "tool"` or `dispatch: "api"`.
+When the user interacts (toggle, slider change, button click), the action is sent to
+`POST /api/v1/widget-actions`. For `dispatch: "tool"`, the named tool is called and the
+response is rendered through the same template pipeline — enabling cycling between states
+(e.g., toggle on → off → on).
+
+**Template expressions** use `{{...}}` syntax:
+
+| Expression | Example | Result |
+|-----------|---------|--------|
+| Key lookup | `{{name}}` | `data["name"]` |
+| Dot path | `{{a.b.c}}` | Nested object access |
+| Array index | `{{a[0].b}}` | Array + nested access |
+| Equality | `{{a == 'val'}}` | Boolean comparison |
+| Pipe transforms | `{{a \| pluck: name}}` | Extract field from each item |
+
+**Pipe transforms:** `pluck: key`, `join: separator`, `map: {out: src}`,
+`where: key=value`, `first`, `default: fallback`. Transforms chain with `|`.
+
+**Envelope replacement:** When a widget action returns a component envelope, WidgetCard
+replaces its body and re-renders — enabling stateful cycling (e.g., HassTurnOn → toggle →
+HassTurnOff response → card updates to "Off" state with inverse action).
+
+See `integrations/homeassistant/integration.yaml` for a complete example with toggle,
+slider, and entity property display.
+
 ### `activation` — Integration activation + template compatibility
 
 Integrations can declare an activation manifest that auto-injects capabilities and
