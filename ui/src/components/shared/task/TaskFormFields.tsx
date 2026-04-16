@@ -4,7 +4,7 @@
  * Three named exports: ContentFields, ExecutionFields, TriggerFields.
  * Each receives a slice of TaskFormState and renders the appropriate form controls.
  */
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { ChevronRight } from "lucide-react";
 import type { StepDef } from "@/src/api/hooks/useTasks";
 import { LlmPrompt } from "../LlmPrompt";
@@ -33,17 +33,27 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
     botId, channelId, selectedBot, existingTask,
   } = form;
 
+  const stashedSteps = useRef<StepDef[] | null>(null);
+
   const toggleToSteps = () => {
     if (!stepsMode) {
-      const initial: StepDef[] = prompt.trim()
-        ? [{ id: "step_1", type: "agent", prompt, label: "", on_failure: "abort" }]
-        : [];
-      setSteps(initial);
+      // Restore previously stashed steps if available
+      if (stashedSteps.current && stashedSteps.current.length > 0) {
+        setSteps(stashedSteps.current);
+        stashedSteps.current = null;
+      } else {
+        const initial: StepDef[] = prompt.trim()
+          ? [{ id: "step_1", type: "agent", prompt, label: "", on_failure: "abort" }]
+          : [];
+        setSteps(initial);
+      }
     }
   };
 
   const toggleToPrompt = () => {
     if (stepsMode) {
+      // Stash current steps so toggling back restores them
+      stashedSteps.current = steps && steps.length > 0 ? [...steps] : null;
       if (steps && steps.length === 1 && steps[0].type === "agent") {
         form.setPrompt(steps[0].prompt ?? "");
       }

@@ -98,7 +98,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const msgToolCalls: ToolCall[] | undefined = message.tool_calls;
   const trigger = meta.trigger as string | undefined;
   const autoInjectedSkills = (meta.auto_injected_skills as AutoInjectedSkillMeta[]) || [];
-  const llmStatus = meta.llm_status as { retries?: number; fallback_model?: string } | undefined;
+  const llmStatus = meta.llm_status as { retries?: number; fallback_model?: string; vision_fallback?: boolean } | undefined;
   const delegations = (meta.delegations as any[]) || [];
   const delegatedByDisplay = meta.delegated_by_display as string | undefined;
   const triggerBadge = trigger === "workflow"
@@ -291,6 +291,12 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
                 <span className="inline-flex flex-row items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-semibold"
                   style={{ color: t.warning, background: `${t.warning}18`, border: `1px solid ${t.warning}30` }}>
                   {"↻"} {llmStatus.retries} {llmStatus.retries === 1 ? "retry" : "retries"}
+                </span>
+              )}
+              {llmStatus.vision_fallback && (
+                <span className="inline-flex flex-row items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-semibold"
+                  style={{ color: t.warning, background: `${t.warning}18`, border: `1px solid ${t.warning}30` }}>
+                  {"🖼"} image described
                 </span>
               )}
             </>

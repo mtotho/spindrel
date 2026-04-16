@@ -1089,9 +1089,10 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
       )}
 
       {/* Hint */}
-      {!readOnly && steps.length > 0 && (
-        <p className="text-[10px] text-text-dim mt-3 pl-3 sm:pl-5">
-          Prior step results are auto-injected. Use <code className="text-accent/80 bg-accent/5 px-1 py-0.5 rounded text-[10px]">{"{{steps.<id>.result}}"}</code> for explicit references.
+      {!readOnly && steps.length > 1 && (
+        <p className="text-[10px] text-text-dim mt-3 pl-3 sm:pl-5 leading-relaxed">
+          Reference prior results: <code className="text-accent/80 bg-accent/5 px-1 py-0.5 rounded text-[10px]">{"{{steps.1.result}}"}</code> in prompts,{" "}
+          or <code className="text-accent/80 bg-accent/5 px-1 py-0.5 rounded text-[10px]">$STEP_1_RESULT</code> in shell commands. Numbers match step order above.
         </p>
       )}
     </div>

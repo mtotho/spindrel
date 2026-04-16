@@ -317,8 +317,9 @@ class TestBuildPriorResultsEnv:
         steps = [{"id": "check_disk", "type": "exec"}]
         states = [{"status": "done", "result": "80%"}]
         env = _build_prior_results_env(steps, states, 1)
-        assert env["STEP_0_RESULT"] == "80%"
-        assert env["STEP_0_STATUS"] == "done"
+        # 1-based index to match UI numbering
+        assert env["STEP_1_RESULT"] == "80%"
+        assert env["STEP_1_STATUS"] == "done"
         assert env["STEP_CHECK_DISK_RESULT"] == "80%"
         assert env["STEP_CHECK_DISK_STATUS"] == "done"
 
@@ -337,7 +338,7 @@ class TestBuildPriorResultsEnv:
         steps = [{"id": "s0", "type": "exec"}]
         states = [{"status": "done", "result": "x" * 10000}]
         env = _build_prior_results_env(steps, states, 1)
-        assert len(env["STEP_0_RESULT"]) == 4000
+        assert len(env["STEP_1_RESULT"]) == 4000
 
 
 # ---------------------------------------------------------------------------

@@ -220,7 +220,26 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
               (m) => m.id === msg.id || (m.role === "user" && m.content === msg.content &&
                 Math.abs(new Date(m.created_at).getTime() - new Date(msg.created_at).getTime()) < 3000),
             );
-            if (!isDuplicate) {
+            // Replace any optimistic user message (msg-*) created within 5s
+            // of the server message. Content may differ (e.g. typed text vs
+            // "[User sent attachment(s)]") so match on timestamp proximity.
+            const serverTs = new Date(msg.created_at).getTime();
+            const withoutOptimistic = existing.filter(
+              (m) => !(m.id.startsWith("msg-") && m.role === "user" &&
+                Math.abs(new Date(m.created_at).getTime() - serverTs) < 5000),
+            );
+            if (withoutOptimistic.length < existing.length) {
+              // Had an optimistic message — replace it with the server version
+              store.setMessages(chId, [...withoutOptimistic, {
+                id: msg.id,
+                session_id: msg.session_id,
+                role: msg.role,
+                content: msg.content ?? "",
+                created_at: msg.created_at,
+                metadata: msg.metadata,
+                attachments: msg.attachments,
+              }]);
+            } else if (!isDuplicate) {
               store.addMessage(chId, {
                 id: msg.id,
                 session_id: msg.session_id,
@@ -228,6 +247,7 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
                 content: msg.content ?? "",
                 created_at: msg.created_at,
                 metadata: msg.metadata,
+                attachments: msg.attachments,
               });
             }
             return;

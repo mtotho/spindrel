@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Wrench, Check, XCircle, ShieldAlert, Sparkles, Pin, ChevronRight, ChevronDown, Brain, BookOpen, RefreshCw, ArrowRightLeft } from "lucide-react";
+import { Loader2, Wrench, Check, XCircle, ShieldAlert, Sparkles, Pin, ChevronRight, ChevronDown, Brain, BookOpen, RefreshCw, ArrowRightLeft, ImageOff } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { formatToolArgs } from "./toolCallUtils";
@@ -563,6 +563,9 @@ function LlmStatusBadge({ status, t }: { status: NonNullable<Props["llmStatus"]>
     label = status.fallbackModel
       ? `Using ${status.fallbackModel} (primary cooling down)`
       : "Using fallback (primary cooling down)";
+  } else if (status.reason === "vision_not_supported") {
+    icon = <ImageOff size={11} color={t.warning} />;
+    label = "Describing image\u2026";
   } else {
     // retry
     icon = <RefreshCw size={11} color={t.warning} className="animate-spin" />;

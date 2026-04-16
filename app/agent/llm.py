@@ -1303,7 +1303,7 @@ async def _llm_call_stream(
 
     def _make_no_images(m, pid, mp):
         async def _attempt():
-            stripped = _strip_images_from_messages(messages)
+            stripped = await _strip_images_with_descriptions(messages)
             p = _prepare_call_params(m, stripped, tools_param, tool_choice, pid, mp)
             kwargs: dict = dict(
                 model=p.model, messages=p.messages, stream=True,
@@ -1414,7 +1414,7 @@ async def _llm_call(
 
     def _make_no_images(m, pid, mp):
         async def _attempt():
-            stripped = _strip_images_from_messages(messages)
+            stripped = await _strip_images_with_descriptions(messages)
             p = _prepare_call_params(m, stripped, tools_param, tool_choice, pid, mp)
             kwargs: dict = dict(model=p.model, messages=p.messages, **p.extra)
             if p.tools is not None:
@@ -1449,6 +1449,8 @@ _IMAGE_STRIPPED_NOTE = (
     "Otherwise, let the user know you cannot view images with your current model.]"
 )
 
+_ATTACHMENT_ID_RE = re.compile(r'<attachment\s+id="([0-9a-f-]+)"', re.IGNORECASE)
+
 
 def _strip_images_from_messages(messages: list) -> list:
     """Return a copy of *messages* with image_url content blocks replaced by text notes."""
@@ -1467,6 +1469,90 @@ def _strip_images_from_messages(messages: list) -> list:
                 new_parts.append(part)
         if had_image:
             new_parts.append({"type": "text", "text": _IMAGE_STRIPPED_NOTE})
+        out.append({**msg, "content": new_parts})
+    return out
+
+
+async def _describe_image_data(data_url: str) -> str | None:
+    """Describe an inline base64 image using the configured vision model."""
+    from app.services.attachment_summarizer import _summarize_image
+
+    try:
+        return await _summarize_image(
+            url=data_url,
+            model=settings.ATTACHMENT_SUMMARY_MODEL,
+            provider_id=settings.ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID or None,
+        )
+    except Exception:
+        logger.warning("Vision describe failed for inline image", exc_info=True)
+        return None
+
+
+async def _strip_images_with_descriptions(messages: list) -> list:
+    """Strip image_url blocks but replace them with actual descriptions.
+
+    For user-uploaded attachments (identified by <attachment id="..."/> hints),
+    looks up the existing auto-generated description from the DB first.
+    For other images, calls the vision model to generate a description.
+    Falls back to the generic note on failure.
+    """
+    from app.services.attachments import get_attachment_by_id
+
+    out = []
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            out.append(msg)
+            continue
+
+        # Collect attachment IDs from text parts in this message
+        attachment_ids: list[str] = []
+        for part in content:
+            if part.get("type") == "text":
+                attachment_ids.extend(_ATTACHMENT_ID_RE.findall(part.get("text", "")))
+
+        new_parts = []
+        image_descriptions: list[str] = []
+        image_data_urls: list[str] = []
+
+        for part in content:
+            if part.get("type") != "image_url":
+                new_parts.append(part)
+                continue
+            # Try to get description from attachment DB first
+            data_url = (part.get("image_url") or {}).get("url", "")
+            image_data_urls.append(data_url)
+
+        if not image_data_urls:
+            out.append(msg)
+            continue
+
+        # Try attachment descriptions first (one per image, matched by order)
+        for i, data_url in enumerate(image_data_urls):
+            description = None
+            # Try attachment lookup
+            if i < len(attachment_ids):
+                try:
+                    att = await get_attachment_by_id(uuid.UUID(attachment_ids[i]))
+                    if att and att.description:
+                        description = att.description
+                except Exception:
+                    pass
+
+            # Fall back to vision model call
+            if not description:
+                description = await _describe_image_data(data_url)
+
+            image_descriptions.append(
+                description or _IMAGE_STRIPPED_NOTE
+            )
+
+        for desc in image_descriptions:
+            if desc == _IMAGE_STRIPPED_NOTE:
+                new_parts.append({"type": "text", "text": desc})
+            else:
+                new_parts.append({"type": "text", "text": f"[Image description: {desc}]"})
+
         out.append({**msg, "content": new_parts})
     return out
 

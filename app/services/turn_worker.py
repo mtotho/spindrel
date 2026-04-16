@@ -214,6 +214,7 @@ async def run_turn(
         _auto_injected_skills: list[dict] = []
         _llm_retries: int = 0
         _llm_fallback_model: str | None = None
+        _vision_fallback: bool = False
         async for event in emit_run_stream_events(
             _run_stream_iter,
             channel_id=channel_id,
@@ -298,6 +299,8 @@ async def run_turn(
 
             if etype == "llm_retry":
                 _llm_retries += 1
+                if event.get("reason") == "vision_not_supported":
+                    _vision_fallback = True
                 continue
 
             if etype == "llm_fallback":
@@ -322,12 +325,14 @@ async def run_turn(
 
         # 4c. Tag the last assistant message with LLM retry/fallback info
         #     so persist_turn can carry it into the DB row's metadata.
-        if _llm_retries > 0 or _llm_fallback_model:
+        if _llm_retries > 0 or _llm_fallback_model or _vision_fallback:
             _llm_info: dict = {}
             if _llm_retries > 0:
                 _llm_info["retries"] = _llm_retries
             if _llm_fallback_model:
                 _llm_info["fallback_model"] = _llm_fallback_model
+            if _vision_fallback:
+                _llm_info["vision_fallback"] = True
             for _m in reversed(messages[from_index:]):
                 if _m.get("role") == "assistant":
                     _m["_llm_status"] = _llm_info

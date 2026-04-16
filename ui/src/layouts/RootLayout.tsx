@@ -35,61 +35,6 @@ function useApplyThemeClass() {
   }, [mode]);
 }
 
-/**
- * Mobile-web viewport: iOS keyboard handling.
- *
- * Base layout (position, height, safe-area padding) is set via CSS on #root
- * in global.css using 100dvh — this tracks the visible viewport correctly on
- * mobile (no bottom cutoff from browser chrome). Only when the iOS keyboard
- * opens do we override to pixel-based height so the app shrinks above the
- * keyboard.
- */
-function useWebViewportFix() {
-  useEffect(() => {
-    const root = document.getElementById("root");
-    const vv = window.visualViewport;
-    if (!root || !vv) return;
-
-    const initialHeight = vv.height;
-    let pending = false;
-    let keyboardOpen = false;
-
-    function sync() {
-      pending = false;
-      if (!root || !vv) return;
-
-      const isKeyboard = vv.height < initialHeight * 0.85;
-
-      if (isKeyboard) {
-        root.style.top = vv.offsetTop + "px";
-        root.style.height = vv.height + "px";
-        root.style.paddingBottom = "0px";
-        keyboardOpen = true;
-      } else if (keyboardOpen) {
-        root.style.top = "";
-        root.style.height = "";
-        root.style.paddingBottom = "";
-        keyboardOpen = false;
-      }
-    }
-
-    function onViewportChange() {
-      if (!pending) {
-        pending = true;
-        requestAnimationFrame(sync);
-      }
-    }
-
-    vv.addEventListener("resize", onViewportChange);
-    vv.addEventListener("scroll", onViewportChange);
-
-    return () => {
-      vv.removeEventListener("resize", onViewportChange);
-      vv.removeEventListener("scroll", onViewportChange);
-    };
-  }, []);
-}
-
 const AUTH_PATHS = ["/login", "/setup"];
 
 function AuthGate({ children }: { children: React.ReactNode }) {
@@ -100,7 +45,6 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
 
   useApplyThemeClass();
-  useWebViewportFix();
 
   useEffect(() => {
     if (!hydrated) return;

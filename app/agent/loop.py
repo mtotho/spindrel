@@ -1283,11 +1283,27 @@ async def run_agent_tool_loop(
                     if len(_img_parts) > 1:
                         messages.append({"role": "user", "content": _img_parts})
                 else:
-                    messages.append({"role": "user", "content": (
-                        "[Your model does not support viewing images directly. "
-                        "If you have the `describe_attachment` tool available, use it to get a text description. "
-                        "Otherwise, let the user know you cannot view images with your current model.]"
-                    )})
+                    # Auto-describe images using vision model for non-vision models
+                    from app.agent.llm import _describe_image_data
+                    _desc_parts: list[str] = []
+                    for img in _iteration_injected_images:
+                        mime = img.get("mime_type", "image/jpeg")
+                        b64 = img.get("base64", "")
+                        if not b64:
+                            continue
+                        data_url = f"data:{mime};base64,{b64}"
+                        desc = await _describe_image_data(data_url)
+                        _desc_parts.append(
+                            f"[Image description: {desc}]" if desc
+                            else "[An image was attached but could not be described.]"
+                        )
+                    if _desc_parts:
+                        messages.append({"role": "user", "content": "\n\n".join(_desc_parts)})
+                        yield _event_with_compaction_tag({
+                            "type": "llm_retry", "reason": "vision_not_supported",
+                            "model": model, "attempt": 0, "max_retries": 0,
+                            "wait_seconds": 0,
+                        }, compaction)
 
             # --- Skill learning nudge (one-shot after N iterations) ---
             _nudge_after = settings.SKILL_NUDGE_AFTER_ITERATIONS

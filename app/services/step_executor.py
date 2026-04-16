@@ -113,7 +113,9 @@ def render_prompt(template: str, params: dict, step_states: list[dict], steps: l
         sid = step_def.get("id", f"step_{i}")
         if i < len(step_states):
             step_lookup[sid] = step_states[i]
-            # Also index by numeric position
+            # Index by 1-based position to match UI numbering
+            step_lookup[str(i + 1)] = step_states[i]
+            # Keep 0-based for backwards compat
             step_lookup[str(i)] = step_states[i]
 
     def _replace(match: re.Match) -> str:
@@ -186,9 +188,10 @@ def _build_prior_results_env(steps: list[dict], step_states: list[dict], current
         if state.get("status") not in ("done", "failed"):
             continue
         result = state.get("result", "") or ""
-        # By index
-        env[f"STEP_{i}_RESULT"] = result[:4000]
-        env[f"STEP_{i}_STATUS"] = state.get("status", "")
+        # By 1-based index (matches UI numbering)
+        n = i + 1
+        env[f"STEP_{n}_RESULT"] = result[:4000]
+        env[f"STEP_{n}_STATUS"] = state.get("status", "")
         # By id
         step_def = steps[i]
         sid = step_def.get("id", f"step_{i}")
@@ -240,7 +243,7 @@ async def _run_exec_step(
     from app.tools.local.exec_tool import build_exec_script
 
     try:
-        raw_command = step_def.get("prompt", "")
+        raw_command = step_def.get("prompt", "").strip()
         command = render_prompt(raw_command, {}, step_states, steps)
         args = step_def.get("args", [])
         working_directory = step_def.get("working_directory")
