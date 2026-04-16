@@ -7,6 +7,13 @@ interface DetailPanelState {
   data?: unknown;
 }
 
+export interface RecentPage {
+  href: string;
+  label?: string;
+  iconKey?: string;
+  category?: string;
+}
+
 interface UIState {
   sidebarCollapsed: boolean;
   mobileSidebarOpen: boolean;
@@ -15,7 +22,7 @@ interface UIState {
   fileExplorerOpen: boolean;
   fileExplorerSplit: boolean;
   hudCollapsedChannels: string[];
-  recentPages: string[];
+  recentPages: RecentPage[];
   toggleSidebar: () => void;
   openMobileSidebar: () => void;
   closeMobileSidebar: () => void;
@@ -27,6 +34,7 @@ interface UIState {
   toggleFileExplorerSplit: () => void;
   toggleHudCollapsed: (channelId: string) => void;
   recordPageVisit: (href: string) => void;
+  enrichRecentPage: (href: string, label: string) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -67,8 +75,20 @@ export const useUIStore = create<UIState>()(
             : [...s.hudCollapsedChannels, channelId],
         })),
       recordPageVisit: (href) =>
+        set((s) => {
+          const existing = s.recentPages.find((p) => p.href === href);
+          return {
+            recentPages: [
+              existing ?? { href },
+              ...s.recentPages.filter((p) => p.href !== href),
+            ].slice(0, 20),
+          };
+        }),
+      enrichRecentPage: (href, label) =>
         set((s) => ({
-          recentPages: [href, ...s.recentPages.filter((h) => h !== href)].slice(0, 10),
+          recentPages: s.recentPages.map((p) =>
+            p.href === href ? { ...p, label } : p,
+          ),
         })),
     }),
     {
@@ -80,6 +100,14 @@ export const useUIStore = create<UIState>()(
         fileExplorerSplit: state.fileExplorerSplit,
         hudCollapsedChannels: state.hudCollapsedChannels,
         recentPages: state.recentPages,
+      }),
+      // Migrate old string[] format to RecentPage[]
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<UIState>),
+        recentPages: ((persisted as Partial<UIState>)?.recentPages ?? []).map(
+          (p: unknown) => (typeof p === "string" ? { href: p } : p) as RecentPage,
+        ),
       }),
     },
   ),

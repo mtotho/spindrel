@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useTask, useTaskChildren, useRunTaskNow, type TaskDetail, type StepState, type StepDef } from "@/src/api/hooks/useTasks";
@@ -12,6 +12,7 @@ import {
   InfoRow,
 } from "@/src/components/shared/SchedulingPickers";
 import { TaskStatusBadge, TypeBadge, BotDot } from "@/src/components/shared/TaskConstants";
+import { useUIStore } from "@/src/stores/ui";
 
 function fmtDatetime(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -63,6 +64,14 @@ export default function TaskDetailScreen() {
   }, [hasActiveRun, children]);
   const task = form.existingTask;
   const isSchedule = !!(task?.recurrence);
+
+  // Enrich command palette recent with task title
+  const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
+  const loc = useLocation();
+  useEffect(() => {
+    const label = task?.title || task?.prompt?.substring(0, 40);
+    if (label) enrichRecentPage(loc.pathname, label);
+  }, [task?.title, task?.prompt, loc.pathname, enrichRecentPage]);
   const SYSTEM_TASK_TYPES = new Set(["memory_hygiene", "skill_review"]);
   const isSystemManaged = !!(task && SYSTEM_TASK_TYPES.has(task.task_type));
   const systemLabel = task?.task_type === "skill_review" ? "Skill Review" : "Memory Hygiene";

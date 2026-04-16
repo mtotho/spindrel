@@ -1,8 +1,9 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
-import { useParams } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
+import { useUIStore } from "@/src/stores/ui";
 import { Trash2, Info } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { PageHeader } from "@/src/components/layout/PageHeader";
@@ -46,6 +47,13 @@ export default function SkillDetailScreen() {
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
   const [initialized, setInitialized] = useState(isNew);
+
+  // Enrich command palette recent with skill name
+  const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
+  const loc = useLocation();
+  useEffect(() => {
+    if (skill?.name) enrichRecentPage(loc.pathname, skill.name);
+  }, [skill?.name, loc.pathname, enrichRecentPage]);
 
   if (skill && !initialized) {
     setName(skill.name || "");

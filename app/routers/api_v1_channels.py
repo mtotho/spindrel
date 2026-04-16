@@ -1871,3 +1871,126 @@ async def unpin_file(
     await invalidate_channel(channel_id)
 
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Pinned widget panels (tool result widgets pinned to side panel)
+# ---------------------------------------------------------------------------
+
+class PinWidgetRequest(BaseModel):
+    id: str
+    tool_name: str
+    display_name: str
+    bot_id: str
+    envelope: dict  # ToolResultEnvelope as dict
+    position: int
+    pinned_at: str
+
+
+class WidgetReorderRequest(BaseModel):
+    ids: list[str]
+
+
+@router.post(
+    "/{channel_id}/widget-pins",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def pin_widget(
+    channel_id: uuid.UUID,
+    body: PinWidgetRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Pin a tool result widget to a channel's side panel."""
+    import copy
+    from sqlalchemy.orm.attributes import flag_modified
+
+    ch = (await db.execute(
+        select(Channel).where(Channel.id == channel_id)
+    )).scalar_one_or_none()
+    if not ch:
+        raise HTTPException(404, "Channel not found")
+
+    cfg = copy.deepcopy(ch.config or {})
+    widgets = cfg.setdefault("pinned_widgets", [])
+    # Deduplicate by id (replace existing)
+    widgets = [w for w in widgets if w["id"] != body.id]
+    entry = body.model_dump()
+    widgets.append(entry)
+    cfg["pinned_widgets"] = widgets
+    ch.config = cfg
+    flag_modified(ch, "config")
+
+    await db.commit()
+    return entry
+
+
+@router.delete(
+    "/{channel_id}/widget-pins",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def unpin_widget(
+    channel_id: uuid.UUID,
+    id: str = Query(..., description="ID of the widget to unpin"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Unpin a tool result widget from a channel's side panel."""
+    import copy
+    from sqlalchemy.orm.attributes import flag_modified
+
+    ch = (await db.execute(
+        select(Channel).where(Channel.id == channel_id)
+    )).scalar_one_or_none()
+    if not ch:
+        raise HTTPException(404, "Channel not found")
+
+    cfg = copy.deepcopy(ch.config or {})
+    widgets = cfg.get("pinned_widgets", [])
+    new_widgets = [w for w in widgets if w["id"] != id]
+    if len(new_widgets) == len(widgets):
+        raise HTTPException(404, "Widget is not pinned")
+    cfg["pinned_widgets"] = new_widgets
+    ch.config = cfg
+    flag_modified(ch, "config")
+
+    await db.commit()
+    return {"ok": True}
+
+
+@router.patch(
+    "/{channel_id}/widget-pins/reorder",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def reorder_widgets(
+    channel_id: uuid.UUID,
+    body: WidgetReorderRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reorder pinned widgets by providing ordered list of IDs."""
+    import copy
+    from sqlalchemy.orm.attributes import flag_modified
+
+    ch = (await db.execute(
+        select(Channel).where(Channel.id == channel_id)
+    )).scalar_one_or_none()
+    if not ch:
+        raise HTTPException(404, "Channel not found")
+
+    cfg = copy.deepcopy(ch.config or {})
+    widgets = cfg.get("pinned_widgets", [])
+    by_id = {w["id"]: w for w in widgets}
+    reordered = []
+    for i, wid in enumerate(body.ids):
+        if wid in by_id:
+            by_id[wid]["position"] = i
+            reordered.append(by_id[wid])
+    # Keep any widgets not in the reorder list at the end
+    for w in widgets:
+        if w["id"] not in {r["id"] for r in reordered}:
+            w["position"] = len(reordered)
+            reordered.append(w)
+    cfg["pinned_widgets"] = reordered
+    ch.config = cfg
+    flag_modified(ch, "config")
+
+    await db.commit()
+    return {"ok": True, "widgets": reordered}

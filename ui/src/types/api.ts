@@ -394,6 +394,7 @@ export interface Channel {
   resolved_workspace_id?: string | null;
   config?: {
     pinned_panels?: PinnedPanel[];
+    pinned_widgets?: PinnedWidget[];
   };
   category?: string | null;
   tags?: string[];
@@ -406,6 +407,17 @@ export interface PinnedPanel {
   position: "right" | "bottom";
   pinned_at: string;
   pinned_by: string;
+}
+
+/** A tool result widget pinned to the side panel for persistent access. */
+export interface PinnedWidget {
+  id: string;
+  tool_name: string;
+  display_name: string;
+  bot_id: string;
+  envelope: ToolResultEnvelope;
+  position: number;
+  pinned_at: string;
 }
 
 // Full channel settings (matches server ChannelSettingsOut)

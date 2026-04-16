@@ -1,5 +1,5 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { AlertTriangle, Save, Search, Trash2, X } from "lucide-react";
@@ -18,6 +18,7 @@ import {
 } from "@/src/components/shared/FormControls";
 import type { BotConfig, BotEditorData } from "@/src/types/api";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useUIStore } from "@/src/stores/ui";
 import { MemorySection } from "./MemoryKnowledgeSections";
 import { SECTIONS, SECTION_KEYS, MOBILE_NAV_BREAKPOINT, type SectionKey } from "./constants";
 import { BigTextarea } from "./BigTextarea";
@@ -59,6 +60,13 @@ export default function BotEditorScreen() {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleteChannelWarning, setDeleteChannelWarning] = useState<string | null>(null);
   const deleteMutation = useDeleteBot();
+
+  // Enrich command palette recent with bot name
+  const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
+  const loc = useLocation();
+  useEffect(() => {
+    if (editorData?.bot?.name) enrichRecentPage(loc.pathname, editorData.bot.name);
+  }, [editorData?.bot?.name, loc.pathname, enrichRecentPage]);
 
   // Global settings — used to show inherited values in attachment fields
   const { data: settingsData } = useSettings();

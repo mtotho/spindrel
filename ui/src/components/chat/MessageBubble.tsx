@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useCallback } from "react";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import { DelegationCard } from "./DelegationCard";
@@ -12,6 +12,8 @@ import { RichToolResult } from "./RichToolResult";
 import { extractDisplayText, parseSlackPrefix, stripBBPrefix, resolveDisplay, avatarColor } from "./messageUtils";
 import { normalizeToolCall } from "../../types/api";
 import { useToolResultCompact } from "../../stores/toolResultPref";
+import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
+import { useUIStore } from "../../stores/ui";
 import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
 
 type AutoInjectedSkillMeta = { skillId?: string; skill_id?: string; skillName?: string; skill_name?: string; similarity?: number };
@@ -84,6 +86,21 @@ interface Props {
 export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage }: Props) {
   const t = useThemeTokens();
   const [compact] = useToolResultCompact(channelId ?? "");
+  const pinWidget = usePinnedWidgetsStore((s) => s.pinWidget);
+  const setExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
+
+  const handlePinWidget = useCallback(
+    (info: { widgetId: string; envelope: ToolResultEnvelope; toolName: string; channelId: string; botId: string }) => {
+      pinWidget(info.channelId, {
+        tool_name: info.toolName,
+        display_name: info.toolName.includes("-") ? info.toolName.slice(info.toolName.indexOf("-") + 1) : info.toolName,
+        bot_id: info.botId,
+        envelope: info.envelope,
+      });
+      setExplorerOpen(true);
+    },
+    [pinWidget, setExplorerOpen],
+  );
   const meta = message.metadata || {};
   // Extract text from content (handles JSON-array content blocks) then strip integration prefixes
   const rawText = extractDisplayText(message.content);
@@ -202,6 +219,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           botId={senderBotId}
           widgetId={w.recordId}
           t={t}
+          onPin={handlePinWidget}
         />
       ))}
       {/* Remaining tool badges for non-widget results */}

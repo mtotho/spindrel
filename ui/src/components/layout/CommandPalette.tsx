@@ -35,12 +35,15 @@ import {
   Code2,
   CornerDownLeft,
   Brain,
+  ChevronDown,
+  ChevronUp,
+  Clock,
 } from "lucide-react";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
 import { useSidebarSections, useIntegrations } from "../../api/hooks/useIntegrations";
 import { useThemeTokens } from "../../theme/tokens";
-import { useUIStore } from "../../stores/ui";
+import { useUIStore, type RecentPage } from "../../stores/ui";
 
 // ---------------------------------------------------------------------------
 // Fuzzy matching
@@ -221,6 +224,52 @@ function HighlightedLabel({
 }
 
 // ---------------------------------------------------------------------------
+// Route metadata for dynamic pages
+// ---------------------------------------------------------------------------
+
+type IconComponent = React.ComponentType<{ size: number; color: string }>;
+
+interface RouteMeta {
+  icon: IconComponent;
+  category: string;
+  fallbackLabel: string;
+}
+
+const ROUTE_PREFIX_MAP: { prefix: string; meta: RouteMeta }[] = [
+  { prefix: "/admin/tasks/", meta: { icon: ClipboardList, category: "Automate", fallbackLabel: "Task" } },
+  { prefix: "/admin/bots/", meta: { icon: Bot, category: "Bots", fallbackLabel: "Edit Bot" } },
+  { prefix: "/admin/carapaces/", meta: { icon: Layers, category: "Configure", fallbackLabel: "Capability" } },
+  { prefix: "/admin/skills/", meta: { icon: BookOpen, category: "Configure", fallbackLabel: "Skill" } },
+  { prefix: "/admin/tools/", meta: { icon: Wrench, category: "Configure", fallbackLabel: "Tool" } },
+  { prefix: "/admin/integrations/", meta: { icon: Plug, category: "Integrations", fallbackLabel: "Integration" } },
+  { prefix: "/admin/providers/", meta: { icon: Server, category: "Configure", fallbackLabel: "Provider" } },
+  { prefix: "/admin/mcp-servers/", meta: { icon: Cable, category: "Configure", fallbackLabel: "MCP Server" } },
+  { prefix: "/admin/prompt-templates/", meta: { icon: FileText, category: "Configure", fallbackLabel: "Template" } },
+  { prefix: "/admin/webhooks/", meta: { icon: Webhook, category: "Developer", fallbackLabel: "Webhook" } },
+  { prefix: "/admin/workflows/", meta: { icon: Zap, category: "Automate", fallbackLabel: "Workflow" } },
+  { prefix: "/admin/docker-stacks/", meta: { icon: Boxes, category: "Configure", fallbackLabel: "Docker Stack" } },
+  { prefix: "/admin/tool-policies/", meta: { icon: Shield, category: "Security", fallbackLabel: "Policy" } },
+  { prefix: "/admin/logs/", meta: { icon: ScrollText, category: "Monitor", fallbackLabel: "Log Trace" } },
+  { prefix: "/admin/api-keys/", meta: { icon: Key, category: "Developer", fallbackLabel: "API Key" } },
+  { prefix: "/admin/workspaces/", meta: { icon: HardDrive, category: "Configure", fallbackLabel: "Workspace" } },
+  { prefix: "/channels/", meta: { icon: Hash, category: "Channels", fallbackLabel: "Channel" } },
+];
+
+function resolveRouteMetadata(href: string): RouteMeta | null {
+  for (const { prefix, meta } of ROUTE_PREFIX_MAP) {
+    if (href.startsWith(prefix) && href.length > prefix.length) {
+      // Build a better fallback label: "Task 5aa9f…" instead of just "Task"
+      const idPart = href.slice(prefix.length).split("/")[0].split("#")[0];
+      const shortId = idPart.length > 8 ? idPart.slice(0, 7) + "\u2026" : idPart;
+      return { ...meta, fallbackLabel: `${meta.fallbackLabel}: ${shortId}` };
+    }
+  }
+  // Fallback for any unmatched page that was still recorded
+  if (href.startsWith("/")) return { icon: Clock, category: "Recent", fallbackLabel: href.split("/").pop() ?? "Page" };
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Hook: global keyboard shortcut
 // ---------------------------------------------------------------------------
 
@@ -351,19 +400,45 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const recentPages = useUIStore((s) => s.recentPages);
   const recordPageVisit = useUIStore((s) => s.recordPageVisit);
 
+  // Expand/collapse state for the Recent section in empty-state view
+  const [recentsExpanded, setRecentsExpanded] = useState(false);
+
+  // Resolve a RecentPage to a PaletteItem — match allItems first, then synthesize
+  const resolveRecent = useCallback(
+    (rp: RecentPage): PaletteItem | null => {
+      const match = allItems.find((it) => it.href === rp.href);
+      if (match) return match;
+      const meta = resolveRouteMetadata(rp.href);
+      if (!meta) return null;
+      // If enriched with a real name, prefix with the entity type (e.g. "Task: My Task Name")
+      const baseLabel = meta.fallbackLabel.split(":")[0]; // "Task", "Skill", etc.
+      const label = rp.label ? `${baseLabel}: ${rp.label}` : meta.fallbackLabel;
+      return {
+        id: `recent-${rp.href}`,
+        label,
+        hint: meta.category,
+        href: rp.href,
+        icon: meta.icon,
+        category: meta.category,
+      };
+    },
+    [allItems],
+  );
+
   // Filter + sort by fuzzy score, preserving match indices
   const scoredResults = useMemo<ScoredItem[]>(() => {
     if (!query.trim()) {
       // Resolve recent hrefs to PaletteItems, skipping the current page
       const recentItems: ScoredItem[] = [];
       const recentHrefSet = new Set<string>();
-      for (const href of recentPages) {
-        if (recentItems.length >= 3) break;
-        if (href === currentHref) continue;
-        const match = allItems.find((it) => it.href === href);
-        if (match) {
-          recentItems.push({ item: { ...match, category: "Recent" }, score: 2, matchIndices: [] });
-          recentHrefSet.add(href);
+      const recentLimit = recentsExpanded ? 20 : 3;
+      for (const rp of recentPages) {
+        if (recentItems.length >= recentLimit) break;
+        if (rp.href === currentHref) continue;
+        const resolved = resolveRecent(rp);
+        if (resolved) {
+          recentItems.push({ item: { ...resolved, category: "Recent" }, score: 2, matchIndices: [] });
+          recentHrefSet.add(rp.href);
         }
       }
       // Fill remaining slots with default items, skipping those already in recents
@@ -374,17 +449,27 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       return [...recentItems, ...rest];
     }
 
+    // Build synthetic items from recents that aren't already in allItems
+    const allItemsByHref = new Set(allItems.map((it) => it.href));
+    const syntheticRecents: PaletteItem[] = [];
+    for (const rp of recentPages) {
+      if (allItemsByHref.has(rp.href)) continue;
+      const resolved = resolveRecent(rp);
+      if (resolved) syntheticRecents.push(resolved);
+    }
+    const searchPool = [...allItems, ...syntheticRecents];
+
     // Build a map of recency bonuses (decaying: 15, 10, 5), skipping current page
     const recencyBonus = new Map<string, number>();
     let bonusSlot = 0;
-    for (const href of recentPages) {
+    for (const rp of recentPages) {
       if (bonusSlot >= 3) break;
-      if (href === currentHref) continue;
-      recencyBonus.set(href, 15 - bonusSlot * 5);
+      if (rp.href === currentHref) continue;
+      recencyBonus.set(rp.href, 15 - bonusSlot * 5);
       bonusSlot++;
     }
 
-    return allItems
+    return searchPool
       .map((item) => {
         const [labelScore, labelIndices] = fuzzyMatch(query, item.label);
         const [hintScore] = item.hint ? fuzzyMatch(query, item.hint) : [0, []];
@@ -400,7 +485,20 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       .filter((r) => r.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 30);
-  }, [query, allItems, recentPages, currentHref]);
+  }, [query, allItems, recentPages, currentHref, recentsExpanded, resolveRecent]);
+
+  // Count how many valid recents exist (for show-more toggle)
+  const totalRecents = useMemo(() => {
+    let count = 0;
+    for (const rp of recentPages) {
+      if (rp.href === currentHref) continue;
+      if (resolveRecent(rp)) count++;
+    }
+    return count;
+  }, [recentPages, currentHref, resolveRecent]);
+
+  // Whether to show the "show more" toggle in the Recent group
+  const showRecentsToggle = !query.trim() && totalRecents > 3;
 
   // Group results by category for display, then assign flatIndex in VISUAL order
   const groupedResults = useMemo(() => {
@@ -415,36 +513,50 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         catMap.set(cat, arr);
         groups.push({ category: cat, items: arr });
       }
-      // flatIndex assigned below after grouping
       arr.push({ scored, flatIndex: 0 });
     }
 
     // Assign flatIndex in visual (rendered) order so keyboard nav matches display
+    // Reserve a slot for the "show more" toggle after the Recent group
     let flatIndex = 0;
+    let showMoreToggleIndex = -1;
     for (const group of groups) {
       for (const entry of group.items) {
         entry.flatIndex = flatIndex++;
       }
+      if (group.category === "Recent" && showRecentsToggle) {
+        showMoreToggleIndex = flatIndex++;
+      }
     }
 
     // Build flat lookup in visual order for Enter-key navigation
-    const flat: ScoredItem[] = [];
+    // null entries represent the toggle row
+    const flat: (ScoredItem | null)[] = [];
     for (const group of groups) {
       for (const entry of group.items) {
         flat.push(entry.scored);
       }
+      if (group.category === "Recent" && showRecentsToggle) {
+        flat.push(null); // toggle slot
+      }
     }
 
-    return { groups, totalCount: flatIndex, flat };
-  }, [scoredResults]);
+    return { groups, totalCount: flatIndex, flat, showMoreToggleIndex };
+  }, [scoredResults, showRecentsToggle]);
 
   // Reset state on open
   useEffect(() => {
     if (open) {
       setQuery("");
       setSelectedIndex(0);
+      setRecentsExpanded(false);
     }
   }, [open]);
+
+  // Collapse recents when user starts searching
+  useEffect(() => {
+    if (query.trim()) setRecentsExpanded(false);
+  }, [query]);
 
   // Scroll selected item into view (only for keyboard navigation)
   useEffect(() => {
@@ -491,8 +603,12 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         setSelectedIndex((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        const scored = groupedResults.flat[selectedIndex];
-        if (scored) go(scored.item.href);
+        if (selectedIndex === groupedResults.showMoreToggleIndex) {
+          setRecentsExpanded((v) => !v);
+        } else {
+          const entry = groupedResults.flat[selectedIndex];
+          if (entry) go(entry.item.href);
+        }
       }
     },
     [onClose, groupedResults, selectedIndex, go, totalCount],
@@ -694,6 +810,47 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                   </div>
                 );
               })}
+              {/* "Show more / Show less" toggle for Recent group */}
+              {group.category === "Recent" && showRecentsToggle && (() => {
+                const toggleIdx = groupedResults.showMoreToggleIndex;
+                const selected = toggleIdx === selectedIndex;
+                const ToggleIcon = recentsExpanded ? ChevronUp : ChevronDown;
+                return (
+                  <div
+                    data-idx={toggleIdx}
+                    onClick={() => setRecentsExpanded((v) => !v)}
+                    onMouseMove={() => {
+                      isKeyboardNav.current = false;
+                      setSelectedIndex(toggleIdx);
+                    }}
+                    style={{
+                      display: "flex", flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "7px 14px",
+                      margin: "0 6px",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      backgroundColor: selected ? t.accentSubtle : "transparent",
+                      transition: "background-color 80ms ease",
+                    }}
+                  >
+                    <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
+                      <ToggleIcon size={14} color={t.textDim} />
+                    </span>
+                    <span
+                      style={{
+                        flex: 1,
+                        fontSize: 13,
+                        color: t.textDim,
+                        fontWeight: 400,
+                      }}
+                    >
+                      {recentsExpanded ? "Show less" : `Show more (${totalRecents - 3})`}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           ))}
         </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Spinner } from "@/src/components/shared/Spinner";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate, useLocation } from "react-router-dom";
+import { useUIStore } from "@/src/stores/ui";
 import {
   useCarapace,
   useCreateCarapace,
@@ -54,6 +55,13 @@ export default function CarapaceDetailPage() {
   const [dirty, setDirty] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+
+  // Enrich command palette recent with capability name
+  const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
+  const loc = useLocation();
+  useEffect(() => {
+    if (existing?.name) enrichRecentPage(loc.pathname, existing.name);
+  }, [existing?.name, loc.pathname, enrichRecentPage]);
 
   useEffect(() => {
     if (existing && !isNew) {

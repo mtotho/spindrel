@@ -156,15 +156,13 @@ export function ChannelHeader({
             <Wrench size={16} color={compact ? t.accent : t.textDim} />
           </button>
         )}
-        {/* Explorer toggle: available whenever the channel resolves to a workspace
-            (even if channel-level workspace is disabled — the explorer can still
-            show bot memory and other workspace files). */}
-        {workspaceId && !isMobile && (
+        {/* OmniPanel toggle: always available (pinned widgets work without a workspace) */}
+        {!isMobile && (
           <button
             className="header-icon-btn"
             style={{ width: 36, height: 36, backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent" }}
             onClick={toggleExplorer}
-            title={explorerOpen ? "Hide file explorer" : "Show file explorer"}
+            title={explorerOpen ? "Hide panel" : "Show panel"}
           >
             <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
           </button>

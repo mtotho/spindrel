@@ -4,6 +4,8 @@ import { useGoBack } from "@/src/hooks/useGoBack";
 import { Shield, ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { ChannelFileExplorer } from "./ChannelFileExplorer";
+import { OmniPanel } from "./OmniPanel";
+import { MobileOmniSheet } from "./MobileOmniSheet";
 import { ChannelFileViewer } from "./ChannelFileViewer";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
@@ -249,10 +251,9 @@ export default function ChatScreen() {
     fileDirtyRef.current = false;
   }, [channelId]);
 
-  // Explorer is available whenever the channel resolves to a workspace.
-  // (Channel-workspace-enabled is no longer required — the explorer falls back
-  // to bot memory when the channel itself has no workspace dir.)
-  const showExplorer = !!workspaceId && explorerOpen;
+  // OmniPanel is always available — it shows pinned widgets even without a workspace.
+  // The file explorer section inside OmniPanel is conditionally shown when workspaceId exists.
+  const showExplorer = explorerOpen;
   const showFileViewer = activeFile !== null;
   const isMobile = columns === "single";
 
@@ -440,20 +441,8 @@ export default function ChatScreen() {
 
       {/* Content area -- explorer + chat/file viewer */}
       {isMobile ? (
-        /* ---- Mobile: full-screen modes ---- */
-        showExplorer && !showFileViewer ? (
-          <ChannelFileExplorer
-            channelId={channelId!}
-            botId={channel?.bot_id}
-            workspaceId={workspaceId ?? undefined}
-            channelDisplayName={channel?.display_name || channel?.name}
-            channelWorkspaceEnabled={!!workspaceEnabled}
-            activeFile={activeFile}
-            onSelectFile={handleSelectFile}
-            onClose={handleCloseExplorer}
-            fullWidth
-          />
-        ) : showFileViewer ? (
+        /* ---- Mobile: chat + bottom sheet OmniPanel ---- */
+        showFileViewer ? (
           <ChannelFileViewer
             channelId={channelId!}
             workspaceId={workspaceId ?? undefined}
@@ -468,6 +457,16 @@ export default function ChatScreen() {
               {floatingActions.map((h) => (
                 <HudFloatingAction key={h.key} hud={h} />
               ))}
+              {/* Nubbin — subtle left-edge tab to open OmniPanel sheet */}
+              {!showExplorer && channelId && (
+                <button
+                  type="button"
+                  onClick={() => setExplorerOpen(true)}
+                  className="absolute left-0 top-1/2 -translate-y-1/2 z-10 rounded-r-md transition-opacity duration-150 hover:opacity-80"
+                  style={{ width: 8, height: 40, backgroundColor: `${t.textMuted}1a` }}
+                  title="Open panel"
+                />
+              )}
             </div>
             {chatState.error && (
               <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
@@ -495,13 +494,27 @@ export default function ChatScreen() {
                 mobile
               />
             )}
+            {/* Mobile OmniPanel bottom sheet */}
+            {channelId && (
+              <MobileOmniSheet
+                open={showExplorer}
+                onClose={handleCloseExplorer}
+                channelId={channelId}
+                botId={channel?.bot_id}
+                workspaceId={workspaceId ?? undefined}
+                channelDisplayName={channel?.display_name || channel?.name}
+                channelWorkspaceEnabled={!!workspaceEnabled}
+                activeFile={activeFile}
+                onSelectFile={handleSelectFile}
+              />
+            )}
           </div>
         )
       ) : (
         /* ---- Desktop/tablet: side-by-side layout ---- */
         <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden" }}>
-          {/* Explorer panel — always rendered when workspace exists, animated via width clip */}
-          {workspaceId && channelId && (
+          {/* OmniPanel — always rendered, animated via width clip */}
+          {channelId && (
             <div
               style={{
                 width: showExplorer ? explorerWidth : 0,
@@ -510,7 +523,7 @@ export default function ChatScreen() {
                 flexShrink: 0,
               }}
             >
-              <ChannelFileExplorer
+              <OmniPanel
                 channelId={channelId}
                 botId={channel?.bot_id}
                 workspaceId={workspaceId ?? undefined}

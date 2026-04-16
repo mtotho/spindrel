@@ -9,12 +9,14 @@
  * Pin-ready: accepts optional widgetId + onPin for future side-panel pinning.
  */
 import { useState, useMemo, useCallback } from "react";
+import { Pin } from "lucide-react";
 import type { ToolResultEnvelope } from "../../types/api";
 import type { ThemeTokens } from "../../theme/tokens";
 import { useWidgetAction } from "../../api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "../../api/hooks/useWidgetAction";
 import { ComponentRenderer, WidgetActionContext } from "./renderers/ComponentRenderer";
 import { JsonTreeRenderer } from "./renderers/JsonTreeRenderer";
+import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
 
 /** Strip MCP server prefix: "homeassistant-HassTurnOn" → "HassTurnOn" */
 function cleanToolName(name: string): string {
@@ -47,9 +49,25 @@ export function WidgetCard({
   channelId,
   botId,
   t,
+  widgetId,
+  onPin,
 }: WidgetCardProps) {
   const [currentEnvelope, setCurrentEnvelope] = useState(envelope);
   const [showJson, setShowJson] = useState(false);
+
+  // Check if this widget is already pinned (match by tool_name + record_id when available)
+  const isPinned = usePinnedWidgetsStore((s) => {
+    if (!channelId) return false;
+    return (s.byChannel[channelId] ?? []).some((w) => {
+      if (w.tool_name !== toolName) return false;
+      // If both have record_id, use it for precise match
+      if (w.envelope.record_id && envelope.record_id) {
+        return w.envelope.record_id === envelope.record_id;
+      }
+      // Fallback: same tool name is close enough (prevents double-pin)
+      return true;
+    });
+  });
 
   const rawDispatch = useWidgetAction(channelId, botId ?? "default");
 
@@ -105,7 +123,7 @@ export function WidgetCard({
         maxWidth: 400,
       }}
     >
-      {/* Header: tool name */}
+      {/* Header: tool name + pin */}
       <div className="px-3 pt-2 pb-0.5 flex items-center justify-between">
         <span
           className="text-[10px] font-medium uppercase tracking-wider"
@@ -113,6 +131,28 @@ export function WidgetCard({
         >
           {displayName}
         </span>
+        {channelId && botId && onPin && (
+          <button
+            type="button"
+            onClick={() =>
+              onPin({
+                widgetId: widgetId ?? `${toolName}-${Date.now()}`,
+                envelope: currentEnvelope,
+                toolName,
+                channelId,
+                botId,
+              })
+            }
+            className="p-0.5 rounded hover:bg-white/[0.06] transition-colors duration-150"
+            title={isPinned ? "Already pinned" : "Pin to side panel"}
+          >
+            <Pin
+              size={12}
+              fill={isPinned ? t.accent : "none"}
+              style={{ color: isPinned ? t.accent : t.textDim, opacity: isPinned ? 1 : 0.5 }}
+            />
+          </button>
+        )}
       </div>
 
       {/* Body: component content */}
