@@ -47,6 +47,24 @@ class TestEvaluateExpression:
         )
         assert result == [{"label": "A", "value": "1"}, {"label": "B", "value": "2"}]
 
+    def test_pluck_transform(self):
+        data = {"items": [{"name": "Office"}, {"name": "Kitchen"}]}
+        result = _evaluate_expression("items | pluck: name", data)
+        assert result == ["Office", "Kitchen"]
+
+    def test_join_transform(self):
+        data = {"items": [{"name": "Office"}, {"name": "Kitchen"}]}
+        result = _evaluate_expression("items | pluck: name | join: , ", data)
+        assert result == "Office, Kitchen"
+
+    def test_pluck_join_chain(self):
+        data = {"data": {"success": [
+            {"name": "Office", "id": "office"},
+            {"name": "Light Switch", "id": "light.x"},
+        ]}}
+        result = _evaluate_expression("data.success | pluck: name | join: , ", data)
+        assert result == "Office, Light Switch"
+
 
 class TestSubstitute:
     def test_string_replacement(self):

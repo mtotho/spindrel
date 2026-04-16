@@ -154,11 +154,12 @@ def _evaluate_expression(expr: str, data: dict) -> Any:
       - a == 'val'       → data["a"] == "val"  (returns bool)
       - a | map: {l: n}  → [{"l": item["n"]} for item in data["a"]]
     """
-    # Pipe expressions: value | transform
+    # Pipe expressions: value | transform (preserve trailing whitespace in transforms
+    # so separators like ", " in "join: , " aren't lost)
     if "|" in expr:
         parts = expr.split("|", 1)
         value = _resolve_path(parts[0].strip(), data)
-        transform = parts[1].strip()
+        transform = parts[1].lstrip()  # only strip leading space, preserve trailing
         return _apply_transform(value, transform, data)
 
     # Equality expression: a == 'val' or a == "val"
@@ -208,11 +209,35 @@ def _apply_transform(value: Any, transform: str, data: dict) -> Any:
 
     Supported transforms:
       - map: {label: name, value: id}  → map each item to a new dict
+      - pluck: key                      → extract a single field from each item
+      - join: separator                 → join list items with separator (default ", ")
     """
+    # Chained transforms: "pluck: name | join: , "
+    # Split on " | " (with spaces) to preserve separators like ", " in join
+    if " | " in transform:
+        idx = transform.index(" | ")
+        left = transform[:idx]
+        right = transform[idx + 3:]  # skip " | "
+        intermediate = _apply_transform(value, left.strip(), data)
+        return _apply_transform(intermediate, right, data)
+
+    # join: separator
+    join_match = re.match(r"join(?::\s*(.*))?", transform)
+    if join_match and isinstance(value, list):
+        sep = join_match.group(1) if join_match.group(1) is not None else ", "
+        # Preserve the separator as-is (don't strip — ", " should stay ", ")
+        return sep.join(str(item) for item in value if item)
+
+    # pluck: key
+    pluck_match = re.match(r"pluck:\s*(\w+)", transform)
+    if pluck_match and isinstance(value, list):
+        key = pluck_match.group(1)
+        return [item.get(key, "") for item in value if isinstance(item, dict)]
+
+    # map: {label: name, value: id}
     map_match = re.match(r"map:\s*\{(.+)\}", transform)
     if map_match and isinstance(value, list):
         mapping_str = map_match.group(1)
-        # Parse simple key: value pairs
         mappings: dict[str, str] = {}
         for pair in mapping_str.split(","):
             pair = pair.strip()

@@ -33,6 +33,26 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/widget-actions", tags=["widget-actions"])
 
+
+def _resolve_tool_name(name: str) -> str:
+    """Resolve a tool name, trying MCP server-prefixed variants if bare name fails.
+
+    Widget templates use bare tool names (e.g., "HassTurnOff") but MCP tools
+    are registered with a server prefix (e.g., "homeassistant-HassTurnOff").
+    """
+    if is_local_tool(name) or is_mcp_tool(name):
+        return name
+
+    # Try finding an MCP tool with any server prefix
+    from app.tools.mcp import _cache as mcp_cache
+    for server_name, cached in mcp_cache.items():
+        prefixed = f"{server_name}-{name}"
+        for tool in cached.get("tools", []):
+            if tool["function"]["name"] == prefixed:
+                return prefixed
+
+    return name  # fall through — will error downstream
+
 # ── Allowlisted internal API path prefixes for dispatch:"api" ──
 _API_ALLOWLIST = [
     "/api/v1/admin/tasks",
@@ -82,30 +102,36 @@ async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
     name = req.tool
     args_str = json.dumps(req.args) if req.args else "{}"
 
+    # Resolve the actual tool name — MCP tools may be registered with a server
+    # prefix (e.g., "homeassistant-HassTurnOff") but templates reference the
+    # bare name ("HassTurnOff"). Try bare first, then scan MCP servers for a
+    # prefixed match.
+    resolved_name = _resolve_tool_name(name)
+
     # Resolve tool type and call it
     result: str | None = None
     error_msg: str | None = None
 
-    if is_local_tool(name):
+    if is_local_tool(resolved_name):
         try:
             result = await asyncio.wait_for(
-                call_local_tool(name, args_str),
+                call_local_tool(resolved_name, args_str),
                 timeout=settings.TOOL_DISPATCH_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            error_msg = f"Tool '{name}' timed out"
+            error_msg = f"Tool '{resolved_name}' timed out"
         except Exception as exc:
-            error_msg = f"Tool '{name}' failed: {exc}"
-    elif is_mcp_tool(name):
+            error_msg = f"Tool '{resolved_name}' failed: {exc}"
+    elif is_mcp_tool(resolved_name):
         try:
             result = await asyncio.wait_for(
-                call_mcp_tool(name, args_str),
+                call_mcp_tool(resolved_name, args_str),
                 timeout=settings.TOOL_DISPATCH_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            error_msg = f"MCP tool '{name}' timed out"
+            error_msg = f"MCP tool '{resolved_name}' timed out"
         except Exception as exc:
-            error_msg = f"MCP tool '{name}' failed: {exc}"
+            error_msg = f"MCP tool '{resolved_name}' failed: {exc}"
     else:
         return WidgetActionResponse(ok=False, error=f"Unknown tool: {name}")
 
