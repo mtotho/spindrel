@@ -1,4 +1,5 @@
 import { useRef, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../stores/auth";
 import { useThemeStore } from "../../stores/theme";
 
@@ -15,6 +16,7 @@ interface IntegrationFrameProps {
  */
 export function IntegrationFrame({ src }: IntegrationFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const navigate = useNavigate();
   const token = useAuthStore((s) => s.accessToken || s.apiKey);
   const serverUrl = useAuthStore((s) => s.serverUrl);
   const themeMode = useThemeStore((s) => s.mode);
@@ -40,6 +42,19 @@ export function IntegrationFrame({ src }: IntegrationFrameProps) {
   useEffect(() => {
     sendTheme();
   }, [sendTheme]);
+
+  // Listen for close/navigate messages from embedded integration
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+      if (data.type === "spindrel:close") {
+        navigate(data.to || "/");
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [navigate]);
 
   const handleLoad = useCallback(() => {
     sendAuth();

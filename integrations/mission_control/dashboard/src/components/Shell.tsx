@@ -18,9 +18,19 @@ import {
   LayoutGrid,
   MoreHorizontal,
   X,
+  ArrowLeft,
 } from "lucide-react";
 import { useOverview } from "../hooks/useOverview";
 import { isEmbedded } from "../lib/auth-bridge";
+
+/** Tell the parent app to close this integration view */
+function closeToParent() {
+  try {
+    window.parent.postMessage({ type: "spindrel:close" }, "*");
+  } catch {
+    // not embedded, ignore
+  }
+}
 import { channelColor } from "../lib/colors";
 import type { ChannelSummary } from "../lib/types";
 import type { LucideIcon } from "lucide-react";
@@ -130,6 +140,16 @@ function MobileBottomNav() {
       {/* Bottom bar */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-1 border-t border-surface-3 safe-area-bottom">
         <div className="flex items-center justify-around px-1 py-1">
+          {/* Back to app button (embedded only) */}
+          {isEmbedded() && (
+            <button
+              onClick={closeToParent}
+              className="flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-lg transition-colors min-w-0 text-content-dim"
+            >
+              <ArrowLeft size={20} />
+              <span className="text-[10px] leading-tight">Back</span>
+            </button>
+          )}
           {BOTTOM_TAB_ITEMS.map((item) => {
             const Icon = item.Icon;
             return (
@@ -174,8 +194,10 @@ export default function Shell() {
   if (embedded) {
     return (
       <div className="h-screen flex flex-col">
-        <div className="flex-1 overflow-y-auto pb-14 md:pb-0">
-          <Outlet />
+        <div className="flex-1 overflow-y-auto pb-14 md:pb-0 flex flex-col">
+          <div className="flex-1">
+            <Outlet />
+          </div>
         </div>
         <MobileBottomNav />
       </div>
@@ -210,8 +232,10 @@ export default function Shell() {
       </aside>
 
       {/* Main content — bottom padding on mobile for tab bar */}
-      <main className="flex-1 overflow-y-auto pb-14 md:pb-0">
-        <Outlet />
+      <main className="flex-1 overflow-y-auto pb-14 md:pb-0 flex flex-col">
+        <div className="flex-1">
+          <Outlet />
+        </div>
       </main>
 
       {/* Mobile bottom nav — visible on small screens */}

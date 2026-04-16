@@ -94,8 +94,6 @@ function capSummary(bot: BotConfig): string {
   const parts: string[] = [];
   const toolCount = (bot.local_tools?.length ?? 0) + (bot.client_tools?.length ?? 0);
   if (toolCount > 0) parts.push(`${toolCount} tools`);
-  const skillCount = bot.skills?.length ?? 0;
-  if (skillCount > 0) parts.push(`${skillCount} skills`);
   const mcpCount = bot.mcp_servers?.length ?? 0;
   if (mcpCount > 0) parts.push(`${mcpCount} MCP`);
   const delegateCount = bot.delegate_bots?.length ?? 0;

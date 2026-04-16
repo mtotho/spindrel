@@ -263,10 +263,38 @@ async def admin_list_tasks(
     # Look up correlation_ids for tasks that have run
     corr_map = await _heartbeat_correlation_ids(db, list(tasks))
 
+    # Look up last run status for definition tasks (schedules + pipelines).
+    # These are parent tasks whose children are the actual runs.
+    all_defs = list(tasks) + list(schedules)
+    def_ids = [t.id for t in all_defs if (t.run_count or 0) > 0]
+    last_run_map: dict[uuid.UUID, dict] = {}
+    if def_ids:
+        # Subquery: max timestamp per parent
+        time_col = func.coalesce(Task.completed_at, Task.run_at, Task.created_at)
+        max_sub = (
+            select(Task.parent_task_id, func.max(time_col).label("max_t"))
+            .where(Task.parent_task_id.in_(def_ids))
+            .group_by(Task.parent_task_id)
+            .subquery()
+        )
+        # Join back to get status of that latest row
+        latest_q = (
+            select(Task.parent_task_id, Task.status, time_col.label("lr_at"))
+            .join(max_sub, (Task.parent_task_id == max_sub.c.parent_task_id) & (time_col == max_sub.c.max_t))
+            .where(Task.parent_task_id.in_(def_ids))
+        )
+        rows = (await db.execute(latest_q)).all()
+        for row in rows:
+            last_run_map[row.parent_task_id] = {
+                "status": row.status,
+                "at": row.lr_at.isoformat() if row.lr_at else None,
+            }
+
     def _task_dict(t: Task) -> dict:
         ec = t.execution_config or {}
         cb = t.callback_config or {}
         cid = corr_map.get(t.id)
+        lr = last_run_map.get(t.id)
         return {
             "id": str(t.id),
             "status": t.status,
@@ -300,6 +328,8 @@ async def admin_list_tasks(
             "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
             "run_at": t.run_at.isoformat() if t.run_at else None,
             "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+            "last_run_status": lr["status"] if lr else None,
+            "last_run_at": lr["at"] if lr else None,
         }
 
     return {

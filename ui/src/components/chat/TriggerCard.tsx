@@ -1,23 +1,19 @@
 import { useState, memo } from "react";
-import { ChevronRight, ExternalLink } from "lucide-react";
+import { ChevronRight, ExternalLink, Timer, CornerDownLeft, Repeat } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import type { Message } from "../../types/api";
+import type { LucideIcon } from "lucide-react";
 
 interface TriggerStyle {
   label: string;
-  icon: string;
-  /** Accent color for border, text, links */
-  color: string;
-  /** rgba tuples for backgrounds/borders at various opacities */
-  rgb: string;
+  Icon: LucideIcon;
 }
 
 const TRIGGER_CONFIG: Record<string, TriggerStyle> = {
-  scheduled_task: { label: "Scheduled Task", icon: "\u{1F501}", color: "#8b5cf6", rgb: "139,92,246" },
-  callback: { label: "Task Callback", icon: "\u21A9", color: "#8b5cf6", rgb: "139,92,246" },
-  delegation_callback: { label: "Delegation Result", icon: "\u21A9", color: "#8b5cf6", rgb: "139,92,246" },
+  scheduled_task: { label: "Scheduled Task", Icon: Timer },
+  callback: { label: "Task Callback", Icon: Repeat },
+  delegation_callback: { label: "Delegation Result", Icon: CornerDownLeft },
 };
 
 export const SUPPORTED_TRIGGERS = new Set(Object.keys(TRIGGER_CONFIG));
@@ -43,7 +39,6 @@ interface Props {
 
 export const TriggerCard = memo(function TriggerCard({ message }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const t = useThemeTokens();
   const navigate = useNavigate();
 
   const meta = (message.metadata ?? {}) as Record<string, any>;
@@ -51,7 +46,7 @@ export const TriggerCard = memo(function TriggerCard({ message }: Props) {
   const config = TRIGGER_CONFIG[trigger];
   if (!config) return null;
 
-  const { label, icon, color, rgb } = config;
+  const { label, Icon } = config;
   const subtitle = getSubtitle(meta);
   const taskId = meta.task_id as string | undefined;
   const timestamp = formatTimeShort(message.created_at);
@@ -59,79 +54,31 @@ export const TriggerCard = memo(function TriggerCard({ message }: Props) {
   const hasPrompt = !!promptText;
 
   return (
-    <div
-      style={{
-        margin: "6px 20px",
-        borderLeft: `3px solid ${color}`,
-        borderRadius: 8,
-        backgroundColor: `rgba(${rgb},0.06)`,
-        padding: "10px 14px",
-        transition: "background-color 0.15s",
-      }}
-    >
+    <div className="mx-5 my-1.5 border-l-2 border-surface-border rounded-lg bg-surface-raised/40 px-3.5 py-2.5 transition-colors">
       {/* Header row */}
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 7 }}>
-          <span style={{ fontSize: 15, lineHeight: 1 }}>{icon}</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color, letterSpacing: 0.1 }}>{label}</span>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Icon size={14} className="text-text-dim flex-shrink-0" />
+          <span className="text-xs font-semibold text-text-muted tracking-wide">{label}</span>
         </div>
-        <span style={{ fontSize: 11, color: t.textDim }}>{timestamp}</span>
+        <span className="text-[11px] text-text-dim">{timestamp}</span>
       </div>
 
       {/* Subtitle */}
       {subtitle && (
-        <div
-          style={{
-            fontSize: 12,
-            color: t.textMuted,
-            marginTop: 3,
-            marginLeft: 24,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {subtitle}
-        </div>
+        <p className="text-xs text-text-dim mt-1 ml-[22px] truncate">{subtitle}</p>
       )}
 
       {/* Actions row */}
-      <div
-        style={{
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginTop: 8,
-          marginLeft: 24,
-        }}
-      >
+      <div className="flex items-center justify-between mt-2 ml-[22px]">
         {hasPrompt ? (
           <button
             onClick={() => setExpanded(!expanded)}
-            style={{
-              display: "inline-flex", flexDirection: "row",
-              alignItems: "center",
-              gap: 4,
-              cursor: "pointer",
-              fontSize: 11,
-              color: t.textMuted,
-              userSelect: "none",
-              padding: "2px 6px 2px 2px",
-              borderRadius: 4,
-              border: "none",
-              backgroundColor: "transparent",
-              transition: "background-color 0.15s",
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = `rgba(${rgb},0.1)`; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"; }}
+            className="inline-flex items-center gap-1 text-[11px] text-text-dim hover:text-text-muted px-1.5 py-0.5 rounded transition-colors hover:bg-surface-overlay cursor-pointer border-none bg-transparent"
           >
             <ChevronRight
               size={12}
-              color={t.textMuted}
-              style={{
-                transition: "transform 0.2s ease",
-                transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
-              } as any}
+              className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
             />
             <span>{expanded ? "Hide prompt" : "Show prompt"}</span>
           </button>
@@ -141,69 +88,26 @@ export const TriggerCard = memo(function TriggerCard({ message }: Props) {
         {taskId && (
           <button
             onClick={() => navigate(`/admin/tasks/${taskId}`)}
-            style={{
-              display: "inline-flex", flexDirection: "row",
-              alignItems: "center",
-              gap: 4,
-              cursor: "pointer",
-              fontSize: 11,
-              color,
-              padding: "2px 6px",
-              borderRadius: 4,
-              border: "none",
-              backgroundColor: "transparent",
-              transition: "background-color 0.15s, opacity 0.15s",
-              opacity: 0.85,
-            }}
-            onMouseEnter={(e) => {
-              const el = e.currentTarget as HTMLButtonElement;
-              el.style.backgroundColor = `rgba(${rgb},0.1)`;
-              el.style.opacity = "1";
-            }}
-            onMouseLeave={(e) => {
-              const el = e.currentTarget as HTMLButtonElement;
-              el.style.backgroundColor = "transparent";
-              el.style.opacity = "0.85";
-            }}
+            className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover px-1.5 py-0.5 rounded transition-colors hover:bg-accent/5 cursor-pointer border-none bg-transparent opacity-85 hover:opacity-100"
           >
             <span>View task</span>
-            <ExternalLink size={10} color={color} />
+            <ExternalLink size={10} />
           </button>
         )}
       </div>
 
-      {/* Expandable prompt area -- animated via max-height + opacity */}
+      {/* Expandable prompt area */}
       {hasPrompt && (
         <div
+          className="overflow-hidden transition-all duration-250 ease-in-out"
           style={{
-            overflow: "hidden",
             maxHeight: expanded ? 320 : 0,
             opacity: expanded ? 1 : 0,
-            transition: "max-height 0.25s ease, opacity 0.2s ease, margin 0.25s ease",
             marginTop: expanded ? 8 : 0,
           }}
         >
-          <div
-            style={{
-              borderRadius: 6,
-              backgroundColor: `rgba(${rgb},0.04)`,
-              border: `1px solid rgba(${rgb},0.12)`,
-              padding: "8px 12px",
-              maxHeight: 300,
-              overflowY: "auto",
-            }}
-          >
-            <pre
-              style={{
-                margin: 0,
-                fontSize: 11.5,
-                fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
-                color: t.textMuted,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                lineHeight: "1.5",
-              }}
-            >
+          <div className="rounded-md bg-surface-overlay/50 border border-surface-border px-3 py-2 max-h-[300px] overflow-y-auto">
+            <pre className="m-0 text-[11.5px] font-mono text-text-dim whitespace-pre-wrap break-words leading-relaxed">
               {promptText}
             </pre>
           </div>

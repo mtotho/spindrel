@@ -124,8 +124,10 @@ function MobileDefinitionCard({ def, onPress, onRunNow, isRunning }: {
 }) {
   const isCancelled = def.status === "cancelled";
   const statusCfg = STATUS_CFG[def.status] || STATUS_CFG.pending;
-  const lastRunTime = def.completed_at || def.run_at;
   const hasRun = !!(def.run_count && def.run_count > 0);
+  // Prefer last child run info over the definition's own status
+  const lastRunTime = def.last_run_at || def.completed_at || def.run_at;
+  const lastRunStatus = def.last_run_status || def.status;
 
   return (
     <div
@@ -138,7 +140,7 @@ function MobileDefinitionCard({ def, onPress, onRunNow, isRunning }: {
       <div className="flex flex-row items-center gap-2.5">
         <div
           className="w-2.5 h-2.5 rounded-full shrink-0"
-          style={{ background: statusCfg.fg }}
+          style={{ background: hasRun ? (STATUS_CFG[lastRunStatus] || statusCfg).fg : statusCfg.fg }}
         />
         <span className={`flex-1 min-w-0 text-sm font-semibold truncate ${
           isCancelled ? "text-text-dim line-through" : "text-text"
@@ -199,12 +201,11 @@ function DefinitionRow({ def, onPress, onRunNow, isRunning }: {
 }) {
   const isCancelled = def.status === "cancelled";
   const statusCfg = STATUS_CFG[def.status] || STATUS_CFG.pending;
-  const lastRunTime = def.completed_at || def.run_at;
-  const bc = botColor(def.bot_id);
-
-  // For schedules, show the last run status from the definition's own fields
-  // (the API doesn't include child info in the list, but completed_at/run_at indicate last execution)
   const hasRun = !!(def.run_count && def.run_count > 0);
+  // Prefer last child run info over the definition's own status
+  const lastRunTime = def.last_run_at || def.completed_at || def.run_at;
+  const lastRunStatus = def.last_run_status || def.status;
+  const lastRunStatusCfg = hasRun ? (STATUS_CFG[lastRunStatus] || statusCfg) : statusCfg;
 
   return (
     <div
@@ -213,12 +214,12 @@ function DefinitionRow({ def, onPress, onRunNow, isRunning }: {
         isCancelled ? "opacity-40" : ""
       }`}
     >
-      {/* Status dot */}
+      {/* Status dot — reflects last run, not definition status */}
       <div className="w-5 flex items-center justify-center shrink-0">
         <div
           className="w-2.5 h-2.5 rounded-full"
-          style={{ background: statusCfg.fg }}
-          title={statusCfg.label}
+          style={{ background: lastRunStatusCfg.fg }}
+          title={lastRunStatusCfg.label}
         />
       </div>
 
@@ -258,7 +259,7 @@ function DefinitionRow({ def, onPress, onRunNow, isRunning }: {
       <div className="w-32 shrink-0 flex flex-row items-center gap-1.5">
         {hasRun && lastRunTime ? (
           <>
-            <TaskStatusBadge status={def.status === "active" ? "complete" : def.status} />
+            <TaskStatusBadge status={lastRunStatus === "active" ? "complete" : lastRunStatus} />
             <span className="text-[10px] text-text-dim">{relativeTime(lastRunTime)}</span>
           </>
         ) : hasRun ? (

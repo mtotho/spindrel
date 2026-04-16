@@ -96,7 +96,7 @@ function TraceDetail({ group }: { group: TraceGroup }) {
           }}
         >
           <span style={{ width: 106, color: t.textDim, fontSize: 10 }}>
-            iter {idx + 1}
+            iter {group.entries.length - idx}
           </span>
           <span
             style={{

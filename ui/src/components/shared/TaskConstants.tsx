@@ -24,6 +24,8 @@ export interface TaskItem {
   scheduled_at?: string;
   run_at?: string;
   completed_at?: string;
+  last_run_status?: string | null;
+  last_run_at?: string | null;
   is_schedule?: boolean;
   is_virtual?: boolean;
   workflow_run_id?: string | null;

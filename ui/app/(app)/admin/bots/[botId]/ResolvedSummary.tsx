@@ -4,7 +4,7 @@
  * and source provenance for each.
  */
 import { useState, useMemo } from "react";
-import { Wrench, Shield, Puzzle, Server, Pin, ChevronDown, ChevronRight } from "lucide-react";
+import { Wrench, Shield, Server, Pin, ChevronDown, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { BotConfig, BotEditorData, ResolvedToolEntry } from "@/src/types/api";
 
@@ -39,7 +39,6 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
   const [expanded, setExpanded] = useState(false);
 
   const preview = editorData.resolved_preview;
-  const skills = draft.skills || [];
   const carapaces = draft.carapaces || [];
   const clientTools = draft.client_tools || [];
 
@@ -153,11 +152,6 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
           {carapaces.length > 0 && (
             <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
               <Shield size={9} /> {carapaces.length}
-            </span>
-          )}
-          {skills.length > 0 && (
-            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
-              <Puzzle size={9} /> {skills.length}
             </span>
           )}
           {mcpCount > 0 && (
@@ -289,26 +283,6 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
                 </div>
               )}
             </>
-          )}
-
-          {/* Skills */}
-          {skills.length > 0 && (
-            <div>
-              <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
-                Skills ({skills.length})
-              </div>
-              <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3 }}>
-                {skills.map((s) => (
-                  <span key={s.id} style={{
-                    fontSize: 10, padding: "1px 6px", borderRadius: 3,
-                    background: `${t.accent}12`, color: t.accent,
-                    border: `1px solid ${t.accent}25`,
-                  }}>
-                    {s.id}{s.mode === "pinned" ? " (pinned)" : ""}
-                  </span>
-                ))}
-              </div>
-            </div>
           )}
 
           {/* Client tools */}
