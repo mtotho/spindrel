@@ -248,6 +248,19 @@ def _apply_transform(value: Any, transform: str, data: dict) -> Any:
         key = pluck_match.group(1)
         return [item.get(key, "") for item in value if isinstance(item, dict)]
 
+    # where: key=value — filter list items where item[key] == value
+    where_match = re.match(r"where:\s*(\w+)\s*=\s*(.+)", transform)
+    if where_match and isinstance(value, list):
+        key = where_match.group(1)
+        target = where_match.group(2).strip().strip("'\"")
+        return [item for item in value if isinstance(item, dict) and item.get(key) == target]
+
+    # first — take the first item from a list
+    if transform.strip() == "first":
+        if isinstance(value, list) and len(value) > 0:
+            return value[0]
+        return value
+
     # map: {label: name, value: id}
     map_match = re.match(r"map:\s*\{(.+)\}", transform)
     if map_match and isinstance(value, list):

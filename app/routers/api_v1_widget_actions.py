@@ -146,8 +146,8 @@ async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
     envelope = _build_result_envelope(resolved_name, result)
 
     logger.info(
-        "Widget action: tool=%s channel=%s bot=%s source=%s",
-        name, req.channel_id, req.bot_id, req.source_record_id,
+        "Widget action: tool=%s resolved=%s args=%s channel=%s result_preview=%.200s",
+        name, resolved_name, args_str, req.channel_id, result or "",
     )
 
     return WidgetActionResponse(ok=True, envelope=envelope.compact_dict())
