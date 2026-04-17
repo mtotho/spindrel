@@ -225,7 +225,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           widgetId={w.recordId}
           t={t}
           isLatestBotMessage={isLatestBotMessage}
-          defaultCollapsed={inlineWidgets.length > 2 && i < inlineWidgets.length - 1}
+          defaultCollapsed={i < inlineWidgets.length - 1 && inlineWidgets[i + 1].toolName === w.toolName}
           onPin={handlePinWidget}
         />
       ))}

@@ -9,7 +9,7 @@
  * Pin-ready: accepts optional widgetId + onPin for future side-panel pinning.
  */
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Pin } from "lucide-react";
+import { Pin, ChevronDown } from "lucide-react";
 import type { ToolResultEnvelope } from "../../types/api";
 import type { ThemeTokens } from "../../theme/tokens";
 import { useWidgetAction } from "../../api/hooks/useWidgetAction";
@@ -182,8 +182,22 @@ export function WidgetCard({
         backgroundColor: t.surfaceRaised,
       }}
     >
-      {/* Header: tool name + pinned badge + pin button */}
-      <div className="px-3 pt-2 pb-0.5 flex items-center gap-2">
+      {/* Header: tool name + pinned badge + pin button. Clicking the row
+          (outside inner buttons) collapses the card. */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setManualExpand(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setManualExpand(false);
+          }
+        }}
+        className="px-3 pt-2 pb-0.5 flex items-center gap-2 cursor-pointer hover:bg-white/[0.02] transition-colors duration-150"
+        title="Collapse"
+      >
+        <ChevronDown size={11} style={{ color: t.textDim, flexShrink: 0 }} />
         <span
           className="text-[10px] font-medium uppercase tracking-wider"
           style={{ color: t.textDim }}
@@ -199,20 +213,12 @@ export function WidgetCard({
           </span>
         )}
         <span className="flex-1" />
-        {autoCollapsed && (
-          <button
-            type="button"
-            onClick={() => setManualExpand(false)}
-            className="text-[10px] px-1 py-0.5 transition-opacity bg-transparent border-0 cursor-pointer"
-            style={{ color: t.textDim, opacity: 0.4 }}
-            title="Collapse"
-          >
-            collapse
-          </button>
-        )}
         <button
           type="button"
-          onClick={() => setShowJson(!showJson)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowJson(!showJson);
+          }}
           className="text-[10px] px-1 py-0.5 transition-opacity bg-transparent border-0 cursor-pointer opacity-40 hover:opacity-100"
           style={{ color: t.textDim }}
           title={showJson ? "Show widget" : "Show JSON"}
@@ -222,15 +228,16 @@ export function WidgetCard({
         {channelId && onPin && !isPinned && (
           <button
             type="button"
-            onClick={() =>
+            onClick={(e) => {
+              e.stopPropagation();
               onPin({
                 widgetId: widgetId ?? `${toolName}-${Date.now()}`,
                 envelope: currentEnvelope,
                 toolName,
                 channelId,
                 botId: botId ?? "default",
-              })
-            }
+              });
+            }}
             className="p-0.5 rounded hover:bg-white/[0.06] transition-colors duration-150"
             title="Pin to side panel"
           >

@@ -160,6 +160,7 @@ export function MobileOmniSheet({
             onSelectFile={onSelectFile}
             onClose={onClose}
             fullWidth
+            mobileTabs
           />
         </div>
       </div>

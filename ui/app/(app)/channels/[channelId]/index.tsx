@@ -462,16 +462,6 @@ export default function ChatScreen() {
               {floatingActions.map((h) => (
                 <HudFloatingAction key={h.key} hud={h} />
               ))}
-              {/* Nubbin — subtle left-edge tab to open OmniPanel sheet */}
-              {!showExplorer && channelId && (
-                <button
-                  type="button"
-                  onClick={() => setExplorerOpen(true)}
-                  className="absolute left-0 top-1/2 -translate-y-1/2 z-10 rounded-r-md transition-opacity duration-150 hover:opacity-80"
-                  style={{ width: 8, height: 40, backgroundColor: `${t.textMuted}1a` }}
-                  title="Open panel"
-                />
-              )}
             </div>
             {chatState.error && (
               <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />

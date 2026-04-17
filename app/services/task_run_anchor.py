@@ -36,6 +36,13 @@ logger = logging.getLogger(__name__)
 # Metadata key — renderMessage dispatches to TaskRunEnvelope on this.
 ANCHOR_KIND = "task_run"
 
+# Persisted on ``Task.execution_config`` so every update jumps straight to
+# the right Message row instead of scanning history. Each run of a recurring
+# task gets a fresh Task row (see ``tasks._spawn_from_schedule``) so the key
+# naturally resets per run — plus we validate with a metadata.task_id check
+# in case ``execution_config`` was deep-copied from the schedule template.
+ANCHOR_MSG_KEY = "task_run_anchor_msg_id"
+
 
 def _step_summary(task: Task) -> list[dict]:
     """Shape step definitions + current states into the envelope payload."""
@@ -117,21 +124,44 @@ async def _resolve_session_id(db, task: Task) -> uuid.UUID | None:
     return channel.active_session_id if channel else None
 
 
-async def _find_existing_anchor(db, task_id: uuid.UUID) -> Message | None:
-    """Look up an anchor message for this task_id (newest wins)."""
-    # SQLite JSON access differs from PG JSONB; use a simple Python filter
-    # over the session's recent messages. Per run there is one anchor; if a
-    # caller writes two, the newest is authoritative.
+async def _find_existing_anchor(
+    db, task: Task, session_id: uuid.UUID | None = None,
+) -> Message | None:
+    """Look up this task's anchor Message.
+
+    Fast path: read ``task.execution_config[ANCHOR_MSG_KEY]`` and fetch the
+    row directly. Validates the hit with a ``metadata.task_id`` check so a
+    stale id copied from a schedule template can't point us at the wrong run.
+
+    Fallback: scan the session's recent assistant messages and filter by
+    ``metadata.kind`` + ``metadata.task_id``. Scoped to the session so we
+    don't cross channels or hit the 200-row cliff on busy servers.
+    """
+    ec = task.execution_config or {}
+    existing_id_str = ec.get(ANCHOR_MSG_KEY)
+    if existing_id_str:
+        try:
+            existing_id = uuid.UUID(str(existing_id_str))
+        except (ValueError, TypeError):
+            existing_id = None
+        if existing_id is not None:
+            m = await db.get(Message, existing_id)
+            if m is not None and (m.metadata_ or {}).get("task_id") == str(task.id):
+                return m
+
+    if session_id is None:
+        return None
+
     stmt = (
         select(Message)
-        .where(Message.role == "assistant")
+        .where(Message.session_id == session_id, Message.role == "assistant")
         .order_by(Message.created_at.desc())
-        .limit(200)
+        .limit(50)
     )
     rows = (await db.execute(stmt)).scalars().all()
     for m in rows:
         meta = m.metadata_ or {}
-        if meta.get("kind") == ANCHOR_KIND and meta.get("task_id") == str(task_id):
+        if meta.get("kind") == ANCHOR_KIND and meta.get("task_id") == str(task.id):
             return m
     return None
 
@@ -149,17 +179,32 @@ async def ensure_anchor_message(task: Task) -> uuid.UUID | None:
         return None
 
     async with async_session() as db:
-        session_id = await _resolve_session_id(db, task)
-        if session_id is None:
-            logger.debug("task %s has no session to anchor to", task.id)
+        # Always work off a fresh Task row — step_executor hands us a
+        # detached instance and execution_config may have been updated
+        # since (e.g. this anchor id being persisted by a sibling call).
+        t = await db.get(Task, task.id)
+        if t is None:
             return None
 
-        existing = await _find_existing_anchor(db, task.id)
+        session_id = await _resolve_session_id(db, t)
+        if session_id is None:
+            logger.debug("task %s has no session to anchor to", t.id)
+            return None
+
+        existing = await _find_existing_anchor(db, t, session_id)
         if existing is not None:
+            # Backfill the pointer if it wasn't written (e.g. the anchor
+            # was created before this key existed).
+            ec = dict(t.execution_config or {})
+            if ec.get(ANCHOR_MSG_KEY) != str(existing.id):
+                ec[ANCHOR_MSG_KEY] = str(existing.id)
+                t.execution_config = ec
+                flag_modified(t, "execution_config")
+                await db.commit()
             return existing.id
 
-        metadata = _build_metadata(task)
-        fallback = _fallback_text(task, task.status or "pending", metadata["steps"])
+        metadata = _build_metadata(t)
+        fallback = _fallback_text(t, t.status or "pending", metadata["steps"])
         msg = Message(
             id=uuid.uuid4(),
             session_id=session_id,
@@ -168,39 +213,59 @@ async def ensure_anchor_message(task: Task) -> uuid.UUID | None:
             metadata_=metadata,
         )
         db.add(msg)
+
+        # Persist the anchor id onto the task so update_anchor() can jump
+        # straight to it without scanning history.
+        ec = dict(t.execution_config or {})
+        ec[ANCHOR_MSG_KEY] = str(msg.id)
+        t.execution_config = ec
+        flag_modified(t, "execution_config")
+
         await db.commit()
         await db.refresh(msg)
 
-        await _publish_new_message(task.channel_id, msg)
-        logger.info("task_run anchor created: task=%s msg=%s", task.id, msg.id)
+        await _publish_new_message(t.channel_id, msg)
+        logger.info("task_run anchor created: task=%s msg=%s", t.id, msg.id)
         return msg.id
 
 
 async def update_anchor(task: Task) -> None:
     """Re-snapshot *task* into its anchor message and publish MESSAGE_UPDATED.
 
-    No-op if the task has no channel or no anchor row. Called after every
-    step-state transition and on pipeline finalization.
+    No-op if the task has no channel. Called after every step-state
+    transition and on pipeline finalization. Creates the anchor lazily if
+    it's somehow missing (e.g. pipeline started before the ensure call).
     """
     if task.channel_id is None:
         return
     async with async_session() as db:
-        existing = await _find_existing_anchor(db, task.id)
-        if existing is None:
-            # The pipeline started mid-flight before an anchor was created.
-            # Best-effort create now.
-            await db.rollback()
-            await ensure_anchor_message(task)
+        # Re-fetch the task so we see the freshly-persisted step_states
+        # (step_executor commits them before calling us).
+        t = await db.get(Task, task.id)
+        if t is None:
             return
 
-        metadata = _build_metadata(task)
+        session_id = await _resolve_session_id(db, t)
+        existing = await _find_existing_anchor(db, t, session_id)
+        if existing is None:
+            # Lazy-create — close this session first to avoid holding two.
+            await db.rollback()
+            await ensure_anchor_message(t)
+            return
+
+        metadata = _build_metadata(t)
         existing.metadata_ = copy.deepcopy(metadata)
-        existing.content = _fallback_text(task, task.status or metadata["status"], metadata["steps"])
-        flag_modified(existing, "metadata")
+        existing.content = _fallback_text(
+            t, t.status or metadata["status"], metadata["steps"],
+        )
+        # ORM attribute name (underscore) — NOT the DB column name. SQLAlchemy
+        # uses the Python attribute to locate the instrumented attribute;
+        # passing "metadata" silently does nothing for JSONB mutation tracking.
+        flag_modified(existing, "metadata_")
         await db.commit()
         await db.refresh(existing)
 
-        await _publish_message_updated(task.channel_id, existing)
+        await _publish_message_updated(t.channel_id, existing)
 
 
 async def _publish_new_message(channel_id: uuid.UUID, msg: Message) -> None:

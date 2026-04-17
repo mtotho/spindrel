@@ -157,16 +157,14 @@ export function ChannelHeader({
           </button>
         )}
         {/* OmniPanel toggle: always available (pinned widgets work without a workspace) */}
-        {!isMobile && (
-          <button
-            className="header-icon-btn"
-            style={{ width: 36, height: 36, backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent" }}
-            onClick={toggleExplorer}
-            title={explorerOpen ? "Hide panel" : "Show panel"}
-          >
-            <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
-          </button>
-        )}
+        <button
+          className="header-icon-btn"
+          style={{ width: 36, height: 36, backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent" }}
+          onClick={toggleExplorer}
+          title={explorerOpen ? "Hide panel" : "Show panel"}
+        >
+          <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
+        </button>
         {/* Split view toggle — visible when a file is open */}
         {activeFile && onToggleSplit && !isMobile && (
           <button

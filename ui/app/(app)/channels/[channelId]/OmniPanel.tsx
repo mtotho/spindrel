@@ -7,7 +7,7 @@
  * Replaces the raw ChannelFileExplorer mount in ChatScreen.
  * The panel is always available — no longer gated on workspaceId.
  */
-import { useCallback, useEffect, useRef, useMemo } from "react";
+import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { ChevronRight, Pin, Layers } from "lucide-react";
 import {
   DndContext,
@@ -40,6 +40,8 @@ interface OmniPanelProps {
   onClose: () => void;
   width?: number;
   fullWidth?: boolean;
+  /** Mobile bottom-sheet mode: swap stacked layout for Files/Pinned tabs */
+  mobileTabs?: boolean;
 }
 
 export function OmniPanel({
@@ -53,6 +55,7 @@ export function OmniPanel({
   onClose,
   width = 260,
   fullWidth = false,
+  mobileTabs = false,
 }: OmniPanelProps) {
   const t = useThemeTokens();
   const filesSectionCollapsed = usePinnedWidgetsStore((s) => s.filesSectionCollapsed);
@@ -117,6 +120,93 @@ export function OmniPanel({
     },
     [widgetIds, channelId, reorderWidgets],
   );
+
+  // ── Mobile tabs layout: Files/Pinned segmented control, one section visible ──
+  const [tab, setTab] = useState<"files" | "pinned">(hasWorkspace ? "files" : "pinned");
+  // If workspace disappears mid-session, fall back to pinned
+  useEffect(() => {
+    if (!hasWorkspace && tab === "files") setTab("pinned");
+  }, [hasWorkspace, tab]);
+
+  if (mobileTabs) {
+    const activeTab = hasWorkspace ? tab : "pinned";
+    return (
+      <div
+        className="flex flex-col h-full overflow-hidden"
+        style={{
+          ...(fullWidth ? { flex: 1 } : { width, flexShrink: 0 }),
+          backgroundColor: t.surfaceRaised,
+        }}
+      >
+        {hasWorkspace && (
+          <div
+            className="flex items-center gap-1 px-2 pt-1 pb-1"
+            style={{ borderBottom: `1px solid ${t.surfaceBorder}55` }}
+          >
+            <TabButton
+              label="Files"
+              active={activeTab === "files"}
+              onClick={() => setTab("files")}
+              t={t}
+            />
+            <TabButton
+              label="Pinned"
+              active={activeTab === "pinned"}
+              onClick={() => setTab("pinned")}
+              count={pinnedWidgets.length}
+              t={t}
+            />
+          </div>
+        )}
+
+        {activeTab === "files" && hasWorkspace ? (
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <ChannelFileExplorer
+              channelId={channelId}
+              botId={botId}
+              workspaceId={workspaceId}
+              channelDisplayName={channelDisplayName}
+              channelWorkspaceEnabled={channelWorkspaceEnabled}
+              activeFile={activeFile}
+              onSelectFile={onSelectFile}
+              onClose={onClose}
+              fullWidth
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col flex-1 min-h-0">
+            {hasWidgets ? (
+              <div className="flex-1 overflow-y-auto px-2 pt-2 pb-2 space-y-1.5">
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={widgetIds} strategy={verticalListSortingStrategy}>
+                    {sortedWidgets.map((widget) => (
+                      <PinnedToolWidget
+                        key={widget.id}
+                        widget={widget}
+                        channelId={channelId}
+                        onUnpin={handleUnpin}
+                        onEnvelopeUpdate={handleEnvelopeUpdate}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 gap-2">
+                <Layers size={24} style={{ color: t.textMuted, opacity: 0.3 }} />
+                <span
+                  className="text-center text-xs leading-relaxed"
+                  style={{ color: t.textMuted, opacity: 0.5 }}
+                >
+                  Pin tool widgets from chat for quick access
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -213,5 +303,47 @@ export function OmniPanel({
         )}
       </div>
     </div>
+  );
+}
+
+function TabButton({
+  label,
+  active,
+  onClick,
+  count,
+  t,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  count?: number;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors duration-150 bg-transparent border-0 cursor-pointer"
+      style={{
+        color: active ? t.text : t.textMuted,
+        backgroundColor: active ? t.surfaceOverlay : "transparent",
+        fontSize: 12,
+        fontWeight: 600,
+        letterSpacing: 0.3,
+      }}
+    >
+      <span>{label}</span>
+      {typeof count === "number" && count > 0 && (
+        <span
+          className="text-[10px] tabular-nums rounded-full px-1.5 py-0.5"
+          style={{
+            color: active ? t.accent : t.textMuted,
+            backgroundColor: active ? `${t.accent}22` : `${t.textMuted}18`,
+          }}
+        >
+          {count}
+        </span>
+      )}
+    </button>
   );
 }
