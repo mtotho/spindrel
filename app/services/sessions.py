@@ -533,6 +533,10 @@ async def persist_turn(
         # Carry forward auto-injected skills for UI display on persisted messages
         if msg.get("_auto_injected_skills"):
             meta = {**meta, "auto_injected_skills": msg["_auto_injected_skills"]}
+        # Carry forward skills still in context (from prior get_skill calls)
+        # for the UI skill orb on persisted messages.
+        if msg.get("_active_skills"):
+            meta = {**meta, "active_skills": msg["_active_skills"]}
         # Carry forward LLM retry/fallback info for UI display on persisted messages
         if msg.get("_llm_status"):
             meta = {**meta, "llm_status": msg["_llm_status"]}

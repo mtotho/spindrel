@@ -196,6 +196,7 @@ export default function TraceScreen() {
 
       {/* Timeline */}
       <div className="flex-1 overflow-auto" style={{ padding: isMobile ? 12 : 20 }}>
+        <DiscoverySummaryCard events={data.events} />
         <div style={{
           position: "relative", paddingLeft: 24,
           borderLeft: `2px solid ${t.surfaceOverlay}`, marginLeft: 8,
@@ -204,6 +205,123 @@ export default function TraceScreen() {
             <TimelineEvent key={i} event={ev} isMobile={isMobile} />
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Discovery summary card — consolidated view of skill + tool discovery decisions
+// per turn. Reads the `discovery_summary` TraceEvent emitted by context_assembly.
+// ---------------------------------------------------------------------------
+function DiscoverySummaryCard({ events }: { events: TraceEvent[] }) {
+  const t = useThemeTokens();
+  const ev = events.find((e) => e.event_type === "discovery_summary");
+  if (!ev || !ev.data) return null;
+  const d = ev.data as any;
+  const skills = d.skills || {};
+  const tools = d.tools || {};
+  const autoInjected: Array<{ skill_id: string; similarity: number }> = skills.auto_injected || [];
+  const hasSkills = (skills.enrolled_count ?? 0) > 0 || (skills.discoverable_unenrolled_count ?? 0) > 0;
+  const hasTools = tools.tool_retrieval_enabled;
+  if (!hasSkills && !hasTools) return null;
+
+  const rowStyle: React.CSSProperties = {
+    display: "flex", flexDirection: "row", gap: 12, alignItems: "baseline",
+    fontSize: 12, color: t.contentText, padding: "6px 0",
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: 10, fontWeight: 700, color: t.textDim,
+    textTransform: "uppercase", letterSpacing: "0.06em",
+    minWidth: 72, flexShrink: 0,
+  };
+  const mutedPill: React.CSSProperties = {
+    fontSize: 10, padding: "1px 6px", borderRadius: 3,
+    background: t.surfaceRaised, color: t.textMuted,
+  };
+
+  return (
+    <div
+      className="rounded-lg mb-4"
+      style={{
+        background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+        padding: "10px 14px",
+      }}
+    >
+      <div style={{
+        fontSize: 10, fontWeight: 700, color: t.textDim,
+        textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6,
+      }}>
+        Discovery
+      </div>
+
+      {hasSkills && (
+        <div style={rowStyle}>
+          <span style={labelStyle}>Skills</span>
+          <span style={{ flex: 1 }}>
+            <span style={mutedPill}>{skills.enrolled_count ?? 0} enrolled</span>
+            {skills.relevant_count > 0 && (
+              <span style={{ ...mutedPill, marginLeft: 6, color: t.success }}>
+                ↑ {skills.relevant_count} relevant
+              </span>
+            )}
+            {autoInjected.length > 0 && (
+              <span style={{ ...mutedPill, marginLeft: 6, color: t.purple }}>
+                {autoInjected.length} auto-injected
+              </span>
+            )}
+            {(skills.discoverable_unenrolled_count ?? 0) > 0 && (
+              <span style={{ ...mutedPill, marginLeft: 6 }}>
+                {skills.discoverable_unenrolled_count} discoverable
+              </span>
+            )}
+            {autoInjected.length > 0 && (
+              <span style={{ marginLeft: 10, fontSize: 10, color: t.textDim }}>
+                {autoInjected.map((ai) => `${ai.skill_id} (${ai.similarity.toFixed(2)})`).join(", ")}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+
+      {hasTools && (
+        <div style={rowStyle}>
+          <span style={labelStyle}>Tools</span>
+          <span style={{ flex: 1 }}>
+            <span style={mutedPill}>{(tools.pinned || []).length} pinned</span>
+            <span style={{ ...mutedPill, marginLeft: 6 }}>
+              {(tools.included || []).length} included
+            </span>
+            {(tools.enrolled_working_set || []).length > 0 && (
+              <span style={{ ...mutedPill, marginLeft: 6 }}>
+                {tools.enrolled_working_set.length} working set
+              </span>
+            )}
+            <span style={{ ...mutedPill, marginLeft: 6, color: tools.retrieved_count > 0 ? t.warningMuted : t.textMuted }}>
+              {tools.retrieved_count ?? 0} retrieved (≥{(tools.threshold ?? 0).toFixed(2)})
+            </span>
+            {(tools.unretrieved_count ?? 0) > 0 && (
+              <span style={{ ...mutedPill, marginLeft: 6 }}>
+                {tools.unretrieved_count} index-only
+              </span>
+            )}
+            {(tools.retrieved || []).length > 0 && (
+              <span style={{ marginLeft: 10, fontSize: 10, color: t.textDim }}>
+                {tools.retrieved.slice(0, 5).join(", ")}
+                {tools.retrieved.length > 5 && ` +${tools.retrieved.length - 5}`}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+
+      <div style={{
+        marginTop: 4, fontSize: 10, color: t.textDim,
+        display: "flex", flexDirection: "row", gap: 10, flexWrap: "wrap",
+      }}>
+        <span>auto-inject max: {skills.auto_inject_max ?? 0}</span>
+        <span>threshold: {(skills.auto_inject_threshold ?? 0).toFixed(2)}</span>
+        <span>ranking: {skills.ranking_enabled ? "on" : "off"}</span>
       </div>
     </div>
   );

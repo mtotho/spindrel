@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { DetailPanel } from "./DetailPanel";
@@ -11,14 +11,13 @@ import { useUIStore } from "../../stores/ui";
 import { useChatStore } from "../../stores/chat";
 import { useSystemStatus } from "../../api/hooks/useSystemStatus";
 import { CommandPalette, useCommandPaletteShortcut } from "./CommandPalette";
-import { cn } from "../../lib/cn";
 
 export function AppShell() {
   const columns = useResponsiveColumns();
   const hasDetail = useUIStore((s) => s.detailPanel.type !== null);
-  const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPaletteShortcut();
-  const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
-  const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
+  const paletteOpen = useUIStore((s) => s.paletteOpen);
+  const closePalette = useUIStore((s) => s.closePalette);
+  useCommandPaletteShortcut();
   const { data: status } = useSystemStatus();
   const anyStreaming = useChatStore(
     (s) => Object.values(s.channels).some((ch) => Object.keys(ch.turns).length > 0),
@@ -42,36 +41,11 @@ export function AppShell() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [anyStreaming]);
 
-  // Escape key closes mobile sidebar
-  useEffect(() => {
-    if (!mobileSidebarOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeMobileSidebar();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [mobileSidebarOpen, closeMobileSidebar]);
-
-  // Keep the overlay mounted during the exit animation, then unmount
-  const [mounted, setMounted] = useState(false);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (mobileSidebarOpen) {
-      setMounted(true);
-      requestAnimationFrame(() => setVisible(true));
-    } else {
-      setVisible(false);
-      const timer = setTimeout(() => setMounted(false), 300);
-      return () => clearTimeout(timer);
-    }
-  }, [mobileSidebarOpen]);
-
   return (
     <div className="relative flex flex-col flex-1 bg-surface overflow-hidden h-full">
       {status?.paused && <SystemPauseBanner behavior={status.pause_behavior} />}
       <div className="flex flex-row flex-1 overflow-hidden">
-        {/* Sidebar — hidden on single column (mobile), shown as overlay when toggled */}
+        {/* Sidebar — desktop only. On mobile the palette is the nav surface. */}
         {columns !== "single" && <Sidebar />}
 
         {/* Center content — always visible */}
@@ -90,38 +64,10 @@ export function AppShell() {
 
         {/* Global workflow HUD — shows when any workflow is actively running */}
         <ActiveWorkflowsHud />
-
-        {/* Mobile sidebar drawer */}
-        {columns === "single" && mounted && (
-          <div
-            className={cn(
-              "absolute inset-0 z-[100] flex flex-row",
-              visible ? "pointer-events-auto" : "pointer-events-none",
-            )}
-          >
-            {/* Backdrop */}
-            <div
-              onClick={closeMobileSidebar}
-              className={cn(
-                "absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-250",
-                visible ? "opacity-100" : "opacity-0",
-              )}
-            />
-            {/* Sidebar panel — slides from left */}
-            <div className={cn(
-              "flex-1 z-[1] shadow-2xl transition-transform duration-300",
-              visible
-                ? "translate-x-0 ease-out"
-                : "-translate-x-full ease-in",
-            )}>
-              <Sidebar mobile />
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Global command palette (Cmd+K / Ctrl+K) */}
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      {/* Global command palette (Cmd+K / Ctrl+K on desktop, hamburger on mobile) */}
+      <CommandPalette open={paletteOpen} onClose={closePalette} />
     </div>
   );
 }

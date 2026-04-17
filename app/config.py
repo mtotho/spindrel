@@ -626,10 +626,16 @@ class Settings(BaseSettings):
     # relevant skills have their full content pre-loaded into context, skipping
     # the get_skill round-trip. Auto-inject is budget-gated — if content doesn't
     # fit the context window, it's silently skipped.
+    #
+    # AUTO_INJECT_MAX is disabled (0) by default pending prompt-first evaluation:
+    # the index prompt is now directive ("BEFORE answering, call get_skill FIRST…")
+    # and should motivate bots to fetch on their own. Machinery remains; raise to
+    # 1+ via env var to re-enable after measuring whether the prompt alone is
+    # sufficient (use the discovery_summary trace event).
     SKILL_ENROLLED_RANKING_ENABLED: bool = True
     SKILL_ENROLLED_RELEVANCE_THRESHOLD: float = 0.40   # ↑ annotation threshold in skill list
     SKILL_ENROLLED_AUTO_INJECT_THRESHOLD: float = 0.55  # pre-load content into context (higher bar)
-    SKILL_ENROLLED_AUTO_INJECT_MAX: int = 1
+    SKILL_ENROLLED_AUTO_INJECT_MAX: int = 0  # disabled by default; see note above
 
     # Dynamic tool selection (embed tool descriptions, retrieve top-K per turn)
     TOOL_RETRIEVAL_THRESHOLD: float = 0.35

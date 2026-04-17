@@ -1,5 +1,7 @@
-# Widget template for manage_bot_skill (list action)
-# Only applies when result contains a "skills" array (list action).
+# Widget template for manage_bot_skill (list action only).
+# Only renders when the result contains a "skills" key (list action).
+# Write/create/delete actions don't have this key — all components are
+# guarded by when: so nothing renders and it falls back to badge.
 
 manage_bot_skill:
   content_type: application/vnd.spindrel.components+json
@@ -10,6 +12,7 @@ manage_bot_skill:
       - type: heading
         text: "Bot Skills ({{total}})"
         level: 3
+        when: "{{skills}}"
       - type: table
         columns: ["Skill", "Category", "Surfaced"]
         rows:
@@ -17,7 +20,3 @@ manage_bot_skill:
           template: ["{{_.name}}", "{{_.category | default: —}}", "{{_.surface_count | default: 0}}"]
         compact: true
         when: "{{skills | not_empty}}"
-      - type: status
-        text: "No skills yet"
-        color: muted
-        when: "{{skills | not_empty | in: false,False}}"

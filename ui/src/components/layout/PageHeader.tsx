@@ -32,7 +32,7 @@ export function PageHeader({
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
-  const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
+  const openPalette = useUIStore((s) => s.openPalette);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const navigate = useNavigate();
 
@@ -50,7 +50,7 @@ export function PageHeader({
   const navButton = showNav && (
     <button
       onClick={useHamburger
-        ? (isMobile ? openMobileSidebar : toggleSidebar)
+        ? (isMobile ? openPalette : toggleSidebar)
         : handleBack}
       aria-label={useHamburger ? "Open menu" : "Go back"}
       className="w-10 h-10 rounded-md flex flex-row items-center justify-center hover:bg-surface-overlay/60 transition-colors cursor-pointer bg-transparent border-none p-0"

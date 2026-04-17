@@ -63,7 +63,7 @@ export function ChannelHeader({
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
-  const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
+  const openPalette = useUIStore((s) => s.openPalette);
   const [compact, setCompact] = useToolResultCompact(channelId);
 
   const fmtTokens = (n: number) => {
@@ -88,7 +88,7 @@ export function ChannelHeader({
         }}
       >
         {isMobile ? (
-          <button className="header-icon-btn" style={{ width: 36, height: 36 }} onClick={openMobileSidebar} title="Open menu">
+          <button className="header-icon-btn" style={{ width: 36, height: 36 }} onClick={openPalette} title="Open menu">
             <Menu size={18} color={t.textMuted} />
           </button>
         ) : columns === "single" ? (

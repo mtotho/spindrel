@@ -263,6 +263,7 @@ class AssemblyResult:
     budget_utilization: float | None = None
     effective_local_tools: list[str] | None = None
     auto_inject_skills: list[dict[str, Any]] = field(default_factory=list)
+    active_skills: list[dict[str, Any]] = field(default_factory=list)
 
 
 async def _inject_memory_scheme(
@@ -1192,8 +1193,10 @@ async def assemble_context(
     _enrolled_ids: list[str] = []
     _ranked_relevant: list[str] = []
     _auto_injected: list[str] = []
+    _auto_injected_similarities: dict[str, float] = {}
     _history_fetched_skills: set[str] = set()
     _skipped_in_history: list[str] = []
+    _tool_discovery_info: dict[str, Any] = {"tool_retrieval_enabled": False}
     _skipped_budget: list[str] = []
 
     if bot.id:
@@ -1205,6 +1208,22 @@ async def assemble_context(
         from sqlalchemy import select as _sa_select
         from app.db.engine import async_session as _async_session
         from app.db.models import Skill as _SkillRow
+
+        # Scan conversation history for skills already fetched via get_skill().
+        # Unconditional — the set drives auto-inject dedup below AND the UI
+        # "skills still in context" orb via result.active_skills. Runs even for
+        # bots with no enrolled skills (catalog skills can still be fetched).
+        for _hmsg in messages:
+            if _hmsg.get("role") == "assistant" and _hmsg.get("tool_calls"):
+                for _htc in _hmsg["tool_calls"]:
+                    _hfn = _htc.get("function") or {}
+                    if _hfn.get("name") == "get_skill":
+                        try:
+                            _hargs = json.loads(_hfn.get("arguments", "{}"))
+                            if _hargs.get("skill_id"):
+                                _history_fetched_skills.add(_hargs["skill_id"])
+                        except (json.JSONDecodeError, TypeError):
+                            pass
 
         def _fmt_skill_line(r, *, relevant: bool = False) -> str:
             prefix = "↑" if relevant else "-"
@@ -1267,17 +1286,23 @@ async def assemble_context(
                         for sid in _sorted_ids if sid in _row_map
                     )
                     _header = (
-                        "Your enrolled skills — call get_skill(skill_id=\"<id>\") for full content.\n"
-                        "Skills marked ↑ are relevant to this message — load them before responding.\n"
+                        "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
+                        "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content. "
+                        "Answering from the description alone is the primary source of bad replies.\n"
+                        "Skills marked ↑ are semantically relevant to this message — load them before responding.\n"
                         if _has_relevant else
-                        "Your enrolled skills — call get_skill(skill_id=\"<id>\") for full content:\n"
+                        "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
+                        "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content:\n"
                     )
                 else:
                     # No ranking (disabled, no user_message, or failure) — flat list
                     _working_lines = "\n".join(
                         _fmt_skill_line(r) for r in _enrolled_rows
                     )
-                    _header = "Your enrolled skills — call get_skill(skill_id=\"<id>\") for full content:\n"
+                    _header = (
+                        "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
+                        "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content:\n"
+                    )
 
                 messages.append({
                     "role": "system",
@@ -1291,19 +1316,6 @@ async def assemble_context(
                 # prior get_skill() calls in conversation history.
                 # Budget-gated: if the skill content doesn't fit, stop.
                 if _ranking and settings.SKILL_ENROLLED_AUTO_INJECT_MAX > 0 and not skip_skill_inject:
-                    # Scan conversation history for skills already fetched via get_skill()
-                    for _hmsg in messages:
-                        if _hmsg.get("role") == "assistant" and _hmsg.get("tool_calls"):
-                            for _htc in _hmsg["tool_calls"]:
-                                _hfn = _htc.get("function") or {}
-                                if _hfn.get("name") == "get_skill":
-                                    try:
-                                        _hargs = json.loads(_hfn.get("arguments", "{}"))
-                                        if _hargs.get("skill_id"):
-                                            _history_fetched_skills.add(_hargs["skill_id"])
-                                    except (json.JSONDecodeError, TypeError):
-                                        pass
-
                     _already_injected = (
                         set(_tagged_skill_names) | set(_untagged_ephemeral) | _history_fetched_skills
                     )
@@ -1338,6 +1350,7 @@ async def assemble_context(
                                     "content": _ai_formatted,
                                 })
                                 _auto_injected.append(_ri["skill_id"])
+                                _auto_injected_similarities[_ri["skill_id"]] = _safe_sim(_ri["similarity"])
                                 _injected_count += 1
                                 from app.tools.local.skills import _increment_auto_inject_count
                                 asyncio.create_task(
@@ -1700,8 +1713,11 @@ async def assemble_context(
                 )
                 _tool_idx_content = (
                     "You have MORE tools available than what's currently loaded. "
-                    "Call get_tool_info(tool_name=\"<name>\") to activate any of these — "
-                    "do this BEFORE saying you don't have a tool:\n"
+                    "BEFORE producing a best-effort answer — or saying you don't have a tool — "
+                    "call get_tool_info(tool_name=\"<name>\") for any entry below that could "
+                    "plausibly apply. These lines are an index; the full schema is only accessible "
+                    "via get_tool_info. Acting without fetching the schema when a relevant tool "
+                    "exists is the primary source of wrong/missing actions.\n"
                     + _index_lines
                 )
                 # P4: expendable — skip if budget is tight
@@ -1711,6 +1727,22 @@ async def assemble_context(
                     yield {"type": "tool_index", "unretrieved_count": len(_unretrieved)}
                 else:
                     logger.info("Budget: skipping tool index hints (%d tools)", len(_unretrieved))
+
+            # Capture tool discovery info for discovery_summary event (emitted at end).
+            _tool_discovery_info = {
+                "tool_retrieval_enabled": True,
+                "tool_discovery_enabled": bool(bot.tool_discovery),
+                "threshold": th,
+                "pool_total": len(by_name),
+                "pinned": list(bot.pinned_tools or []),
+                "included": list(bot.local_tools or []),
+                "enrolled_working_set": list(_enrolled_tool_names),
+                "retrieved": [t["function"]["name"] for t in retrieved],
+                "retrieved_count": len(retrieved),
+                "top_candidates": tool_candidates[:5] if tool_candidates else [],
+                "best_similarity": _safe_sim(tool_sim),
+                "unretrieved_count": len(_unretrieved) if _unretrieved else 0,
+            }
     # --- merge dynamically injected tools (e.g. post_heartbeat_to_channel) ---
     from app.agent.context import current_injected_tools
     _injected = current_injected_tools.get()
@@ -1837,6 +1869,65 @@ async def assemble_context(
             client_id=client_id,
             event_type="context_injection_summary",
             data=_summary_data,
+        ))
+
+    # --- active skills snapshot for UI ---
+    # Surfaces which skills are still in the LLM's context this turn (fetched via
+    # prior get_skill() calls and still sitting in conversation history). The loop
+    # consumes result.active_skills and emits an `active_skills` stream event so
+    # turn_worker can tag the assistant message metadata.
+    if _history_fetched_skills:
+        _skill_name_map: dict[str, str] = {r.id: r.name for r in _enrolled_rows}
+        _missing_skill_ids = [sid for sid in _history_fetched_skills if sid not in _skill_name_map]
+        if _missing_skill_ids:
+            try:
+                from app.db.engine import async_session as _async_session_names
+                from app.db.models import Skill as _SkillRowForNames
+                from sqlalchemy import select as _sa_select_names
+                async with _async_session_names() as _db:
+                    _name_rows = (await _db.execute(
+                        _sa_select_names(_SkillRowForNames.id, _SkillRowForNames.name)
+                        .where(_SkillRowForNames.id.in_(_missing_skill_ids))
+                    )).all()
+                    for _nr in _name_rows:
+                        _skill_name_map[_nr.id] = _nr.name
+            except Exception:
+                logger.warning("active_skills name lookup failed", exc_info=True)
+        for _sid in sorted(_history_fetched_skills):
+            result.active_skills.append({
+                "skill_id": _sid,
+                "skill_name": _skill_name_map.get(_sid, _sid),
+            })
+
+    # --- discovery summary trace (skills + tools, consolidated for at-a-glance) ---
+    # Emitted unconditionally so the UI can render a single "what did discovery do
+    # this turn" card. Complements the richer skill_index / tool_retrieval events
+    # that carry full detail.
+    if correlation_id is not None:
+        _discovery_data: dict[str, Any] = {
+            "skills": {
+                "enrolled_count": len(_enrolled_ids),
+                "enrolled_in_context": len(_enrolled_rows),
+                "relevant_count": len(_ranked_relevant),
+                "auto_injected": [
+                    {"skill_id": sid, "similarity": _auto_injected_similarities.get(sid, 0.0)}
+                    for sid in _auto_injected
+                ],
+                "discoverable_unenrolled_count": len(_suggestion_rows),
+                "auto_inject_threshold": settings.SKILL_ENROLLED_AUTO_INJECT_THRESHOLD,
+                "auto_inject_max": settings.SKILL_ENROLLED_AUTO_INJECT_MAX,
+                "ranking_enabled": settings.SKILL_ENROLLED_RANKING_ENABLED,
+                "history_fetched": sorted(_history_fetched_skills) if _history_fetched_skills else [],
+            },
+            "tools": _tool_discovery_info,
+        }
+        asyncio.create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
+            event_type="discovery_summary",
+            data=_discovery_data,
         ))
 
 

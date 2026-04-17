@@ -298,10 +298,15 @@ def _build_tool_groups(tool_rows, *, memory_scheme: str | None = None) -> list[d
     from collections import defaultdict
     integration_packs: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     for r in tool_rows:
+        # MCP-source tools set server_name but not source_integration/source_file.
+        # Group them under their server_name so external-integration tools (e.g. bennie_loggins)
+        # appear in the Tool Pool instead of being invisible.
         if r.server_name is not None:
-            continue
-        intg = r.source_integration or "core"
-        pack = (r.source_file or "misc").replace(".py", "")
+            intg = r.source_integration or r.server_name
+            pack = r.server_name
+        else:
+            intg = r.source_integration or "core"
+            pack = (r.source_file or "misc").replace(".py", "")
         schema = r.schema_ or {}
         fn = schema.get("function", {})
         integration_packs[intg][pack].append({
@@ -349,11 +354,13 @@ def _build_resolved_preview(bot, tool_rows) -> ResolvedPreview:
     """
     from app.agent.carapaces import get_carapace, resolve_carapaces
 
-    # Build a lookup: tool_name → source_integration
+    # Build a lookup: tool_name → source_integration (or server_name for MCP tools)
     tool_integration: dict[str, str] = {}
     for r in tool_rows:
         if r.server_name is None:
             tool_integration[r.tool_name] = r.source_integration or "core"
+        else:
+            tool_integration[r.tool_name] = r.source_integration or r.server_name
 
     seen_tools: set[str] = set()
     tools: list[ResolvedToolEntry] = []

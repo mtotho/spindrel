@@ -35,13 +35,17 @@ import {
   Code2,
   CornerDownLeft,
   Brain,
-  ChevronDown,
   ChevronUp,
+  ChevronDown,
   Clock,
+  Home,
+  Plus,
+  X,
 } from "lucide-react";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
 import { useSidebarSections, useIntegrations } from "../../api/hooks/useIntegrations";
+import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useThemeTokens } from "../../theme/tokens";
 import { useUIStore, type RecentPage } from "../../stores/ui";
 
@@ -274,30 +278,54 @@ function resolveRouteMetadata(href: string): RouteMeta | null {
 // ---------------------------------------------------------------------------
 
 export function useCommandPaletteShortcut() {
-  const [open, setOpen] = useState(false);
+  const openPalette = useUIStore((s) => s.openPalette);
+  const closePalette = useUIStore((s) => s.closePalette);
 
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setOpen((v) => !v);
+        // Toggle based on current store state (reading inside the closure
+        // avoids resubscribing the listener on every open/close).
+        const isOpen = useUIStore.getState().paletteOpen;
+        if (isOpen) closePalette();
+        else openPalette();
       }
     }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
-
-  return { open, setOpen };
+  }, [openPalette, closePalette]);
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
+// Category ordering for the empty-state browse view.
+const CATEGORY_ORDER = [
+  "Recent",
+  "Channels",
+  "Bots",
+  "Configure",
+  "Automate",
+  "Security",
+  "Developer",
+  "Monitor",
+  "Integrations",
+  "Settings",
+];
+
+function categoryRank(cat: string): number {
+  const idx = CATEGORY_ORDER.indexOf(cat);
+  return idx === -1 ? CATEGORY_ORDER.length : idx;
+}
+
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useThemeTokens();
   const navigate = useNavigate();
   const location = useLocation();
+  const columns = useResponsiveColumns();
+  const isMobile = columns === "single";
   const currentHref = location.pathname + (location.hash || "");
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -336,6 +364,26 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   // Build flat item list
   const allItems = useMemo<PaletteItem[]>(() => {
     const items: PaletteItem[] = [];
+
+    // Channel-management entry points. Listed first so they appear at the
+    // top of the Channels section — the mobile palette is the only way to
+    // reach the home screen / add-channel flow now that the drawer is gone.
+    items.push({
+      id: "nav-home",
+      label: "Home",
+      hint: "All channels",
+      href: "/",
+      icon: Home,
+      category: "Channels",
+    });
+    items.push({
+      id: "nav-new-channel",
+      label: "New channel",
+      hint: "Create a channel",
+      href: "/channels/new",
+      icon: Plus,
+      category: "Channels",
+    });
 
     if (channels) {
       for (const ch of channels) {
@@ -425,6 +473,19 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     [allItems],
   );
 
+  // Set of top-level labels referenced by sub-page `hint` fields. Sub-pages
+  // are pruned from the empty-state browse view (they remain searchable).
+  const parentLabels = useMemo(() => {
+    const set = new Set<string>();
+    for (const it of allItems) if (!it.hint?.startsWith("Edit")) set.add(it.label);
+    return set;
+  }, [allItems]);
+
+  const isSubPage = useCallback(
+    (it: PaletteItem) => it.hint != null && parentLabels.has(it.hint),
+    [parentLabels],
+  );
+
   // Filter + sort by fuzzy score, preserving match indices
   const scoredResults = useMemo<ScoredItem[]>(() => {
     if (!query.trim()) {
@@ -441,10 +502,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           recentHrefSet.add(rp.href);
         }
       }
-      // Fill remaining slots with default items, skipping those already in recents
+      // Empty-state browse: show every top-level nav target, skipping
+      // recents (already at top) and sub-page items (surface only when typing).
       const rest = allItems
-        .filter((it) => !recentHrefSet.has(it.href))
-        .slice(0, 24 - recentItems.length)
+        .filter((it) => !recentHrefSet.has(it.href) && !isSubPage(it))
         .map((item) => ({ item, score: 1, matchIndices: [] as number[] }));
       return [...recentItems, ...rest];
     }
@@ -500,7 +561,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   // Whether to show the "show more" toggle in the Recent group
   const showRecentsToggle = !query.trim() && totalRecents > 3;
 
-  // Group results by category for display, then assign flatIndex in VISUAL order
+  const isEmpty = !query.trim();
+
+  // Group results by category for display, then assign flatIndex in VISUAL order.
+  // No collapse state — empty-state browse is one big categorized list.
   const groupedResults = useMemo(() => {
     const groups: { category: string; items: { scored: ScoredItem; flatIndex: number }[] }[] = [];
     const catMap = new Map<string, { scored: ScoredItem; flatIndex: number }[]>();
@@ -516,33 +580,29 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       arr.push({ scored, flatIndex: 0 });
     }
 
-    // Assign flatIndex in visual (rendered) order so keyboard nav matches display
-    // Reserve a slot for the "show more" toggle after the Recent group
+    // Stable sort groups by CATEGORY_ORDER when empty-state. When searching,
+    // preserve score-based insertion order.
+    if (isEmpty) {
+      groups.sort((a, b) => categoryRank(a.category) - categoryRank(b.category));
+    }
+
     let flatIndex = 0;
     let showMoreToggleIndex = -1;
+    const flat: (ScoredItem | null)[] = [];
+
     for (const group of groups) {
       for (const entry of group.items) {
         entry.flatIndex = flatIndex++;
-      }
-      if (group.category === "Recent" && showRecentsToggle) {
-        showMoreToggleIndex = flatIndex++;
-      }
-    }
-
-    // Build flat lookup in visual order for Enter-key navigation
-    // null entries represent the toggle row
-    const flat: (ScoredItem | null)[] = [];
-    for (const group of groups) {
-      for (const entry of group.items) {
         flat.push(entry.scored);
       }
       if (group.category === "Recent" && showRecentsToggle) {
-        flat.push(null); // toggle slot
+        showMoreToggleIndex = flatIndex++;
+        flat.push(null); // show-more slot
       }
     }
 
     return { groups, totalCount: flatIndex, flat, showMoreToggleIndex };
-  }, [scoredResults, showRecentsToggle]);
+  }, [scoredResults, showRecentsToggle, isEmpty]);
 
   // Reset state on open
   useEffect(() => {
@@ -605,10 +665,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         e.preventDefault();
         if (selectedIndex === groupedResults.showMoreToggleIndex) {
           setRecentsExpanded((v) => !v);
-        } else {
-          const entry = groupedResults.flat[selectedIndex];
-          if (entry) go(entry.item.href);
+          return;
         }
+        const entry = groupedResults.flat[selectedIndex];
+        if (entry) go(entry.item.href);
       }
     },
     [onClose, groupedResults, selectedIndex, go, totalCount],
@@ -619,60 +679,77 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
   const modKey = isMac ? "\u2318" : "Ctrl";
 
+  const containerStyle: React.CSSProperties = isMobile
+    ? {
+        position: "fixed",
+        inset: 0,
+        zIndex: 10031,
+        background: t.surface,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0)" : "translateY(8px)",
+        transition: visible
+          ? "opacity 160ms ease-out, transform 160ms ease-out"
+          : "opacity 120ms ease-in, transform 120ms ease-in",
+      }
+    : {
+        position: "fixed",
+        top: "min(20%, 160px)",
+        left: "50%",
+        width: 560,
+        maxWidth: "92vw",
+        maxHeight: "min(70vh, 480px)",
+        zIndex: 10031,
+        background: t.surfaceRaised,
+        border: `1px solid ${t.surfaceBorder}`,
+        borderRadius: 12,
+        boxShadow: "0 16px 48px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.04) inset",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        opacity: visible ? 1 : 0,
+        transform: visible
+          ? "translate(-50%, 0) scale(1)"
+          : "translate(-50%, -8px) scale(0.98)",
+        transition: visible
+          ? "opacity 160ms ease-out, transform 160ms ease-out"
+          : "opacity 120ms ease-in, transform 120ms ease-in",
+      };
+
   return ReactDOM.createPortal(
     <>
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.5)",
-          backdropFilter: "blur(4px)",
-          WebkitBackdropFilter: "blur(4px)",
-          zIndex: 10030,
-          opacity: visible ? 1 : 0,
-          transition: "opacity 160ms ease-out",
-        }}
-      />
+      {/* Backdrop — desktop only. On mobile the sheet fills the viewport. */}
+      {!isMobile && (
+        <div
+          onClick={onClose}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            zIndex: 10030,
+            opacity: visible ? 1 : 0,
+            transition: "opacity 160ms ease-out",
+          }}
+        />
+      )}
       {/* Palette */}
-      <div
-        style={{
-          position: "fixed",
-          top: "min(20%, 160px)",
-          left: "50%",
-          width: 560,
-          maxWidth: "92vw",
-          maxHeight: "min(70vh, 480px)",
-          zIndex: 10031,
-          background: t.surfaceRaised,
-          border: `1px solid ${t.surfaceBorder}`,
-          borderRadius: 12,
-          boxShadow: "0 16px 48px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.04) inset",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          // Animate in/out
-          opacity: visible ? 1 : 0,
-          transform: visible
-            ? "translate(-50%, 0) scale(1)"
-            : "translate(-50%, -8px) scale(0.98)",
-          transition: visible
-            ? "opacity 160ms ease-out, transform 160ms ease-out"
-            : "opacity 120ms ease-in, transform 120ms ease-in",
-        }}
-      >
+      <div style={containerStyle}>
         {/* Search input */}
         <div
           style={{
             display: "flex", flexDirection: "row",
             alignItems: "center",
             gap: 10,
-            padding: "14px 16px",
+            padding: isMobile ? "12px 12px" : "14px 16px",
+            paddingTop: isMobile ? "max(12px, env(safe-area-inset-top))" : 14,
             borderBottom: `1px solid ${t.surfaceBorder}`,
           }}
         >
-          <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}><Search size={16} color={t.textDim} /></span>
+          <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}><Search size={isMobile ? 18 : 16} color={t.textDim} /></span>
           <input
             ref={inputRef}
             autoFocus
@@ -682,30 +759,55 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               setSelectedIndex(0);
             }}
             onKeyDown={onKeyDown}
-            placeholder="Search channels, bots, settings..."
+            placeholder={isMobile ? "Search or browse..." : "Search channels, bots, settings..."}
             style={{
               flex: 1,
               background: "none",
               border: "none",
               outline: "none",
-              fontSize: 15,
+              fontSize: isMobile ? 16 : 15, // 16px avoids iOS auto-zoom on focus
               color: t.text,
               fontFamily: "inherit",
+              minWidth: 0,
             }}
           />
-          <kbd
-            style={{
-              fontSize: 11,
-              color: t.textDim,
-              background: t.surface,
-              border: `1px solid ${t.surfaceBorder}`,
-              borderRadius: 4,
-              padding: "2px 6px",
-              flexShrink: 0,
-            }}
-          >
-            esc
-          </kbd>
+          {isMobile ? (
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              style={{
+                flexShrink: 0,
+                width: 36,
+                height: 36,
+                borderRadius: 8,
+                background: "transparent",
+                border: "none",
+                color: t.textMuted,
+                fontSize: 14,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 0,
+              }}
+            >
+              <X size={20} color={t.textMuted} />
+            </button>
+          ) : (
+            <kbd
+              style={{
+                fontSize: 11,
+                color: t.textDim,
+                background: t.surface,
+                border: `1px solid ${t.surfaceBorder}`,
+                borderRadius: 4,
+                padding: "2px 6px",
+                flexShrink: 0,
+              }}
+            >
+              esc
+            </kbd>
+          )}
         </div>
 
         {/* Results list */}
@@ -734,7 +836,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               {/* Category header */}
               <div
                 style={{
-                  padding: "8px 18px 4px",
+                  padding: isMobile ? "10px 16px 4px" : "8px 18px 4px",
                   fontSize: 11,
                   fontWeight: 600,
                   letterSpacing: 0.3,
@@ -760,8 +862,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                     style={{
                       display: "flex", flexDirection: "row",
                       alignItems: "center",
-                      gap: 10,
-                      padding: "7px 14px",
+                      gap: isMobile ? 12 : 10,
+                      padding: isMobile ? "12px 14px" : "7px 14px",
+                      minHeight: isMobile ? 48 : undefined,
                       margin: "0 6px",
                       borderRadius: 6,
                       cursor: "pointer",
@@ -770,12 +873,12 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                     }}
                   >
                     <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
-                      <Icon size={16} color={selected ? t.accent : t.textDim} />
+                      <Icon size={isMobile ? 18 : 16} color={selected ? t.accent : t.textDim} />
                     </span>
                     <span
                       style={{
                         flex: 1,
-                        fontSize: 14,
+                        fontSize: isMobile ? 15 : 14,
                         color: selected ? t.text : t.textMuted,
                         fontWeight: selected ? 500 : 400,
                         overflow: "hidden",
@@ -855,7 +958,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           ))}
         </div>
 
-        {/* Footer hint */}
+        {/* Footer hint — desktop only. On mobile keyboard shortcuts aren't useful. */}
+        {!isMobile && (
         <div
           style={{
             display: "flex", flexDirection: "row",
@@ -881,6 +985,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             toggle
           </span>
         </div>
+        )}
       </div>
     </>,
     document.body,

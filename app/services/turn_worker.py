@@ -212,6 +212,7 @@ async def run_turn(
             system_preamble=ctx.system_preamble,
         )
         _auto_injected_skills: list[dict] = []
+        _active_skills: list[dict] = []
         _llm_retries: int = 0
         _llm_fallback_model: str | None = None
         _vision_fallback: bool = False
@@ -230,6 +231,10 @@ async def run_turn(
                     "similarity": event.get("similarity", 0.0),
                     "source": event.get("source", ""),
                 })
+                continue
+
+            if etype == "active_skills":
+                _active_skills = list(event.get("skills", []))
                 continue
 
             if etype == "cancelled":
@@ -321,6 +326,14 @@ async def run_turn(
             for _m in reversed(messages[from_index:]):
                 if _m.get("role") == "assistant":
                     _m["_auto_injected_skills"] = _auto_injected_skills
+                    break
+
+        # 4b.2. Tag the last assistant message with active skills (still in
+        #       context from prior get_skill calls) for the UI skill orb.
+        if _active_skills:
+            for _m in reversed(messages[from_index:]):
+                if _m.get("role") == "assistant":
+                    _m["_active_skills"] = _active_skills
                     break
 
         # 4c. Tag the last assistant message with LLM retry/fallback info

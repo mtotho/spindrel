@@ -9,19 +9,44 @@
  * The latest result auto-opens; older ones show a one-line summary.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Wrench, ChevronRight, ChevronDown, AlertCircle, CheckCircle2 } from "lucide-react";
 import { formatToolArgs } from "./toolCallUtils";
 import { normalizeToolCall } from "../../types/api";
 import type { ToolCall, ToolResultEnvelope } from "../../types/api";
 import type { ThemeTokens } from "../../theme/tokens";
 import { RichToolResult } from "./RichToolResult";
+import { ToolTraceStrip, type TraceTick } from "./ToolTraceStrip";
+
+/** Threshold for collapsing a tool-call sequence into a trace strip. */
+const TRACE_STRIP_THRESHOLD = 4;
 
 interface ToolItem {
   name: string;
   count: number;
   argsList: (string | undefined)[];
   envelopes: (ToolResultEnvelope | undefined)[];
+}
+
+/**
+ * For introspection tools (`get_tool_info`, `get_skill`) pull the target name
+ * out of the arguments so it renders inline on the pill — answers "which tool
+ * / skill is being inspected" without needing to expand the badge.
+ */
+function introspectionTarget(name: string, argsList: (string | undefined)[]): string | null {
+  const short = name.includes("-") ? name.slice(name.lastIndexOf("-") + 1) : name;
+  if (short !== "get_tool_info" && short !== "get_skill") return null;
+  for (const raw of argsList) {
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      const target = parsed?.tool_name ?? parsed?.skill_id;
+      if (typeof target === "string" && target) return target;
+    } catch {
+      // ignore malformed args
+    }
+  }
+  return null;
 }
 
 /** Check if an envelope represents an error result. */
@@ -128,6 +153,7 @@ export function ToolBadges({
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [openResults, setOpenResults] = useState<Record<number, boolean>>({});
   const [uncappedResults, setUncappedResults] = useState<Record<number, boolean>>({});
+  const [striped, setStriped] = useState<boolean | null>(null);
 
   const toggleResult = useCallback((i: number) => {
     setOpenResults((prev) => ({ ...prev, [i]: !prev[i] }));
@@ -155,11 +181,38 @@ export function ToolBadges({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolNames, toolCalls, toolResults, compact, autoExpand]);
 
+  // Build items + per-call ticks BEFORE any early return so the hook order
+  // is stable across renders. useMemo avoids recomputing on state changes.
+  const items = useMemo(
+    () => buildItems(toolNames, toolCalls, toolResults),
+    [toolNames, toolCalls, toolResults],
+  );
+  const ticks: TraceTick[] = useMemo(() => {
+    const out: TraceTick[] = [];
+    for (const item of items) {
+      for (let i = 0; i < item.count; i++) {
+        const env = item.envelopes[i];
+        out.push({
+          toolName: item.name,
+          target: introspectionTarget(item.name, [item.argsList[i]]),
+          isError: isErrorEnvelope(env),
+        });
+      }
+    }
+    return out;
+  }, [items]);
+
   if (toolNames.length === 0 && (!toolCalls || toolCalls.length === 0)) {
     return null;
   }
 
-  const items = buildItems(toolNames, toolCalls, toolResults);
+  // Default to strip mode when there are 4+ tool items in this turn. The user
+  // can click the strip to reveal the full badge stack. Once toggled, we
+  // remember their choice for this component's lifetime.
+  const stripMode = striped ?? (items.length >= TRACE_STRIP_THRESHOLD);
+  if (stripMode) {
+    return <ToolTraceStrip ticks={ticks} onExpand={() => setStriped(false)} t={t} />;
+  }
 
   const handleExpand = (idx: number) => {
     if (expandedIdx === idx) {
@@ -211,6 +264,17 @@ export function ToolBadges({
                 {item.name}
                 {item.count > 1 ? ` \u00d7${item.count}` : ""}
               </span>
+              {(() => {
+                const target = introspectionTarget(item.name, item.argsList);
+                return target ? (
+                  <span
+                    className="text-[10px] font-mono normal-case"
+                    style={{ color: t.textMuted, opacity: 0.85 }}
+                  >
+                    {"\u2192"} {target}
+                  </span>
+                ) : null;
+              })()}
               {/* Status dots — compact success/error indicator */}
               {envCount > 0 && !isExpanded && (
                 <span className="inline-flex items-center gap-1">

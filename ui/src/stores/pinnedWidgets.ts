@@ -12,8 +12,11 @@ export function envelopeIdentityKey(toolName: string, envelope: ToolResultEnvelo
   const prefix = toolName.includes("-") ? toolName.split("-")[0] : toolName;
   const entities = extractEntities(envelope.body);
   if (entities.size > 0) return `${prefix}::${[...entities].sort().join("|")}`;
-  if (envelope.record_id) return `${prefix}::${envelope.record_id}`;
-  return `${prefix}::${toolName}`;
+  // Use display_label as identity when entities aren't extractable
+  if (envelope.display_label) return `${prefix}::${envelope.display_label.toLowerCase()}`;
+  if (envelope.record_id) return `${prefix}::rec:${envelope.record_id}`;
+  // Last resort: include full tool name to avoid cross-tool collisions
+  return `${prefix}::${toolName}::${envelope.record_id ?? "anon"}`;
 }
 
 interface PinnedWidgetsState {
@@ -132,8 +135,15 @@ function widgetMatchesEnvelope(
     return false;
   }
 
-  // Neither has entities and same prefix — match (same tool, same integration)
-  if (pinnedEntities.size === 0 && newEntities.size === 0) return true;
+  // Neither has extractable entities — fall back to display_label comparison
+  // to avoid matching unrelated widgets of the same integration
+  if (pinnedEntities.size === 0 && newEntities.size === 0) {
+    const wLabel = (widget.envelope?.display_label || widget.display_name || "").toLowerCase();
+    const eLabel = (envelope.display_label || "").toLowerCase();
+    if (wLabel && eLabel) return wLabel === eLabel;
+    // Both labels empty — only match if exact same tool name
+    return widget.tool_name === toolName;
+  }
 
   return false;
 }

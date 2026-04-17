@@ -71,7 +71,25 @@ export function PinnedToolWidget({
     if (refreshedForRef.current === widget.id) return;
     refreshedForRef.current = widget.id;
 
-    const displayLabel = widget.envelope?.display_label || widget.display_name || "";
+    // Resolve entity name: prefer display_label, fall back to display_name,
+    // and if display_name is just the tool name, try extracting from envelope body
+    let displayLabel = widget.envelope?.display_label || "";
+    if (!displayLabel) {
+      const toolShort = cleanToolName(widget.tool_name);
+      if (widget.display_name && widget.display_name !== toolShort) {
+        displayLabel = widget.display_name;
+      } else {
+        try {
+          const parsed = typeof widget.envelope?.body === "string" ? JSON.parse(widget.envelope.body) : widget.envelope?.body;
+          for (const c of parsed?.components ?? []) {
+            if (c.type === "properties" && Array.isArray(c.items)) {
+              const ent = c.items.find((it: any) => it.label?.toLowerCase() === "entity" && it.value);
+              if (ent) { displayLabel = ent.value; break; }
+            }
+          }
+        } catch { /* not JSON */ }
+      }
+    }
     setRefreshing(true);
 
     apiFetch<{ ok: boolean; envelope?: Record<string, unknown> | null; error?: string }>("/api/v1/widget-actions/refresh", {

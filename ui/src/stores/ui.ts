@@ -16,7 +16,7 @@ export interface RecentPage {
 
 interface UIState {
   sidebarCollapsed: boolean;
-  mobileSidebarOpen: boolean;
+  paletteOpen: boolean;
   detailPanel: DetailPanelState;
   hiddenSidebarSections: string[];
   fileExplorerOpen: boolean;
@@ -24,6 +24,11 @@ interface UIState {
   hudCollapsedChannels: string[];
   recentPages: RecentPage[];
   toggleSidebar: () => void;
+  openPalette: () => void;
+  closePalette: () => void;
+  // Legacy aliases — palette replaces the mobile drawer, so these now drive
+  // the palette. Kept so existing callers (channel list, footer profile link,
+  // page header) keep auto-closing the palette on navigation.
   openMobileSidebar: () => void;
   closeMobileSidebar: () => void;
   openDetail: (type: string, id: string, data?: unknown) => void;
@@ -41,7 +46,7 @@ export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
       sidebarCollapsed: false,
-      mobileSidebarOpen: false,
+      paletteOpen: false,
       detailPanel: { type: null, id: null },
       hiddenSidebarSections: [],
       fileExplorerOpen: false,
@@ -49,13 +54,11 @@ export const useUIStore = create<UIState>()(
       hudCollapsedChannels: [],
       recentPages: [],
       toggleSidebar: () =>
-        set((s) => ({
-          sidebarCollapsed: !s.sidebarCollapsed,
-          // Collapsing on mobile should dismiss the overlay
-          ...(!s.sidebarCollapsed ? { mobileSidebarOpen: false } : {}),
-        })),
-      openMobileSidebar: () => set({ mobileSidebarOpen: true, sidebarCollapsed: false }),
-      closeMobileSidebar: () => set({ mobileSidebarOpen: false }),
+        set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+      openPalette: () => set({ paletteOpen: true }),
+      closePalette: () => set({ paletteOpen: false }),
+      openMobileSidebar: () => set({ paletteOpen: true }),
+      closeMobileSidebar: () => set({ paletteOpen: false }),
       openDetail: (type, id, data) =>
         set({ detailPanel: { type, id, data } }),
       closeDetail: () => set({ detailPanel: { type: null, id: null } }),

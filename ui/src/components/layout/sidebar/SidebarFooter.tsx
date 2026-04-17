@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Sun, Moon, Search } from "lucide-react";
+import { Sun, Moon, Search, Settings as SettingsIcon } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
 import { useAuthStore } from "../../../stores/auth";
 import { useThemeStore } from "../../../stores/theme";
@@ -47,6 +47,11 @@ export function SidebarFooterCollapsed({ version }: { version?: string }) {
   return (
     <footer className="flex flex-col items-center py-3 gap-1.5">
       <UsageHudBadge collapsed />
+      <Link to="/settings" onClick={closeMobile}>
+        <div className="sidebar-rail-btn" title="Settings">
+          <SettingsIcon size={16} className="text-text-dim" />
+        </div>
+      </Link>
       <ThemeToggleIcon />
       <Link to="/profile" onClick={closeMobile}>
         <div className="sidebar-rail-btn">
@@ -67,10 +72,11 @@ export function SidebarFooterCollapsed({ version }: { version?: string }) {
 }
 
 function SearchShortcutHint() {
+  const openPalette = useUIStore((s) => s.openPalette);
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
   return (
     <button
-      onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: !isMac, metaKey: isMac }))}
+      onClick={openPalette}
       className="sidebar-item w-full bg-transparent border-none text-left"
     >
       <Search size={16} className="text-text-dim" />
@@ -79,6 +85,40 @@ function SearchShortcutHint() {
         {isMac ? "\u2318" : "Ctrl"}+K
       </kbd>
     </button>
+  );
+}
+
+function SettingsLinkRow({
+  pathname,
+  mobile,
+  onNavigate,
+}: {
+  pathname: string;
+  mobile?: boolean;
+  onNavigate: () => void;
+}) {
+  const active = pathname === "/settings" || pathname.startsWith("/settings#");
+  return (
+    <Link to="/settings" onClick={onNavigate}>
+      <div
+        className={cn(
+          "sidebar-item w-full",
+          mobile ? "py-3 px-3" : "py-2 px-3",
+          active && "sidebar-item-active",
+        )}
+      >
+        <SettingsIcon size={16} className={active ? "text-accent" : "text-text-dim"} />
+        <span
+          className={cn(
+            "flex-1",
+            mobile ? "text-[15px]" : "text-sm",
+            active ? "text-accent font-medium" : "text-text-muted",
+          )}
+        >
+          Settings
+        </span>
+      </div>
+    </Link>
   );
 }
 
@@ -91,6 +131,7 @@ export function SidebarFooterExpanded({ pathname, mobile, version }: { pathname:
     <footer className="px-3 pt-3 pb-4 flex flex-col gap-1">
       <UsageHudBadge collapsed={false} />
       {!mobile && <SearchShortcutHint />}
+      <SettingsLinkRow pathname={pathname} mobile={mobile} onNavigate={closeMobile} />
       <ThemeToggleRow />
       <Link to="/profile" onClick={closeMobile}>
         <div

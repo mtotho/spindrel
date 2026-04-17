@@ -1602,6 +1602,14 @@ async def run_stream(
             "remaining_tokens": _budget.remaining,
         }
 
+    # Surface skills-still-in-context for the UI "skill orb" on the persisted
+    # assistant message. Sourced from conversation-history scan in assembly.
+    if assembly_result.active_skills:
+        yield {
+            "type": "active_skills",
+            "skills": assembly_result.active_skills,
+        }
+
     # --- RAG re-ranking ---
     from app.services.reranking import rerank_rag_context
     _rerank_result = await rerank_rag_context(

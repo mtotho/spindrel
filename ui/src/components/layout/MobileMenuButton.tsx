@@ -5,11 +5,11 @@ import { useThemeTokens } from "../../theme/tokens";
 
 /**
  * Hamburger menu button that only renders on mobile (single column).
- * Opens the mobile sidebar drawer defined in AppShell.
+ * Opens the command palette — the palette IS the mobile nav surface.
  */
 export function MobileMenuButton() {
   const columns = useResponsiveColumns();
-  const openMobile = useUIStore((s) => s.openMobileSidebar);
+  const openPalette = useUIStore((s) => s.openPalette);
   const t = useThemeTokens();
 
   if (columns !== "single") return null;
@@ -17,8 +17,9 @@ export function MobileMenuButton() {
   return (
     <button
       className="header-icon-btn"
-      onClick={openMobile}
+      onClick={openPalette}
       style={{ width: 44, height: 44 }}
+      aria-label="Open navigation"
     >
       <Menu size={20} color={t.textMuted} />
     </button>
