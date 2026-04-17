@@ -1224,7 +1224,7 @@ class TestApplyUserAttribution:
         assert messages[1]["content"] == "All good."
         assert messages[2]["content"] == "[Sarah]: Can you elaborate?"
 
-    def test_safe_with_member_bot_rewrite(self):
+    def test_when_chained_after_member_bot_rewrite_then_no_double_prefix(self):
         """When called after _rewrite_history_for_member_bot, no double-prefix."""
         from app.routers.chat import _apply_user_attribution, _rewrite_history_for_member_bot
 
@@ -1243,7 +1243,7 @@ class TestApplyUserAttribution:
         # No double prefix on the rewritten bot message (now role=user)
         assert messages[1]["content"] == "[Primary Bot]: response"
 
-    def test_multimodal_content_skipped(self):
+    def test_when_user_content_is_multimodal_list_then_apply_attribution_skips(self):
         """List content (images) is left untouched — no crash."""
         from app.routers.chat import _apply_user_attribution
 
@@ -1260,7 +1260,7 @@ class TestApplyUserAttribution:
         # Content should be unchanged (still the list)
         assert messages[0]["content"] is multimodal
 
-    def test_rewrite_multimodal_user_skipped(self):
+    def test_when_user_content_is_multimodal_list_then_rewrite_history_skips(self):
         """_rewrite_history_for_member_bot also handles list content safely."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -1286,7 +1286,7 @@ class TestMetadataPreservation:
     """Verify that _metadata is preserved when loading messages for member bot
     rewriting, and stripped afterwards."""
 
-    def test_rewriting_uses_metadata_for_sender_identity(self):
+    def test_when_metadata_present_then_rewrite_distinguishes_member_own_vs_other(self):
         """With _metadata present, member bot correctly identifies its own messages."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -1307,7 +1307,7 @@ class TestMetadataPreservation:
         assert messages[1]["role"] == "user"
         assert messages[1]["content"] == "[Helper Bot]: Helper said this."
 
-    def test_rewriting_without_metadata_treats_all_as_other(self):
+    def test_when_metadata_stripped_then_all_messages_treated_as_other_bot(self):
         """Without _metadata (the bug), all messages are treated as other bot."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -1323,7 +1323,7 @@ class TestMetadataPreservation:
         assert messages[0]["role"] == "user"
         assert messages[1]["role"] == "user"
 
-    def test_strip_metadata_keys_removes_metadata(self):
+    def test_when_strip_metadata_keys_called_then_metadata_removed_from_messages(self):
         """strip_metadata_keys properly removes _metadata from messages."""
         from app.services.sessions import strip_metadata_keys
 
@@ -1346,7 +1346,7 @@ class TestIsPrimaryRewriting:
     """When the primary bot is triggered via @-mention from a member bot,
     is_primary=True ensures untagged messages are kept as its own."""
 
-    def test_primary_bot_untagged_messages_kept(self):
+    def test_when_is_primary_and_message_untagged_then_kept_as_assistant(self):
         """With is_primary=True, untagged assistant messages stay as assistant."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -1369,7 +1369,7 @@ class TestIsPrimaryRewriting:
         assert messages[2]["role"] == "user"
         assert "[Helper Bot]:" in messages[2]["content"]
 
-    def test_member_bot_untagged_messages_rewritten(self):
+    def test_when_is_member_and_message_untagged_then_rewritten_to_user_role(self):
         """With is_primary=False (default), untagged messages are treated as other bot."""
         from app.routers.chat import _rewrite_history_for_member_bot
 

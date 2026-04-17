@@ -430,6 +430,8 @@ function PropertiesBlock({
   t: ThemeTokens;
 }) {
   const isInline = node.layout === "inline";
+  const items = Array.isArray(node.items) ? node.items : [];
+  if (items.length === 0) return null;
 
   if (isInline) {
     return (
@@ -441,7 +443,7 @@ function PropertiesBlock({
           fontSize: 12,
         }}
       >
-        {node.items.map((item, i) => (
+        {items.map((item, i) => (
           <span key={i}>
             <span style={{ color: t.textMuted }}>{item.label}: </span>
             <span style={{ color: slotColor(item.color, t) }}>
@@ -462,7 +464,7 @@ function PropertiesBlock({
         fontSize: 12,
       }}
     >
-      {node.items.map((item, i) => (
+      {items.map((item, i) => (
         <div key={i} style={{ display: "contents" }}>
           <span style={{ color: t.textMuted, whiteSpace: "nowrap" }}>
             {item.label}
@@ -475,6 +477,9 @@ function PropertiesBlock({
 }
 
 function TableBlock({ node, t }: { node: TableNode; t: ThemeTokens }) {
+  const columns = Array.isArray(node.columns) ? node.columns : [];
+  const rows = Array.isArray(node.rows) ? node.rows : [];
+  if (columns.length === 0 && rows.length === 0) return null;
   return (
     <div
       style={{
@@ -495,7 +500,7 @@ function TableBlock({ node, t }: { node: TableNode; t: ThemeTokens }) {
       >
         <thead>
           <tr style={{ background: t.codeBg }}>
-            {node.columns.map((col, i) => (
+            {columns.map((col, i) => (
               <th
                 key={i}
                 style={{
@@ -514,17 +519,17 @@ function TableBlock({ node, t }: { node: TableNode; t: ThemeTokens }) {
           </tr>
         </thead>
         <tbody>
-          {node.rows.map((row, ri) => (
+          {rows.map((row, ri) => (
             <tr
               key={ri}
               style={{
                 borderBottom:
-                  ri < node.rows.length - 1
+                  ri < rows.length - 1
                     ? `1px solid ${t.surfaceBorder}`
                     : undefined,
               }}
             >
-              {row.map((cell, ci) => (
+              {(Array.isArray(row) ? row : []).map((cell, ci) => (
                 <td
                   key={ci}
                   style={{
@@ -546,9 +551,11 @@ function TableBlock({ node, t }: { node: TableNode; t: ThemeTokens }) {
 }
 
 function LinksBlock({ node, t }: { node: LinksNode; t: ThemeTokens }) {
+  const items = Array.isArray(node.items) ? node.items : [];
+  if (items.length === 0) return null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      {node.items.map((item, i) => {
+      {items.map((item, i) => {
         const Icon = LINK_ICONS[item.icon ?? "link"] ?? LinkIcon;
         return (
           <a
@@ -1140,7 +1147,7 @@ function SelectBlock({ node, t }: { node: SelectNode; t: ThemeTokens }) {
           transition: "opacity 0.15s",
         }}
       >
-        {node.options.map((opt) => (
+        {(Array.isArray(node.options) ? node.options : []).map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>
