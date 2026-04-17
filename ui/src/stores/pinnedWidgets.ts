@@ -153,17 +153,19 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
         set((s) => ({
           byChannel: { ...s.byChannel, [channelId]: widgets },
         }));
-        // Seed widgetEnvelopes so inline WidgetCards can pick up pinned state
+        // Replace widgetEnvelopes for this channel — evict stale keys, seed fresh ones
+        const prefix = `${channelId}::`;
         const updates: Record<string, ToolResultEnvelope> = {};
         for (const w of widgets) {
-          const key = `${channelId}::${envelopeIdentityKey(w.tool_name, w.envelope)}`;
+          const key = `${prefix}${envelopeIdentityKey(w.tool_name, w.envelope)}`;
           updates[key] = w.envelope;
         }
-        if (Object.keys(updates).length > 0) {
-          set((s) => ({
-            widgetEnvelopes: { ...s.widgetEnvelopes, ...updates },
-          }));
-        }
+        set((s) => {
+          const cleaned = Object.fromEntries(
+            Object.entries(s.widgetEnvelopes).filter(([k]) => !k.startsWith(prefix)),
+          );
+          return { widgetEnvelopes: { ...cleaned, ...updates } };
+        });
       },
 
       pinWidget: async (channelId, widget) => {

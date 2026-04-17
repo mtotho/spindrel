@@ -63,6 +63,7 @@ def entity_state(raw_result: str, widget_meta: dict) -> dict:
                 "domain": entity.get("domain", ""),
                 "state": state,
                 "is_on": is_on,
+                "is_off": not is_on,
                 "brightness": brightness,
             }
 

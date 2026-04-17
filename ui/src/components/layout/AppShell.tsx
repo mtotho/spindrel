@@ -67,25 +67,8 @@ export function AppShell() {
     }
   }, [mobileSidebarOpen]);
 
-  // DEBUG: temporary viewport dimensions — remove after fixing bottom cutoff
-  const [dbg, setDbg] = useState("");
-  useEffect(() => {
-    const update = () => {
-      const vv = window.visualViewport;
-      const root = document.getElementById("root");
-      setDbg(
-        `vh:${window.innerHeight} vv:${vv ? Math.round(vv.height) : "?"} root:${root ? root.clientHeight : "?"} body:${document.body.clientHeight} screen:${screen.height} dpr:${devicePixelRatio}`
-      );
-    };
-    update();
-    window.visualViewport?.addEventListener("resize", update);
-    return () => window.visualViewport?.removeEventListener("resize", update);
-  }, []);
-
   return (
     <div className="relative flex flex-col flex-1 bg-surface overflow-hidden h-full">
-      {/* DEBUG: viewport info — remove after fixing bottom cutoff */}
-      <div className="shrink-0 bg-danger text-white text-[10px] px-2 py-0.5 text-center z-50">{dbg}</div>
       {status?.paused && <SystemPauseBanner behavior={status.pause_behavior} />}
       <div className="flex flex-row flex-1 overflow-hidden">
         {/* Sidebar — hidden on single column (mobile), shown as overlay when toggled */}

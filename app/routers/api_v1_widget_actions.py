@@ -216,6 +216,14 @@ _poll_cache: dict[str, tuple[float, str]] = {}  # tool_name → (timestamp, raw_
 _POLL_CACHE_TTL = 30.0  # seconds
 
 
+def _evict_stale_cache() -> None:
+    """Remove expired entries from the poll cache."""
+    now = time.monotonic()
+    stale = [k for k, (ts, _) in _poll_cache.items() if now - ts >= _POLL_CACHE_TTL]
+    for k in stale:
+        del _poll_cache[k]
+
+
 class WidgetRefreshRequest(BaseModel):
     tool_name: str
     display_label: str = ""
@@ -231,6 +239,8 @@ async def refresh_widget_state(req: WidgetRefreshRequest):
     cached for 30s to avoid redundant calls when multiple pinned widgets from
     the same integration refresh on page load.
     """
+    _evict_stale_cache()
+
     # Look up state_poll config for this tool
     poll_cfg = get_state_poll_config(req.tool_name)
     if not poll_cfg:

@@ -59,15 +59,19 @@ export function PinnedToolWidget({
     }
   }, [sharedEnvelope]);
 
-  // Refresh on mount — fetch fresh state from the poll tool if widget is refreshable
-  const refreshedRef = useRef(false);
+  // Refresh on mount — try fetching fresh state from the poll tool.
+  // Always attempt (not gated on envelope.refreshable) so widgets pinned before
+  // the state_poll feature was added still get refreshed. Backend returns error
+  // if no state_poll config exists, which we silently ignore.
+  // Key by widget.id so re-pinning triggers a fresh poll.
+  const refreshedForRef = useRef<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const actionInFlightRef = useRef(false);
   useEffect(() => {
-    if (refreshedRef.current) return;
-    if (!widget.envelope?.refreshable) return;
-    refreshedRef.current = true;
+    if (refreshedForRef.current === widget.id) return;
+    refreshedForRef.current = widget.id;
 
-    const displayLabel = widget.envelope.display_label || widget.display_name || "";
+    const displayLabel = widget.envelope?.display_label || widget.display_name || "";
     setRefreshing(true);
 
     apiFetch<{ ok: boolean; envelope?: Record<string, unknown> | null; error?: string }>("/api/v1/widget-actions/refresh", {
@@ -81,6 +85,8 @@ export function PinnedToolWidget({
       }),
     })
       .then((resp) => {
+        // Skip if user dispatched an action while poll was in-flight
+        if (actionInFlightRef.current) return;
         if (resp.ok && resp.envelope) {
           const fresh = resp.envelope as unknown as ToolResultEnvelope;
           setCurrentEnvelope(fresh);
@@ -92,7 +98,7 @@ export function PinnedToolWidget({
         // Silently keep cached envelope — stale is better than empty
       })
       .finally(() => setRefreshing(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [widget.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     attributes,
@@ -108,6 +114,7 @@ export function PinnedToolWidget({
   // Intercepting dispatcher: captures response envelopes, updates state, and broadcasts
   const interceptingDispatch = useCallback(
     async (action: import("@/src/types/api").WidgetAction, value: unknown): Promise<WidgetActionResult> => {
+      actionInFlightRef.current = true;
       const result = await rawDispatch(action, value);
       if (
         result.envelope &&

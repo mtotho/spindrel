@@ -75,6 +75,9 @@ def _register_widgets(source: str, widgets: dict) -> int:
     """
     count = 0
     for tool_name, widget_def in widgets.items():
+        # Skip YAML anchors (keys starting with _) — not real tool names
+        if tool_name.startswith("_"):
+            continue
         if not isinstance(widget_def, dict) or "template" not in widget_def:
             logger.warning(
                 "%s: tool_widgets[%s] missing 'template', skipping",

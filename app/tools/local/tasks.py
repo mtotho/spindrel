@@ -381,9 +381,10 @@ async def schedule_task(
     "function": {
         "name": "list_tasks",
         "description": (
-            "List task definitions for the current bot, get detailed info on a specific task, "
+            "List task definitions, get detailed info on a specific task, "
             "or view run history of a task definition. "
-            "By default only shows pending/running/active task definitions, excluding internal tasks."
+            "Shows all bots' tasks by default. Pass bot_id to filter by a specific bot. "
+            "Only shows pending/running/active tasks unless include_completed is set."
         ),
         "parameters": {
             "type": "object",
@@ -398,9 +399,8 @@ async def schedule_task(
                 "bot_id": {
                     "type": "string",
                     "description": (
-                        "List tasks for a different bot (by bot ID). "
-                        "Requires that the current bot has the target bot in its delegate_bots list. "
-                        "Omit to list tasks for the current channel."
+                        "Filter tasks by bot ID. "
+                        "Omit to see tasks for all bots."
                     ),
                 },
                 "include_completed": {
@@ -536,43 +536,34 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
 
         return json.dumps({"runs": run_list, "count": len(run_list), "definition_id": parent_task_id})
 
-    # List mode — cross-bot or current channel
+    # List mode — all tasks or filtered by bot
     async with async_session() as db:
         from sqlalchemy import and_ as _and
 
+        conditions: list = []
         if bot_id:
-            # Cross-bot: check delegation access
-            from app.agent.bots import get_bot as _get_bot, resolve_bot_id
+            # Filter by specific bot
+            from app.agent.bots import resolve_bot_id
             resolved = resolve_bot_id(bot_id)
             if not resolved:
                 return json.dumps({"error": f"Unknown bot '{bot_id}'."})
-            caller_bot = _get_bot(current_bot_id.get() or "default")
-            if caller_bot and resolved.id not in caller_bot.delegate_bots:
-                return json.dumps({"error": f"No access to bot '{resolved.id}'. Add it to your delegate_bots list."})
-            # Query by bot_id across all channels
-            conditions = [Task.bot_id == resolved.id]
-        else:
-            # Scope by current bot to see tasks across all its channels
-            effective_bot = current_bot_id.get() or "default"
-            conditions = [Task.bot_id == effective_bot]
+            conditions.append(Task.bot_id == resolved.id)
         if not include_completed:
             conditions.append(Task.status.in_(["pending", "running", "active"]))
         # Hide child tasks (callbacks, concrete schedule runs) by default
         if not include_internal:
             conditions.append(Task.parent_task_id.is_(None))
-        stmt = (
-            select(Task)
-            .where(_and(*conditions))
-            .order_by(Task.created_at.desc())
-            .limit(20)
-        )
+            # Exclude system-internal task types
+            _internal_types = ("delegation", "callback", "memory_hygiene", "skill_review", "claude_code")
+            conditions.append(Task.task_type.notin_(_internal_types))
+        stmt = select(Task).order_by(Task.created_at.desc()).limit(20)
+        if conditions:
+            stmt = stmt.where(_and(*conditions))
         tasks = list((await db.execute(stmt)).scalars().all())
 
         if not tasks:
-            return json.dumps({
-                "tasks": [],
-                "message": "No tasks found." if include_completed else "No pending/running/active tasks.",
-            })
+            msg = "No tasks found." if include_completed else "No pending/running/active tasks. Use include_completed=true to see completed/failed tasks."
+            return json.dumps({"tasks": [], "message": msg})
 
         # Batch-fetch template names
         tpl_ids = {t.prompt_template_id for t in tasks if t.prompt_template_id}
