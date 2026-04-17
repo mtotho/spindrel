@@ -63,6 +63,7 @@ class ToolResultEnvelope:
     truncated: bool = False
     record_id: uuid.UUID | None = None
     byte_size: int = 0
+    display_label: str | None = None
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -71,7 +72,7 @@ class ToolResultEnvelope:
         Empty/default fields are kept (the UI uses ``content_type`` as the
         renderer dispatch key, so it must always be present).
         """
-        return {
+        d: dict[str, Any] = {
             "content_type": self.content_type,
             "body": self.body,
             "plain_body": self.plain_body,
@@ -80,6 +81,9 @@ class ToolResultEnvelope:
             "record_id": str(self.record_id) if self.record_id else None,
             "byte_size": self.byte_size,
         }
+        if self.display_label:
+            d["display_label"] = self.display_label
+        return d
 
 
 @dataclass

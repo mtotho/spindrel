@@ -599,6 +599,8 @@ export interface ToolResultEnvelope {
   record_id: string | null;
   byte_size: number;
   widget_type?: string;
+  /** Resolved display label from widget template (e.g., entity name) */
+  display_label?: string | null;
 }
 
 /** Action definition for interactive widget components (toggle, button, select, etc.) */

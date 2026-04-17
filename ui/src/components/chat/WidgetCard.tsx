@@ -8,7 +8,7 @@
  *
  * Pin-ready: accepts optional widgetId + onPin for future side-panel pinning.
  */
-import { useState, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Pin } from "lucide-react";
 import type { ToolResultEnvelope } from "../../types/api";
 import type { ThemeTokens } from "../../theme/tokens";
@@ -16,7 +16,7 @@ import { useWidgetAction } from "../../api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "../../api/hooks/useWidgetAction";
 import { ComponentRenderer, WidgetActionContext } from "./renderers/ComponentRenderer";
 import { JsonTreeRenderer } from "./renderers/JsonTreeRenderer";
-import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
+import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedWidgets";
 
 /** Strip MCP server prefix: "homeassistant-HassTurnOn" → "HassTurnOn" */
 function cleanToolName(name: string): string {
@@ -35,6 +35,8 @@ interface WidgetCardProps {
   widgetId?: string;
   /** When true, this is part of the latest bot message — keep expanded */
   isLatestBotMessage?: boolean;
+  /** When true, start in collapsed state (used for stacked multi-widget messages) */
+  defaultCollapsed?: boolean;
   /** Callback when user pins this widget to a side panel */
   onPin?: (info: {
     widgetId: string;
@@ -53,6 +55,7 @@ export function WidgetCard({
   t,
   widgetId,
   isLatestBotMessage,
+  defaultCollapsed,
   onPin,
 }: WidgetCardProps) {
   const [currentEnvelope, setCurrentEnvelope] = useState(envelope);
@@ -76,8 +79,9 @@ export function WidgetCard({
   });
 
   const rawDispatch = useWidgetAction(channelId, botId ?? "default");
+  const broadcastEnvelope = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
 
-  // Intercepting dispatcher: captures response envelopes and replaces card state
+  // Intercepting dispatcher: captures response envelopes, updates local state, and broadcasts
   const interceptingDispatch = useCallback(
     async (action: import("../../types/api").WidgetAction, value: unknown): Promise<WidgetActionResult> => {
       const result = await rawDispatch(action, value);
@@ -88,12 +92,28 @@ export function WidgetCard({
         result.envelope.body
       ) {
         setCurrentEnvelope(result.envelope);
+        if (channelId) {
+          broadcastEnvelope(channelId, toolName, result.envelope);
+        }
       }
 
       return result;
     },
-    [rawDispatch],
+    [rawDispatch, channelId, toolName, broadcastEnvelope],
   );
+
+  // Subscribe to shared envelope map — sync from pinned widget actions
+  const envelopeKey = channelId ? `${channelId}::${envelopeIdentityKey(toolName, currentEnvelope)}` : null;
+  const sharedEnvelope = usePinnedWidgetsStore((s) =>
+    envelopeKey ? s.widgetEnvelopes[envelopeKey] : undefined,
+  );
+  const envelopeRef = useRef(currentEnvelope);
+  envelopeRef.current = currentEnvelope;
+  useEffect(() => {
+    if (sharedEnvelope && sharedEnvelope !== envelopeRef.current) {
+      setCurrentEnvelope(sharedEnvelope);
+    }
+  }, [sharedEnvelope]);
 
   const actionCtx = useMemo(
     () => (channelId ? { dispatchAction: interceptingDispatch } : null),
@@ -108,8 +128,8 @@ export function WidgetCard({
 
   const displayName = cleanToolName(toolName);
 
-  // Auto-collapse older widget cards when pinned (user can manually expand)
-  const autoCollapsed = isPinned && !isLatestBotMessage;
+  // Auto-collapse: when pinned (older messages) or when defaultCollapsed is set (stacked widgets)
+  const autoCollapsed = (isPinned && !isLatestBotMessage) || (defaultCollapsed ?? false);
   const isCollapsed = manualExpand !== null ? !manualExpand : autoCollapsed;
 
   const content = showJson ? (
@@ -134,7 +154,6 @@ export function WidgetCard({
         style={{
           borderColor: isPinned ? `${t.accent}40` : t.surfaceBorder,
           backgroundColor: t.surfaceRaised,
-          maxWidth: 400,
         }}
       >
         <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: t.textDim }}>
@@ -161,7 +180,6 @@ export function WidgetCard({
       style={{
         borderColor: isPinned ? `${t.accent}40` : t.surfaceBorder,
         backgroundColor: t.surfaceRaised,
-        maxWidth: 400,
       }}
     >
       {/* Header: tool name + pinned badge + pin button */}
@@ -185,13 +203,22 @@ export function WidgetCard({
           <button
             type="button"
             onClick={() => setManualExpand(false)}
-            className="text-[10px] px-1 py-0.5 transition-opacity"
-            style={{ color: t.textDim, opacity: 0.4, background: "none", border: "none", cursor: "pointer" }}
+            className="text-[10px] px-1 py-0.5 transition-opacity bg-transparent border-0 cursor-pointer"
+            style={{ color: t.textDim, opacity: 0.4 }}
             title="Collapse"
           >
             collapse
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => setShowJson(!showJson)}
+          className="text-[10px] px-1 py-0.5 transition-opacity bg-transparent border-0 cursor-pointer opacity-40 hover:opacity-100"
+          style={{ color: t.textDim }}
+          title={showJson ? "Show widget" : "Show JSON"}
+        >
+          {showJson ? "widget" : "json"}
+        </button>
         {channelId && onPin && !isPinned && (
           <button
             type="button"
@@ -213,29 +240,10 @@ export function WidgetCard({
       </div>
 
       {/* Body: component content */}
-      <div className="px-3 pb-2">
+      <div className="px-3 pb-2 max-h-[400px] overflow-y-auto">
         {wrapped}
       </div>
 
-      {/* Footer: json toggle */}
-      <div className="flex justify-end px-2 pb-1">
-        <button
-          type="button"
-          onClick={() => setShowJson(!showJson)}
-          className="text-[10px] px-1 py-0.5 transition-opacity"
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: t.textDim,
-            opacity: 0.5,
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.5"; }}
-        >
-          {showJson ? "widget" : "json"}
-        </button>
-      </div>
     </div>
   );
 }

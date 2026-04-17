@@ -3,11 +3,30 @@ import { persist } from "zustand/middleware";
 import type { PinnedWidget, ToolResultEnvelope } from "../types/api";
 import { apiFetch } from "../api/client";
 
+/**
+ * Build a stable identity key for an envelope based on its integration prefix
+ * and entity identifiers. Used by the shared envelope map so inline WidgetCards
+ * and PinnedToolWidgets can subscribe to the same state.
+ */
+export function envelopeIdentityKey(toolName: string, envelope: ToolResultEnvelope): string {
+  const prefix = toolName.includes("-") ? toolName.split("-")[0] : toolName;
+  const entities = extractEntities(envelope.body);
+  if (entities.size > 0) return `${prefix}::${[...entities].sort().join("|")}`;
+  if (envelope.record_id) return `${prefix}::${envelope.record_id}`;
+  return `${prefix}::${toolName}`;
+}
+
 interface PinnedWidgetsState {
   /** Server-sourced pinned widgets, keyed by channelId */
   byChannel: Record<string, PinnedWidget[]>;
   /** Whether the files section in OmniPanel is collapsed (persisted to localStorage) */
   filesSectionCollapsed: boolean;
+  /**
+   * Shared envelope map — keyed by `channelId::identityKey`.
+   * Both inline WidgetCards and PinnedToolWidgets read/write here so that
+   * toggling in either location propagates immediately. Runtime-only (not persisted).
+   */
+  widgetEnvelopes: Record<string, ToolResultEnvelope>;
 
   toggleFilesSectionCollapsed: () => void;
 
@@ -34,9 +53,19 @@ interface PinnedWidgetsState {
   ) => void;
 
   /**
+   * Broadcast an envelope update from any widget (inline or pinned).
+   * Stores in widgetEnvelopes so subscribers re-render, and updates any
+   * matching pinned widget + persists to server.
+   */
+  broadcastEnvelope: (
+    channelId: string,
+    toolName: string,
+    envelope: ToolResultEnvelope,
+  ) => void;
+
+  /**
    * Cross-update: when a new tool result arrives in chat, check if any pinned
-   * widget should be updated. Matches by integration group (same prefix) and
-   * entity overlap in the body content.
+   * widget should be updated. Delegates to broadcastEnvelope internally.
    */
   crossUpdateFromToolResult: (
     channelId: string,
@@ -77,19 +106,65 @@ function extractEntities(body: string | null): Set<string> {
   return entities;
 }
 
+/**
+ * Check if a pinned widget matches a tool name + envelope by integration prefix
+ * and entity overlap.
+ */
+function widgetMatchesEnvelope(
+  widget: PinnedWidget,
+  toolName: string,
+  envelope: ToolResultEnvelope,
+): boolean {
+  const prefix = toolName.includes("-") ? toolName.split("-")[0] : "";
+  const wPrefix = widget.tool_name.includes("-") ? widget.tool_name.split("-")[0] : "";
+
+  if (prefix && wPrefix !== prefix) return false;
+  if (!prefix && widget.tool_name !== toolName) return false;
+
+  const newEntities = extractEntities(envelope.body);
+  const pinnedEntities = extractEntities(widget.envelope.body);
+
+  // Both have entities — check overlap
+  if (newEntities.size > 0 && pinnedEntities.size > 0) {
+    for (const e of newEntities) {
+      if (pinnedEntities.has(e)) return true;
+    }
+    return false;
+  }
+
+  // Neither has entities and same prefix — match (same tool, same integration)
+  if (pinnedEntities.size === 0 && newEntities.size === 0) return true;
+
+  return false;
+}
+
 export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
   persist(
     (set, get) => ({
       byChannel: {},
       filesSectionCollapsed: false,
+      widgetEnvelopes: {},
 
       toggleFilesSectionCollapsed: () =>
         set((s) => ({ filesSectionCollapsed: !s.filesSectionCollapsed })),
 
-      hydrateFromChannel: (channelId, widgets) =>
+      hydrateFromChannel: (channelId, widgets) => {
+        // Populate byChannel from server
         set((s) => ({
           byChannel: { ...s.byChannel, [channelId]: widgets },
-        })),
+        }));
+        // Seed widgetEnvelopes so inline WidgetCards can pick up pinned state
+        const updates: Record<string, ToolResultEnvelope> = {};
+        for (const w of widgets) {
+          const key = `${channelId}::${envelopeIdentityKey(w.tool_name, w.envelope)}`;
+          updates[key] = w.envelope;
+        }
+        if (Object.keys(updates).length > 0) {
+          set((s) => ({
+            widgetEnvelopes: { ...s.widgetEnvelopes, ...updates },
+          }));
+        }
+      },
 
       pinWidget: async (channelId, widget) => {
         const id = generateId();
@@ -204,16 +279,16 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
         }
       },
 
-      crossUpdateFromToolResult: (channelId, toolName, envelope) => {
+      broadcastEnvelope: (channelId, toolName, envelope) => {
+        // 1. Store in shared envelope map
+        const key = `${channelId}::${envelopeIdentityKey(toolName, envelope)}`;
+        set((s) => ({
+          widgetEnvelopes: { ...s.widgetEnvelopes, [key]: envelope },
+        }));
+
+        // 2. Update any matching pinned widgets + persist to server
         const widgets = get().byChannel[channelId];
         if (!widgets?.length) return;
-
-        // Extract integration prefix: "homeassistant-HassTurnOn" → "homeassistant"
-        const prefix = toolName.includes("-") ? toolName.split("-")[0] : "";
-
-        // Extract entity identifiers from the new envelope body
-        const newEntities = extractEntities(envelope.body);
-        if (!newEntities.size && !prefix) return;
 
         const updatedIds: string[] = [];
 
@@ -221,38 +296,30 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
           byChannel: {
             ...s.byChannel,
             [channelId]: (s.byChannel[channelId] ?? []).map((w) => {
-              // Same integration prefix?
-              const wPrefix = w.tool_name.includes("-") ? w.tool_name.split("-")[0] : "";
-              if (prefix && wPrefix !== prefix) return w;
-              if (!prefix && w.tool_name !== toolName) return w;
-
-              // Check entity overlap in bodies
-              const pinnedEntities = extractEntities(w.envelope.body);
-              if (pinnedEntities.size === 0 && newEntities.size === 0) {
+              if (widgetMatchesEnvelope(w, toolName, envelope)) {
                 updatedIds.push(w.id);
                 return { ...w, envelope };
-              }
-              for (const e of newEntities) {
-                if (pinnedEntities.has(e)) {
-                  updatedIds.push(w.id);
-                  return { ...w, envelope };
-                }
               }
               return w;
             }),
           },
         }));
 
-        // Persist all updated widgets to server
+        // Persist all updated pinned widgets to server
         for (const id of updatedIds) {
           const updated = get().byChannel[channelId]?.find((w) => w.id === id);
           if (updated) {
             apiFetch(`/api/v1/channels/${channelId}/widget-pins`, {
               method: "POST",
               body: JSON.stringify(updated),
-            }).catch((err) => console.error("Failed to persist cross-update:", err));
+            }).catch((err) => console.error("Failed to persist broadcast update:", err));
           }
         }
+      },
+
+      crossUpdateFromToolResult: (channelId, toolName, envelope) => {
+        // Delegate to broadcastEnvelope — same logic, just called from message arrival
+        get().broadcastEnvelope(channelId, toolName, envelope);
       },
     }),
     {

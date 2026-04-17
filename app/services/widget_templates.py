@@ -94,6 +94,7 @@ def _register_widgets(source: str, widgets: dict) -> int:
             "display": widget_def.get("display", "inline"),
             "template": widget_def["template"],
             "transform": widget_def.get("transform"),
+            "display_label": widget_def.get("display_label"),
             "source": source,
         }
         count += 1
@@ -177,11 +178,20 @@ def apply_widget_template(tool_name: str, raw_result: str) -> ToolResultEnvelope
     body = json.dumps(filled)
     plain_body = f"Widget: {tool_name}"
 
+    # Resolve display_label if declared in the template
+    display_label = None
+    raw_label = tmpl.get("display_label")
+    if raw_label and isinstance(raw_label, str):
+        resolved = _substitute_string(raw_label, data)
+        if resolved and isinstance(resolved, str) and resolved.strip():
+            display_label = resolved.strip()
+
     return ToolResultEnvelope(
         content_type=tmpl["content_type"],
         body=body,
         plain_body=plain_body,
         display=tmpl["display"],
+        display_label=display_label,
     )
 
 

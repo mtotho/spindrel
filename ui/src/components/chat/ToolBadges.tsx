@@ -176,7 +176,7 @@ export function ToolBadges({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+    <div className="flex flex-col gap-1.5 mt-1.5">
       {items.map((item, idx) => {
         const hasArgs = item.argsList.some((a) => !!a);
         const hasEnvelope = item.envelopes.some((e) => !!e);
@@ -188,68 +188,45 @@ export function ToolBadges({
         const successCount = envCount - errorCount;
 
         return (
-          <div key={idx} style={{ display: "flex", flexDirection: "column" }}>
+          <div key={idx} className="flex flex-col">
             {/* ── Badge pill ── */}
             <div
               onClick={expandable ? () => handleExpand(idx) : undefined}
+              className={`inline-flex items-center self-start gap-1.5 px-2.5 py-1 transition-colors duration-150 ${expandable ? "cursor-pointer" : "cursor-default"} ${isExpanded ? "rounded-t-lg border border-b-0" : "rounded-lg border"}`}
               style={{
-                display: "inline-flex",
-                flexDirection: "row",
-                alignItems: "center",
-                alignSelf: "flex-start",
-                gap: 5,
-                padding: "4px 10px 4px 8px",
-                borderRadius: isExpanded ? "4px 4px 0 0" : 4,
-                backgroundColor: t.overlayLight,
-                border: `1px solid ${isExpanded ? t.surfaceBorder : t.overlayBorder}`,
-                borderBottom: isExpanded ? "none" : undefined,
-                cursor: expandable ? "pointer" : "default",
-                transition: "background-color 0.15s, border-color 0.15s",
+                backgroundColor: t.surfaceRaised,
+                borderColor: t.surfaceBorder,
               }}
               onMouseEnter={expandable ? (e) => {
-                if (!isExpanded) e.currentTarget.style.backgroundColor = t.surfaceOverlay;
+                if (!isExpanded) e.currentTarget.style.backgroundColor = `${t.surfaceRaised}`;
+                e.currentTarget.style.borderColor = t.textDim;
               } : undefined}
               onMouseLeave={expandable ? (e) => {
-                if (!isExpanded) e.currentTarget.style.backgroundColor = t.overlayLight;
+                e.currentTarget.style.backgroundColor = t.surfaceRaised;
+                e.currentTarget.style.borderColor = t.surfaceBorder;
               } : undefined}
             >
-              <Wrench size={11} color={t.textDim} />
-              <span
-                style={{
-                  fontSize: 11,
-                  color: t.textMuted,
-                  fontFamily: "'Menlo', monospace",
-                }}
-              >
+              <Wrench size={11} style={{ color: t.textDim, flexShrink: 0 }} />
+              <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: t.textDim }}>
                 {item.name}
                 {item.count > 1 ? ` \u00d7${item.count}` : ""}
               </span>
               {/* Status dots — compact success/error indicator */}
               {envCount > 0 && !isExpanded && (
-                <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
+                <span className="inline-flex items-center gap-1">
                   {errorCount > 0 && (
-                    <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 2 }}>
-                      <span style={{
-                        width: 6, height: 6, borderRadius: "50%",
-                        backgroundColor: t.danger, display: "inline-block",
-                      }} />
+                    <span className="inline-flex items-center gap-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: t.danger }} />
                       {errorCount > 1 && (
-                        <span style={{ fontSize: 10, color: t.danger, fontFamily: "'Menlo', monospace" }}>
-                          {errorCount}
-                        </span>
+                        <span className="text-[10px]" style={{ color: t.danger }}>{errorCount}</span>
                       )}
                     </span>
                   )}
                   {successCount > 0 && (
-                    <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 2 }}>
-                      <span style={{
-                        width: 6, height: 6, borderRadius: "50%",
-                        backgroundColor: t.success, display: "inline-block",
-                      }} />
+                    <span className="inline-flex items-center gap-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: t.success }} />
                       {successCount > 1 && (
-                        <span style={{ fontSize: 10, color: t.success, fontFamily: "'Menlo', monospace" }}>
-                          {successCount}
-                        </span>
+                        <span className="text-[10px]" style={{ color: t.success }}>{successCount}</span>
                       )}
                     </span>
                   )}
@@ -257,21 +234,19 @@ export function ToolBadges({
               )}
               {expandable &&
                 (isExpanded ? (
-                  <ChevronDown size={11} color={t.textDim} />
+                  <ChevronDown size={11} style={{ color: t.textDim }} />
                 ) : (
-                  <ChevronRight size={11} color={t.textDim} />
+                  <ChevronRight size={11} style={{ color: t.textDim }} />
                 ))}
             </div>
 
             {/* ── Expanded panel ── */}
             {isExpanded && (
               <div
+                className="rounded-b-lg border border-t-0 overflow-hidden"
                 style={{
-                  border: `1px solid ${t.surfaceBorder}`,
-                  borderTop: "none",
-                  borderRadius: "0 8px 8px 8px",
+                  borderColor: t.surfaceBorder,
                   backgroundColor: t.surfaceRaised,
-                  overflow: "hidden",
                 }}
               >
                 {/* Args section */}
@@ -282,41 +257,17 @@ export function ToolBadges({
                   if (argsToShow.length === 0) return null;
                   return (
                     <div
-                      style={{
-                        maxHeight: 200,
-                        overflowY: "auto",
-                        padding: "8px 12px",
-                        borderBottom: `1px solid ${t.surfaceBorder}`,
-                      }}
+                      className="max-h-[200px] overflow-y-auto px-3 py-2 border-b"
+                      style={{ borderColor: t.surfaceBorder }}
                     >
                       {argsToShow.map((formatted, i) => (
                         <div key={i}>
                           {argsToShow.length > 1 && (
-                            <div
-                              style={{
-                                fontSize: 10,
-                                color: t.textDim,
-                                fontWeight: 600,
-                                marginTop: i > 0 ? 6 : 0,
-                                marginBottom: 2,
-                                textTransform: "uppercase",
-                                letterSpacing: 0.5,
-                              }}
-                            >
+                            <div className={`text-[10px] font-semibold uppercase tracking-wider mb-0.5 ${i > 0 ? "mt-1.5" : ""}`} style={{ color: t.textDim }}>
                               Call {i + 1}
                             </div>
                           )}
-                          <pre
-                            style={{
-                              margin: 0,
-                              fontSize: 11,
-                              fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
-                              color: t.textMuted,
-                              whiteSpace: "pre-wrap",
-                              wordBreak: "break-word",
-                              lineHeight: "1.4",
-                            }}
-                          >
+                          <pre className="m-0 text-[11px] font-mono whitespace-pre-wrap break-words leading-relaxed" style={{ color: t.textMuted }}>
                             {formatted}
                           </pre>
                         </div>
@@ -341,60 +292,32 @@ export function ToolBadges({
                       {/* Result row header */}
                       <div
                         onClick={() => toggleResult(i)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer transition-colors duration-100 hover:bg-white/[0.02]"
                         style={{
-                          display: "flex", flexDirection: "row",
-                          alignItems: "center",
-                          gap: 6,
-                          padding: "6px 12px",
-                          cursor: "pointer",
-                          transition: "background-color 0.1s",
                           borderTop: i > 0 ? `1px solid ${t.surfaceBorder}` : undefined,
-                          backgroundColor: isOpen ? t.surfaceOverlay : "transparent",
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!isOpen) e.currentTarget.style.backgroundColor = t.surfaceOverlay;
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isOpen) e.currentTarget.style.backgroundColor = "transparent";
+                          backgroundColor: isOpen ? "rgba(255,255,255,0.02)" : "transparent",
                         }}
                       >
                         {isOpen ? (
-                          <ChevronDown size={10} color={t.textDim} />
+                          <ChevronDown size={10} style={{ color: t.textDim }} />
                         ) : (
-                          <ChevronRight size={10} color={t.textDim} />
+                          <ChevronRight size={10} style={{ color: t.textDim }} />
                         )}
                         {/* Status icon */}
                         {isError ? (
-                          <AlertCircle size={12} color={t.danger} />
+                          <AlertCircle size={12} style={{ color: t.danger }} />
                         ) : (
-                          <CheckCircle2 size={12} color={t.success} style={{ opacity: 0.7 }} />
+                          <CheckCircle2 size={12} style={{ color: t.success, opacity: 0.7 }} />
                         )}
                         {!singleResult && (
-                          <span
-                            style={{
-                              fontSize: 10,
-                              color: t.textDim,
-                              fontWeight: 600,
-                              textTransform: "uppercase",
-                              letterSpacing: 0.5,
-                              flexShrink: 0,
-                            }}
-                          >
+                          <span className="text-[10px] font-semibold uppercase tracking-wider flex-shrink-0" style={{ color: t.textDim }}>
                             Result {i + 1}
                           </span>
                         )}
                         {summary && !isOpen && (
                           <span
-                            style={{
-                              fontSize: 11,
-                              color: isError ? t.dangerMuted : t.textMuted,
-                              fontFamily: "'Menlo', monospace",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                              flex: 1,
-                              minWidth: 0,
-                            }}
+                            className="text-[11px] overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0"
+                            style={{ color: isError ? t.dangerMuted : t.textMuted }}
                           >
                             {summary}
                           </span>
@@ -404,12 +327,10 @@ export function ToolBadges({
                       {/* Result body */}
                       {isOpen && (
                         <div
+                          className="relative px-3 py-1 pb-2"
                           style={{
-                            position: "relative",
-                            padding: "4px 12px 8px",
                             maxHeight: isCapped ? 400 : undefined,
                             overflow: isCapped ? "hidden" : undefined,
-                            backgroundColor: t.surfaceOverlay,
                           }}
                         >
                           {isError ? (
@@ -419,18 +340,8 @@ export function ToolBadges({
                           )}
                           {isCapped && (env.byte_size > 2000 || (env.body ?? "").length > 1500) && (
                             <div
-                              style={{
-                                position: "absolute",
-                                bottom: 0,
-                                left: 0,
-                                right: 0,
-                                height: 48,
-                                background: `linear-gradient(transparent, ${t.surfaceOverlay})`,
-                                display: "flex", flexDirection: "row",
-                                alignItems: "flex-end",
-                                justifyContent: "center",
-                                paddingBottom: 6,
-                              }}
+                              className="absolute bottom-0 left-0 right-0 h-12 flex items-end justify-center pb-1.5"
+                              style={{ background: `linear-gradient(transparent, ${t.surfaceRaised})` }}
                             >
                               <button
                                 type="button"
@@ -438,18 +349,11 @@ export function ToolBadges({
                                   e.stopPropagation();
                                   uncapResult(i);
                                 }}
+                                className="text-[11px] rounded px-2.5 py-0.5 cursor-pointer transition-colors duration-100 border bg-transparent hover:opacity-80"
                                 style={{
-                                  fontSize: 11,
                                   color: t.textMuted,
-                                  background: t.surfaceRaised,
-                                  border: `1px solid ${t.surfaceBorder}`,
-                                  borderRadius: 4,
-                                  padding: "2px 10px",
-                                  cursor: "pointer",
-                                  transition: "color 0.1s",
+                                  borderColor: t.surfaceBorder,
                                 }}
-                                onMouseEnter={(e) => { e.currentTarget.style.color = t.text; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.color = t.textMuted; }}
                               >
                                 Show all
                               </button>

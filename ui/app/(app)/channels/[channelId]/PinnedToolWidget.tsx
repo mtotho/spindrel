@@ -4,7 +4,7 @@
  * Same rendering pipeline as WidgetCard (ComponentRenderer + WidgetActionContext)
  * but adapted for side panel: drag handle, refresh, unpin controls.
  */
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { X, GripVertical } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -13,6 +13,7 @@ import { useWidgetAction } from "@/src/api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "@/src/api/hooks/useWidgetAction";
 import { ComponentRenderer, WidgetActionContext } from "@/src/components/chat/renderers/ComponentRenderer";
 import type { PinnedWidget, ToolResultEnvelope } from "@/src/types/api";
+import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 
 /** Strip MCP server prefix: "homeassistant-HassTurnOn" → "HassTurnOn" */
 function cleanToolName(name: string): string {
@@ -20,47 +21,13 @@ function cleanToolName(name: string): string {
   return idx >= 0 ? name.slice(idx + 1) : name;
 }
 
-/**
- * Extract a meaningful display name from the widget's component JSON body.
- * Parses the component tree and looks for a properties component with an
- * "entity" label, which is the standard HA template pattern.
- */
-function extractDisplayNameFromBody(body: string | null): string | null {
-  if (!body) return null;
-  try {
-    const parsed = typeof body === "string" ? JSON.parse(body) : body;
-    const components: any[] = parsed?.components;
-    if (!Array.isArray(components)) return null;
-
-    for (const c of components) {
-      if (c.type === "properties" && Array.isArray(c.items)) {
-        for (const item of c.items) {
-          if (
-            typeof item.label === "string" &&
-            item.label.toLowerCase() === "entity" &&
-            typeof item.value === "string"
-          ) {
-            return item.value;
-          }
-        }
-      }
-    }
-  } catch {
-    // Not valid JSON — skip
-  }
-  return null;
-}
-
-/** Get the best display name: entity from body > stored display_name > cleaned tool name */
+/** Get the best display name: display_label from envelope > stored display_name > cleaned tool name */
 function resolveDisplayName(widget: PinnedWidget): string {
+  // Prefer display_label resolved by the template engine
+  if (widget.envelope?.display_label) return widget.envelope.display_label;
   const toolShort = cleanToolName(widget.tool_name);
-  // If display_name is already meaningful (not just the tool name), use it
-  if (widget.display_name && widget.display_name !== toolShort) {
-    return widget.display_name;
-  }
-  // Parse the component body for an entity name
-  const entity = extractDisplayNameFromBody(widget.envelope?.body ?? null);
-  return entity || widget.display_name || toolShort;
+  if (widget.display_name && widget.display_name !== toolShort) return widget.display_name;
+  return toolShort;
 }
 
 interface PinnedToolWidgetProps {
@@ -78,11 +45,18 @@ export function PinnedToolWidget({
 }: PinnedToolWidgetProps) {
   const t = useThemeTokens();
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);
+  const broadcastEnvelope = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
 
-  // Sync from store when cross-update replaces the envelope
+  // Subscribe to shared envelope map — sync from inline WidgetCard actions
+  const envelopeKey = `${channelId}::${envelopeIdentityKey(widget.tool_name, currentEnvelope)}`;
+  const sharedEnvelope = usePinnedWidgetsStore((s) => s.widgetEnvelopes[envelopeKey]);
+  const envelopeRef = useRef(currentEnvelope);
+  envelopeRef.current = currentEnvelope;
   useEffect(() => {
-    setCurrentEnvelope(widget.envelope);
-  }, [widget.envelope]);
+    if (sharedEnvelope && sharedEnvelope !== envelopeRef.current) {
+      setCurrentEnvelope(sharedEnvelope);
+    }
+  }, [sharedEnvelope]);
 
   const {
     attributes,
@@ -95,7 +69,7 @@ export function PinnedToolWidget({
 
   const rawDispatch = useWidgetAction(channelId, widget.bot_id);
 
-  // Intercepting dispatcher: captures response envelopes and updates state
+  // Intercepting dispatcher: captures response envelopes, updates state, and broadcasts
   const interceptingDispatch = useCallback(
     async (action: import("@/src/types/api").WidgetAction, value: unknown): Promise<WidgetActionResult> => {
       const result = await rawDispatch(action, value);
@@ -106,10 +80,11 @@ export function PinnedToolWidget({
       ) {
         setCurrentEnvelope(result.envelope);
         onEnvelopeUpdate(widget.id, result.envelope);
+        broadcastEnvelope(channelId, widget.tool_name, result.envelope);
       }
       return result;
     },
-    [rawDispatch, widget.id, onEnvelopeUpdate],
+    [rawDispatch, widget.id, channelId, widget.tool_name, onEnvelopeUpdate, broadcastEnvelope],
   );
 
   const actionCtx = useMemo(
@@ -162,7 +137,7 @@ export function PinnedToolWidget({
       </div>
 
       {/* Body: component content */}
-      <div className="px-2 pb-2">
+      <div className="px-2 pb-2 max-h-[350px] overflow-y-auto">
         <WidgetActionContext.Provider value={actionCtx}>
           <ComponentRenderer body={body} t={t} />
         </WidgetActionContext.Provider>

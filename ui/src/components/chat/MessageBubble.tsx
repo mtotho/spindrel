@@ -91,19 +91,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
 
   const handlePinWidget = useCallback(
     (info: { widgetId: string; envelope: ToolResultEnvelope; toolName: string; channelId: string; botId: string }) => {
-      // Extract entity name from the component JSON for a meaningful display name
-      let entityName: string | undefined;
-      try {
-        const parsed = typeof info.envelope.body === "string" ? JSON.parse(info.envelope.body) : info.envelope.body;
-        for (const c of parsed?.components ?? []) {
-          if (c.type === "properties" && Array.isArray(c.items)) {
-            const ent = c.items.find((it: any) => typeof it.label === "string" && it.label.toLowerCase() === "entity");
-            if (ent?.value) { entityName = ent.value; break; }
-          }
-        }
-      } catch { /* not JSON */ }
       const toolShort = info.toolName.includes("-") ? info.toolName.slice(info.toolName.indexOf("-") + 1) : info.toolName;
-      const displayName = entityName || toolShort;
+      // Prefer display_label from template engine, fall back to tool name
+      const displayName = info.envelope.display_label || toolShort;
 
       pinWidget(info.channelId, {
         tool_name: info.toolName,
@@ -197,21 +187,20 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     return { inlineWidgets, remainingToolNames, remainingToolCalls, remainingToolResults };
   }, [msgToolCalls, toolsUsed, toolResults]);
 
-  // Cross-update pinned widgets when new tool results arrive.
-  // When a tool fires in chat (e.g. HassTurnOff), update any pinned widget
-  // that controls the same entity so it reflects the current state.
-  const crossUpdateRef = useRef<string | null>(null);
-  const crossUpdate = usePinnedWidgetsStore((s) => s.crossUpdateFromToolResult);
+  // Broadcast envelopes when new tool results arrive in messages.
+  // Seeds the shared envelope map so pinned widgets and inline widgets stay in sync.
+  const broadcastRef = useRef<string | null>(null);
+  const broadcastEnvelope = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
   useEffect(() => {
     if (!channelId || !inlineWidgets.length) return;
     // Key by message id to only fire once per message
     const key = message.id;
-    if (crossUpdateRef.current === key) return;
-    crossUpdateRef.current = key;
+    if (broadcastRef.current === key) return;
+    broadcastRef.current = key;
     for (const w of inlineWidgets) {
-      crossUpdate(channelId, w.toolName, w.envelope);
+      broadcastEnvelope(channelId, w.toolName, w.envelope);
     }
-  }, [channelId, message.id, inlineWidgets, crossUpdate]);
+  }, [channelId, message.id, inlineWidgets, broadcastEnvelope]);
 
   // Collapsed non-dispatched heartbeat messages
   const isNonDispatchedHeartbeat = (trigger === "heartbeat" || meta.is_heartbeat) && meta.dispatched === false;
@@ -245,7 +234,16 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const messageContent = (
     <>
       {richEnvelope ? (
-        <RichToolResult envelope={richEnvelope} sessionId={message.session_id} channelId={channelId} botId={senderBotId} t={t} />
+        <div className="rounded-lg border mt-1.5" style={{ borderColor: t.surfaceBorder, backgroundColor: t.surfaceRaised }}>
+          <div className="px-3 pt-2 pb-0.5">
+            <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: t.textDim }}>
+              {(meta.source as string) || "event"}
+            </span>
+          </div>
+          <div className="px-3 pb-2">
+            <RichToolResult envelope={richEnvelope} sessionId={message.session_id} channelId={channelId} botId={senderBotId} t={t} />
+          </div>
+        </div>
       ) : displayContent.length > 0 ? (
         <MarkdownContent text={displayContent} t={t} />
       ) : null}
@@ -265,6 +263,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           widgetId={w.recordId}
           t={t}
           isLatestBotMessage={isLatestBotMessage}
+          defaultCollapsed={inlineWidgets.length > 2 && i < inlineWidgets.length - 1}
           onPin={handlePinWidget}
         />
       ))}
