@@ -1080,7 +1080,7 @@ export default function IntegrationDetailScreen() {
         parentLabel="Integrations"
         backTo="/admin/integrations"
         title={item.name}
-        right={<StatusBadge status={item.lifecycle_status} />}
+        right={<StatusBadge status={item.lifecycle_status === "enabled" && item.env_vars.some((v) => v.required && !v.is_set) ? "needs_setup" : item.lifecycle_status} />}
       />
       <RefreshableScrollView
         refreshing={refreshing}

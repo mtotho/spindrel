@@ -44,14 +44,14 @@ function IntegrationIcon({ name, size = 18, color }: { name?: string; size?: num
 /*  Status dot — minimal, no badge chrome                              */
 /* ------------------------------------------------------------------ */
 
-const LIFECYCLE_META: Record<string, { color: string; label: string }> = {
-  enabled: { color: "#22c55e", label: "Enabled" },
-  needs_setup: { color: "#eab308", label: "Needs Setup" },
-  available: { color: "#6b7280", label: "Available" },
-};
-
-function StatusDot({ status }: { status: string }) {
-  const meta = LIFECYCLE_META[status] || LIFECYCLE_META.available;
+function StatusDot({ item }: { item: IntegrationItem }) {
+  const isEnabled = item.lifecycle_status === "enabled";
+  const missingRequired = item.env_vars.some((v) => v.required && !v.is_set);
+  const meta = !isEnabled
+    ? { color: "#6b7280", label: "Available" }
+    : missingRequired
+      ? { color: "#eab308", label: "Needs Setup" }
+      : { color: "#22c55e", label: "Enabled" };
   return (
     <span className="inline-flex flex-row items-center gap-1.5">
       <span
@@ -198,7 +198,7 @@ function IntegrationCard({ item }: { item: IntegrationItem }) {
           <span className="text-[13px] font-semibold truncate leading-tight" style={{ color: t.text }}>
             {item.name}
           </span>
-          <StatusDot status={item.lifecycle_status} />
+          <StatusDot item={item} />
         </div>
         {/* Env var indicator — suppressed in Library (user hasn't adopted yet) */}
         {!isAvailable && envTotal > 0 && (

@@ -12,6 +12,9 @@ export const STATUS_COLORS: Record<string, { dot: string; label: string; bg: str
   available: { dot: "#6b7280", label: "Available", bg: "rgba(107,114,128,0.12)" },
 };
 
+/** Accepts the lifecycle status (``available``/``enabled``) and, for enabled,
+ *  the derived ``needs_setup`` flag — choose the display bucket here instead
+ *  of at every call site. */
 export function StatusBadge({ status }: { status: string }) {
   const c = STATUS_COLORS[status] || STATUS_COLORS.available;
   return (
