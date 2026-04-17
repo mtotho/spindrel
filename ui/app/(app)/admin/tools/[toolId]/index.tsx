@@ -6,6 +6,7 @@ import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useTool } from "@/src/api/hooks/useTools";
 import { Section } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { ToolWidgetSection } from "./ToolWidgetSection";
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -146,6 +147,16 @@ export default function ToolDetailScreen() {
               </div>
             </Section>
           )}
+
+          {/* Widget template */}
+          <ToolWidgetSection
+            toolName={tool.tool_name}
+            bareToolName={
+              tool.tool_name.includes("-")
+                ? tool.tool_name.split("-").slice(1).join("-")
+                : tool.tool_name
+            }
+          />
 
           {/* Parameters */}
           <Section title={`Parameters (${paramNames.length})`}>

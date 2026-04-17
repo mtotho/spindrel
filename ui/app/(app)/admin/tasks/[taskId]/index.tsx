@@ -5,7 +5,16 @@ import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useTask, useTaskChildren, useRunTaskNow, type TaskDetail, type StepState, type StepDef } from "@/src/api/hooks/useTasks";
 import { useTaskFormState } from "@/src/components/shared/task/useTaskFormState";
 import { ContentFields, ExecutionFields, TriggerFields } from "@/src/components/shared/task/TaskFormFields";
-import { Trash2, Play, ExternalLink, ArrowUpRight, BookOpen, ChevronRight, Terminal, Bot, Wrench, CheckCircle2, XCircle, Clock, SkipForward, Loader2, PauseCircle, Cog } from "lucide-react";
+import { Trash2, Play, ExternalLink, ArrowUpRight, BookOpen, ChevronRight, Terminal, Bot, Wrench, CheckCircle2, XCircle, Clock, SkipForward, Loader2, PauseCircle, Cog, CalendarClock, Hash } from "lucide-react";
+import { Link } from "react-router-dom";
+import {
+  useTaskSubscriptions,
+  useUpdateSubscription,
+  useUnsubscribePipeline,
+  type TaskSubscription,
+} from "@/src/api/hooks/useChannelPipelines";
+import { CronScheduleModal } from "@/src/components/shared/CronScheduleModal";
+import { humanLabelFor } from "@/src/components/shared/CronInput";
 import { Section } from "@/src/components/shared/FormControls";
 import {
   EnableToggle,
@@ -264,6 +273,13 @@ function OverviewTab({ form, task, readOnly }: { form: ReturnType<typeof useTask
       <div className="px-5 py-5 border-t border-surface-border flex flex-col gap-4">
         <TriggerFields form={form} />
       </div>
+
+      {/* Subscribed channels — for pipeline definitions only */}
+      {task.task_type === "pipeline" && (
+        <div className="px-5 py-5 border-t border-surface-border">
+          <SubscribedChannelsSection taskId={task.id} />
+        </div>
+      )}
 
       {/* Timing info */}
       <div className="px-5 py-5 border-t border-surface-border">
@@ -623,6 +639,107 @@ function OneShotResult({ task }: { task: TaskDetail }) {
         <pre className="text-xs text-danger font-mono whitespace-pre-wrap bg-danger/5 p-3 rounded-lg border border-danger/20 max-h-48 overflow-auto m-0">
           {task.error}
         </pre>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Subscribed channels — per-channel enable/schedule for a pipeline definition
+// ---------------------------------------------------------------------------
+
+function SubscribedChannelsSection({ taskId }: { taskId: string }) {
+  const { data, isLoading } = useTaskSubscriptions(taskId);
+  const subs = data?.subscriptions ?? [];
+
+  return (
+    <Section title={`Subscribed channels (${subs.length})`}>
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-text-dim">
+          <Loader2 size={12} className="animate-spin" />
+          Loading subscriptions…
+        </div>
+      ) : subs.length === 0 ? (
+        <div className="text-xs text-text-dim">
+          No channels are subscribed to this pipeline yet. Subscribe from a
+          channel's Settings → Pipelines tab.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {subs.map((s) => (
+            <TaskSubscriptionRow key={s.id} sub={s} />
+          ))}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function TaskSubscriptionRow({ sub }: { sub: TaskSubscription }) {
+  const update = useUpdateSubscription(sub.channel_id);
+  const unsub = useUnsubscribePipeline(sub.channel_id);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const scheduleLabel = sub.schedule
+    ? humanLabelFor(sub.schedule) ?? sub.schedule
+    : "—";
+
+  return (
+    <div className="flex flex-row items-center gap-3 px-3 py-2 rounded-lg border border-surface-border bg-surface-raised/50">
+      <Hash size={14} className="text-text-dim shrink-0" />
+      <Link
+        to={`/channels/${sub.channel_id}/settings#pipelines`}
+        className="flex-1 min-w-0 text-[13px] font-semibold text-text hover:text-accent truncate"
+      >
+        {sub.channel.name ?? sub.channel_id}
+      </Link>
+      <button
+        onClick={() => setScheduleOpen(true)}
+        title="Edit schedule"
+        className="flex flex-row items-center gap-1 px-2 py-1 text-[11px] font-mono border border-surface-border rounded-md bg-transparent text-text-muted hover:text-text"
+      >
+        <CalendarClock size={11} />
+        <span>{scheduleLabel}</span>
+      </button>
+      <label className="flex items-center gap-1 text-[11px] text-text-muted cursor-pointer">
+        <input
+          type="checkbox"
+          checked={sub.enabled}
+          onChange={(e) =>
+            update.mutate({
+              subscriptionId: sub.id,
+              patch: { enabled: e.target.checked },
+            })
+          }
+        />
+        {sub.enabled ? "On" : "Off"}
+      </label>
+      <button
+        title="Unsubscribe"
+        onClick={() => {
+          if (
+            !window.confirm(
+              `Unsubscribe ${sub.channel.name ?? "this channel"} from this pipeline?`,
+            )
+          )
+            return;
+          unsub.mutate(sub.id);
+        }}
+        className="p-1 text-text-dim hover:text-danger bg-transparent border-none cursor-pointer"
+      >
+        <Trash2 size={12} />
+      </button>
+      {scheduleOpen && (
+        <CronScheduleModal
+          title={`Schedule for ${sub.channel.name ?? "channel"}`}
+          initial={sub.schedule}
+          onClose={() => setScheduleOpen(false)}
+          onSave={async (expr) => {
+            await update.mutateAsync({
+              subscriptionId: sub.id,
+              patch: expr === null ? { clear_schedule: true } : { schedule: expr },
+            });
+          }}
+        />
       )}
     </div>
   );

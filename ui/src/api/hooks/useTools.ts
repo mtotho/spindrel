@@ -1,6 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 
+export interface ActiveWidgetPackage {
+  id: string;
+  name: string;
+  source: "seed" | "user";
+}
+
 export interface ToolItem {
   id: string;
   tool_key: string;
@@ -13,6 +19,8 @@ export interface ToolItem {
   parameters?: Record<string, any> | null;
   schema_?: Record<string, any> | null;
   indexed_at: string;
+  active_widget_package?: ActiveWidgetPackage | null;
+  widget_package_count?: number;
 }
 
 export function useTools() {

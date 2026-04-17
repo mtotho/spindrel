@@ -29,7 +29,7 @@ import { TasksTab } from "./TasksTab";
 import { LogsTab } from "./LogsTab";
 import { AttachmentsTab } from "./AttachmentsTab";
 import { ChannelWorkspaceTab } from "./ChannelWorkspaceTab";
-import { WorkflowsTab } from "./WorkflowsTab";
+import { PipelinesTab } from "./PipelinesTab";
 import { ParticipantsTab } from "./ParticipantsTab";
 
 // ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ const ALL_TABS: { key: string; label: string; separator?: boolean }[] = [
   { key: "history", label: "History" },
   { key: "attachments", label: "Attachments" },
   { key: "context", label: "Context", separator: true },
-  { key: "workflows", label: "Workflows" },
+  { key: "pipelines", label: "Pipelines" },
   { key: "tasks", label: "Tasks" },
   { key: "logs", label: "Logs" },
 ];
@@ -435,7 +435,7 @@ export default function ChannelSettingsScreen() {
         {tab === "integrations" && <IntegrationsTab channelId={channelId!} workspaceEnabled={!!form.channel_workspace_enabled} />}
         {tab === "attachments" && <AttachmentsTab channelId={channelId!} />}
         {tab === "context" && <ContextTab channelId={channelId!} />}
-        {tab === "workflows" && <WorkflowsTab channelId={channelId!} />}
+        {tab === "pipelines" && <PipelinesTab channelId={channelId!} />}
         {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "logs" && <LogsTab channelId={channelId!} />}
       </RefreshableScrollView>

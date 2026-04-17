@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Play, MoreVertical, RefreshCw, Zap, Calendar, Cog } from "lucide-react";
+import { Play, MoreVertical, RefreshCw, Zap, Calendar, Cog, Users } from "lucide-react";
 import {
   type TaskItem, displayTitle,
   TaskStatusBadge, TypeBadge, BotDot, botColor, STATUS_CFG,
@@ -109,6 +109,7 @@ export function TaskDefinitionsView({ tasks, schedules, onTaskPress, onRunNow, r
         <div className="w-24 shrink-0">Bot</div>
         <div className="w-16 shrink-0 text-center">Type</div>
         <div className="w-20 shrink-0 text-center">Trigger</div>
+        <div className="w-20 shrink-0 text-center">Used By</div>
         <div className="w-32 shrink-0">Last Run</div>
         <div className="w-16 shrink-0 text-right">Runs</div>
         <div className="w-20 shrink-0" /> {/* actions */}
@@ -271,6 +272,21 @@ function DefinitionRow({ def, onPress, onRunNow, isRunning }: {
           {def.recurrence ? <RefreshCw size={9} /> : def.trigger_config?.type === "event" ? <Zap size={9} /> : <Calendar size={9} />}
           {triggerLabel(def)}
         </span>
+      </div>
+
+      {/* Used By — pipeline subscription count */}
+      <div className="w-20 shrink-0 flex items-center justify-center">
+        {def.task_type === "pipeline" && (def.subscription_count ?? 0) > 0 ? (
+          <span
+            title={`Subscribed by ${def.subscription_count} channel${def.subscription_count === 1 ? "" : "s"}`}
+            className="inline-flex flex-row items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-accent/10 text-accent"
+          >
+            <Users size={9} />
+            {def.subscription_count}
+          </span>
+        ) : (
+          <span className="text-[10px] text-text-dim">—</span>
+        )}
       </div>
 
       {/* Last Run */}

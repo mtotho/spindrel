@@ -38,6 +38,7 @@ import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnText } from ".
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { ChannelHeader } from "./ChannelHeader";
 import { OrchestratorLaunchpad } from "./OrchestratorEmptyState";
+import { useChannelPipelines } from "@/src/api/hooks/useChannelPipelines";
 import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
@@ -148,9 +149,23 @@ export default function ChatScreen() {
   const memberBotCount = channel?.member_bots?.length ?? 0;
   const isSystemChannel = channel?.client_id === "orchestrator:home";
 
-  // Findings count drives the ChannelHeader badge. Hook is a no-op when
-  // channelId is undefined or the channel isn't a system channel.
-  const { count: findingsCount } = useFindings(isSystemChannel ? channelId : undefined);
+  // Phase 5: launchpad + Findings visibility follows subscription state,
+  // not orchestrator:home hard-coding. `pipeline_mode` on the channel
+  // config can force-on or force-off.
+  const pipelineMode =
+    (channel?.config?.pipeline_mode as "auto" | "on" | "off" | undefined) ?? "auto";
+  const { data: channelPipelinesData } = useChannelPipelines(channelId, {
+    enabledOnly: true,
+  });
+  const hasSubscriptions =
+    (channelPipelinesData?.subscriptions?.length ?? 0) > 0;
+  const launchpadVisible =
+    pipelineMode === "on" || (pipelineMode === "auto" && hasSubscriptions);
+
+  // Findings count drives the ChannelHeader badge. Only wired when the
+  // channel is pipeline-aware (otherwise nothing can render an awaiting-input
+  // widget here).
+  const { count: findingsCount } = useFindings(launchpadVisible ? channelId : undefined);
 
   const {
     chatState,
@@ -436,10 +451,10 @@ export default function ChatScreen() {
         />
       )}
 
-      {/* Orchestrator pipelines launchpad — always visible, collapsible.
-          Shares the same vertical-stack extension zone as HudStripBar
-          (channel-scoped chrome above the message list). */}
-      {isSystemChannel && channelId && (
+      {/* Pipeline launchpad — visible when the channel has active pipeline
+          subscriptions or pipeline_mode="on". Shares the same vertical-stack
+          extension zone as HudStripBar (channel-scoped chrome above chat). */}
+      {launchpadVisible && channelId && (
         <OrchestratorLaunchpad
           channelId={channelId}
           onOpenFindings={() => setFindingsPanelOpen(true)}

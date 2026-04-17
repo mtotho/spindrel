@@ -144,6 +144,168 @@ def get_widget_template(tool_name: str) -> dict | None:
     return _widget_templates.get(tool_name)
 
 
+# ── DB-backed registry ──
+
+def _build_entry_from_package(row) -> dict | None:
+    """Build a ``_widget_templates`` entry dict from a WidgetTemplatePackage row.
+
+    Parses YAML, loads optional Python code into a synthetic module, and
+    rewrites ``self:`` transform refs to the synthetic module path. Returns
+    None on parse/exec failure (caller marks the row ``is_invalid``).
+    """
+    from app.services.widget_package_loader import (
+        load_package_module,
+        resolve_transform_ref,
+    )
+
+    try:
+        widget_def = yaml.safe_load(row.yaml_template)
+    except Exception as exc:
+        logger.warning(
+            "Widget package %s (tool=%s) YAML parse failed: %s",
+            row.id, row.tool_name, exc,
+        )
+        return None
+    if not isinstance(widget_def, dict) or "template" not in widget_def:
+        logger.warning(
+            "Widget package %s (tool=%s) YAML missing 'template' key",
+            row.id, row.tool_name,
+        )
+        return None
+
+    try:
+        load_package_module(row.id, row.version, row.python_code)
+    except Exception as exc:
+        logger.warning(
+            "Widget package %s (tool=%s) Python exec failed: %s",
+            row.id, row.tool_name, exc,
+        )
+        return None
+
+    transform = resolve_transform_ref(widget_def.get("transform"), row.id)
+    state_poll = widget_def.get("state_poll")
+    if isinstance(state_poll, dict) and "transform" in state_poll:
+        state_poll = {
+            **state_poll,
+            "transform": resolve_transform_ref(state_poll.get("transform"), row.id),
+        }
+
+    return {
+        "content_type": widget_def.get(
+            "content_type", "application/vnd.spindrel.components+json",
+        ),
+        "display": widget_def.get("display", "inline"),
+        "template": widget_def["template"],
+        "transform": transform,
+        "display_label": widget_def.get("display_label"),
+        "state_poll": state_poll,
+        "default_config": widget_def.get("default_config") or {},
+        "source": f"package:{row.id}",
+        "package_id": str(row.id),
+        "package_version": row.version,
+    }
+
+
+async def load_widget_templates_from_db() -> None:
+    """Rebuild ``_widget_templates`` from active DB packages.
+
+    Invalid packages (YAML or Python fails to load) are flagged
+    ``is_invalid=true`` in DB and the tool falls back to the newest
+    non-orphan seed for the same tool_name.
+    """
+    from sqlalchemy import select
+    from app.db.engine import async_session
+    from app.db.models import WidgetTemplatePackage
+
+    _widget_templates.clear()
+
+    async with async_session() as db:
+        actives = (
+            await db.execute(
+                select(WidgetTemplatePackage).where(
+                    WidgetTemplatePackage.is_active.is_(True),
+                )
+            )
+        ).scalars().all()
+
+        loaded = 0
+        fell_back = 0
+        for row in actives:
+            entry = _build_entry_from_package(row)
+            if entry is None:
+                row.is_invalid = True
+                row.invalid_reason = "YAML or Python failed to load — see server logs"
+                fallback = await _pick_fallback_seed(db, row.tool_name, skip_id=row.id)
+                if fallback is not None:
+                    fb_entry = _build_entry_from_package(fallback)
+                    if fb_entry is not None:
+                        _widget_templates[row.tool_name] = fb_entry
+                        fell_back += 1
+                continue
+            _widget_templates[row.tool_name] = entry
+            loaded += 1
+
+        await db.commit()
+
+    logger.info(
+        "Loaded %d widget templates from DB (%d fell back to seed)",
+        loaded, fell_back,
+    )
+
+
+async def _pick_fallback_seed(db, tool_name: str, skip_id=None):
+    """Newest non-orphan seed for a tool, excluding a given id."""
+    from sqlalchemy import select
+    from app.db.models import WidgetTemplatePackage
+
+    stmt = select(WidgetTemplatePackage).where(
+        WidgetTemplatePackage.tool_name == tool_name,
+        WidgetTemplatePackage.source == "seed",
+        WidgetTemplatePackage.is_orphaned.is_(False),
+        WidgetTemplatePackage.is_invalid.is_(False),
+    ).order_by(WidgetTemplatePackage.updated_at.desc())
+    if skip_id is not None:
+        stmt = stmt.where(WidgetTemplatePackage.id != skip_id)
+    return (await db.execute(stmt)).scalars().first()
+
+
+async def reload_tool(tool_name: str) -> None:
+    """Refresh the in-memory entry for one tool after an API mutation."""
+    from sqlalchemy import select
+    from app.db.engine import async_session
+    from app.db.models import WidgetTemplatePackage
+
+    async with async_session() as db:
+        active = (
+            await db.execute(
+                select(WidgetTemplatePackage).where(
+                    WidgetTemplatePackage.tool_name == tool_name,
+                    WidgetTemplatePackage.is_active.is_(True),
+                )
+            )
+        ).scalars().first()
+
+        if active is None:
+            _widget_templates.pop(tool_name, None)
+            return
+
+        entry = _build_entry_from_package(active)
+        if entry is None:
+            active.is_invalid = True
+            active.invalid_reason = "YAML or Python failed to load — see server logs"
+            fallback = await _pick_fallback_seed(db, tool_name, skip_id=active.id)
+            await db.commit()
+            if fallback is not None:
+                fb_entry = _build_entry_from_package(fallback)
+                if fb_entry is not None:
+                    _widget_templates[tool_name] = fb_entry
+                    return
+            _widget_templates.pop(tool_name, None)
+            return
+
+        _widget_templates[tool_name] = entry
+
+
 def substitute_vars(obj: Any, data: dict) -> Any:
     """Public helper: deep-substitute ``{{...}}`` expressions in a template/dict.
 

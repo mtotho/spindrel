@@ -32,6 +32,13 @@ export interface TaskItem {
   workflow_step_index?: number | null;
   trigger_config?: { type?: string; event_source?: string; [key: string]: any } | null;
   source?: "user" | "system";
+  /** For pipeline definitions: number of channels subscribed (Phase 5). */
+  subscription_count?: number;
+  /** Pipeline step definitions (used by the task editor, surfaced here so
+   *  downstream pickers can read step type/id without re-fetching). */
+  steps?: any[];
+  /** execution_config JSON — surfaced for launchpad param_schema/featured reads. */
+  execution_config?: Record<string, any> | null;
   /** For virtual entries, the real schedule ID to open in editor */
   _schedule_id?: string;
 }

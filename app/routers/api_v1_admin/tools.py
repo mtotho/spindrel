@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Bot as BotRow, ToolEmbedding
+from app.db.models import Bot as BotRow, ToolEmbedding, WidgetTemplatePackage
 from app.dependencies import ApiKeyAuth, get_db, require_scopes
 from app.services.api_keys import has_scope
 
@@ -24,6 +24,12 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
+
+class ActiveWidgetPackageOut(BaseModel):
+    id: str
+    name: str
+    source: str
+
 
 class ToolOut(BaseModel):
     id: str
@@ -37,6 +43,8 @@ class ToolOut(BaseModel):
     parameters: Optional[dict] = None
     schema_: Optional[dict] = None
     indexed_at: datetime
+    active_widget_package: Optional[ActiveWidgetPackageOut] = None
+    widget_package_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -66,7 +74,26 @@ async def admin_list_tools(
         .order_by(ToolEmbedding.server_name.nullsfirst(), ToolEmbedding.tool_name)
     )).scalars().all()
 
-    return [_to_out(r) for r in rows]
+    active_by_tool, count_by_tool = await _widget_package_index(db)
+    return [_to_out(r, active_by_tool, count_by_tool) for r in rows]
+
+
+async def _widget_package_index(
+    db: AsyncSession,
+) -> tuple[dict[str, WidgetTemplatePackage], dict[str, int]]:
+    """Return (active_by_tool, count_by_tool) for the list endpoint."""
+    rows = (await db.execute(
+        select(WidgetTemplatePackage).where(
+            WidgetTemplatePackage.is_orphaned.is_(False),
+        )
+    )).scalars().all()
+    active: dict[str, WidgetTemplatePackage] = {}
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row.tool_name] = counts.get(row.tool_name, 0) + 1
+        if row.is_active:
+            active[row.tool_name] = row
+    return active, counts
 
 
 @router.get("/tools/{tool_id}", response_model=ToolOut)
@@ -98,7 +125,9 @@ async def admin_get_tool(
 
     if not row:
         raise HTTPException(status_code=404, detail="Tool not found")
-    return _to_out(row)
+
+    active_by_tool, count_by_tool = await _widget_package_index(db)
+    return _to_out(row, active_by_tool, count_by_tool)
 
 
 @router.post("/tools/{tool_name}/execute", response_model=ToolExecuteResponse)
@@ -183,9 +212,25 @@ async def _resolve_bot_tools(db: AsyncSession, key_id: UUID) -> set[str] | None:
     return allowed
 
 
-def _to_out(row: ToolEmbedding) -> ToolOut:
+def _to_out(
+    row: ToolEmbedding,
+    active_by_tool: dict[str, WidgetTemplatePackage] | None = None,
+    count_by_tool: dict[str, int] | None = None,
+) -> ToolOut:
     schema = row.schema_ or {}
     fn = schema.get("function", {})
+    active_by_tool = active_by_tool or {}
+    count_by_tool = count_by_tool or {}
+
+    # Look up by bare tool name first, then MCP-prefixed fallback (matches resolver).
+    bare_name = row.tool_name.split("-", 1)[1] if "-" in row.tool_name else None
+    active = active_by_tool.get(row.tool_name) or (
+        active_by_tool.get(bare_name) if bare_name else None
+    )
+    count = count_by_tool.get(row.tool_name, 0) + (
+        count_by_tool.get(bare_name, 0) if bare_name else 0
+    )
+
     return ToolOut(
         id=str(row.id),
         tool_key=row.tool_key,
@@ -198,4 +243,8 @@ def _to_out(row: ToolEmbedding) -> ToolOut:
         parameters=fn.get("parameters"),
         schema_=schema,
         indexed_at=row.indexed_at,
+        active_widget_package=ActiveWidgetPackageOut(
+            id=str(active.id), name=active.name, source=active.source,
+        ) if active is not None else None,
+        widget_package_count=count,
     )

@@ -854,7 +854,14 @@ async def _run_tool_step(
     steps: list[dict],
     step_states: list[dict],
 ) -> tuple[str, str | None, str | None]:
-    """Run a local tool call step. Returns (status, result, error)."""
+    """Run a local tool call step. Returns (status, result, error).
+
+    Error-payload detection: if the tool returns a JSON object with a
+    non-null ``error`` key, treat the step as failed and keep the raw
+    result for UI display. This catches "tool succeeded but reported an
+    internal error in its payload" cases that used to surface as green
+    checkmarks (Phase 5).
+    """
     from app.tools.registry import call_local_tool
 
     tool_name = step_def.get("tool_name")
@@ -873,9 +880,103 @@ async def _run_tool_step(
         max_chars = step_def.get("result_max_chars", 2000)
         if len(result) > max_chars:
             result = result[:max_chars] + "... [truncated]"
+        # Error-payload detection — keep raw result, surface error string.
+        err = _detect_error_payload(result)
+        if err is not None:
+            return ("failed", result, err)
         return ("done", result, None)
     except Exception as e:
         return ("failed", None, str(e)[:2000])
+
+
+def _detect_error_payload(result: str) -> str | None:
+    """If ``result`` is JSON with a non-null ``error`` key, return its message.
+
+    Accepts either a bare string, a number, or a mapping for ``error`` —
+    ``{"error": null}`` / ``{"error": ""}`` are NOT treated as failures so
+    tools that use ``error`` as an always-present "null means success" key
+    keep working.
+    """
+    try:
+        parsed = json.loads(result)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    if "error" not in parsed:
+        return None
+    val = parsed["error"]
+    if val is None or val == "" or val is False:
+        return None
+    if isinstance(val, str):
+        return val[:500]
+    try:
+        return json.dumps(val)[:500]
+    except Exception:
+        return str(val)[:500]
+
+
+def _evaluate_fail_if(
+    step_def: dict,
+    step_index: int,
+    steps: list[dict],
+    step_states: list[dict],
+    task: Task,
+) -> tuple[bool, str | None]:
+    """Evaluate ``fail_if`` for a step that just completed successfully.
+
+    Returns ``(should_fail, reason)``. Supports:
+
+    - ``fail_if: {result_empty_keys: ["proposals"]}`` — fails when any named
+      key is missing or empty in the parsed-JSON result of this step.
+    - Any shape ``evaluate_condition`` accepts. If ``step:`` is omitted,
+      the current step id is implied, so you can write ``fail_if:
+      {output_contains: "unable to"}`` at step scope.
+    """
+    fail_if = step_def.get("fail_if")
+    if not fail_if or not isinstance(fail_if, dict):
+        return (False, None)
+
+    # Convenience shortcut: required non-empty keys in the parsed result.
+    if "result_empty_keys" in fail_if:
+        state = step_states[step_index]
+        parsed = _parse_result_json(state.get("result")) or {}
+        keys = fail_if.get("result_empty_keys") or []
+        missing = [k for k in keys if not parsed.get(k)]
+        if missing:
+            return (True, f"fail_if: empty result keys: {missing}")
+        return (False, None)
+
+    cond = fail_if
+    if "step" not in cond and "param" not in cond and "all" not in cond and "any" not in cond and "not" not in cond:
+        step_id = step_def.get("id") or f"step_{step_index}"
+        cond = {**cond, "step": step_id}
+
+    context = build_condition_context(steps, step_states, task_params(task))
+    if evaluate_condition(cond, context):
+        return (True, f"fail_if matched: {json.dumps(fail_if)[:200]}")
+    return (False, None)
+
+
+def _apply_fail_if_to_state(
+    state: dict,
+    step_def: dict,
+    step_index: int,
+    steps: list[dict],
+    step_states: list[dict],
+    task: Task,
+) -> bool:
+    """If the step's fail_if triggers, mutate state to ``failed``. Returns True if flipped."""
+    if state.get("status") != "done":
+        return False
+    should_fail, reason = _evaluate_fail_if(step_def, step_index, steps, step_states, task)
+    if should_fail:
+        state["status"] = "failed"
+        # Preserve result, layer the error reason on top of any existing one.
+        prior = state.get("error")
+        state["error"] = f"{reason}" + (f" | {prior}" if prior else "")
+        return True
+    return False
 
 
 async def run_task_pipeline(task: Task) -> None:
@@ -983,10 +1084,11 @@ async def _advance_pipeline(
             state["result"] = result
             state["error"] = error
             state["completed_at"] = datetime.now(timezone.utc).isoformat()
+            _apply_fail_if_to_state(state, step_def, i, steps, step_states, task)
             await _persist_step_states(task.id, step_states)
-            logger.info("Pipeline %s step %d exec → %s%s", task.id, i + 1, status, f" error={error}" if error else "")
+            logger.info("Pipeline %s step %d exec → %s%s", task.id, i + 1, state["status"], f" error={state['error']}" if state.get("error") else "")
 
-            if status == "failed" and step_def.get("on_failure", "abort") == "abort":
+            if state["status"] == "failed" and step_def.get("on_failure", "abort") == "abort":
                 await _finalize_pipeline(task, steps, step_states, failed=True)
                 return
 
@@ -996,10 +1098,11 @@ async def _advance_pipeline(
             state["result"] = result
             state["error"] = error
             state["completed_at"] = datetime.now(timezone.utc).isoformat()
+            _apply_fail_if_to_state(state, step_def, i, steps, step_states, task)
             await _persist_step_states(task.id, step_states)
-            logger.info("Pipeline %s step %d tool → %s%s", task.id, i + 1, status, f" error={error}" if error else "")
+            logger.info("Pipeline %s step %d tool → %s%s", task.id, i + 1, state["status"], f" error={state['error']}" if state.get("error") else "")
 
-            if status == "failed" and step_def.get("on_failure", "abort") == "abort":
+            if state["status"] == "failed" and step_def.get("on_failure", "abort") == "abort":
                 await _finalize_pipeline(task, steps, step_states, failed=True)
                 return
 
@@ -1139,6 +1242,9 @@ async def on_pipeline_step_completed(
     max_chars = step_def.get("result_max_chars", 2000)
     if state["result"] and len(state["result"]) > max_chars:
         state["result"] = state["result"][:max_chars] + "... [truncated]"
+
+    # Apply fail_if (e.g. empty proposals from an agent analysis).
+    _apply_fail_if_to_state(state, step_def, step_index, steps, step_states, parent)
 
     await _persist_step_states(uuid.UUID(pipeline_task_id), step_states)
 

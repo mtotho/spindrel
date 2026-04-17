@@ -1095,6 +1095,55 @@ class Task(Base):
     )
 
 
+class ChannelPipelineSubscription(Base):
+    """Per-channel subscription to a pipeline (Task) definition.
+
+    Decouples "what the pipeline is" (Task, source=system|user) from
+    "where it runs" (channel) and "on what cadence" (cron). Replaces the
+    implicit global visibility of source=system tasks in channel launchpads.
+    """
+
+    __tablename__ = "channel_pipeline_subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        server_default=text("gen_random_uuid()"), default=uuid.uuid4,
+    )
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"),
+    )
+    featured_override: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    schedule: Mapped[str | None] = mapped_column(Text, nullable=True)
+    schedule_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    last_fired_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True,
+    )
+    next_fire_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("channel_id", "task_id", name="uq_channel_pipeline_subscription"),
+        Index("ix_channel_pipeline_subscriptions_channel", "channel_id"),
+    )
+
+
 class Outbox(Base):
     """Durable channel-event outbox.
 
@@ -1619,4 +1668,69 @@ class BotHook(Base):
 
     __table_args__ = (
         Index("ix_bot_hooks_bot_id", "bot_id"),
+    )
+
+
+class WidgetTemplatePackage(Base):
+    """User-editable widget template package. YAML template + optional Python code.
+
+    Seed packages are re-hydrated from YAML on every boot (is_readonly=true).
+    User packages override seeds when is_active=true for a given tool_name.
+    """
+    __tablename__ = "widget_template_packages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    yaml_template: Mapped[str] = mapped_column(Text, nullable=False)
+    python_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    is_readonly: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"),
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"),
+    )
+    is_orphaned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"),
+    )
+    is_invalid: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"),
+    )
+    invalid_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_file: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_integration: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sample_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1"),
+    )
+    created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index("ix_widget_template_packages_tool_name", "tool_name"),
+        Index(
+            "uq_widget_template_packages_active",
+            "tool_name",
+            unique=True,
+            postgresql_where=text("is_active"),
+            sqlite_where=text("is_active"),
+        ),
+        Index(
+            "uq_widget_template_packages_seed_source",
+            "tool_name", "source_file", "source_integration",
+            unique=True,
+            postgresql_where=text("source = 'seed'"),
+            sqlite_where=text("source = 'seed'"),
+        ),
     )

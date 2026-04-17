@@ -200,6 +200,23 @@ function GeneralAdvancedSection({
         </FormRow>
       </Section>
 
+      <Section title="Automation">
+        <FormRow
+          label="Pipeline mode"
+          description="Controls whether the pipeline launchpad and Findings panel are visible in this channel."
+        >
+          <SelectInput
+            value={(form.pipeline_mode ?? "auto") as string}
+            onChange={(v) => patch("pipeline_mode", v as "auto" | "on" | "off")}
+            options={[
+              { label: "Auto — show when pipelines are subscribed", value: "auto" },
+              { label: "Always on", value: "on" },
+              { label: "Off", value: "off" },
+            ]}
+          />
+        </FormRow>
+      </Section>
+
       {/* Metadata */}
       <div style={{ opacity: 0.4, fontSize: 11, color: t.textDim, display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         <span>ID: {settings.id}</span>

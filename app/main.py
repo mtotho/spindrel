@@ -362,8 +362,10 @@ async def lifespan(application: FastAPI):
     await seed_manifests()
     logger.info("Loading integration manifests from DB...")
     await load_manifests()
-    from app.services.widget_templates import load_widget_templates_from_manifests
-    load_widget_templates_from_manifests()
+    from app.services.widget_packages_seeder import seed_widget_packages
+    await seed_widget_packages()
+    from app.services.widget_templates import load_widget_templates_from_db
+    await load_widget_templates_from_db()
     logger.info("Auto-installing missing integration dependencies...")
     from app.services.integration_deps import ensure_integration_deps
     await ensure_integration_deps()

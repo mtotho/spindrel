@@ -72,6 +72,8 @@ class TaskDetailOut(BaseModel):
     max_run_seconds: Optional[int] = None
     retry_count: int = 0
     run_count: int = 0
+    source: str = "user"
+    subscription_count: int = 0
     created_at: datetime
     scheduled_at: Optional[datetime] = None
     run_at: Optional[datetime] = None
@@ -215,6 +217,7 @@ async def admin_list_tasks(
     include_children: bool = False,
     include_internal: bool = False,
     definitions_only: bool = False,
+    source: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -250,6 +253,13 @@ async def admin_list_tasks(
 
     # Schedule templates query (always returned — both active and disabled)
     sched_stmt = select(Task).where(is_schedule_template)
+
+    # Source filter (user | system). Introduced for Phase 5 so the admin
+    # tasks list can separate user-authored pipelines from YAML-seeded ones.
+    if source in ("user", "system"):
+        stmt = stmt.where(Task.source == source)
+        count_stmt = count_stmt.where(Task.source == source)
+        sched_stmt = sched_stmt.where(Task.source == source)
 
     # workflow_run_id filter: match tasks linked to a specific workflow run
     if workflow_run_id:
@@ -297,6 +307,18 @@ async def admin_list_tasks(
 
     # Look up correlation_ids for tasks that have run
     corr_map = await _heartbeat_correlation_ids(db, list(tasks))
+
+    # Per-definition subscription counts (for "Used by N channels" chip).
+    from app.db.models import ChannelPipelineSubscription as _CPS
+    all_ids = [t.id for t in list(tasks) + list(schedules)]
+    sub_counts: dict[uuid.UUID, int] = {}
+    if all_ids:
+        rows = (await db.execute(
+            select(_CPS.task_id, func.count(_CPS.id))
+            .where(_CPS.task_id.in_(all_ids))
+            .group_by(_CPS.task_id)
+        )).all()
+        sub_counts = {row[0]: row[1] for row in rows}
 
     # Look up last run status for definition tasks (schedules + pipelines).
     # These are parent tasks whose children are the actual runs.
@@ -379,6 +401,7 @@ async def admin_list_tasks(
             "completed_at": t.completed_at.isoformat() if t.completed_at else None,
             "last_run_status": lr["status"] if lr else None,
             "last_run_at": lr["at"] if lr else None,
+            "subscription_count": int(sub_counts.get(t.id, 0)),
         }
 
     return {
@@ -500,6 +523,12 @@ async def admin_get_task(
     cid = corr_map.get(task.id)
     if cid:
         out.correlation_id = cid
+    # Subscription count for "Used by N channels" badge on detail page
+    from app.db.models import ChannelPipelineSubscription as _CPS
+    count_row = await db.execute(
+        select(func.count(_CPS.id)).where(_CPS.task_id == task.id)
+    )
+    out.subscription_count = int(count_row.scalar_one() or 0)
     # Look up delegation child session if this task created one
     if task.task_type == "delegation":
         del_session = (await db.execute(

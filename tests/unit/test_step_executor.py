@@ -1062,3 +1062,128 @@ class TestShellScriptIntegration:
         code, stdout, _ = await _run_shell(script)
         assert code == 0
         assert "hello" in stdout
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: step failure signaling (tool-error detection + fail_if)
+# ---------------------------------------------------------------------------
+
+
+class TestDetectErrorPayload:
+    """_detect_error_payload: flag tool results whose JSON has a non-null error."""
+
+    def test_non_json_passes_through(self):
+        from app.services.step_executor import _detect_error_payload
+        assert _detect_error_payload("not json at all") is None
+
+    def test_plain_string(self):
+        from app.services.step_executor import _detect_error_payload
+        assert _detect_error_payload('{"result": "ok"}') is None
+
+    def test_error_null_is_success(self):
+        from app.services.step_executor import _detect_error_payload
+        # Tools that always include an `error` key with null for success
+        # must NOT be flagged as failed.
+        assert _detect_error_payload('{"error": null, "data": [1,2]}') is None
+
+    def test_error_empty_string_is_success(self):
+        from app.services.step_executor import _detect_error_payload
+        assert _detect_error_payload('{"error": "", "data": "x"}') is None
+
+    def test_error_string_is_failure(self):
+        from app.services.step_executor import _detect_error_payload
+        assert _detect_error_payload('{"error": "TypeError: x"}') == "TypeError: x"
+
+    def test_error_object_is_failure(self):
+        from app.services.step_executor import _detect_error_payload
+        # Non-string error values get JSON-serialized.
+        out = _detect_error_payload('{"error": {"code": 500, "msg": "boom"}}')
+        assert out is not None
+        assert "boom" in out
+
+    def test_non_dict_json(self):
+        from app.services.step_executor import _detect_error_payload
+        assert _detect_error_payload('[1, 2, 3]') is None
+        assert _detect_error_payload('"plain string"') is None
+
+
+class TestEvaluateFailIf:
+    """_evaluate_fail_if — post-completion fail predicate on a step."""
+
+    def _task_stub(self):
+        t = MagicMock()
+        t.execution_config = None
+        return t
+
+    def test_no_fail_if_is_pass(self):
+        from app.services.step_executor import _evaluate_fail_if
+        step_def = {"id": "s1", "type": "tool"}
+        should_fail, _reason = _evaluate_fail_if(step_def, 0, [step_def], [{"status": "done", "result": "ok"}], self._task_stub())
+        assert should_fail is False
+
+    def test_result_empty_keys_triggers_fail(self):
+        from app.services.step_executor import _evaluate_fail_if
+        step_def = {
+            "id": "analyze", "type": "agent",
+            "fail_if": {"result_empty_keys": ["proposals"]},
+        }
+        states = [{"status": "done", "result": json.dumps({"proposals": []})}]
+        should_fail, reason = _evaluate_fail_if(step_def, 0, [step_def], states, self._task_stub())
+        assert should_fail is True
+        assert "proposals" in (reason or "")
+
+    def test_result_empty_keys_passes_when_populated(self):
+        from app.services.step_executor import _evaluate_fail_if
+        step_def = {
+            "id": "analyze", "type": "agent",
+            "fail_if": {"result_empty_keys": ["proposals"]},
+        }
+        states = [{"status": "done", "result": json.dumps({"proposals": [{"id": "x"}]})}]
+        should_fail, _ = _evaluate_fail_if(step_def, 0, [step_def], states, self._task_stub())
+        assert should_fail is False
+
+    def test_implicit_self_step_for_output_contains(self):
+        """fail_if: {output_contains: "unable to"} with no `step:` defaults to current step."""
+        from app.services.step_executor import _evaluate_fail_if
+        step_def = {
+            "id": "analyze", "type": "agent",
+            "fail_if": {"output_contains": "unable to"},
+        }
+        states = [{"status": "done", "result": "I was unable to analyze the data"}]
+        should_fail, _ = _evaluate_fail_if(step_def, 0, [step_def], states, self._task_stub())
+        assert should_fail is True
+
+
+class TestApplyFailIfToState:
+    """_apply_fail_if_to_state — mutates step state on failure."""
+
+    def test_flips_done_to_failed_on_match(self):
+        from app.services.step_executor import _apply_fail_if_to_state
+        step_def = {
+            "id": "s1", "type": "agent",
+            "fail_if": {"result_empty_keys": ["proposals"]},
+        }
+        state = {"status": "done", "result": json.dumps({"proposals": []}), "error": None}
+        flipped = _apply_fail_if_to_state(state, step_def, 0, [step_def], [state], MagicMock())
+        assert flipped is True
+        assert state["status"] == "failed"
+        assert "proposals" in state["error"]
+
+    def test_preserves_result_on_flip(self):
+        """The raw result payload is still visible after fail_if marks the step failed."""
+        from app.services.step_executor import _apply_fail_if_to_state
+        step_def = {"id": "s1", "type": "tool", "fail_if": {"result_empty_keys": ["data"]}}
+        state = {"status": "done", "result": json.dumps({"data": []}), "error": None}
+        _apply_fail_if_to_state(state, step_def, 0, [step_def], [state], MagicMock())
+        assert state["status"] == "failed"
+        # result stays readable
+        assert json.loads(state["result"]) == {"data": []}
+
+    def test_noop_on_non_done_state(self):
+        """fail_if only runs against a `done` step — skipped/failed already states stay put."""
+        from app.services.step_executor import _apply_fail_if_to_state
+        step_def = {"id": "s1", "fail_if": {"result_empty_keys": ["x"]}}
+        state = {"status": "skipped"}
+        flipped = _apply_fail_if_to_state(state, step_def, 0, [step_def], [state], MagicMock())
+        assert flipped is False
+        assert state["status"] == "skipped"

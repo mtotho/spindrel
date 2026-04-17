@@ -38,6 +38,7 @@ dependencies = [
     "ddgs",
     "anthropic>=0.45.0",
     "jsonpatch>=1.33",
+    "croniter>=2.0",
 ]
 
 [project.optional-dependencies]

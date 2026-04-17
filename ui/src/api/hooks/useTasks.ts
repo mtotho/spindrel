@@ -100,6 +100,7 @@ export interface TaskDetail {
   source?: TaskSource;
   last_run_status?: string | null;
   last_run_at?: string | null;
+  subscription_count?: number;
 }
 
 export interface TaskCreatePayload {

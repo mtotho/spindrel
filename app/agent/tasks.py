@@ -288,6 +288,74 @@ async def spawn_due_schedules() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Subscription-based schedules (per-channel cron on a shared pipeline)
+# ---------------------------------------------------------------------------
+
+async def _fire_subscription(subscription_id: uuid.UUID) -> None:
+    """Fire a single subscription: spawn a child run, advance next_fire_at."""
+    from app.db.models import ChannelPipelineSubscription
+    from app.services.cron_utils import next_fire_at as _cron_next
+    from app.services.task_ops import spawn_child_run
+
+    async with async_session() as db:
+        sub = await db.get(ChannelPipelineSubscription, subscription_id)
+        if sub is None or not sub.enabled or not sub.schedule:
+            return
+        now = datetime.now(timezone.utc)
+        # Advance + persist first so failures don't cause re-fire storms.
+        try:
+            sub.next_fire_at = _cron_next(sub.schedule, now)
+        except Exception:
+            logger.exception(
+                "Invalid cron on subscription %s (%r) — disabling next_fire_at",
+                sub.id, sub.schedule,
+            )
+            sub.next_fire_at = None
+        sub.last_fired_at = now
+        sub.updated_at = now
+        task_id = sub.task_id
+        channel_id = sub.channel_id
+        params = (sub.schedule_config or {}).get("params") or {}
+        await db.commit()
+
+        try:
+            await spawn_child_run(
+                task_id, db,
+                params=params,
+                channel_id=channel_id,
+            )
+            await db.commit()
+        except Exception:
+            logger.exception(
+                "Failed to spawn run for subscription %s (task=%s, channel=%s)",
+                subscription_id, task_id, channel_id,
+            )
+
+
+async def spawn_due_subscriptions() -> None:
+    """Find enabled subscriptions whose cron schedule is due and spawn runs."""
+    from app.db.models import ChannelPipelineSubscription
+
+    now = datetime.now(timezone.utc)
+    async with async_session() as db:
+        stmt = (
+            select(ChannelPipelineSubscription.id)
+            .where(ChannelPipelineSubscription.enabled.is_(True))
+            .where(ChannelPipelineSubscription.schedule.isnot(None))
+            .where(ChannelPipelineSubscription.next_fire_at.isnot(None))
+            .where(ChannelPipelineSubscription.next_fire_at <= now)
+            .limit(50)
+        )
+        sub_ids = list((await db.execute(stmt)).scalars().all())
+
+    for sid in sub_ids:
+        try:
+            await _fire_subscription(sid)
+        except Exception:
+            logger.exception("Failed to fire subscription %s", sid)
+
+
+# ---------------------------------------------------------------------------
 # Event triggers
 # ---------------------------------------------------------------------------
 
@@ -1494,6 +1562,8 @@ async def task_worker() -> None:
                 continue
             # Spawn concrete tasks from active schedule templates first
             await spawn_due_schedules()
+            # Then fire any per-channel subscriptions whose cron is due
+            await spawn_due_subscriptions()
             # Then fetch and run all due concrete tasks
             due = await fetch_due_tasks()
             for task in due:

@@ -22,6 +22,7 @@ import { apiFetch } from "@/src/api/client";
 import { useRunTaskNow, useTaskChildren } from "@/src/api/hooks/useTasks";
 import type { StepState } from "@/src/api/hooks/useTasks";
 import { useBots } from "@/src/api/hooks/useBots";
+import { useChannelPipelines, type ChannelPipelineSubscription } from "@/src/api/hooks/useChannelPipelines";
 import { useFindings } from "./FindingsPanel";
 import { BotPicker } from "@/src/components/shared/BotPicker";
 import type { TasksResponse, TaskItem } from "@/src/components/shared/TaskConstants";
@@ -39,6 +40,32 @@ const PIPELINE_ICON: Record<string, React.ComponentType<{ size?: number; classNa
 
 function iconFor(id: string) {
   return PIPELINE_ICON[id] ?? Radar;
+}
+
+/** Synthesize the TaskItem-ish shape used downstream (TaskRunModal, param
+ *  schema lookup, getDescription) from a subscription's joined pipeline. */
+function subscriptionToTaskItem(sub: ChannelPipelineSubscription): TaskItem {
+  const p = sub.pipeline!;
+  return {
+    id: p.id,
+    title: p.title ?? p.id,
+    bot_id: p.bot_id,
+    source: p.source,
+    task_type: p.task_type,
+    status: "active",
+    prompt: "",
+    dispatch_type: "none",
+    run_count: 0,
+    retry_count: 0,
+    created_at: sub.created_at,
+    execution_config: {
+      description: p.description ?? undefined,
+      featured: sub.featured,
+      params_schema: p.params_schema ?? undefined,
+      requires_channel: p.requires_channel ?? undefined,
+      requires_bot: p.requires_bot ?? undefined,
+    },
+  } as unknown as TaskItem;
 }
 
 // ---------------------------------------------------------------------------
@@ -365,25 +392,37 @@ export function OrchestratorLaunchpad({
     setCollapsed(loadCollapsed(channelId));
   }, [channelId]);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["admin-tasks-definitions", "system"],
-    queryFn: () =>
-      apiFetch<TasksResponse>("/api/v1/admin/tasks?limit=200&definitions_only=true"),
-    staleTime: 30_000,
+  // Phase 5: launchpad is driven by the channel's pipeline subscriptions
+  // (not a global view of every source=system task). Each subscription carries
+  // its own featured override; we synthesize TaskItem shape for downstream code.
+  const { data: subsData, isLoading } = useChannelPipelines(channelId, {
+    enabledOnly: true,
   });
 
-  const systemTasks = useMemo(() => {
-    const rows = [...(data?.tasks ?? []), ...(data?.schedules ?? [])];
-    return rows.filter((t) => t.source === "system");
-  }, [data]);
+  const systemTasks = useMemo<TaskItem[]>(() => {
+    const subs = subsData?.subscriptions ?? [];
+    return subs
+      .filter((s) => s.pipeline !== null)
+      .map((s) => subscriptionToTaskItem(s));
+  }, [subsData]);
+
+  // Resolve featured using the subscription override (pipeline default fallback
+  // already applied server-side on subscription.featured).
+  const featuredTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const s of subsData?.subscriptions ?? []) {
+      if (s.featured) ids.add(s.task_id);
+    }
+    return ids;
+  }, [subsData]);
 
   const featured = useMemo(
-    () => systemTasks.filter(getFeatured),
-    [systemTasks],
+    () => systemTasks.filter((t) => featuredTaskIds.has(t.id)),
+    [systemTasks, featuredTaskIds],
   );
   const libraryItems = useMemo(
-    () => systemTasks.filter((t) => !getFeatured(t)),
-    [systemTasks],
+    () => systemTasks.filter((t) => !featuredTaskIds.has(t.id)),
+    [systemTasks, featuredTaskIds],
   );
 
   // Recent runs on this channel — child tasks of pipelines, ordered by recency.

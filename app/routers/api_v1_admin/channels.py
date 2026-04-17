@@ -395,6 +395,10 @@ class ChannelSettingsOut(BaseModel):
     resolved_workspace_id: Optional[str] = None
     category: Optional[str] = None
     tags: list[str] = []
+    # Phase 5: pipeline_mode controls launchpad/findings visibility for the
+    # channel. "auto" (default) → visible when subscriptions exist. Stored
+    # in the JSONB config column; surfaced at the top level for UI.
+    pipeline_mode: str = "auto"
 
     model_config = {"from_attributes": True}
 
@@ -458,6 +462,8 @@ class ChannelSettingsUpdate(BaseModel):
     workspace_id: Optional[str] = None
     category: Optional[str] = None
     tags: Optional[list[str]] = None
+    # Phase 5: pipeline_mode override. "auto" (default) | "on" | "off".
+    pipeline_mode: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -617,6 +623,7 @@ async def admin_channel_settings(
     out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(channel.bot_id)
     out.category = (channel.metadata_ or {}).get("category")
     out.tags = (channel.metadata_ or {}).get("tags", [])
+    out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
     return out
 
 
@@ -659,6 +666,23 @@ async def admin_channel_settings_update(
     if "workspace_id" in updates:
         ws_val = updates.pop("workspace_id")
         channel.workspace_id = uuid.UUID(ws_val) if ws_val else None
+
+    # Handle pipeline_mode — shallow-merge into channel.config JSONB.
+    if "pipeline_mode" in updates:
+        mode = updates.pop("pipeline_mode")
+        if mode is not None and mode not in ("auto", "on", "off"):
+            raise HTTPException(
+                status_code=422,
+                detail="pipeline_mode must be one of: auto, on, off",
+            )
+        cfg = dict(channel.config or {})
+        if mode in (None, "auto"):
+            cfg.pop("pipeline_mode", None)
+        else:
+            cfg["pipeline_mode"] = mode
+        channel.config = cfg
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(channel, "config")
 
     # Validate model tier override names
     if updates.get("model_tier_overrides"):
@@ -704,6 +728,7 @@ async def admin_channel_settings_update(
     out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(channel.bot_id)
     out.category = (channel.metadata_ or {}).get("category")
     out.tags = (channel.metadata_ or {}).get("tags", [])
+    out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
     return out
 
 

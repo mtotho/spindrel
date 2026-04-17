@@ -395,6 +395,11 @@ export interface Channel {
   config?: {
     pinned_panels?: PinnedPanel[];
     pinned_widgets?: PinnedWidget[];
+    /** Pipeline-mode override. Controls whether the channel shows the
+     *  pipeline launchpad + Findings panel chrome. "auto" (default):
+     *  visible when \u22651 subscription exists. "on": always visible.
+     *  "off": hidden even when subscriptions exist. */
+    pipeline_mode?: "auto" | "on" | "off";
   };
   category?: string | null;
   tags?: string[];
@@ -495,6 +500,10 @@ export interface ChannelSettings {
   resolved_workspace_id?: string | null;
   category?: string | null;
   tags?: string[];
+  /** Pipeline-mode override on this channel. "auto" (default) shows the
+   *  pipeline launchpad when subscriptions exist; "on" forces it visible;
+   *  "off" hides it even with subscriptions. Stored in `channel.config`. */
+  pipeline_mode?: "auto" | "on" | "off";
 }
 
 export interface EffectiveTools {
