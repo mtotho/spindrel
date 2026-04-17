@@ -392,6 +392,26 @@ class SlackRenderer:
         slack_text = markdown_to_slack_mrkdwn(text)
         chunks = split_for_slack(slack_text) or [slack_text]
 
+        # Resolve tool-call rendering BEFORE posting the text so we can
+        # attach the blocks to the same message (placeholder update or
+        # last chunk) rather than a separate chat.postMessage — the
+        # latter lands with a newer ts and Slack interleaves any user
+        # messages sent in the meantime between the text and the tool
+        # badge.
+        msg_metadata = getattr(msg, "metadata", None) or {}
+        tool_results = msg_metadata.get("tool_results") or []
+        tool_blocks: list[dict] = []
+        if tool_results and role != "user":
+            display_mode = await _resolve_tool_output_display(target.channel_id)
+            if display_mode == ToolOutputDisplay.FULL:
+                tool_blocks = _components_to_blocks(tool_results)
+            elif display_mode == ToolOutputDisplay.COMPACT:
+                badges = extract_tool_badges(tool_results)
+                ctx_block = _badges_to_context_block(badges)
+                if ctx_block is not None:
+                    tool_blocks = [ctx_block]
+        tool_blocks = tool_blocks[:50]  # Slack per-message blocks cap
+
         # If a thinking placeholder exists for this turn, update it
         # with the first chunk instead of posting a new message. This
         # is the handoff from the streaming path (TURN_ENDED updated
@@ -403,7 +423,6 @@ class SlackRenderer:
             slack_render_contexts.find_by_turn_id(correlation_id)
             if correlation_id else None
         )
-        placeholder_used = False
         # The thinking placeholder is the bot's response slot — it was posted
         # with bot_attribution and Slack's chat.update cannot change username/
         # icon. Reusing it for a user message would stamp the user's text onto
@@ -411,64 +430,62 @@ class SlackRenderer:
         if ctx_info is not None and role != "user":
             ctx_channel_id, ctx = ctx_info
             if ctx.thinking_ts and ctx.thinking_channel:
+                # Attach tool blocks to the placeholder update when this
+                # is the only/last chunk of text — Slack accepts text +
+                # blocks on the same message, so tool badges stay
+                # visually tied to the assistant's reply.
                 update_body: dict = {
                     "channel": ctx.thinking_channel,
                     "ts": ctx.thinking_ts,
                     "text": chunks[0],
                     **attrs,
                 }
+                if len(chunks) == 1 and tool_blocks:
+                    # Build a section block carrying the text (chat.update
+                    # otherwise ignores the top-level `text` when `blocks`
+                    # is present for rendering purposes) plus the tool
+                    # context block(s) after it.
+                    update_body["blocks"] = [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": chunks[0]}},
+                        *tool_blocks,
+                    ]
+                    tool_blocks = []
                 update_result = await self._call_slack(
                     "chat.update", target.token, update_body
                 )
                 if update_result.success:
-                    placeholder_used = True
                     chunks = chunks[1:]
                 # If update failed (placeholder deleted, etc.), fall
-                # through to posting all chunks as new messages.
+                # through to posting all chunks as new messages. The
+                # tool blocks were consumed into the failed update —
+                # the user will see the text without the badge, which
+                # is a strictly better outcome than a crash and matches
+                # the pre-existing behavior for placeholder-update
+                # failures.
             # Context cleanup — NEW_MESSAGE owns this.
             slack_render_contexts.discard(ctx_channel_id, correlation_id)
 
         # Post chunks as new messages (all of them if no placeholder,
         # or remaining overflow chunks if the placeholder took the first).
-        for chunk in chunks:
+        # Tool blocks ride along on the last chunk's post.
+        for idx, chunk in enumerate(chunks):
+            is_last = idx == len(chunks) - 1
             body: dict = {
                 "channel": target.channel_id,
                 "text": chunk,
                 **attrs,
             }
+            if is_last and tool_blocks:
+                body["blocks"] = [
+                    {"type": "section", "text": {"type": "mrkdwn", "text": chunk}},
+                    *tool_blocks,
+                ]
+                tool_blocks = []
             if target.thread_ts and target.reply_in_thread:
                 body["thread_ts"] = target.thread_ts
             result = await self._call_slack("chat.postMessage", target.token, body)
             if not result.success:
                 return result
-
-        # Render tool-call results per the channel's tool_output_display
-        # setting: compact (default) posts a single tiny context line per
-        # tool invocation; full posts the rich Block Kit widget; none
-        # skips entirely. The raw widget JSON always remains in the
-        # persisted Message.metadata, so the web UI is unaffected.
-        msg_metadata = getattr(msg, "metadata", None) or {}
-        tool_results = msg_metadata.get("tool_results") or []
-        if tool_results:
-            display_mode = await _resolve_tool_output_display(target.channel_id)
-            tool_blocks: list[dict] = []
-            if display_mode == ToolOutputDisplay.FULL:
-                tool_blocks = _components_to_blocks(tool_results)
-            elif display_mode == ToolOutputDisplay.COMPACT:
-                badges = extract_tool_badges(tool_results)
-                ctx_block = _badges_to_context_block(badges)
-                if ctx_block is not None:
-                    tool_blocks = [ctx_block]
-            if tool_blocks:
-                block_body: dict = {
-                    "channel": target.channel_id,
-                    "text": "(tool results)",
-                    "blocks": tool_blocks[:50],
-                    **attrs,
-                }
-                if target.thread_ts and target.reply_in_thread:
-                    block_body["thread_ts"] = target.thread_ts
-                await self._call_slack("chat.postMessage", target.token, block_body)
 
         return DeliveryReceipt.ok()
 

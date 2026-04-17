@@ -198,33 +198,40 @@ async def _render(mode: str, fake_http, metadata: dict) -> list[dict]:
 
 @pytest.mark.asyncio
 class TestRendererBranching:
-    async def test_compact_posts_single_context_line(self, fake_http):
+    async def test_compact_attaches_badge_to_same_message(self, fake_http):
+        """Tool badge rides along on the assistant's chat.postMessage —
+        not a separate post — so Slack doesn't interleave a subsequent
+        user message between the text and the badge (the bug that
+        surfaced the ts-ordering issue)."""
         metadata = {"tool_results": [_weather_envelope_dict()]}
         posts = await _render("compact", fake_http, metadata)
 
-        # First post is the assistant text; second is the tool-badge context block.
-        assert len(posts) == 2
-        assert "overcast" in posts[0]["text"].lower()
-        blocks = posts[1]["blocks"]
-        assert len(blocks) == 1
-        assert blocks[0]["type"] == "context"
-        text = blocks[0]["elements"][0]["text"]
-        assert "get_weather" in text
-        assert "Lambertville" in text
-        # Crucially: the compact line should NOT include the full
-        # property fields (Feels like / Humidity / Wind).
-        assert "Feels like" not in text
-        assert "Humidity" not in text
+        # Exactly one chat.postMessage — text + blocks together.
+        assert len(posts) == 1
+        body = posts[0]
+        assert "overcast" in body["text"].lower()
+        blocks = body["blocks"]
+        # First block is the section carrying the assistant text.
+        assert blocks[0]["type"] == "section"
+        assert "overcast" in blocks[0]["text"]["text"].lower()
+        # Trailing context block is the tool badge.
+        ctx = blocks[-1]
+        assert ctx["type"] == "context"
+        badge_text = ctx["elements"][0]["text"]
+        assert "get_weather" in badge_text
+        assert "Lambertville" in badge_text
+        # And the compact line must NOT include the full fields.
+        assert "Feels like" not in badge_text
+        assert "Humidity" not in badge_text
 
-    async def test_full_posts_block_kit_widget(self, fake_http):
+    async def test_full_attaches_block_kit_widget_to_same_message(self, fake_http):
         metadata = {"tool_results": [_weather_envelope_dict()]}
         posts = await _render("full", fake_http, metadata)
 
-        assert len(posts) == 2
-        blocks = posts[1]["blocks"]
-        # Full mode expands the components vocabulary into Block Kit —
-        # expect more than one block (heading + text + properties).
-        assert len(blocks) >= 2
+        assert len(posts) == 1
+        blocks = posts[0]["blocks"]
+        # Section for text + heading + bold text + properties.
+        assert len(blocks) >= 3
         serialized = str(blocks)
         assert "Feels like" in serialized
         assert "Humidity" in serialized
@@ -233,20 +240,53 @@ class TestRendererBranching:
         metadata = {"tool_results": [_weather_envelope_dict()]}
         posts = await _render("none", fake_http, metadata)
 
-        # Only the assistant text post; no tool-result post at all.
+        # Only the assistant text — no blocks attached.
         assert len(posts) == 1
         assert "blocks" not in posts[0]
 
-    async def test_compact_with_no_tool_results_skips_post(self, fake_http):
+    async def test_compact_with_no_tool_results_leaves_plain_text(self, fake_http):
         posts = await _render("compact", fake_http, {"tool_results": []})
         assert len(posts) == 1
+        assert "blocks" not in posts[0]
 
     async def test_compact_dedups_repeated_envelopes(self, fake_http):
         env = _weather_envelope_dict()
         metadata = {"tool_results": [env, dict(env)]}  # identical
         posts = await _render("compact", fake_http, metadata)
 
-        blocks = posts[1]["blocks"]
+        ctx = posts[0]["blocks"][-1]
         # Only one element in the context block because both envelopes
         # have the same (tool_name, display_label).
-        assert len(blocks[0]["elements"]) == 1
+        assert len(ctx["elements"]) == 1
+
+    async def test_user_message_with_tool_results_does_not_render_badge(self, fake_http):
+        """User messages (role=user) never get tool badges attached —
+        tools run on bot turns, and stamping a wrench on a user reply
+        would misattribute the action."""
+        cid = uuid.uuid4()
+        evt = ChannelEvent(
+            channel_id=cid,
+            kind=ChannelEventKind.NEW_MESSAGE,
+            payload=MessagePayload(
+                message=DomainMessage(
+                    id=uuid.uuid4(),
+                    session_id=uuid.uuid4(),
+                    role="user",
+                    content="ok get the weather again",
+                    created_at=datetime.now(timezone.utc),
+                    actor=ActorRef.user("u1", display_name="Michael"),
+                    correlation_id=None,
+                    metadata={"tool_results": [_weather_envelope_dict()]},
+                    channel_id=cid,
+                ),
+            ),
+        )
+        with patch(
+            "integrations.slack.renderer._resolve_tool_output_display",
+            AsyncMock(return_value="compact"),
+        ):
+            receipt = await SlackRenderer().render(evt, _target())
+        assert receipt.ok
+        posts = [c["body"] for c in fake_http.calls if c["url"].endswith("chat.postMessage")]
+        assert len(posts) == 1
+        assert "blocks" not in posts[0]
