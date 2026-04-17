@@ -343,7 +343,7 @@ export function PinnedToolWidget({
           style={{ color: t.textDim }}
           title={`Last refreshed ${new Date(lastRefreshedAt!).toLocaleString()}`}
         >
-          Updated {updatedLabel} ago
+          {updatedLabel === "now" ? "Updated just now" : `Updated ${updatedLabel} ago`}
         </div>
       )}
     </div>

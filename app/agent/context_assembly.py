@@ -905,11 +905,11 @@ async def assemble_context(
         try:
             from integrations import get_activation_manifests
             _manifests = get_activation_manifests()
-            from app.services.integration_settings import get_status as _intg_status
+            from app.services.integration_settings import is_active as _intg_active
             for _ci in (getattr(_ch_row, "integrations", None) or []):
                 if not _ci.activated:
                     continue
-                if _intg_status(_ci.integration_type) != "enabled":
+                if not _intg_active(_ci.integration_type):
                     continue
                 _manifest = _manifests.get(_ci.integration_type)
                 if not _manifest:

@@ -933,22 +933,21 @@ function ReadmeSection({ content }: { content: string }) {
 function StatusControl({ item }: { item: IntegrationItem }) {
   const t = useThemeTokens();
   const mut = useSetIntegrationStatus(item.id);
-  const status = item.lifecycle_status;
-
-  const meta =
-    status === "enabled"
-      ? { bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.15)", color: "#22c55e", label: "Enabled" }
-      : status === "needs_setup"
-        ? { bg: "rgba(234,179,8,0.08)", border: "rgba(234,179,8,0.25)", color: "#eab308", label: "Needs Setup" }
-        : { bg: "rgba(107,114,128,0.08)", border: "rgba(107,114,128,0.2)", color: t.textMuted, label: "Available — not adopted" };
-
+  const isEnabled = item.lifecycle_status === "enabled";
   const missingRequired = item.env_vars.filter((v) => v.required && !v.is_set);
+  const needsSetup = isEnabled && missingRequired.length > 0;
 
-  const onDisable = () => {
+  const meta = !isEnabled
+    ? { bg: "rgba(107,114,128,0.08)", border: "rgba(107,114,128,0.2)", color: t.textMuted, label: "Available — not adopted" }
+    : needsSetup
+      ? { bg: "rgba(234,179,8,0.08)", border: "rgba(234,179,8,0.25)", color: "#eab308", label: "Enabled · Needs Setup" }
+      : { bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.15)", color: "#22c55e", label: "Enabled" };
+
+  const onRemove = () => {
     if (!window.confirm("Remove from Active? The process will stop and tools will unload. Your settings are preserved — re-adding is instant.")) return;
     mut.mutate("available");
   };
-  const onAdd = () => mut.mutate("needs_setup");
+  const onEnable = () => mut.mutate("enabled");
 
   return (
     <div className="flex flex-col gap-2">
@@ -967,9 +966,9 @@ function StatusControl({ item }: { item: IntegrationItem }) {
         <span style={{ fontSize: 12, fontWeight: 600, color: meta.color, flex: 1 }}>
           {meta.label}
         </span>
-        {status === "available" && (
+        {!isEnabled ? (
           <button
-            onClick={onAdd}
+            onClick={onEnable}
             disabled={mut.isPending}
             style={{
               padding: "4px 14px",
@@ -983,12 +982,11 @@ function StatusControl({ item }: { item: IntegrationItem }) {
               opacity: mut.isPending ? 0.5 : 1,
             }}
           >
-            {mut.isPending ? "..." : "Add"}
+            {mut.isPending ? "..." : "Enable"}
           </button>
-        )}
-        {(status === "enabled" || status === "needs_setup") && (
+        ) : (
           <button
-            onClick={onDisable}
+            onClick={onRemove}
             disabled={mut.isPending}
             style={{
               padding: "4px 14px",
@@ -1002,12 +1000,12 @@ function StatusControl({ item }: { item: IntegrationItem }) {
               opacity: mut.isPending ? 0.5 : 1,
             }}
           >
-            {mut.isPending ? "..." : "Remove"}
+            {mut.isPending ? "..." : "Disable"}
           </button>
         )}
       </div>
 
-      {status === "needs_setup" && missingRequired.length > 0 && (
+      {needsSetup && (
         <div
           style={{
             display: "flex", flexDirection: "row", alignItems: "flex-start",

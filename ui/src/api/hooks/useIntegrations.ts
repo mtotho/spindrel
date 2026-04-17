@@ -90,7 +90,7 @@ export interface IntegrationItem {
   webhook: IntegrationWebhook | null;
   api_permissions: string | string[] | null;
   icon?: string;
-  lifecycle_status: "available" | "needs_setup" | "enabled";
+  lifecycle_status: "available" | "enabled";
   status: "ready" | "partial" | "not_configured";
   readme: string | null;
   debug_actions?: DebugAction[];

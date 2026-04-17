@@ -84,13 +84,16 @@ async def list_sidebar_sections(_auth=Depends(require_scopes("integrations:read"
     Filters out sections whose integration has ``SIDEBAR_ENABLED`` set to ``"false"``.
     """
     from integrations import discover_sidebar_sections
-    from app.services.integration_settings import get_value, get_status
+    from app.services.integration_settings import get_value, is_active
 
     sections = discover_sidebar_sections()
     visible = []
     for section in sections:
         iid = section["integration_id"]
-        if get_status(iid) != "enabled":
+        # Only show sidebar entries for integrations that are both adopted
+        # AND configured — an enabled-but-unconfigured integration's pages
+        # can't actually run, so linking to them would be misleading.
+        if not is_active(iid):
             continue
         enabled = get_value(iid, "SIDEBAR_ENABLED", "true")
         if enabled.lower() != "false":
@@ -104,39 +107,24 @@ async def list_sidebar_sections(_auth=Depends(require_scopes("integrations:read"
 
 
 class StatusBody(BaseModel):
-    status: str  # "available" | "needs_setup" | "enabled"
+    status: str  # "available" | "enabled"
 
 
 @router.put("/integrations/{integration_id}/status")
 async def set_integration_status(integration_id: str, body: StatusBody, _auth=Depends(require_scopes("integrations:write"))):
-    """Transition an integration between lifecycle states.
+    """Transition an integration between ``available`` and ``enabled``.
 
-    - ``available``: hidden from active surfaces. If previously enabled/needs_setup
-      we stop the process, unregister tools, and remove embeddings. Settings rows
-      are preserved so re-adding is instant.
-    - ``needs_setup``: user has adopted the integration but required settings are
-      missing. The settings UI can still load; process does not start yet.
-    - ``enabled``: full activation. Tools are (re)loaded and indexed. Caller must
-      have ``is_configured`` true — enforced here with a 400 if not.
+    Lifecycle is the user's explicit intent — *not* a function of config
+    completeness. An enabled integration whose required settings are missing
+    remains enabled; it's shown with a "Needs Setup" badge in the UI and its
+    process simply won't auto-start. Readiness is derived from
+    ``is_configured`` in the callers that care (auto-start, sidebar gating).
     """
-    from app.services.integration_settings import (
-        get_status, set_status, is_configured,
-    )
+    from app.services.integration_settings import get_status, set_status
 
     target = body.status.strip().lower()
-    if target not in ("available", "needs_setup", "enabled"):
+    if target not in ("available", "enabled"):
         raise HTTPException(status_code=400, detail=f"Invalid status: {body.status!r}")
-    if target == "enabled" and not is_configured(integration_id):
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot enable: required settings are missing. Fill them first — the integration will auto-enable.",
-        )
-    # Short-circuit: if the user is adding an integration that's already
-    # configured (no required settings, or all of them inherited from env),
-    # skip ``needs_setup`` and go straight to ``enabled``. Otherwise the card
-    # lands in a "Needs Setup" state with nothing to set up.
-    if target == "needs_setup" and is_configured(integration_id):
-        target = "enabled"
 
     previous = get_status(integration_id)
     if previous == target:
@@ -146,7 +134,8 @@ async def set_integration_status(integration_id: str, body: StatusBody, _auth=De
     await set_status(integration_id, target)  # type: ignore[arg-type]
 
     if target == "available":
-        # Tear down like the old "disable" path.
+        # Tear down: stop process, unregister tools, drop embeddings.
+        # IntegrationSetting rows stay so re-adding restores the old config.
         try:
             await process_manager.stop(integration_id)
         except Exception:
@@ -159,21 +148,10 @@ async def set_integration_status(integration_id: str, body: StatusBody, _auth=De
             "Integration %s → available: removed %d tool(s), %d embedding(s)",
             integration_id, len(removed), embed_count,
         )
-    elif target == "needs_setup":
-        # Keep any running process stopped while the user finishes config.
-        # If moving from available we don't load tools yet (they'd be unusable
-        # without required settings anyway). If moving from enabled we tear down.
-        if previous == "enabled":
-            try:
-                await process_manager.stop(integration_id)
-            except Exception:
-                logger.debug("No process to stop for %s", integration_id, exc_info=True)
-            from app.tools.registry import unregister_integration_tools
-            unregister_integration_tools(integration_id)
-            from app.agent.tools import remove_integration_embeddings
-            await remove_integration_embeddings(integration_id)
-        logger.info("Integration %s → needs_setup (from %s)", integration_id, previous)
     else:  # enabled
+        # Load tools and index. Process start is deferred — auto-start loop
+        # handles it once is_configured becomes true. Manual start button on
+        # the UI remains available.
         from integrations import _iter_integration_candidates
         from app.tools.loader import load_integration_tools
         loaded: list[str] = []
@@ -316,9 +294,11 @@ async def get_process_status(integration_id: str, _auth=Depends(require_scopes("
 
 @router.post("/integrations/{integration_id}/process/start")
 async def start_process(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
-    from app.services.integration_settings import get_status
+    from app.services.integration_settings import get_status, is_configured
     if get_status(integration_id) != "enabled":
         raise HTTPException(status_code=400, detail="Integration is not enabled")
+    if not is_configured(integration_id):
+        raise HTTPException(status_code=400, detail="Integration is missing required settings")
     ok = await process_manager.start(integration_id)
     if not ok:
         status = process_manager.status(integration_id)

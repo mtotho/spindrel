@@ -155,11 +155,14 @@ class IntegrationProcessManager:
 
     async def start(self, integration_id: str) -> bool:
         """Start a process for the given integration. Returns True if started."""
-        # Refuse to start integrations that aren't fully enabled.
+        # Refuse to start integrations that aren't both enabled AND configured.
         try:
-            from app.services.integration_settings import get_status
+            from app.services.integration_settings import get_status, is_configured
             if get_status(integration_id) != "enabled":
                 logger.warning("Cannot start %s: integration is not enabled", integration_id)
+                return False
+            if not is_configured(integration_id):
+                logger.warning("Cannot start %s: required settings are missing", integration_id)
                 return False
         except Exception:
             pass
@@ -383,11 +386,14 @@ class IntegrationProcessManager:
         logger.info("Discovered %d integration process(es): %s", len(discovered), list(discovered.keys()))
 
         for integration_id, info in discovered.items():
-            # Skip integrations that aren't fully enabled.
+            # Skip integrations that aren't active (enabled AND configured).
             try:
-                from app.services.integration_settings import get_status
+                from app.services.integration_settings import get_status, is_configured
                 if get_status(integration_id) != "enabled":
                     logger.info("Skipping auto-start for non-enabled integration: %s", integration_id)
+                    continue
+                if not is_configured(integration_id):
+                    logger.info("Skipping auto-start — missing required settings: %s", integration_id)
                     continue
             except Exception:
                 pass

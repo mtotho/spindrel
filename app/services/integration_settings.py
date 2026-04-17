@@ -3,19 +3,21 @@
 Precedence: DB value > env var > default.
 Env vars still work as deploy-time config; DB adds runtime editability from the admin UI.
 
-Lifecycle status lives on the per-integration ``_status`` key in ``integration_settings``:
+Lifecycle status lives on the per-integration ``_status`` key in
+``integration_settings``. Two states:
 
-- ``available``  — the user has not adopted this integration (default).
-                   Hidden from the sidebar, command palette, and active views.
-- ``needs_setup`` — the user clicked Add but required settings are not yet filled.
-                    Visible as "Needs Setup" in the active view.
-- ``enabled``    — required settings are satisfied; integration runs normally.
+- ``available`` — the user has not adopted this integration (default).
+                  Hidden from the sidebar, command palette, and active views.
+- ``enabled``  — the user has opted in. Tools are loaded, indexed, and the
+                 process will auto-start *if* required settings are present.
 
-Transitions are managed by ``set_status`` (explicit) and by auto-promote /
-auto-demote inside ``update_settings`` / ``delete_setting`` (implicit, driven by
-``is_configured``). The ``_disabled`` key used by earlier versions has been
-replaced — ``available`` carries the same "not active" semantics while also
-covering the "never opted in" case.
+"Needs setup" is NOT a lifecycle state — it's a derived readiness flag
+(``is_configured(id) == False`` while status is ``enabled``). Surfaced as a
+badge in the UI; does not block the user from turning the integration on.
+
+Process start and sidebar visibility use ``is_active = enabled AND
+is_configured`` — an enabled-but-unconfigured integration sits in a known
+broken state rather than silently pretending to be off.
 """
 from __future__ import annotations
 
@@ -44,9 +46,9 @@ _secret_keys: dict[tuple[str, str], bool] = {}
 
 STATUS_KEY = "_status"
 
-LifecycleStatus = Literal["available", "needs_setup", "enabled"]
+LifecycleStatus = Literal["available", "enabled"]
 
-_VALID_STATUSES: tuple[LifecycleStatus, ...] = ("available", "needs_setup", "enabled")
+_VALID_STATUSES: tuple[LifecycleStatus, ...] = ("available", "enabled")
 
 
 # ---------------------------------------------------------------------------
@@ -183,9 +185,6 @@ async def update_settings(
 
     await db.commit()
 
-    # Auto-promote / auto-demote lifecycle status based on new configuration.
-    await _reconcile_status(integration_id)
-
     # Rebuild secret registry so updated integration secrets are tracked
     try:
         import asyncio
@@ -200,7 +199,6 @@ async def update_settings(
 async def delete_setting(integration_id: str, key: str, db: AsyncSession) -> None:
     """Remove a single setting from DB and cache."""
     await _delete_one(integration_id, key, db, commit=True)
-    await _reconcile_status(integration_id)
 
 
 # ---------------------------------------------------------------------------
@@ -208,10 +206,17 @@ async def delete_setting(integration_id: str, key: str, db: AsyncSession) -> Non
 # ---------------------------------------------------------------------------
 
 def get_status(integration_id: str) -> LifecycleStatus:
-    """Return the lifecycle status for an integration. Defaults to ``available``."""
+    """Return the lifecycle status for an integration. Defaults to ``available``.
+
+    Legacy values from the transitional three-state model (``needs_setup``) are
+    coerced to ``enabled`` — if the user had adopted the integration, it stays
+    adopted; readiness is derived separately from ``is_configured``.
+    """
     raw = _cache.get((integration_id, STATUS_KEY), "").strip().lower()
     if raw in _VALID_STATUSES:
         return raw  # type: ignore[return-value]
+    if raw == "needs_setup":
+        return "enabled"
     return "available"
 
 
@@ -243,23 +248,6 @@ async def set_status(integration_id: str, status: LifecycleStatus) -> None:
         await db.commit()
 
     _cache[(integration_id, STATUS_KEY)] = status
-
-
-async def _reconcile_status(integration_id: str) -> None:
-    """Auto-promote ``needs_setup`` → ``enabled`` once all required settings are
-    present, and auto-demote ``enabled`` → ``needs_setup`` if one goes missing.
-    ``available`` is never auto-flipped: the user must explicitly opt in.
-    """
-    current = get_status(integration_id)
-    if current == "available":
-        return
-    configured = is_configured(integration_id)
-    if current == "needs_setup" and configured:
-        await set_status(integration_id, "enabled")
-        logger.info("Integration %s auto-promoted: needs_setup → enabled", integration_id)
-    elif current == "enabled" and not configured:
-        await set_status(integration_id, "needs_setup")
-        logger.info("Integration %s auto-demoted: enabled → needs_setup", integration_id)
 
 
 def is_configured(integration_id: str) -> bool:

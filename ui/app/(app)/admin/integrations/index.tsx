@@ -299,13 +299,16 @@ export default function IntegrationsScreen() {
       return filtered.map((i) => ({ type: "card", key: i.id, item: i } as RenderItem));
     }
 
-    // Active tab: Needs Setup above, Enabled below.
+    // Active tab: split enabled into "Needs Setup" (missing required settings)
+    // and "Ready" — two derived groups off a single lifecycle state.
     const needsSetup: IntegrationItem[] = [];
-    const enabled: IntegrationItem[] = [];
+    const ready: IntegrationItem[] = [];
 
     for (const i of filtered) {
-      if (i.lifecycle_status === "needs_setup") needsSetup.push(i);
-      else if (i.lifecycle_status === "enabled") enabled.push(i);
+      if (i.lifecycle_status !== "enabled") continue;
+      const missingRequired = i.env_vars.some((v) => v.required && !v.is_set);
+      if (missingRequired) needsSetup.push(i);
+      else ready.push(i);
     }
 
     const items: RenderItem[] = [];
@@ -316,7 +319,7 @@ export default function IntegrationsScreen() {
     };
 
     add("needs-setup", "Needs Setup", needsSetup);
-    add("enabled", "Enabled", enabled);
+    add("ready", "Ready", ready);
 
     return items;
   }, [filtered, activeTab]);
