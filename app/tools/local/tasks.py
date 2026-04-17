@@ -334,19 +334,26 @@ async def schedule_task(
         await db.commit()
         await db.refresh(task)
 
-    recur_suffix = f" Repeats every {recurrence}." if recurrence else ""
-    bot_suffix = f" (bot={effective_bot_id})" if cross_bot else ""
-    pipeline_suffix = f" Pipeline with {len(parsed_steps)} steps." if parsed_steps else ""
+    result_data: dict = {
+        "id": str(task.id),
+        "status": initial_status,
+        "task_type": effective_task_type,
+        "bot_id": effective_bot_id,
+        "title": title or None,
+        "recurrence": recurrence or None,
+    }
     if scheduled:
         from zoneinfo import ZoneInfo
         from app.config import settings
         local_dt = scheduled.astimezone(ZoneInfo(settings.TIMEZONE))
-        when_local = local_dt.strftime("%Y-%m-%d %H:%M %Z")
-        when_utc = scheduled.strftime("%H:%M UTC")
-        ws_info = f" Using workspace file '{ws_file_path}'." if ws_file_path else ""
-        return f"Task {task.id} scheduled for {when_local} ({when_utc}).{bot_suffix}{recur_suffix}{pipeline_suffix}{ws_info}"
-    ws_info = f" Using workspace file '{ws_file_path}'." if ws_file_path else ""
-    return f"Task {task.id} queued (runs immediately).{bot_suffix}{recur_suffix}{pipeline_suffix}{ws_info}"
+        result_data["scheduled_at"] = local_dt.strftime("%Y-%m-%d %H:%M %Z")
+    if ws_file_path:
+        result_data["workspace_file_path"] = ws_file_path
+    if parsed_steps:
+        result_data["step_count"] = len(parsed_steps)
+    if cross_bot:
+        result_data["cross_bot"] = True
+    return json.dumps(result_data)
 
 
 @register({
@@ -471,8 +478,10 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
         tasks = list((await db.execute(stmt)).scalars().all())
 
         if not tasks:
-            label = "No tasks found for this session." if include_completed else "No pending/running/active tasks found."
-            return label
+            return json.dumps({
+                "tasks": [],
+                "message": "No tasks found." if include_completed else "No pending/running/active tasks.",
+            })
 
         # Batch-fetch template names
         tpl_ids = {t.prompt_template_id for t in tasks if t.prompt_template_id}
@@ -484,43 +493,37 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
             )).all()
             tpl_names = {row.id: row.name for row in tpl_rows}
 
-    lines = []
+    task_list = []
     for t in tasks:
-        scheduled = t.scheduled_at.strftime("%Y-%m-%d %H:%M UTC") if t.scheduled_at else "immediately"
-        if t.status == "active" and t.recurrence:
-            status_label = f"active, recurs {t.recurrence}, {t.run_count} runs"
-        else:
-            status_label = t.status
-        recur = f" recurrence={t.recurrence}" if t.recurrence and t.status != "active" else ""
-
-        # Prompt source badge
-        tpl_badge = ""
+        entry: dict = {
+            "id": str(t.id),
+            "status": t.status,
+            "bot_id": t.bot_id,
+            "title": t.title,
+        }
+        if t.scheduled_at:
+            entry["scheduled_at"] = t.scheduled_at.strftime("%Y-%m-%d %H:%M UTC")
+        if t.recurrence:
+            entry["recurrence"] = t.recurrence
+        if t.run_count:
+            entry["run_count"] = t.run_count
+        # Prompt source
         _wfp = getattr(t, "workspace_file_path", None)
         if isinstance(_wfp, str) and _wfp:
-            tpl_badge = f" file={_wfp}"
+            entry["source"] = _wfp
         elif t.prompt_template_id:
-            name = tpl_names.get(t.prompt_template_id, "?")
-            tpl_badge = f" template={name}"
-        elif t.status == "active" and t.recurrence:
-            tpl_badge = " [no template]"
-
-        # Title / prompt preview
-        title_label = ""
-        if t.title:
-            title_label = f" \"{t.title}\""
-        elif t.prompt:
+            entry["source"] = tpl_names.get(t.prompt_template_id, "template")
+        # Title fallback to prompt preview
+        if not t.title and t.prompt:
             preview = t.prompt[:60].replace("\n", " ")
             if len(t.prompt) > 60:
                 preview += "..."
-            title_label = f" \"{preview}\""
-
-        result_preview = ""
+            entry["title"] = preview
         if t.result:
-            result_preview = " | result: " + (t.result[:80] + "..." if len(t.result) > 80 else t.result)
-        lines.append(
-            f"- {t.id} [{status_label}] bot={t.bot_id} scheduled={scheduled}{recur}{tpl_badge}{title_label}{result_preview}"
-        )
-    return "Tasks:\n" + "\n".join(lines)
+            entry["result_preview"] = t.result[:80] + ("..." if len(t.result) > 80 else "")
+        task_list.append(entry)
+
+    return json.dumps({"tasks": task_list, "count": len(task_list)})
 
 
 @register({

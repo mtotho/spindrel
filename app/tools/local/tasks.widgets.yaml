@@ -1,19 +1,43 @@
-# Widget templates for task tools (list_tasks detail, get_task_result)
+# Widget templates for task tools
 
+# list_tasks handles both modes:
+#   - Detail mode (task_id given): returns {id, status, bot_id, title, ...}
+#   - List mode (no task_id): returns {tasks: [...], count: N}
 list_tasks:
   content_type: application/vnd.spindrel.components+json
   display: inline
   template:
     v: 1
     components:
+      # ── List mode (tasks array present) ──
+      - type: heading
+        text: "Tasks ({{count}})"
+        level: 3
+        when: "{{tasks | not_empty}}"
+      - type: table
+        columns: ["Title", "Status", "Bot", "Recurrence"]
+        rows:
+          each: "{{tasks}}"
+          template: ["{{_.title | default: —}}", "{{_.status}}", "{{_.bot_id}}", "{{_.recurrence | default: —}}"]
+        compact: true
+        when: "{{tasks | not_empty}}"
+      - type: status
+        text: "{{message}}"
+        color: muted
+        when: "{{message | not_empty}}"
+
+      # ── Detail mode (single task, has id field) ──
       - type: heading
         text: "{{title | default: Task}}"
         level: 3
+        when: "{{id | not_empty}}"
       - type: status
         text: "{{status}}"
         color: "{{status | status_color}}"
+        when: "{{id | not_empty}}"
       - type: properties
         layout: inline
+        when: "{{id | not_empty}}"
         items:
           - label: Bot
             value: "{{bot_id}}"
@@ -67,6 +91,51 @@ list_tasks:
           args:
             task_id: "{{id}}"
 
+# schedule_task returns {id, status, task_type, bot_id, ...}
+schedule_task:
+  content_type: application/vnd.spindrel.components+json
+  display: inline
+  template:
+    v: 1
+    components:
+      - type: heading
+        text: "{{title | default: Task Created}}"
+        level: 3
+      - type: status
+        text: "{{status}}"
+        color: "{{status | status_color}}"
+      - type: properties
+        layout: inline
+        items:
+          - label: ID
+            value: "{{id}}"
+          - label: Type
+            value: "{{task_type}}"
+          - label: Bot
+            value: "{{bot_id}}"
+          - label: Scheduled
+            value: "{{scheduled_at}}"
+            when: "{{scheduled_at | not_empty}}"
+          - label: Recurrence
+            value: "{{recurrence}}"
+            when: "{{recurrence | not_empty}}"
+          - label: Steps
+            value: "{{step_count}}"
+            when: "{{step_count | not_empty}}"
+          - label: File
+            value: "{{workspace_file_path}}"
+            when: "{{workspace_file_path | not_empty}}"
+      - type: button
+        label: Cancel
+        variant: danger
+        when: "{{status | in: pending,active}}"
+        action:
+          dispatch: tool
+          tool: cancel_task
+          args:
+            task_id: "{{id}}"
+
+# get_task_result
 get_task_result:
   content_type: application/vnd.spindrel.components+json
   display: inline

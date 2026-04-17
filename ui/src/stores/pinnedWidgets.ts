@@ -185,7 +185,7 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
         }
       },
 
-      updateEnvelope: (channelId, widgetId, envelope) =>
+      updateEnvelope: (channelId, widgetId, envelope) => {
         set((s) => ({
           byChannel: {
             ...s.byChannel,
@@ -193,7 +193,16 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
               w.id === widgetId ? { ...w, envelope } : w,
             ),
           },
-        })),
+        }));
+        // Persist updated envelope to server
+        const updated = get().byChannel[channelId]?.find((w) => w.id === widgetId);
+        if (updated) {
+          apiFetch(`/api/v1/channels/${channelId}/widget-pins`, {
+            method: "POST",
+            body: JSON.stringify(updated),
+          }).catch((err) => console.error("Failed to persist envelope update:", err));
+        }
+      },
 
       crossUpdateFromToolResult: (channelId, toolName, envelope) => {
         const widgets = get().byChannel[channelId];
@@ -205,6 +214,8 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
         // Extract entity identifiers from the new envelope body
         const newEntities = extractEntities(envelope.body);
         if (!newEntities.size && !prefix) return;
+
+        const updatedIds: string[] = [];
 
         set((s) => ({
           byChannel: {
@@ -218,17 +229,30 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
               // Check entity overlap in bodies
               const pinnedEntities = extractEntities(w.envelope.body);
               if (pinnedEntities.size === 0 && newEntities.size === 0) {
-                // No entities to compare — same tool name is enough
+                updatedIds.push(w.id);
                 return { ...w, envelope };
               }
-              // At least one shared entity → update
               for (const e of newEntities) {
-                if (pinnedEntities.has(e)) return { ...w, envelope };
+                if (pinnedEntities.has(e)) {
+                  updatedIds.push(w.id);
+                  return { ...w, envelope };
+                }
               }
               return w;
             }),
           },
         }));
+
+        // Persist all updated widgets to server
+        for (const id of updatedIds) {
+          const updated = get().byChannel[channelId]?.find((w) => w.id === id);
+          if (updated) {
+            apiFetch(`/api/v1/channels/${channelId}/widget-pins`, {
+              method: "POST",
+              body: JSON.stringify(updated),
+            }).catch((err) => console.error("Failed to persist cross-update:", err));
+          }
+        }
       },
     }),
     {
