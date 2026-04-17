@@ -111,7 +111,7 @@ async def run_claude_code(
     if working_directory:
         working_directory = working_directory.strip()
         if os.path.isabs(working_directory) or ".." in working_directory.split(os.sep):
-            return json.dumps({"error": "working_directory must be a relative path with no '..' traversal"})
+            return json.dumps({"error": "working_directory must be a relative path with no '..' traversal"}, ensure_ascii=False)
 
     # -----------------------------------------------------------------------
     # Deferred mode: create a Task and return immediately
@@ -136,7 +136,7 @@ async def run_claude_code(
 
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "No bot context — cannot resolve workspace."})
+        return json.dumps({"error": "No bot context — cannot resolve workspace."}, ensure_ascii=False)
 
     try:
         result = await run_in_container(
@@ -149,10 +149,10 @@ async def run_claude_code(
             allowed_tools=allowed_tools,
         )
     except ValueError as exc:
-        return json.dumps({"error": str(exc)})
+        return json.dumps({"error": str(exc)}, ensure_ascii=False)
     except Exception as exc:
         err_type = type(exc).__name__
-        return json.dumps({"error": f"{err_type}: {exc}"})
+        return json.dumps({"error": f"{err_type}: {exc}"}, ensure_ascii=False)
 
     return json.dumps({
         "result": result.result,
@@ -162,7 +162,7 @@ async def run_claude_code(
         "num_turns": result.num_turns,
         "duration_ms": result.duration_ms,
         "duration_api_ms": result.duration_api_ms,
-    })
+    }, ensure_ascii=False)
 
 
 async def _create_deferred_task(
@@ -254,4 +254,4 @@ async def _create_deferred_task(
         await db.refresh(task)
 
     logger.info("Deferred claude_code task created: %s", task.id)
-    return json.dumps({"task_id": str(task.id), "status": "deferred"})
+    return json.dumps({"task_id": str(task.id), "status": "deferred"}, ensure_ascii=False)

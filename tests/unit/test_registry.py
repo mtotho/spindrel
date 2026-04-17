@@ -150,6 +150,35 @@ class TestCallLocalTool:
         result = await registry.call_local_tool("dict_tool", "{}")
         assert json.loads(result) == {"key": "value"}
 
+    async def test_unicode_preserved_in_dict_result(self):
+        async def weather_like():
+            return {"temp": "78.28°F", "loc": "Montréal", "emoji": "☀️"}
+
+        _register_dummy("weather_like", func=weather_like)
+        result = await registry.call_local_tool("weather_like", "{}")
+        assert "°F" in result
+        assert "Montréal" in result
+        assert "☀️" in result
+        assert "\\u00b0" not in result
+
+    async def test_unicode_preserved_in_string_result(self):
+        async def pre_serialized():
+            return json.dumps({"temp": "78.28°F"}, ensure_ascii=False)
+
+        _register_dummy("pre_serialized", func=pre_serialized)
+        result = await registry.call_local_tool("pre_serialized", "{}")
+        assert "°F" in result
+        assert "\\u00b0" not in result
+
+    async def test_unicode_preserved_in_error(self):
+        async def bad():
+            raise ValueError("temperature out of range — °F expected")
+
+        _register_dummy("bad_unicode", func=bad)
+        result = await registry.call_local_tool("bad_unicode", "{}")
+        assert "°F" in result or "—" in result
+        assert "\\u00b0" not in result
+
     async def test_bare_string_recovery_single_required_param(self):
         """Models sometimes send bare strings instead of JSON objects.
 

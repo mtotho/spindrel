@@ -33,9 +33,9 @@ def _rich(llm_text: str, plain_body: str, components: list[dict]) -> str:
             "content_type": _COMPONENTS_CT,
             "display": "inline",
             "plain_body": plain_body,
-            "body": json.dumps({"v": 1, "components": components}),
+            "body": json.dumps({"v": 1, "components": components}, ensure_ascii=False),
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _state_color(state: str, merged: bool = False) -> str:
@@ -826,7 +826,7 @@ async def github_update_pr(
     if title:
         payload["title"] = title
     if not payload:
-        return json.dumps({"error": "Provide at least state or title."})
+        return json.dumps({"error": "Provide at least state or title."}, ensure_ascii=False)
 
     r = await _http.patch(
         f"{_GITHUB_API}/repos/{owner}/{repo}/pulls/{pull_number}",
@@ -862,7 +862,7 @@ async def github_merge_pr(
         headers=_headers(), json={"merge_method": merge_method},
     )
     if r.status_code == 405:
-        return json.dumps({"error": "PR cannot be merged (conflicts, checks failing, or not mergeable)."})
+        return json.dumps({"error": "PR cannot be merged (conflicts, checks failing, or not mergeable)."}, ensure_ascii=False)
     r.raise_for_status()
     return await github_get_pr(owner, repo, pull_number)
 
@@ -892,7 +892,7 @@ async def github_update_issue(
     if title:
         payload["title"] = title
     if not payload:
-        return json.dumps({"error": "Provide at least state or title."})
+        return json.dumps({"error": "Provide at least state or title."}, ensure_ascii=False)
 
     r = await _http.patch(
         f"{_GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}",

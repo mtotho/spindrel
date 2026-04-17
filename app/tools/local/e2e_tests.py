@@ -75,7 +75,7 @@ async def run_e2e_tests(
     elif action == "run_scenario":
         return await _run_ad_hoc(scenario_yaml)
     else:
-        return json.dumps({"error": f"Unknown action: {action}"})
+        return json.dumps({"error": f"Unknown action: {action}"}, ensure_ascii=False)
 
 
 async def _status() -> str:
@@ -91,10 +91,10 @@ async def _status() -> str:
                 return json.dumps({
                     "running": True,
                     "health": resp.json(),
-                })
+                }, ensure_ascii=False)
     except Exception:
         pass
-    return json.dumps({"running": False})
+    return json.dumps({"running": False}, ensure_ascii=False)
 
 
 async def _run(scenarios: str, keep_running: bool, verbose: bool) -> str:
@@ -139,22 +139,22 @@ async def _run(scenarios: str, keep_running: bool, verbose: bool) -> str:
         "exit_code": result.returncode,
         "summary": summary_line or ("All tests passed" if result.returncode == 0 else "Tests failed"),
         "output": output[-3000:] if verbose else output[-1000:],
-    })
+    }, ensure_ascii=False)
 
 
 async def _run_ad_hoc(scenario_yaml: str) -> str:
     """Execute an ad-hoc scenario defined as inline YAML against the running E2E stack."""
     if not scenario_yaml:
-        return json.dumps({"error": "scenario_yaml is required for run_scenario action"})
+        return json.dumps({"error": "scenario_yaml is required for run_scenario action"}, ensure_ascii=False)
 
     try:
         import yaml
         raw = yaml.safe_load(scenario_yaml)
     except Exception as e:
-        return json.dumps({"error": f"Failed to parse scenario YAML: {e}"})
+        return json.dumps({"error": f"Failed to parse scenario YAML: {e}"}, ensure_ascii=False)
 
     if not isinstance(raw, dict):
-        return json.dumps({"error": "scenario_yaml must be a YAML mapping with scenario fields"})
+        return json.dumps({"error": "scenario_yaml must be a YAML mapping with scenario fields"}, ensure_ascii=False)
 
     # Import harness components
     try:
@@ -163,13 +163,13 @@ async def _run_ad_hoc(scenario_yaml: str) -> str:
         from tests.e2e.harness.client import E2EClient
         from tests.e2e.harness.config import E2EConfig
     except ImportError as e:
-        return json.dumps({"error": f"Failed to import E2E harness: {e}"})
+        return json.dumps({"error": f"Failed to import E2E harness: {e}"}, ensure_ascii=False)
 
     # Parse scenario
     try:
         scenario = parse_scenario_from_dict(raw, source="<ad-hoc>")
     except Exception as e:
-        return json.dumps({"error": f"Failed to parse scenario: {e}"})
+        return json.dumps({"error": f"Failed to parse scenario: {e}"}, ensure_ascii=False)
 
     # Build client from env/defaults
     config = E2EConfig.from_env()
@@ -196,7 +196,7 @@ async def _run_ad_hoc(scenario_yaml: str) -> str:
         "scenario": result.scenario.name,
         "error": result.error,
         "steps": step_details,
-    })
+    }, ensure_ascii=False)
 
 
 async def _stop() -> str:
@@ -220,4 +220,4 @@ async def _stop() -> str:
     return json.dumps({
         "stopped": result.returncode == 0,
         "output": (result.stdout + result.stderr)[-500:],
-    })
+    }, ensure_ascii=False)

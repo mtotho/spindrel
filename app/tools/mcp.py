@@ -174,7 +174,7 @@ async def call_mcp_tool(tool_name: str, arguments: str) -> str:
     server_name = _find_server_for_tool(tool_name)
     server = _get_server(server_name) if server_name else None
     if not server:
-        return json.dumps({"error": f"No MCP server found for tool: {tool_name}"})
+        return json.dumps({"error": f"No MCP server found for tool: {tool_name}"}, ensure_ascii=False)
 
     headers: dict[str, str] = {
         "Content-Type": "application/json",
@@ -209,11 +209,11 @@ async def call_mcp_tool(tool_name: str, arguments: str) -> str:
                 data = resp.json()
             content = data.get("result", {}).get("content", [])
             texts = [c.get("text", str(c)) for c in content if c.get("type") == "text"]
-            return "\n".join(texts) if texts else json.dumps(data.get("result", {}))
+            return "\n".join(texts) if texts else json.dumps(data.get("result", {}), ensure_ascii=False)
     except Exception as e:
         logger.exception("MCP tool call failed: %s", tool_name)
         from app.security.prompt_sanitize import sanitize_exception
-        return json.dumps({"error": f"MCP tool call failed: {sanitize_exception(e)}"})
+        return json.dumps({"error": f"MCP tool call failed: {sanitize_exception(e)}"}, ensure_ascii=False)
 
 
 def _parse_sse_json(text: str) -> dict:

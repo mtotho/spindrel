@@ -187,7 +187,7 @@ async def _maybe_resolve_cross_channel(path: str, bot, ws_root: str):
 
 
 def _error(msg: str) -> str:
-    return json.dumps({"error": msg})
+    return json.dumps({"error": msg}, ensure_ascii=False)
 
 
 @register({
@@ -376,7 +376,7 @@ async def file(
                         "display": "inline",
                     },
                     "llm": result,
-                })
+                }, ensure_ascii=False)
         elif operation == "create":
             result = _op_create(resolved, content)
         elif operation == "overwrite":
@@ -581,7 +581,7 @@ def _op_create(path: str, content: str | None) -> str:
             "plain_body": f"Created {rel} ({size} bytes, {line_count} lines).",
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _op_overwrite(path: str, content: str | None, bot_id: str | None) -> str:
@@ -634,7 +634,7 @@ def _op_overwrite(path: str, content: str | None, bot_id: str | None) -> str:
             "plain_body": summary,
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _op_json_patch(path: str, patch: list[dict] | None) -> str:
@@ -716,7 +716,7 @@ def _op_json_patch(path: str, patch: list[dict] | None) -> str:
             "plain_body": summary,
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _detect_json_indent(raw: str) -> int:
@@ -744,7 +744,7 @@ def _op_history(path: str, ws_root: str) -> str:
                 "plain_body": f"No backups yet for {rel}.",
                 "display": "inline",
             },
-        })
+        }, ensure_ascii=False)
 
     pattern = os.path.join(versions_dir, f"{basename}.*.bak")
     backups = sorted(glob_mod.glob(pattern), key=os.path.getmtime, reverse=True)
@@ -775,7 +775,7 @@ def _op_history(path: str, ws_root: str) -> str:
             "plain_body": f"Listed {len(versions)} backup(s) for {rel}.",
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _op_restore(path: str, version: str | None) -> str:
@@ -826,7 +826,7 @@ def _op_restore(path: str, version: str | None) -> str:
             "plain_body": summary,
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _op_append(path: str, content: str | None) -> str:
@@ -871,7 +871,7 @@ def _op_append(path: str, content: str | None) -> str:
             "plain_body": f"Appended {added} lines to {rel}",
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _whitespace_flex_pattern(find: str) -> re.Pattern | None:
@@ -977,7 +977,7 @@ def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool
             count = 1
             new_text = text.replace(find, replace, 1)
         Path(path).write_text(new_text)
-        return json.dumps(_edit_envelope(new_text, count))
+        return json.dumps(_edit_envelope(new_text, count), ensure_ascii=False)
 
     # 2. Whitespace-normalized match — handles LLM whitespace drift
     pat = _whitespace_flex_pattern(find)
@@ -998,7 +998,7 @@ def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool
                 new_text = text[:m.start()] + replace + text[m.end():]
             Path(path).write_text(new_text)
             logger.info("edit: whitespace-flex match on %s (%d replacement(s))", path, count)
-            return json.dumps(_edit_envelope(new_text, count, matched="whitespace-normalized"))
+            return json.dumps(_edit_envelope(new_text, count, matched="whitespace-normalized"), ensure_ascii=False)
 
     # 3. Line-contains match — find is a long substring of exactly one line
     # Handles the common case where the LLM omits a bullet prefix or trailing text.
@@ -1017,7 +1017,7 @@ def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool
             new_text = "".join(lines)
             Path(path).write_text(new_text)
             logger.info("edit: line-contains match on %s (line %d)", path, _idx + 1)
-            return json.dumps(_edit_envelope(new_text, 1, matched="line-contains"))
+            return json.dumps(_edit_envelope(new_text, 1, matched="line-contains"), ensure_ascii=False)
 
     # 4. No match — provide helpful error with closest text
     hint = _find_closest_hint(find, text)
@@ -1060,11 +1060,11 @@ def _op_list(path: str, ws_root: str) -> str:
         **listing,
         "_envelope": {
             "content_type": "application/vnd.spindrel.file-listing+json",
-            "body": json.dumps(listing),
+            "body": json.dumps(listing, ensure_ascii=False),
             "plain_body": f"Listed {rel}: {n_dirs} dir(s), {n_files} file(s)",
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _op_delete(path: str) -> str:
@@ -1084,7 +1084,7 @@ def _op_delete(path: str) -> str:
             "plain_body": f"Deleted {rel}",
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _op_mkdir(path: str) -> str:
@@ -1099,7 +1099,7 @@ def _op_mkdir(path: str) -> str:
             "plain_body": f"Created directory {rel}",
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)
 
 
 async def _op_move(src: str, destination: str | None, ws_root: str, bot) -> str:
@@ -1134,7 +1134,7 @@ async def _op_move(src: str, destination: str | None, ws_root: str, bot) -> str:
             "plain_body": f"Moved {src_rel} → {destination}",
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _looks_binary(path: str) -> bool:
@@ -1235,7 +1235,7 @@ def _op_grep(
     if max_matches == 0:
         return json.dumps({
             "matches": [], "count": 0, "files_scanned": 0, "truncated": False,
-        })
+        }, ensure_ascii=False)
 
     matches: list[dict] = []
     files_scanned = 0
@@ -1285,7 +1285,7 @@ def _op_grep(
         **result,
         "_envelope": {
             "content_type": "application/vnd.spindrel.file-listing+json",
-            "body": json.dumps({"kind": "grep", **result}),
+            "body": json.dumps({"kind": "grep", **result}, ensure_ascii=False),
             "plain_body": (
                 f"{len(matches)} match(es) in {files_with_hits} file(s)"
                 f" — scanned {files_scanned}"
@@ -1293,7 +1293,7 @@ def _op_grep(
             ),
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _op_glob(root: str, pattern: str | None, ws_root: str, limit: int | None) -> str:
@@ -1353,10 +1353,10 @@ def _op_glob(root: str, pattern: str | None, ws_root: str, limit: int | None) ->
         **listing,
         "_envelope": {
             "content_type": "application/vnd.spindrel.file-listing+json",
-            "body": json.dumps({"kind": "glob", **listing}),
+            "body": json.dumps({"kind": "glob", **listing}, ensure_ascii=False),
             "plain_body": (
                 f"Found {len(paths)} file(s)" + (" (truncated)" if truncated else "")
             ),
             "display": "inline",
         },
-    })
+    }, ensure_ascii=False)

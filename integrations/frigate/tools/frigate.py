@@ -33,7 +33,7 @@ async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
 
 
 def _error(msg: str) -> str:
-    return json.dumps({"error": msg})
+    return json.dumps({"error": msg}, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ async def frigate_list_cameras() -> str:
                 "fps": detect.get("fps"),
                 "snapshot_url": f"{_base_url()}/api/{name}/latest.jpg",
             })
-        return json.dumps({"cameras": result})
+        return json.dumps({"cameras": result}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")
     except Exception as e:
@@ -196,7 +196,7 @@ async def frigate_get_events(
         resp: dict = {"events": results, "count": len(results)}
         if has_more and results:
             resp["next_before"] = results[-1].get("start_time")
-        return json.dumps(resp)
+        return json.dumps(resp, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")
     except Exception as e:
@@ -255,7 +255,7 @@ async def frigate_get_snapshot_url(
         "camera": camera,
         "snapshot_url": url,
         "note": "Open this URL to view the latest camera frame.",
-    })
+    }, ensure_ascii=False)
 
 
 @register({
@@ -301,7 +301,7 @@ async def frigate_get_stats() -> str:
             "cameras": camera_stats,
             "detectors": detectors,
             "service": stats.get("service", {}),
-        }, default=str)
+        }, default=str, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")
     except Exception as e:
@@ -387,7 +387,7 @@ async def _download_media(
             f"attachment_id={att.id} filename={filename} size={len(data)} bytes"
         )
 
-    return json.dumps(result)
+    return json.dumps(result, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------

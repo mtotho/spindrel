@@ -46,17 +46,17 @@ async def pin_panel(path: str, position: str = "right") -> str:
     channel_id = current_channel_id.get()
     bot_id = current_bot_id.get() or "unknown"
     if not channel_id:
-        return json.dumps({"error": "No channel context — cannot pin panel."})
+        return json.dumps({"error": "No channel context — cannot pin panel."}, ensure_ascii=False)
 
     if position not in ("right", "bottom"):
-        return json.dumps({"error": "position must be 'right' or 'bottom'"})
+        return json.dumps({"error": "position must be 'right' or 'bottom'"}, ensure_ascii=False)
 
     async with async_session() as db:
         ch = (await db.execute(
             select(Channel).where(Channel.id == channel_id)
         )).scalar_one_or_none()
         if not ch:
-            return json.dumps({"error": "Channel not found"})
+            return json.dumps({"error": "Channel not found"}, ensure_ascii=False)
 
         cfg = copy.deepcopy(ch.config or {})
         panels = cfg.setdefault("pinned_panels", [])
@@ -84,7 +84,7 @@ async def pin_panel(path: str, position: str = "right") -> str:
             "display": "panel",
         },
         "llm": f"Pinned {path} to the channel's {position} panel.",
-    })
+    }, ensure_ascii=False)
 
 
 _UNPIN_PANEL_SCHEMA = {
@@ -110,20 +110,20 @@ _UNPIN_PANEL_SCHEMA = {
 async def unpin_panel(path: str) -> str:
     channel_id = current_channel_id.get()
     if not channel_id:
-        return json.dumps({"error": "No channel context — cannot unpin panel."})
+        return json.dumps({"error": "No channel context — cannot unpin panel."}, ensure_ascii=False)
 
     async with async_session() as db:
         ch = (await db.execute(
             select(Channel).where(Channel.id == channel_id)
         )).scalar_one_or_none()
         if not ch:
-            return json.dumps({"error": "Channel not found"})
+            return json.dumps({"error": "Channel not found"}, ensure_ascii=False)
 
         cfg = copy.deepcopy(ch.config or {})
         panels = cfg.get("pinned_panels", [])
         new_panels = [p for p in panels if p["path"] != path]
         if len(new_panels) == len(panels):
-            return json.dumps({"error": f"{path} is not pinned in this channel."})
+            return json.dumps({"error": f"{path} is not pinned in this channel."}, ensure_ascii=False)
         cfg["pinned_panels"] = new_panels
         ch.config = cfg
         flag_modified(ch, "config")
@@ -140,4 +140,4 @@ async def unpin_panel(path: str) -> str:
             "display": "panel",
         },
         "llm": f"Unpinned {path} from the channel.",
-    })
+    }, ensure_ascii=False)

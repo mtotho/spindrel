@@ -39,11 +39,11 @@ async def get_attachment(attachment_id: str) -> str:
     try:
         att_uuid = uuid.UUID(attachment_id)
     except ValueError:
-        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."}, ensure_ascii=False)
 
     att = await get_attachment_by_id(att_uuid)
     if att is None:
-        return json.dumps({"error": f"Attachment {attachment_id} not found."})
+        return json.dumps({"error": f"Attachment {attachment_id} not found."}, ensure_ascii=False)
 
     return json.dumps({
         "id": str(att.id),
@@ -58,7 +58,7 @@ async def get_attachment(attachment_id: str) -> str:
         "description_model": att.description_model,
         "described_at": att.described_at.isoformat() if att.described_at else None,
         "has_file_data": att.file_data is not None,
-    })
+    }, ensure_ascii=False)
 
 
 @register({
@@ -126,7 +126,7 @@ async def list_attachments(
         ch_id = current_channel_id.get()
 
     if ch_id is None:
-        return json.dumps({"error": "No channel_id provided and no current channel context."})
+        return json.dumps({"error": "No channel_id provided and no current channel context."}, ensure_ascii=False)
 
     async with async_session() as db:
         # Total count
@@ -168,7 +168,7 @@ async def list_attachments(
         "total_pages": total_pages,
         "total_count": total,
         "showing": f"{offset + 1}-{offset + len(items)} of {total}",
-    })
+    }, ensure_ascii=False)
 
 
 @register({
@@ -201,24 +201,24 @@ async def view_attachment(attachment_id: str) -> str:
     try:
         att_uuid = uuid.UUID(attachment_id)
     except ValueError:
-        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."}, ensure_ascii=False)
 
     att = await get_attachment_by_id(att_uuid)
     if att is None:
-        return json.dumps({"error": f"Attachment {attachment_id} not found."})
+        return json.dumps({"error": f"Attachment {attachment_id} not found."}, ensure_ascii=False)
 
     mime = att.mime_type or ""
     if not mime.startswith("image/"):
-        return json.dumps({"error": f"view_attachment only supports images, got {mime}"})
+        return json.dumps({"error": f"view_attachment only supports images, got {mime}"}, ensure_ascii=False)
 
     if not att.file_data:
-        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
+        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."}, ensure_ascii=False)
 
     b64 = base64.b64encode(att.file_data).decode("ascii")
     return json.dumps({
         "injected_images": [{"mime_type": mime, "base64": b64}],
         "message": f"Image '{att.filename}' loaded — analyze it and respond.",
-    })
+    }, ensure_ascii=False)
 
 
 @register({
@@ -254,15 +254,15 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
     try:
         att_uuid = uuid.UUID(attachment_id)
     except ValueError:
-        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."}, ensure_ascii=False)
 
     att = await get_attachment_by_id(att_uuid)
     if att is None:
-        return json.dumps({"error": f"Attachment {attachment_id} not found."})
+        return json.dumps({"error": f"Attachment {attachment_id} not found."}, ensure_ascii=False)
 
     mime = att.mime_type or ""
     if not mime.startswith("image/"):
-        return json.dumps({"error": f"describe_attachment only supports images, got {mime}"})
+        return json.dumps({"error": f"describe_attachment only supports images, got {mime}"}, ensure_ascii=False)
 
     text_prompt = (prompt or "").strip()
 
@@ -273,7 +273,7 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
                 "attachment_id": attachment_id,
                 "filename": att.filename,
                 "description": att.description,
-            })
+            }, ensure_ascii=False)
         # No description yet (sweep hasn't run) — fall back to a vision call
         text_prompt = (
             "Describe what you see in this image in detail. Include objects, people, "
@@ -282,7 +282,7 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
 
     # Custom prompt or missing description — make a fresh vision call
     if not att.file_data:
-        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
+        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."}, ensure_ascii=False)
 
     from app.config import settings
     from app.services.providers import get_llm_client
@@ -308,13 +308,13 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
         description = (response.choices[0].message.content or "").strip()
     except Exception as e:
         logger.exception("describe_attachment vision call failed")
-        return json.dumps({"error": f"Vision model error: {e}"})
+        return json.dumps({"error": f"Vision model error: {e}"}, ensure_ascii=False)
 
     return json.dumps({
         "attachment_id": attachment_id,
         "filename": att.filename,
         "description": description,
-    })
+    }, ensure_ascii=False)
 
 
 @register({
@@ -344,10 +344,10 @@ async def delete_attachment(attachment_id: str) -> str:
     try:
         att_uuid = uuid.UUID(attachment_id)
     except ValueError:
-        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."}, ensure_ascii=False)
 
     result = await _delete(att_uuid)
-    return json.dumps(result)
+    return json.dumps(result, ensure_ascii=False)
 
 
 @register({
@@ -393,7 +393,7 @@ async def delete_recent_attachments(
 
     ch_id = current_channel_id.get()
     if ch_id is None:
-        return json.dumps({"error": "No current channel context."})
+        return json.dumps({"error": "No current channel context."}, ensure_ascii=False)
 
     max_age_seconds = max(1, min(int(max_age_seconds), 600))
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
@@ -416,7 +416,7 @@ async def delete_recent_attachments(
         return json.dumps({
             "message": f"No attachments found in this channel within the last {max_age_seconds} seconds.",
             "deleted_count": 0,
-        })
+        }, ensure_ascii=False)
 
     deleted = []
     for row in rows:
@@ -433,7 +433,7 @@ async def delete_recent_attachments(
         "message": f"Deleted {len(deleted)} attachment(s).",
         "deleted_count": len(deleted),
         "deleted": deleted,
-    })
+    }, ensure_ascii=False)
 
 
 @register({
@@ -471,14 +471,14 @@ async def save_attachment(attachment_id: str, path: str) -> str:
     try:
         att_uuid = uuid.UUID(attachment_id)
     except ValueError:
-        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."}, ensure_ascii=False)
 
     att = await get_attachment_by_id(att_uuid)
     if att is None:
-        return json.dumps({"error": f"Attachment {attachment_id} not found."})
+        return json.dumps({"error": f"Attachment {attachment_id} not found."}, ensure_ascii=False)
 
     if not att.file_data:
-        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
+        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."}, ensure_ascii=False)
 
     # Translate workspace container paths (e.g. /workspace/...) to server-local paths
     resolved_path = path
@@ -506,4 +506,4 @@ async def save_attachment(attachment_id: str, path: str) -> str:
         "saved": str(dest),
         "filename": att.filename,
         "size_bytes": len(att.file_data),
-    })
+    }, ensure_ascii=False)

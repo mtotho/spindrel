@@ -79,18 +79,18 @@ async def manage_channel(
             }
             for ch in rows
         ]
-        return json.dumps(channels)
+        return json.dumps(channels, ensure_ascii=False)
 
     if action == "create":
         if not bot_id:
-            return json.dumps({"error": "bot_id is required for create"})
+            return json.dumps({"error": "bot_id is required for create"}, ensure_ascii=False)
 
         # Validate bot exists
         from app.agent.bots import get_bot
         try:
             get_bot(bot_id)
         except Exception:
-            return json.dumps({"error": f"Bot '{bot_id}' not found"})
+            return json.dumps({"error": f"Bot '{bot_id}' not found"}, ensure_ascii=False)
 
         # Derive client_id from name
         safe_name = (name or bot_id).lower().replace(" ", "-")
@@ -113,13 +113,13 @@ async def manage_channel(
                 "bot_id": ch.bot_id,
                 "client_id": ch.client_id,
                 "message": f"Channel '{ch.name}' created for bot '{bot_id}'",
-            })
+            }, ensure_ascii=False)
 
     if action == "configure":
         if not channel_id:
-            return json.dumps({"error": "channel_id is required for configure"})
+            return json.dumps({"error": "channel_id is required for configure"}, ensure_ascii=False)
         if not config:
-            return json.dumps({"error": "config is required for configure"})
+            return json.dumps({"error": "config is required for configure"}, ensure_ascii=False)
 
         import uuid
         from datetime import datetime, timezone
@@ -127,12 +127,12 @@ async def manage_channel(
         try:
             ch_uuid = uuid.UUID(channel_id)
         except ValueError:
-            return json.dumps({"error": f"Invalid channel_id: {channel_id}"})
+            return json.dumps({"error": f"Invalid channel_id: {channel_id}"}, ensure_ascii=False)
 
         async with async_session() as db:
             ch = await db.get(Channel, ch_uuid)
             if not ch:
-                return json.dumps({"error": f"Channel '{channel_id}' not found"})
+                return json.dumps({"error": f"Channel '{channel_id}' not found"}, ensure_ascii=False)
 
             simple_fields = [
                 "display_name", "channel_prompt", "model_override",
@@ -162,6 +162,6 @@ async def manage_channel(
             ch.updated_at = datetime.now(timezone.utc)
             await db.commit()
 
-        return json.dumps({"ok": True, "message": f"Channel '{channel_id}' configured"})
+        return json.dumps({"ok": True, "message": f"Channel '{channel_id}' configured"}, ensure_ascii=False)
 
-    return json.dumps({"error": f"Unknown action: {action}"})
+    return json.dumps({"error": f"Unknown action: {action}"}, ensure_ascii=False)

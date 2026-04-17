@@ -143,7 +143,7 @@ async def jellyfin_now_playing() -> str:
 
             active.append(entry)
 
-        return json.dumps({"count": len(active), "sessions": active})
+        return json.dumps({"count": len(active), "sessions": active}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Jellyfin API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
@@ -199,7 +199,7 @@ async def jellyfin_library(
 
         if action == "stats":
             data = await _get("/Items/Counts")
-            return json.dumps({"stats": data})
+            return json.dumps({"stats": data}, ensure_ascii=False)
 
         if action == "search":
             if not search:
@@ -226,7 +226,7 @@ async def jellyfin_library(
                 if item.get("SeriesName"):
                     entry["series"] = sanitize(item["SeriesName"])
                 items.append(entry)
-            return json.dumps({"count": len(items), "items": items})
+            return json.dumps({"count": len(items), "items": items}, ensure_ascii=False)
 
         # Default: recent
         params = {"Limit": limit}
@@ -244,7 +244,7 @@ async def jellyfin_library(
             if item.get("SeriesName"):
                 entry["series"] = sanitize(item["SeriesName"])
             items.append(entry)
-        return json.dumps({"count": len(items), "items": items})
+        return json.dumps({"count": len(items), "items": items}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Jellyfin API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
@@ -308,7 +308,7 @@ async def jellyfin_users(
                     "last_login": u.get("LastLoginDate"),
                     "last_active": u.get("LastActivityDate"),
                 })
-            return json.dumps({"count": len(result), "users": result})
+            return json.dumps({"count": len(result), "users": result}, ensure_ascii=False)
 
         if action == "create":
             if not username:
@@ -319,7 +319,7 @@ async def jellyfin_users(
                 "user_id": new_user.get("Id"),
                 "username": new_user.get("Name"),
                 "message": f"User '{username}' created successfully",
-            })
+            }, ensure_ascii=False)
 
         if action == "delete":
             if not user_id:
@@ -328,7 +328,7 @@ async def jellyfin_users(
             return json.dumps({
                 "status": "ok",
                 "message": f"User {user_id} deleted successfully",
-            })
+            }, ensure_ascii=False)
 
         return error(f"Unknown action: {action}")
     except httpx.HTTPStatusError as e:

@@ -48,7 +48,7 @@ async def web_search(query: str, num_results: int = 5) -> str:
     elif mode == "ddgs":
         return await _web_search_ddgs(query, num_results)
     else:
-        return json.dumps({"error": "Web search is disabled. Enable it in Settings > Integrations > Web Search."})
+        return json.dumps({"error": "Web search is disabled. Enable it in Settings > Integrations > Web Search."}, ensure_ascii=False)
 
 
 async def _web_search_searxng(query: str, num_results: int = 5) -> str:
@@ -63,11 +63,11 @@ async def _web_search_searxng(query: str, num_results: int = 5) -> str:
             resp.raise_for_status()
             data = resp.json()
     except httpx.ConnectError:
-        return json.dumps({"error": f"Cannot connect to SearXNG at {settings.SEARXNG_URL}. Check that the SearXNG container is running or your SEARXNG_URL is correct."})
+        return json.dumps({"error": f"Cannot connect to SearXNG at {settings.SEARXNG_URL}. Check that the SearXNG container is running or your SEARXNG_URL is correct."}, ensure_ascii=False)
     except httpx.TimeoutException:
-        return json.dumps({"error": f"SearXNG request timed out ({settings.SEARXNG_URL})"})
+        return json.dumps({"error": f"SearXNG request timed out ({settings.SEARXNG_URL})"}, ensure_ascii=False)
     except httpx.HTTPStatusError as exc:
-        return json.dumps({"error": f"SearXNG returned HTTP {exc.response.status_code}"})
+        return json.dumps({"error": f"SearXNG returned HTTP {exc.response.status_code}"}, ensure_ascii=False)
 
     results = data.get("results", [])[:num_results]
     items = [
@@ -86,9 +86,9 @@ async def _web_search_ddgs(query: str, num_results: int = 5) -> str:
         results = await asyncio.to_thread(DDGS().text, query, max_results=num_results)
     except Exception as exc:
         logger.warning("ddgs search failed: %s", exc)
-        return json.dumps({"error": f"Web search failed: {exc}"})
+        return json.dumps({"error": f"Web search failed: {exc}"}, ensure_ascii=False)
     if not results:
-        return json.dumps([])
+        return json.dumps([], ensure_ascii=False)
     items = [
         {"title": r.get("title", ""), "url": r.get("href", ""), "content": r.get("body", "")}
         for r in results
@@ -99,7 +99,7 @@ async def _web_search_ddgs(query: str, num_results: int = 5) -> str:
 def _search_result(query: str, items: list[dict]) -> str:
     """Build a web search result with a component-vocabulary envelope."""
     return json.dumps({
-        "llm": json.dumps(items),
+        "llm": json.dumps(items, ensure_ascii=False),
         "_envelope": {
             "content_type": "application/vnd.spindrel.components+json",
             "display": "inline",
@@ -123,7 +123,7 @@ def _search_result(query: str, items: list[dict]) -> str:
                 ],
             },
         },
-    })
+    }, ensure_ascii=False)
 
 
 def _sanitize_fetched_content(text: str, url: str, max_length: int = 4000) -> str:

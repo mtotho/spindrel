@@ -23,7 +23,7 @@ def _credentials() -> tuple[str, str]:
 
 
 def _error(msg: str) -> str:
-    return json.dumps({"error": msg})
+    return json.dumps({"error": msg}, ensure_ascii=False)
 
 
 async def _resolve_chat_guid() -> str | None:
@@ -115,7 +115,7 @@ async def bb_list_chats(limit: int = 25, offset: int = 0) -> str:
                 "last_message": preview,
                 "is_group": chat.get("isGroup", False),
             })
-        return json.dumps({"chats": results, "count": len(results)})
+        return json.dumps({"chats": results, "count": len(results)}, ensure_ascii=False)
     except Exception as e:
         logger.exception("bb_list_chats failed")
         return _error(str(e))
@@ -175,7 +175,7 @@ async def bb_get_messages(chat_guid: str = "", limit: int = 25, offset: int = 0)
                 "is_from_me": is_from_me,
                 "has_attachments": bool(msg.get("attachments")),
             })
-        return json.dumps({"messages": results, "count": len(results), "chat_guid": chat_guid})
+        return json.dumps({"messages": results, "count": len(results), "chat_guid": chat_guid}, ensure_ascii=False)
     except Exception as e:
         logger.exception("bb_get_messages failed")
         return _error(str(e))
@@ -232,7 +232,7 @@ async def bb_send_message(chat_guid: str = "", message: str = "") -> str:
                 temp_guid=temp_guid,
             )
         if result:
-            return json.dumps({"ok": True, "chat_guid": chat_guid, "message_sent": message[:100]})
+            return json.dumps({"ok": True, "chat_guid": chat_guid, "message_sent": message[:100]}, ensure_ascii=False)
         else:
             return _error("BlueBubbles send_text returned None — message may not have been delivered")
     except Exception as e:
@@ -291,7 +291,7 @@ async def bb_send_reaction(message_text: str, reaction: str, chat_guid: str = ""
                 client, server_url, password, chat_guid, message_text, reaction,
             )
         if result:
-            return json.dumps({"ok": True, "reaction": reaction, "chat_guid": chat_guid})
+            return json.dumps({"ok": True, "reaction": reaction, "chat_guid": chat_guid}, ensure_ascii=False)
         return _error("send_reaction returned None — reaction may not have been delivered")
     except Exception as e:
         logger.exception("bb_send_reaction failed")
@@ -370,14 +370,14 @@ async def bb_find_my() -> str:
                     "Apple encrypts the Find My cache which prevents access. "
                     "On older macOS versions, ensure Find My is enabled in System Settings."
                 ),
-            })
+            }, ensure_ascii=False)
 
         return json.dumps({
             "devices": device_results,
             "friends": friend_results,
             "device_count": len(device_results),
             "friend_count": len(friend_results),
-        })
+        }, ensure_ascii=False)
     except Exception as e:
         logger.exception("bb_find_my failed")
         return _error(str(e))
@@ -410,7 +410,7 @@ async def bb_server_info() -> str:
                 params={"password": password},
             )
             if r.status_code != 200:
-                return json.dumps({"connected": False, "error": f"HTTP {r.status_code}"})
+                return json.dumps({"connected": False, "error": f"HTTP {r.status_code}"}, ensure_ascii=False)
             info = r.json()
             data = info.get("data", info)
             return json.dumps({
@@ -420,9 +420,9 @@ async def bb_server_info() -> str:
                 "private_api": data.get("private_api", False),
                 "helper_connected": data.get("helper_connected", False),
                 "proxy_service": data.get("proxy_service"),
-            })
+            }, ensure_ascii=False)
     except httpx.ConnectError:
-        return json.dumps({"connected": False, "error": "Server unreachable"})
+        return json.dumps({"connected": False, "error": "Server unreachable"}, ensure_ascii=False)
     except Exception as e:
         logger.exception("bb_server_info failed")
         return _error(str(e))

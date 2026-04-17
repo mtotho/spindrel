@@ -97,4 +97,4 @@ async def get_system_status() -> str:
         "providers": providers,
         "config": config,
         "is_fresh_install": is_fresh_install,
-    })
+    }, ensure_ascii=False)

@@ -115,7 +115,7 @@ async def manage_capability(
         from app.agent.carapaces import list_carapaces
         items = list_carapaces()
         if not items:
-            return json.dumps({"carapaces": [], "message": "No carapaces found."})
+            return json.dumps({"carapaces": [], "message": "No carapaces found."}, ensure_ascii=False)
         summary = []
         for c in items:
             summary.append({
@@ -126,31 +126,31 @@ async def manage_capability(
                 "includes": c.get("includes", []),
                 "tool_count": len(c.get("local_tools", [])),
             })
-        return json.dumps({"carapaces": summary})
+        return json.dumps({"carapaces": summary}, ensure_ascii=False)
 
     if action == "get":
         if not id:
-            return json.dumps({"error": "id is required for get action."})
+            return json.dumps({"error": "id is required for get action."}, ensure_ascii=False)
         from app.agent.carapaces import get_carapace
         c = get_carapace(id)
         if c is None:
-            return json.dumps({"error": f"Carapace '{id}' not found."})
-        return json.dumps(c)
+            return json.dumps({"error": f"Carapace '{id}' not found."}, ensure_ascii=False)
+        return json.dumps(c, ensure_ascii=False)
 
     if action == "create":
         if not id or not name:
-            return json.dumps({"error": "id and name are required for create action."})
+            return json.dumps({"error": "id and name are required for create action."}, ensure_ascii=False)
         # Tool-created carapaces cannot specify tools or delegates (privilege escalation guard)
         if _csv(local_tools or "") or _csv(pinned_tools or "") or _csv(mcp_tools or ""):
-            return json.dumps({"error": "Tool-created carapaces cannot specify local_tools, pinned_tools, or mcp_tools. Use the admin UI."})
+            return json.dumps({"error": "Tool-created carapaces cannot specify local_tools, pinned_tools, or mcp_tools. Use the admin UI."}, ensure_ascii=False)
         if _parse_delegates(delegates or ""):
-            return json.dumps({"error": "Tool-created carapaces cannot specify delegates. Use the admin UI."})
+            return json.dumps({"error": "Tool-created carapaces cannot specify delegates. Use the admin UI."}, ensure_ascii=False)
         cid = id.strip().lower().replace(" ", "-")
 
         async with async_session() as db:
             existing = await db.get(CarapaceRow, cid)
             if existing:
-                return json.dumps({"error": f"Carapace '{cid}' already exists."})
+                return json.dumps({"error": f"Carapace '{cid}' already exists."}, ensure_ascii=False)
 
             now = datetime.now(timezone.utc)
             row = CarapaceRow(
@@ -178,29 +178,29 @@ async def manage_capability(
             await reindex_capability(cid)
         except Exception:
             pass
-        return json.dumps({"ok": True, "id": cid, "message": f"Carapace '{cid}' created."})
+        return json.dumps({"ok": True, "id": cid, "message": f"Carapace '{cid}' created."}, ensure_ascii=False)
 
     if action == "update":
         if not id:
-            return json.dumps({"error": "id is required for update action."})
+            return json.dumps({"error": "id is required for update action."}, ensure_ascii=False)
 
         async with async_session() as db:
             row = await db.get(CarapaceRow, id)
             if not row:
-                return json.dumps({"error": f"Carapace '{id}' not found."})
+                return json.dumps({"error": f"Carapace '{id}' not found."}, ensure_ascii=False)
             if row.source_type in ("file", "integration"):
-                return json.dumps({"error": "Cannot edit a file-managed carapace."})
+                return json.dumps({"error": "Cannot edit a file-managed carapace."}, ensure_ascii=False)
 
             # Tool-created carapaces cannot modify tools or delegates (privilege escalation guard)
             if row.source_type == "tool":
                 if local_tools is not None and _csv(local_tools):
-                    return json.dumps({"error": "Tool-created carapaces cannot specify local_tools. Use the admin UI."})
+                    return json.dumps({"error": "Tool-created carapaces cannot specify local_tools. Use the admin UI."}, ensure_ascii=False)
                 if pinned_tools is not None and _csv(pinned_tools):
-                    return json.dumps({"error": "Tool-created carapaces cannot specify pinned_tools. Use the admin UI."})
+                    return json.dumps({"error": "Tool-created carapaces cannot specify pinned_tools. Use the admin UI."}, ensure_ascii=False)
                 if mcp_tools is not None and _csv(mcp_tools):
-                    return json.dumps({"error": "Tool-created carapaces cannot specify mcp_tools. Use the admin UI."})
+                    return json.dumps({"error": "Tool-created carapaces cannot specify mcp_tools. Use the admin UI."}, ensure_ascii=False)
                 if delegates is not None and _parse_delegates(delegates):
-                    return json.dumps({"error": "Tool-created carapaces cannot specify delegates. Use the admin UI."})
+                    return json.dumps({"error": "Tool-created carapaces cannot specify delegates. Use the admin UI."}, ensure_ascii=False)
 
             if name:
                 row.name = name.strip()
@@ -230,6 +230,6 @@ async def manage_capability(
             await reindex_capability(id)
         except Exception:
             pass
-        return json.dumps({"ok": True, "id": id, "message": f"Carapace '{id}' updated."})
+        return json.dumps({"ok": True, "id": id, "message": f"Carapace '{id}' updated."}, ensure_ascii=False)
 
-    return json.dumps({"error": f"Unknown action: {action}. Use create, update, list, or get."})
+    return json.dumps({"error": f"Unknown action: {action}. Use create, update, list, or get."}, ensure_ascii=False)

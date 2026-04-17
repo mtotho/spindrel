@@ -156,7 +156,7 @@ async def jellyseerr_requests(filter: str = "all", limit: int = 20, skip: int = 
             "total": total,
             "page": {"skip": skip, "limit": limit, "returned": len(requests_list), "has_more": skip + len(requests_list) < total},
             "requests": requests_list,
-        })
+        }, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         body = e.response.text[:200] if e.response.text else ""
         return error(f"Jellyseerr API error: HTTP {e.response.status_code}: {body}")
@@ -234,7 +234,7 @@ async def jellyseerr_search(query: str, page: int = 1) -> str:
             "count": len(results),
             "page": {"current": page, "total_pages": total_pages, "total_results": total_results},
             "results": results,
-        })
+        }, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         body = e.response.text[:200] if e.response.text else ""
         return error(f"Jellyseerr API error: HTTP {e.response.status_code}: {body}")
@@ -307,13 +307,13 @@ async def jellyseerr_manage(
             if request_id is None:
                 return error("request_id required for approve")
             result = await _post(f"/api/v1/request/{request_id}/approve")
-            return json.dumps({"status": "ok", "message": f"Request {request_id} approved"})
+            return json.dumps({"status": "ok", "message": f"Request {request_id} approved"}, ensure_ascii=False)
 
         if action == "decline":
             if request_id is None:
                 return error("request_id required for decline")
             result = await _post(f"/api/v1/request/{request_id}/decline")
-            return json.dumps({"status": "ok", "message": f"Request {request_id} declined"})
+            return json.dumps({"status": "ok", "message": f"Request {request_id} declined"}, ensure_ascii=False)
 
         if action == "request":
             if media_id is None or media_type is None:
@@ -326,7 +326,7 @@ async def jellyseerr_manage(
                 "status": "ok",
                 "request_id": result.get("id"),
                 "message": f"Request created for {media_type} (TMDB ID {media_id})",
-            })
+            }, ensure_ascii=False)
 
         return error(f"Unknown action: {action}")
     except httpx.HTTPStatusError as e:

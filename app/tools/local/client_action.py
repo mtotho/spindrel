@@ -52,7 +52,7 @@ async def _list_sessions_result() -> str:
         "params": {},
         "result": "Conversations displayed to user. Data below for your reference.",
         "sessions": entries,
-    })
+    }, ensure_ascii=False)
 
 
 @register({
@@ -89,10 +89,10 @@ async def _list_sessions_result() -> str:
 })
 async def client_action(action: str, params: dict | None = None) -> str:
     if action not in CLIENT_ACTIONS:
-        return json.dumps({"error": f"Unknown action: {action}"})
+        return json.dumps({"error": f"Unknown action: {action}"}, ensure_ascii=False)
 
     if action == "list_sessions":
         return await _list_sessions_result()
 
     result = _TOOL_RESULTS.get(action, f"Action '{action}' executed on client.")
-    return json.dumps({"status": "ok", "action": action, "params": params or {}, "result": result})
+    return json.dumps({"status": "ok", "action": action, "params": params or {}, "result": result}, ensure_ascii=False)

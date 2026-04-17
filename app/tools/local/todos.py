@@ -67,7 +67,7 @@ async def create_todo(content: str, priority: int = 0) -> str:
         await db.commit()
         await db.refresh(todo)
 
-    return json.dumps({"id": str(todo.id), "content": todo.content, "status": "pending"})
+    return json.dumps({"id": str(todo.id), "content": todo.content, "status": "pending"}, ensure_ascii=False)
 
 
 @register({

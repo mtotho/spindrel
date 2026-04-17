@@ -63,18 +63,18 @@ async def manage_secret(
     if action == "list":
         async with async_session() as db:
             secrets = await secret_values.list_secrets(db)
-        return json.dumps(secrets)
+        return json.dumps(secrets, ensure_ascii=False)
 
     if action == "create":
         if not name:
-            return json.dumps({"error": "name is required for create"})
+            return json.dumps({"error": "name is required for create"}, ensure_ascii=False)
         if not value:
-            return json.dumps({"error": "value is required for create"})
+            return json.dumps({"error": "value is required for create"}, ensure_ascii=False)
         if not _NAME_RE.match(name):
             return json.dumps({
                 "error": f"Invalid secret name '{name}'. Must be UPPER_SNAKE_CASE "
                 "(e.g. MY_API_KEY). Start with a letter, use only A-Z, 0-9, underscore."
-            })
+            }, ensure_ascii=False)
 
         async with async_session() as db:
             # Check for duplicate name
@@ -82,29 +82,29 @@ async def manage_secret(
                 select(SecretValue).where(SecretValue.name == name)
             )).scalar_one_or_none()
             if existing:
-                return json.dumps({"error": f"Secret '{name}' already exists. Delete it first to replace."})
+                return json.dumps({"error": f"Secret '{name}' already exists. Delete it first to replace."}, ensure_ascii=False)
 
             result = await secret_values.create_secret(
                 db, name=name, value=value,
                 description=description or "", created_by="tool",
             )
-        return json.dumps({"ok": True, "name": result["name"], "message": f"Secret '{name}' created"})
+        return json.dumps({"ok": True, "name": result["name"], "message": f"Secret '{name}' created"}, ensure_ascii=False)
 
     if action == "delete":
         if not name:
-            return json.dumps({"error": "name is required for delete"})
+            return json.dumps({"error": "name is required for delete"}, ensure_ascii=False)
 
         async with async_session() as db:
             row = (await db.execute(
                 select(SecretValue).where(SecretValue.name == name)
             )).scalar_one_or_none()
             if not row:
-                return json.dumps({"error": f"Secret '{name}' not found"})
+                return json.dumps({"error": f"Secret '{name}' not found"}, ensure_ascii=False)
 
             deleted = await secret_values.delete_secret(db, row.id)
             if not deleted:
-                return json.dumps({"error": f"Failed to delete secret '{name}'"})
+                return json.dumps({"error": f"Failed to delete secret '{name}'"}, ensure_ascii=False)
 
-        return json.dumps({"ok": True, "name": name, "message": f"Secret '{name}' deleted"})
+        return json.dumps({"ok": True, "name": name, "message": f"Secret '{name}' deleted"}, ensure_ascii=False)
 
-    return json.dumps({"error": f"Unknown action: {action}"})
+    return json.dumps({"error": f"Unknown action: {action}"}, ensure_ascii=False)

@@ -94,7 +94,7 @@ async def delegate_to_agent(
     # Rate limit: cap task creation per agent loop iteration
     count = task_creation_count.get(0)
     if count >= _MAX_TASK_CREATIONS_PER_REQUEST:
-        return json.dumps({"error": f"Task creation limit reached for this request (max {_MAX_TASK_CREATIONS_PER_REQUEST})."})
+        return json.dumps({"error": f"Task creation limit reached for this request (max {_MAX_TASK_CREATIONS_PER_REQUEST})."}, ensure_ascii=False)
     task_creation_count.set(count + 1)
 
     # LLMs sometimes pass "true"/"false" strings instead of booleans
@@ -118,7 +118,7 @@ async def delegate_to_agent(
     try:
         parent_bot = get_bot(parent_bot_id)
     except Exception as exc:
-        return json.dumps({"error": f"Could not load parent bot: {exc}"})
+        return json.dumps({"error": f"Could not load parent bot: {exc}"}, ensure_ascii=False)
 
     # Try bot resolution first, then fall back to carapace
     resolved = resolve_bot_id(bot_id)
@@ -137,11 +137,11 @@ async def delegate_to_agent(
             return json.dumps({
                 "error": "Cannot delegate to yourself — the child gets a fresh session "
                 "with none of your current context. Execute directly or use exec_command."
-            })
+            }, ensure_ascii=False)
 
         # Permission check: delegate_bots must be configured for bot delegation
         if not parent_bot.delegate_bots:
-            return json.dumps({"error": "Delegation is disabled. Configure delegate_bots for this bot."})
+            return json.dumps({"error": "Delegation is disabled. Configure delegate_bots for this bot."}, ensure_ascii=False)
 
         # Allowlist check: target must be in delegate_bots, wildcard, or ephemeral @-tag
         from app.agent.context import current_ephemeral_delegates
@@ -151,13 +151,13 @@ async def delegate_to_agent(
             return json.dumps({
                 "error": f"Bot {bot_id!r} is not in your delegate_bots allowlist. "
                 f"Authorized delegates: {allowed}"
-            })
+            }, ensure_ascii=False)
     else:
         # No bot found — try carapace resolution
         carapace = get_carapace(bot_id)
         if carapace is None:
             available_bots = ", ".join(b.id for b in list_bots())
-            return json.dumps({"error": f"No bot or carapace matching {bot_id!r}. Available bots: {available_bots}"})
+            return json.dumps({"error": f"No bot or carapace matching {bot_id!r}. Available bots: {available_bots}"}, ensure_ascii=False)
 
         # Permission check: carapace must appear in delegates of an active carapace the parent wears
         resolved_parent = resolve_carapaces(parent_bot.carapaces)
@@ -166,7 +166,7 @@ async def delegate_to_agent(
             return json.dumps({
                 "error": f"Carapace {bot_id!r} is not in the delegates list of any active carapace. "
                 f"Authorized carapace delegates: {sorted(authorized_carapace_delegates) or 'none'}"
-            })
+            }, ensure_ascii=False)
 
         carapace_delegate = True
         target_carapace_id = bot_id
@@ -179,7 +179,7 @@ async def delegate_to_agent(
             from app.tools.local.tasks import _parse_scheduled_at
             sched_dt = _parse_scheduled_at(scheduled_at)
         except ValueError as exc:
-            return json.dumps({"error": str(exc)})
+            return json.dumps({"error": str(exc)}, ensure_ascii=False)
 
     # Resolve model tier: explicit param > delegate entry default > none
     effective_tier = model_tier
@@ -212,9 +212,9 @@ async def delegate_to_agent(
             return f"Carapace delegation task created: {task_id} (carapace: {target_carapace_id})"
         return f"Delegation task created: {task_id}"
     except DelegationError as exc:
-        return json.dumps({"error": str(exc)})
+        return json.dumps({"error": str(exc)}, ensure_ascii=False)
     except Exception as exc:
         logger.exception("delegate_to_agent failed")
-        return json.dumps({"error": str(exc)})
+        return json.dumps({"error": str(exc)}, ensure_ascii=False)
 
 

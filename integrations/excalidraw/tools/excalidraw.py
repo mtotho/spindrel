@@ -122,7 +122,7 @@ async def _export_scene(scene: dict, output_path: Path) -> str | None:
 
     export_script = _SCRIPTS_DIR / "export.mjs"
     input_path = output_path.parent / "input.excalidraw"
-    input_path.write_text(json.dumps(scene), encoding="utf-8")
+    input_path.write_text(json.dumps(scene, ensure_ascii=False), encoding="utf-8")
 
     proc = await asyncio.create_subprocess_exec(
         "node", str(export_script),
@@ -296,7 +296,7 @@ async def _deliver(data: bytes, filename: str, mime: str) -> str:
             "filename": filename,
             "caption": "",
         },
-    })
+    }, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -355,15 +355,15 @@ async def create_excalidraw(
         try:
             elements = json.loads(elements)
         except json.JSONDecodeError:
-            return json.dumps({"error": "elements must be a JSON array, got unparseable string"})
+            return json.dumps({"error": "elements must be a JSON array, got unparseable string"}, ensure_ascii=False)
 
     if format not in ("svg", "png"):
-        return json.dumps({"error": f"Unsupported format: {format}. Use svg or png."})
+        return json.dumps({"error": f"Unsupported format: {format}. Use svg or png."}, ensure_ascii=False)
 
     scene = _wrap_elements(elements, app_state)
     err = _validate_scene(scene)
     if err:
-        return json.dumps({"error": f"Invalid Excalidraw data: {err}"})
+        return json.dumps({"error": f"Invalid Excalidraw data: {err}"}, ensure_ascii=False)
 
     display_name = f"{filename}.{format}"
     mime = "image/svg+xml" if format == "svg" else "image/png"
@@ -372,7 +372,7 @@ async def create_excalidraw(
         output_path = Path(tmpdir) / display_name
         err = await _export_scene(scene, output_path)
         if err:
-            return json.dumps({"error": f"Export failed: {err}"})
+            return json.dumps({"error": f"Export failed: {err}"}, ensure_ascii=False)
         data = output_path.read_bytes()
 
     return await _deliver(data, display_name, mime)
@@ -422,16 +422,16 @@ async def mermaid_to_excalidraw(
     format: str = "png",
 ) -> str:
     if format not in ("svg", "png"):
-        return json.dumps({"error": f"Unsupported format: {format}. Use svg or png."})
+        return json.dumps({"error": f"Unsupported format: {format}. Use svg or png."}, ensure_ascii=False)
 
     # Ensure export deps are installed (also validates Node availability)
     err = await _ensure_deps()
     if err:
-        return json.dumps({"error": err})
+        return json.dumps({"error": err}, ensure_ascii=False)
 
     convert_script = _SCRIPTS_DIR / "mermaid_convert.mjs"
     if not convert_script.exists():
-        return json.dumps({"error": "mermaid_convert.mjs script is missing."})
+        return json.dumps({"error": "mermaid_convert.mjs script is missing."}, ensure_ascii=False)
 
     display_name = f"{filename}.{format}"
     mime = "image/svg+xml" if format == "svg" else "image/png"
@@ -451,7 +451,7 @@ async def mermaid_to_excalidraw(
                     "No Chrome/Chromium found. Install chromium or google-chrome, "
                     "or set CHROME_PATH environment variable."
                 )
-            })
+            }, ensure_ascii=False)
 
         mermaid_cmd = ["node", str(convert_script),
                        str(mmd_path), str(excalidraw_path),
@@ -467,10 +467,10 @@ async def mermaid_to_excalidraw(
             err_msg = stderr.decode("utf-8", errors="replace").strip()
             out_msg = stdout.decode("utf-8", errors="replace").strip()
             combined = f"{err_msg}\n{out_msg}".strip()
-            return json.dumps({"error": f"Mermaid conversion failed: {combined}"})
+            return json.dumps({"error": f"Mermaid conversion failed: {combined}"}, ensure_ascii=False)
 
         if not excalidraw_path.exists():
-            return json.dumps({"error": "Mermaid conversion produced no output."})
+            return json.dumps({"error": "Mermaid conversion produced no output."}, ensure_ascii=False)
 
         # Step 2: Expand labels into text elements, normalize missing fields,
         #         then export to SVG/PNG
@@ -481,7 +481,7 @@ async def mermaid_to_excalidraw(
         ]
         err = await _export_scene(scene, output_path)
         if err:
-            return json.dumps({"error": f"Export failed: {err}"})
+            return json.dumps({"error": f"Export failed: {err}"}, ensure_ascii=False)
 
         data = output_path.read_bytes()
 

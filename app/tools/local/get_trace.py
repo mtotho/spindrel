@@ -164,7 +164,7 @@ async def get_trace(
         try:
             corr_id = uuid.UUID(param_val)
         except ValueError:
-            return json.dumps({"error": f"Invalid correlation_id/trace_id/id: {param_val!r}"})
+            return json.dumps({"error": f"Invalid correlation_id/trace_id/id: {param_val!r}"}, ensure_ascii=False)
     else:
         corr_id = current_correlation_id.get()
         if not corr_id:
@@ -199,7 +199,7 @@ async def get_trace(
         ts_str = ts.strftime("%H:%M:%S.%f")[:-3] if ts else "?"
         if kind == "tool_call":
             tc = obj
-            args_str = json.dumps(tc.arguments or {})
+            args_str = json.dumps(tc.arguments or {}, ensure_ascii=False)
             if len(args_str) > 500:
                 args_str = args_str[:500] + "…"
             result_str = (tc.result or "")[:500]
@@ -216,7 +216,7 @@ async def get_trace(
             te = obj
             data_str = ""
             if te.data:
-                data_str = json.dumps(te.data)
+                data_str = json.dumps(te.data, ensure_ascii=False)
                 if len(data_str) > 500:
                     data_str = data_str[:500] + "…"
             parts = [f"[{ts_str}] EVENT {te.event_type}"]

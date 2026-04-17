@@ -46,7 +46,7 @@ def coerce_list(value, item_type=None):
 
 
 def error(msg: str) -> str:
-    return json.dumps({"error": msg})
+    return json.dumps({"error": msg}, ensure_ascii=False)
 
 
 def validate_url(url: str, service_name: str) -> str | None:

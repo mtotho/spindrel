@@ -64,15 +64,15 @@ async def manage_bot(
         return json.dumps([
             {"id": b.id, "name": b.name, "model": b.model}
             for b in bots
-        ])
+        ], ensure_ascii=False)
 
     if action == "get":
         if not bot_id:
-            return json.dumps({"error": "bot_id is required for get"})
+            return json.dumps({"error": "bot_id is required for get"}, ensure_ascii=False)
         try:
             bot = get_bot(bot_id)
         except Exception:
-            return json.dumps({"error": f"Bot '{bot_id}' not found"})
+            return json.dumps({"error": f"Bot '{bot_id}' not found"}, ensure_ascii=False)
         return json.dumps({
             "id": bot.id,
             "name": bot.name,
@@ -85,25 +85,25 @@ async def manage_bot(
             "tool_retrieval": bot.tool_retrieval,
             "context_compaction": bot.context_compaction,
             "delegate_bots": bot.delegate_bots,
-        })
+        }, ensure_ascii=False)
 
     if action == "create":
         if not bot_id:
-            return json.dumps({"error": "bot_id is required for create"})
+            return json.dumps({"error": "bot_id is required for create"}, ensure_ascii=False)
         if not config:
-            return json.dumps({"error": "config is required for create"})
+            return json.dumps({"error": "config is required for create"}, ensure_ascii=False)
 
         # Check if bot already exists
         try:
             get_bot(bot_id)
-            return json.dumps({"error": f"Bot '{bot_id}' already exists"})
+            return json.dumps({"error": f"Bot '{bot_id}' already exists"}, ensure_ascii=False)
         except Exception:
             pass
 
         # Build row dict from config
         data = {"id": bot_id, **config}
         if "model" not in data:
-            return json.dumps({"error": "config.model is required for create"})
+            return json.dumps({"error": "config.model is required for create"}, ensure_ascii=False)
         row_dict = _yaml_data_to_row_dict(data)
 
         async with async_session() as db:
@@ -112,18 +112,18 @@ async def manage_bot(
             await db.commit()
 
         await load_bots()
-        return json.dumps({"ok": True, "bot_id": bot_id, "message": f"Bot '{bot_id}' created"})
+        return json.dumps({"ok": True, "bot_id": bot_id, "message": f"Bot '{bot_id}' created"}, ensure_ascii=False)
 
     if action == "update":
         if not bot_id:
-            return json.dumps({"error": "bot_id is required for update"})
+            return json.dumps({"error": "bot_id is required for update"}, ensure_ascii=False)
         if not config:
-            return json.dumps({"error": "config is required for update"})
+            return json.dumps({"error": "config is required for update"}, ensure_ascii=False)
 
         async with async_session() as db:
             row = await db.get(BotRow, bot_id)
             if not row:
-                return json.dumps({"error": f"Bot '{bot_id}' not found"})
+                return json.dumps({"error": f"Bot '{bot_id}' not found"}, ensure_ascii=False)
 
             # Apply updates
             simple_fields = [
@@ -159,19 +159,19 @@ async def manage_bot(
             await db.commit()
 
         await load_bots()
-        return json.dumps({"ok": True, "bot_id": bot_id, "message": f"Bot '{bot_id}' updated"})
+        return json.dumps({"ok": True, "bot_id": bot_id, "message": f"Bot '{bot_id}' updated"}, ensure_ascii=False)
 
     if action == "delete":
         if not bot_id:
-            return json.dumps({"error": "bot_id is required for delete"})
+            return json.dumps({"error": "bot_id is required for delete"}, ensure_ascii=False)
 
         async with async_session() as db:
             row = await db.get(BotRow, bot_id)
             if not row:
-                return json.dumps({"error": f"Bot '{bot_id}' not found"})
+                return json.dumps({"error": f"Bot '{bot_id}' not found"}, ensure_ascii=False)
 
             if getattr(row, "source_type", "manual") == "system":
-                return json.dumps({"error": "Cannot delete system bot"})
+                return json.dumps({"error": "Cannot delete system bot"}, ensure_ascii=False)
 
             # Check for active channels
             from app.db.models import Channel
@@ -184,7 +184,7 @@ async def manage_bot(
                 return json.dumps({
                     "error": f"Bot '{bot_id}' has {channel_count} active channel(s). "
                     "Delete or reassign them first, or use the admin API with ?force=true."
-                })
+                }, ensure_ascii=False)
 
             # Delete associated data
             from app.db.models import (
@@ -202,6 +202,6 @@ async def manage_bot(
             await db.commit()
 
         await load_bots()
-        return json.dumps({"ok": True, "bot_id": bot_id, "message": f"Bot '{bot_id}' deleted"})
+        return json.dumps({"ok": True, "bot_id": bot_id, "message": f"Bot '{bot_id}' deleted"}, ensure_ascii=False)
 
-    return json.dumps({"error": f"Unknown action: {action}"})
+    return json.dumps({"error": f"Unknown action: {action}"}, ensure_ascii=False)

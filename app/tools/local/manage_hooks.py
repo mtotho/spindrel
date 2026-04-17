@@ -89,7 +89,7 @@ async def manage_hooks(
 ) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "No bot context available."})
+        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
 
     from app.services.bot_hooks import create_hook, update_hook, delete_hook, list_hooks
 
@@ -107,13 +107,13 @@ async def manage_hooks(
                 "enabled": h.enabled,
             }
             for h in hooks
-        ]})
+        ]}, ensure_ascii=False)
 
     elif action == "create":
         if not trigger or not command:
-            return json.dumps({"error": "trigger and command are required for create."})
+            return json.dumps({"error": "trigger and command are required for create."}, ensure_ascii=False)
         if trigger not in VALID_TRIGGERS:
-            return json.dumps({"error": f"Invalid trigger: {trigger}. Valid: {sorted(VALID_TRIGGERS)}"})
+            return json.dumps({"error": f"Invalid trigger: {trigger}. Valid: {sorted(VALID_TRIGGERS)}"}, ensure_ascii=False)
         hook_name = name or f"{trigger}-hook"
         data = {
             "name": hook_name,
@@ -128,17 +128,17 @@ async def manage_hooks(
         if enabled is not None:
             data["enabled"] = enabled
         hook = await create_hook(bot_id, data)
-        return json.dumps({"ok": True, "id": str(hook.id), "name": hook_name})
+        return json.dumps({"ok": True, "id": str(hook.id), "name": hook_name}, ensure_ascii=False)
 
     elif action == "update":
         if not hook_id:
-            return json.dumps({"error": "hook_id is required for update."})
+            return json.dumps({"error": "hook_id is required for update."}, ensure_ascii=False)
         data: dict = {}
         if name is not None:
             data["name"] = name
         if trigger is not None:
             if trigger not in VALID_TRIGGERS:
-                return json.dumps({"error": f"Invalid trigger: {trigger}"})
+                return json.dumps({"error": f"Invalid trigger: {trigger}"}, ensure_ascii=False)
             data["trigger"] = trigger
         if conditions is not None:
             data["conditions"] = conditions
@@ -152,15 +152,15 @@ async def manage_hooks(
             data["enabled"] = enabled
         hook = await update_hook(_uuid.UUID(hook_id), bot_id, data)
         if not hook:
-            return json.dumps({"error": "Hook not found or not owned by this bot."})
-        return json.dumps({"ok": True, "id": str(hook.id)})
+            return json.dumps({"error": "Hook not found or not owned by this bot."}, ensure_ascii=False)
+        return json.dumps({"ok": True, "id": str(hook.id)}, ensure_ascii=False)
 
     elif action == "delete":
         if not hook_id:
-            return json.dumps({"error": "hook_id is required for delete."})
+            return json.dumps({"error": "hook_id is required for delete."}, ensure_ascii=False)
         deleted = await delete_hook(_uuid.UUID(hook_id), bot_id)
         if not deleted:
-            return json.dumps({"error": "Hook not found or not owned by this bot."})
-        return json.dumps({"ok": True, "deleted": True})
+            return json.dumps({"error": "Hook not found or not owned by this bot."}, ensure_ascii=False)
+        return json.dumps({"ok": True, "deleted": True}, ensure_ascii=False)
 
-    return json.dumps({"error": f"Unknown action: {action}"})
+    return json.dumps({"error": f"Unknown action: {action}"}, ensure_ascii=False)

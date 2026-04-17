@@ -202,7 +202,7 @@ async def get_weather(
 ) -> str:
     api_key = settings.OPENWEATHERMAP_API_KEY
     if not api_key:
-        return json.dumps({"error": "OPENWEATHERMAP_API_KEY is not configured"})
+        return json.dumps({"error": "OPENWEATHERMAP_API_KEY is not configured"}, ensure_ascii=False)
 
     unit_label = {"imperial": "°F", "metric": "°C", "standard": "K"}.get(units, "°F")
     speed_label = "mph" if units == "imperial" else "m/s"
@@ -218,7 +218,7 @@ async def get_weather(
         async with httpx.AsyncClient() as client:
             geo = await _geocode(client, location, api_key)
             if not geo:
-                return json.dumps({"error": f"Location not found: {location}"})
+                return json.dumps({"error": f"Location not found: {location}"}, ensure_ascii=False)
 
             resp = await client.get(
                 _ONECALL_URL,
@@ -237,10 +237,10 @@ async def get_weather(
         return json.dumps({
             "error": f"Weather API error: {e.response.status_code}",
             "detail": e.response.text[:200],
-        })
+        }, ensure_ascii=False)
     except Exception:
         logger.exception("Weather fetch failed for %s", location)
-        return json.dumps({"error": "Failed to fetch weather"})
+        return json.dumps({"error": "Failed to fetch weather"}, ensure_ascii=False)
 
     tz_offset = data.get("timezone_offset", 0)
     label_parts = [geo["name"]]
@@ -263,4 +263,4 @@ async def get_weather(
     if data.get("alerts"):
         result["alerts"] = _fmt_alerts(data["alerts"], tz_offset)
 
-    return json.dumps(result)
+    return json.dumps(result, ensure_ascii=False)

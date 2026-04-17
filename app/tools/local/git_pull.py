@@ -30,4 +30,4 @@ async def git_pull() -> str:
         "stdout": stdout.decode(),
         "stderr": stderr.decode(),
         "exit_code": proc.returncode,
-    })
+    }, ensure_ascii=False)

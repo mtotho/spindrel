@@ -149,19 +149,19 @@ async def delegate_to_exec(
     try:
         bot = get_bot(parent_bot_id)
     except Exception as exc:
-        return json.dumps({"error": f"Could not load bot: {exc}"})
+        return json.dumps({"error": f"Could not load bot: {exc}"}, ensure_ascii=False)
 
     # Validate stream_to if provided
     if stream_to:
         err = _validate_stream_to(stream_to)
         if err:
-            return json.dumps({"error": err})
+            return json.dumps({"error": err}, ensure_ascii=False)
 
     # Validate working_directory
     if working_directory:
         wd = working_directory.strip()
         if "\n" in wd or "\x00" in wd:
-            return json.dumps({"error": "Invalid working directory."})
+            return json.dumps({"error": "Invalid working directory."}, ensure_ascii=False)
         working_directory = wd
 
     if mode == "deferred":
@@ -218,7 +218,7 @@ async def _exec_sync(
                 output["stderr"] = exec_res.stderr
             if stream_to:
                 output["output_file"] = stream_to
-            return json.dumps(output)
+            return json.dumps(output, ensure_ascii=False)
 
         # Legacy: sandbox path
         from app.config import settings
@@ -227,18 +227,18 @@ async def _exec_sync(
         if sandbox_instance_id:
             sbx = uuid.UUID(str(sandbox_instance_id).strip())
             if not settings.DOCKER_SANDBOX_ENABLED:
-                return json.dumps({"error": "DOCKER_SANDBOX_ENABLED is false."})
+                return json.dumps({"error": "DOCKER_SANDBOX_ENABLED is false."}, ensure_ascii=False)
             allowed = bot.docker_sandbox_profiles or None
             instance = await sandbox_service.get_instance_for_bot(
                 sbx, bot.id, allowed_profiles=allowed
             )
             if instance is None:
-                return json.dumps({"error": "Sandbox instance not found or not allowed."})
+                return json.dumps({"error": "Sandbox instance not found or not allowed."}, ensure_ascii=False)
             exec_res = await sandbox_service.exec(instance, script)
         elif bot.bot_sandbox.enabled:
             exec_res = await sandbox_service.exec_bot_local(bot.id, script, bot.bot_sandbox)
         else:
-            return json.dumps({"error": "No workspace or sandbox available. Enable workspace or bot_sandbox."})
+            return json.dumps({"error": "No workspace or sandbox available. Enable workspace or bot_sandbox."}, ensure_ascii=False)
 
         output = {
             "exit_code": exec_res.exit_code,
@@ -252,11 +252,11 @@ async def _exec_sync(
             output["stderr"] = exec_res.stderr
         if stream_to:
             output["output_file"] = stream_to
-        return json.dumps(output)
+        return json.dumps(output, ensure_ascii=False)
 
     except Exception as exc:
         logger.exception("delegate_to_exec sync failed")
-        return json.dumps({"error": str(exc)})
+        return json.dumps({"error": str(exc)}, ensure_ascii=False)
 
 
 async def _exec_deferred(
@@ -337,4 +337,4 @@ async def _exec_deferred(
         "task_id": str(task.id),
         "status": "deferred",
         "output_file": output_file,
-    })
+    }, ensure_ascii=False)

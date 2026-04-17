@@ -231,7 +231,7 @@ async def schedule_task(
     # Rate limit: cap task creation per agent loop iteration
     count = task_creation_count.get(0)
     if count >= _MAX_TASK_CREATIONS_PER_REQUEST:
-        return json.dumps({"error": f"Task creation limit reached for this request (max {_MAX_TASK_CREATIONS_PER_REQUEST})."})
+        return json.dumps({"error": f"Task creation limit reached for this request (max {_MAX_TASK_CREATIONS_PER_REQUEST})."}, ensure_ascii=False)
     task_creation_count.set(count + 1)
 
     # Parse pipeline steps
@@ -240,9 +240,9 @@ async def schedule_task(
         try:
             parsed_steps = json.loads(steps)
         except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON in steps parameter."})
+            return json.dumps({"error": "Invalid JSON in steps parameter."}, ensure_ascii=False)
         if not isinstance(parsed_steps, list) or not parsed_steps:
-            return json.dumps({"error": "steps must be a non-empty JSON array."})
+            return json.dumps({"error": "steps must be a non-empty JSON array."}, ensure_ascii=False)
 
     # Parse execution config
     parsed_ec = None
@@ -250,7 +250,7 @@ async def schedule_task(
         try:
             parsed_ec = json.loads(execution_config)
         except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON in execution_config parameter."})
+            return json.dumps({"error": "Invalid JSON in execution_config parameter."}, ensure_ascii=False)
 
     # Parse trigger config
     parsed_tc = None
@@ -258,11 +258,11 @@ async def schedule_task(
         try:
             parsed_tc = json.loads(trigger_config)
         except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON in trigger_config parameter."})
+            return json.dumps({"error": "Invalid JSON in trigger_config parameter."}, ensure_ascii=False)
 
     # Must have at least one of prompt, steps, or workspace_file_path
     if not prompt and not parsed_steps and not workspace_file_path:
-        return json.dumps({"error": "Provide at least one of: prompt, steps, or workspace_file_path."})
+        return json.dumps({"error": "Provide at least one of: prompt, steps, or workspace_file_path."}, ensure_ascii=False)
 
     # Determine task type and effective prompt
     effective_task_type = "scheduled"
@@ -279,7 +279,7 @@ async def schedule_task(
         try:
             validate_recurrence(recurrence)
         except ValueError as e:
-            return json.dumps({"error": str(e)})
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
 
     cross_bot = False
     if bot_id:
@@ -287,7 +287,7 @@ async def schedule_task(
         resolved = resolve_bot_id(bot_id)
         if resolved is None:
             available = ", ".join(b.id for b in list_bots())
-            return json.dumps({"error": f"Unknown bot {bot_id!r}. Available: {available}"})
+            return json.dumps({"error": f"Unknown bot {bot_id!r}. Available: {available}"}, ensure_ascii=False)
         bot_id = resolved.id
         if bot_id != (current_bot_id.get() or "default"):
             cross_bot = True
@@ -307,7 +307,7 @@ async def schedule_task(
             ws_id = bot_cfg.shared_workspace_id
             ws_msg = f" Using workspace file '{ws_file_path}'."
         else:
-            return json.dumps({"error": f"Bot '{effective_bot_id}' has no shared workspace. Cannot use workspace_file_path."})
+            return json.dumps({"error": f"Bot '{effective_bot_id}' has no shared workspace. Cannot use workspace_file_path."}, ensure_ascii=False)
 
     async with async_session() as db:
         # Resolve channel/dispatch context
@@ -315,7 +315,7 @@ async def schedule_task(
             # Cross-bot: resolve the target bot's primary channel
             ch_id, client_id, session_id, dispatch_type, dispatch_config = await _resolve_bot_channel(effective_bot_id, db)
             if not ch_id:
-                return json.dumps({"error": f"Bot '{effective_bot_id}' has no channel. Create a channel for it first."})
+                return json.dumps({"error": f"Bot '{effective_bot_id}' has no channel. Create a channel for it first."}, ensure_ascii=False)
         else:
             # Same bot: use current context, with fallback to bot's primary channel
             ch_id = current_channel_id.get()
@@ -379,7 +379,7 @@ async def schedule_task(
         result_data["step_count"] = len(parsed_steps)
     if cross_bot:
         result_data["cross_bot"] = True
-    return json.dumps(result_data)
+    return json.dumps(result_data, ensure_ascii=False)
 
 
 @register({
@@ -442,12 +442,12 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
         try:
             tid = uuid.UUID(task_id)
         except ValueError:
-            return json.dumps({"error": f"Invalid task_id: {task_id}"})
+            return json.dumps({"error": f"Invalid task_id: {task_id}"}, ensure_ascii=False)
 
         async with async_session() as db:
             task = await db.get(Task, tid)
             if not task:
-                return json.dumps({"error": f"Task {task_id} not found."})
+                return json.dumps({"error": f"Task {task_id} not found."}, ensure_ascii=False)
 
             # Fetch template name if linked
             tpl_name = None
@@ -493,19 +493,19 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
             data["trigger_config"] = task.trigger_config
         if task.max_run_seconds:
             data["max_run_seconds"] = task.max_run_seconds
-        return json.dumps(data)
+        return json.dumps(data, ensure_ascii=False)
 
     # Run history mode — list children of a task definition
     if parent_task_id:
         try:
             pid = uuid.UUID(parent_task_id)
         except ValueError:
-            return json.dumps({"error": f"Invalid parent_task_id: {parent_task_id}"})
+            return json.dumps({"error": f"Invalid parent_task_id: {parent_task_id}"}, ensure_ascii=False)
 
         async with async_session() as db:
             parent = await db.get(Task, pid)
             if not parent:
-                return json.dumps({"error": f"Task {parent_task_id} not found."})
+                return json.dumps({"error": f"Task {parent_task_id} not found."}, ensure_ascii=False)
             stmt = (
                 select(Task)
                 .where(Task.parent_task_id == pid)
@@ -515,7 +515,7 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
             children = list((await db.execute(stmt)).scalars().all())
 
         if not children:
-            return json.dumps({"runs": [], "message": "No runs found for this task definition."})
+            return json.dumps({"runs": [], "message": "No runs found for this task definition."}, ensure_ascii=False)
 
         run_list = []
         for c in children:
@@ -540,7 +540,7 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
                 entry["steps_summary"] = f"{done}/{total} done"
             run_list.append(entry)
 
-        return json.dumps({"runs": run_list, "count": len(run_list), "definition_id": parent_task_id})
+        return json.dumps({"runs": run_list, "count": len(run_list), "definition_id": parent_task_id}, ensure_ascii=False)
 
     # List mode — all tasks or filtered by bot
     async with async_session() as db:
@@ -552,7 +552,7 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
             from app.agent.bots import resolve_bot_id
             resolved = resolve_bot_id(bot_id)
             if not resolved:
-                return json.dumps({"error": f"Unknown bot '{bot_id}'."})
+                return json.dumps({"error": f"Unknown bot '{bot_id}'."}, ensure_ascii=False)
             conditions.append(Task.bot_id == resolved.id)
         if not include_completed:
             conditions.append(Task.status.in_(["pending", "running", "active"]))
@@ -569,7 +569,7 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
 
         if not tasks:
             msg = "No tasks found." if include_completed else "No pending/running/active tasks. Use include_completed=true to see completed/failed tasks."
-            return json.dumps({"tasks": [], "message": msg})
+            return json.dumps({"tasks": [], "message": msg}, ensure_ascii=False)
 
         # Batch-fetch template names
         tpl_ids = {t.prompt_template_id for t in tasks if t.prompt_template_id}
@@ -612,7 +612,7 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
             entry["result_preview"] = t.result[:80] + ("..." if len(t.result) > 80 else "")
         task_list.append(entry)
 
-    return json.dumps({"tasks": task_list, "count": len(task_list)})
+    return json.dumps({"tasks": task_list, "count": len(task_list)}, ensure_ascii=False)
 
 
 @register({
@@ -640,14 +640,14 @@ async def cancel_task(task_id: str) -> str:
     try:
         tid = uuid.UUID(task_id)
     except ValueError:
-        return json.dumps({"error": f"Invalid task_id: {task_id}"})
+        return json.dumps({"error": f"Invalid task_id: {task_id}"}, ensure_ascii=False)
 
     async with async_session() as db:
         task = await db.get(Task, tid)
         if not task:
-            return json.dumps({"error": f"Task {task_id} not found."})
+            return json.dumps({"error": f"Task {task_id} not found."}, ensure_ascii=False)
         if task.status not in ("pending", "active"):
-            return json.dumps({"error": f"Task is {task.status}, can only cancel pending or active tasks."})
+            return json.dumps({"error": f"Task is {task.status}, can only cancel pending or active tasks."}, ensure_ascii=False)
         was_schedule = task.status == "active"
         task.status = "cancelled"
         task.completed_at = datetime.now(timezone.utc)
@@ -759,14 +759,14 @@ async def update_task(
     try:
         tid = uuid.UUID(task_id)
     except ValueError:
-        return json.dumps({"error": f"Invalid task_id: {task_id}"})
+        return json.dumps({"error": f"Invalid task_id: {task_id}"}, ensure_ascii=False)
 
     async with async_session() as db:
         task = await db.get(Task, tid)
         if not task:
-            return json.dumps({"error": f"Task {task_id} not found."})
+            return json.dumps({"error": f"Task {task_id} not found."}, ensure_ascii=False)
         if task.status not in ("pending", "active"):
-            return json.dumps({"error": f"Task is {task.status}, can only update pending or active tasks."})
+            return json.dumps({"error": f"Task is {task.status}, can only update pending or active tasks."}, ensure_ascii=False)
 
         changes: list[str] = []
 
@@ -799,7 +799,7 @@ async def update_task(
                     task.workspace_id = bot_cfg.shared_workspace_id
                     changes.append(f"workspace file → '{workspace_file_path}'")
                 else:
-                    return json.dumps({"error": f"Bot '{task.bot_id}' has no shared workspace."})
+                    return json.dumps({"error": f"Bot '{task.bot_id}' has no shared workspace."}, ensure_ascii=False)
 
         if recurrence is not _UNSET:
             if recurrence:
@@ -807,7 +807,7 @@ async def update_task(
                 try:
                     validate_recurrence(recurrence)
                 except ValueError as e:
-                    return json.dumps({"error": str(e)})
+                    return json.dumps({"error": str(e)}, ensure_ascii=False)
             old_recurrence = task.recurrence
             task.recurrence = recurrence or None
             if task.recurrence:
@@ -830,7 +830,7 @@ async def update_task(
             resolved = resolve_bot_id(bot_id)
             if resolved is None:
                 available = ", ".join(b.id for b in list_bots())
-                return json.dumps({"error": f"Unknown bot {bot_id!r}. Available: {available}"})
+                return json.dumps({"error": f"Unknown bot {bot_id!r}. Available: {available}"}, ensure_ascii=False)
             task.bot_id = resolved.id
             changes.append(f"bot → {resolved.id}")
 
@@ -860,9 +860,9 @@ async def update_task(
                 try:
                     parsed_steps = json.loads(steps)
                 except json.JSONDecodeError:
-                    return json.dumps({"error": "Invalid JSON in steps parameter."})
+                    return json.dumps({"error": "Invalid JSON in steps parameter."}, ensure_ascii=False)
                 if not isinstance(parsed_steps, list) or not parsed_steps:
-                    return json.dumps({"error": "steps must be a non-empty JSON array."})
+                    return json.dumps({"error": "steps must be a non-empty JSON array."}, ensure_ascii=False)
                 task.steps = parsed_steps
                 sa_attributes.flag_modified(task, "steps")
                 task.task_type = "pipeline"
@@ -878,7 +878,7 @@ async def update_task(
                 try:
                     parsed_ec = json.loads(execution_config)
                 except json.JSONDecodeError:
-                    return json.dumps({"error": "Invalid JSON in execution_config parameter."})
+                    return json.dumps({"error": "Invalid JSON in execution_config parameter."}, ensure_ascii=False)
                 ec = dict(task.execution_config or {})
                 ec.update(parsed_ec)
                 task.execution_config = ec
@@ -894,7 +894,7 @@ async def update_task(
                 try:
                     parsed_tc = json.loads(trigger_config)
                 except json.JSONDecodeError:
-                    return json.dumps({"error": "Invalid JSON in trigger_config parameter."})
+                    return json.dumps({"error": "Invalid JSON in trigger_config parameter."}, ensure_ascii=False)
                 task.trigger_config = parsed_tc
                 if parsed_tc.get("type") == "event" and task.status == "pending":
                     task.status = "active"
@@ -903,7 +903,7 @@ async def update_task(
                     changes.append("trigger_config updated")
 
         if not changes:
-            return json.dumps({"error": "Provide at least one field to change."})
+            return json.dumps({"error": "Provide at least one field to change."}, ensure_ascii=False)
 
         await db.commit()
 
@@ -938,12 +938,12 @@ async def get_task_result(task_id: str) -> str:
     try:
         tid = uuid.UUID(task_id)
     except ValueError:
-        return json.dumps({"error": f"Invalid task_id: {task_id}"})
+        return json.dumps({"error": f"Invalid task_id: {task_id}"}, ensure_ascii=False)
 
     async with async_session() as db:
         task = await db.get(Task, tid)
         if not task:
-            return json.dumps({"error": f"Task {task_id} not found."})
+            return json.dumps({"error": f"Task {task_id} not found."}, ensure_ascii=False)
 
         data: dict = {
             "id": str(task.id),
@@ -977,7 +977,7 @@ async def get_task_result(task_id: str) -> str:
         if child_count:
             data["child_task_count"] = child_count
 
-    return json.dumps(data)
+    return json.dumps(data, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1012,7 +1012,7 @@ async def run_task(task_id: str) -> str:
     try:
         tid = uuid.UUID(task_id)
     except ValueError:
-        return json.dumps({"error": f"Invalid task_id: {task_id}"})
+        return json.dumps({"error": f"Invalid task_id: {task_id}"}, ensure_ascii=False)
 
     from app.services.task_ops import spawn_child_run
 
@@ -1020,7 +1020,7 @@ async def run_task(task_id: str) -> str:
         try:
             child = await spawn_child_run(tid, db)
         except ValueError as e:
-            return json.dumps({"error": str(e)})
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
         await db.commit()
         await db.refresh(child)
 
@@ -1035,4 +1035,4 @@ async def run_task(task_id: str) -> str:
         result_data["title"] = child.title
     if child.steps:
         result_data["step_count"] = len(child.steps)
-    return json.dumps(result_data)
+    return json.dumps(result_data, ensure_ascii=False)

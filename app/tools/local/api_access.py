@@ -31,12 +31,12 @@ logger = logging.getLogger(__name__)
 async def list_api_endpoints(scope: str = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "No bot context available."})
+        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
 
     from app.agent.bots import get_bot
     bot = get_bot(bot_id)
     if not bot.api_permissions:
-        return json.dumps({"error": "This bot has no API access configured. Ask an admin to set api_permissions."})
+        return json.dumps({"error": "This bot has no API access configured. Ask an admin to set api_permissions."}, ensure_ascii=False)
 
     from app.services.api_keys import ENDPOINT_CATALOG, has_scope
 
@@ -68,9 +68,9 @@ async def list_api_endpoints(scope: str = "") -> str:
             "endpoints": [],
             "message": f"No endpoints match scope filter '{scope}'." if scope else "No endpoints available for your permissions.",
             "scopes": bot_scopes,
-        })
+        }, ensure_ascii=False)
 
-    return json.dumps({"endpoints": filtered, "count": len(filtered), "scopes": bot_scopes})
+    return json.dumps({"endpoints": filtered, "count": len(filtered), "scopes": bot_scopes}, ensure_ascii=False)
 
 
 @register({
@@ -106,11 +106,11 @@ async def list_api_endpoints(scope: str = "") -> str:
 async def call_api(method: str, path: str, body: str = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "No bot context available."})
+        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
 
     # Safety: only allow /api/ paths and /chat, /bots paths
     if not (path.startswith("/api/") or path.startswith("/chat") or path.startswith("/bots")):
-        return json.dumps({"error": "Path must start with /api/, /chat, or /bots. Arbitrary paths are not allowed."})
+        return json.dumps({"error": "Path must start with /api/, /chat, or /bots. Arbitrary paths are not allowed."}, ensure_ascii=False)
 
     # Get API key
     from app.db.engine import async_session
@@ -119,7 +119,7 @@ async def call_api(method: str, path: str, body: str = "") -> str:
         key_value = await get_bot_api_key_value(db, bot_id)
 
     if not key_value:
-        return json.dumps({"error": "No API key configured for this bot. Ask an admin to assign one."})
+        return json.dumps({"error": "No API key configured for this bot. Ask an admin to assign one."}, ensure_ascii=False)
 
     # Parse body if provided
     request_body = None
@@ -127,7 +127,7 @@ async def call_api(method: str, path: str, body: str = "") -> str:
         try:
             request_body = json.loads(body)
         except json.JSONDecodeError:
-            return json.dumps({"error": f"Invalid JSON body: {body[:200]}"})
+            return json.dumps({"error": f"Invalid JSON body: {body[:200]}"}, ensure_ascii=False)
 
     # Make in-process request via ASGI transport
     try:
@@ -155,13 +155,13 @@ async def call_api(method: str, path: str, body: str = "") -> str:
         result = {"status": response.status_code, "body": resp_body}
 
         # Truncate very large responses
-        result_str = json.dumps(result)
+        result_str = json.dumps(result, ensure_ascii=False)
         if len(result_str) > 50000:
             result["body"] = "[Response truncated — too large. Try a more specific query or add filters.]"
-            result_str = json.dumps(result)
+            result_str = json.dumps(result, ensure_ascii=False)
 
         return result_str
 
     except Exception as e:
         logger.warning("call_api failed: %s %s — %s", method, path, e, exc_info=True)
-        return json.dumps({"error": f"Request failed: {str(e)}"})
+        return json.dumps({"error": f"Request failed: {str(e)}"}, ensure_ascii=False)

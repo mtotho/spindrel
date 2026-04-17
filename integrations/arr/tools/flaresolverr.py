@@ -98,7 +98,7 @@ async def flaresolverr_health() -> str:
             "session_count": len(sessions),
             "active_sessions": [sanitize(str(s), max_len=80) for s in sessions],
             "response_ms": elapsed_ms,
-        })
+        }, ensure_ascii=False)
     except httpx.ConnectError:
         return error(
             f"Cannot connect to FlareSolverr at {_base_url()} — container may be down "
@@ -157,7 +157,7 @@ async def flaresolverr_sessions(
                 "version": data.get("version", "unknown"),
                 "session_count": len(sessions),
                 "sessions": [sanitize(str(s), max_len=80) for s in sessions],
-            })
+            }, ensure_ascii=False)
 
         if action == "create":
             payload: dict[str, Any] = {"cmd": "sessions.create"}
@@ -168,7 +168,7 @@ async def flaresolverr_sessions(
                 "status": data.get("status", "ok"),
                 "session_id": sanitize(str(data.get("session", "")), max_len=80),
                 "message": sanitize(data.get("message", ""), max_len=300),
-            })
+            }, ensure_ascii=False)
 
         if action == "destroy":
             if not session_id:
@@ -181,7 +181,7 @@ async def flaresolverr_sessions(
                 "status": data.get("status", "ok"),
                 "session_id": session_id,
                 "message": sanitize(data.get("message", ""), max_len=300),
-            })
+            }, ensure_ascii=False)
 
         return error(f"Unknown action: {action}")
     except httpx.ConnectError:
@@ -261,7 +261,7 @@ async def flaresolverr_test_fetch(
         solution = data.get("solution")
         if isinstance(solution, dict):
             result.update(_summarize_solution(solution))
-        return json.dumps(result)
+        return json.dumps(result, ensure_ascii=False)
     except httpx.ConnectError:
         return error(f"Cannot connect to FlareSolverr at {_base_url()}")
     except httpx.TimeoutException:
@@ -318,7 +318,7 @@ async def flaresolverr_destroy_all_sessions() -> str:
             "destroyed": [sanitize(s, max_len=80) for s in destroyed],
             "failed": failed,
             "version": list_data.get("version", "unknown"),
-        })
+        }, ensure_ascii=False)
     except httpx.ConnectError:
         return error(f"Cannot connect to FlareSolverr at {_base_url()}")
     except httpx.TimeoutException:

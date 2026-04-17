@@ -96,7 +96,7 @@ async def qbit_torrents(filter: str = "all", limit: int = 50) -> str:
                 "global_dl_speed_kb": round((transfer.get("dl_info_speed", 0) or 0) / 1024, 1),
                 "global_up_speed_kb": round((transfer.get("up_info_speed", 0) or 0) / 1024, 1),
                 "torrents": torrents,
-            })
+            }, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"qBittorrent API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
@@ -171,7 +171,7 @@ async def qbit_manage(hashes: list[str], action: str) -> str:
                 "action": action,
                 "hashes": hashes,
                 "message": f"{action} applied to {len(hashes)} torrent(s)",
-            })
+            }, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"qBittorrent API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:

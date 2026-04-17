@@ -61,7 +61,7 @@ async def send_file(
     filename: str = "",
 ) -> str:
     if not path and not attachment_id:
-        return json.dumps({"error": "Provide either `path` or `attachment_id`."})
+        return json.dumps({"error": "Provide either `path` or `attachment_id`."}, ensure_ascii=False)
 
     channel_id = current_channel_id.get()
     bot_id = current_bot_id.get()
@@ -72,13 +72,13 @@ async def send_file(
         try:
             att_uuid = uuid.UUID(attachment_id)
         except ValueError:
-            return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+            return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."}, ensure_ascii=False)
 
         att = await get_attachment_by_id(att_uuid)
         if att is None:
-            return json.dumps({"error": f"Attachment {attachment_id} not found."})
+            return json.dumps({"error": f"Attachment {attachment_id} not found."}, ensure_ascii=False)
         if not att.file_data:
-            return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
+            return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."}, ensure_ascii=False)
 
         display_name = filename or att.filename or "attachment"
         mime = att.mime_type or "application/octet-stream"
@@ -118,7 +118,7 @@ async def send_file(
         # emitted a client_action for immediate display.  Returning a second
         # client_action would cause Slack to upload the image twice.
         if already_orphaned_here:
-            return json.dumps({"message": msg})
+            return json.dumps({"message": msg}, ensure_ascii=False)
 
         b64 = base64.b64encode(data).decode("ascii")
         is_image = mime.startswith("image/")
@@ -132,7 +132,7 @@ async def send_file(
                 "caption": caption,
                 "attachment_id": new_att_id,
             },
-        })
+        }, ensure_ascii=False)
 
     # --- Mode 1: read from disk ---
     from app.config import settings
@@ -155,13 +155,13 @@ async def send_file(
                 pass
 
     if not file_path.is_file():
-        return json.dumps({"error": f"File not found: {path}"})
+        return json.dumps({"error": f"File not found: {path}"}, ensure_ascii=False)
 
     size = file_path.stat().st_size
     if size == 0:
-        return json.dumps({"error": f"File is empty: {path}"})
+        return json.dumps({"error": f"File is empty: {path}"}, ensure_ascii=False)
     if size > max_bytes:
-        return json.dumps({"error": f"File too large: {size / 1024 / 1024:.1f} MB (max {max_bytes / 1024 / 1024:.0f} MB)"})
+        return json.dumps({"error": f"File too large: {size / 1024 / 1024:.1f} MB (max {max_bytes / 1024 / 1024:.0f} MB)"}, ensure_ascii=False)
 
     data = file_path.read_bytes()
 
@@ -182,7 +182,7 @@ async def send_file(
             existing = None
         if existing:
             msg = f"Sent {display_name} ({size_kb:.0f} KB)" + (f": {caption}" if caption else "")
-            return json.dumps({"message": msg})
+            return json.dumps({"message": msg}, ensure_ascii=False)
 
     new_att = await create_attachment(
         message_id=None,
@@ -208,4 +208,4 @@ async def send_file(
             "caption": caption,
             "attachment_id": str(new_att.id),
         },
-    })
+    }, ensure_ascii=False)

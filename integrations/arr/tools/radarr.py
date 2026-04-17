@@ -149,7 +149,7 @@ async def radarr_movies(search: str | None = None, name: str | None = None, filt
                 if m.get("id"):
                     entry["id"] = m["id"]
                 results.append(entry)
-            return json.dumps({"count": len(results), "results": results})
+            return json.dumps({"count": len(results), "results": results}, ensure_ascii=False)
         else:
             data = await _get("/api/v3/movie")
             # Filter by name if provided
@@ -183,7 +183,7 @@ async def radarr_movies(search: str | None = None, name: str | None = None, filt
             result: dict = {"count": len(movies), "total_in_library": total, "movies": movies}
             if limit > 0 and len(movies) >= limit:
                 result["page"] = {"limit": limit, "returned": len(movies), "has_more": True}
-            return json.dumps(result)
+            return json.dumps(result, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
@@ -253,7 +253,7 @@ async def radarr_movie_update(
             "quality_profile_id": result.get("qualityProfileId"),
             "monitored": result.get("monitored"),
             "minimum_availability": result.get("minimumAvailability"),
-        })
+        }, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: {e}")
     except httpx.ConnectError:
@@ -310,7 +310,7 @@ async def radarr_command(
             "command_id": result.get("id"),
             "action": action,
             "message": f"{action} command sent successfully",
-        })
+        }, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
@@ -368,7 +368,7 @@ async def radarr_queue() -> str:
                     for msg in status_messages[:2]
                 ]
             items.append(item)
-        return json.dumps({"count": len(items), "items": items})
+        return json.dumps({"count": len(items), "items": items}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
@@ -428,7 +428,7 @@ async def radarr_releases(
             return json.dumps({
                 "status": "ok",
                 "message": "Release grabbed successfully",
-            })
+            }, ensure_ascii=False)
 
         # Default: search
         if movie_id is None:
@@ -454,7 +454,7 @@ async def radarr_releases(
             if rejections:
                 entry["rejected"] = True
             releases.append(entry)
-        return json.dumps({"count": len(releases), "releases": releases})
+        return json.dumps({"count": len(releases), "releases": releases}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
@@ -516,7 +516,7 @@ async def radarr_history(movie_id: int, limit: int = 30) -> str:
             if evt_type == "movieFileDeleted":
                 event["reason"] = evt_data.get("reason", "")
             events.append(event)
-        return json.dumps({"count": len(events), "events": events})
+        return json.dumps({"count": len(events), "events": events}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
@@ -581,7 +581,7 @@ async def radarr_queue_manage(
             "removed": sum(1 for r in results if r["status"] == "removed"),
             "errors": sum(1 for r in results if r["status"] == "error"),
             "results": results,
-        })
+        }, ensure_ascii=False)
     except httpx.ConnectError:
         return error(f"Cannot connect to Radarr at {_base_url()}")
     except Exception as e:
@@ -648,11 +648,11 @@ async def radarr_quality_profiles(profile_id: int | None = None) -> str:
     try:
         if profile_id is not None:
             data = await _get(f"/api/v3/qualityprofile/{profile_id}")
-            return json.dumps(_format_quality_profile(data))
+            return json.dumps(_format_quality_profile(data), ensure_ascii=False)
         else:
             data = await _get("/api/v3/qualityprofile")
             profiles = [_format_quality_profile(p) for p in data]
-            return json.dumps({"count": len(profiles), "profiles": profiles})
+            return json.dumps({"count": len(profiles), "profiles": profiles}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: {e}")
     except httpx.ConnectError:
@@ -757,7 +757,7 @@ async def radarr_quality_profile_update(
             profile["cutoff"] = new_cutoff_id
 
         result = await _put(f"/api/v3/qualityprofile/{profile_id}", profile)
-        return json.dumps(_format_quality_profile(result))
+        return json.dumps(_format_quality_profile(result), ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: {e}")
     except httpx.ConnectError:
@@ -812,7 +812,7 @@ async def radarr_indexers() -> str:
                 if status.get("mostRecentFailure"):
                     entry["last_failure"] = status["mostRecentFailure"]
             indexers.append(entry)
-        return json.dumps({"count": len(indexers), "indexers": indexers})
+        return json.dumps({"count": len(indexers), "indexers": indexers}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: {e}")
     except httpx.ConnectError:

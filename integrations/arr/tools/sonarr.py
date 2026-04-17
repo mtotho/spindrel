@@ -160,7 +160,7 @@ async def sonarr_calendar(days_ahead: int = 7) -> str:
                 "air_date": ep.get("airDateUtc", "")[:10],
                 "has_file": ep.get("hasFile", False),
             })
-        return json.dumps({"count": len(episodes), "episodes": episodes})
+        return json.dumps({"count": len(episodes), "episodes": episodes}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
@@ -217,7 +217,7 @@ async def sonarr_series(search: str | None = None, filter: str | None = None, li
                 if s.get("id"):
                     entry["id"] = s["id"]
                 results.append(entry)
-            return json.dumps({"count": len(results), "results": results})
+            return json.dumps({"count": len(results), "results": results}, ensure_ascii=False)
         else:
             data = await _get("/api/v3/series")
             # Filter by name if provided
@@ -247,7 +247,7 @@ async def sonarr_series(search: str | None = None, filter: str | None = None, li
             result: dict = {"count": len(series), "total_in_library": total, "series": series}
             if limit > 0 and total > limit:
                 result["page"] = {"limit": limit, "returned": len(series), "has_more": True}
-            return json.dumps(result)
+            return json.dumps(result, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
@@ -318,7 +318,7 @@ async def sonarr_series_update(
             "quality_profile_id": result.get("qualityProfileId"),
             "monitored": result.get("monitored"),
             "series_type": result.get("seriesType"),
-        })
+        }, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
@@ -373,7 +373,7 @@ async def sonarr_wanted(limit: int = 20) -> str:
             "total_records": total_records,
             "page": {"limit": limit, "returned": len(episodes), "has_more": len(episodes) < total_records},
             "episodes": episodes,
-        })
+        }, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
@@ -437,7 +437,7 @@ async def sonarr_queue() -> str:
                     for msg in status_messages[:2]
                 ]
             items.append(item)
-        return json.dumps({"count": len(items), "items": items})
+        return json.dumps({"count": len(items), "items": items}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
@@ -503,7 +503,7 @@ async def sonarr_command(
             "command_id": result.get("id"),
             "action": action,
             "message": f"{action} command sent successfully",
-        })
+        }, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
@@ -564,7 +564,7 @@ async def sonarr_releases(
             return json.dumps({
                 "status": "ok",
                 "message": "Release grabbed successfully",
-            })
+            }, ensure_ascii=False)
 
         # Default: search
         if episode_id is None:
@@ -591,7 +591,7 @@ async def sonarr_releases(
             if rejections:
                 entry["rejected"] = True
             releases.append(entry)
-        return json.dumps({"count": len(releases), "releases": releases})
+        return json.dumps({"count": len(releases), "releases": releases}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
@@ -651,7 +651,7 @@ async def sonarr_episodes(series_id: int, season: int | None = None) -> str:
                 entry["file_quality"] = ep_file.get("quality", {}).get("quality", {}).get("name", "")
                 entry["file_size_mb"] = round((ep_file.get("size", 0) or 0) / 1_048_576, 1)
             episodes.append(entry)
-        return json.dumps({"count": len(episodes), "episodes": episodes})
+        return json.dumps({"count": len(episodes), "episodes": episodes}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
@@ -729,7 +729,7 @@ async def sonarr_history(
             if evt_type == "downloadFailed":
                 event["error_message"] = sanitize(evt_data.get("message", ""), max_len=150)
             events.append(event)
-        return json.dumps({"count": len(events), "events": events})
+        return json.dumps({"count": len(events), "events": events}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
@@ -795,7 +795,7 @@ async def sonarr_queue_manage(
             "removed": sum(1 for r in results if r["status"] == "removed"),
             "errors": sum(1 for r in results if r["status"] == "error"),
             "results": results,
-        })
+        }, ensure_ascii=False)
     except httpx.ConnectError:
         return error(f"Cannot connect to Sonarr at {_base_url()}")
     except Exception as e:
@@ -865,11 +865,11 @@ async def sonarr_quality_profiles(profile_id: int | None = None) -> str:
     try:
         if profile_id is not None:
             data = await _get(f"/api/v3/qualityprofile/{profile_id}")
-            return json.dumps(_format_quality_profile(data))
+            return json.dumps(_format_quality_profile(data), ensure_ascii=False)
         else:
             data = await _get("/api/v3/qualityprofile")
             profiles = [_format_quality_profile(p) for p in data]
-            return json.dumps({"count": len(profiles), "profiles": profiles})
+            return json.dumps({"count": len(profiles), "profiles": profiles}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
@@ -978,7 +978,7 @@ async def sonarr_quality_profile_update(
             profile["cutoff"] = new_cutoff_id
 
         result = await _put(f"/api/v3/qualityprofile/{profile_id}", profile)
-        return json.dumps(_format_quality_profile(result))
+        return json.dumps(_format_quality_profile(result), ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
@@ -1033,7 +1033,7 @@ async def sonarr_indexers() -> str:
                 if status.get("mostRecentFailure"):
                     entry["last_failure"] = status["mostRecentFailure"]
             indexers.append(entry)
-        return json.dumps({"count": len(indexers), "indexers": indexers})
+        return json.dumps({"count": len(indexers), "indexers": indexers}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:

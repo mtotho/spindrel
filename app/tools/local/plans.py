@@ -70,7 +70,7 @@ async def create_plan(title: str, items: list[str], description: str | None = No
             ))
         await db.commit()
 
-    return json.dumps({"plan_id": str(plan.id), "item_count": len(items)})
+    return json.dumps({"plan_id": str(plan.id), "item_count": len(items)}, ensure_ascii=False)
 
 
 @register({
@@ -94,12 +94,12 @@ async def get_plan(plan_id: str) -> str:
     try:
         pid = uuid.UUID(plan_id)
     except ValueError:
-        return json.dumps({"error": f"Invalid plan_id: {plan_id}"})
+        return json.dumps({"error": f"Invalid plan_id: {plan_id}"}, ensure_ascii=False)
 
     async with async_session() as db:
         plan = await db.get(Plan, pid)
         if not plan:
-            return json.dumps({"error": f"Plan {plan_id} not found."})
+            return json.dumps({"error": f"Plan {plan_id} not found."}, ensure_ascii=False)
         items = (await db.execute(
             select(PlanItem).where(PlanItem.plan_id == pid).order_by(PlanItem.position)
         )).scalars().all()
@@ -120,7 +120,7 @@ async def get_plan(plan_id: str) -> str:
             }
             for i in items
         ],
-    })
+    }, ensure_ascii=False)
 
 
 @register({
@@ -201,13 +201,13 @@ async def update_plan_item(
     try:
         iid = uuid.UUID(item_id)
     except ValueError:
-        return json.dumps({"error": f"Invalid item_id: {item_id}"})
+        return json.dumps({"error": f"Invalid item_id: {item_id}"}, ensure_ascii=False)
 
     now = datetime.now(timezone.utc)
     async with async_session() as db:
         item = await db.get(PlanItem, iid)
         if not item:
-            return json.dumps({"error": f"PlanItem {item_id} not found."})
+            return json.dumps({"error": f"PlanItem {item_id} not found."}, ensure_ascii=False)
         if status is not None:
             item.status = status
         if notes is not None:
@@ -274,13 +274,13 @@ async def edit_plan(
     try:
         pid = uuid.UUID(plan_id)
     except ValueError:
-        return json.dumps({"error": f"Invalid plan_id: {plan_id}"})
+        return json.dumps({"error": f"Invalid plan_id: {plan_id}"}, ensure_ascii=False)
 
     now = datetime.now(timezone.utc)
     async with async_session() as db:
         plan = await db.get(Plan, pid)
         if not plan:
-            return json.dumps({"error": f"Plan {plan_id} not found."})
+            return json.dumps({"error": f"Plan {plan_id} not found."}, ensure_ascii=False)
 
         if title is not None:
             plan.title = title

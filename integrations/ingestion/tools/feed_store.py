@@ -130,17 +130,17 @@ async def query_feed_store(
     db = _open_readonly(stores[store])
     try:
         if action == "stats":
-            return json.dumps(db.get_feed_stats(source), indent=2)
+            return json.dumps(db.get_feed_stats(source), indent=2, ensure_ascii=False)
         elif action == "recent":
             items = db.get_recent_items(source, limit=limit)
             if not items:
                 return f"No recent passed items{f' for source {source}' if source else ''}."
-            return json.dumps(items, indent=2)
+            return json.dumps(items, indent=2, ensure_ascii=False)
         elif action == "quarantine":
             items = db.get_quarantine_items(source, limit=limit)
             if not items:
                 return f"No quarantined items{f' for source {source}' if source else ''}."
-            return json.dumps(items, indent=2)
+            return json.dumps(items, indent=2, ensure_ascii=False)
         else:
             return f"Unknown action '{action}'. Use: stats, recent, quarantine, sources, reprocess."
     finally:
@@ -167,7 +167,7 @@ def _handle_reprocess(
             count = db.unquarantine(ids)
         else:
             count = db.unquarantine_by_reason(reason_pattern, source)  # type: ignore[arg-type]
-        return json.dumps({"released": count})
+        return json.dumps({"released": count}, ensure_ascii=False)
     except Exception as exc:
         logger.error("Reprocess failed: %s", exc)
         return f"Reprocess failed: {exc}"
@@ -191,4 +191,4 @@ def _handle_sources() -> str:
         except (sqlite3.Error, OSError) as e:
             result.append({"store": name, "error": str(e), "path": str(path)})
 
-    return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2, ensure_ascii=False)

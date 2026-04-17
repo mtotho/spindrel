@@ -100,7 +100,7 @@ async def spawn_subagents(agents: list[dict]) -> str:
     from app.agent.subagents import run_subagents
 
     if not agents:
-        return json.dumps({"error": "No agents specified."})
+        return json.dumps({"error": "No agents specified."}, ensure_ascii=False)
 
     if len(agents) > MAX_SUBAGENTS_PER_CALL:
         # Truncate and warn
@@ -137,4 +137,4 @@ async def spawn_subagents(agents: list[dict]) -> str:
     if truncated:
         response["warning"] = f"Capped at {MAX_SUBAGENTS_PER_CALL} sub-agents. Remaining were dropped."
 
-    return json.dumps(response)
+    return json.dumps(response, ensure_ascii=False)

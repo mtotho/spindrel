@@ -85,7 +85,7 @@ async def manage_docker_stack(
 
     from app.config import settings
     if not settings.DOCKER_STACKS_ENABLED:
-        return json.dumps({"error": "Docker stacks are not enabled (DOCKER_STACKS_ENABLED=false)"})
+        return json.dumps({"error": "Docker stacks are not enabled (DOCKER_STACKS_ENABLED=false)"}, ensure_ascii=False)
 
     from app.agent.context import current_bot_id, current_channel_id
     from app.agent.bots import get_bot
@@ -99,20 +99,20 @@ async def manage_docker_stack(
     bot = get_bot(bot_id)
 
     if bot and not bot.docker_stacks.enabled:
-        return json.dumps({"error": f"Docker stacks not enabled for bot '{bot_id}' (set docker_stacks.enabled: true in bot YAML)"})
+        return json.dumps({"error": f"Docker stacks not enabled for bot '{bot_id}' (set docker_stacks.enabled: true in bot YAML)"}, ensure_ascii=False)
 
     async def _get_stack(required_creator: bool = False):
         if not stack_id:
-            return None, json.dumps({"error": "stack_id is required"})
+            return None, json.dumps({"error": "stack_id is required"}, ensure_ascii=False)
         try:
             sid = uuid_mod.UUID(stack_id)
         except ValueError:
-            return None, json.dumps({"error": f"Invalid stack_id UUID: {stack_id}"})
+            return None, json.dumps({"error": f"Invalid stack_id UUID: {stack_id}"}, ensure_ascii=False)
         stack = await stack_service.get_by_id(sid)
         if not stack:
-            return None, json.dumps({"error": f"Stack '{stack_id}' not found"})
+            return None, json.dumps({"error": f"Stack '{stack_id}' not found"}, ensure_ascii=False)
         if required_creator and stack.created_by_bot != bot_id:
-            return None, json.dumps({"error": "Only the creating bot can perform this action"})
+            return None, json.dumps({"error": "Only the creating bot can perform this action"}, ensure_ascii=False)
         return stack, None
 
     try:
@@ -130,13 +130,13 @@ async def manage_docker_stack(
                     "service_count": len((s.container_ids or {})),
                     "created_at": s.created_at.isoformat() if s.created_at else None,
                 })
-            return json.dumps({"stacks": items, "count": len(items)}, indent=2)
+            return json.dumps({"stacks": items, "count": len(items)}, indent=2, ensure_ascii=False)
 
         if action == "create":
             if not name:
-                return json.dumps({"error": "name is required for create"})
+                return json.dumps({"error": "name is required for create"}, ensure_ascii=False)
             if not compose_definition:
-                return json.dumps({"error": "compose_definition is required for create"})
+                return json.dumps({"error": "compose_definition is required for create"}, ensure_ascii=False)
 
             allowed_images = bot.docker_stacks.allowed_images if bot else []
             max_stacks = bot.docker_stacks.max_stacks if bot else None
@@ -157,7 +157,7 @@ async def manage_docker_stack(
                 "status": stack.status,
                 "created": True,
                 "hint": "Use action=start with this stack_id to launch the services.",
-            }, indent=2)
+            }, indent=2, ensure_ascii=False)
 
         if action == "start":
             stack, err = await _get_stack()
@@ -170,7 +170,7 @@ async def manage_docker_stack(
                 "container_ids": stack.container_ids,
                 "exposed_ports": stack.exposed_ports,
                 "network_name": stack.network_name,
-            }, indent=2)
+            }, indent=2, ensure_ascii=False)
 
         if action == "stop":
             stack, err = await _get_stack()
@@ -180,7 +180,7 @@ async def manage_docker_stack(
             return json.dumps({
                 "id": str(stack.id),
                 "status": stack.status,
-            }, indent=2)
+            }, indent=2, ensure_ascii=False)
 
         if action == "restart":
             stack, err = await _get_stack()
@@ -191,7 +191,7 @@ async def manage_docker_stack(
                 "id": str(stack.id),
                 "status": stack.status,
                 "container_ids": stack.container_ids,
-            }, indent=2)
+            }, indent=2, ensure_ascii=False)
 
         if action == "destroy":
             stack, err = await _get_stack(required_creator=True)
@@ -202,7 +202,7 @@ async def manage_docker_stack(
                 "id": str(stack.id),
                 "destroyed": True,
                 "volumes_preserved": keep_volumes,
-            }, indent=2)
+            }, indent=2, ensure_ascii=False)
 
         if action == "status":
             stack, err = await _get_stack()
@@ -221,7 +221,7 @@ async def manage_docker_stack(
                     }
                     for s in services
                 ],
-            }, indent=2)
+            }, indent=2, ensure_ascii=False)
 
         if action == "logs":
             stack, err = await _get_stack()
@@ -232,16 +232,16 @@ async def manage_docker_stack(
                 "id": str(stack.id),
                 "service": service or "(all)",
                 "logs": logs,
-            }, indent=2)
+            }, indent=2, ensure_ascii=False)
 
         if action == "exec":
             stack, err = await _get_stack()
             if err:
                 return err
             if not service:
-                return json.dumps({"error": "service is required for exec"})
+                return json.dumps({"error": "service is required for exec"}, ensure_ascii=False)
             if not command:
-                return json.dumps({"error": "command is required for exec"})
+                return json.dumps({"error": "command is required for exec"}, ensure_ascii=False)
 
             result = await stack_service.exec_in_service(stack, service, command)
             return json.dumps({
@@ -250,14 +250,14 @@ async def manage_docker_stack(
                 "stderr": result.stderr,
                 "truncated": result.truncated,
                 "duration_ms": result.duration_ms,
-            }, indent=2)
+            }, indent=2, ensure_ascii=False)
 
         if action == "update":
             stack, err = await _get_stack(required_creator=True)
             if err:
                 return err
             if not compose_definition:
-                return json.dumps({"error": "compose_definition is required for update"})
+                return json.dumps({"error": "compose_definition is required for update"}, ensure_ascii=False)
 
             allowed_images = bot.docker_stacks.allowed_images if bot else []
             stack = await stack_service.update_definition(
@@ -268,18 +268,18 @@ async def manage_docker_stack(
                 "id": str(stack.id),
                 "status": stack.status,
                 "updated": True,
-            }, indent=2)
+            }, indent=2, ensure_ascii=False)
 
-        return json.dumps({"error": f"Unknown action: {action}"})
+        return json.dumps({"error": f"Unknown action: {action}"}, ensure_ascii=False)
 
     except StackValidationError as e:
-        return json.dumps({"error": f"Validation error: {e}"})
+        return json.dumps({"error": f"Validation error: {e}"}, ensure_ascii=False)
     except StackLimitError as e:
-        return json.dumps({"error": f"Limit exceeded: {e}"})
+        return json.dumps({"error": f"Limit exceeded: {e}"}, ensure_ascii=False)
     except StackNotFoundError as e:
-        return json.dumps({"error": str(e)})
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
     except StackError as e:
-        return json.dumps({"error": f"Stack error: {e}"})
+        return json.dumps({"error": f"Stack error: {e}"}, ensure_ascii=False)
     except Exception as e:
         logger.exception("Unexpected error in manage_docker_stack")
-        return json.dumps({"error": f"Unexpected error: {e}"})
+        return json.dumps({"error": f"Unexpected error: {e}"}, ensure_ascii=False)

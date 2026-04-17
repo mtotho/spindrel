@@ -43,7 +43,7 @@ async def get_tool_info(tool_name: str) -> str:
     entry = _tools.get(tool_name)
     if entry is not None:
         schema_for_activation = entry["schema"]
-        response_json = json.dumps(schema_for_activation, indent=2)
+        response_json = json.dumps(schema_for_activation, indent=2, ensure_ascii=False)
     else:
         # Also check tool_embeddings DB for MCP tools
         from app.db.engine import async_session
@@ -66,13 +66,13 @@ async def get_tool_info(tool_name: str) -> str:
                         select(ToolEmbedding).where(ToolEmbedding.tool_name == tool_name)
                     )).scalar_one_or_none()
         if row is None:
-            return json.dumps({"error": f"Tool {tool_name!r} not found."})
+            return json.dumps({"error": f"Tool {tool_name!r} not found."}, ensure_ascii=False)
         schema_for_activation = row.schema_ if isinstance(row.schema_, dict) else None
         response_json = json.dumps({
             "tool_name": tool_name,
             "server_name": row.server_name,
             "schema": row.schema_,
-        }, indent=2)
+        }, indent=2, ensure_ascii=False)
 
     # Activate the tool for the next loop iteration. The agent loop owns the
     # actual tools_param rebuild and authorization set expansion; we just

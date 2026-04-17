@@ -71,7 +71,7 @@ def _safe_skill_id(bot_id: str, name: str) -> tuple[str | None, str | None]:
     except ValueError:
         return None, json.dumps({
             "error": f"Invalid skill name: '{name}'. Use lowercase letters, numbers, and hyphens.",
-        })
+        }, ensure_ascii=False)
 
 
 def _validate_content(content: str) -> str | None:
@@ -227,7 +227,7 @@ async def manage_bot_skill(
 ) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "No bot context — cannot manage skills."})
+        return json.dumps({"error": "No bot context — cannot manage skills."}, ensure_ascii=False)
 
     from app.db.engine import async_session
     from app.db.models import Skill as SkillRow
@@ -252,7 +252,7 @@ async def manage_bot_skill(
                 .limit(clamped_limit).offset(clamped_offset)
             )).scalars().all()
         if not rows and clamped_offset == 0:
-            return json.dumps({"skills": [], "total": 0, "message": "No self-authored skills yet."})
+            return json.dumps({"skills": [], "total": 0, "message": "No self-authored skills yet."}, ensure_ascii=False)
         summary = []
         stale_count = 0
         for r in rows:
@@ -286,36 +286,36 @@ async def manage_bot_skill(
                 f"{verb}n't been surfaced in 30+ days. Consider reviewing "
                 f"trigger phrases or deleting stale skills."
             )
-        return json.dumps(result)
+        return json.dumps(result, ensure_ascii=False)
 
     # --- GET ---
     if action == "get":
         if not name:
-            return json.dumps({"error": "name is required for get action."})
+            return json.dumps({"error": "name is required for get action."}, ensure_ascii=False)
         skill_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
         async with async_session() as db:
             row = await db.get(SkillRow, skill_id)
         if not row:
-            return json.dumps({"error": f"Skill '{skill_id}' not found."})
+            return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
         return json.dumps({
             "id": row.id,
             "name": row.name,
             "content": row.content,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-        })
+        }, ensure_ascii=False)
 
     # --- CREATE ---
     if action == "create":
         if not name or not title or not content:
-            return json.dumps({"error": "name, title, and content are required for create."})
+            return json.dumps({"error": "name, title, and content are required for create."}, ensure_ascii=False)
         name_err = _validate_name(name)
         if name_err:
-            return json.dumps({"error": name_err})
+            return json.dumps({"error": name_err}, ensure_ascii=False)
         content_err = _validate_content(content)
         if content_err:
-            return json.dumps({"error": content_err})
+            return json.dumps({"error": content_err}, ensure_ascii=False)
         skill_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
@@ -332,7 +332,7 @@ async def manage_bot_skill(
         async with async_session() as db:
             existing = await db.get(SkillRow, skill_id)
             if existing:
-                return json.dumps({"error": f"Skill '{skill_id}' already exists. Use update or patch."})
+                return json.dumps({"error": f"Skill '{skill_id}' already exists. Use update or patch."}, ensure_ascii=False)
 
             now = datetime.now(timezone.utc)
             # Parse triggers into list for the DB column
@@ -363,12 +363,12 @@ async def manage_bot_skill(
             msg += " Warning: embedding failed — skill saved but won't appear in RAG until re-embedded."
         if warning:
             msg += f" {warning}"
-        return json.dumps({"ok": True, "id": skill_id, "embedded": embedded, "message": msg})
+        return json.dumps({"ok": True, "id": skill_id, "embedded": embedded, "message": msg}, ensure_ascii=False)
 
     # --- UPDATE ---
     if action == "update":
         if not name:
-            return json.dumps({"error": "name is required for update action."})
+            return json.dumps({"error": "name is required for update action."}, ensure_ascii=False)
         skill_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
@@ -376,19 +376,19 @@ async def manage_bot_skill(
         async with async_session() as db:
             row = await db.get(SkillRow, skill_id)
             if not row:
-                return json.dumps({"error": f"Skill '{skill_id}' not found."})
+                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
             if row.source_type not in ("tool", "manual"):
-                return json.dumps({"error": "Cannot edit a file-managed or integration skill."})
+                return json.dumps({"error": "Cannot edit a file-managed or integration skill."}, ensure_ascii=False)
             if not row.id.startswith(prefix):
-                return json.dumps({"error": "Cannot update another bot's skill."})
+                return json.dumps({"error": "Cannot update another bot's skill."}, ensure_ascii=False)
 
             if not title and not content and not triggers and not category:
-                return json.dumps({"error": "Provide at least one of: title, content, triggers, category."})
+                return json.dumps({"error": "Provide at least one of: title, content, triggers, category."}, ensure_ascii=False)
 
             if content:
                 content_err = _validate_content(content)
                 if content_err:
-                    return json.dumps({"error": content_err})
+                    return json.dumps({"error": content_err}, ensure_ascii=False)
 
             # Merge with existing frontmatter so partial updates don't drop fields
             existing_fm = _extract_frontmatter(row.content)
@@ -417,12 +417,12 @@ async def manage_bot_skill(
         # Fire-and-forget for updates (skill already in RAG, re-embed in background)
         asyncio.create_task(_embed_skill_safe(skill_id))
         _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' updated."})
+        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' updated."}, ensure_ascii=False)
 
     # --- DELETE (archive) ---
     if action == "delete":
         if not name:
-            return json.dumps({"error": "name is required for delete action."})
+            return json.dumps({"error": "name is required for delete action."}, ensure_ascii=False)
         skill_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
@@ -430,23 +430,23 @@ async def manage_bot_skill(
         async with async_session() as db:
             row = await db.get(SkillRow, skill_id)
             if not row:
-                return json.dumps({"error": f"Skill '{skill_id}' not found."})
+                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
             if row.source_type not in ("tool", "manual"):
-                return json.dumps({"error": "Cannot delete a file-managed or integration skill."})
+                return json.dumps({"error": "Cannot delete a file-managed or integration skill."}, ensure_ascii=False)
             if not row.id.startswith(prefix):
-                return json.dumps({"error": "Cannot delete another bot's skill."})
+                return json.dumps({"error": "Cannot delete another bot's skill."}, ensure_ascii=False)
             if row.archived_at:
-                return json.dumps({"error": f"Skill '{skill_id}' is already archived."})
+                return json.dumps({"error": f"Skill '{skill_id}' is already archived."}, ensure_ascii=False)
             row.archived_at = datetime.now(timezone.utc)
             await db.commit()
 
         _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' archived. Use action='restore' to undo."})
+        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' archived. Use action='restore' to undo."}, ensure_ascii=False)
 
     # --- RESTORE ---
     if action == "restore":
         if not name:
-            return json.dumps({"error": "name is required for restore action."})
+            return json.dumps({"error": "name is required for restore action."}, ensure_ascii=False)
         skill_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
@@ -454,23 +454,23 @@ async def manage_bot_skill(
         async with async_session() as db:
             row = await db.get(SkillRow, skill_id)
             if not row:
-                return json.dumps({"error": f"Skill '{skill_id}' not found."})
+                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
             if not row.id.startswith(prefix):
-                return json.dumps({"error": "Cannot restore another bot's skill."})
+                return json.dumps({"error": "Cannot restore another bot's skill."}, ensure_ascii=False)
             if not row.archived_at:
-                return json.dumps({"error": f"Skill '{skill_id}' is not archived."})
+                return json.dumps({"error": f"Skill '{skill_id}' is not archived."}, ensure_ascii=False)
             row.archived_at = None
             await db.commit()
 
         _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' restored."})
+        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' restored."}, ensure_ascii=False)
 
     # --- PATCH ---
     if action == "patch":
         if not name:
-            return json.dumps({"error": "name is required for patch action."})
+            return json.dumps({"error": "name is required for patch action."}, ensure_ascii=False)
         if not old_text or not new_text:
-            return json.dumps({"error": "old_text and new_text are required for patch action."})
+            return json.dumps({"error": "old_text and new_text are required for patch action."}, ensure_ascii=False)
         skill_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
@@ -478,21 +478,21 @@ async def manage_bot_skill(
         async with async_session() as db:
             row = await db.get(SkillRow, skill_id)
             if not row:
-                return json.dumps({"error": f"Skill '{skill_id}' not found."})
+                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
             if row.source_type not in ("tool", "manual"):
-                return json.dumps({"error": "Cannot patch a file-managed or integration skill."})
+                return json.dumps({"error": "Cannot patch a file-managed or integration skill."}, ensure_ascii=False)
             if not row.id.startswith(prefix):
-                return json.dumps({"error": "Cannot patch another bot's skill."})
+                return json.dumps({"error": "Cannot patch another bot's skill."}, ensure_ascii=False)
 
             if old_text not in row.content:
-                return json.dumps({"error": "old_text not found in skill content."})
+                return json.dumps({"error": "old_text not found in skill content."}, ensure_ascii=False)
 
             patched = row.content.replace(old_text, new_text, 1)
             # Validate resulting content (patch could shrink below min or expand above max)
             body = _extract_body(patched)
             body_err = _validate_content(body)
             if body_err:
-                return json.dumps({"error": f"Patch would produce invalid content: {body_err}"})
+                return json.dumps({"error": f"Patch would produce invalid content: {body_err}"}, ensure_ascii=False)
 
             row.content = patched
             row.content_hash = hashlib.sha256(row.content.encode()).hexdigest()
@@ -513,22 +513,22 @@ async def manage_bot_skill(
 
         asyncio.create_task(_embed_skill_safe(skill_id))
         _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' patched."})
+        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' patched."}, ensure_ascii=False)
 
     # --- MERGE ---
     if action == "merge":
         if not names or len(names) < 2:
-            return json.dumps({"error": "names must contain at least 2 skill names to merge."})
+            return json.dumps({"error": "names must contain at least 2 skill names to merge."}, ensure_ascii=False)
         if not name or not title or not content:
             return json.dumps({
                 "error": "name, title, and content are required for the merged result skill.",
-            })
+            }, ensure_ascii=False)
         name_err = _validate_name(name)
         if name_err:
-            return json.dumps({"error": name_err})
+            return json.dumps({"error": name_err}, ensure_ascii=False)
         content_err = _validate_content(content)
         if content_err:
-            return json.dumps({"error": content_err})
+            return json.dumps({"error": content_err}, ensure_ascii=False)
         merged_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
@@ -547,7 +547,7 @@ async def manage_bot_skill(
                 source_ids.append(src_id)
                 seen.add(src_id)
         if len(source_ids) < 2:
-            return json.dumps({"error": "names must contain at least 2 distinct skill names to merge."})
+            return json.dumps({"error": "names must contain at least 2 distinct skill names to merge."}, ensure_ascii=False)
 
         async with async_session() as db:
             # Load all source skills in one pass — validate and keep refs for deletion
@@ -555,17 +555,17 @@ async def manage_bot_skill(
             for src_id in source_ids:
                 row = await db.get(SkillRow, src_id)
                 if not row:
-                    return json.dumps({"error": f"Source skill '{src_id}' not found."})
+                    return json.dumps({"error": f"Source skill '{src_id}' not found."}, ensure_ascii=False)
                 if row.source_type not in ("tool", "manual"):
-                    return json.dumps({"error": f"Cannot merge file-managed skill '{src_id}'."})
+                    return json.dumps({"error": f"Cannot merge file-managed skill '{src_id}'."}, ensure_ascii=False)
                 if not row.id.startswith(prefix):
-                    return json.dumps({"error": f"Cannot merge another bot's skill '{src_id}'."})
+                    return json.dumps({"error": f"Cannot merge another bot's skill '{src_id}'."}, ensure_ascii=False)
                 source_rows.append(row)
 
             # Check if merged target already exists (and isn't one of the sources)
             existing = await db.get(SkillRow, merged_id)
             if existing and merged_id not in source_ids:
-                return json.dumps({"error": f"Target skill '{merged_id}' already exists and is not one of the source skills."})
+                return json.dumps({"error": f"Target skill '{merged_id}' already exists and is not one of the source skills."}, ensure_ascii=False)
 
             # Delete source skills + their embeddings
             deleted_names = []
@@ -605,9 +605,9 @@ async def manage_bot_skill(
                 f"Merged {len(source_ids)} skills into '{merged_id}'. "
                 f"Deleted: {', '.join(deleted_names)}."
             ),
-        })
+        }, ensure_ascii=False)
 
-    return json.dumps({"error": f"Unknown action: {action}. Use create, update, list, get, delete, patch, merge, or restore."})
+    return json.dumps({"error": f"Unknown action: {action}. Use create, update, list, get, delete, patch, merge, or restore."}, ensure_ascii=False)
 
 
 def _invalidate_cache(bot_id: str) -> None:
@@ -703,7 +703,7 @@ async def _check_skill_dedup(bot_id: str, content: str, prefix: str) -> str | No
                         f"Consider using action='patch' or action='update' on the existing skill instead. "
                         f"To create anyway, re-run with force=true."
                     ),
-                })
+                }, ensure_ascii=False)
     except Exception:
         logger.debug("Skill dedup check failed (non-blocking)", exc_info=True)
     return None

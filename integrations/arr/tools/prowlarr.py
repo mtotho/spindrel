@@ -114,7 +114,7 @@ async def prowlarr_indexers(
                     "indexer_id": indexer_id,
                     "name": sanitize(indexer.get("name", "")),
                     "test_result": "ok",
-                })
+                }, ensure_ascii=False)
             except httpx.HTTPStatusError as e:
                 body = e.response.text[:300] if e.response else str(e)
                 return json.dumps({
@@ -122,18 +122,18 @@ async def prowlarr_indexers(
                     "name": sanitize(indexer.get("name", "")),
                     "test_result": "failed",
                     "error": sanitize(body, max_len=300),
-                })
+                }, ensure_ascii=False)
 
         if action == "test_all":
             try:
                 await _post("/api/v1/indexer/testall", {})
-                return json.dumps({"test_result": "ok", "message": "All indexers passed"})
+                return json.dumps({"test_result": "ok", "message": "All indexers passed"}, ensure_ascii=False)
             except httpx.HTTPStatusError as e:
                 body = e.response.text[:500] if e.response else str(e)
                 return json.dumps({
                     "test_result": "failed",
                     "error": sanitize(body, max_len=500),
-                })
+                }, ensure_ascii=False)
 
         # Default: list
         data = await _get("/api/v1/indexer")
@@ -168,7 +168,7 @@ async def prowlarr_indexers(
                     entry["last_failure"] = most_recent_failure
                 entry["escalation_level"] = status.get("escalationLevel", 0)
             indexers.append(entry)
-        return json.dumps({"count": len(indexers), "indexers": indexers})
+        return json.dumps({"count": len(indexers), "indexers": indexers}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Prowlarr API error: {e}")
     except httpx.ConnectError:
@@ -243,7 +243,7 @@ async def prowlarr_search(
                 "indexer_id": r.get("indexerId", 0),
                 "guid": r.get("guid", ""),
             })
-        return json.dumps({"count": len(results), "total_found": len(data), "results": results})
+        return json.dumps({"count": len(results), "total_found": len(data), "results": results}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Prowlarr API error: {e}")
     except httpx.ConnectError:
@@ -280,7 +280,7 @@ async def prowlarr_apps() -> str:
                 "implementation": app.get("implementation", ""),
                 "sync_level": app.get("syncLevel", ""),
             })
-        return json.dumps({"count": len(apps), "apps": apps})
+        return json.dumps({"count": len(apps), "apps": apps}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Prowlarr API error: {e}")
     except httpx.ConnectError:
@@ -318,7 +318,7 @@ async def prowlarr_health() -> str:
                 "message": sanitize(item.get("message", ""), max_len=300),
                 "wiki_url": item.get("wikiUrl", ""),
             })
-        return json.dumps({"count": len(issues), "issues": issues})
+        return json.dumps({"count": len(issues), "issues": issues}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Prowlarr API error: {e}")
     except httpx.ConnectError:
@@ -354,7 +354,7 @@ async def prowlarr_tags() -> str:
                 "id": t.get("id"),
                 "label": sanitize(t.get("label", "")),
             })
-        return json.dumps({"count": len(tags), "tags": tags})
+        return json.dumps({"count": len(tags), "tags": tags}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Prowlarr API error: {e}")
     except httpx.ConnectError:
@@ -411,7 +411,7 @@ async def prowlarr_indexer_schemas(search: str | None = None) -> str:
             if required_fields:
                 entry["required_fields"] = required_fields
             schemas.append(entry)
-        return json.dumps({"count": len(schemas), "schemas": schemas})
+        return json.dumps({"count": len(schemas), "schemas": schemas}, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Prowlarr API error: {e}")
     except httpx.ConnectError:
@@ -543,7 +543,7 @@ async def prowlarr_indexer_manage(
             if indexer_id is None:
                 return error("indexer_id required for delete")
             await _delete(f"/api/v1/indexer/{indexer_id}")
-            return json.dumps({"status": "ok", "message": f"Indexer {indexer_id} deleted"})
+            return json.dumps({"status": "ok", "message": f"Indexer {indexer_id} deleted"}, ensure_ascii=False)
 
         if action == "add":
             if not definition_name:
@@ -578,7 +578,7 @@ async def prowlarr_indexer_manage(
                 "indexer_id": result.get("id"),
                 "name": sanitize(result.get("name", "")),
                 "message": f"Indexer '{result.get('name', '')}' added successfully",
-            })
+            }, ensure_ascii=False)
 
         if action == "update":
             if indexer_id is None:
@@ -604,7 +604,7 @@ async def prowlarr_indexer_manage(
                 "indexer_id": result.get("id"),
                 "name": sanitize(result.get("name", "")),
                 "message": f"Indexer '{result.get('name', '')}' updated",
-            })
+            }, ensure_ascii=False)
 
         return error(f"Unknown action: {action}")
     except httpx.HTTPStatusError as e:

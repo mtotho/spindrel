@@ -623,30 +623,30 @@ async def manage_integration(
                     ],
                 }
                 for i in integrations
-            ])
+            ], ensure_ascii=False)
         except Exception as e:
-            return json.dumps({"error": f"Failed to discover integrations: {e}"})
+            return json.dumps({"error": f"Failed to discover integrations: {e}"}, ensure_ascii=False)
 
     if action == "reload":
         try:
             result = await _reload_integrations()
-            return json.dumps(result)
+            return json.dumps(result, ensure_ascii=False)
         except Exception as e:
             logger.exception("Failed to reload integrations")
-            return json.dumps({"error": f"Reload failed: {e}"})
+            return json.dumps({"error": f"Reload failed: {e}"}, ensure_ascii=False)
 
     if action == "scaffold":
         if not integration_id:
-            return json.dumps({"error": "integration_id is required for scaffold"})
+            return json.dumps({"error": "integration_id is required for scaffold"}, ensure_ascii=False)
         try:
             result = _scaffold_integration(integration_id, features)
-            return json.dumps(result)
+            return json.dumps(result, ensure_ascii=False)
         except Exception as e:
             logger.exception("Failed to scaffold integration")
-            return json.dumps({"error": f"Scaffold failed: {e}"})
+            return json.dumps({"error": f"Scaffold failed: {e}"}, ensure_ascii=False)
 
     if not integration_id:
-        return json.dumps({"error": "integration_id is required for this action"})
+        return json.dumps({"error": "integration_id is required for this action"}, ensure_ascii=False)
 
     if action == "get_settings":
         from app.services.integration_settings import get_all_for_integration
@@ -664,11 +664,11 @@ async def manage_integration(
         return json.dumps({
             "integration_id": integration_id,
             "settings": all_settings,
-        })
+        }, ensure_ascii=False)
 
     if action == "update_settings":
         if not settings:
-            return json.dumps({"error": "settings dict is required for update_settings"})
+            return json.dumps({"error": "settings dict is required for update_settings"}, ensure_ascii=False)
         from app.services.integration_settings import update_settings as _update
         from app.services.integration_manifests import get_manifest
         from app.db.engine import async_session
@@ -683,20 +683,20 @@ async def manage_integration(
             ]
         async with async_session() as db:
             await _update(integration_id, settings, setup_vars, db)
-        return json.dumps({"ok": True, "message": f"Updated {len(settings)} setting(s) for '{integration_id}'"})
+        return json.dumps({"ok": True, "message": f"Updated {len(settings)} setting(s) for '{integration_id}'"}, ensure_ascii=False)
 
     if action in ("start_process", "stop_process", "restart_process"):
         from app.services.integration_processes import process_manager
         if action == "start_process":
             ok = await process_manager.start(integration_id)
             if not ok:
-                return json.dumps({"error": f"Failed to start process for '{integration_id}'. Check env vars and logs."})
-            return json.dumps({"ok": True, "message": f"Process started for '{integration_id}'"})
+                return json.dumps({"error": f"Failed to start process for '{integration_id}'. Check env vars and logs."}, ensure_ascii=False)
+            return json.dumps({"ok": True, "message": f"Process started for '{integration_id}'"}, ensure_ascii=False)
         elif action == "stop_process":
             await process_manager.stop(integration_id)
-            return json.dumps({"ok": True, "message": f"Process stopped for '{integration_id}'"})
+            return json.dumps({"ok": True, "message": f"Process stopped for '{integration_id}'"}, ensure_ascii=False)
         else:
             await process_manager.restart(integration_id)
-            return json.dumps({"ok": True, "message": f"Process restarted for '{integration_id}'"})
+            return json.dumps({"ok": True, "message": f"Process restarted for '{integration_id}'"}, ensure_ascii=False)
 
-    return json.dumps({"error": f"Unknown action: {action}"})
+    return json.dumps({"error": f"Unknown action: {action}"}, ensure_ascii=False)

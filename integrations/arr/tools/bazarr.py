@@ -100,14 +100,14 @@ async def bazarr_subtitles(
     try:
         if action == "status":
             data = await _get("/api/system/status")
-            return json.dumps({"status": data})
+            return json.dumps({"status": data}, ensure_ascii=False)
 
         if action == "search":
             data = await _post(f"/api/{media_type}/wanted/search")
             return json.dumps({
                 "status": "ok",
                 "message": f"Subtitle search triggered for wanted {media_type}",
-            })
+            }, ensure_ascii=False)
 
         # Default: wanted
         data = await _get(f"/api/{media_type}/wanted", params={"length": str(limit)})
@@ -128,7 +128,7 @@ async def bazarr_subtitles(
         return json.dumps({
             "total": data.get("total", len(items)),
             "items": items,
-        })
+        }, ensure_ascii=False)
     except httpx.HTTPStatusError as e:
         return error(f"Bazarr API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:

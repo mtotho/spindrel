@@ -84,7 +84,7 @@ async def call_persona_tool(name: str, arguments_json: str, bot_id: str) -> str:
         if ok:
             return "Persona edited."
         return f"Failed to edit persona: {err}" if err else "Failed to edit persona."
-    return json.dumps({"error": f"Unknown persona tool: {name}"})
+    return json.dumps({"error": f"Unknown persona tool: {name}"}, ensure_ascii=False)
 
 
 

@@ -79,8 +79,8 @@ async def get_last_heartbeat(limit: int = 1) -> str:
         results.append(entry)
 
     if len(results) == 1:
-        return json.dumps(results[0], indent=2)
-    return json.dumps(results, indent=2)
+        return json.dumps(results[0], indent=2, ensure_ascii=False)
+    return json.dumps(results, indent=2, ensure_ascii=False)
 
 
 # Schema for the dynamically-injected channel-post tool.

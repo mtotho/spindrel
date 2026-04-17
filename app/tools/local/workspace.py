@@ -36,15 +36,15 @@ from app.tools.registry import register
 async def search_workspace(query: str, top_k: int | None = None) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "No bot context available."})
+        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
 
     from app.agent.bots import get_bot
     bot = get_bot(bot_id)
 
     if not bot.workspace.enabled:
-        return json.dumps({"error": "Workspace is not enabled for this bot."})
+        return json.dumps({"error": "Workspace is not enabled for this bot."}, ensure_ascii=False)
     if not bot.workspace.indexing.enabled:
-        return json.dumps({"error": "Workspace indexing is not enabled for this bot."})
+        return json.dumps({"error": "Workspace indexing is not enabled for this bot."}, ensure_ascii=False)
 
     from app.services.workspace import workspace_service
     from app.services.workspace_indexing import resolve_indexing, get_all_roots

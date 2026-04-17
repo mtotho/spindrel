@@ -148,4 +148,4 @@ async def search_history(
     if not messages:
         return "No messages found."
 
-    return json.dumps(_serialize_messages(messages))
+    return json.dumps(_serialize_messages(messages), ensure_ascii=False)

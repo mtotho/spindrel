@@ -173,7 +173,7 @@ async def generate_image_tool(
 ) -> str:
     prompt = (prompt or "").strip()
     if not prompt:
-        return json.dumps({"error": "prompt is required"})
+        return json.dumps({"error": "prompt is required"}, ensure_ascii=False)
 
     # Resolve source images from attachment_ids (preferred) or legacy source_image_b64
     image_files: list[tuple] = []
@@ -181,7 +181,7 @@ async def generate_image_tool(
     if attachment_ids:
         attachments, err = await _resolve_attachments(attachment_ids)
         if err:
-            return json.dumps({"error": err})
+            return json.dumps({"error": err}, ensure_ascii=False)
         for i, att in enumerate(attachments):
             image_files.append((f"image_{i}.png", att.file_data, "image/png"))
             if att.description:
@@ -236,10 +236,10 @@ async def generate_image_tool(
             )
     except Exception as e:
         logger.exception("Image generation/edit failed")
-        return json.dumps({"error": str(e)})
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
 
     if not resp.data:
-        return json.dumps({"error": "No image returned"})
+        return json.dumps({"error": "No image returned"}, ensure_ascii=False)
 
     # Collect all returned images and persist as attachments
     from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
@@ -298,7 +298,7 @@ async def generate_image_tool(
             results.append(action_dict)
 
     if not results:
-        return json.dumps({"error": "No images could be retrieved from response"})
+        return json.dumps({"error": "No images could be retrieved from response"}, ensure_ascii=False)
 
     msg = f"{len(results)} image(s) generated successfully."
     if gemini_fallback:
@@ -310,4 +310,4 @@ async def generate_image_tool(
     return json.dumps({
         "message": msg,
         "client_action": results[0] if len(results) == 1 else results,
-    })
+    }, ensure_ascii=False)

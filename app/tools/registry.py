@@ -165,7 +165,7 @@ def _coerce_args(args: dict, schema_props: dict) -> dict:
 async def call_local_tool(name: str, arguments: str) -> str:
     entry = _tools.get(name)
     if entry is None:
-        return json.dumps({"error": f"Unknown local tool: {name}"})
+        return json.dumps({"error": f"Unknown local tool: {name}"}, ensure_ascii=False)
     try:
         args = {}
         if arguments:
@@ -202,8 +202,8 @@ async def call_local_tool(name: str, arguments: str) -> str:
         result = await entry["function"](**args)
         elapsed = time.monotonic() - t0
         logger.debug("Tool %s completed in %.1fms", name, elapsed * 1000)
-        return result if isinstance(result, str) else json.dumps(result)
+        return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
     except Exception as e:
         logger.exception("Error executing local tool %s", name)
         from app.security.prompt_sanitize import sanitize_exception
-        return json.dumps({"error": sanitize_exception(e)})
+        return json.dumps({"error": sanitize_exception(e)}, ensure_ascii=False)

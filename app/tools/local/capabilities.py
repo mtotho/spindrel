@@ -50,7 +50,7 @@ async def activate_capability(id: str, reason: str = "") -> str:
 
     carapace_id = id.strip()
     if not carapace_id:
-        return json.dumps({"error": "Capability ID is required."})
+        return json.dumps({"error": "Capability ID is required."}, ensure_ascii=False)
 
     # Get session context
     correlation_id = current_correlation_id.get(None)
@@ -64,13 +64,13 @@ async def activate_capability(id: str, reason: str = "") -> str:
         return json.dumps({
             "error": f"Capability '{carapace_id}' not found.",
             "available": available[:20],
-        })
+        }, ensure_ascii=False)
 
     # Check global disable list
     _disabled_raw = getattr(settings, "CAPABILITIES_DISABLED", "") or ""
     _globally_disabled = {s.strip() for s in _disabled_raw.split(",") if s.strip()}
     if carapace_id in _globally_disabled:
-        return json.dumps({"error": f"Capability '{carapace_id}' is globally disabled."})
+        return json.dumps({"error": f"Capability '{carapace_id}' is globally disabled."}, ensure_ascii=False)
 
     # Check channel disable list (via context var)
     from app.agent.context import current_channel_id
@@ -84,7 +84,7 @@ async def activate_capability(id: str, reason: str = "") -> str:
                 if ch:
                     ch_disabled = set(getattr(ch, "carapaces_disabled", None) or [])
                     if carapace_id in ch_disabled:
-                        return json.dumps({"error": f"Capability '{carapace_id}' is disabled on this channel."})
+                        return json.dumps({"error": f"Capability '{carapace_id}' is disabled on this channel."}, ensure_ascii=False)
         except Exception:
             logger.warning("Failed to check channel disabled list for capability activation", exc_info=True)
 
@@ -97,7 +97,7 @@ async def activate_capability(id: str, reason: str = "") -> str:
             "name": carapace.get("name", carapace_id),
             "message": f"Capability '{carapace.get('name', carapace_id)}' is already active in this session.",
             "fragment": fragment or "",
-        })
+        }, ensure_ascii=False)
 
     # Activate in session store and record approval for this session
     if session_id:
@@ -132,4 +132,4 @@ async def activate_capability(id: str, reason: str = "") -> str:
     if reason:
         logger.info("Capability '%s' activated by %s: %s", carapace_id, bot_id or "unknown", reason)
 
-    return json.dumps(result)
+    return json.dumps(result, ensure_ascii=False)

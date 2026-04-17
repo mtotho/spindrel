@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 async def exec_command(command: str, working_dir: str = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "no_bot_context", "message": "No bot context available."})
+        return json.dumps({"error": "no_bot_context", "message": "No bot context available."}, ensure_ascii=False)
 
     bot = get_bot(bot_id)
 
@@ -65,7 +65,7 @@ async def exec_command(command: str, working_dir: str = "") -> str:
         effective_working_dir = working_dir or "/workspace"
         block_err = await run_before_access(bot_id, effective_working_dir)
         if block_err:
-            return json.dumps({"error": "hook_blocked", "message": block_err})
+            return json.dumps({"error": "hook_blocked", "message": block_err}, ensure_ascii=False)
 
         try:
             from app.services.workspace import workspace_service
@@ -82,14 +82,14 @@ async def exec_command(command: str, working_dir: str = "") -> str:
                 "truncated": result.truncated,
                 "duration_ms": result.duration_ms,
                 "workspace_type": result.workspace_type,
-            })
+            }, ensure_ascii=False)
         except Exception as e:
-            return json.dumps({"error": "workspace_error", "message": str(e)})
+            return json.dumps({"error": "workspace_error", "message": str(e)}, ensure_ascii=False)
 
     # Legacy: bot_sandbox path
     if bot.bot_sandbox.enabled:
         if not bot.bot_sandbox.image:
-            return json.dumps({"error": "config_error", "message": "bot_sandbox.image is not set."})
+            return json.dumps({"error": "config_error", "message": "bot_sandbox.image is not set."}, ensure_ascii=False)
         try:
             from app.services.sandbox import sandbox_service
             result = await sandbox_service.exec_bot_local(bot_id, command, bot.bot_sandbox)
@@ -100,13 +100,13 @@ async def exec_command(command: str, working_dir: str = "") -> str:
                 "truncated": result.truncated,
                 "duration_ms": result.duration_ms,
                 "sandbox": "bot-local",
-            })
+            }, ensure_ascii=False)
         except Exception as e:
-            return json.dumps({"error": "sandbox_error", "message": str(e)})
+            return json.dumps({"error": "sandbox_error", "message": str(e)}, ensure_ascii=False)
 
     # Legacy: host execution path
     if not working_dir:
-        return json.dumps({"error": "missing_param", "message": "working_dir is required for host execution."})
+        return json.dumps({"error": "missing_param", "message": "working_dir is required for host execution."}, ensure_ascii=False)
 
     try:
         from app.services.host_exec import (
@@ -117,13 +117,13 @@ async def exec_command(command: str, working_dir: str = "") -> str:
         )
         result = await host_exec_service.run(command, working_dir, bot.host_exec)
     except HostExecAccessDeniedError as e:
-        return json.dumps({"error": "access_denied", "message": str(e)})
+        return json.dumps({"error": "access_denied", "message": str(e)}, ensure_ascii=False)
     except HostExecBlockedError as e:
-        return json.dumps({"error": "blocked", "message": str(e)})
+        return json.dumps({"error": "blocked", "message": str(e)}, ensure_ascii=False)
     except HostExecError as e:
-        return json.dumps({"error": "exec_error", "message": str(e)})
+        return json.dumps({"error": "exec_error", "message": str(e)}, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"error": "unexpected_error", "message": str(e)})
+        return json.dumps({"error": "unexpected_error", "message": str(e)}, ensure_ascii=False)
 
     return json.dumps({
         "stdout": result.stdout,
@@ -132,4 +132,4 @@ async def exec_command(command: str, working_dir: str = "") -> str:
         "truncated": result.truncated,
         "duration_ms": result.duration_ms,
         "dry_run": result.dry_run,
-    })
+    }, ensure_ascii=False)
