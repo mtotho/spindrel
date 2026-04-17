@@ -85,6 +85,12 @@ _PHRASE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 # was very recent and same-day — no relative-time reference has shifted meaning.
 _RESOLUTION_MIN_GAP = timedelta(hours=4)
 
+# When the gap is this large OR the day changed, the block leads with a
+# prominent ⚠️ warning line and an explicit "prior context may be stale"
+# imperative — empirically the unadorned "Most recent user message: ..." line
+# blends into other system metadata and gets skimmed past.
+_LARGE_GAP_THRESHOLD = timedelta(hours=4)
+
 
 def _resolve_phrase(phrase_type: str, said_dt: datetime, now: datetime) -> str | None:
     """Return an explanation of how a relative-time phrase has shifted, or None
@@ -229,22 +235,58 @@ def _should_scan_for_resolutions(inputs: TemporalBlockInputs) -> bool:
     return False
 
 
+def _is_large_gap(prev_dt: datetime, now_local: datetime) -> bool:
+    """True when the gap warrants a prominent warning (≥4h or day changed)."""
+    tz = now_local.tzinfo
+    prev = prev_dt.astimezone(tz) if tz else prev_dt
+    if (now_local - prev) >= _LARGE_GAP_THRESHOLD:
+        return True
+    return prev.date() != now_local.date()
+
+
 def build_current_time_block(inputs: TemporalBlockInputs) -> str:
     """Compose the full Current time + conversation-gap system message.
 
     Plain language on purpose — every supported provider (strong frontier models,
     7B local models, older chat endpoints) reads it the same way.
+
+    When the gap since the last user message is large (≥4h or day-crossed),
+    the block leads with a ⚠️ warning line rather than burying the fact in
+    line 2. This is deliberate — the plain "Most recent user message: ..." line
+    was empirically skimmed past by a frontier model, which then answered the
+    new message as if continuing a days-old thread.
     """
     now_local = inputs.now_local
     now_utc = inputs.now_utc
+    tz = now_local.tzinfo
 
-    head = (
+    lines: list[str] = []
+
+    # Determine the "primary prior" — last human if present, else last any.
+    primary_prior: datetime | None = None
+    if inputs.last_human_dt is not None:
+        primary_prior = inputs.last_human_dt.astimezone(tz) if tz else inputs.last_human_dt
+    elif inputs.last_non_human_dt is not None:
+        primary_prior = inputs.last_non_human_dt.astimezone(tz) if tz else inputs.last_non_human_dt
+
+    large_gap = primary_prior is not None and _is_large_gap(primary_prior, now_local)
+
+    # ⚠️ PROMINENT HEADER — only when gap is large. Leads the block so the
+    # model can't skim past "Most recent user message" buried in line 2.
+    if large_gap and primary_prior is not None:
+        gap = now_local - primary_prior
+        lines.append(
+            f"⚠️ TIME GAP: {format_relative(gap)} since the last user turn "
+            f"({_format_anchor(primary_prior)}). This conversation resumed after a pause — "
+            f"earlier channel history, tool results, and retrieved context MAY BE STALE. "
+            f"Do not assume the current message continues the prior topic without checking."
+        )
+
+    # Standard head line.
+    lines.append(
         f"Current time: {now_local.strftime('%Y-%m-%d %H:%M %Z')} "
         f"({now_utc.strftime('%H:%M UTC')}), {format_day_part(now_local)}."
     )
-    lines = [head]
-
-    tz = now_local.tzinfo
 
     if inputs.last_human_dt is not None:
         hdt = inputs.last_human_dt.astimezone(tz) if tz else inputs.last_human_dt

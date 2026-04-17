@@ -94,7 +94,7 @@ def test_block_no_prior_turns_just_head() -> None:
     assert "Friday morning" in lines[0]
 
 
-def test_block_human_only_three_lines() -> None:
+def test_block_human_only_large_gap_leads_with_warning() -> None:
     now_local, now_utc = _now_fri_morning()
     hdt = datetime(2026, 4, 16, 18, 54, tzinfo=EASTERN)  # Thu 6:54 PM
     block = build_current_time_block(TemporalBlockInputs(
@@ -103,6 +103,9 @@ def test_block_human_only_three_lines() -> None:
         last_human_dt=hdt,
         last_non_human_dt=None,
     ))
+    # ⚠️ leads the block, not buried
+    assert block.split("\n")[0].startswith("⚠️ TIME GAP:")
+    assert "MAY BE STALE" in block
     assert "Most recent user message: ~11h 32m ago (Thursday 06:54 PM)" in block
     assert "Most recent non-user activity" not in block
     assert "Re-anchor" in block
@@ -259,6 +262,38 @@ def test_resolve_multiple_phrase_types_all_surfaced() -> None:
 # ---------------------------------------------------------------------------
 # build_current_time_block with Layer-2 integration
 # ---------------------------------------------------------------------------
+
+def test_block_small_gap_no_warning_header() -> None:
+    """Small same-day gap → no ⚠️ warning, keep the block tight."""
+    now_local, now_utc = _now_fri_morning()
+    hdt = datetime(2026, 4, 17, 6, 20, tzinfo=EASTERN)  # 6 min ago, same day
+    block = build_current_time_block(TemporalBlockInputs(
+        now_local=now_local,
+        now_utc=now_utc,
+        last_human_dt=hdt,
+        last_non_human_dt=None,
+    ))
+    assert "⚠️" not in block
+    assert "MAY BE STALE" not in block
+    assert "TIME GAP" not in block
+    # Normal lines still present
+    assert block.split("\n")[0].startswith("Current time:")
+    assert "Most recent user message: ~6m ago" in block
+
+
+def test_block_day_change_triggers_warning_even_under_4h() -> None:
+    """Crossing midnight with a <4h gap still counts as a large gap."""
+    now_local = datetime(2026, 4, 17, 1, 0, tzinfo=EASTERN)   # Fri 1 AM
+    now_utc = now_local.astimezone(timezone.utc)
+    hdt = datetime(2026, 4, 16, 23, 0, tzinfo=EASTERN)        # Thu 11 PM (2h gap)
+    block = build_current_time_block(TemporalBlockInputs(
+        now_local=now_local,
+        now_utc=now_utc,
+        last_human_dt=hdt,
+        last_non_human_dt=None,
+    ))
+    assert block.split("\n")[0].startswith("⚠️ TIME GAP:")
+
 
 def test_block_layer2_skipped_when_gap_small_same_day() -> None:
     now_local, now_utc = _now_fri_morning()

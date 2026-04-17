@@ -6,119 +6,99 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from tests.factories.bots import build_bot
+
 
 # ---------------------------------------------------------------------------
 # Resolution helpers
 # ---------------------------------------------------------------------------
 
 class TestResolveEnabled:
-    def _make_bot(self, memory_scheme="workspace-files", hygiene_enabled=None):
-        bot = MagicMock()
-        bot.memory_scheme = memory_scheme
-        bot.memory_hygiene_enabled = hygiene_enabled
-        return bot
-
-    def test_requires_workspace_files(self):
+    def test_when_memory_scheme_is_none_then_disabled(self):
         from app.services.memory_hygiene import resolve_enabled
-        bot = self._make_bot(memory_scheme=None)
+        bot = build_bot(memory_scheme=None, memory_hygiene_enabled=None)
         assert resolve_enabled(bot) is False
 
-    def test_requires_workspace_files_even_if_enabled(self):
+    def test_when_memory_scheme_not_workspace_files_then_disabled_even_if_bot_enabled(self):
         from app.services.memory_hygiene import resolve_enabled
-        bot = self._make_bot(memory_scheme="something-else", hygiene_enabled=True)
+        bot = build_bot(memory_scheme="something-else", memory_hygiene_enabled=True)
         assert resolve_enabled(bot) is False
 
-    def test_inherits_global_when_none(self):
+    def test_when_bot_has_no_preference_then_inherits_global(self):
         from app.services.memory_hygiene import resolve_enabled
-        bot = self._make_bot(hygiene_enabled=None)
+        bot = build_bot(memory_hygiene_enabled=None)
         with patch("app.services.memory_hygiene.settings") as mock_settings:
             mock_settings.MEMORY_HYGIENE_ENABLED = True
             assert resolve_enabled(bot) is True
             mock_settings.MEMORY_HYGIENE_ENABLED = False
             assert resolve_enabled(bot) is False
 
-    def test_bot_override_true(self):
+    def test_when_bot_enabled_overrides_global_disabled(self):
         from app.services.memory_hygiene import resolve_enabled
-        bot = self._make_bot(hygiene_enabled=True)
+        bot = build_bot(memory_hygiene_enabled=True)
         with patch("app.services.memory_hygiene.settings") as mock_settings:
             mock_settings.MEMORY_HYGIENE_ENABLED = False
             assert resolve_enabled(bot) is True
 
-    def test_bot_override_false(self):
+    def test_when_bot_disabled_overrides_global_enabled(self):
         from app.services.memory_hygiene import resolve_enabled
-        bot = self._make_bot(hygiene_enabled=False)
+        bot = build_bot(memory_hygiene_enabled=False)
         with patch("app.services.memory_hygiene.settings") as mock_settings:
             mock_settings.MEMORY_HYGIENE_ENABLED = True
             assert resolve_enabled(bot) is False
 
 
 class TestResolveInterval:
-    def _make_bot(self, interval=None):
-        bot = MagicMock()
-        bot.memory_hygiene_interval_hours = interval
-        return bot
-
-    def test_inherits_global(self):
+    def test_when_bot_has_no_interval_then_inherits_global(self):
         from app.services.memory_hygiene import resolve_interval
-        bot = self._make_bot(interval=None)
+        bot = build_bot(memory_hygiene_interval_hours=None)
         with patch("app.services.memory_hygiene.settings") as mock_settings:
             mock_settings.MEMORY_HYGIENE_INTERVAL_HOURS = 48
             assert resolve_interval(bot) == 48
 
-    def test_bot_override(self):
+    def test_when_bot_sets_interval_then_overrides_global(self):
         from app.services.memory_hygiene import resolve_interval
-        bot = self._make_bot(interval=12)
+        bot = build_bot(memory_hygiene_interval_hours=12)
         with patch("app.services.memory_hygiene.settings") as mock_settings:
             mock_settings.MEMORY_HYGIENE_INTERVAL_HOURS = 48
             assert resolve_interval(bot) == 12
 
 
 class TestResolveOnlyIfActive:
-    def _make_bot(self, only_if_active=None):
-        bot = MagicMock()
-        bot.memory_hygiene_only_if_active = only_if_active
-        return bot
-
-    def test_inherits_global(self):
+    def test_when_bot_has_no_preference_then_inherits_global(self):
         from app.services.memory_hygiene import resolve_only_if_active
-        bot = self._make_bot(only_if_active=None)
+        bot = build_bot(memory_hygiene_only_if_active=None)
         with patch("app.services.memory_hygiene.settings") as mock_settings:
             mock_settings.MEMORY_HYGIENE_ONLY_IF_ACTIVE = False
             assert resolve_only_if_active(bot) is False
 
-    def test_bot_override(self):
+    def test_when_bot_disabled_only_if_active_overrides_global_enabled(self):
         from app.services.memory_hygiene import resolve_only_if_active
-        bot = self._make_bot(only_if_active=False)
+        bot = build_bot(memory_hygiene_only_if_active=False)
         with patch("app.services.memory_hygiene.settings") as mock_settings:
             mock_settings.MEMORY_HYGIENE_ONLY_IF_ACTIVE = True
             assert resolve_only_if_active(bot) is False
 
 
 class TestResolvePrompt:
-    def _make_bot(self, prompt=None):
-        bot = MagicMock()
-        bot.memory_hygiene_prompt = prompt
-        return bot
-
-    def test_falls_through_to_builtin(self):
-        from app.services.memory_hygiene import resolve_prompt
+    def test_when_neither_bot_nor_global_set_then_uses_builtin_default(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
-        bot = self._make_bot(prompt=None)
+        from app.services.memory_hygiene import resolve_prompt
+        bot = build_bot(memory_hygiene_prompt=None)
         with patch("app.services.memory_hygiene.settings") as mock_settings:
             mock_settings.MEMORY_HYGIENE_PROMPT = ""
-            result = resolve_prompt(bot)
-            assert result == DEFAULT_MEMORY_HYGIENE_PROMPT
+            assert resolve_prompt(bot) == DEFAULT_MEMORY_HYGIENE_PROMPT
 
-    def test_global_override(self):
+    def test_when_global_set_then_overrides_builtin(self):
         from app.services.memory_hygiene import resolve_prompt
-        bot = self._make_bot(prompt=None)
+        bot = build_bot(memory_hygiene_prompt=None)
         with patch("app.services.memory_hygiene.settings") as mock_settings:
             mock_settings.MEMORY_HYGIENE_PROMPT = "global custom"
             assert resolve_prompt(bot) == "global custom"
 
-    def test_bot_override(self):
+    def test_when_bot_prompt_set_then_overrides_global(self):
         from app.services.memory_hygiene import resolve_prompt
-        bot = self._make_bot(prompt="bot custom")
+        bot = build_bot(memory_hygiene_prompt="bot custom")
         with patch("app.services.memory_hygiene.settings") as mock_settings:
             mock_settings.MEMORY_HYGIENE_PROMPT = "global custom"
             assert resolve_prompt(bot) == "bot custom"
