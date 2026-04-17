@@ -82,12 +82,22 @@ export default function BotEditorScreen() {
     };
   }, [settingsData]);
 
+  // Load draft when editorData arrives, AND reload when botId changes
+  // (same-route navigation, e.g. Ctrl+K → different bot, reuses this component).
+  const loadedBotIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (editorData?.bot && !draft) {
+    if (editorData?.bot && loadedBotIdRef.current !== botId) {
       setDraft({ ...editorData.bot });
-      if (isNew) setDirty(true);
+      setDirty(isNew);
+      setSaved(false);
+      setFilter("");
+      setSearchOpen(false);
+      setShowDeleteConfirm(false);
+      setDeleteConfirmText("");
+      setDeleteChannelWarning(null);
+      loadedBotIdRef.current = botId;
     }
-  }, [editorData]);
+  }, [editorData, botId, isNew]);
 
   const update = useCallback((patch: Partial<BotConfig>) => {
     setDraft((prev) => (prev ? { ...prev, ...patch } : prev));

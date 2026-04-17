@@ -423,6 +423,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
     if (integrationsData?.integrations) {
       for (const int of integrationsData.integrations) {
+        // Only surface integrations the user has adopted.
+        if (int.lifecycle_status === "available") continue;
         items.push({
           id: `integration-${int.id}`,
           label: int.name,

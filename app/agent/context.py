@@ -44,6 +44,13 @@ current_memory_cross_bot: ContextVar[bool | None] = ContextVar(
 current_dispatch_type: ContextVar[str | None] = ContextVar("current_dispatch_type", default=None)
 current_dispatch_config: ContextVar[dict | None] = ContextVar("current_dispatch_config", default=None)
 
+# Origin of the current agent run — drives per-context policy gating so
+# autonomous runs (heartbeat/task/subagent/hygiene) can default-require-approval
+# on mutating ops even when interactive chat allows them outright.
+# Values: "chat" | "heartbeat" | "task" | "subagent" | "hygiene".
+# Default None is treated as "chat" by policy (least-restrictive, interactive).
+current_run_origin: ContextVar[str | None] = ContextVar("current_run_origin", default=None)
+
 # Effective model/provider for the current agent run (after override resolution).
 # Tools read these to propagate the model to callback tasks.
 current_model_override: ContextVar[str | None] = ContextVar("current_model_override", default=None)
@@ -176,6 +183,7 @@ class AgentContextSnapshot:
     channel_model_tier_overrides: dict | None
     resolved_skill_ids: set | None
     turn_responded_bots: set | None
+    run_origin: str | None
 
 
 def snapshot_agent_context() -> AgentContextSnapshot:
@@ -203,6 +211,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         channel_model_tier_overrides=current_channel_model_tier_overrides.get(),
         resolved_skill_ids=current_resolved_skill_ids.get(),
         turn_responded_bots=current_turn_responded_bots.get(),
+        run_origin=current_run_origin.get(),
     )
 
 
@@ -230,3 +239,4 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_channel_model_tier_overrides.set(snap.channel_model_tier_overrides)
     current_resolved_skill_ids.set(snap.resolved_skill_ids)
     current_turn_responded_bots.set(snap.turn_responded_bots)
+    current_run_origin.set(snap.run_origin)

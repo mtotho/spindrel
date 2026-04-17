@@ -35,11 +35,12 @@ Your persistent memory lives in `{memory_rel}/` relative to your workspace root.
 **A preference not saved is a preference the user has to repeat.** This is the #1 failure mode.
 
 How to write:
-- `file(operation="edit", path="{memory_rel}/MEMORY.md", find="old text", replace="new text")` — update existing section
-- `file(operation="append", path="{memory_rel}/MEMORY.md", content="\\n## New Section\\n...")` — add new section
+- `file(operation="edit", path="{memory_rel}/MEMORY.md", find="old text", replace="new text")` — update an existing section
+- `file(operation="append", path="{memory_rel}/MEMORY.md", content="\\n## New Section\\n...")` — add a new section
 - `file(operation="append", path="{memory_rel}/logs/YYYY-MM-DD.md", content="...")` — daily log entry
-- `file(operation="write", path="{memory_rel}/reference/name.md", content="...")` — new reference doc
-- **NEVER use `file(operation="write")` on MEMORY.md** — it replaces the entire file and destroys all content
+- `file(operation="create", path="{memory_rel}/reference/name.md", content="...")` — new reference doc (errors if the file already exists — safer than `write`)
+- To change an entire file intentionally: read it first, then `file(operation="overwrite", path="...", content="...")`. Never try to overwrite a file you haven't just read — the tool will refuse, and for a good reason.
+- For JSON data files (e.g. `data/tracked-shows.json`), use `file(operation="json_patch", path="...", patch=[{{"op": "replace", "path": "/key", "value": 1}}])` so you only touch the keys you mean to change.
 
 ### {memory_rel}/MEMORY.md — Curated Knowledge Base
 
@@ -110,8 +111,8 @@ All paths are relative to your workspace root — use the memory/ prefix:
 - Write anything you'll need to remember in future sessions
 - **If you learned a reusable domain pattern, procedure, or fix**: create a skill NOW with `manage_bot_skill(action="create", ...)`. Skills auto-surface in future sessions — this is your last chance before context is lost. (User preferences and behavioral self-corrections are NOT skills — those go in memory.)
 Use the `file` tool to write to the appropriate files under memory/.
-**For memory/MEMORY.md**: use `edit` (to update sections) or `append` (to add new sections). NEVER use `write` on memory/MEMORY.md — it replaces the entire file.
-**For daily logs**: use `append`. **For new reference files**: use `write`."""
+**For memory/MEMORY.md**: use `edit` (to update sections) or `append` (to add new sections). Do NOT attempt to rewrite the whole file.
+**For daily logs**: use `append`. **For new reference files**: use `create` (errors if the file already exists)."""
 
 
 DEFAULT_MEMORY_HYGIENE_PROMPT = """\
@@ -153,7 +154,7 @@ Scan recent daily logs (last 3-7 days). For each candidate entry, mentally score
 5. **Content type** — Decisions and corrections ALWAYS promote. Observations only if recurring.
 
 Promote entries scoring well on 3+ factors:
-- Stable facts or decisions → promote to memory/MEMORY.md using `file(operation="edit")` to update existing sections or `file(operation="append")` for new sections. **NEVER use `file(operation="write")` on MEMORY.md** — it replaces the entire file.
+- Stable facts or decisions → promote to memory/MEMORY.md using `file(operation="edit")` to update existing sections or `file(operation="append")` for new sections.
 - Reusable procedures or patterns → note them for the skill review job to create
 - Detailed reference info → move to memory/reference/ files
 

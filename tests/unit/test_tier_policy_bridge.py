@@ -323,3 +323,135 @@ class _FakeRule:
 
 def _make_rule(**kwargs) -> _FakeRule:
     return _FakeRule(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Origin-kind gating tests (autonomous-run defaults + rule matching)
+# ---------------------------------------------------------------------------
+
+class TestOriginKindGating:
+    """autonomous contexts (heartbeat/task/subagent/hygiene) default-require
+    approval for destructive file ops and exec_command; chat stays allow."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        invalidate_cache()
+        yield
+        invalidate_cache()
+
+    @pytest.mark.asyncio
+    async def test_overwrite_from_heartbeat_requires_approval(self):
+        db = _make_db()
+        with patch("app.services.tool_policies.settings") as mock_settings:
+            mock_settings.TOOL_POLICY_TIER_GATING = False
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            decision = await evaluate_tool_policy(
+                db, "bot1", "file", {"operation": "overwrite"},
+                origin_kind="heartbeat",
+            )
+        assert decision.action == "require_approval"
+        assert "autonomous" in decision.reason.lower() or "heartbeat" in decision.reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_overwrite_from_chat_allowed(self):
+        db = _make_db()
+        with patch("app.services.tool_policies.settings") as mock_settings:
+            mock_settings.TOOL_POLICY_TIER_GATING = False
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            decision = await evaluate_tool_policy(
+                db, "bot1", "file", {"operation": "overwrite"},
+                origin_kind="chat",
+            )
+        assert decision.action == "allow"
+
+    @pytest.mark.asyncio
+    async def test_overwrite_from_none_origin_treated_as_chat(self):
+        """None origin defaults to interactive chat behavior (allow)."""
+        db = _make_db()
+        with patch("app.services.tool_policies.settings") as mock_settings:
+            mock_settings.TOOL_POLICY_TIER_GATING = False
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            decision = await evaluate_tool_policy(
+                db, "bot1", "file", {"operation": "overwrite"},
+                origin_kind=None,
+            )
+        assert decision.action == "allow"
+
+    @pytest.mark.asyncio
+    async def test_delete_from_autonomous_requires_approval(self):
+        db = _make_db()
+        with patch("app.services.tool_policies.settings") as mock_settings:
+            mock_settings.TOOL_POLICY_TIER_GATING = False
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            for origin in ("heartbeat", "task", "subagent", "hygiene"):
+                decision = await evaluate_tool_policy(
+                    db, "bot1", "file", {"operation": "delete"},
+                    origin_kind=origin,
+                )
+                assert decision.action == "require_approval", f"failed for origin={origin}"
+
+    @pytest.mark.asyncio
+    async def test_read_from_autonomous_not_gated(self):
+        """Read ops are never destructive — autonomous default does not fire."""
+        db = _make_db()
+        with patch("app.services.tool_policies.settings") as mock_settings:
+            mock_settings.TOOL_POLICY_TIER_GATING = False
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            decision = await evaluate_tool_policy(
+                db, "bot1", "file", {"operation": "read"},
+                origin_kind="heartbeat",
+            )
+        assert decision.action == "allow"
+
+    @pytest.mark.asyncio
+    async def test_exec_command_from_autonomous_requires_approval(self):
+        db = _make_db()
+        with patch("app.services.tool_policies.settings") as mock_settings:
+            mock_settings.TOOL_POLICY_TIER_GATING = False
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            decision = await evaluate_tool_policy(
+                db, "bot1", "exec_command", {"command": "ls"},
+                origin_kind="heartbeat",
+            )
+        assert decision.action == "require_approval"
+
+    @pytest.mark.asyncio
+    async def test_explicit_allow_rule_beats_autonomous_default(self):
+        """A user-installed allow rule still wins over autonomous defaults."""
+        rule = _make_rule(
+            tool_name="file", action="allow", priority=50,
+            conditions={"arguments": {"operation": {"in": ["overwrite"]}}},
+        )
+        db = _make_db([rule])
+        with patch("app.services.tool_policies.settings") as mock_settings:
+            mock_settings.TOOL_POLICY_TIER_GATING = False
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            decision = await evaluate_tool_policy(
+                db, "bot1", "file", {"operation": "overwrite"},
+                origin_kind="heartbeat",
+            )
+        assert decision.action == "allow"
+
+    @pytest.mark.asyncio
+    async def test_origin_kind_condition_in_rule(self):
+        """Rules can explicitly target origin_kind via conditions."""
+        rule = _make_rule(
+            tool_name="file", action="deny", priority=50,
+            conditions={"origin_kind": {"in": ["heartbeat"]}},
+        )
+        db = _make_db([rule])
+        with patch("app.services.tool_policies.settings") as mock_settings:
+            mock_settings.TOOL_POLICY_TIER_GATING = False
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            # Heartbeat origin: rule matches → deny
+            decision = await evaluate_tool_policy(
+                db, "bot1", "file", {"operation": "read"},
+                origin_kind="heartbeat",
+            )
+            assert decision.action == "deny"
+            # Chat origin: rule does NOT match → allow
+            decision = await evaluate_tool_policy(
+                db, "bot1", "file", {"operation": "read"},
+                origin_kind="chat",
+            )
+            assert decision.action == "allow"

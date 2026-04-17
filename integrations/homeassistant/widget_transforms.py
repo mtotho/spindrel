@@ -49,6 +49,13 @@ def entity_state(raw_result: str, widget_meta: dict) -> dict:
     # Format: "- names: Foo\n  domain: light\n  state: 'on'\n  attributes:\n    brightness: '69'"
     entities = _parse_live_context(result_text)
 
+    # The slider should only render on pins created from HassLightSet — the
+    # turn-on/turn-off pins use the same shared template but don't expose
+    # brightness. tool_name carries the MCP server prefix (e.g.
+    # "homeassistant-HassLightSet"), so check via substring.
+    pin_tool_name = widget_meta.get("tool_name") or ""
+    is_light_set_pin = "HassLightSet" in pin_tool_name
+
     # Find matching entity (case-insensitive)
     target = display_label.lower()
     for entity in entities:
@@ -65,6 +72,7 @@ def entity_state(raw_result: str, widget_meta: dict) -> dict:
                 "is_on": is_on,
                 "is_off": not is_on,
                 "brightness": brightness,
+                "show_brightness": is_on and is_light_set_pin,
             }
 
     logger.debug("entity_state: entity '%s' not found in %d entities", display_label, len(entities))

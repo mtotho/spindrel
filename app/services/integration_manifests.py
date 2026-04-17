@@ -64,7 +64,10 @@ def parse_integration_yaml(path: Path) -> dict:
     if "name" not in data:
         data["name"] = data["id"].replace("_", " ").replace("-", " ").title()
 
-    unknown = set(data.keys()) - _KNOWN_KEYS
+    # Keys starting with `_` are YAML anchors by convention (e.g. `_ha_state_poll: &ha_state_poll`)
+    # — the anchor target is inlined elsewhere via `*ha_state_poll`, so the top-level
+    # key is load-bearing for YAML but not a manifest directive. Skip them.
+    unknown = {k for k in data.keys() if k not in _KNOWN_KEYS and not k.startswith("_")}
     if unknown:
         logger.warning(
             "integration.yaml for '%s' has unknown keys: %s (preserved but not acted on)",

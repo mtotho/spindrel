@@ -663,12 +663,12 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
         entry["has_tool_widgets"] = len(_tw_names) > 0
         entry["tool_widget_names"] = _tw_names
 
-        # Check if globally disabled
+        # Lifecycle status — drives Library vs. Active in the UI.
         try:
-            from app.services.integration_settings import is_disabled
-            entry["disabled"] = is_disabled(integration_id)
+            from app.services.integration_settings import get_status
+            entry["lifecycle_status"] = get_status(integration_id)
         except Exception:
-            entry["disabled"] = False
+            entry["lifecycle_status"] = "available"
 
         # Include live process status if process manager is available
         if has_process and process_launchable:

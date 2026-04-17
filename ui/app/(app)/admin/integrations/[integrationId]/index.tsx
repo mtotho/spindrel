@@ -29,7 +29,7 @@ import {
   useIntegrationApiKey,
   useProvisionIntegrationApiKey,
   useRevokeIntegrationApiKey,
-  useSetIntegrationDisabled,
+  useSetIntegrationStatus,
   useOAuthStatus,
   useOAuthDisconnect,
   type IntegrationItem,
@@ -930,54 +930,103 @@ function ReadmeSection({ content }: { content: string }) {
 // Disable/Enable toggle
 // ---------------------------------------------------------------------------
 
-function DisableToggle({ item }: { item: IntegrationItem }) {
+function StatusControl({ item }: { item: IntegrationItem }) {
   const t = useThemeTokens();
-  const mut = useSetIntegrationDisabled(item.id);
-  const isDisabled = item.disabled;
+  const mut = useSetIntegrationStatus(item.id);
+  const status = item.lifecycle_status;
+
+  const meta =
+    status === "enabled"
+      ? { bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.15)", color: "#22c55e", label: "Enabled" }
+      : status === "needs_setup"
+        ? { bg: "rgba(234,179,8,0.08)", border: "rgba(234,179,8,0.25)", color: "#eab308", label: "Needs Setup" }
+        : { bg: "rgba(107,114,128,0.08)", border: "rgba(107,114,128,0.2)", color: t.textMuted, label: "Available — not adopted" };
+
+  const missingRequired = item.env_vars.filter((v) => v.required && !v.is_set);
+
+  const onDisable = () => {
+    if (!window.confirm("Remove from Active? The process will stop and tools will unload. Your settings are preserved — re-adding is instant.")) return;
+    mut.mutate("available");
+  };
+  const onAdd = () => mut.mutate("needs_setup");
 
   return (
-    <div
-      style={{
-        display: "flex", flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        padding: "8px 14px",
-        borderRadius: 8,
-        background: isDisabled ? "rgba(239,68,68,0.08)" : "rgba(34,197,94,0.06)",
-        border: `1px solid ${isDisabled ? "rgba(239,68,68,0.2)" : "rgba(34,197,94,0.15)"}`,
-      }}
-    >
-      <Power size={14} color={isDisabled ? "#ef4444" : "#22c55e"} />
-      <span
+    <div className="flex flex-col gap-2">
+      <div
         style={{
-          fontSize: 12,
-          fontWeight: 600,
-          color: isDisabled ? "#ef4444" : "#22c55e",
-          flex: 1,
+          display: "flex", flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          padding: "8px 14px",
+          borderRadius: 8,
+          background: meta.bg,
+          border: `1px solid ${meta.border}`,
         }}
       >
-        {isDisabled ? "Integration Disabled" : "Integration Enabled"}
-      </span>
-      <button
-        onClick={() => {
-          if (!isDisabled && !window.confirm("Disable this integration? Its process will be stopped and tools will be unloaded.")) return;
-          mut.mutate(!isDisabled);
-        }}
-        disabled={mut.isPending}
-        style={{
-          padding: "4px 14px",
-          borderRadius: 5,
-          border: "none",
-          background: isDisabled ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
-          color: isDisabled ? "#22c55e" : "#ef4444",
-          fontSize: 11,
-          fontWeight: 600,
-          cursor: mut.isPending ? "wait" : "pointer",
-          opacity: mut.isPending ? 0.5 : 1,
-        }}
-      >
-        {mut.isPending ? "..." : isDisabled ? "Enable" : "Disable"}
-      </button>
+        <Power size={14} color={meta.color} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: meta.color, flex: 1 }}>
+          {meta.label}
+        </span>
+        {status === "available" && (
+          <button
+            onClick={onAdd}
+            disabled={mut.isPending}
+            style={{
+              padding: "4px 14px",
+              borderRadius: 5,
+              border: "none",
+              background: t.accent,
+              color: "#fff",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: mut.isPending ? "wait" : "pointer",
+              opacity: mut.isPending ? 0.5 : 1,
+            }}
+          >
+            {mut.isPending ? "..." : "Add"}
+          </button>
+        )}
+        {(status === "enabled" || status === "needs_setup") && (
+          <button
+            onClick={onDisable}
+            disabled={mut.isPending}
+            style={{
+              padding: "4px 14px",
+              borderRadius: 5,
+              border: "none",
+              background: "rgba(239,68,68,0.15)",
+              color: "#ef4444",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: mut.isPending ? "wait" : "pointer",
+              opacity: mut.isPending ? 0.5 : 1,
+            }}
+          >
+            {mut.isPending ? "..." : "Remove"}
+          </button>
+        )}
+      </div>
+
+      {status === "needs_setup" && missingRequired.length > 0 && (
+        <div
+          style={{
+            display: "flex", flexDirection: "row", alignItems: "flex-start",
+            gap: 8,
+            padding: "8px 14px",
+            borderRadius: 8,
+            background: "rgba(234,179,8,0.08)",
+            border: "1px solid rgba(234,179,8,0.2)",
+          }}
+        >
+          <span style={{ fontSize: 11, color: "#eab308", lineHeight: "18px", flex: 1 }}>
+            Fill {missingRequired.length} required setting{missingRequired.length === 1 ? "" : "s"} to activate:{" "}
+            <span style={{ fontFamily: "monospace", fontWeight: 600 }}>
+              {missingRequired.map((v) => v.key).join(", ")}
+            </span>
+            . Integration will enable automatically once complete.
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -1033,7 +1082,7 @@ export default function IntegrationDetailScreen() {
         parentLabel="Integrations"
         backTo="/admin/integrations"
         title={item.name}
-        right={<StatusBadge status={item.disabled ? "disabled" : item.status} />}
+        right={<StatusBadge status={item.lifecycle_status} />}
       />
       <RefreshableScrollView
         refreshing={refreshing}
@@ -1041,11 +1090,11 @@ export default function IntegrationDetailScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: isWide ? 20 : 12, gap: 14, maxWidth: 720 }}
       >
-        {/* Disable/Enable toggle */}
-        <DisableToggle item={item} />
+        {/* Lifecycle status control */}
+        <StatusControl item={item} />
 
-        {/* Sections — dimmed when disabled (pointerEvents left as auto to allow scrolling) */}
-        <div style={{ opacity: item.disabled ? 0.5 : 1, display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* Sections — dimmed when not yet adopted */}
+        <div style={{ opacity: item.lifecycle_status === "available" ? 0.6 : 1, display: "flex", flexDirection: "column", gap: 14 }}>
 
         {/* Overview */}
         <SectionBox title="Overview">

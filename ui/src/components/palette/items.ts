@@ -70,6 +70,9 @@ export function usePaletteItems(): PaletteItem[] {
 
     if (integrationsData?.integrations) {
       for (const int of integrationsData.integrations) {
+        // Only surface integrations the user has adopted. Library (available)
+        // integrations are discoverable via /admin/integrations → Library tab.
+        if (int.lifecycle_status === "available") continue;
         items.push({
           id: `integration-${int.id}`,
           label: int.name,

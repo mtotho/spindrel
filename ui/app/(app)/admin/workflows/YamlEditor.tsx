@@ -8,6 +8,14 @@ import { useRef, useCallback, useMemo } from "react";
 import { type ThemeTokens } from "@/src/theme/tokens";
 import { AlertTriangle, CheckCircle } from "lucide-react";
 
+// Shared font metrics — pre and textarea MUST match or the cursor drifts.
+// Global CSS forces textarea { font-size: 16px !important } for iOS zoom
+// prevention, so both layers use 16px.
+const FONT = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
+const FONT_SIZE = 16;
+const LINE_HEIGHT = "1.5";
+const PADDING = "12px 16px 12px 12px";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -268,10 +276,11 @@ export function YamlSyntaxEditor({ value, onChange, parseError, t, minHeight = 4
           ref={lineNumRef}
           aria-hidden
           style={{
-            width: 40, flexShrink: 0,
-            paddingTop: 16, paddingRight: 8,
+            width: 44, flexShrink: 0,
+            padding: PADDING,
+            paddingRight: 8,
             textAlign: "right",
-            fontFamily: "monospace", fontSize: 13, lineHeight: "1.6",
+            fontFamily: FONT, fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT,
             color: t.textDim, userSelect: "none", pointerEvents: "none",
             overflow: "hidden",
             borderRight: `1px solid ${t.surfaceBorder}`,
@@ -293,15 +302,16 @@ export function YamlSyntaxEditor({ value, onChange, parseError, t, minHeight = 4
               position: "absolute",
               top: 0, left: 0, right: 0, bottom: 0,
               margin: 0,
-              padding: "16px 16px 16px 12px",
-              fontFamily: "monospace",
-              fontSize: 13,
-              lineHeight: "1.6",
+              padding: PADDING,
+              fontFamily: FONT,
+              fontSize: FONT_SIZE,
+              lineHeight: LINE_HEIGHT,
               color: colors.text,
               overflow: "auto",
               whiteSpace: "pre",
               wordWrap: "normal",
               pointerEvents: "none",
+              tabSize: 2,
             }}
             // eslint-disable-next-line react/no-danger
             dangerouslySetInnerHTML={{ __html: highlighted + "\n" }}
@@ -323,10 +333,10 @@ export function YamlSyntaxEditor({ value, onChange, parseError, t, minHeight = 4
               width: "100%",
               height: "100%",
               margin: 0,
-              padding: "16px 16px 16px 12px",
-              fontFamily: "monospace",
-              fontSize: 13,
-              lineHeight: "1.6",
+              padding: PADDING,
+              fontFamily: FONT,
+              fontSize: FONT_SIZE,
+              lineHeight: LINE_HEIGHT,
               color: "transparent",
               caretColor: t.inputText,
               background: "transparent",

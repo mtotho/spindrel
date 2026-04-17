@@ -35,7 +35,20 @@ For tracked shows where `schedule.next_lookup <= now`: web search for next episo
 Review open MEDIA.md issues. Promote to Mission Control task card if: open >24h, or auto-remediation failed 2+ times, or needs manual intervention. Close promoted cards for resolved issues.
 
 ## Phase 8: Workspace File Sync
-Rebuild MEDIA.md (downloads, issues, requests, recently resolved). Update `status.md` health (green/yellow/red) and stats. Update tracked data timestamps. Archive timeline entries >30 days, move completed media to `data/history.json`.
+
+**Rules for this phase — read these literally, they prevent data loss:**
+
+- **Never rebuild `data/tracked-shows.json` or `data/tracked-movies.json` from scratch.** If you construct a fresh JSON containing only the entries you touched this cycle and write it over the file, every show you didn't mention disappears. Use `file(operation="json_patch", path="data/tracked-shows.json", patch=[...])` to touch only the keys you intend to change. Same for `tracked-movies.json`.
+- Updating a show's `last_checked` or `schedule.next_lookup`: `[{"op": "replace", "path": "/<show-slug>/last_checked", "value": "<ISO timestamp>"}]`.
+- Adding a new show: `[{"op": "add", "path": "/<new-slug>", "value": {...}}]`.
+- Removing a show (rare — only when the user explicitly resolves/drops it): `[{"op": "remove", "path": "/<slug>"}]`.
+- If the JSON itself is malformed (a prior run left literal `\n` escape sequences in the file, say), fix it with `file(operation="overwrite", ...)` AFTER reading the current contents — the read-before-overwrite precondition prevents a shrunken replacement.
+
+**For MEDIA.md and status.md (narrative markdown):**
+- Prefer `file(operation="edit", path="MEDIA.md", find="<exact old section>", replace="<new section>")` to update sections in place.
+- Only use `file(operation="overwrite", path="MEDIA.md", content=...)` for a deliberate full regeneration, and only after you've just called `file(operation="read", path="MEDIA.md")` — the tool will refuse the overwrite otherwise.
+
+**History:** archive timeline entries >30 days and move completed media to `data/history.json` via `json_patch` add + remove pairs. Do not rewrite `history.json` wholesale.
 
 ## Phase 9: Summary
 Post to channel if: new issues, auto-resolutions, service changes, schedule changes, media now available, or episodes in next 48h. Stay silent if everything is healthy with no changes — just log `"Heartbeat: {N} active downloads, all healthy"`.

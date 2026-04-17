@@ -23,7 +23,8 @@ import pytest
 
 from app.tools.local.file_ops import (
     _op_read,
-    _op_write,
+    _op_create,
+    _op_overwrite,
     _op_append,
     _op_edit,
     _op_list,
@@ -32,6 +33,7 @@ from app.tools.local.file_ops import (
     _op_move,
     _op_grep,
     _op_glob,
+    _note_read,
     file as file_tool,
 )
 
@@ -117,24 +119,24 @@ class TestReadEnvelope:
 # ---------------------------------------------------------------------------
 
 
-class TestWriteEnvelope:
-    def test_write_new_file_emits_diff(self, ws):
+class TestCreateEnvelope:
+    def test_create_new_file_envelope(self, ws):
         path = str(ws / "new.txt")
-        result = json.loads(_op_write(path, "line1\nline2\n"))
-        # Legacy fields preserved
+        result = json.loads(_op_create(path, "line1\nline2\n"))
         assert result["ok"] is True
         assert result["bytes"] > 0
-        # Envelope present with diff content_type
+        env = result["_envelope"]
+        assert env["content_type"] == "text/markdown"
+        assert "Created" in env["plain_body"]
+
+
+class TestOverwriteEnvelope:
+    def test_overwrite_diffs_against_old(self, ws):
+        path = str(ws / "hello.txt")  # exists with "Hello world\n"
+        _note_read("test_bot", path)
+        result = json.loads(_op_overwrite(path, "Goodbye world\n", bot_id="test_bot"))
         env = result["_envelope"]
         assert env["content_type"] == "application/vnd.spindrel.diff+text"
-        assert "+line1" in env["body"]
-        assert "+line2" in env["body"]
-        assert "Created" in env["plain_body"] or "+2 lines" in env["plain_body"]
-
-    def test_write_overwrite_diffs_against_old(self, ws):
-        path = str(ws / "hello.txt")  # exists with "Hello world\n"
-        result = json.loads(_op_write(path, "Goodbye world\n"))
-        env = result["_envelope"]
         assert "−" not in env["body"]  # diff uses ASCII -, not Unicode minus
         assert "-Hello world" in env["body"]
         assert "+Goodbye world" in env["body"]

@@ -39,6 +39,28 @@ _TIER_DEFAULTS: dict[str, str] = {
     "control_plane": "require_approval",
 }
 
+# Autonomous-context defaults: when the agent is running unattended
+# (heartbeat/task/subagent/hygiene), certain mutating ops require approval by
+# default even though the same ops are fine in interactive chat. A user-
+# installed ToolPolicyRule still wins — these are only applied when no DB
+# rule matches.
+_AUTONOMOUS_ORIGINS: frozenset[str] = frozenset({"heartbeat", "task", "subagent", "hygiene"})
+
+# Each entry: (tool_name, arg_matcher, reason). arg_matcher is a callable
+# taking the tool arguments dict and returning True if the rule applies.
+_ORIGIN_DEFAULTS: list[tuple[str, Any, str]] = [
+    (
+        "file",
+        lambda args: args.get("operation") in {"overwrite", "delete"},
+        "Destructive file ops (overwrite/delete) from autonomous runs require approval.",
+    ),
+    (
+        "exec_command",
+        lambda _args: True,
+        "Shell execution from autonomous runs requires approval.",
+    ),
+]
+
 
 async def _load_rules(db: AsyncSession) -> list[ToolPolicyRule]:
     """Load all enabled rules ordered by priority."""
@@ -76,8 +98,12 @@ def _match_tool_name(rule_pattern: str, tool_name: str) -> bool:
     return rule_pattern == tool_name
 
 
-def _match_conditions(conditions: dict | None, arguments: dict[str, Any]) -> bool:
-    """Check if rule conditions match the tool arguments.
+def _match_conditions(
+    conditions: dict | None,
+    arguments: dict[str, Any],
+    origin_kind: str | None = None,
+) -> bool:
+    """Check if rule conditions match the tool arguments + run origin.
 
     conditions format:
     {
@@ -85,13 +111,26 @@ def _match_conditions(conditions: dict | None, arguments: dict[str, Any]) -> boo
             "command": {"pattern": "^rm "},    # regex
             "path": {"prefix": "/etc/"},       # string prefix
             "mode": {"in": ["delete", "force"]}  # value in list
-        }
+        },
+        "origin_kind": {"in": ["heartbeat", "task", "subagent", "hygiene"]},
     }
 
     Empty/null conditions always match.
     """
     if not conditions:
         return True
+
+    # Origin-kind gate — lets rules target autonomous runs specifically
+    # (e.g. "heartbeats must get approval for file(overwrite)") without
+    # affecting interactive chat where the user is present.
+    origin_match = conditions.get("origin_kind")
+    if origin_match:
+        effective = origin_kind or "chat"
+        if "in" in origin_match and effective not in origin_match["in"]:
+            return False
+        if "eq" in origin_match and effective != origin_match["eq"]:
+            return False
+
     arg_conditions = conditions.get("arguments")
     if not arg_conditions:
         return True
@@ -121,6 +160,7 @@ async def evaluate_tool_policy(
     bot_id: str,
     tool_name: str,
     arguments: dict[str, Any],
+    origin_kind: str | None = None,
 ) -> PolicyDecision:
     """Evaluate policy rules for a tool call. Returns the decision.
 
@@ -132,6 +172,9 @@ async def evaluate_tool_policy(
     5. First matching rule wins
     6. No match → tier defaults (exec_capable/control_plane → require_approval)
     7. No tier match → global default (TOOL_POLICY_DEFAULT_ACTION)
+
+    *origin_kind* identifies where the call came from (chat/heartbeat/task/
+    subagent/hygiene). Rules may target it via `conditions.origin_kind`.
     """
     rules = await _load_rules(db)
 
@@ -150,7 +193,7 @@ async def evaluate_tool_policy(
     candidates.sort(key=lambda r: (r.priority, 0 if r.bot_id is not None else 1))
 
     for rule in candidates:
-        if _match_conditions(rule.conditions, arguments):
+        if _match_conditions(rule.conditions, arguments, origin_kind=origin_kind):
             return PolicyDecision(
                 action=rule.action,
                 rule_id=str(rule.id),
@@ -158,10 +201,25 @@ async def evaluate_tool_policy(
                 timeout=rule.approval_timeout,
             )
 
-    # No rule matched — check tier defaults before global fallback.
-    # Tier gating only applies when default_action is NOT "allow" — if the user
-    # explicitly set default_action="allow", they want everything allowed unless
-    # a specific rule says otherwise.
+    # No rule matched — apply autonomous-context defaults (if origin is an
+    # autonomous run) before falling back to tier defaults and global default.
+    if origin_kind in _AUTONOMOUS_ORIGINS:
+        for rule_tool, rule_args_matcher, rule_reason in _ORIGIN_DEFAULTS:
+            if rule_tool != tool_name and not _match_tool_name(rule_tool, tool_name):
+                continue
+            try:
+                if rule_args_matcher(arguments):
+                    return PolicyDecision(
+                        action="require_approval",
+                        reason=f"[{origin_kind}] {rule_reason}",
+                    )
+            except Exception:
+                # Defensive: never let a matcher bug break tool dispatch.
+                logger.warning(
+                    "origin-default matcher raised for %s; skipping", rule_tool,
+                )
+
+    # Tier defaults — only applied when default_action is NOT "allow".
     default_action = settings.TOOL_POLICY_DEFAULT_ACTION
     if settings.TOOL_POLICY_TIER_GATING and default_action != "allow":
         from app.tools.registry import get_tool_safety_tier

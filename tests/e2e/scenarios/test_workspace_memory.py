@@ -52,7 +52,7 @@ async def test_file_write_and_read(client: E2EClient) -> None:
 
     result = await client.chat_stream(
         f'{_FILE_TOOL_HINT}'
-        f'Call the "file" tool with operation="write", path="{filename}", '
+        f'Call the "file" tool with operation="create", path="{filename}", '
         f'content="The secret value is {token}". '
         f'Then call "file" with operation="read", path="{filename}" '
         f'and tell me what it says.',
@@ -73,7 +73,7 @@ async def test_file_edit_operation(client: E2EClient) -> None:
     # Turn 1: create file
     await client.chat_stream(
         f'{_FILE_TOOL_HINT}'
-        f'Call the "file" tool with operation="write", path="{filename}", '
+        f'Call the "file" tool with operation="create", path="{filename}", '
         f'content="color is red". Confirm you wrote it.',
         client_id=cid,
     )
@@ -108,7 +108,7 @@ async def test_multi_tool_file_and_time(client: E2EClient) -> None:
         f'{_FILE_TOOL_HINT}'
         f'Do exactly these two steps in order:\n'
         f'Step 1: Call the "get_current_time" tool to get the current UTC time.\n'
-        f'Step 2: Call the "file" tool with operation="write", '
+        f'Step 2: Call the "file" tool with operation="create", '
         f'path="{filename}", and the time as content.\n'
         f'You MUST call both tools. Tell me the time you wrote.',
         client_id=cid,
@@ -139,7 +139,7 @@ async def test_file_persistence_across_turns(client: E2EClient) -> None:
     # Turn 1: write file
     r1 = await client.chat_stream(
         f'{_FILE_TOOL_HINT}'
-        f'Call the "file" tool with operation="write", path="{filename}", '
+        f'Call the "file" tool with operation="create", path="{filename}", '
         f'content="persistence-check-{token}". Confirm you wrote it.',
         client_id=cid,
     )

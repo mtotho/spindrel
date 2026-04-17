@@ -621,6 +621,11 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
 
         messages_start = len(messages)
         _hb_timeout = resolve_heartbeat_timeout(hb)
+        # Mark this run as a heartbeat so policy rules can target autonomous
+        # contexts (e.g. require approval for file(overwrite) on heartbeats
+        # even when interactive chat allows it).
+        from app.agent.context import current_run_origin
+        current_run_origin.set("heartbeat")
         run_result = await asyncio.wait_for(
             run(
                 messages, bot, prompt,

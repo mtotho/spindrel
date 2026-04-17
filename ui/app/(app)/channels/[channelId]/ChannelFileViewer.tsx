@@ -1,10 +1,12 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ArrowLeft, X, Save, RotateCw, Columns2, ChevronRight } from "lucide-react";
+import { ArrowLeft, X, Save, RotateCw, Columns2, ChevronRight, History as HistoryIcon } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelWorkspaceFileContent,
   useWriteChannelWorkspaceFile,
+  useChannelWorkspaceFileVersions,
+  useRestoreChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
 import {
   useWorkspaceFileContent,
@@ -12,6 +14,7 @@ import {
 } from "@/src/api/hooks/useWorkspaces";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { CodeEditor } from "./CodeEditor";
+import { createPortal } from "react-dom";
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp"]);
 
@@ -99,12 +102,23 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
 
   const [editContent, setEditContent] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Reset edit state when file changes or data loads
   useEffect(() => {
     setEditContent(null);
     setSavedAt(null);
+    setHistoryOpen(false);
   }, [filePath]);
+
+  // Versions + restore — only wired up for channel-scoped files for now.
+  const versionsPath = useChannelEndpoint ? channelRelPath : null;
+  const versionsQuery = useChannelWorkspaceFileVersions(
+    useChannelEndpoint ? channelId : undefined,
+    versionsPath,
+    historyOpen,
+  );
+  const restoreMutation = useRestoreChannelWorkspaceFile(channelId);
 
   const originalContent = data?.content ?? "";
   const displayContent = editContent ?? originalContent;
@@ -233,6 +247,17 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
           <RotateCw size={13} color={t.textDim} />
         </button>
 
+        {useChannelEndpoint && !isImage && (
+          <button type="button"
+            onClick={() => setHistoryOpen(true)}
+            style={{ padding: 6, borderRadius: 4 }}
+            className="hover:bg-surface-overlay active:bg-surface-overlay"
+            {...{ title: "File history — view and restore earlier versions" }}
+          >
+            <HistoryIcon size={13} color={t.textDim} />
+          </button>
+        )}
+
         {onToggleSplit && (
           <button type="button"
             onClick={onToggleSplit}
@@ -327,6 +352,175 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
           </span>
         </div>
       )}
+
+      {historyOpen && versionsPath && typeof document !== "undefined" && createPortal(
+        <FileHistoryModal
+          fileName={fileName}
+          versions={versionsQuery.data?.versions ?? []}
+          loading={versionsQuery.isLoading}
+          restoring={restoreMutation.isPending}
+          onClose={() => setHistoryOpen(false)}
+          onRestore={(version) => {
+            if (!confirm(`Restore "${fileName}" to version ${version}? Your current file will be backed up first.`)) return;
+            restoreMutation.mutate(
+              { path: versionsPath, version },
+              {
+                onSuccess: () => {
+                  setEditContent(null);
+                  refetch();
+                  setHistoryOpen(false);
+                },
+              },
+            );
+          }}
+        />,
+        document.body,
+      )}
     </div>
+  );
+}
+
+
+function FileHistoryModal({
+  fileName,
+  versions,
+  loading,
+  restoring,
+  onClose,
+  onRestore,
+}: {
+  fileName: string;
+  versions: Array<{ version: string; bytes: number; modified_at: string }>;
+  loading: boolean;
+  restoring: boolean;
+  onClose: () => void;
+  onRestore: (version: string) => void;
+}) {
+  const t = useThemeTokens();
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.5)",
+          zIndex: 60000,
+        }}
+      />
+      <div
+        style={{
+          position: "fixed",
+          top: "10vh",
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: "min(640px, 90vw)",
+          maxHeight: "80vh",
+          background: t.surface,
+          border: `1px solid ${t.surfaceBorder}`,
+          borderRadius: 8,
+          zIndex: 60001,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            padding: "12px 16px",
+            borderBottom: `1px solid ${t.surfaceBorder}`,
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div>
+            <div style={{ color: t.text, fontSize: 14, fontWeight: 600 }}>File history</div>
+            <div style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace", marginTop: 2 }}>
+              {fileName}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ padding: 6, borderRadius: 4 }}
+            className="hover:bg-surface-overlay active:bg-surface-overlay"
+          >
+            <X size={16} color={t.textMuted} />
+          </button>
+        </div>
+        <div style={{ flex: 1, overflow: "auto", padding: 8 }}>
+          {loading ? (
+            <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
+              <Spinner color={t.accent} />
+            </div>
+          ) : versions.length === 0 ? (
+            <div style={{ padding: 24, textAlign: "center", color: t.textDim, fontSize: 12 }}>
+              No prior versions of this file. Backups are created automatically on overwrite.
+            </div>
+          ) : (
+            versions.map((v) => (
+              <div
+                key={v.version}
+                style={{
+                  display: "flex",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "8px 12px",
+                  borderBottom: `1px solid ${t.surfaceBorder}`,
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: t.text, fontSize: 12, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {v.version}
+                  </div>
+                  <div style={{ color: t.textDim, fontSize: 11, marginTop: 2 }}>
+                    {v.modified_at} · {v.bytes} bytes
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={restoring}
+                  onClick={() => onRestore(v.version)}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 4,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    background: t.surfaceOverlay,
+                    color: t.text,
+                    opacity: restoring ? 0.5 : 1,
+                  }}
+                  className="hover:bg-accent-dim"
+                >
+                  Restore
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+        <div
+          style={{
+            padding: "8px 16px",
+            borderTop: `1px solid ${t.surfaceBorder}`,
+            color: t.textDim,
+            fontSize: 11,
+          }}
+        >
+          Restoring creates a new backup of the current file first, so restore is itself undoable.
+        </div>
+      </div>
+    </>
   );
 }

@@ -764,6 +764,7 @@ async def _check_tool_policy(
 ) -> Any:
     """Evaluate tool policy. Returns PolicyDecision or None (allow = skip overhead)."""
     from app.config import settings
+    from app.agent.context import current_run_origin
     from app.db.engine import async_session
     from app.services.tool_policies import evaluate_tool_policy
 
@@ -777,8 +778,12 @@ async def _check_tool_policy(
     if is_session_allowed(correlation_id, tool_name):
         return None
 
+    origin_kind = current_run_origin.get(None)
+
     async with async_session() as db:
-        decision = await evaluate_tool_policy(db, bot_id, tool_name, arguments)
+        decision = await evaluate_tool_policy(
+            db, bot_id, tool_name, arguments, origin_kind=origin_kind,
+        )
     if decision.action == "allow":
         return None
     return decision

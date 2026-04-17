@@ -91,10 +91,14 @@ list_tasks:
           args:
             task_id: "{{id}}"
 
-# schedule_task returns {id, status, task_type, bot_id, ...}
+# schedule_task returns {id, status, task_type, bot_id, ...}.
+# We render a rich live card and re-poll via list_tasks so the status,
+# run_at/completed_at, and run_count stay current. display_label carries
+# the task id forward so state_poll args can look it up.
 schedule_task:
   content_type: application/vnd.spindrel.components+json
   display: inline
+  display_label: "{{id}}"
   template:
     v: 1
     components:
@@ -107,8 +111,6 @@ schedule_task:
       - type: properties
         layout: inline
         items:
-          - label: ID
-            value: "{{id}}"
           - label: Type
             value: "{{task_type}}"
           - label: Bot
@@ -128,12 +130,82 @@ schedule_task:
       - type: button
         label: Cancel
         variant: danger
-        when: "{{status | in: pending,active}}"
+        when: "{{status | in: pending,active,running}}"
         action:
           dispatch: tool
           tool: cancel_task
           args:
             task_id: "{{id}}"
+      - type: links
+        items:
+          - url: "/admin/tasks/{{id}}"
+            title: Edit task
+            icon: link
+  state_poll:
+    tool: list_tasks
+    args:
+      task_id: "{{display_label}}"
+    transform: "app.tools.local.task_widget_transforms:task_detail"
+    refresh_interval_seconds: 10
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "{{title | default: Task}}"
+          level: 3
+        - type: status
+          text: "{{status}}"
+          color: "{{status | status_color}}"
+        - type: properties
+          layout: inline
+          items:
+            - label: Type
+              value: "{{task_type}}"
+            - label: Bot
+              value: "{{bot_id}}"
+            - label: Recurrence
+              value: "{{recurrence}}"
+              when: "{{recurrence | not_empty}}"
+            - label: Next run
+              value: "{{scheduled_at}}"
+              when: "{{scheduled_at | not_empty}}"
+            - label: Last run
+              value: "{{run_at}}"
+              when: "{{run_at | not_empty}}"
+            - label: Run count
+              value: "{{run_count}}"
+              when: "{{run_count | not_empty}}"
+            - label: Completed
+              value: "{{completed_at}}"
+              when: "{{completed_at | not_empty}}"
+            - label: Steps
+              value: "{{step_count}}"
+              when: "{{step_count | not_empty}}"
+            - label: File
+              value: "{{workspace_file_path}}"
+              when: "{{workspace_file_path | not_empty}}"
+        - type: section
+          label: Error
+          collapsible: true
+          defaultOpen: true
+          when: "{{error | not_empty}}"
+          children:
+            - type: code
+              content: "{{error}}"
+        - type: button
+          label: Cancel
+          variant: danger
+          when: "{{status | in: pending,active,running}}"
+          action:
+            dispatch: tool
+            tool: cancel_task
+            args:
+              task_id: "{{id}}"
+        - type: links
+          items:
+            - url: "/admin/tasks/{{id}}"
+              title: Edit task
+              icon: link
 
 # get_task_result
 get_task_result:

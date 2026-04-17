@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import glob as glob_mod
 import logging
 import os
+import shutil
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -25,6 +28,10 @@ class FileWriteBody(BaseModel):
 class FileMoveBody(BaseModel):
     old_path: str
     new_path: str
+
+
+class FileRestoreBody(BaseModel):
+    version: str  # .bak filename from the versions listing
 
 
 def _get_bot(bot_id: str):
@@ -192,6 +199,106 @@ def _is_text_file(filename: str) -> bool:
     """Check if a filename should be treated as text based on extension."""
     _, ext = os.path.splitext(filename.lower())
     return ext in _TEXT_EXTENSIONS
+
+
+def _resolve_channel_path(channel_id: uuid.UUID, bot, path: str) -> str:
+    """Resolve a channel-relative path to its absolute, sandbox-safe form."""
+    from app.services.channel_workspace import get_channel_workspace_root
+    ws_path = get_channel_workspace_root(str(channel_id), bot)
+    ws_real = os.path.realpath(ws_path)
+    target = os.path.realpath(os.path.join(ws_path, path))
+    if not (target == ws_real or target.startswith(ws_real + os.sep)):
+        raise HTTPException(404, "File not found")
+    return target
+
+
+@router.get("/files/versions")
+async def list_workspace_file_versions(
+    channel_id: uuid.UUID,
+    path: str = Query(..., description="File path within workspace"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:read")),
+):
+    """List `.versions/` backups for a workspace file.
+
+    The `.versions/` directory is hidden from the bot's `file(list)` tool on
+    purpose — we don't want agents churning backup listings into LLM context.
+    But users need a way to recover from a bad overwrite, so we surface the
+    listing via API for the File History UI.
+    """
+    channel, bot = await _require_channel_workspace(channel_id, db)
+    target = _resolve_channel_path(channel_id, bot, path)
+    parent = os.path.dirname(target)
+    basename = os.path.basename(target)
+    versions_dir = os.path.join(parent, ".versions")
+    if not os.path.isdir(versions_dir):
+        return {"path": path, "versions": []}
+
+    pattern = os.path.join(versions_dir, f"{basename}.*.bak")
+    backups = sorted(glob_mod.glob(pattern), key=os.path.getmtime, reverse=True)
+    versions = []
+    for bp in backups:
+        try:
+            st = os.stat(bp)
+        except OSError:
+            continue
+        versions.append({
+            "version": os.path.basename(bp),
+            "bytes": st.st_size,
+            "modified_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(st.st_mtime)),
+        })
+    return {"path": path, "versions": versions}
+
+
+@router.post("/files/restore")
+async def restore_workspace_file(
+    channel_id: uuid.UUID,
+    body: FileRestoreBody,
+    path: str = Query(..., description="File path to restore"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:write")),
+):
+    """Restore a workspace file from a `.versions/` backup.
+
+    The current live file is itself backed up before being overwritten, so
+    restore is undoable via another restore.
+    """
+    channel, bot = await _require_channel_workspace(channel_id, db)
+    if "/" in body.version or ".." in body.version:
+        raise HTTPException(400, "version must be a plain filename")
+    target = _resolve_channel_path(channel_id, bot, path)
+    basename = os.path.basename(target)
+    if not body.version.startswith(basename + "."):
+        raise HTTPException(400, f"Backup does not belong to {basename}")
+
+    parent = os.path.dirname(target)
+    versions_dir = os.path.join(parent, ".versions")
+    backup_path = os.path.join(versions_dir, body.version)
+    if not os.path.isfile(backup_path):
+        raise HTTPException(404, "Backup not found")
+
+    # Back up current state first so the restore itself is undoable.
+    prior_backup = None
+    if os.path.isfile(target):
+        ts = f"{time.time():.4f}".replace(".", "-")
+        prior_backup = os.path.join(versions_dir, f"{basename}.{ts}.bak")
+        try:
+            shutil.copy2(target, prior_backup)
+        except OSError as e:
+            raise HTTPException(500, f"Failed to back up current file: {e}") from e
+
+    try:
+        shutil.copy2(backup_path, target)
+    except OSError as e:
+        raise HTTPException(500, f"Restore failed: {e}") from e
+
+    _schedule_reindex(str(channel_id), bot)
+    return {
+        "path": path,
+        "restored_from": body.version,
+        "prior_backup": os.path.basename(prior_backup) if prior_backup else None,
+        "bytes": os.path.getsize(target),
+    }
 
 
 @router.post("/files/upload")

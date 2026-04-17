@@ -153,9 +153,22 @@ class TestAutoStart:
             "test": {"cmd": ["echo"], "required_env": [], "description": "Test"},
         }), patch.object(manager, "_env_ready", return_value=True), \
              patch.object(manager, "get_auto_start", return_value=True), \
+             patch("app.services.integration_settings.get_status", return_value="enabled"), \
              patch.object(manager, "start", new_callable=AsyncMock) as mock_start:
             await manager.start_auto_start_processes()
             mock_start.assert_called_once_with("test")
+
+    @pytest.mark.asyncio
+    async def test_start_auto_start_skips_non_enabled(self, manager):
+        """Auto-start should skip integrations whose lifecycle_status is not 'enabled'."""
+        with patch.object(manager, "_discover", return_value={
+            "test": {"cmd": ["echo"], "required_env": [], "description": "Test"},
+        }), patch.object(manager, "_env_ready", return_value=True), \
+             patch.object(manager, "get_auto_start", return_value=True), \
+             patch("app.services.integration_settings.get_status", return_value="needs_setup"), \
+             patch.object(manager, "start", new_callable=AsyncMock) as mock_start:
+            await manager.start_auto_start_processes()
+            mock_start.assert_not_called()
 
 
 class TestShutdownAll:

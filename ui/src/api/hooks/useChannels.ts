@@ -390,6 +390,42 @@ export function useMoveChannelWorkspaceFile(channelId: string) {
   });
 }
 
+export interface WorkspaceFileVersion {
+  version: string;   // .bak filename
+  bytes: number;
+  modified_at: string;  // ISO8601 UTC
+}
+
+export function useChannelWorkspaceFileVersions(channelId: string | undefined, path: string | null, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ["channel-workspace-file-versions", channelId, path],
+    queryFn: () =>
+      apiFetch<{ path: string; versions: WorkspaceFileVersion[] }>(
+        `/api/v1/channels/${channelId}/workspace/files/versions?path=${encodeURIComponent(path!)}`
+      ),
+    enabled: enabled && !!channelId && !!path,
+  });
+}
+
+export function useRestoreChannelWorkspaceFile(channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ path, version }: { path: string; version: string }) =>
+      apiFetch<{ path: string; restored_from: string; prior_backup: string | null; bytes: number }>(
+        `/api/v1/channels/${channelId}/workspace/files/restore?path=${encodeURIComponent(path)}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ version }),
+        },
+      ),
+    onSuccess: (_data, { path }) => {
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-file-versions", channelId, path] });
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-file-content", channelId, path] });
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Channel workspace file upload (multipart — bypasses apiFetch)
 // ---------------------------------------------------------------------------

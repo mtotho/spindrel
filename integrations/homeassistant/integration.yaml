@@ -48,9 +48,10 @@ _ha_state_poll: &ha_state_poll
           args:
             name: "{{entity_name}}"
           optimistic: true
-      # Brightness slider — only when on
+      # Brightness slider — only for HassLightSet pins, gated by the
+      # transform (is_on AND pin tool is HassLightSet).
       - type: slider
-        when: "{{is_on}}"
+        when: "{{show_brightness}}"
         label: Brightness
         value: "{{brightness}}"
         min: 0

@@ -1,18 +1,29 @@
-"""Tests for global integration disable/enable feature."""
+"""Tests for the integration lifecycle-status model.
+
+Covers the three-state ``available | needs_setup | enabled`` system on
+``IntegrationSetting._status``. Legacy ``is_disabled`` / ``set_disabled``
+helpers have been retired; this file pins their replacement.
+"""
 
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from app.services.integration_settings import is_disabled, _cache
+from app.services.integration_settings import (
+    STATUS_KEY,
+    _cache,
+    get_status,
+    is_active,
+    is_configured,
+)
 
 
 # ---------------------------------------------------------------------------
-# is_disabled / set_disabled
+# get_status
 # ---------------------------------------------------------------------------
 
 
-class TestIsDisabled:
-    """Tests for is_disabled() reading from the in-memory cache."""
+class TestGetStatus:
+    """``get_status`` reads from the in-memory cache."""
 
     def setup_method(self):
         self._original_cache = dict(_cache)
@@ -21,44 +32,116 @@ class TestIsDisabled:
         _cache.clear()
         _cache.update(self._original_cache)
 
-    def test_not_disabled_when_missing(self):
-        """Integration with no _disabled key should not be disabled."""
-        _cache.pop(("test_intg", "_disabled"), None)
-        assert is_disabled("test_intg") is False
+    def test_default_is_available(self):
+        _cache.pop(("test_intg", STATUS_KEY), None)
+        assert get_status("test_intg") == "available"
 
-    def test_not_disabled_when_false(self):
-        _cache[("test_intg", "_disabled")] = "false"
-        assert is_disabled("test_intg") is False
+    def test_round_trip_available(self):
+        _cache[("test_intg", STATUS_KEY)] = "available"
+        assert get_status("test_intg") == "available"
 
-    def test_disabled_when_true(self):
-        _cache[("test_intg", "_disabled")] = "true"
-        assert is_disabled("test_intg") is True
+    def test_round_trip_needs_setup(self):
+        _cache[("test_intg", STATUS_KEY)] = "needs_setup"
+        assert get_status("test_intg") == "needs_setup"
 
-    def test_disabled_when_1(self):
-        _cache[("test_intg", "_disabled")] = "1"
-        assert is_disabled("test_intg") is True
+    def test_round_trip_enabled(self):
+        _cache[("test_intg", STATUS_KEY)] = "enabled"
+        assert get_status("test_intg") == "enabled"
 
-    def test_disabled_when_yes(self):
-        _cache[("test_intg", "_disabled")] = "yes"
-        assert is_disabled("test_intg") is True
+    def test_unknown_value_falls_back_to_available(self):
+        _cache[("test_intg", STATUS_KEY)] = "bogus"
+        assert get_status("test_intg") == "available"
 
-    def test_not_disabled_when_empty(self):
-        _cache[("test_intg", "_disabled")] = ""
-        assert is_disabled("test_intg") is False
+    def test_is_active_only_when_enabled_and_configured(self):
+        _cache[("test_intg", STATUS_KEY)] = "enabled"
+        with patch(
+            "app.services.integration_settings.is_configured", return_value=True
+        ):
+            assert is_active("test_intg") is True
+        with patch(
+            "app.services.integration_settings.is_configured", return_value=False
+        ):
+            assert is_active("test_intg") is False
 
-    def test_not_disabled_when_random(self):
-        _cache[("test_intg", "_disabled")] = "maybe"
-        assert is_disabled("test_intg") is False
+    def test_is_active_false_for_needs_setup(self):
+        _cache[("test_intg", STATUS_KEY)] = "needs_setup"
+        with patch(
+            "app.services.integration_settings.is_configured", return_value=True
+        ):
+            assert is_active("test_intg") is False
 
 
 # ---------------------------------------------------------------------------
-# unregister_integration_tools
+# Auto-promote / auto-demote
+# ---------------------------------------------------------------------------
+
+
+class TestStatusReconciliation:
+    def setup_method(self):
+        self._original_cache = dict(_cache)
+
+    def teardown_method(self):
+        _cache.clear()
+        _cache.update(self._original_cache)
+
+    @pytest.mark.asyncio
+    async def test_promotes_needs_setup_to_enabled_when_configured(self):
+        from app.services.integration_settings import _reconcile_status
+
+        _cache[("test_intg", STATUS_KEY)] = "needs_setup"
+        with (
+            patch(
+                "app.services.integration_settings.is_configured", return_value=True
+            ),
+            patch(
+                "app.services.integration_settings.set_status",
+                new=AsyncMock(),
+            ) as set_mock,
+        ):
+            await _reconcile_status("test_intg")
+        set_mock.assert_awaited_once_with("test_intg", "enabled")
+
+    @pytest.mark.asyncio
+    async def test_demotes_enabled_to_needs_setup_when_unconfigured(self):
+        from app.services.integration_settings import _reconcile_status
+
+        _cache[("test_intg", STATUS_KEY)] = "enabled"
+        with (
+            patch(
+                "app.services.integration_settings.is_configured", return_value=False
+            ),
+            patch(
+                "app.services.integration_settings.set_status",
+                new=AsyncMock(),
+            ) as set_mock,
+        ):
+            await _reconcile_status("test_intg")
+        set_mock.assert_awaited_once_with("test_intg", "needs_setup")
+
+    @pytest.mark.asyncio
+    async def test_available_is_never_auto_flipped(self):
+        from app.services.integration_settings import _reconcile_status
+
+        _cache[("test_intg", STATUS_KEY)] = "available"
+        with (
+            patch(
+                "app.services.integration_settings.is_configured", return_value=True
+            ),
+            patch(
+                "app.services.integration_settings.set_status",
+                new=AsyncMock(),
+            ) as set_mock,
+        ):
+            await _reconcile_status("test_intg")
+        set_mock.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# unregister_integration_tools (registry helper used by the status router)
 # ---------------------------------------------------------------------------
 
 
 class TestUnregisterIntegrationTools:
-    """Tests for removing tools by integration ID from the registry."""
-
     def test_removes_matching_tools(self):
         from app.tools.registry import _tools, unregister_integration_tools
 
@@ -92,16 +175,14 @@ class TestUnregisterIntegrationTools:
 
 
 # ---------------------------------------------------------------------------
-# remove_integration_embeddings
+# remove_integration_embeddings (used when moving to available)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_remove_integration_embeddings():
-    """Verify remove_integration_embeddings deletes rows and invalidates cache."""
     from app.agent.tools import remove_integration_embeddings, _tool_cache
 
-    # Pre-populate cache to verify it gets cleared
     _tool_cache["test_key"] = (0, [], 0.0, [])
 
     mock_result = MagicMock()
@@ -123,115 +204,71 @@ async def test_remove_integration_embeddings():
 
 
 # ---------------------------------------------------------------------------
-# Process manager gating
+# Process manager gating — only starts for status=enabled
 # ---------------------------------------------------------------------------
 
 
-class TestProcessManagerDisabledGating:
-    """Tests for disabled integration checks in process manager."""
-
+class TestProcessManagerStatusGating:
     @pytest.mark.asyncio
-    async def test_start_refuses_disabled(self):
-        """start() should return False for a disabled integration."""
+    async def test_start_refuses_non_enabled(self):
         from app.services.integration_processes import IntegrationProcessManager
 
         pm = IntegrationProcessManager()
-        with patch("app.services.integration_settings.is_disabled", return_value=True):
+        with patch("app.services.integration_settings.get_status", return_value="needs_setup"):
+            result = await pm.start("test_intg")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_start_refuses_available(self):
+        from app.services.integration_processes import IntegrationProcessManager
+
+        pm = IntegrationProcessManager()
+        with patch("app.services.integration_settings.get_status", return_value="available"):
             result = await pm.start("test_intg")
         assert result is False
 
     @pytest.mark.asyncio
     async def test_start_allows_enabled(self):
-        """start() should proceed normally for an enabled integration (will fail for other reasons)."""
         from app.services.integration_processes import IntegrationProcessManager
 
         pm = IntegrationProcessManager()
-        with patch("app.services.integration_settings.is_disabled", return_value=False):
-            # Will fail because no process.py exists, but the disabled check passes
+        with patch("app.services.integration_settings.get_status", return_value="enabled"):
+            # Still fails — no process.py exists — but we pass the status gate.
             result = await pm.start("nonexistent_intg")
-        assert result is False  # fails for env/discovery reasons, not disabled
+        assert result is False
 
 
 # ---------------------------------------------------------------------------
-# Loader gating
+# discover_setup_status exposes lifecycle_status
 # ---------------------------------------------------------------------------
 
 
-class TestLoaderDisabledGating:
-    """Tests for disabled integration check in _scan_integration_tools."""
-
-    def test_scan_skips_disabled(self, tmp_path):
-        """_scan_integration_tools should skip disabled integrations."""
-        from app.tools.loader import _scan_integration_tools
-        from app.tools.registry import _tools
-
-        # Create a fake integration with a tools dir
-        intg_dir = tmp_path / "test_intg" / "tools"
-        intg_dir.mkdir(parents=True)
-        (intg_dir / "my_tool.py").write_text("# no-op tool file\n")
-
-        original = dict(_tools)
-        try:
-            with patch("app.services.integration_settings.is_disabled", return_value=True):
-                _scan_integration_tools(tmp_path)
-            # No new tools should have been registered
-            new_tools = set(_tools.keys()) - set(original.keys())
-            assert len(new_tools) == 0
-        finally:
-            _tools.clear()
-            _tools.update(original)
-
-
-# ---------------------------------------------------------------------------
-# discover_setup_status disabled field
-# ---------------------------------------------------------------------------
-
-
-class TestDiscoverSetupStatusDisabledField:
-    """Tests for the disabled field in discover_setup_status."""
-
-    def test_disabled_field_present(self):
-        """discover_setup_status should include a disabled field."""
+class TestDiscoverSetupStatusLifecycleField:
+    def test_lifecycle_status_field_present(self):
         from integrations import discover_setup_status
 
-        with patch("app.services.integration_settings.is_disabled", return_value=False):
+        with patch("app.services.integration_settings.get_status", return_value="available"):
             results = discover_setup_status()
 
-        # All results should have a disabled field
         for entry in results:
-            assert "disabled" in entry, f"Integration {entry['id']} missing disabled field"
+            assert "lifecycle_status" in entry, (
+                f"Integration {entry['id']} missing lifecycle_status field"
+            )
 
-    def test_disabled_field_reflects_cache(self):
-        """disabled field should reflect the is_disabled() value."""
+    def test_lifecycle_status_reflects_get_status(self):
         from integrations import discover_setup_status
 
-        def mock_is_disabled(iid):
-            return iid == "example"
+        def mock_get_status(iid):
+            return "enabled" if iid == "example" else "available"
 
-        with patch("app.services.integration_settings.is_disabled", side_effect=mock_is_disabled):
+        with patch("app.services.integration_settings.get_status", side_effect=mock_get_status):
             results = discover_setup_status()
 
         for entry in results:
             if entry["id"] == "example":
-                assert entry["disabled"] is True
+                assert entry["lifecycle_status"] == "enabled"
             else:
-                assert entry["disabled"] is False
-
-
-# ---------------------------------------------------------------------------
-# Context assembly activation gating
-# ---------------------------------------------------------------------------
-
-
-class TestContextAssemblyDisabledGating:
-    """Verify that disabled integrations don't inject activation carapaces."""
-
-    def test_activation_skips_disabled_integration(self):
-        """Activation injection should skip disabled integrations."""
-        # This is a structural test — the actual gating is in context_assembly.py
-        # We verify the import and function exist
-        from app.services.integration_settings import is_disabled
-        assert callable(is_disabled)
+                assert entry["lifecycle_status"] == "available"
 
 
 # ---------------------------------------------------------------------------
@@ -240,8 +277,7 @@ class TestContextAssemblyDisabledGating:
 
 
 @pytest.mark.asyncio
-async def test_sidebar_sections_hides_disabled():
-    """Sidebar sections endpoint should hide disabled integrations."""
+async def test_sidebar_sections_only_shows_enabled():
     from app.routers.api_v1_admin.integrations import list_sidebar_sections
 
     mock_section = {
@@ -253,12 +289,22 @@ async def test_sidebar_sections_hides_disabled():
     }
 
     with patch("integrations.discover_sidebar_sections", return_value=[mock_section]):
-        with patch("app.services.integration_settings.is_disabled", return_value=True):
+        with patch("app.services.integration_settings.get_status", return_value="needs_setup"):
             result = await list_sidebar_sections()
     assert result["sections"] == []
 
     with patch("integrations.discover_sidebar_sections", return_value=[mock_section]):
-        with patch("app.services.integration_settings.is_disabled", return_value=False):
+        with patch("app.services.integration_settings.get_status", return_value="available"):
+            result = await list_sidebar_sections()
+    assert result["sections"] == []
+
+    with patch("integrations.discover_sidebar_sections", return_value=[mock_section]):
+        with patch("app.services.integration_settings.get_status", return_value="enabled"):
             with patch("app.services.integration_settings.get_value", return_value="true"):
                 result = await list_sidebar_sections()
     assert len(result["sections"]) == 1
+
+
+def test_is_configured_stub_callable():
+    """Simple sanity check that the public is_configured helper is still importable."""
+    assert callable(is_configured)

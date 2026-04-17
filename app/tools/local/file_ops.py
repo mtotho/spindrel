@@ -1,10 +1,12 @@
 """file — direct file operations inside the bot's workspace.
 
 Bypasses shell entirely, avoiding quoting/escaping issues with exec_command.
-Operations: read, write, append, edit, list, delete, mkdir, move, grep, glob.
+Operations: read, create, overwrite, append, edit, json_patch, history, restore,
+list, delete, mkdir, move, grep, glob.
 """
 from __future__ import annotations
 
+import copy
 import difflib
 import fnmatch
 import glob as glob_mod
@@ -33,10 +35,19 @@ MAX_GREP_FILES_SCANNED = 20000
 MAX_GREP_FILE_BYTES = 5_242_880  # 5 MB — skip files larger than this during grep
 GREP_LINE_MAX_CHARS = 400
 
-# Write-safety: versioned backups + destructive-write guard
-MAX_BACKUP_VERSIONS = 5
-SIZE_DROP_THRESHOLD = 0.5   # reject if new content < 50% of old
-SIZE_DROP_MIN_BYTES = 500   # only guard files larger than this
+# Versioned backups retained in a sibling .versions/ directory. Data files
+# (.json/.yaml/.yml/.toml) keep a longer rollback window since structured
+# data is both more valuable to recover and more often touched by patches.
+MAX_BACKUP_VERSIONS_DEFAULT = 5
+MAX_BACKUP_VERSIONS_DATA = 20
+_DATA_FILE_EXTS = frozenset({".json", ".yaml", ".yml", ".toml"})
+MAX_BACKUP_VERSIONS = MAX_BACKUP_VERSIONS_DEFAULT
+
+# Read-before-overwrite tracking: the `overwrite` op requires the bot to have
+# called `read` on the same path within this window. Matches Claude Code's
+# Write tool precondition.
+_RECENT_READS: dict[tuple[str, str], float] = {}
+_READ_FRESHNESS_SECONDS = 600  # 10 min — covers a typical run
 
 # Directories pruned from recursive grep / glob — keeps output focused on
 # source and avoids blowing context on vendored / build / VCS junk.
@@ -186,9 +197,12 @@ def _error(msg: str) -> str:
         "description": (
             "Direct file operations inside your workspace. Bypasses shell — "
             "no quoting issues with apostrophes, backticks, or special characters. "
-            "Operations: read, write, append, edit, list, delete, mkdir, move, grep, glob. "
-            "Use grep for literal/regex text search across files (complements search_workspace, "
-            "which is semantic). Use glob to find files by filename pattern (e.g. '**/*.py')."
+            "Operations: read, create (new file, errors if exists), overwrite (full "
+            "rewrite after reading), append, edit (find/replace), json_patch (RFC "
+            "6902 on JSON), history, restore, list, delete, mkdir, move, grep, glob. "
+            "Use grep for literal/regex text search across files (complements "
+            "search_workspace, which is semantic). Use glob to find files by filename "
+            "pattern (e.g. '**/*.py')."
         ),
         "parameters": {
             "type": "object",
@@ -196,11 +210,22 @@ def _error(msg: str) -> str:
                 "operation": {
                     "type": "string",
                     "enum": [
-                        "read", "write", "append", "edit",
+                        "read", "create", "overwrite", "append", "edit",
+                        "json_patch", "history", "restore",
                         "list", "delete", "mkdir", "move",
                         "grep", "glob",
                     ],
-                    "description": "The file operation to perform.",
+                    "description": (
+                        "The file operation to perform. `create` makes a new file "
+                        "and errors if the path exists — use it for every new-file "
+                        "write. `overwrite` fully rewrites an existing file and "
+                        "requires you to have just called `read` on it (this is the "
+                        "safety rail that blocks 'wrote a shrunken version' bugs). "
+                        "`json_patch` applies RFC 6902 ops to JSON — use this for "
+                        "data files so keys you didn't mention aren't dropped. "
+                        "`edit` is find/replace, the safest op for narrative files. "
+                        "`history` lists backups for a path; `restore` rolls back to one."
+                    ),
                 },
                 "path": {
                     "type": "string",
@@ -261,12 +286,21 @@ def _error(msg: str) -> str:
                         "to matching filenames."
                     ),
                 },
-                "force": {
-                    "type": "boolean",
+                "patch": {
+                    "type": "array",
                     "description": (
-                        "For write: override the destructive-write guard. Required when "
-                        "write would remove >50% of an existing file's content. "
-                        "Prefer operation=\"edit\" to change specific sections instead."
+                        "For json_patch: RFC 6902 JSON Patch operations. Each entry: "
+                        "{op: add|remove|replace|move|copy|test, path: '/a/b', value: ...}. "
+                        "Reads the file, applies patches, writes back — the agent never "
+                        "holds the whole file, so unchanged keys cannot be silently dropped."
+                    ),
+                    "items": {"type": "object"},
+                },
+                "version": {
+                    "type": "string",
+                    "description": (
+                        "For restore: the backup filename to restore from (from "
+                        "history output). Example: 'tracked-shows.json.1776429202-1753.bak'."
                     ),
                 },
             },
@@ -286,7 +320,8 @@ async def file(
     destination: str | None = None,
     pattern: str | None = None,
     include: str | None = None,
-    force: bool = False,
+    patch: list[dict] | None = None,
+    version: str | None = None,
 ) -> str:
     """Dispatch file operations."""
     bot, bot_id, ws_root = _get_bot_and_workspace_root()
@@ -313,7 +348,10 @@ async def file(
     if block_err:
         return _error(block_err)
 
-    _WRITE_OPS = {"write", "append", "edit", "delete", "mkdir", "move"}
+    _WRITE_OPS = {
+        "create", "overwrite", "append", "edit",
+        "json_patch", "restore", "delete", "mkdir", "move",
+    }
 
     try:
         if operation == "read":
@@ -322,6 +360,7 @@ async def file(
             # tests stay simple). Wrap with an envelope here so the web UI gets
             # mimetype-keyed rendering and the LLM still sees the numbered text.
             if not result.startswith('{"error"'):
+                _note_read(bot_id, resolved)
                 rel = os.path.relpath(resolved, os.path.realpath(effective_ws_root))
                 # Body is the file content WITHOUT the line-number gutter so
                 # renderers (markdown / json / plain) consume the original.
@@ -338,12 +377,20 @@ async def file(
                     },
                     "llm": result,
                 })
-        elif operation == "write":
-            result = _op_write(resolved, content, force=force)
+        elif operation == "create":
+            result = _op_create(resolved, content)
+        elif operation == "overwrite":
+            result = _op_overwrite(resolved, content, bot_id)
         elif operation == "append":
             result = _op_append(resolved, content)
         elif operation == "edit":
-            result = _op_edit(resolved, find, replace, replace_all, content=content)
+            result = _op_edit(resolved, find, replace, replace_all, content=content, bot_id=bot_id)
+        elif operation == "json_patch":
+            result = _op_json_patch(resolved, patch)
+        elif operation == "history":
+            result = _op_history(resolved, effective_ws_root)
+        elif operation == "restore":
+            result = _op_restore(resolved, version)
         elif operation == "list":
             result = _op_list(resolved, effective_ws_root)
         elif operation == "delete":
@@ -424,11 +471,41 @@ def _diff_stats(diff_text: str) -> tuple[int, int]:
     return added, removed
 
 
-def _save_backup(path: str) -> None:
+def _note_read(bot_id: str | None, path: str) -> None:
+    """Record that *bot_id* read *path* just now (for read-before-overwrite)."""
+    if not bot_id:
+        return
+    _RECENT_READS[(bot_id, os.path.realpath(path))] = time.time()
+
+
+def _is_recently_read(bot_id: str | None, path: str) -> bool:
+    """True if *bot_id* read *path* within _READ_FRESHNESS_SECONDS."""
+    if not bot_id:
+        return False
+    ts = _RECENT_READS.get((bot_id, os.path.realpath(path)))
+    if ts is None:
+        return False
+    if time.time() - ts > _READ_FRESHNESS_SECONDS:
+        return False
+    return True
+
+
+def _retention_for(path: str) -> int:
+    ext = os.path.splitext(path)[1].lower()
+    return MAX_BACKUP_VERSIONS_DATA if ext in _DATA_FILE_EXTS else MAX_BACKUP_VERSIONS_DEFAULT
+
+
+def _save_backup(path: str) -> str | None:
     """Save a timestamped backup of *path* in a .versions/ sibling directory.
 
-    Keeps the most recent MAX_BACKUP_VERSIONS copies, pruning older ones.
+    Returns the absolute backup path on success (for inclusion in tool results),
+    or None if the source is missing or the copy failed. Retention depends on
+    file extension — data files (.json/.yaml/.yml/.toml) keep MAX_BACKUP_VERSIONS_DATA
+    copies, everything else keeps MAX_BACKUP_VERSIONS_DEFAULT.
     """
+    if not os.path.isfile(path):
+        return None
+
     parent = os.path.dirname(path)
     basename = os.path.basename(path)
     versions_dir = os.path.join(parent, ".versions")
@@ -444,69 +521,308 @@ def _save_backup(path: str) -> None:
         shutil.copy2(path, backup_path)
     except OSError:
         logger.warning("Failed to create backup of %s", path)
-        return
+        return None
 
-    # Prune old backups (keep newest MAX_BACKUP_VERSIONS)
+    # Prune old backups for this basename (keep newest per-file retention).
     pattern = os.path.join(versions_dir, f"{basename}.*.bak")
     backups = sorted(glob_mod.glob(pattern), key=lambda p: (os.path.getmtime(p), p), reverse=True)
-    for old in backups[MAX_BACKUP_VERSIONS:]:
+    retention = _retention_for(path)
+    for old in backups[retention:]:
         try:
             os.remove(old)
         except OSError:
             pass
 
+    return backup_path
 
-def _op_write(path: str, content: str | None, force: bool = False) -> str:
+
+def _relativize_backup(backup_path: str | None, live_path: str) -> str | None:
+    """Return the backup path relative to the live file's parent (compact log line)."""
+    if not backup_path:
+        return None
+    try:
+        return os.path.relpath(backup_path, os.path.dirname(live_path))
+    except ValueError:
+        return backup_path
+
+
+def _op_create(path: str, content: str | None) -> str:
+    """Write a new file; error if *path* already exists.
+
+    Matches POSIX O_CREAT|O_EXCL and str_replace_editor's `create` command.
+    Use this for every new-file write so a half-remembered path never clobbers
+    an existing doc.
+    """
     if content is None:
-        return _error("content is required for write.")
+        return _error("content is required for create.")
     if len(content.encode("utf-8")) > MAX_CONTENT_BYTES:
         return _error(f"Content exceeds {MAX_CONTENT_BYTES} byte limit.")
-
-    # Capture pre-content for the diff envelope. New file → empty before.
-    pre_content = ""
+    if os.path.isdir(path):
+        return _error(f"Path is a directory: {os.path.basename(path)}")
     if os.path.isfile(path):
-        try:
-            pre_content = Path(path).read_text()
-        except (OSError, UnicodeDecodeError):
-            pre_content = ""
+        return _error(
+            f"File already exists: {os.path.basename(path)}. "
+            f"Use operation=\"edit\" for targeted changes, \"append\" to add content, "
+            f"or \"overwrite\" (after reading the file) for an intentional full rewrite."
+        )
 
-    # --- Write-safety: size-drop guard ---
-    # Reject writes that would delete a large portion of existing content
-    # unless the caller explicitly passes force=true.
-    if pre_content and not force:
-        old_bytes = len(pre_content.encode("utf-8"))
-        new_bytes = len(content.encode("utf-8"))
-        if old_bytes >= SIZE_DROP_MIN_BYTES and new_bytes < old_bytes * SIZE_DROP_THRESHOLD:
-            pct = int((1 - new_bytes / old_bytes) * 100)
-            return _error(
-                f"Write would remove ~{pct}% of this file's content "
-                f"({old_bytes} → {new_bytes} bytes). This is likely destructive. "
-                f"Use operation=\"edit\" to change specific sections, or pass "
-                f"force=true to confirm you want to overwrite the entire file."
-            )
-
-    # --- Write-safety: versioned backup ---
-    # Save a timestamped copy before overwriting so content is recoverable.
-    if pre_content and os.path.isfile(path):
-        _save_backup(path)
-
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     Path(path).write_text(content)
     size = os.path.getsize(path)
-
     rel = os.path.basename(path)
-    diff_text = _make_diff(pre_content, content, rel)
-    added, removed = _diff_stats(diff_text)
-    summary = (
-        f"Created {rel} (+{added} lines)" if not pre_content
-        else f"Wrote {rel} (+{added} −{removed} lines)"
-    )
+    line_count = content.count("\n") + (0 if content.endswith("\n") or not content else 1)
     return json.dumps({
         "ok": True,
         "bytes": size,
+        "created": True,
+        "_envelope": {
+            "content_type": "text/markdown",
+            "body": f"**Created** `{rel}` ({size} bytes, {line_count} lines)",
+            "plain_body": f"Created {rel} ({size} bytes, {line_count} lines).",
+            "display": "inline",
+        },
+    })
+
+
+def _op_overwrite(path: str, content: str | None, bot_id: str | None) -> str:
+    """Fully rewrite an existing file — requires a prior `read` in the same work.
+
+    Matches Claude Code's Write tool safety pattern: you must have read the
+    current contents into context before the model can justify replacing them.
+    This forecloses the "wrote a shrunken version because I forgot what else
+    was in there" failure mode that prompted this plan.
+    """
+    if content is None:
+        return _error("content is required for overwrite.")
+    if len(content.encode("utf-8")) > MAX_CONTENT_BYTES:
+        return _error(f"Content exceeds {MAX_CONTENT_BYTES} byte limit.")
+    if not os.path.isfile(path):
+        return _error(
+            f"File does not exist: {os.path.basename(path)}. "
+            f"Use operation=\"create\" to make a new file."
+        )
+    if not _is_recently_read(bot_id, path):
+        return _error(
+            f"Must read the file before overwriting it. Call "
+            f"file(operation=\"read\", path=\"{os.path.basename(path)}\") first, "
+            f"then retry overwrite. (For JSON data files, prefer json_patch so "
+            f"you don't have to hold the whole file in context.)"
+        )
+
+    try:
+        pre_content = Path(path).read_text()
+    except (OSError, UnicodeDecodeError):
+        pre_content = ""
+
+    backup_path = _save_backup(path)
+    backup_rel = _relativize_backup(backup_path, path)
+    Path(path).write_text(content)
+    size = os.path.getsize(path)
+    rel = os.path.basename(path)
+    diff_text = _make_diff(pre_content, content, rel)
+    added, removed = _diff_stats(diff_text)
+    summary = f"Overwrote {rel}: +{added} −{removed} lines"
+    if backup_rel:
+        summary += f" (backup: {backup_rel})"
+    return json.dumps({
+        "ok": True,
+        "bytes": size,
+        "backup": backup_rel,
         "_envelope": {
             "content_type": "application/vnd.spindrel.diff+text",
             "body": diff_text,
+            "plain_body": summary,
+            "display": "inline",
+        },
+    })
+
+
+def _op_json_patch(path: str, patch: list[dict] | None) -> str:
+    """Apply an RFC 6902 JSON Patch to *path* and write back.
+
+    The canonical fix for the arr-heartbeat incident class: the agent describes
+    which keys to touch, the tool reads-modifies-writes. Unmentioned keys
+    survive by construction.
+    """
+    if not patch:
+        return _error(
+            "patch is required for json_patch and must be a non-empty list of "
+            "RFC 6902 ops (e.g. [{\"op\": \"replace\", \"path\": \"/a/b\", \"value\": 1}])."
+        )
+    if not isinstance(patch, list) or not all(isinstance(p, dict) for p in patch):
+        return _error("patch must be a list of RFC 6902 operation objects.")
+    if not os.path.isfile(path):
+        return _error(
+            f"File does not exist: {os.path.basename(path)}. "
+            f"Use operation=\"create\" to make a new JSON file first."
+        )
+
+    try:
+        raw = Path(path).read_text()
+    except (OSError, UnicodeDecodeError) as e:
+        return _error(f"Could not read file: {e}")
+
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return _error(
+            f"File is not valid JSON ({e.msg} at line {e.lineno}). "
+            f"Fix the file first (use read to inspect, then edit/overwrite) "
+            f"before applying a patch."
+        )
+
+    try:
+        import jsonpatch  # type: ignore
+    except ImportError:
+        return _error(
+            "json_patch requires the `jsonpatch` package. Install it via "
+            "requirements.txt and restart the agent-server."
+        )
+
+    try:
+        # Deep-copy so the caller cannot observe partial mutation on error.
+        patched = jsonpatch.apply_patch(copy.deepcopy(document), patch)
+    except jsonpatch.JsonPatchException as e:
+        return _error(f"Patch failed: {e}")
+    except jsonpatch.JsonPointerException as e:
+        return _error(f"Patch path not found: {e}")
+
+    # Preserve detected formatting: indent + trailing-newline presence.
+    indent = _detect_json_indent(raw)
+    trailing_newline = raw.endswith("\n")
+    new_text = json.dumps(patched, indent=indent, ensure_ascii=False)
+    if trailing_newline:
+        new_text += "\n"
+
+    backup_path = _save_backup(path)
+    backup_rel = _relativize_backup(backup_path, path)
+    Path(path).write_text(new_text)
+    size = os.path.getsize(path)
+    rel = os.path.basename(path)
+    diff_text = _make_diff(raw, new_text, rel)
+    added, removed = _diff_stats(diff_text)
+    applied = len(patch)
+    summary = f"Applied {applied} patch op(s) to {rel}: +{added} −{removed} lines"
+    if backup_rel:
+        summary += f" (backup: {backup_rel})"
+    return json.dumps({
+        "ok": True,
+        "bytes": size,
+        "applied": applied,
+        "backup": backup_rel,
+        "_envelope": {
+            "content_type": "application/vnd.spindrel.diff+text",
+            "body": diff_text,
+            "plain_body": summary,
+            "display": "inline",
+        },
+    })
+
+
+def _detect_json_indent(raw: str) -> int:
+    """Infer indent width from *raw* JSON text. Falls back to 2."""
+    m = re.match(r"^[\[{]\n( +)", raw)
+    if m:
+        return len(m.group(1))
+    return 2
+
+
+def _op_history(path: str, ws_root: str) -> str:
+    """List `.versions/` backups for *path*."""
+    parent = os.path.dirname(path)
+    basename = os.path.basename(path)
+    versions_dir = os.path.join(parent, ".versions")
+    if not os.path.isdir(versions_dir):
+        rel = os.path.relpath(path, os.path.realpath(ws_root))
+        return json.dumps({
+            "ok": True,
+            "path": rel,
+            "versions": [],
+            "_envelope": {
+                "content_type": "text/markdown",
+                "body": f"No backups yet for `{rel}`.",
+                "plain_body": f"No backups yet for {rel}.",
+                "display": "inline",
+            },
+        })
+
+    pattern = os.path.join(versions_dir, f"{basename}.*.bak")
+    backups = sorted(glob_mod.glob(pattern), key=os.path.getmtime, reverse=True)
+    versions = []
+    for bp in backups:
+        try:
+            st = os.stat(bp)
+        except OSError:
+            continue
+        versions.append({
+            "version": os.path.basename(bp),
+            "bytes": st.st_size,
+            "modified_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(st.st_mtime)),
+        })
+
+    rel = os.path.relpath(path, os.path.realpath(ws_root))
+    lines = [f"**Backups for `{rel}`** ({len(versions)} version(s)):", ""]
+    lines.extend(
+        f"- `{v['version']}` — {v['bytes']} bytes, {v['modified_at']}" for v in versions
+    )
+    return json.dumps({
+        "ok": True,
+        "path": rel,
+        "versions": versions,
+        "_envelope": {
+            "content_type": "text/markdown",
+            "body": "\n".join(lines),
+            "plain_body": f"Listed {len(versions)} backup(s) for {rel}.",
+            "display": "inline",
+        },
+    })
+
+
+def _op_restore(path: str, version: str | None) -> str:
+    """Restore *path* from a `.versions/` backup; current state is itself backed up first."""
+    if not version:
+        return _error(
+            "version is required for restore (filename from `history` output, "
+            "e.g. 'tracked-shows.json.1776429202-1753.bak')."
+        )
+    if "/" in version or ".." in version:
+        return _error("version must be a plain filename, not a path.")
+
+    parent = os.path.dirname(path)
+    versions_dir = os.path.join(parent, ".versions")
+    backup_path = os.path.join(versions_dir, version)
+    if not os.path.isfile(backup_path):
+        return _error(f"Backup not found: {version}. Call operation=\"history\" to list.")
+
+    basename = os.path.basename(path)
+    if not version.startswith(basename + "."):
+        return _error(f"Backup {version} does not belong to {basename}.")
+
+    # Back up current live state before overwriting it — restore is itself undoable.
+    prior_backup_rel = None
+    if os.path.isfile(path):
+        prior_backup = _save_backup(path)
+        prior_backup_rel = _relativize_backup(prior_backup, path)
+
+    try:
+        import shutil
+        shutil.copy2(backup_path, path)
+    except OSError as e:
+        return _error(f"Restore failed: {e}")
+
+    size = os.path.getsize(path)
+    rel = os.path.basename(path)
+    summary = f"Restored {rel} from {version} ({size} bytes)."
+    if prior_backup_rel:
+        summary += f" Prior state saved as {prior_backup_rel}."
+    return json.dumps({
+        "ok": True,
+        "bytes": size,
+        "restored_from": version,
+        "prior_backup": prior_backup_rel,
+        "_envelope": {
+            "content_type": "text/markdown",
+            "body": summary,
             "plain_body": summary,
             "display": "inline",
         },
@@ -605,18 +921,25 @@ def _find_closest_hint(find: str, text: str) -> str:
 
 
 def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool,
-             content: str | None = None) -> str:
+             content: str | None = None, bot_id: str | None = None) -> str:
     # Auto-recover when LLM passes content instead of find/replace
     if find is None and content is not None:
         if replace is not None and replace != content:
             # LLM put old text in content, new text in replace → treat content as find
             find = content
         else:
-            # LLM just wants to overwrite — fall through to write
-            logger.info("edit: no find provided, falling through to write for %s", path)
-            return _op_write(path, content)
+            # LLM just wants to overwrite — route to the safe overwrite op so the
+            # read-before-write precondition still applies.
+            logger.info("edit: no find provided, routing to overwrite for %s", path)
+            if not os.path.isfile(path):
+                return _op_create(path, content)
+            return _op_overwrite(path, content, bot_id)
     if find is None:
-        return _error("find is required for edit. Use operation='write' to replace the entire file.")
+        return _error(
+            "find is required for edit. For a full rewrite, read the file first "
+            "then call operation=\"overwrite\". For structured JSON changes, use "
+            "operation=\"json_patch\"."
+        )
     if replace is None:
         replace = content if content is not None else None
     if replace is None:

@@ -7,14 +7,13 @@ import { Check, X } from "lucide-react";
 // ---------------------------------------------------------------------------
 
 export const STATUS_COLORS: Record<string, { dot: string; label: string; bg: string }> = {
-  ready: { dot: "#22c55e", label: "Ready", bg: "rgba(34,197,94,0.12)" },
-  partial: { dot: "#eab308", label: "Partial", bg: "rgba(234,179,8,0.12)" },
-  not_configured: { dot: "#6b7280", label: "Not Configured", bg: "rgba(107,114,128,0.12)" },
-  disabled: { dot: "#ef4444", label: "Disabled", bg: "rgba(239,68,68,0.12)" },
+  enabled: { dot: "#22c55e", label: "Enabled", bg: "rgba(34,197,94,0.12)" },
+  needs_setup: { dot: "#eab308", label: "Needs Setup", bg: "rgba(234,179,8,0.12)" },
+  available: { dot: "#6b7280", label: "Available", bg: "rgba(107,114,128,0.12)" },
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const c = STATUS_COLORS[status] || STATUS_COLORS.not_configured;
+  const c = STATUS_COLORS[status] || STATUS_COLORS.available;
   return (
     <span
       style={{

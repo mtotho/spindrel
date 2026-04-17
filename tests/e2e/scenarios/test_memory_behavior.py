@@ -54,7 +54,7 @@ async def test_memory_recall_cross_channel(client: E2EClient) -> None:
     # Channel A: write a fact to memory
     r1 = await client.chat_stream(
         f'{_FILE_TOOL_HINT}'
-        f'Call the "file" tool with operation="write", '
+        f'Call the "file" tool with operation="create", '
         f'path="memory/e2e-cross-channel-{token}.md", '
         f'content="Cross-channel secret: {token}". '
         f'Confirm you wrote it.',
@@ -95,7 +95,7 @@ async def test_memory_persists_across_sessions(client: E2EClient) -> None:
     # Session 1: write memory file
     r1 = await client.chat_stream(
         f'{_FILE_TOOL_HINT}'
-        f'Call the "file" tool with operation="write", '
+        f'Call the "file" tool with operation="create", '
         f'path="{filename}", '
         f'content="Session persistence value: {token}". '
         f'Confirm you wrote it.',
@@ -181,7 +181,7 @@ async def test_memory_write_then_read_via_admin_api(client: E2EClient) -> None:
     # LLM writes the file
     r1 = await client.chat_stream(
         f'{_FILE_TOOL_HINT}'
-        f'Call the "file" tool with operation="write", '
+        f'Call the "file" tool with operation="create", '
         f'path="memory/{filename}", '
         f'content="API verification token: {token}". '
         f'Confirm you wrote it.',

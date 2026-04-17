@@ -472,6 +472,7 @@ async def persist_turn(
     channel_id: uuid.UUID | None = None,
     is_heartbeat: bool = False,
     pre_user_msg_id: uuid.UUID | None = None,
+    hide_messages: bool = False,
 ) -> uuid.UUID | None:
     """Persist new messages from a turn. Returns the first user message ID (for attachment linking).
 
@@ -560,6 +561,12 @@ async def persist_turn(
         # Tag all messages in heartbeat turns so _load_messages can filter old ones
         if is_heartbeat:
             meta = {**meta, "is_heartbeat": True}
+        # Pipeline agent-step children: persist for session-history context,
+        # but tag so the web UI filter drops them (see useChannelChat.ts) and
+        # they don't clutter the channel next time someone refreshes. The
+        # envelope anchor is the only user-facing surface.
+        if hide_messages:
+            meta = {**meta, "hidden": True, "pipeline_step": True}
         record = Message(
             session_id=session_id,
             role=msg["role"],

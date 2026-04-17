@@ -624,6 +624,12 @@ async def on_pipeline_step_completed(
     child_task: Task,
 ) -> None:
     """Called when a child agent task completes. Resumes the pipeline."""
+    # The ``child_task`` arg comes from the generic hook dispatcher, which
+    # passes the stale in-memory object — it never sees the ``t.result =
+    # result_text`` commit inside ``run_task``. Refetch the child directly
+    # so we write the real LLM response into the parent's step_states
+    # (otherwise the envelope shows the agent step as "done" with no
+    # expandable output).
     async with async_session() as db:
         parent = await db.get(Task, uuid.UUID(pipeline_task_id))
         if parent is None:
@@ -633,6 +639,10 @@ async def on_pipeline_step_completed(
         steps = parent.steps or []
         step_states = copy.deepcopy(parent.step_states or [])
 
+        fresh_child = await db.get(Task, child_task.id)
+        fresh_result = fresh_child.result if fresh_child else child_task.result
+        fresh_error = fresh_child.error if fresh_child else child_task.error
+
     if step_index >= len(step_states):
         logger.error("Step index %d out of range for pipeline %s", step_index, pipeline_task_id)
         return
@@ -640,8 +650,8 @@ async def on_pipeline_step_completed(
     now = datetime.now(timezone.utc)
     state = step_states[step_index]
     state["status"] = "done" if status == "complete" else "failed"
-    state["result"] = child_task.result
-    state["error"] = child_task.error
+    state["result"] = fresh_result
+    state["error"] = fresh_error
     state["completed_at"] = now.isoformat()
 
     # Truncate result

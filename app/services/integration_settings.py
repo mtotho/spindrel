@@ -2,13 +2,27 @@
 
 Precedence: DB value > env var > default.
 Env vars still work as deploy-time config; DB adds runtime editability from the admin UI.
+
+Lifecycle status lives on the per-integration ``_status`` key in ``integration_settings``:
+
+- ``available``  — the user has not adopted this integration (default).
+                   Hidden from the sidebar, command palette, and active views.
+- ``needs_setup`` — the user clicked Add but required settings are not yet filled.
+                    Visible as "Needs Setup" in the active view.
+- ``enabled``    — required settings are satisfied; integration runs normally.
+
+Transitions are managed by ``set_status`` (explicit) and by auto-promote /
+auto-demote inside ``update_settings`` / ``delete_setting`` (implicit, driven by
+``is_configured``). The ``_disabled`` key used by earlier versions has been
+replaced — ``available`` carries the same "not active" semantics while also
+covering the "never opted in" case.
 """
 from __future__ import annotations
 
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -22,6 +36,17 @@ logger = logging.getLogger(__name__)
 _cache: dict[tuple[str, str], str] = {}
 # Track which keys are secret (for masking)
 _secret_keys: dict[tuple[str, str], bool] = {}
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle status constants
+# ---------------------------------------------------------------------------
+
+STATUS_KEY = "_status"
+
+LifecycleStatus = Literal["available", "needs_setup", "enabled"]
+
+_VALID_STATUSES: tuple[LifecycleStatus, ...] = ("available", "needs_setup", "enabled")
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +183,9 @@ async def update_settings(
 
     await db.commit()
 
+    # Auto-promote / auto-demote lifecycle status based on new configuration.
+    await _reconcile_status(integration_id)
+
     # Rebuild secret registry so updated integration secrets are tracked
     try:
         import asyncio
@@ -172,15 +200,66 @@ async def update_settings(
 async def delete_setting(integration_id: str, key: str, db: AsyncSession) -> None:
     """Remove a single setting from DB and cache."""
     await _delete_one(integration_id, key, db, commit=True)
+    await _reconcile_status(integration_id)
 
 
 # ---------------------------------------------------------------------------
-# Disabled helpers (uses _cache directly — same pattern as _process_auto_start)
+# Lifecycle status helpers
 # ---------------------------------------------------------------------------
 
-def is_disabled(integration_id: str) -> bool:
-    """Check if an integration is globally disabled."""
-    return _cache.get((integration_id, "_disabled"), "").lower() in ("true", "1", "yes")
+def get_status(integration_id: str) -> LifecycleStatus:
+    """Return the lifecycle status for an integration. Defaults to ``available``."""
+    raw = _cache.get((integration_id, STATUS_KEY), "").strip().lower()
+    if raw in _VALID_STATUSES:
+        return raw  # type: ignore[return-value]
+    return "available"
+
+
+async def set_status(integration_id: str, status: LifecycleStatus) -> None:
+    """Persist the lifecycle status. Does not run side effects on its own —
+    the admin router drives process start/stop and tool registration around
+    this call. Keeping them separate lets auto-promote run inside a settings
+    write without circular imports.
+    """
+    if status not in _VALID_STATUSES:
+        raise ValueError(f"Invalid lifecycle status: {status!r}")
+
+    from app.db.engine import async_session
+
+    now = datetime.now(timezone.utc)
+
+    async with async_session() as db:
+        stmt = pg_insert(IntegrationSetting).values(
+            integration_id=integration_id,
+            key=STATUS_KEY,
+            value=status,
+            is_secret=False,
+            updated_at=now,
+        ).on_conflict_do_update(
+            index_elements=["integration_id", "key"],
+            set_={"value": status, "updated_at": now},
+        )
+        await db.execute(stmt)
+        await db.commit()
+
+    _cache[(integration_id, STATUS_KEY)] = status
+
+
+async def _reconcile_status(integration_id: str) -> None:
+    """Auto-promote ``needs_setup`` → ``enabled`` once all required settings are
+    present, and auto-demote ``enabled`` → ``needs_setup`` if one goes missing.
+    ``available`` is never auto-flipped: the user must explicitly opt in.
+    """
+    current = get_status(integration_id)
+    if current == "available":
+        return
+    configured = is_configured(integration_id)
+    if current == "needs_setup" and configured:
+        await set_status(integration_id, "enabled")
+        logger.info("Integration %s auto-promoted: needs_setup → enabled", integration_id)
+    elif current == "enabled" and not configured:
+        await set_status(integration_id, "needs_setup")
+        logger.info("Integration %s auto-demoted: enabled → needs_setup", integration_id)
 
 
 def is_configured(integration_id: str) -> bool:
@@ -210,19 +289,17 @@ def is_configured(integration_id: str) -> bool:
 
 
 def is_active(integration_id: str) -> bool:
-    """Check if an integration is both enabled and fully configured.
+    """Check if an integration is fully adopted and runnable.
 
-    An integration is active when it is not disabled AND all required
-    settings have values.  Use this to gate tool loading, MCP server
-    registration, and other runtime behavior.
+    Active means status=``enabled`` AND required settings satisfied. The
+    ``_reconcile_status`` invariant guarantees those agree in normal flow;
+    checking both is belt-and-suspenders for crash-recovery / manual DB edits.
     """
-    if is_disabled(integration_id):
-        return False
-    return is_configured(integration_id)
+    return get_status(integration_id) == "enabled" and is_configured(integration_id)
 
 
 def inactive_integration_ids() -> set[str]:
-    """Return the set of integration IDs that are disabled or unconfigured.
+    """Return the set of integration IDs that are not active.
 
     Useful for batch-filtering integration content during file collection.
     """
@@ -233,33 +310,6 @@ def inactive_integration_ids() -> set[str]:
         if not is_active(integration_id):
             result.add(integration_id)
     return result
-
-
-async def set_disabled(integration_id: str, disabled: bool) -> None:
-    """Persist the _disabled flag to DB and update cache."""
-    from app.db.engine import async_session
-    from app.db.models import IntegrationSetting
-    from datetime import datetime, timezone
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-    value = "true" if disabled else "false"
-    now = datetime.now(timezone.utc)
-
-    async with async_session() as db:
-        stmt = pg_insert(IntegrationSetting).values(
-            integration_id=integration_id,
-            key="_disabled",
-            value=value,
-            is_secret=False,
-            updated_at=now,
-        ).on_conflict_do_update(
-            index_elements=["integration_id", "key"],
-            set_={"value": value, "updated_at": now},
-        )
-        await db.execute(stmt)
-        await db.commit()
-
-    _cache[(integration_id, "_disabled")] = value
 
 
 async def _delete_one(integration_id: str, key: str, db: AsyncSession, *, commit: bool) -> None:

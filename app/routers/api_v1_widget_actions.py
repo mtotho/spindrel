@@ -169,6 +169,14 @@ async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
     if poll_cfg:
         invalidate_poll_cache_for(poll_cfg)
         if req.display_label:
+            # Brief delay to let the downstream system settle before polling.
+            # HA service calls return immediately but state propagation to
+            # GetLiveContext can lag 200-500ms, especially for remote devices
+            # like Shellys. Without this, we'd cache a pre-mutation state and
+            # serve it to subsequent refreshes within the 30s TTL.
+            settle_ms = int(poll_cfg.get("post_action_settle_ms", 500))
+            if settle_ms > 0:
+                await asyncio.sleep(settle_ms / 1000.0)
             polled = await _do_state_poll(
                 tool_name=resolved_name,
                 display_label=req.display_label,

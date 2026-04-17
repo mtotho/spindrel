@@ -950,6 +950,17 @@ async def run_task(task: Task) -> None:
         # text would match enrolled skills semantically, polluting inject metrics.
         _skip_skill_inject = task.task_type in ("memory_hygiene", "skill_review")
 
+        # Mark autonomous runs so policy rules can target them. Hygiene
+        # jobs get their own origin so rules can distinguish them from
+        # user-scheduled tasks.
+        from app.agent.context import current_run_origin
+        if task.task_type in ("memory_hygiene", "skill_review"):
+            current_run_origin.set("hygiene")
+        elif task.task_type == "delegation":
+            current_run_origin.set("subagent")
+        else:
+            current_run_origin.set("task")
+
         run_result = await asyncio.wait_for(
             run(
                 messages, bot, task_prompt,
@@ -1029,6 +1040,7 @@ async def run_task(task: Task) -> None:
                 channel_id=_persist_channel_id,
                 msg_metadata=_task_meta,
                 pre_user_msg_id=_pre_user_msg_id,
+                hide_messages=_suppress_channel,
             )
 
         # Dispatch result (including any generated images)

@@ -11,7 +11,11 @@ from app.tools.local.file_ops import (
     _resolve_path,
     _maybe_resolve_cross_channel,
     _op_read,
-    _op_write,
+    _op_create,
+    _op_overwrite,
+    _op_json_patch,
+    _op_history,
+    _op_restore,
     _op_append,
     _op_edit,
     _op_list,
@@ -24,6 +28,9 @@ from app.tools.local.file_ops import (
     _whitespace_flex_pattern,
     _find_closest_hint,
     _save_backup,
+    _note_read,
+    _RECENT_READS,
+    _retention_for,
     file as file_tool,
     MAX_CONTENT_BYTES,
     MAX_READ_LINES,
@@ -32,7 +39,8 @@ from app.tools.local.file_ops import (
     GREP_LINE_MAX_CHARS,
     MAX_GREP_FILE_BYTES,
     MAX_BACKUP_VERSIONS,
-    SIZE_DROP_MIN_BYTES,
+    MAX_BACKUP_VERSIONS_DEFAULT,
+    MAX_BACKUP_VERSIONS_DATA,
 )
 
 
@@ -325,50 +333,51 @@ class TestOpRead:
 
 
 # ---------------------------------------------------------------------------
-# Write
+# Create / Overwrite — exercising the file-writing surface
 # ---------------------------------------------------------------------------
 
 
-class TestOpWrite:
-    def test_write_new_file(self, ws):
+class TestFileWriting:
+    def test_create_new_file(self, ws):
         path = str(ws / "new.txt")
-        result = json.loads(_op_write(path, "hello"))
+        result = json.loads(_op_create(path, "hello"))
         assert result["ok"] is True
         assert Path(path).read_text() == "hello"
 
-    def test_write_creates_parent_dirs(self, ws):
+    def test_create_creates_parent_dirs(self, ws):
         path = str(ws / "a" / "b" / "c.txt")
-        result = json.loads(_op_write(path, "deep"))
+        result = json.loads(_op_create(path, "deep"))
         assert result["ok"] is True
         assert Path(path).read_text() == "deep"
 
-    def test_write_overwrites(self, ws):
+    def test_overwrite_replaces_existing(self, ws):
         path = str(ws / "hello.txt")
-        _op_write(path, "replaced")
+        _note_read("bot-a", path)
+        _op_overwrite(path, "replaced", bot_id="bot-a")
         assert Path(path).read_text() == "replaced"
 
-    def test_write_no_content(self, ws):
-        result = json.loads(_op_write(str(ws / "x.txt"), None))
+    def test_create_no_content(self, ws):
+        result = json.loads(_op_create(str(ws / "x.txt"), None))
         assert "error" in result
 
-    def test_write_size_limit(self, ws):
+    def test_create_size_limit(self, ws):
         big = "x" * (MAX_CONTENT_BYTES + 1)
-        result = json.loads(_op_write(str(ws / "big.txt"), big))
+        result = json.loads(_op_create(str(ws / "big.txt"), big))
         assert "error" in result
         assert "limit" in result["error"]
 
-    def test_write_shell_metacharacters(self, ws):
+    def test_create_shell_metacharacters(self, ws):
         """Content with shell metacharacters should be written verbatim."""
         content = "Bennie's last $HOME run `backtick` $(cmd) && rm -rf /"
         path = str(ws / "meta.txt")
-        _op_write(path, content)
+        _op_create(path, content)
         assert Path(path).read_text() == content
 
-    def test_write_apostrophe(self, ws):
+    def test_create_apostrophe(self, ws):
         """The original bug: apostrophe in content."""
         content = "Bennie's last visit was great. She'll be back."
         path = str(ws / "notes.md")
-        _op_write(path, content)
+        _op_create(path, content)
         assert Path(path).read_text() == content
 
 
@@ -551,17 +560,27 @@ class TestOpEdit:
 class TestOpEditAutoRecovery:
     """Tests for LLM-friendly auto-recovery when edit is called with wrong params."""
 
-    def test_edit_content_no_find_falls_through_to_write(self, ws):
-        """edit with content but no find should fall through to write."""
+    def test_edit_content_no_find_routes_to_overwrite(self, ws):
+        """edit with content but no find routes to overwrite — requires prior read."""
         path = str(ws / "hello.txt")
-        result = json.loads(_op_edit(path, None, None, False, content="new content"))
+        # Without a prior read, the overwrite precondition blocks the write
+        result = json.loads(_op_edit(path, None, None, False, content="new content",
+                                     bot_id="bot-a"))
+        assert "error" in result
+        assert "read" in result["error"].lower()
+        # With a prior read, the auto-recover succeeds
+        _note_read("bot-a", path)
+        result = json.loads(_op_edit(path, None, None, False, content="new content",
+                                     bot_id="bot-a"))
         assert result["ok"] is True
         assert Path(path).read_text() == "new content"
 
-    def test_edit_content_and_same_replace_falls_through_to_write(self, ws):
-        """edit with content == replace (confused LLM) should fall through to write."""
+    def test_edit_content_and_same_replace_routes_to_overwrite(self, ws):
+        """edit with content == replace (confused LLM) routes to overwrite."""
         path = str(ws / "hello.txt")
-        result = json.loads(_op_edit(path, None, "same text", False, content="same text"))
+        _note_read("bot-a", path)
+        result = json.loads(_op_edit(path, None, "same text", False, content="same text",
+                                     bot_id="bot-a"))
         assert result["ok"] is True
         assert Path(path).read_text() == "same text"
 
@@ -585,6 +604,8 @@ class TestOpEditAutoRecovery:
         result = json.loads(_op_edit(path, None, "x", False))
         assert "error" in result
         assert "find is required" in result["error"]
+        # The error should point at overwrite / json_patch, not at `edit` alone
+        assert "overwrite" in result["error"] or "json_patch" in result["error"]
 
     def test_edit_find_provided_content_ignored(self, ws):
         """When find is provided, content parameter is ignored (normal path)."""
@@ -593,11 +614,13 @@ class TestOpEditAutoRecovery:
         assert result["ok"] is True
         assert "Goodbye" in Path(path).read_text()
 
-    def test_edit_no_find_no_replace_with_content_writes(self, ws):
-        """edit with only content (no find, no replace) falls through to write."""
+    def test_edit_no_find_no_replace_with_content_routes_to_overwrite(self, ws):
+        """edit with only content (no find, no replace) routes to overwrite (requires read)."""
         path = str(ws / "memory" / "MEMORY.md")
         new_content = "# Updated Memory\n\n## New Facts\n- Fact A\n"
-        result = json.loads(_op_edit(path, None, None, False, content=new_content))
+        _note_read("bot-a", path)
+        result = json.loads(_op_edit(path, None, None, False, content=new_content,
+                                     bot_id="bot-a"))
         assert result["ok"] is True
         assert Path(path).read_text() == new_content
 
@@ -1107,9 +1130,9 @@ class TestFileTool:
         assert "Hello world" in result
 
     @pytest.mark.asyncio
-    async def test_write(self, mock_ctx):
+    async def test_create(self, mock_ctx):
         ws, _ = mock_ctx
-        result = await file_tool(operation="write", path="out.txt", content="hi")
+        result = await file_tool(operation="create", path="out.txt", content="hi")
         parsed = json.loads(result)
         assert parsed["ok"] is True
         assert (ws / "out.txt").read_text() == "hi"
@@ -1381,7 +1404,7 @@ class TestCrossWorkspaceAccess:
                     with patch("app.services.workspace.WorkspaceService.get_workspace_root", side_effect=_mock_ws_root):
 
                         result = await file_tool(
-                            operation="write",
+                            operation="create",
                             path=f"/workspace/channels/{self.CHANNEL_ID}/notes.md",
                             content="# Notes\nNew note from orchestrator",
                         )
@@ -1397,38 +1420,21 @@ class TestCrossWorkspaceAccess:
 # ---------------------------------------------------------------------------
 
 
-class TestWriteSafety:
-    """Tests for _save_backup() and the destructive-write guard in _op_write()."""
-
-    def _big_content(self):
-        return "# Memory\n\n" + "\n".join(f"- Fact {i}" for i in range(100))
-
-    # --- Versioned backups ---
+class TestBackupsAndHiding:
+    """`.versions/` backup creation, pruning, and being hidden from bot-facing tools."""
 
     def test_backup_created_on_overwrite(self, ws):
-        """Overwriting an existing file creates a .versions/ backup."""
         target = str(ws / "hello.txt")
         original = Path(target).read_text()
-        _op_write(target, "replacement content", force=True)
+        _note_read("bot-a", target)
+        _op_overwrite(target, "replacement content", bot_id="bot-a")
         versions_dir = ws / ".versions"
         backups = list(versions_dir.glob("hello.txt.*.bak"))
         assert len(backups) == 1
         assert backups[0].read_text() == original
 
-    def test_backup_created_on_forced_destructive_write(self, ws):
-        """force=True still creates a backup before overwriting."""
-        target = str(ws / "memory" / "MEMORY.md")
-        big = self._big_content()
-        Path(target).write_text(big)
-
-        _op_write(target, "tiny", force=True)
-        versions_dir = ws / "memory" / ".versions"
-        backups = list(versions_dir.glob("MEMORY.md.*.bak"))
-        assert len(backups) == 1
-        assert backups[0].read_text() == big
-
     def test_backup_prunes_old_versions(self, ws):
-        """Only MAX_BACKUP_VERSIONS backups are kept."""
+        """Only MAX_BACKUP_VERSIONS backups are kept for non-data files."""
         target = str(ws / "hello.txt")
         import time as _time
         for i in range(MAX_BACKUP_VERSIONS + 3):
@@ -1440,88 +1446,17 @@ class TestWriteSafety:
         assert len(backups) == MAX_BACKUP_VERSIONS
 
     def test_no_backup_on_new_file(self, ws):
-        """Writing a brand new file does not create a backup."""
         target = str(ws / "brand_new.txt")
-        _op_write(target, "hello", force=False)
+        _op_create(target, "hello")
         versions_dir = ws / ".versions"
         assert not versions_dir.exists()
 
-    # --- Size-drop guard ---
-
-    def test_size_drop_guard_blocks_destructive_write(self, ws):
-        """Writing <50% of original content is blocked without force."""
-        target = str(ws / "memory" / "MEMORY.md")
-        big = self._big_content()
-        Path(target).write_text(big)
-        assert len(big.encode()) > SIZE_DROP_MIN_BYTES
-
-        result = _op_write(target, "tiny", force=False)
-        parsed = json.loads(result)
-        assert "error" in parsed
-        assert "remove" in parsed["error"].lower()
-        # File should be unchanged
-        assert Path(target).read_text() == big
-
-    def test_size_drop_error_suggests_edit(self, ws):
-        """Guard error message tells the bot to use edit instead."""
-        target = str(ws / "memory" / "MEMORY.md")
-        Path(target).write_text(self._big_content())
-
-        result = _op_write(target, "tiny", force=False)
-        parsed = json.loads(result)
-        assert 'operation="edit"' in parsed["error"]
-
-    def test_size_drop_guard_allows_with_force(self, ws):
-        """Writing <50% is allowed when force=True."""
-        target = str(ws / "memory" / "MEMORY.md")
-        Path(target).write_text(self._big_content())
-
-        result = _op_write(target, "tiny", force=True)
-        parsed = json.loads(result)
-        assert parsed["ok"] is True
-        assert Path(target).read_text() == "tiny"
-
-    def test_size_drop_guard_skips_small_files(self, ws):
-        """Files smaller than SIZE_DROP_MIN_BYTES are not guarded."""
-        target = str(ws / "hello.txt")
-        result = _op_write(target, "x", force=False)
-        parsed = json.loads(result)
-        assert parsed["ok"] is True
-
-    def test_size_drop_guard_allows_similar_size(self, ws):
-        """Writing content of similar size (>50%) is not blocked."""
-        target = str(ws / "memory" / "MEMORY.md")
-        big = self._big_content()
-        Path(target).write_text(big)
-        similar = "# Memory\n\n" + "\n".join(f"- Updated {i}" for i in range(60))
-
-        result = _op_write(target, similar, force=False)
-        parsed = json.loads(result)
-        assert parsed["ok"] is True
-
-    def test_no_backup_on_guard_rejection(self, ws):
-        """Guard rejection does NOT create a backup (file unchanged, nothing to recover)."""
-        target = str(ws / "memory" / "MEMORY.md")
-        Path(target).write_text(self._big_content())
-
-        _op_write(target, "tiny", force=False)
-        versions_dir = ws / "memory" / ".versions"
-        assert not versions_dir.exists() or len(list(versions_dir.glob("*.bak"))) == 0
-
-    def test_new_file_write_no_guard(self, ws):
-        """Writing a brand new file is never guarded."""
-        target = str(ws / "brand_new.txt")
-        result = _op_write(target, "hello", force=False)
-        parsed = json.loads(result)
-        assert parsed["ok"] is True
-
-    # --- .versions/ hidden from bot tools ---
-
+    # `.versions/` must be hidden from list/grep/glob so it never pollutes the
+    # bot's context with its own backups.
     def test_versions_hidden_from_list(self, ws):
-        """.versions/ directory is not shown in file(list) output."""
         target = str(ws / "hello.txt")
-        _op_write(target, "updated", force=True)
-        # .versions/ should now exist on disk
+        _note_read("bot-a", target)
+        _op_overwrite(target, "updated", bot_id="bot-a")
         assert (ws / ".versions").exists()
 
         result = _op_list(str(ws), str(ws))
@@ -1530,11 +1465,9 @@ class TestWriteSafety:
         assert ".versions" not in names
 
     def test_versions_hidden_from_grep(self, ws):
-        """.versions/ backup files are not returned by grep."""
         target = str(ws / "hello.txt")
-        _op_write(target, "FINDME_UNIQUE_TOKEN", force=True)
-        # The backup of the OLD content should not contain the new token,
-        # but let's also write the token into the backup to be sure it's skipped
+        _note_read("bot-a", target)
+        _op_overwrite(target, "FINDME_UNIQUE_TOKEN", bot_id="bot-a")
         backup_dir = ws / ".versions"
         assert backup_dir.exists()
         (backup_dir / "planted.txt").write_text("FINDME_UNIQUE_TOKEN in backup")
@@ -1545,10 +1478,320 @@ class TestWriteSafety:
         assert not any(".versions" in f for f in matched_files)
 
     def test_versions_hidden_from_glob(self, ws):
-        """.versions/ backup files are not returned by glob."""
         target = str(ws / "hello.txt")
-        _op_write(target, "updated", force=True)
+        _note_read("bot-a", target)
+        _op_overwrite(target, "updated", bot_id="bot-a")
 
         result = _op_glob(str(ws), "**/*.bak", str(ws), None)
         parsed = json.loads(result)
         assert parsed["count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# New ops: create / overwrite / json_patch / history / restore
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clear_recent_reads():
+    """Each test starts with a fresh read-tracker cache."""
+    _RECENT_READS.clear()
+    yield
+    _RECENT_READS.clear()
+
+
+class TestCreateOp:
+    def test_create_new_file(self, ws):
+        target = str(ws / "brand_new.md")
+        result = _op_create(target, "# Hi\n")
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+        assert parsed["created"] is True
+        assert Path(target).read_text() == "# Hi\n"
+
+    def test_create_errors_on_existing_file(self, ws):
+        target = str(ws / "hello.txt")
+        result = _op_create(target, "other")
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "already exists" in parsed["error"]
+        assert "overwrite" in parsed["error"]
+        # Original content untouched
+        assert Path(target).read_text() == "Hello world\n"
+
+    def test_create_errors_without_content(self, ws):
+        target = str(ws / "new.md")
+        parsed = json.loads(_op_create(target, None))
+        assert "error" in parsed
+
+    def test_create_does_not_touch_backups(self, ws):
+        target = str(ws / "brand_new.txt")
+        _op_create(target, "hi")
+        assert not (ws / ".versions").exists()
+
+
+class TestOverwriteOp:
+    def test_overwrite_requires_prior_read(self, ws):
+        target = str(ws / "hello.txt")
+        original = Path(target).read_text()
+        result = _op_overwrite(target, "replacement", bot_id="bot-a")
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "read" in parsed["error"].lower()
+        # File untouched
+        assert Path(target).read_text() == original
+
+    def test_overwrite_succeeds_after_read(self, ws):
+        target = str(ws / "hello.txt")
+        _note_read("bot-a", target)
+        result = _op_overwrite(target, "replacement\n", bot_id="bot-a")
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+        assert Path(target).read_text() == "replacement\n"
+
+    def test_overwrite_always_creates_backup(self, ws):
+        target = str(ws / "hello.txt")
+        _note_read("bot-a", target)
+        result = _op_overwrite(target, "replacement\n", bot_id="bot-a")
+        parsed = json.loads(result)
+        backups = list((ws / ".versions").glob("hello.txt.*.bak"))
+        assert len(backups) == 1
+        assert parsed["backup"] is not None
+
+    def test_overwrite_errors_on_missing_file(self, ws):
+        target = str(ws / "ghost.md")
+        parsed = json.loads(_op_overwrite(target, "x", bot_id="bot-a"))
+        assert "error" in parsed
+        assert "create" in parsed["error"]
+
+    def test_overwrite_bot_id_isolated(self, ws):
+        """bot-a's read does not unlock bot-b's overwrite."""
+        target = str(ws / "hello.txt")
+        _note_read("bot-a", target)
+        parsed = json.loads(_op_overwrite(target, "x", bot_id="bot-b"))
+        assert "error" in parsed
+
+
+class TestJsonPatchOp:
+    def _seed_shows(self, ws):
+        data = {
+            f"show-{i}": {"title": f"Show {i}", "last_check": "2026-04-16"}
+            for i in range(10)
+        }
+        target = ws / "data" / "tracked-shows.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(data, indent=2) + "\n")
+        return str(target), data
+
+    def test_json_patch_applies_replace(self, ws):
+        target, _ = self._seed_shows(ws)
+        patch = [{"op": "replace", "path": "/show-3/last_check", "value": "2026-04-17"}]
+        parsed = json.loads(_op_json_patch(target, patch))
+        assert parsed["ok"] is True
+        assert parsed["applied"] == 1
+        doc = json.loads(Path(target).read_text())
+        assert doc["show-3"]["last_check"] == "2026-04-17"
+
+    def test_json_patch_applies_add(self, ws):
+        target, _ = self._seed_shows(ws)
+        patch = [{"op": "add", "path": "/show-999", "value": {"title": "New"}}]
+        parsed = json.loads(_op_json_patch(target, patch))
+        assert parsed["ok"] is True
+        doc = json.loads(Path(target).read_text())
+        assert doc["show-999"]["title"] == "New"
+
+    def test_json_patch_applies_remove(self, ws):
+        target, _ = self._seed_shows(ws)
+        patch = [{"op": "remove", "path": "/show-0"}]
+        parsed = json.loads(_op_json_patch(target, patch))
+        assert parsed["ok"] is True
+        doc = json.loads(Path(target).read_text())
+        assert "show-0" not in doc
+
+    def test_json_patch_preserves_unchanged_keys(self, ws):
+        """Regression test for the arr-stack-heartbeat incident class.
+
+        The LLM constructed a *new* JSON with only the shows it had touched
+        in that cycle, then wrote it over the existing file — silently
+        dropping every show it didn't mention. With json_patch, unmentioned
+        keys survive by construction: the agent never holds the whole file.
+        """
+        target, original = self._seed_shows(ws)
+        patch = [
+            {"op": "replace", "path": "/show-1/last_check", "value": "2026-04-17"},
+            {"op": "replace", "path": "/show-2/last_check", "value": "2026-04-17"},
+        ]
+        parsed = json.loads(_op_json_patch(target, patch))
+        assert parsed["ok"] is True
+        doc = json.loads(Path(target).read_text())
+        # The other 8 shows survive byte-for-byte
+        for i in (0, 3, 4, 5, 6, 7, 8, 9):
+            key = f"show-{i}"
+            assert key in doc
+            assert doc[key] == original[key]
+
+    def test_json_patch_fails_on_missing_path_for_replace(self, ws):
+        target, _ = self._seed_shows(ws)
+        patch = [{"op": "replace", "path": "/show-missing/last_check", "value": "x"}]
+        parsed = json.loads(_op_json_patch(target, patch))
+        assert "error" in parsed
+        # File untouched
+        doc = json.loads(Path(target).read_text())
+        assert "show-missing" not in doc
+
+    def test_json_patch_creates_backup(self, ws):
+        target, _ = self._seed_shows(ws)
+        patch = [{"op": "replace", "path": "/show-0/last_check", "value": "x"}]
+        parsed = json.loads(_op_json_patch(target, patch))
+        assert parsed["backup"] is not None
+        backups = list((ws / "data" / ".versions").glob("tracked-shows.json.*.bak"))
+        assert len(backups) == 1
+
+    def test_json_patch_errors_on_invalid_json_file(self, ws):
+        target = ws / "broken.json"
+        target.write_text("{not valid json")
+        patch = [{"op": "add", "path": "/k", "value": 1}]
+        parsed = json.loads(_op_json_patch(str(target), patch))
+        assert "error" in parsed
+        assert "valid JSON" in parsed["error"]
+
+    def test_json_patch_errors_without_patch(self, ws):
+        target, _ = self._seed_shows(ws)
+        parsed = json.loads(_op_json_patch(target, None))
+        assert "error" in parsed
+        parsed = json.loads(_op_json_patch(target, []))
+        assert "error" in parsed
+
+    def test_json_patch_preserves_indent(self, ws):
+        target = ws / "formatted.json"
+        target.write_text('{\n    "a": 1,\n    "b": 2\n}\n')
+        patch = [{"op": "replace", "path": "/a", "value": 99}]
+        _op_json_patch(str(target), patch)
+        # Indent of 4 spaces should be preserved
+        text = target.read_text()
+        assert '\n    "a": 99' in text
+        assert text.endswith("\n")
+
+
+class TestHistoryOp:
+    def test_history_empty_when_no_versions(self, ws):
+        target = str(ws / "hello.txt")
+        parsed = json.loads(_op_history(target, str(ws)))
+        assert parsed["ok"] is True
+        assert parsed["versions"] == []
+
+    def test_history_lists_backups(self, ws):
+        target = str(ws / "hello.txt")
+        for i in range(3):
+            Path(target).write_text(f"v{i}")
+            _save_backup(target)
+        parsed = json.loads(_op_history(target, str(ws)))
+        assert parsed["ok"] is True
+        assert len(parsed["versions"]) == 3
+        for v in parsed["versions"]:
+            assert "version" in v and "bytes" in v and "modified_at" in v
+
+
+class TestRestoreOp:
+    def test_restore_recovers_previous_version(self, ws):
+        target = str(ws / "hello.txt")
+        Path(target).write_text("original\n")
+        _save_backup(target)
+        backups = list((ws / ".versions").glob("hello.txt.*.bak"))
+        version = backups[0].name
+
+        Path(target).write_text("mutated\n")
+        parsed = json.loads(_op_restore(target, version))
+        assert parsed["ok"] is True
+        assert Path(target).read_text() == "original\n"
+
+    def test_restore_backs_up_current_state_first(self, ws):
+        """Restore is itself undoable."""
+        target = str(ws / "hello.txt")
+        Path(target).write_text("state-a\n")
+        _save_backup(target)
+        version = next(iter((ws / ".versions").glob("hello.txt.*.bak"))).name
+        Path(target).write_text("state-b\n")
+
+        parsed = json.loads(_op_restore(target, version))
+        assert parsed["ok"] is True
+        assert parsed["prior_backup"] is not None
+        # There should now be 2 backups: state-a (original) and state-b (from restore)
+        all_backups = list((ws / ".versions").glob("hello.txt.*.bak"))
+        contents = sorted(b.read_text() for b in all_backups)
+        assert "state-a\n" in contents
+        assert "state-b\n" in contents
+
+    def test_restore_errors_without_version(self, ws):
+        target = str(ws / "hello.txt")
+        parsed = json.loads(_op_restore(target, None))
+        assert "error" in parsed
+
+    def test_restore_rejects_path_in_version(self, ws):
+        target = str(ws / "hello.txt")
+        parsed = json.loads(_op_restore(target, "../other.bak"))
+        assert "error" in parsed
+
+    def test_restore_rejects_wrong_basename(self, ws):
+        target = str(ws / "hello.txt")
+        Path(target).write_text("x")
+        _save_backup(target)
+        # Plant a backup that belongs to a different file
+        (ws / ".versions" / "other.txt.1234-5678.bak").write_text("foreign")
+        parsed = json.loads(_op_restore(target, "other.txt.1234-5678.bak"))
+        assert "error" in parsed
+        assert "does not belong" in parsed["error"]
+
+
+class TestBackupRetention:
+    def test_data_files_keep_more_versions(self):
+        assert _retention_for("/x/y/tracked-shows.json") == MAX_BACKUP_VERSIONS_DATA
+        assert _retention_for("/x/y/config.yaml") == MAX_BACKUP_VERSIONS_DATA
+        assert _retention_for("/x/y/pyproject.toml") == MAX_BACKUP_VERSIONS_DATA
+
+    def test_non_data_files_keep_default(self):
+        assert _retention_for("/x/y/MEMORY.md") == MAX_BACKUP_VERSIONS_DEFAULT
+        assert _retention_for("/x/y/hello.txt") == MAX_BACKUP_VERSIONS_DEFAULT
+
+    def test_data_file_retention_applied(self, ws):
+        target = str(ws / "data.json")
+        import time as _time
+        for i in range(MAX_BACKUP_VERSIONS_DATA + 3):
+            Path(target).write_text(json.dumps({"v": i}))
+            _save_backup(target)
+            _time.sleep(0.005)
+        backups = list((ws / ".versions").glob("data.json.*.bak"))
+        assert len(backups) == MAX_BACKUP_VERSIONS_DATA
+
+
+class TestEditAutoRecoverRouting:
+    """When `edit` is called with only `content` (no `find`), it auto-recovers
+    by routing to `overwrite` if the file exists, or `create` if not. The
+    read-before-write precondition still applies.
+    """
+
+    def test_edit_without_find_routes_to_create_for_new_file(self, ws):
+        target = str(ws / "newfile.md")
+        parsed = json.loads(_op_edit(target, find=None, replace=None,
+                                     replace_all=False, content="# New\n",
+                                     bot_id="bot-a"))
+        assert parsed["ok"] is True
+        assert parsed.get("created") is True
+
+    def test_edit_without_find_routes_to_overwrite_blocks_without_read(self, ws):
+        target = str(ws / "hello.txt")
+        parsed = json.loads(_op_edit(target, find=None, replace=None,
+                                     replace_all=False, content="new",
+                                     bot_id="bot-a"))
+        # Should error because bot-a has not read the file first
+        assert "error" in parsed
+        assert "read" in parsed["error"].lower()
+
+    def test_edit_without_find_routes_to_overwrite_allows_after_read(self, ws):
+        target = str(ws / "hello.txt")
+        _note_read("bot-a", target)
+        parsed = json.loads(_op_edit(target, find=None, replace=None,
+                                     replace_all=False, content="new\n",
+                                     bot_id="bot-a"))
+        assert parsed["ok"] is True
+        assert Path(target).read_text() == "new\n"

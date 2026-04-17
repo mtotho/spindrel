@@ -63,12 +63,22 @@ file(operation="append", path="memory/logs/2026-03-30.md", content="\n### 14:30 
 ### Create a reference document
 
 ```
-file(operation="write", path="memory/reference/deployment-guide.md", content="# Deployment Guide\n\n...")
+file(operation="create", path="memory/reference/deployment-guide.md", content="# Deployment Guide\n\n...")
 ```
 
-> **WARNING**: NEVER use `file(operation="write")` on `memory/MEMORY.md`. The `write` operation
-> **replaces the entire file** — all existing content is destroyed. Use `edit` to change specific
-> sections or `append` to add new sections at the end.
+`create` errors if the path already exists — use it for every new-file write so you never
+clobber a doc by accident. To INTENTIONALLY rewrite an existing file: read it first, then
+`file(operation="overwrite", path="...", content="...")`. Without a prior `read`, `overwrite`
+refuses — this is the safety net that prevents "I wrote a shrunken version because I forgot
+what else was in there" bugs.
+
+For JSON data files, use `file(operation="json_patch", path="...", patch=[...])` with RFC 6902
+operations. Example: `[{"op": "replace", "path": "/shows/tt123/state", "value": "done"}]`.
+The tool reads, applies the patch, and writes — so keys you didn't mention survive untouched.
+This is how you update `data/tracked-*.json` and similar files safely.
+
+Full list of write-family ops: `create` (new file), `overwrite` (full rewrite after
+`read`), `edit` (find/replace), `append` (add to end), `json_patch` (RFC 6902 on JSON).
 
 ---
 

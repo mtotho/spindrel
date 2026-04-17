@@ -5,9 +5,10 @@ import { useNavigate } from "react-router-dom";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { PageHeader } from "@/src/components/layout/PageHeader";
+import { useHashTab } from "@/src/hooks/useHashTab";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
-  Search, Play, Square, RefreshCw, BookOpen, X, Plug,
+  Search, Play, Square, RefreshCw, BookOpen, X, Plug, Plus,
   CheckCircle2, AlertTriangle,
   // Icon map for dynamic resolution
   Tv, MessageCircle, Terminal, MessageSquare, PenTool, Globe,
@@ -19,6 +20,7 @@ import {
   useStartProcess,
   useStopProcess,
   useRestartProcess,
+  useSetIntegrationStatus,
   type IntegrationItem,
 } from "@/src/api/hooks/useIntegrations";
 import { CapBadge, formatUptime } from "./components";
@@ -42,15 +44,14 @@ function IntegrationIcon({ name, size = 18, color }: { name?: string; size?: num
 /*  Status dot — minimal, no badge chrome                              */
 /* ------------------------------------------------------------------ */
 
-const STATUS_META: Record<string, { color: string; label: string }> = {
-  ready: { color: "#22c55e", label: "Ready" },
-  partial: { color: "#eab308", label: "Needs setup" },
-  not_configured: { color: "#6b7280", label: "Not configured" },
-  disabled: { color: "#ef4444", label: "Disabled" },
+const LIFECYCLE_META: Record<string, { color: string; label: string }> = {
+  enabled: { color: "#22c55e", label: "Enabled" },
+  needs_setup: { color: "#eab308", label: "Needs Setup" },
+  available: { color: "#6b7280", label: "Available" },
 };
 
 function StatusDot({ status }: { status: string }) {
-  const meta = STATUS_META[status] || STATUS_META.not_configured;
+  const meta = LIFECYCLE_META[status] || LIFECYCLE_META.available;
   return (
     <span className="inline-flex flex-row items-center gap-1.5">
       <span
@@ -142,7 +143,7 @@ function IntegrationCard({ item }: { item: IntegrationItem }) {
   const t = useThemeTokens();
   const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
-  const isDisabled = item.disabled;
+  const statusMut = useSetIntegrationStatus(item.id);
 
   const envSetCount = item.env_vars.filter((v) => v.is_set).length;
   const envTotal = item.env_vars.length;
@@ -157,20 +158,30 @@ function IntegrationCard({ item }: { item: IntegrationItem }) {
     item.has_carapaces && "capabilities",
   ].filter(Boolean) as string[];
 
-  const effectiveStatus = isDisabled ? "disabled" : item.status;
+  const isAvailable = item.lifecycle_status === "available";
+  const isRunnable = item.lifecycle_status === "enabled";
+
+  const onAdd = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    statusMut.mutate("needs_setup");
+  };
 
   return (
     <button
-      onClick={() => navigate(`/admin/integrations/${item.id}`)}
+      onClick={() => {
+        // In the library, clicking the body also navigates to the setup page so
+        // users can read descriptions / start filling env vars before Add.
+        navigate(`/admin/integrations/${item.id}`);
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className="flex flex-col text-left w-full rounded-lg overflow-hidden"
       style={{
         background: hovered ? t.surfaceOverlay : t.surfaceRaised,
         border: `1px solid ${t.surfaceBorder}`,
-        opacity: isDisabled ? 0.45 : 1,
+        opacity: isAvailable ? 0.7 : 1,
         cursor: "pointer",
-        transition: "background 0.12s, box-shadow 0.12s",
+        transition: "background 0.12s, box-shadow 0.12s, opacity 0.12s",
         boxShadow: hovered ? "0 2px 8px rgba(0,0,0,0.12)" : "none",
         padding: "10px 12px",
       }}
@@ -187,10 +198,10 @@ function IntegrationCard({ item }: { item: IntegrationItem }) {
           <span className="text-[13px] font-semibold truncate leading-tight" style={{ color: t.text }}>
             {item.name}
           </span>
-          <StatusDot status={effectiveStatus} />
+          <StatusDot status={item.lifecycle_status} />
         </div>
-        {/* Env var indicator — top right */}
-        {envTotal > 0 && (
+        {/* Env var indicator — suppressed in Library (user hasn't adopted yet) */}
+        {!isAvailable && envTotal > 0 && (
           <span
             className="inline-flex flex-row items-center gap-1 text-[10px] font-medium tabular-nums shrink-0"
             style={{ color: allEnvSet ? "#22c55e" : missingRequired ? "#eab308" : t.textDim }}
@@ -199,10 +210,27 @@ function IntegrationCard({ item }: { item: IntegrationItem }) {
             {envSetCount}/{envTotal}
           </span>
         )}
+        {/* Add button — Library cards only */}
+        {isAvailable && (
+          <button
+            onClick={onAdd}
+            disabled={statusMut.isPending}
+            className="flex flex-row items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold shrink-0"
+            style={{
+              background: t.accent,
+              color: "#fff",
+              border: "none",
+              cursor: statusMut.isPending ? "wait" : "pointer",
+              opacity: statusMut.isPending ? 0.5 : 1,
+            }}
+          >
+            <Plus size={11} /> Add
+          </button>
+        )}
       </div>
 
-      {/* Capability pills — horizontal wrap */}
-      {activeCaps.length > 0 && (
+      {/* Capability pills — suppress in Library to emphasize card is pre-adoption */}
+      {activeCaps.length > 0 && !isAvailable && (
         <div className="flex flex-row flex-wrap gap-1 mt-2">
           {activeCaps.map((c) => (
             <CapBadge key={c} label={c} active />
@@ -210,8 +238,8 @@ function IntegrationCard({ item }: { item: IntegrationItem }) {
         </div>
       )}
 
-      {/* Process controls */}
-      {item.has_process && !isDisabled && <ProcessControls item={item} />}
+      {/* Process controls — only for fully enabled integrations */}
+      {item.has_process && isRunnable && <ProcessControls item={item} />}
     </button>
   );
 }
@@ -228,6 +256,9 @@ type RenderItem =
 /*  Main screen                                                        */
 /* ------------------------------------------------------------------ */
 
+const TAB_KEYS = ["active", "library"] as const;
+type TabKey = (typeof TAB_KEYS)[number];
+
 export default function IntegrationsScreen() {
   const t = useThemeTokens();
   const { data, isLoading } = useIntegrations();
@@ -236,34 +267,45 @@ export default function IntegrationsScreen() {
   const isWide = width >= 768;
   const [search, setSearch] = useState("");
   const [showGuide, setShowGuide] = useState(false);
+  const [activeTab, setActiveTab] = useHashTab<TabKey>("active", TAB_KEYS);
 
   const all = useMemo(() => {
     if (!data?.integrations) return undefined;
     return [...new Map(data.integrations.map((i) => [i.id, i])).values()];
   }, [data]);
 
+  const activeCount = all?.filter((i) => i.lifecycle_status !== "available").length ?? 0;
+  const libraryCount = all?.filter((i) => i.lifecycle_status === "available").length ?? 0;
+
   const filtered = useMemo(() => {
     if (!all) return [];
     const q = search.toLowerCase().trim();
-    if (!q) return all;
-    return all.filter(
+    const scoped = all.filter((i) =>
+      activeTab === "active"
+        ? i.lifecycle_status !== "available"
+        : i.lifecycle_status === "available",
+    );
+    if (!q) return scoped;
+    return scoped.filter(
       (i) => i.name.toLowerCase().includes(q) || i.id.toLowerCase().includes(q),
     );
-  }, [all, search]);
+  }, [all, search, activeTab]);
 
   const renderItems = useMemo((): RenderItem[] => {
     if (!filtered.length) return [];
 
-    const ready: IntegrationItem[] = [];
+    if (activeTab === "library") {
+      // Single flat list; library is a catalog, no internal grouping.
+      return filtered.map((i) => ({ type: "card", key: i.id, item: i } as RenderItem));
+    }
+
+    // Active tab: Needs Setup above, Enabled below.
     const needsSetup: IntegrationItem[] = [];
-    const packages: IntegrationItem[] = [];
-    const disabled: IntegrationItem[] = [];
+    const enabled: IntegrationItem[] = [];
 
     for (const i of filtered) {
-      if (i.disabled) disabled.push(i);
-      else if (i.source === "package") packages.push(i);
-      else if (i.status === "ready") ready.push(i);
-      else needsSetup.push(i);
+      if (i.lifecycle_status === "needs_setup") needsSetup.push(i);
+      else if (i.lifecycle_status === "enabled") enabled.push(i);
     }
 
     const items: RenderItem[] = [];
@@ -273,13 +315,11 @@ export default function IntegrationsScreen() {
       for (const i of list) items.push({ type: "card", key: i.id, item: i });
     };
 
-    add("ready", "Ready", ready);
     add("needs-setup", "Needs Setup", needsSetup);
-    add("packages", "Packages", packages);
-    add("disabled", "Disabled", disabled);
+    add("enabled", "Enabled", enabled);
 
     return items;
-  }, [filtered]);
+  }, [filtered, activeTab]);
 
   if (isLoading) {
     return (
@@ -292,6 +332,39 @@ export default function IntegrationsScreen() {
   return (
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
       <PageHeader variant="list" title="Integrations" />
+
+      {/* Tab bar */}
+      <div
+        className="flex flex-row items-center gap-1"
+        style={{ padding: isWide ? "8px 16px 0" : "8px 12px 0" }}
+      >
+        {TAB_KEYS.map((key) => {
+          const label = key === "active" ? "Active" : "Library";
+          const count = key === "active" ? activeCount : libraryCount;
+          const selected = activeTab === key;
+          return (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className="flex flex-row items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-semibold cursor-pointer"
+              style={{
+                background: selected ? t.accentSubtle : "transparent",
+                color: selected ? t.accent : t.textMuted,
+                border: "none",
+                transition: "background 0.12s, color 0.12s",
+              }}
+            >
+              {label}
+              <span
+                className="text-[10px] tabular-nums"
+                style={{ color: selected ? t.accent : t.textDim, opacity: 0.75 }}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
       {/* Toolbar */}
       <div
@@ -320,7 +393,7 @@ export default function IntegrationsScreen() {
         )}
         {all && all.length > 0 && (
           <span className="text-[11px] whitespace-nowrap" style={{ color: t.textDim }}>
-            {search && filtered.length !== all.length ? `${filtered.length} / ${all.length}` : all.length} integrations
+            {filtered.length} {activeTab === "library" ? "available" : "active"}
           </span>
         )}
         <div className="flex-1" />
@@ -350,7 +423,11 @@ export default function IntegrationsScreen() {
 
         {all && all.length > 0 && filtered.length === 0 && (
           <div className="p-10 text-center text-[13px]" style={{ color: t.textDim }}>
-            No integrations match &ldquo;{search}&rdquo;
+            {search
+              ? `No integrations match "${search}"`
+              : activeTab === "active"
+                ? "No integrations adopted yet. Browse the Library tab to add one."
+                : "No available integrations — everything has been adopted."}
           </div>
         )}
 

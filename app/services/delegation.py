@@ -152,6 +152,9 @@ class DelegationService:
                 session_depth=child_depth,
                 root_session_id=root_session_id,
             )
+            # Mark sub-agent runs for per-context policy gating.
+            from app.agent.context import current_run_origin
+            current_run_origin.set("subagent")
 
             async for event in run_stream(
                 child_messages,

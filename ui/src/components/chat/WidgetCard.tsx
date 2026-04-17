@@ -17,6 +17,7 @@ import type { WidgetActionResult } from "../../api/hooks/useWidgetAction";
 import { ComponentRenderer, WidgetActionContext } from "./renderers/ComponentRenderer";
 import { JsonTreeRenderer } from "./renderers/JsonTreeRenderer";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedWidgets";
+import { apiFetch } from "../../api/client";
 
 /** Strip MCP server prefix: "homeassistant-HassTurnOn" → "HassTurnOn" */
 function cleanToolName(name: string): string {
@@ -78,7 +79,13 @@ export function WidgetCard({
     });
   });
 
-  const rawDispatch = useWidgetAction(channelId, botId ?? "default");
+  // Pass display_label so post-action polling can refetch state-bearing tools
+  // (e.g. schedule_task) using whatever identifier the template stored.
+  const rawDispatch = useWidgetAction(
+    channelId,
+    botId ?? "default",
+    currentEnvelope.display_label ?? null,
+  );
   const broadcastEnvelope = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
 
   // Intercepting dispatcher: captures response envelopes, updates local state, and broadcasts
@@ -101,6 +108,84 @@ export function WidgetCard({
     },
     [rawDispatch, channelId, toolName, broadcastEnvelope],
   );
+
+  // ── Live state refresh via state_poll ───────────────────────────────
+  // When the envelope declares a refresh_interval_seconds (set by the
+  // template engine from state_poll), poll the backend so the card shows
+  // current status (e.g. a scheduled task flipping pending → running →
+  // complete) without requiring a new tool call or page reload.
+  const displayLabel = currentEnvelope.display_label ?? "";
+  const intervalSec = currentEnvelope.refresh_interval_seconds;
+  const refreshable = currentEnvelope.refreshable;
+  const envelopeForRefreshRef = useRef(currentEnvelope);
+  envelopeForRefreshRef.current = currentEnvelope;
+
+  const refreshState = useCallback(async () => {
+    if (!channelId || !botId || !refreshable) return;
+    try {
+      const resp = await apiFetch<{
+        ok: boolean;
+        envelope?: Record<string, unknown> | null;
+        error?: string;
+      }>("/api/v1/widget-actions/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tool_name: toolName,
+          display_label: envelopeForRefreshRef.current.display_label ?? "",
+          channel_id: channelId,
+          bot_id: botId,
+        }),
+      });
+      if (resp.ok && resp.envelope) {
+        const fresh = resp.envelope as unknown as ToolResultEnvelope;
+        setCurrentEnvelope(fresh);
+        broadcastEnvelope(channelId, toolName, fresh);
+      }
+    } catch {
+      // Stale content is better than a flashing error banner here.
+    }
+  }, [channelId, botId, toolName, refreshable, broadcastEnvelope]);
+
+  // Initial sync on mount: if the cached envelope is stale (e.g., scrolled
+  // back to an older message), refresh once so the UI reflects current state.
+  const initialRefreshKey = widgetId ?? `${toolName}:${displayLabel}`;
+  const refreshedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!refreshable) return;
+    if (refreshedForRef.current === initialRefreshKey) return;
+    refreshedForRef.current = initialRefreshKey;
+    refreshState();
+  }, [initialRefreshKey, refreshable, refreshState]);
+
+  // Interval refresh while status is non-terminal. The state_poll YAML sets
+  // refresh_interval_seconds; we clear it client-side once the rendered body
+  // reports a terminal status so idle/complete cards don't poll forever.
+  const isTerminal = useMemo(() => {
+    if (!currentEnvelope.body) return false;
+    try {
+      const parsed = typeof currentEnvelope.body === "string"
+        ? JSON.parse(currentEnvelope.body)
+        : currentEnvelope.body;
+      for (const c of parsed?.components ?? []) {
+        if (c.type === "status" && typeof c.text === "string") {
+          const s = c.text.toLowerCase();
+          if (s === "complete" || s === "completed" || s === "failed" ||
+              s === "cancelled" || s === "canceled" || s === "done") {
+            return true;
+          }
+        }
+      }
+    } catch { /* not JSON */ }
+    return false;
+  }, [currentEnvelope.body]);
+
+  useEffect(() => {
+    if (!refreshable || !intervalSec || intervalSec <= 0) return;
+    if (isTerminal) return;
+    const handle = setInterval(refreshState, intervalSec * 1000);
+    return () => clearInterval(handle);
+  }, [refreshable, intervalSec, isTerminal, refreshState]);
 
   // Subscribe to shared envelope map — sync from pinned widget actions
   const envelopeKey = channelId ? `${channelId}::${envelopeIdentityKey(toolName, currentEnvelope)}` : null;
