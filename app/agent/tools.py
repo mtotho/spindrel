@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -354,6 +355,8 @@ def _vector_only_tool_results(
     top_candidates: list[dict[str, Any]] = []
     for schema_obj, tool_name, distance in rows:
         similarity = 1.0 - distance
+        if not math.isfinite(similarity):
+            similarity = 0.0
         if isinstance(schema_obj, dict) and len(top_candidates) < 5:
             top_candidates.append({"name": schema_obj.get("function", {}).get("name", "?"), "sim": round(similarity, 4)})
         _eff_threshold = threshold if (not discover_all or tool_name in declared_names) else discover_threshold
@@ -388,7 +391,8 @@ def _fuse_tool_results(
     vector_schemas: dict[str, dict] = {}
     for schema_obj, tool_name, distance in vector_rows:
         if tool_name not in vector_sims:
-            vector_sims[tool_name] = 1.0 - distance
+            sim = 1.0 - distance
+            vector_sims[tool_name] = sim if math.isfinite(sim) else 0.0
             vector_schemas[tool_name] = schema_obj
     bm25_names = {tool_name for _, tool_name, _ in bm25_rows}
     bm25_schemas: dict[str, dict] = {}

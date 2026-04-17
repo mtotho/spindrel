@@ -41,6 +41,8 @@ from integrations.sdk import (
     Capability, ChannelEvent, ChannelEventKind,
     DispatchTarget, OutboundAction, DeliveryReceipt,
     ToolBadge, ToolOutputDisplay, extract_tool_badges,
+    count_pending_outbox,
+    get_channel_for_integration,
 )
 from integrations.slack.client import bot_attribution
 from integrations.slack.formatting import markdown_to_slack_mrkdwn, split_for_slack
@@ -194,6 +196,17 @@ class SlackRenderer:
         if ctx.thinking_ts is not None:
             # Idempotent — already posted the placeholder for this turn.
             return DeliveryReceipt.ok(external_id=ctx.thinking_ts)
+
+        # Ordering: TURN_STARTED rides the in-process bus (fast), while
+        # the user's NEW_MESSAGE goes through the outbox drainer (slower)
+        # — so without this wait, the placeholder lands in Slack before
+        # the user-mirror message when the user typed from the web UI,
+        # producing "bot thinking → user message" out-of-order scrollback.
+        # For user-triggered turns, briefly wait for any pending outbox
+        # rows targeting this Slack channel to drain before posting.
+        reason = getattr(payload, "reason", "")
+        if reason == "user_message":
+            await _wait_for_pending_outbox(event.channel_id, timeout=1.5)
 
         attrs = bot_attribution(bot_id) if bot_id else {}
         body: dict = {
@@ -950,41 +963,41 @@ _LINK_EMOJI = {
 }
 
 
+async def _wait_for_pending_outbox(
+    channel_id: uuid.UUID,
+    *,
+    timeout: float = 1.5,
+    poll_interval: float = 0.05,
+) -> None:
+    """Block until no undelivered Slack outbox rows remain for this channel.
+
+    Called from ``_handle_turn_started`` to keep the "thinking..."
+    placeholder from jumping ahead of the user's mirror message. Polls
+    every ``poll_interval`` seconds, returning as soon as nothing is
+    pending or after ``timeout`` seconds have elapsed.
+    """
+    deadline = time.monotonic() + timeout
+    try:
+        while time.monotonic() < deadline:
+            pending = await count_pending_outbox(channel_id, "slack")
+            if not pending:
+                return
+            await asyncio.sleep(poll_interval)
+    except Exception:
+        logger.debug("_wait_for_pending_outbox poll failed; continuing", exc_info=True)
+
+
 async def _resolve_tool_output_display(slack_channel_id: str) -> str:
     """Look up the channel's ``tool_output_display`` setting.
 
-    Queries the ``channels`` table directly (keeps the renderer in-process
-    and avoids the HTTP-self-call path that ``slack_settings`` uses for
-    the out-of-process bot subprocess). Falls back to ``compact`` when the
-    channel can't be resolved.
+    Falls back to ``compact`` when the channel can't be resolved (e.g.
+    transient DB error or a Slack channel the server hasn't bound yet).
     """
-    from app.db.engine import async_session
-    from app.db.models import Channel, ChannelIntegration
-    from sqlalchemy import select
-
     client_id = f"slack:{slack_channel_id}"
     try:
-        async with async_session() as db:
-            # Legacy direct binding on Channel.client_id.
-            row = (await db.execute(
-                select(Channel.tool_output_display).where(
-                    Channel.integration == "slack",
-                    Channel.client_id == client_id,
-                )
-            )).scalar_one_or_none()
-            if row is not None:
-                return ToolOutputDisplay.normalize(row)
-            # Modern ChannelIntegration binding.
-            row = (await db.execute(
-                select(Channel.tool_output_display)
-                .join(ChannelIntegration, ChannelIntegration.channel_id == Channel.id)
-                .where(
-                    ChannelIntegration.integration_type == "slack",
-                    ChannelIntegration.client_id == client_id,
-                )
-            )).scalar_one_or_none()
-            if row is not None:
-                return ToolOutputDisplay.normalize(row)
+        channel = await get_channel_for_integration("slack", client_id)
+        if channel is not None:
+            return ToolOutputDisplay.normalize(channel.tool_output_display)
     except Exception:
         logger.debug("tool_output_display lookup failed, using default", exc_info=True)
     return ToolOutputDisplay.COMPACT

@@ -1,5 +1,6 @@
 """Tests for tool discovery, skill auto-enrollment, and hybrid search features."""
 
+import math
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -457,6 +458,14 @@ class TestVectorOnlyToolResults:
         rows = [({"function": {"name": f"tool_{i}"}}, f"tool_{i}", 0.1) for i in range(10)]
         _, candidates = _vector_only_tool_results(rows, 0.5, set(), 0.5, False)
         assert len(candidates) == 5
+
+    def test_nan_distance_yields_finite_sim(self):
+        """NaN distance (degenerate vector) must not leak NaN into top_candidates — Postgres JSONB rejects NaN."""
+        rows = [({"function": {"name": "broken"}}, "broken", float("nan"))]
+        _, candidates = _vector_only_tool_results(rows, 0.5, set(), 0.5, False)
+        assert len(candidates) == 1
+        assert math.isfinite(candidates[0]["sim"])
+        assert candidates[0]["sim"] == 0.0
 
 
 class TestFuseToolResults:

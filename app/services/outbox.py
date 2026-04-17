@@ -270,6 +270,50 @@ async def fetch_pending(
     return list(result.scalars().all())
 
 
+async def count_pending_for_target(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    target_integration_id: str,
+) -> int:
+    """Return the number of undelivered outbox rows for a (channel, target).
+
+    "Undelivered" = ``delivery_state`` is ``pending`` or
+    ``failed_retryable`` (anything the drainer still has to work on).
+    Used by renderers that need to pace bus-delivered events so they
+    don't overtake outbox-durable ones (e.g. Slack's ``TURN_STARTED``
+    holding for the user's ``NEW_MESSAGE`` mirror to land first).
+    """
+    from sqlalchemy import func
+    return (await db.execute(
+        select(func.count(Outbox.id)).where(
+            Outbox.channel_id == channel_id,
+            Outbox.target_integration_id == target_integration_id,
+            Outbox.delivery_state.in_(
+                [DeliveryState.PENDING.value, DeliveryState.FAILED_RETRYABLE.value]
+            ),
+        )
+    )).scalar_one()
+
+
+async def count_pending_outbox(
+    channel_id: uuid.UUID,
+    target_integration_id: str,
+) -> int:
+    """Session-free wrapper around :func:`count_pending_for_target`.
+
+    Use from integration code (renderers, hooks) to avoid reaching into
+    the DB engine directly.
+    """
+    from app.db.engine import async_session
+    async with async_session() as db:
+        return await count_pending_for_target(
+            db,
+            channel_id=channel_id,
+            target_integration_id=target_integration_id,
+        )
+
+
 async def mark_in_flight(db: AsyncSession, row: Outbox) -> None:
     await db.execute(
         update(Outbox)

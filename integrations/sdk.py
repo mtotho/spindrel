@@ -148,6 +148,10 @@ from app.dependencies import verify_auth_or_user  # noqa: E402, F401
 from app.services.channels import (  # noqa: E402, F401
     resolve_all_channels_by_client_id,
     ensure_active_session,
+    get_channel_for_integration,
+)
+from app.services.outbox import (  # noqa: E402, F401
+    count_pending_outbox,
 )
 
 # ---------------------------------------------------------------------------

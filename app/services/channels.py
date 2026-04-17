@@ -72,6 +72,60 @@ async def resolve_channel_by_client_id(
     return result.scalar_one_or_none()
 
 
+async def get_channel_for_integration(
+    integration_type: str,
+    client_id: str,
+) -> Channel | None:
+    """Session-free wrapper around :func:`get_channel_for_integration_binding`.
+
+    Renderers and other integration-side callers can drop this in without
+    taking on their own transaction lifecycle. Internal/app callers that
+    already have a session should use the db-taking variant.
+    """
+    async with async_session() as db:
+        return await get_channel_for_integration_binding(db, integration_type, client_id)
+
+
+async def get_channel_for_integration_binding(
+    db: AsyncSession,
+    integration_type: str,
+    client_id: str,
+) -> Channel | None:
+    """Return the Channel bound to ``integration_type`` via ``client_id``.
+
+    Handles both binding shapes:
+
+    - **Legacy**: ``Channel.integration == integration_type`` AND
+      ``Channel.client_id == client_id`` (the direct fields on the
+      channel row).
+    - **Modern**: a ``ChannelIntegration`` row with matching
+      ``integration_type`` + ``client_id``.
+
+    Legacy takes precedence when both exist for the same ``client_id``,
+    matching the config-fan-out behavior in
+    ``integrations/slack/router.py``.
+
+    Use this from renderers that need per-channel settings (e.g.
+    ``tool_output_display``) without reaching into the ORM directly.
+    """
+    row = (await db.execute(
+        select(Channel).where(
+            Channel.integration == integration_type,
+            Channel.client_id == client_id,
+        )
+    )).scalar_one_or_none()
+    if row is not None:
+        return row
+    return (await db.execute(
+        select(Channel)
+        .join(ChannelIntegration, ChannelIntegration.channel_id == Channel.id)
+        .where(
+            ChannelIntegration.integration_type == integration_type,
+            ChannelIntegration.client_id == client_id,
+        )
+    )).scalar_one_or_none()
+
+
 async def resolve_all_channels_by_client_id(
     db: AsyncSession,
     client_id: str,
