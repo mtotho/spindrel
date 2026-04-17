@@ -419,6 +419,10 @@ export interface PinnedWidget {
   envelope: ToolResultEnvelope;
   position: number;
   pinned_at: string;
+  /** Per-pin user config — shallow-merged over the template's default_config
+   *  and exposed as `{{config.*}}` in widget + state_poll templates. Flipped
+   *  via `{dispatch: "widget_config"}` actions. */
+  config?: Record<string, unknown>;
 }
 
 // Full channel settings (matches server ChannelSettingsOut)
@@ -437,6 +441,7 @@ export interface ChannelSettings {
   allow_bot_messages: boolean;
   workspace_rag: boolean;
   thinking_display?: string;
+  tool_output_display?: string;
   max_iterations?: number;
   task_max_run_seconds?: number | null;
   channel_prompt?: string;
@@ -610,8 +615,9 @@ export interface ToolResultEnvelope {
 
 /** Action definition for interactive widget components (toggle, button, select, etc.) */
 export interface WidgetAction {
-  /** "tool" dispatches through tool_dispatch, "api" calls a REST endpoint directly */
-  dispatch: "tool" | "api";
+  /** "tool" dispatches through tool_dispatch, "api" calls a REST endpoint directly,
+   *  "widget_config" patches the pinned widget's config and returns a refreshed envelope. */
+  dispatch: "tool" | "api" | "widget_config";
   /** For dispatch:"tool" — the tool name to call */
   tool?: string;
   /** For dispatch:"api" — the endpoint path (allowlisted internal paths only) */
@@ -619,6 +625,8 @@ export interface WidgetAction {
   method?: "POST" | "PUT" | "PATCH" | "DELETE";
   /** Static args merged with the dynamic value from the interactive element */
   args?: Record<string, unknown>;
+  /** For dispatch:"widget_config" — the config patch to shallow-merge into the pin. */
+  config?: Record<string, unknown>;
   /** Key name for the dynamic value (e.g., toggle sends {[value_key]: true/false}) */
   value_key?: string;
   /** Flip the value client-side before server confirms */

@@ -15,6 +15,12 @@ from sqlalchemy import and_, func, or_, select
 # Internal types like 'exec', 'claude_code', 'delegation' are only
 # created programmatically by the system (task worker, delegation service, etc.).
 ALLOWED_TASK_TYPES = {"scheduled", "agent", "pipeline"}
+
+# Internal/noise task types hidden from the admin tasks UI by default.
+# These are fired programmatically and aren't user-managed — surfacing them in the
+# main list crowds the view with rows nobody acts on. Pass include_internal=true
+# to see them (power-user / debugging).
+INTERNAL_HIDDEN_TASK_TYPES = {"exec", "api", "delegation", "callback", "claude_code"}
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes as sa_attributes
 
@@ -184,6 +190,7 @@ async def admin_list_tasks(
     after: Optional[str] = None,
     before: Optional[str] = None,
     include_children: bool = False,
+    include_internal: bool = False,
     definitions_only: bool = False,
     limit: int = 50,
     offset: int = 0,
@@ -243,6 +250,11 @@ async def admin_list_tasks(
         stmt = stmt.where(Task.task_type == task_type)
         count_stmt = count_stmt.where(Task.task_type == task_type)
         sched_stmt = sched_stmt.where(Task.task_type == task_type)
+    elif not include_internal:
+        hidden = list(INTERNAL_HIDDEN_TASK_TYPES)
+        stmt = stmt.where(Task.task_type.notin_(hidden))
+        count_stmt = count_stmt.where(Task.task_type.notin_(hidden))
+        sched_stmt = sched_stmt.where(Task.task_type.notin_(hidden))
     if after:
         from datetime import datetime as dt
         after_dt = dt.fromisoformat(after)

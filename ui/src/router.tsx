@@ -69,7 +69,6 @@ const AdminToolPolicies = lazy(() => import("@/app/(app)/admin/tool-policies/ind
 const AdminToolPolicyDetail = lazy(() => import("@/app/(app)/admin/tool-policies/[ruleId]/index"));
 const AdminToolsIndex = lazy(() => import("@/app/(app)/admin/tools/index"));
 const AdminToolDetail = lazy(() => import("@/app/(app)/admin/tools/[toolId]/index"));
-const AdminUpcoming = lazy(() => import("@/app/(app)/admin/upcoming/index"));
 const AdminUsage = lazy(() => import("@/app/(app)/admin/usage/index"));
 const AdminUsers = lazy(() => import("@/app/(app)/admin/users"));
 const AdminWebhooksIndex = lazy(() => import("@/app/(app)/admin/webhooks/index"));
@@ -168,7 +167,7 @@ export const router = createBrowserRouter([
               { path: "tool-policies/:ruleId", element: <AdminToolPolicyDetail /> },
               { path: "tools", element: <AdminToolsIndex /> },
               { path: "tools/:toolId", element: <AdminToolDetail /> },
-              { path: "upcoming", element: <AdminUpcoming /> },
+              { path: "upcoming", element: <Navigate to="/admin/tasks?view=list" replace /> },
               { path: "usage", element: <AdminUsage /> },
               { path: "users", element: <AdminUsers /> },
               { path: "webhooks", element: <AdminWebhooksIndex /> },

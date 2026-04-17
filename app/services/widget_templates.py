@@ -99,6 +99,7 @@ def _register_widgets(source: str, widgets: dict) -> int:
             "transform": widget_def.get("transform"),
             "display_label": widget_def.get("display_label"),
             "state_poll": widget_def.get("state_poll"),
+            "default_config": widget_def.get("default_config") or {},
             "source": source,
         }
         count += 1
@@ -152,12 +153,20 @@ def substitute_vars(obj: Any, data: dict) -> Any:
     return _substitute(copy.deepcopy(obj), data)
 
 
-def apply_widget_template(tool_name: str, raw_result: str) -> ToolResultEnvelope | None:
+def apply_widget_template(
+    tool_name: str,
+    raw_result: str,
+    widget_config: dict | None = None,
+) -> ToolResultEnvelope | None:
     """Apply a widget template to a raw tool result, returning an envelope or None.
 
     Returns None if no template exists or if the result can't be parsed as JSON.
     MCP tool names are often prefixed with the server name (e.g., "homeassistant-HassTurnOn"),
     so we try both the full name and the bare name (after stripping the server prefix).
+
+    ``widget_config`` — per-pin config dict. Merged over the template's
+    ``default_config`` and exposed as ``{{config.*}}`` during substitution so
+    templates can gate components on user-toggled options (e.g. show_forecast).
     """
     tmpl = _widget_templates.get(tool_name)
     # Try stripping MCP server prefix: "server-ToolName" → "ToolName"
@@ -177,6 +186,10 @@ def apply_widget_template(tool_name: str, raw_result: str) -> ToolResultEnvelope
     if not isinstance(data, dict):
         logger.debug("Widget template for %s: result is not a dict, skipping", tool_name)
         return None
+
+    # Shallow-merge default_config < widget_config → data["config"]
+    merged_config = {**(tmpl.get("default_config") or {}), **(widget_config or {})}
+    data = {**data, "config": merged_config}
 
     # Deep-copy the template and substitute variables
     filled = _substitute(copy.deepcopy(tmpl["template"]), data)
@@ -252,6 +265,19 @@ def apply_state_poll(
 
     if not isinstance(data, dict):
         return None
+
+    # Resolve the owning widget template for default_config (state_poll may
+    # share the tool with the main template, or it may be a poll-only tool —
+    # both cases look up by tool_name, same as get_state_poll_config).
+    owner_tmpl = _widget_templates.get(tool_name) or (
+        _widget_templates.get(tool_name.split("-", 1)[1])
+        if "-" in tool_name else None
+    ) or {}
+    merged_config = {
+        **(owner_tmpl.get("default_config") or {}),
+        **(widget_meta.get("config") or {}),
+    }
+    data = {**data, "config": merged_config}
 
     # Deep-copy and substitute template
     filled = _substitute(copy.deepcopy(poll_cfg["template"]), data)
@@ -497,6 +523,10 @@ def _apply_transform(value: Any, transform: str, data: dict) -> Any:
     # not_empty — truthy test
     if transform.strip() == "not_empty":
         return _is_truthy(value)
+
+    # not — boolean inverse (useful for gating "off-state" buttons on a flag)
+    if transform.strip() == "not":
+        return not _is_truthy(value)
 
     # status_color — map status strings to color names
     if transform.strip() == "status_color":

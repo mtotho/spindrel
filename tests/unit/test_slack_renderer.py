@@ -780,6 +780,48 @@ class TestNewMessage:
         assert len(fake_http.calls) == 1
         assert fake_http.calls[0]["body"]["username"] == "Alice"
 
+    async def test_user_message_never_updates_thinking_placeholder(self, fake_http):
+        """Regression: the user's NEW_MESSAGE shares correlation_id=turn_id
+        with the bot's thinking placeholder. Before this guard the user
+        message hit the placeholder-update path and chat.update'd over a
+        message already branded with bot_attribution — Slack's chat.update
+        ignores username/icon, so the user's text surfaced as the bot
+        (and the message carried an '(edited)' stamp). User messages must
+        always post fresh."""
+        fake_http.set_response({"ok": True, "ts": "1700000002.8"})
+        renderer = SlackRenderer()
+        target = _slack_target("C123")
+
+        turn_id = uuid.uuid4()
+        ctx = slack_render_contexts.get_or_create(
+            "C123", str(turn_id), bot_id="test-bot"
+        )
+        ctx.thinking_ts = "1700000000.777"
+        ctx.thinking_channel = "C123"
+
+        web_user_actor = ActorRef.user(
+            "550e8400-e29b-41d4-a716-446655440000",
+            display_name="Michael",
+        )
+        ev = _new_message_event(
+            role="user",
+            content="hey rolland, can you get_weather?",
+            actor=web_user_actor,
+            correlation_id=turn_id,
+        )
+
+        receipt = await renderer.render(ev, target)
+
+        assert receipt.success is True
+        assert len(fake_http.calls) == 1
+        call = fake_http.calls[0]
+        assert call["url"] == "https://slack.com/api/chat.postMessage"
+        assert call["body"]["username"] == "Michael"
+        # Placeholder context must survive — it's the bot's response slot
+        # and TURN_ENDED still needs it to finalize the reply.
+        assert slack_render_contexts.get("C123", str(turn_id)) is ctx
+        assert ctx.thinking_ts == "1700000000.777"
+
     async def test_no_dedup_state_held_across_calls(self, fake_http):
         """The renderer no longer carries a per-instance dedup LRU.
 

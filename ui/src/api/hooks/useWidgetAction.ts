@@ -3,18 +3,23 @@ import { apiFetch } from "../client";
 import type { WidgetAction, ToolResultEnvelope } from "../../types/api";
 
 interface WidgetActionRequest {
-  dispatch: "tool" | "api";
+  dispatch: "tool" | "api" | "widget_config";
   tool?: string;
   args?: Record<string, unknown>;
   endpoint?: string;
   method?: string;
   body?: Record<string, unknown>;
+  // widget_config dispatch
+  pin_id?: string;
+  config?: Record<string, unknown>;
   channel_id: string;
   bot_id: string;
   source_record_id?: string;
   /** When the dispatching widget has a state_poll, include display_label so the
    * backend can fetch fresh polled state after the action and return it. */
   display_label?: string;
+  /** Current per-pin config — substituted into tool/state_poll args as {{config.*}}. */
+  widget_config?: Record<string, unknown>;
 }
 
 interface WidgetActionResponse {
@@ -33,6 +38,11 @@ export function useWidgetAction(
   channelId?: string,
   botId?: string,
   displayLabel?: string | null,
+  /** Pin ID of the enclosing PinnedToolWidget, if any — required for dispatch:"widget_config". */
+  pinId?: string | null,
+  /** Current widget config from the pin store, sent on tool/state_poll calls so
+   *  {{config.*}} substitutes to live values. */
+  widgetConfig?: Record<string, unknown> | null,
 ) {
   const dispatchAction = useCallback(
     async (action: WidgetAction, value: unknown): Promise<WidgetActionResult> => {
@@ -52,10 +62,17 @@ export function useWidgetAction(
         bot_id: botId,
       };
       if (displayLabel) req.display_label = displayLabel;
+      if (widgetConfig) req.widget_config = widgetConfig;
 
       if (action.dispatch === "tool") {
         req.tool = action.tool;
         req.args = args;
+      } else if (action.dispatch === "widget_config") {
+        if (!pinId) {
+          throw new Error("widget_config dispatch requires an enclosing pinned widget");
+        }
+        req.pin_id = pinId;
+        req.config = action.config ?? {};
       } else {
         req.endpoint = action.endpoint;
         req.method = action.method ?? "POST";
@@ -80,7 +97,7 @@ export function useWidgetAction(
         apiResponse: resp.api_response ?? null,
       };
     },
-    [channelId, botId, displayLabel],
+    [channelId, botId, displayLabel, pinId, widgetConfig],
   );
 
   return dispatchAction;

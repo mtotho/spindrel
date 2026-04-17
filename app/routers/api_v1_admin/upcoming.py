@@ -18,7 +18,7 @@ router = APIRouter()
 
 @router.get("/upcoming-activity")
 async def upcoming_activity(
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),
     type: str | None = Query(None, description="Filter by type: heartbeat, task, memory_hygiene"),
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("admin")),

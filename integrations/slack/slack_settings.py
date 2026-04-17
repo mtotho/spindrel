@@ -126,6 +126,7 @@ def get_channel_config(channel_id: str) -> dict:
             "passive_memory": ch.get("passive_memory", True),
             "allow_bot_messages": ch.get("allow_bot_messages", False),
             "thinking_display": ch.get("thinking_display", "append"),
+            "tool_output_display": ch.get("tool_output_display", "compact"),
         }
     # Legacy: ch is a bot_id string
     bot_id = ch if ch else default_bot
@@ -135,6 +136,7 @@ def get_channel_config(channel_id: str) -> dict:
         "passive_memory": True,
         "allow_bot_messages": False,
         "thinking_display": "append",
+        "tool_output_display": "compact",
     }
 
 

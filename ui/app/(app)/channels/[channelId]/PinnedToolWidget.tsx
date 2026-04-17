@@ -15,6 +15,7 @@ import { ComponentRenderer, WidgetActionContext } from "@/src/components/chat/re
 import type { PinnedWidget, ToolResultEnvelope } from "@/src/types/api";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { apiFetch } from "@/src/api/client";
+import { formatRelativeTime } from "@/src/utils/format";
 
 /** Strip MCP server prefix: "homeassistant-HassTurnOn" → "HassTurnOn" */
 function cleanToolName(name: string): string {
@@ -47,6 +48,24 @@ export function PinnedToolWidget({
   const t = useThemeTokens();
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);
   const broadcastEnvelope = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
+  const patchWidgetConfig = usePinnedWidgetsStore((s) => s.patchWidgetConfig);
+  // Current pin config — live-read so widget_config on refresh reflects
+  // whatever the user just toggled.
+  const widgetConfig = usePinnedWidgetsStore(
+    (s) => s.byChannel[channelId]?.find((w) => w.id === widget.id)?.config,
+  );
+  const widgetConfigRef = useRef(widgetConfig);
+  widgetConfigRef.current = widgetConfig;
+
+  // Last-refreshed timestamp (ISO). Drives the "Updated Xm ago" chip.
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  // Tick every 60s so relative time re-renders without extra refreshes.
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    if (!lastRefreshedAt) return;
+    const handle = setInterval(() => setNowTick((n) => n + 1), 60_000);
+    return () => clearInterval(handle);
+  }, [lastRefreshedAt]);
 
   // Resolve the entity name we'll pass to the state_poll refresh endpoint.
   // Prefer display_label on the latest envelope (template-resolved), then
@@ -101,6 +120,7 @@ export function PinnedToolWidget({
             display_label: displayLabel,
             channel_id: channelId,
             bot_id: widget.bot_id,
+            widget_config: widgetConfigRef.current ?? {},
           }),
         },
       );
@@ -113,6 +133,7 @@ export function PinnedToolWidget({
         setCurrentEnvelope(fresh);
         onEnvelopeUpdate(widget.id, fresh);
         broadcastEnvelope(channelId, widget.tool_name, fresh);
+        setLastRefreshedAt(new Date().toISOString());
       }
     } catch {
       // Silently keep current envelope — stale is better than empty.
@@ -173,15 +194,27 @@ export function PinnedToolWidget({
 
   // Pass the current display_label so the backend can fetch fresh polled state
   // after the action and return that envelope (instead of the action template's
-  // often-stateless output).
+  // often-stateless output). pin_id + widgetConfig let dispatch:"widget_config"
+  // patch the enclosing pin and let tool args reference {{config.*}}.
   const currentDisplayLabel = resolveDisplayLabel(currentEnvelope);
-  const rawDispatch = useWidgetAction(channelId, widget.bot_id, currentDisplayLabel);
+  const rawDispatch = useWidgetAction(
+    channelId,
+    widget.bot_id,
+    currentDisplayLabel,
+    widget.id,
+    widgetConfig ?? null,
+  );
 
   // Intercepting dispatcher: captures the (polled) response envelope, updates
   // local state, and broadcasts so the inline chat widget stays in sync.
   const interceptingDispatch = useCallback(
     async (action: import("@/src/types/api").WidgetAction, value: unknown): Promise<WidgetActionResult> => {
       actionInFlightRef.current = true;
+      // Optimistic config merge before the server responds — lets subtle
+      // toggle buttons flip their visible state immediately.
+      if (action.dispatch === "widget_config" && action.config) {
+        patchWidgetConfig(channelId, widget.id, action.config);
+      }
       try {
         const result = await rawDispatch(action, value);
         if (
@@ -193,13 +226,14 @@ export function PinnedToolWidget({
           setCurrentEnvelope(result.envelope);
           onEnvelopeUpdate(widget.id, result.envelope);
           broadcastEnvelope(channelId, widget.tool_name, result.envelope);
+          setLastRefreshedAt(new Date().toISOString());
         }
         return result;
       } finally {
         actionInFlightRef.current = false;
       }
     },
-    [rawDispatch, widget.id, channelId, widget.tool_name, onEnvelopeUpdate, broadcastEnvelope],
+    [rawDispatch, widget.id, channelId, widget.tool_name, onEnvelopeUpdate, broadcastEnvelope, patchWidgetConfig],
   );
 
   const actionCtx = useMemo(
@@ -207,11 +241,40 @@ export function PinnedToolWidget({
     [interceptingDispatch],
   );
 
+  // Track whether we've ever had content, to distinguish "loading" from "cleared"
+  const hasEverLoadedRef = useRef(false);
+
   // Normalize body to string — guard against missing envelope
   const rawBody = currentEnvelope?.body;
   const body = rawBody == null ? null : typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
 
-  if (!currentEnvelope || body == null) return null;
+  if (currentEnvelope && body != null) {
+    hasEverLoadedRef.current = true;
+  }
+
+  // Show skeleton placeholder on initial load (before first poll/hydration)
+  if (!currentEnvelope || body == null) {
+    if (!hasEverLoadedRef.current) {
+      return (
+        <div
+          ref={setNodeRef}
+          className="rounded-lg border animate-pulse"
+          style={{ borderColor: `${t.surfaceBorder}80` }}
+          {...attributes}
+        >
+          <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-0.5">
+            <div className="w-3 h-3 rounded bg-skeleton/[0.04]" />
+            <div className="flex-1 h-[10px] rounded bg-skeleton/[0.04]" style={{ maxWidth: 80 }} />
+          </div>
+          <div className="px-2 pb-2 flex flex-col gap-1.5">
+            <div className="h-3 rounded bg-skeleton/[0.04]" style={{ width: "90%" }} />
+            <div className="h-3 rounded bg-skeleton/[0.04]" style={{ width: "60%" }} />
+          </div>
+        </div>
+      );
+    }
+    return null;
+  }
 
   const sortableStyle = {
     transform: CSS.Transform.toString(transform),
@@ -220,10 +283,12 @@ export function PinnedToolWidget({
     opacity: isDragging ? 0.5 : refreshing ? 0.6 : 1,
   };
 
+  const updatedLabel = lastRefreshedAt ? formatRelativeTime(lastRefreshedAt) : "";
+
   return (
     <div
       ref={setNodeRef}
-      className="rounded-lg border transition-colors duration-150 hover:bg-white/[0.02]"
+      className="group rounded-lg border transition-colors duration-150 hover:bg-white/[0.02]"
       style={sortableStyle}
       {...attributes}
     >
@@ -252,11 +317,22 @@ export function PinnedToolWidget({
       </div>
 
       {/* Body: component content */}
-      <div className="px-2 pb-2 max-h-[350px] overflow-y-auto">
+      <div className="px-2 pb-1 max-h-[350px] overflow-y-auto">
         <WidgetActionContext.Provider value={actionCtx}>
           <ComponentRenderer body={body} t={t} />
         </WidgetActionContext.Provider>
       </div>
+
+      {/* Footer: refresh timestamp — fades in on card hover */}
+      {updatedLabel && (
+        <div
+          className="px-2 pb-1.5 text-[9px] tracking-wide opacity-0 group-hover:opacity-60 transition-opacity duration-150 text-right"
+          style={{ color: t.textDim }}
+          title={`Last refreshed ${new Date(lastRefreshedAt!).toLocaleString()}`}
+        >
+          Updated {updatedLabel} ago
+        </div>
+      )}
     </div>
   );
 }

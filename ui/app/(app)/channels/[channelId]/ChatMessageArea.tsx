@@ -5,6 +5,35 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import type { Message } from "@/src/types/api";
 import type { TurnState } from "@/src/stores/chat";
 
+function SkeletonBar({ width, height = 14 }: { width: string; height?: number }) {
+  return <div className="rounded bg-skeleton/[0.04] animate-pulse" style={{ width, height }} />;
+}
+
+function MessageSkeletonRow({ widths, isUser = false }: { widths: string[]; isUser?: boolean }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "row", gap: 10, padding: "6px 20px", justifyContent: isUser ? "flex-end" : "flex-start" }}>
+      {!isUser && <div className="w-8 h-8 rounded-full bg-skeleton/[0.04] animate-pulse shrink-0" />}
+      <div className="flex flex-col gap-1.5" style={{ maxWidth: 480 }}>
+        {!isUser && <SkeletonBar width="70px" height={11} />}
+        {widths.map((w, i) => <SkeletonBar key={i} width={w} />)}
+      </div>
+      {isUser && <div className="w-8 h-8 rounded-full bg-skeleton/[0.04] animate-pulse shrink-0" />}
+    </div>
+  );
+}
+
+function MessageSkeletons() {
+  return (
+    <>
+      <MessageSkeletonRow widths={["220px", "160px"]} />
+      <MessageSkeletonRow widths={["280px", "200px", "120px"]} />
+      <MessageSkeletonRow widths={["180px"]} isUser />
+      <MessageSkeletonRow widths={["300px", "240px"]} />
+      <MessageSkeletonRow widths={["160px", "100px"]} isUser />
+    </>
+  );
+}
+
 export function DateSeparator({ label }: { label: string }) {
   const t = useThemeTokens();
   return (
@@ -195,9 +224,9 @@ export function ChatMessageArea({
             within this wrapper; the reverse only applies to the outer
             container's children. */}
         {invertedData.length === 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 20px", flex: 1 }}>
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: isLoading ? "flex-end" : "center", alignItems: isLoading ? "stretch" : "center", padding: isLoading ? "16px 0" : "80px 20px", flex: 1 }}>
             {isLoading ? (
-              <div className="chat-spinner" />
+              <MessageSkeletons />
             ) : (
               <span style={{ color: t.textDim, fontSize: 14 }}>
                 Send a message to start the conversation

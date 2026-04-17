@@ -116,6 +116,17 @@ from integrations.utils import (  # noqa: E402, F401
 )
 
 # ---------------------------------------------------------------------------
+# Tool-output rendering helpers (shared across renderers)
+# ---------------------------------------------------------------------------
+
+from integrations.tool_output import (  # noqa: E402, F401
+    ToolBadge,
+    ToolOutputDisplay,
+    ToolOutputDisplayValue,
+    extract_tool_badges,
+)
+
+# ---------------------------------------------------------------------------
 # Database access
 # ---------------------------------------------------------------------------
 

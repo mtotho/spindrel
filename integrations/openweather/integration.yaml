@@ -73,47 +73,54 @@ _weather_template: &weather_template
           rows:
             each: "{{alerts}}"
             template: ["{{_.event}}", "{{_.sender}}", "{{_.start}}", "{{_.end}}"]
-    # Hourly forecast
-    - type: section
-      label: "Next 12 hours"
-      collapsible: true
-      defaultOpen: false
-      when: "{{hourly_forecast | not_empty}}"
-      children:
-        - type: table
-          columns: ["Time", "Temp", "Conditions", "Precip"]
-          compact: true
-          rows:
-            each: "{{hourly_forecast}}"
-            template: ["{{_.time}}", "{{_.temperature}}", "{{_.conditions}}", "{{_.precip_probability}}"]
-    # Daily forecast
-    - type: section
-      label: "7-day forecast"
-      collapsible: true
-      defaultOpen: false
+    # Daily forecast — tiles that fit as many days per row as the panel allows.
+    # Gated on config.show_forecast so the state_poll args also include_daily
+    # match; when off, daily_forecast isn't in the API response and this hides.
+    - type: tiles
+      min_width: 84
+      gap: 6
       when: "{{daily_forecast | not_empty}}"
-      children:
-        - type: table
-          columns: ["Day", "Range", "Conditions", "Precip"]
-          compact: true
-          rows:
-            each: "{{daily_forecast}}"
-            template: ["{{_.date}}", "{{_.temp_range}}", "{{_.conditions}}", "{{_.precip_probability}}"]
+      items:
+        each: "{{daily_forecast}}"
+        template:
+          label: "{{_.date}}"
+          value: "{{_.temp_max}}"
+          caption: "{{_.conditions}}"
+    # Subtle config toggles — two buttons, one per state; `when` picks the right
+    # one. Invisible until the pinned widget card is hovered.
+    - type: button
+      label: "Show forecast"
+      subtle: true
+      when: "{{config.show_forecast | not}}"
+      action:
+        dispatch: widget_config
+        config:
+          show_forecast: true
+    - type: button
+      label: "Hide forecast"
+      subtle: true
+      when: "{{config.show_forecast | not_empty}}"
+      action:
+        dispatch: widget_config
+        config:
+          show_forecast: false
 
 # Rich widget for get_weather results. Pinned widgets re-poll by recalling
-# get_weather with the resolved location (carried via display_label).
+# get_weather with the resolved location and config-driven flags.
 tool_widgets:
   get_weather:
     content_type: application/vnd.spindrel.components+json
     display: inline
     display_label: "{{location}}"
+    default_config:
+      show_forecast: false
     state_poll:
       tool: get_weather
-      # {{display_label}} is substituted from widget_meta at poll time so each
-      # pinned weather widget re-fetches its own location.
+      # {{display_label}} resolves the location; {{config.show_forecast}}
+      # follows the user's toggled preference and is re-substituted on each poll.
       args:
         location: "{{display_label}}"
-      # Hint to the UI for auto-refresh cadence on pinned widgets.
+        include_daily: "{{config.show_forecast}}"
       refresh_interval_seconds: 3600
       template: *weather_template
     template: *weather_template

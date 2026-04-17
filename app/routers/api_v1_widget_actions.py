@@ -60,7 +60,7 @@ _API_ALLOWLIST = [
 
 
 class WidgetActionRequest(BaseModel):
-    dispatch: Literal["tool", "api"] = "tool"
+    dispatch: Literal["tool", "api", "widget_config"] = "tool"
     # For tool dispatch
     tool: str | None = None
     args: dict = {}
@@ -68,6 +68,10 @@ class WidgetActionRequest(BaseModel):
     endpoint: str | None = None
     method: str = "POST"
     body: dict | None = None
+    # For widget_config dispatch — patch a pinned widget's config and return
+    # the refreshed envelope rendered with the merged config.
+    pin_id: str | None = None
+    config: dict | None = None
     # Context
     channel_id: uuid.UUID
     bot_id: str
@@ -76,6 +80,9 @@ class WidgetActionRequest(BaseModel):
     # the backend fetch fresh state after the action and return that envelope
     # instead of the (often stateless) action template output.
     display_label: str | None = None
+    # Current widget_config — sent so tool/state_poll args can substitute
+    # {{config.*}} without a DB roundtrip to fetch the pin.
+    widget_config: dict | None = None
 
 
 class WidgetActionResponse(BaseModel):
@@ -93,6 +100,8 @@ async def dispatch_widget_action(req: WidgetActionRequest):
         return await _dispatch_tool(req)
     elif req.dispatch == "api":
         return await _dispatch_api(req)
+    elif req.dispatch == "widget_config":
+        return await _dispatch_widget_config(req)
     else:
         raise HTTPException(400, f"Unknown dispatch type: {req.dispatch}")
 
@@ -145,7 +154,7 @@ async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
         return WidgetActionResponse(ok=True, envelope=None)
 
     # Build envelope from result
-    envelope = _build_result_envelope(resolved_name, result)
+    envelope = _build_result_envelope(resolved_name, result, req.widget_config)
 
     logger.info(
         "Widget action: tool=%s resolved=%s args=%s channel=%s result_preview=%.200s",
@@ -164,6 +173,7 @@ async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
                 tool_name=resolved_name,
                 display_label=req.display_label,
                 poll_cfg=poll_cfg,
+                widget_config=req.widget_config,
             )
             if polled is not None:
                 return WidgetActionResponse(ok=True, envelope=polled.compact_dict())
@@ -206,10 +216,16 @@ async def _dispatch_api(req: WidgetActionRequest) -> WidgetActionResponse:
     return WidgetActionResponse(ok=True, api_response=data)
 
 
-def _build_result_envelope(tool_name: str, raw_result: str) -> ToolResultEnvelope:
+def _build_result_envelope(
+    tool_name: str,
+    raw_result: str,
+    widget_config: dict | None = None,
+) -> ToolResultEnvelope:
     """Build a ToolResultEnvelope from a raw tool result string.
 
     Tries in order: _envelope opt-in → widget template → default envelope.
+    ``widget_config`` is threaded into the widget template so ``{{config.*}}``
+    resolves against the caller's per-pin config.
     """
     # Try to parse as JSON and check for _envelope opt-in
     try:
@@ -220,7 +236,7 @@ def _build_result_envelope(tool_name: str, raw_result: str) -> ToolResultEnvelop
         pass
 
     # Try widget template from integration manifests
-    widget_env = apply_widget_template(tool_name, raw_result)
+    widget_env = apply_widget_template(tool_name, raw_result, widget_config)
     if widget_env is not None:
         return widget_env
 
@@ -261,11 +277,17 @@ def invalidate_poll_cache_for(poll_cfg: dict) -> None:
 
 async def _do_state_poll(
     *, tool_name: str, display_label: str, poll_cfg: dict,
+    widget_config: dict | None = None,
 ) -> ToolResultEnvelope | None:
     """Fetch fresh state via the configured poll tool and render its template.
 
     Used by both the /refresh endpoint and the post-action envelope swap in
     _dispatch_tool. Returns None on error.
+
+    ``widget_config`` — per-pin user config. Exposed as ``{{config.*}}`` in
+    state_poll args so a toggled flag can change the tool arguments (e.g.
+    ``include_daily: "{{config.show_forecast}}"``). Also passed to the
+    template engine so the rendered envelope can gate components on it.
     """
     poll_tool = poll_cfg.get("tool")
     if not poll_tool:
@@ -273,11 +295,15 @@ async def _do_state_poll(
 
     resolved_poll_tool = _resolve_tool_name(poll_tool)
 
-    # Substitute widget_meta ({{display_label}}, {{tool_name}}) into args so each
-    # pinned widget can re-poll with its own identifying value. Static configs
-    # pass through unchanged.
+    # Substitute widget_meta ({{display_label}}, {{tool_name}}, {{config.*}})
+    # into args so each pinned widget can re-poll with its own identifying
+    # value. Static configs pass through unchanged.
     raw_args = poll_cfg.get("args", {}) or {}
-    widget_meta = {"display_label": display_label, "tool_name": tool_name}
+    widget_meta = {
+        "display_label": display_label,
+        "tool_name": tool_name,
+        "config": widget_config or {},
+    }
     substituted_args = substitute_vars(raw_args, widget_meta)
     poll_args = json.dumps(substituted_args, sort_keys=True)
     cache_key = (resolved_poll_tool, poll_args)
@@ -322,6 +348,9 @@ class WidgetRefreshRequest(BaseModel):
     display_label: str = ""
     channel_id: uuid.UUID
     bot_id: str
+    # Current pin config — exposed as {{config.*}} in state_poll args and in
+    # the state_poll template. Optional; missing = empty dict (defaults only).
+    widget_config: dict | None = None
 
 
 @router.post("/refresh", response_model=WidgetActionResponse)
@@ -344,6 +373,7 @@ async def refresh_widget_state(req: WidgetRefreshRequest):
         tool_name=req.tool_name,
         display_label=req.display_label,
         poll_cfg=poll_cfg,
+        widget_config=req.widget_config,
     )
     if envelope is None:
         return WidgetActionResponse(ok=False, error="State poll failed to produce an envelope")
@@ -352,3 +382,58 @@ async def refresh_widget_state(req: WidgetRefreshRequest):
         "Widget refresh: tool=%s display_label=%s", req.tool_name, req.display_label,
     )
     return WidgetActionResponse(ok=True, envelope=envelope.compact_dict())
+
+
+async def _dispatch_widget_config(req: WidgetActionRequest) -> WidgetActionResponse:
+    """Patch a pinned widget's config and return a refreshed envelope.
+
+    Shallow-merges ``req.config`` into the pin's stored config (same semantics
+    as the PATCH /widget-pins/{id}/config endpoint), invalidates the
+    state_poll cache, and calls ``_do_state_poll`` with the merged config so
+    templated ``{{config.*}}`` in state_poll args picks up the new value.
+    """
+    if not req.pin_id:
+        return WidgetActionResponse(ok=False, error="Missing 'pin_id' for widget_config dispatch")
+    if req.config is None:
+        return WidgetActionResponse(ok=False, error="Missing 'config' for widget_config dispatch")
+
+    # Call the shared pin-patch helper directly — avoids a pointless HTTP
+    # roundtrip and the need for the router to know our own listen port.
+    from app.routers.api_v1_channels import apply_widget_config_patch
+    from app.db.engine import async_session
+
+    try:
+        async with async_session() as db:
+            patched_pin = await apply_widget_config_patch(
+                db, req.channel_id, req.pin_id, req.config, merge=True,
+            )
+    except HTTPException as exc:
+        return WidgetActionResponse(ok=False, error=f"Pin patch failed: {exc.detail}")
+    except Exception as exc:
+        return WidgetActionResponse(ok=False, error=f"Pin patch failed: {exc}")
+
+    merged_config = patched_pin.get("config") or {}
+    tool_name = patched_pin.get("tool_name", "")
+    resolved = _resolve_tool_name(tool_name)
+
+    poll_cfg = get_state_poll_config(resolved)
+    if not poll_cfg:
+        # Without a state_poll we can't re-render — caller should apply the
+        # new config client-side against the existing envelope.
+        return WidgetActionResponse(ok=True, envelope=None, api_response=patched_pin)
+
+    invalidate_poll_cache_for(poll_cfg)
+    envelope = await _do_state_poll(
+        tool_name=resolved,
+        display_label=req.display_label or (patched_pin.get("envelope") or {}).get("display_label") or "",
+        poll_cfg=poll_cfg,
+        widget_config=merged_config,
+    )
+    if envelope is None:
+        return WidgetActionResponse(ok=True, envelope=None, api_response=patched_pin)
+
+    logger.info(
+        "widget_config dispatch: pin=%s tool=%s patch=%s merged=%s",
+        req.pin_id, resolved, req.config, merged_config,
+    )
+    return WidgetActionResponse(ok=True, envelope=envelope.compact_dict(), api_response=patched_pin)

@@ -63,6 +63,7 @@ type ComponentNode =
   | SectionNode
   | ToggleNode
   | ButtonNode
+  | TilesNode
   | SelectNode
   | InputNode
   | FormNode
@@ -151,6 +152,21 @@ interface ButtonNode {
   action: WidgetAction;
   variant?: "default" | "primary" | "danger";
   disabled?: boolean;
+  /** Render almost invisible (low opacity) until the enclosing `group` element
+   *  is hovered. Used for progressive-disclosure affordances inside pinned
+   *  widgets, e.g. a "Show forecast" toggle that doesn't compete with content. */
+  subtle?: boolean;
+}
+
+interface TilesNode {
+  type: "tiles";
+  /** Array of { label, value, caption? } tiles. Typically produced via the
+   *  template engine's `each:` expansion over a result array. */
+  items: { label?: string; value?: string; caption?: string }[];
+  /** Minimum tile width in px — drives `grid-template-columns: repeat(auto-fill, minmax(Xpx, 1fr))`. */
+  min_width?: number;
+  /** Gap between tiles in px (default 6). */
+  gap?: number;
 }
 
 interface SelectNode {
@@ -337,6 +353,8 @@ function RenderNode({
       return <ToggleBlock node={node as ToggleNode} t={t} />;
     case "button":
       return <ButtonBlock node={node as ButtonNode} t={t} />;
+    case "tiles":
+      return <TilesBlock node={node as TilesNode} t={t} />;
     case "select":
       return <SelectBlock node={node as SelectNode} t={t} />;
     case "input":
@@ -949,8 +967,21 @@ function ButtonBlock({ node, t }: { node: ButtonNode; t: ThemeTokens }) {
   const v = variantStyles[node.variant ?? "default"] ?? variantStyles.default;
   const isDisabled = busy || node.disabled || !dispatch;
 
+  // Subtle variant: small, almost invisible until the enclosing `group`
+  // (e.g. PinnedToolWidget root) is hovered. Lets templates add optional
+  // toggles without visual clutter when idle.
+  const wrapperClass = node.subtle
+    ? "opacity-25 group-hover:opacity-100 transition-opacity duration-150"
+    : "";
+  const padding = node.subtle ? "3px 10px" : "6px 16px";
+  const minHeight = node.subtle ? 22 : 32;
+  const fontSize = node.subtle ? 11 : 12;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, alignSelf: "flex-start" }}>
+    <div
+      className={wrapperClass}
+      style={{ display: "flex", flexDirection: "column", gap: 2, alignSelf: "flex-start" }}
+    >
       <button
         type="button"
         onClick={async () => {
@@ -967,12 +998,12 @@ function ButtonBlock({ node, t }: { node: ButtonNode; t: ThemeTokens }) {
         }}
         disabled={isDisabled}
         style={{
-          padding: "6px 16px",
+          padding,
           borderRadius: 6,
           border: `1px solid ${v.border}`,
           background: v.bg,
           color: v.color,
-          fontSize: 12,
+          fontSize,
           fontWeight: 500,
           cursor: isDisabled ? "default" : "pointer",
           opacity: isDisabled ? 0.4 : 1,
@@ -980,7 +1011,7 @@ function ButtonBlock({ node, t }: { node: ButtonNode; t: ThemeTokens }) {
           alignItems: "center",
           gap: 6,
           transition: "opacity 0.15s, background-color 0.15s",
-          minHeight: 32,
+          minHeight,
         }}
         onMouseEnter={(e) => { if (!isDisabled) e.currentTarget.style.backgroundColor = v.hoverBg; }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = v.bg; }}
@@ -989,6 +1020,83 @@ function ButtonBlock({ node, t }: { node: ButtonNode; t: ThemeTokens }) {
         {node.label}
       </button>
       {error && <span style={{ fontSize: 11, color: t.danger }}>{error}</span>}
+    </div>
+  );
+}
+
+function TilesBlock({ node, t }: { node: TilesNode; t: ThemeTokens }) {
+  const items = Array.isArray(node.items) ? node.items : [];
+  if (items.length === 0) return null;
+
+  const minWidth = node.min_width ?? 84;
+  const gap = node.gap ?? 6;
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(auto-fill, minmax(${minWidth}px, 1fr))`,
+        gap,
+      }}
+    >
+      {items.map((item, i) => (
+        <div
+          key={i}
+          className="rounded-md border"
+          style={{
+            borderColor: `${t.surfaceBorder}80`,
+            background: t.overlayLight,
+            padding: "6px 8px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 1,
+            minWidth: 0,
+          }}
+        >
+          {item.label && (
+            <span
+              style={{
+                fontSize: 10,
+                color: t.textMuted,
+                textTransform: "uppercase",
+                letterSpacing: "0.03em",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {item.label}
+            </span>
+          )}
+          {item.value && (
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: t.contentText,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {item.value}
+            </span>
+          )}
+          {item.caption && (
+            <span
+              style={{
+                fontSize: 10,
+                color: t.textDim,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {item.caption}
+            </span>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

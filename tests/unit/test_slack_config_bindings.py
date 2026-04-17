@@ -215,8 +215,10 @@ class TestSlackConfigModernBindings:
         )
         assert r.status_code == 200
         ch = r.json()["channels"]["CMODERN001"]
-        for field in ("bot_id", "require_mention", "passive_memory", "allow_bot_messages", "thinking_display"):
+        for field in ("bot_id", "require_mention", "passive_memory", "allow_bot_messages", "thinking_display", "tool_output_display"):
             assert field in ch, f"Missing field: {field}"
+        # Default value surfaces correctly.
+        assert ch["tool_output_display"] == "compact"
 
 
 class TestSlackConfigBothBindingTypes:

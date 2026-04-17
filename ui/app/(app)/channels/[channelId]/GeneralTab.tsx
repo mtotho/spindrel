@@ -150,6 +150,17 @@ function GeneralAdvancedSection({
             ]}
           />
         </FormRow>
+        <FormRow label="Tool output" description="How tool-call results are rendered in integrations (Slack, etc.). Web UI always shows the full widget.">
+          <SelectInput
+            value={form.tool_output_display ?? "compact"}
+            onChange={(v) => patch("tool_output_display", v)}
+            options={[
+              { label: "Compact (one-line badge)", value: "compact" },
+              { label: "Full (rich Block Kit)", value: "full" },
+              { label: "Hidden", value: "none" },
+            ]}
+          />
+        </FormRow>
         <Row stack={isMobile}>
           <Col minWidth={isMobile ? 0 : 200}>
             <FormRow label="Max iterations">

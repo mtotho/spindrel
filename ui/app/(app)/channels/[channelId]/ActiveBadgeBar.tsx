@@ -46,6 +46,27 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
   // Tool counts from activated integrations
   const totalTools = activeIntegrations.reduce((sum, ig) => sum + (ig.tools?.length ?? 0), 0);
 
+  // Still loading — reserve space with a shimmer placeholder to prevent layout shift
+  const isLoading = !settings && !activatable;
+  if (isLoading) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          padding: compact ? "4px 12px" : "4px 16px",
+          gap: 12,
+          flexShrink: 0,
+          height: 26,
+        }}
+      >
+        <div className="w-[50px] h-[10px] rounded bg-skeleton/[0.04] animate-pulse" />
+        <div className="w-[70px] h-[10px] rounded bg-skeleton/[0.04] animate-pulse" />
+      </div>
+    );
+  }
+
   // Nothing to show? Don't render the bar
   const hasAnything = template || activeIntegrations.length > 0 || boundOnly.length > 0;
   if (!hasAnything) return null;

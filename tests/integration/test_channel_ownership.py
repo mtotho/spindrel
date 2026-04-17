@@ -304,3 +304,99 @@ class TestAdminChannelsVisibility:
         row = rows.get(str(ch.id))
         assert row is not None
         assert row["last_message_at"] is None
+
+
+# ---------------------------------------------------------------------------
+# Widget pin config — PATCH /widget-pins/{id}/config
+# ---------------------------------------------------------------------------
+
+
+async def _pin_widget(client, channel_id, *, pin_id=None, config=None):
+    """Helper: pin a minimal widget and return the response body."""
+    body = {
+        "id": pin_id or f"pin-{uuid.uuid4().hex[:8]}",
+        "tool_name": "get_weather",
+        "display_name": "Weather",
+        "bot_id": "test-bot",
+        "envelope": {"content_type": "text/plain", "body": "", "plain_body": "",
+                     "display": "inline", "truncated": False, "record_id": None, "byte_size": 0},
+        "position": 0,
+        "pinned_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if config is not None:
+        body["config"] = config
+    resp = await client.post(
+        f"/api/v1/channels/{channel_id}/widget-pins",
+        json=body,
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+class TestPinnedWidgetConfig:
+    async def test_pin_request_accepts_and_persists_config(self, client, db_session):
+        ch = await _create_channel_row(db_session)
+        await db_session.commit()
+        pinned = await _pin_widget(client, ch.id, config={"show_forecast": True})
+        assert pinned["config"] == {"show_forecast": True}
+
+        # Round-trip: fetch channel config from DB
+        await db_session.refresh(ch)
+        stored = (ch.config or {}).get("pinned_widgets", [])
+        assert len(stored) == 1
+        assert stored[0]["config"] == {"show_forecast": True}
+
+    async def test_patch_widget_config_shallow_merges(self, client, db_session):
+        ch = await _create_channel_row(db_session)
+        await db_session.commit()
+        pinned = await _pin_widget(
+            client, ch.id, pin_id="pin-abc",
+            config={"show_forecast": False, "units": "imperial"},
+        )
+
+        resp = await client.patch(
+            f"/api/v1/channels/{ch.id}/widget-pins/pin-abc/config",
+            json={"config": {"show_forecast": True}},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        patched = resp.json()
+        # Merge: show_forecast flipped, units preserved.
+        assert patched["config"] == {"show_forecast": True, "units": "imperial"}
+
+    async def test_patch_widget_config_full_replace_when_merge_false(self, client, db_session):
+        ch = await _create_channel_row(db_session)
+        await db_session.commit()
+        await _pin_widget(
+            client, ch.id, pin_id="pin-xyz",
+            config={"show_forecast": False, "units": "imperial"},
+        )
+
+        resp = await client.patch(
+            f"/api/v1/channels/{ch.id}/widget-pins/pin-xyz/config",
+            json={"config": {"show_forecast": True}, "merge": False},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        patched = resp.json()
+        # Full replace: units dropped.
+        assert patched["config"] == {"show_forecast": True}
+
+    async def test_patch_widget_config_unknown_widget_404(self, client, db_session):
+        ch = await _create_channel_row(db_session)
+        await db_session.commit()
+        resp = await client.patch(
+            f"/api/v1/channels/{ch.id}/widget-pins/nonexistent/config",
+            json={"config": {"show_forecast": True}},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404
+
+    async def test_patch_widget_config_unknown_channel_404(self, client):
+        resp = await client.patch(
+            f"/api/v1/channels/{uuid.uuid4()}/widget-pins/pin-abc/config",
+            json={"config": {"show_forecast": True}},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404

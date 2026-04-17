@@ -55,6 +55,13 @@ interface PinnedWidgetsState {
     envelope: ToolResultEnvelope,
   ) => void;
 
+  /** Shallow-merge a config patch into a pinned widget's config (optimistic + persisted). */
+  patchWidgetConfig: (
+    channelId: string,
+    widgetId: string,
+    patch: Record<string, unknown>,
+  ) => void;
+
   /**
    * Broadcast an envelope update from any widget (inline or pinned).
    * Stores in widgetEnvelopes so subscribers re-render, and updates any
@@ -289,6 +296,22 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
             body: JSON.stringify(updated),
           }).catch((err) => console.error("Failed to persist envelope update:", err));
         }
+      },
+
+      patchWidgetConfig: (channelId, widgetId, patch) => {
+        // Optimistic shallow-merge. The server-side refresh/action path sends
+        // the patch in its own POST, so we don't PATCH separately here —
+        // dispatch:"widget_config" already persists via the channels endpoint.
+        set((s) => ({
+          byChannel: {
+            ...s.byChannel,
+            [channelId]: (s.byChannel[channelId] ?? []).map((w) =>
+              w.id === widgetId
+                ? { ...w, config: { ...(w.config ?? {}), ...patch } }
+                : w,
+            ),
+          },
+        }));
       },
 
       broadcastEnvelope: (channelId, toolName, envelope) => {

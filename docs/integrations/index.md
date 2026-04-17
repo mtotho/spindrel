@@ -1097,16 +1097,27 @@ lets users disable the HUD entirely without removing the integration.
 
 ### `tool_widgets` — Interactive tool result widgets
 
-Integrations can declare widget templates that transform MCP tool results into
-interactive component UIs rendered inline in chat. When a tool returns raw JSON,
-the template engine matches the tool name, substitutes variables from the result
-data, and produces a rich component envelope.
+Integrations can declare widget templates that transform tool results into
+interactive component UIs rendered inline in chat and in the channel side-panel
+as pinned widgets. When a tool returns JSON, the template engine matches the
+tool name, merges per-pin config, substitutes `{{...}}` expressions, and
+produces a rich component envelope that re-renders on refresh / user action.
 
 ```yaml
 tool_widgets:
   MyToolName:
     content_type: application/vnd.spindrel.components+json
     display: inline
+    display_label: "{{entity_name}}"     # Header label on pinned widgets
+    default_config:                       # Default per-pin config
+      show_details: false
+    state_poll:                           # Optional: re-fetch on pin mount / timer
+      tool: MyToolName
+      args:
+        entity: "{{display_label}}"       # {{widget_meta.*}} substitution
+        verbose: "{{config.show_details}}"# {{config.*}} substitution from pin
+      refresh_interval_seconds: 3600      # Auto-refresh interval (UI timer)
+      template: *shared                   # Re-use the main template via YAML anchor
     template:
       v: 1
       components:
@@ -1119,50 +1130,126 @@ tool_widgets:
           action:
             dispatch: tool
             tool: MyInverseTool
-            args:
-              name: "{{data.result_field}}"
+            args: { name: "{{data.result_field}}" }
             optimistic: true
-        - type: properties
-          layout: inline
-          items: "{{data.items | map: {label: type, value: name}}}"
+        # Subtle toggle — almost invisible until the pinned card is hovered
+        - type: button
+          label: "Show details"
+          subtle: true
+          when: "{{config.show_details | not}}"
+          action:
+            dispatch: widget_config        # Patches the pin's config + refreshes
+            config: { show_details: true }
+        - type: tiles                      # Responsive fit-as-many-per-row grid
+          min_width: 84
+          when: "{{data.items | not_empty}}"
+          items:
+            each: "{{data.items}}"
+            template: { label: "{{_.date}}", value: "{{_.value}}", caption: "{{_.note}}" }
 ```
 
-**Template fields:**
+**Top-level template fields:**
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `content_type` | `str` | Output MIME type. Use `application/vnd.spindrel.components+json` for interactive widgets. |
-| `display` | `str` | `"inline"` renders as a standalone card below the message. `"badge"` renders inside ToolBadges. |
+| `display` | `"inline" \| "badge" \| "panel"` | `"inline"` standalone card under the message. `"badge"` inside ToolBadges. |
+| `display_label` | `str` | Template expression resolved against the tool result. Carried on the envelope, used as the pinned widget's header text and passed back to `state_poll.args` as `{{display_label}}` on refresh. |
+| `default_config` | `object` | Default per-pin config. Shallow-merged under the pin's stored `config` at render time and exposed as `{{config.*}}`. |
+| `state_poll` | `object` | Declares a tool to re-call on refresh / timer tick. See below. |
+| `transform` | `str` | `"module.path:function"` post-substitution Python hook that rewrites the components list. |
 | `template` | `object` | Component body with `v: 1` schema version and `components` array. |
 
-**Component primitives:** `text`, `heading`, `status`, `properties`, `table`, `toggle`,
-`button`, `select`, `input`, `slider`, `form`, `section`, `divider`, `code`, `image`, `links`.
+**Component primitives:** `text`, `heading`, `status`, `properties`, `table`,
+`tiles`, `toggle`, `button`, `select`, `input`, `slider`, `form`, `section`,
+`divider`, `code`, `image`, `links`. Unknown types render as muted JSON for
+forward compatibility.
 
-**Interactive components** carry a `WidgetAction` with `dispatch: "tool"` or `dispatch: "api"`.
-When the user interacts (toggle, slider change, button click), the action is sent to
-`POST /api/v1/widget-actions`. For `dispatch: "tool"`, the named tool is called and the
-response is rendered through the same template pipeline — enabling cycling between states
-(e.g., toggle on → off → on).
+- **`tiles`**: responsive grid (`grid-template-columns: repeat(auto-fill, minmax(min_width, 1fr))`). Fields: `items` (`[{label, value, caption}]`) or `each: "{{array}}"` + per-item `template`, `min_width` (px, default 84), `gap` (px, default 6).
+- **`button`**: `{label, action, variant?, disabled?, subtle?}`. `subtle: true` renders opacity-25 until the enclosing `group` element (e.g. a pinned widget card) is hovered — useful for progressive-disclosure config toggles.
 
-**Template expressions** use `{{...}}` syntax:
+**Interactive components** carry a `WidgetAction`. Three dispatch modes:
+
+| `dispatch` | Use for | Required fields |
+|-----------|---------|-----------------|
+| `"tool"` | Call an MCP or local tool, re-render via widget template. | `tool`, `args`, `value_key?`, `optimistic?` |
+| `"api"` | Proxy to an allowlisted internal REST endpoint. | `endpoint`, `method`, (`args` → body) |
+| `"widget_config"` | Shallow-merge a config patch into the enclosing pin's stored config and return a refreshed envelope. | `config` (the patch). `pin_id` is auto-injected by the client. |
+
+All actions POST to `/api/v1/widget-actions`. When the response carries an
+envelope, the card replaces its body — enabling stateful cycling (toggle →
+inverse tool → refreshed card) and config-driven re-render (hover → subtle
+button → widget_config patch → state_poll re-call → envelope with new data).
+
+**State polling (`state_poll`):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tool` | `str` | Tool to re-call on refresh. Usually the widget's own tool, or a "get current state" read-only tool. |
+| `args` | `object` | Args for the poll tool. Supports `{{display_label}}`, `{{tool_name}}`, `{{config.*}}` substitution from the widget_meta + pin config at call time. |
+| `refresh_interval_seconds` | `int` | Auto-refresh cadence for pinned widgets. Propagates onto the envelope so the UI sets a `setInterval`. |
+| `transform` | `str` | Optional `"module:func"` hook called with `(raw_result, widget_meta) → data_dict` when the poll tool returns a shape that differs from the main template's input (e.g. HA `GetLiveContext` filtering to one entity). |
+| `template` | `object` | Component body rendered from the (possibly transformed) poll result. Often shared with the main template via a YAML anchor. |
+
+Poll results are cached 30s keyed by `(tool, args_json)` so multiple pinned
+widgets for the same tool-and-args deduplicate, while different args (e.g.
+different weather locations) don't collide.
+
+**Template expressions** use `{{...}}` syntax over a merged data dict whose
+keys are: the tool result JSON + `config` (merged default + pin config) +
+`display_label` / `tool_name` (in state_poll args only).
 
 | Expression | Example | Result |
 |-----------|---------|--------|
 | Key lookup | `{{name}}` | `data["name"]` |
-| Dot path | `{{a.b.c}}` | Nested object access |
-| Array index | `{{a[0].b}}` | Array + nested access |
-| Equality | `{{a == 'val'}}` | Boolean comparison |
-| Pipe transforms | `{{a \| pluck: name}}` | Extract field from each item |
+| Dot path | `{{current.temperature}}` | Nested object access |
+| Array index | `{{items[0].id}}` | Array + nested access |
+| Equality | `{{state == 'on'}}` | Boolean comparison |
+| Pipe transform | `{{a \| pluck: name}}` | Extract field from each item |
+| Chained pipes | `{{data.success \| pluck: name \| join: , }}` | Pluck then join |
+| Single-expression preserves type | `{{flag}}` → `true` (bool) | Fast path keeps non-string types |
+| Mixed string coerces | `"{{a}} / {{b}}"` → `"1 / 2"` | Multi-expression → string |
 
-**Pipe transforms:** `pluck: key`, `join: separator`, `map: {out: src}`,
-`where: key=value`, `first`, `default: fallback`. Transforms chain with `|`.
+**Pipe transforms:**
 
-**Envelope replacement:** When a widget action returns a component envelope, WidgetCard
-replaces its body and re-renders — enabling stateful cycling (e.g., HassTurnOn → toggle →
-HassTurnOff response → card updates to "Off" state with inverse action).
+| Transform | Use |
+|----------|-----|
+| `pluck: key` | `[{a:1}, {a:2}]` → `[1, 2]` |
+| `join: sep` | `["a","b"]` → `"a, b"` (default sep `", "`) |
+| `map: {out: src}` | `[{name:"x", id:"1"}]` → `[{label:"x", value:"1"}]` |
+| `where: key=val` | Filter list by field equality |
+| `first` | First item of a list |
+| `default: X` | Fallback when value is None |
+| `in: a,b,c` | Boolean membership test |
+| `not_empty` | Boolean truthy test |
+| `not` | Boolean inverse — gate "off-state" buttons on a flag |
+| `status_color` | Map `"active"/"running"/"complete"/"failed"/…` to a semantic color |
+| `count` | Length of a list/dict |
 
-See `integrations/homeassistant/integration.yaml` for a complete example with toggle,
-slider, and entity property display.
+**Component-level features:**
+
+| Feature | Use |
+|--------|-----|
+| `when: "{{expr}}"` | Conditionally include/exclude a component (uses `_is_truthy` — `False`, `None`, `""`, `"0"`, `"false"` all drop the node). |
+| `each: "{{array}}" + template:` | Iterate over an array to produce rows/items. Use `{{_.field}}` to refer to the current item. |
+
+**Per-pin config flow (widget_config dispatch):**
+
+1. Template renders a `button` / `toggle` with `action: {dispatch: widget_config, config: {show_forecast: true}}`.
+2. UI POSTs to `/api/v1/widget-actions` with `pin_id` auto-filled.
+3. Server shallow-merges the patch into `channel.config.pinned_widgets[*].config` via the shared `apply_widget_config_patch` helper (also exposed as `PATCH /api/v1/channels/{channel_id}/widget-pins/{pin_id}/config`).
+4. Server invalidates the state_poll cache for the tool, calls `_do_state_poll` with the new `widget_config`, and returns the refreshed envelope.
+5. UI swaps the envelope body. `{{config.*}}` in both the main template and `state_poll.args` now sees the new value — so the toggle's visible state, gated components, and the underlying tool call all update in one round-trip.
+
+**Envelope replacement:** When a widget action returns a component envelope,
+WidgetCard / PinnedToolWidget replaces its body and re-renders. Pinned
+widgets also auto-refresh on mount, when another widget in the channel
+broadcasts a new envelope for the same entity, and on the
+`refresh_interval_seconds` timer if set.
+
+See `integrations/openweather/integration.yaml` for the full per-pin config +
+tiles + hover-reveal pattern, and `integrations/homeassistant/integration.yaml`
+for the shared `state_poll` + code transform + display_label pattern.
 
 ### `activation` — Integration activation + template compatibility
 

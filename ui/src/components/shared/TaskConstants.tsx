@@ -50,6 +50,7 @@ export interface TasksResponse {
 export const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string; tw: string }> = {
   scheduled:  { bg: "rgba(59,130,246,0.12)",  fg: "#3b82f6", tw: "bg-blue-500/[0.12] text-blue-600 dark:text-blue-400" },
   heartbeat:  { bg: "rgba(234,179,8,0.12)",   fg: "#ca8a04", tw: "bg-yellow-500/[0.12] text-yellow-700 dark:text-yellow-400" },
+  memory_hygiene: { bg: "rgba(168,85,247,0.12)", fg: "#9333ea", tw: "bg-purple-500/[0.12] text-purple-700 dark:text-purple-400" },
   delegation: { bg: "rgba(168,85,247,0.12)",  fg: "#9333ea", tw: "bg-purple-500/[0.12] text-purple-700 dark:text-purple-400" },
   exec:       { bg: "rgba(107,114,128,0.12)", fg: "#6b7280", tw: "bg-gray-500/[0.12] text-gray-600 dark:text-gray-400" },
   callback:   { bg: "rgba(239,68,68,0.12)",   fg: "#dc2626", tw: "bg-red-500/[0.12] text-red-600 dark:text-red-400" },
@@ -102,11 +103,16 @@ export function displayTitle(task: TaskItem): string {
 // ---------------------------------------------------------------------------
 // Small presentational components
 // ---------------------------------------------------------------------------
+const TYPE_LABELS: Record<string, string> = {
+  memory_hygiene: "dreaming",
+};
+
 export function TypeBadge({ type }: { type: string }) {
   const c = TYPE_BADGE_COLORS[type] || TYPE_BADGE_COLORS.agent;
+  const label = TYPE_LABELS[type] || type;
   return (
     <span className={`inline-block px-1.5 py-px rounded text-[9px] font-semibold uppercase tracking-wider ${c.tw}`}>
-      {type}
+      {label}
     </span>
   );
 }

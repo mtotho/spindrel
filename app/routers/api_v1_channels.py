@@ -181,6 +181,7 @@ class ChannelConfigOut(BaseModel):
     allow_bot_messages: bool = False
     workspace_rag: bool = True
     thinking_display: str = "append"
+    tool_output_display: str = "compact"
     max_iterations: Optional[int] = None
     task_max_run_seconds: Optional[int] = None
     channel_prompt: Optional[str] = None
@@ -242,6 +243,7 @@ class ChannelConfigUpdate(BaseModel):
     allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
     thinking_display: Optional[str] = None
+    tool_output_display: Optional[str] = None
     max_iterations: Optional[int] = None
     task_max_run_seconds: Optional[int] = None
     channel_prompt: Optional[str] = None
@@ -676,6 +678,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "allow_bot_messages": channel.allow_bot_messages,
         "workspace_rag": channel.workspace_rag,
         "thinking_display": channel.thinking_display,
+        "tool_output_display": channel.tool_output_display,
         "max_iterations": channel.max_iterations,
         "task_max_run_seconds": channel.task_max_run_seconds,
         "channel_prompt": channel.channel_prompt,
@@ -1885,10 +1888,19 @@ class PinWidgetRequest(BaseModel):
     envelope: dict  # ToolResultEnvelope as dict
     position: int
     pinned_at: str
+    # Free-form per-pin user config — merged over the template's default_config
+    # at render time. Flipped via POST /widget-actions {dispatch:"widget_config"}.
+    config: dict = {}
 
 
 class WidgetReorderRequest(BaseModel):
     ids: list[str]
+
+
+class WidgetConfigPatch(BaseModel):
+    config: dict
+    # Shallow-merge by default; full replace when merge=False.
+    merge: bool = True
 
 
 @router.post(
@@ -1994,3 +2006,62 @@ async def reorder_widgets(
 
     await db.commit()
     return {"ok": True, "widgets": reordered}
+
+
+async def apply_widget_config_patch(
+    db: AsyncSession,
+    channel_id: uuid.UUID,
+    widget_id: str,
+    patch: dict,
+    merge: bool = True,
+) -> dict:
+    """Shared helper: patch a pinned widget's config. Returns the patched pin.
+
+    Used by both the HTTP PATCH endpoint and the dispatch:"widget_config"
+    handler in the widget-actions router so they stay in sync.
+    """
+    import copy
+    from sqlalchemy.orm.attributes import flag_modified
+
+    ch = (await db.execute(
+        select(Channel).where(Channel.id == channel_id)
+    )).scalar_one_or_none()
+    if not ch:
+        raise HTTPException(404, "Channel not found")
+
+    cfg = copy.deepcopy(ch.config or {})
+    widgets = cfg.get("pinned_widgets", [])
+    target = next((w for w in widgets if w["id"] == widget_id), None)
+    if target is None:
+        raise HTTPException(404, "Widget is not pinned")
+
+    current = target.get("config") or {}
+    target["config"] = {**current, **patch} if merge else dict(patch)
+
+    cfg["pinned_widgets"] = widgets
+    ch.config = cfg
+    flag_modified(ch, "config")
+
+    await db.commit()
+    return target
+
+
+@router.patch(
+    "/{channel_id}/widget-pins/{widget_id}/config",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def patch_widget_config(
+    channel_id: uuid.UUID,
+    widget_id: str,
+    body: WidgetConfigPatch,
+    db: AsyncSession = Depends(get_db),
+):
+    """Patch a pinned widget's user config.
+
+    Shallow-merges new keys into the pin's ``config`` dict by default so a
+    toggle can flip one flag without clobbering others. Returns the full
+    patched pin so the caller can refresh its envelope using the new config.
+    """
+    return await apply_widget_config_patch(
+        db, channel_id, widget_id, body.config, body.merge,
+    )

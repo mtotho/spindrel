@@ -137,6 +137,7 @@ export default function ChannelSettingsScreen() {
         allow_bot_messages: settings.allow_bot_messages,
         workspace_rag: settings.workspace_rag,
         thinking_display: settings.thinking_display,
+        tool_output_display: settings.tool_output_display,
         max_iterations: settings.max_iterations,
         task_max_run_seconds: settings.task_max_run_seconds,
         context_compaction: settings.context_compaction,

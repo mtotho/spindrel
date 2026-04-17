@@ -388,3 +388,109 @@ class TestApplyStatePoll:
             "source": "test",
         }
         assert apply_state_poll("TestTool", "{}", {"display_label": "x"}) is None
+
+
+class TestNotTransform:
+    """The `not` transform gates buttons on the inverse of a flag (e.g. show
+    'Enable X' only when X is disabled)."""
+
+    def test_not_empty_inverse(self):
+        assert _evaluate_expression("flag | not", {"flag": True}) is False
+        assert _evaluate_expression("flag | not", {"flag": False}) is True
+        assert _evaluate_expression("flag | not", {}) is True  # missing → truthy inverse
+        assert _evaluate_expression("flag | not", {"flag": ""}) is True
+
+
+class TestWidgetConfigThreading:
+    """`apply_widget_template(tool, raw, widget_config=...)` merges per-pin
+    config over the template's default_config and exposes it as {{config.*}}."""
+
+    def setup_method(self):
+        _widget_templates.clear()
+
+    def _register(self, default_config=None):
+        _widget_templates["TestTool"] = {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "template": {
+                "v": 1,
+                "components": [
+                    {"type": "status", "text": "on",
+                     "when": "{{config.enabled | not_empty}}"},
+                    {"type": "status", "text": "off",
+                     "when": "{{config.enabled | not}}"},
+                ],
+            },
+            "default_config": default_config or {},
+            "source": "test",
+        }
+
+    def test_widget_config_overrides_default(self):
+        self._register(default_config={"enabled": False})
+        env = apply_widget_template("TestTool", "{}", widget_config={"enabled": True})
+        body = json.loads(env.body)
+        texts = [c["text"] for c in body["components"]]
+        assert texts == ["on"]  # the 'on' branch rendered; 'off' was filtered
+
+    def test_default_config_used_when_no_widget_config(self):
+        self._register(default_config={"enabled": False})
+        env = apply_widget_template("TestTool", "{}")
+        texts = [c["text"] for c in json.loads(env.body)["components"]]
+        assert texts == ["off"]
+
+    def test_widget_config_shallow_merged(self):
+        self._register(default_config={"enabled": False, "units": "imperial"})
+        _widget_templates["TestTool"]["template"]["components"].append(
+            {"type": "heading", "text": "units={{config.units}}", "level": 3},
+        )
+        env = apply_widget_template("TestTool", "{}", widget_config={"enabled": True})
+        body = json.loads(env.body)
+        # Only `enabled` was patched; `units` still comes from default_config.
+        assert any(c.get("text") == "units=imperial" for c in body["components"])
+
+    def test_apply_state_poll_merges_config_into_data(self):
+        _widget_templates["PollTool"] = {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "template": {"v": 1, "components": []},
+            "default_config": {"units": "metric"},
+            "state_poll": {
+                "tool": "PollTool",
+                "args": {},
+                "template": {
+                    "v": 1,
+                    "components": [{"type": "status", "text": "{{config.units}}"}],
+                },
+            },
+            "source": "test",
+        }
+        env = apply_state_poll(
+            "PollTool", "{}",
+            {"display_label": "x", "tool_name": "PollTool", "config": {"units": "imperial"}},
+        )
+        assert env is not None
+        text = json.loads(env.body)["components"][0]["text"]
+        assert text == "imperial"
+
+    def test_apply_state_poll_falls_back_to_default_config(self):
+        _widget_templates["PollTool"] = {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "template": {"v": 1, "components": []},
+            "default_config": {"units": "metric"},
+            "state_poll": {
+                "tool": "PollTool",
+                "args": {},
+                "template": {
+                    "v": 1,
+                    "components": [{"type": "status", "text": "{{config.units}}"}],
+                },
+            },
+            "source": "test",
+        }
+        env = apply_state_poll(
+            "PollTool", "{}",
+            {"display_label": "x", "tool_name": "PollTool"},  # no config key
+        )
+        text = json.loads(env.body)["components"][0]["text"]
+        assert text == "metric"

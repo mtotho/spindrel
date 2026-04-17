@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { AlertCircle } from "lucide-react";
 import { useRunTaskNow } from "@/src/api/hooks/useTasks";
+import { useUpcomingActivity, type UpcomingItem } from "@/src/api/hooks/useUpcomingActivity";
 import { apiFetch } from "@/src/api/client";
 import { useBots } from "@/src/api/hooks/useBots";
 import { TaskCreateModal } from "@/src/components/shared/TaskCreateModal";
@@ -32,7 +33,7 @@ import {
 // Main Tasks screen
 // ---------------------------------------------------------------------------
 const VIEW_MODE_SET = new Set<ViewMode>(["definitions", "schedule", "day", "week", "list", "cron"]);
-const TYPE_FILTER_SET = new Set<TaskTypeFilter>(["all", "scheduled", "delegation", "exec", "api", "pipeline"]);
+const TYPE_FILTER_SET = new Set<TaskTypeFilter>(["all", "scheduled", "pipeline"]);
 const STATUS_FILTER_SET = new Set<StatusFilter>(["active", "all", "cancelled", "failed"]);
 
 export default function TasksScreen() {
@@ -98,6 +99,81 @@ export default function TasksScreen() {
       `/api/v1/admin/tasks?limit=200${dateParams}${typeParam}${botParam}${defsParam}`
     ),
   });
+
+  // Upcoming activity (heartbeats + memory hygiene) — only needed for views that
+  // surface upcoming runs. Tasks' pending rows are already in `data.tasks`; we only
+  // materialize heartbeat + memory_hygiene because those live on bot/channel rows,
+  // not as pending Task rows.
+  const needUpcoming = isCalendar || viewMode === "list";
+  const { data: upcomingRaw } = useQuery({
+    queryKey: ["admin-tasks-upcoming"],
+    queryFn: () => apiFetch<{ items: UpcomingItem[] }>(`/api/v1/admin/upcoming-activity?limit=200`),
+    enabled: needUpcoming,
+  });
+
+  const upcomingVirtualTasks = useMemo<TaskItem[]>(() => {
+    if (!needUpcoming || !upcomingRaw?.items) return [];
+    // Non-"all" type filters target concrete user-created task types — don't pollute
+    // them with heartbeat/hygiene virtual rows.
+    if (typeFilter !== "all") return [];
+    const out: TaskItem[] = [];
+    for (const it of upcomingRaw.items) {
+      if (it.type !== "heartbeat" && it.type !== "memory_hygiene") continue;
+      if (botFilter && it.bot_id !== botFilter) continue;
+      if (!it.scheduled_at) continue;
+      const base = new Date(it.scheduled_at).getTime();
+      const intervalMs =
+        it.type === "heartbeat" && it.interval_minutes
+          ? it.interval_minutes * 60_000
+          : it.type === "memory_hygiene" && it.interval_hours
+            ? it.interval_hours * 3_600_000
+            : 0;
+      const title =
+        it.type === "heartbeat" && it.channel_name
+          ? `Heartbeat — #${it.channel_name}`
+          : it.title;
+      const makeRow = (tMs: number, idx: number): TaskItem => ({
+        id: `virtual-${it.type}-${it.bot_id}-${it.channel_id ?? ""}-${tMs}-${idx}`,
+        status: "upcoming",
+        bot_id: it.bot_id,
+        prompt: "",
+        title,
+        dispatch_type: "none",
+        task_type: it.type,
+        recurrence:
+          it.type === "heartbeat" && it.interval_minutes
+            ? `+${it.interval_minutes}m`
+            : it.type === "memory_hygiene" && it.interval_hours
+              ? `+${it.interval_hours}h`
+              : undefined,
+        scheduled_at: new Date(tMs).toISOString(),
+        channel_id: it.channel_id ?? undefined,
+        is_virtual: true,
+      });
+
+      if (intervalMs > 0 && isCalendar) {
+        // Expand occurrences across range [rangeStart, rangeEnd)
+        const rangeStartMs = rangeStart.getTime();
+        const rangeEndMs = rangeEnd.getTime();
+        let tt = base;
+        if (tt < rangeStartMs) {
+          const steps = Math.floor((rangeStartMs - tt) / intervalMs);
+          tt += steps * intervalMs;
+        }
+        let count = 0;
+        let idx = 0;
+        while (tt < rangeEndMs && count < 200) {
+          if (tt >= rangeStartMs) out.push(makeRow(tt, idx++));
+          tt += intervalMs;
+          count++;
+        }
+      } else {
+        // List view: just add the next occurrence returned by the API
+        out.push(makeRow(base, 0));
+      }
+    }
+    return out;
+  }, [needUpcoming, upcomingRaw, botFilter, isCalendar, rangeStart, rangeEnd, typeFilter]);
 
   // Compute schedule conflicts from schedule data
   const scheduleConflicts = useMemo(() => {
@@ -174,8 +250,15 @@ export default function TasksScreen() {
         count++;
       }
     }
+
+    // Merge upcoming heartbeats + memory_hygiene virtual entries
+    for (const vt of upcomingVirtualTasks) {
+      const d = startOfDay(getTaskTime(vt)).toDateString();
+      (map[d] ??= []).push(vt);
+    }
+
     return map;
-  }, [data, baseDate, rangeDays, rangeStart, rangeEnd, isCalendar, statusFilter]);
+  }, [data, baseDate, rangeDays, rangeStart, rangeEnd, isCalendar, statusFilter, upcomingVirtualTasks]);
 
   const goToday = () => setBaseDate(startOfDay(new Date()));
   const goPrev = () => setBaseDate(addDays(baseDate, -rangeDays));
@@ -191,6 +274,16 @@ export default function TasksScreen() {
   };
 
   const handleTaskPress = (task: TaskItem) => {
+    // Heartbeat virtual row → channel settings (heartbeat section)
+    if (task.is_virtual && task.task_type === "heartbeat" && task.channel_id) {
+      navigate(`/channels/${task.channel_id}/settings#heartbeat`);
+      return;
+    }
+    // Memory hygiene virtual row → bot memory settings
+    if (task.is_virtual && task.task_type === "memory_hygiene") {
+      navigate(`/admin/bots/${task.bot_id}#memory`);
+      return;
+    }
     const taskId = task.is_virtual && task._schedule_id ? task._schedule_id : task.id;
     navigate(`/admin/tasks/${taskId}`);
   };
@@ -437,6 +530,7 @@ export default function TasksScreen() {
           <TaskListView
             tasks={data?.tasks ?? []}
             schedules={data?.schedules ?? []}
+            upcomingVirtual={upcomingVirtualTasks}
             onTaskPress={handleTaskPress}
             statusFilter={statusFilter}
           />

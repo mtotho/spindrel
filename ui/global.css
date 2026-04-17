@@ -254,6 +254,13 @@ textarea::placeholder {
   animation: chat-spin 0.6s linear infinite;
 }
 
+/* Chat screen fade-in (skeleton → real content transition) */
+.chat-fade-in { animation: chat-fade-in 0.15s ease-out; }
+@keyframes chat-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* Scroll-to-bottom FAB entrance */
 .scroll-fab { animation: fab-in 0.15s ease-out; }
 @keyframes fab-in {

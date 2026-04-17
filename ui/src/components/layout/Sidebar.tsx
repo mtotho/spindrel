@@ -52,7 +52,8 @@ function botDotColor(botId: string): string {
 }
 
 export function Sidebar({ mobile = false }: { mobile?: boolean }) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  const isTasksListActive = pathname.startsWith("/admin/tasks") && new URLSearchParams(search).get("view") === "list";
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
@@ -139,12 +140,12 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           </Link>
 
           {/* Upcoming icon */}
-          <Link to="/admin/upcoming" onClick={closeMobile}>
+          <Link to="/admin/tasks?view=list" onClick={closeMobile}>
             <div
-              className={cn("sidebar-rail-btn", pathname.startsWith("/admin/upcoming") && "bg-accent/15")}
+              className={cn("sidebar-rail-btn", isTasksListActive && "bg-accent/15")}
               title="Upcoming Activity"
             >
-              <Clock size={18} className={pathname.startsWith("/admin/upcoming") ? "text-accent" : "text-text-dim"} />
+              <Clock size={18} className={isTasksListActive ? "text-accent" : "text-text-dim"} />
             </div>
           </Link>
         </div>
@@ -191,7 +192,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
 
         {/* Upcoming activity */}
         <div className="px-3 pt-4 pb-1">
-          <Link to="/admin/upcoming" onClick={closeMobile}>
+          <Link to="/admin/tasks?view=list" onClick={closeMobile}>
             <div className="sidebar-nav-item flex flex-row items-center justify-between px-3 mb-1 rounded cursor-pointer">
               <span className="sidebar-section-label">
                 UPCOMING

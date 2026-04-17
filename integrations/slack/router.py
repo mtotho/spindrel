@@ -65,6 +65,7 @@ async def slack_config(request: Request):
             "passive_memory": row.passive_memory,
             "allow_bot_messages": row.allow_bot_messages,
             "thinking_display": row.thinking_display,
+            "tool_output_display": row.tool_output_display,
         }
 
     # Modern bindings (ChannelIntegration.client_id) — don't overwrite legacy
@@ -77,6 +78,7 @@ async def slack_config(request: Request):
                 "passive_memory": ch.passive_memory,
                 "allow_bot_messages": ch.allow_bot_messages,
                 "thinking_display": ch.thinking_display,
+                "tool_output_display": ch.tool_output_display,
             }
 
     bots = {

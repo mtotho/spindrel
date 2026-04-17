@@ -40,6 +40,7 @@ import httpx
 from integrations.sdk import (
     Capability, ChannelEvent, ChannelEventKind,
     DispatchTarget, OutboundAction, DeliveryReceipt,
+    ToolBadge, ToolOutputDisplay, extract_tool_badges,
 )
 from integrations.slack.client import bot_attribution
 from integrations.slack.formatting import markdown_to_slack_mrkdwn, split_for_slack
@@ -403,7 +404,11 @@ class SlackRenderer:
             if correlation_id else None
         )
         placeholder_used = False
-        if ctx_info is not None:
+        # The thinking placeholder is the bot's response slot — it was posted
+        # with bot_attribution and Slack's chat.update cannot change username/
+        # icon. Reusing it for a user message would stamp the user's text onto
+        # a message that's permanently branded as the bot.
+        if ctx_info is not None and role != "user":
             ctx_channel_id, ctx = ctx_info
             if ctx.thinking_ts and ctx.thinking_channel:
                 update_body: dict = {
@@ -437,20 +442,33 @@ class SlackRenderer:
             if not result.success:
                 return result
 
-        # Render component-vocabulary envelopes from persisted metadata.
+        # Render tool-call results per the channel's tool_output_display
+        # setting: compact (default) posts a single tiny context line per
+        # tool invocation; full posts the rich Block Kit widget; none
+        # skips entirely. The raw widget JSON always remains in the
+        # persisted Message.metadata, so the web UI is unaffected.
         msg_metadata = getattr(msg, "metadata", None) or {}
         tool_results = msg_metadata.get("tool_results") or []
-        tool_blocks = _components_to_blocks(tool_results)
-        if tool_blocks:
-            block_body: dict = {
-                "channel": target.channel_id,
-                "text": "(tool results)",
-                "blocks": tool_blocks[:50],
-                **attrs,
-            }
-            if target.thread_ts and target.reply_in_thread:
-                block_body["thread_ts"] = target.thread_ts
-            await self._call_slack("chat.postMessage", target.token, block_body)
+        if tool_results:
+            display_mode = await _resolve_tool_output_display(target.channel_id)
+            tool_blocks: list[dict] = []
+            if display_mode == ToolOutputDisplay.FULL:
+                tool_blocks = _components_to_blocks(tool_results)
+            elif display_mode == ToolOutputDisplay.COMPACT:
+                badges = extract_tool_badges(tool_results)
+                ctx_block = _badges_to_context_block(badges)
+                if ctx_block is not None:
+                    tool_blocks = [ctx_block]
+            if tool_blocks:
+                block_body: dict = {
+                    "channel": target.channel_id,
+                    "text": "(tool results)",
+                    "blocks": tool_blocks[:50],
+                    **attrs,
+                }
+                if target.thread_ts and target.reply_in_thread:
+                    block_body["thread_ts"] = target.thread_ts
+                await self._call_slack("chat.postMessage", target.token, block_body)
 
         return DeliveryReceipt.ok()
 
@@ -913,6 +931,67 @@ _LINK_EMOJI = {
     "email": ":email:",
     "file": ":page_facing_up:",
 }
+
+
+async def _resolve_tool_output_display(slack_channel_id: str) -> str:
+    """Look up the channel's ``tool_output_display`` setting.
+
+    Queries the ``channels`` table directly (keeps the renderer in-process
+    and avoids the HTTP-self-call path that ``slack_settings`` uses for
+    the out-of-process bot subprocess). Falls back to ``compact`` when the
+    channel can't be resolved.
+    """
+    from app.db.engine import async_session
+    from app.db.models import Channel, ChannelIntegration
+    from sqlalchemy import select
+
+    client_id = f"slack:{slack_channel_id}"
+    try:
+        async with async_session() as db:
+            # Legacy direct binding on Channel.client_id.
+            row = (await db.execute(
+                select(Channel.tool_output_display).where(
+                    Channel.integration == "slack",
+                    Channel.client_id == client_id,
+                )
+            )).scalar_one_or_none()
+            if row is not None:
+                return ToolOutputDisplay.normalize(row)
+            # Modern ChannelIntegration binding.
+            row = (await db.execute(
+                select(Channel.tool_output_display)
+                .join(ChannelIntegration, ChannelIntegration.channel_id == Channel.id)
+                .where(
+                    ChannelIntegration.integration_type == "slack",
+                    ChannelIntegration.client_id == client_id,
+                )
+            )).scalar_one_or_none()
+            if row is not None:
+                return ToolOutputDisplay.normalize(row)
+    except Exception:
+        logger.debug("tool_output_display lookup failed, using default", exc_info=True)
+    return ToolOutputDisplay.COMPACT
+
+
+def _badges_to_context_block(badges: list[ToolBadge]) -> dict | None:
+    """Render a list of ``ToolBadge`` into a single Slack context block.
+
+    Each badge becomes one mrkdwn element ``:wrench: *<tool>* — <label>``.
+    Returns None when the badge list is empty. Slack caps context
+    elements at 10 per block — if a turn somehow fired more tools, the
+    overflow is silently dropped (these are compact hints, not the
+    canonical record — the web UI still shows everything).
+    """
+    if not badges:
+        return None
+    elements = []
+    for badge in badges[:10]:
+        name = _escape_mrkdwn(badge.tool_name) or "tool"
+        text = f":wrench:  *{name}*"
+        if badge.display_label:
+            text += f"  —  {_escape_mrkdwn(badge.display_label)}"
+        elements.append({"type": "mrkdwn", "text": text})
+    return {"type": "context", "elements": elements}
 
 
 def _components_to_blocks(envelopes: list[dict]) -> list[dict]:

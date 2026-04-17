@@ -66,6 +66,7 @@ class ToolResultEnvelope:
     display_label: str | None = None
     refreshable: bool = False
     refresh_interval_seconds: int | None = None
+    tool_name: str = ""
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -89,6 +90,8 @@ class ToolResultEnvelope:
             d["refreshable"] = True
         if self.refresh_interval_seconds:
             d["refresh_interval_seconds"] = self.refresh_interval_seconds
+        if self.tool_name:
+            d["tool_name"] = self.tool_name
         return d
 
 
@@ -641,6 +644,13 @@ async def dispatch_tool_call(
         else:
             result_obj.envelope = _build_default_envelope(result_obj.result)
 
+    # Stamp the tool name on every envelope — renderers that show a
+    # compact tool-badge (e.g. Slack `:wrench: *get_weather*`) read it
+    # via ``compact_dict()``. Set here (after both the opt-in and
+    # default/widget branches) so all paths carry it uniformly.
+    result_obj.envelope.tool_name = name
+
+    if _envelope_optin is None:
         # A bot-triggered mutation may have changed state that a pinned widget
         # is tracking. Drop the cached poll result so the next refresh hits
         # the real service instead of serving stale data.

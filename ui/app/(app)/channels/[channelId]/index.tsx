@@ -36,6 +36,7 @@ import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCa
 import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnText } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { ChannelHeader } from "./ChannelHeader";
+import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
 import type { Message } from "@/src/types/api";
 
@@ -115,7 +116,7 @@ export default function ChatScreen() {
   const goBack = useGoBack("/");
   const navigate = useNavigate();
 
-  const { data: channel } = useChannel(channelId);
+  const { data: channel, isLoading: channelLoading } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
   const { data: systemStatus } = useSystemStatus();
   const { data: savedBudget } = useChannelContextBudget(channelId);
@@ -693,8 +694,14 @@ export default function ChatScreen() {
     </>
   );
 
+  // Show full-page skeleton while channel data is loading to prevent
+  // the multi-stage pop-in (header → badges → messages).
+  if (channelLoading && !channel) {
+    return <ChatScreenSkeleton />;
+  }
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface, overflow: "hidden" }}>
+    <div className="chat-fade-in" style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface, overflow: "hidden" }}>
       {outerChildren}
     </div>
   );

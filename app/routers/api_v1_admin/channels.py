@@ -343,6 +343,7 @@ class ChannelSettingsOut(BaseModel):
     allow_bot_messages: bool = False
     workspace_rag: bool = True
     thinking_display: str = "append"
+    tool_output_display: str = "compact"
     max_iterations: Optional[int] = None
     task_max_run_seconds: Optional[int] = None
     channel_prompt: Optional[str] = None
@@ -409,6 +410,7 @@ class ChannelSettingsUpdate(BaseModel):
     allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
     thinking_display: Optional[str] = None
+    tool_output_display: Optional[str] = None
     max_iterations: Optional[int] = None
     task_max_run_seconds: Optional[int] = None
     channel_prompt: Optional[str] = None
