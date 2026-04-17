@@ -243,17 +243,28 @@ export interface RunTaskArgs {
   /** Optional runtime params merged into the child's execution_config.params
       (for system pipelines declaring a params_schema). */
   params?: Record<string, any>;
+  /** Optional channel override for the child run. Required when the pipeline
+      declares execution_config.requires_channel = true. */
+  channel_id?: string;
+  /** Optional bot override for the child run. Required when the pipeline
+      declares execution_config.requires_bot = true. */
+  bot_id?: string;
 }
 
 export function useRunTaskNow() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (arg: string | RunTaskArgs) => {
-      const { taskId, params } = typeof arg === "string" ? { taskId: arg, params: undefined } : arg;
-      return apiFetch<TaskDetail>(`/api/v1/admin/tasks/${taskId}/run`, {
+      const norm: RunTaskArgs =
+        typeof arg === "string" ? { taskId: arg } : arg;
+      const body: Record<string, any> = {};
+      if (norm.params && Object.keys(norm.params).length > 0) body.params = norm.params;
+      if (norm.channel_id) body.channel_id = norm.channel_id;
+      if (norm.bot_id) body.bot_id = norm.bot_id;
+      return apiFetch<TaskDetail>(`/api/v1/admin/tasks/${norm.taskId}/run`, {
         method: "POST",
-        ...(params && Object.keys(params).length > 0
-          ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ params }) }
+        ...(Object.keys(body).length > 0
+          ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
           : {}),
       });
     },

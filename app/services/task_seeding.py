@@ -110,6 +110,12 @@ async def seed_pipelines_from_yaml(directory: Path = SYSTEM_PIPELINES_DIR) -> No
             if "prompt" not in fields or fields["prompt"] is None:
                 fields["prompt"] = fields.get("title") or f"[System pipeline: {slug}]"
 
+            # Pipelines stay channel-unbound at the definition level; the
+            # launcher (chat channel UI / admin /run endpoint) supplies the
+            # channel_id at launch time. This keeps system pipelines
+            # reusable across channels without a channel-per-pipeline
+            # multiplication problem.
+
             existing = await db.get(Task, row_id)
             now = datetime.now(timezone.utc)
             if existing is None:

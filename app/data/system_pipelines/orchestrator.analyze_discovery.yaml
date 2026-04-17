@@ -7,13 +7,13 @@ id: orchestrator.analyze_discovery
 bot_id: orchestrator
 title: Analyze Discovery
 task_type: pipeline
-client_id: "orchestrator:home"
 prompt: "[System pipeline: analyze discovery]"
 execution_config:
   featured: true
   description: >-
     Review recent discovery (tool/skill selection) behavior and propose
     description or trigger rewrites for under- or over-selected items.
+  requires_channel: true
 steps:
   - id: fetch_traces
     type: tool

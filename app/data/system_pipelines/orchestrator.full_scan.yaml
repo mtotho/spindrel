@@ -10,13 +10,16 @@ id: orchestrator.full_scan
 bot_id: orchestrator
 title: Full System Scan
 task_type: pipeline
-client_id: "orchestrator:home"
 prompt: "[System pipeline: orchestrator full scan]"
 execution_config:
   featured: true
   description: >-
     Analyze every bot's configuration, recent discovery behavior, and
     tool activity, then propose tuning patches for review.
+  # Must be launched from a channel — the run's anchor message posts
+  # back into the caller's channel, and the approval widget needs a
+  # surface to render in. Launcher supplies channel_id at POST /run time.
+  requires_channel: true
 steps:
   - id: fetch_bots
     type: tool

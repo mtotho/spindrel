@@ -11,15 +11,27 @@ async def spawn_child_run(
     parent_task_id: uuid.UUID,
     db: AsyncSession,
     params: dict | None = None,
+    channel_id: uuid.UUID | None = None,
+    bot_id: str | None = None,
 ) -> Task:
     """Spawn a concrete child task from a task definition.
 
     Resolves the latest prompt, clones all execution fields from the parent,
     and increments the parent's run_count.
 
-    If ``params`` is provided, it is merged into the child's
-    ``execution_config['params']`` so step-template substitution can reach
-    it as ``{{params.*}}``.
+    Args:
+        parent_task_id: The definition's task id.
+        db: Active async session.
+        params: Optional runtime params merged into the child's
+            ``execution_config['params']`` so step templates can reach them
+            as ``{{params.*}}``.
+        channel_id: Optional channel override. When provided, the child
+            dispatches its anchor messages / step output to this channel
+            instead of inheriting from the parent. Enables one pipeline
+            definition to run against multiple channels.
+        bot_id: Optional bot override. When provided, the child's agent
+            steps (and any bot-scoped tool calls) run under this bot
+            instead of inheriting from the parent.
 
     Raises:
         ValueError: If parent not found or not a valid definition.
@@ -57,11 +69,31 @@ async def spawn_child_run(
         merged_params.update(params)
         exec_cfg["params"] = merged_params
 
+    # Launch-time-required fields — a pipeline definition can declare that
+    # the caller MUST supply bot_id and/or channel_id via its
+    # ``execution_config.requires_*`` flags. This keeps system pipelines
+    # channel-agnostic (one definition, many launch contexts) while still
+    # validating loudly instead of silently spawning an undispatched run.
+    requires_channel = bool((parent.execution_config or {}).get("requires_channel"))
+    requires_bot = bool((parent.execution_config or {}).get("requires_bot"))
+    effective_channel_id = channel_id if channel_id is not None else parent.channel_id
+    effective_bot_id = bot_id or parent.bot_id
+    missing: list[str] = []
+    if requires_channel and effective_channel_id is None:
+        missing.append("channel_id")
+    if requires_bot and not effective_bot_id:
+        missing.append("bot_id")
+    if missing:
+        raise ValueError(
+            f"Task {parent_task_id} requires {', '.join(missing)} at launch time "
+            f"(declared via execution_config.requires_* on the definition)."
+        )
+
     concrete = Task(
-        bot_id=parent.bot_id,
+        bot_id=effective_bot_id,
         client_id=parent.client_id,
         session_id=parent.session_id,
-        channel_id=parent.channel_id,
+        channel_id=effective_channel_id,
         prompt=prompt,
         title=parent.title,
         prompt_template_id=parent.prompt_template_id,

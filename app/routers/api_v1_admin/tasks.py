@@ -733,8 +733,16 @@ class TaskRunIn(BaseModel):
     ``params`` is merged into the child task's
     ``execution_config['params']`` so pipeline step templates can reach
     it as ``{{params.*}}``.
+
+    ``channel_id`` and ``bot_id`` override the definition's values on the
+    spawned child run — enabling a single pipeline definition to run
+    against multiple channels/bots. Definitions can declare
+    ``execution_config.requires_channel`` / ``requires_bot`` to force
+    the caller to supply these (launch fails 400 when missing).
     """
     params: Optional[dict] = None
+    channel_id: Optional[uuid.UUID] = None
+    bot_id: Optional[str] = None
 
 
 @router.post("/tasks/{task_id}/run", response_model=TaskDetailOut, status_code=201)
@@ -748,10 +756,23 @@ async def admin_run_task_now(
     from app.services.task_ops import spawn_child_run
 
     params = body.params if body else None
+    override_channel = body.channel_id if body else None
+    override_bot = body.bot_id if body else None
     try:
-        concrete = await spawn_child_run(task_id, db, params=params)
+        concrete = await spawn_child_run(
+            task_id,
+            db,
+            params=params,
+            channel_id=override_channel,
+            bot_id=override_bot,
+        )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # Missing required launch context (requires_channel / requires_bot)
+        # vs genuinely-not-found — spawn_child_run raises both as ValueError.
+        # Caller-side distinction: "requires" errors mention requires_*.
+        msg = str(e)
+        status_code = 400 if "requires" in msg else 404
+        raise HTTPException(status_code=status_code, detail=msg)
     await db.commit()
     await db.refresh(concrete)
     return TaskDetailOut.model_validate(concrete)

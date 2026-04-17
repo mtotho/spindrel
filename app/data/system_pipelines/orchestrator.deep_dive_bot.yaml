@@ -6,13 +6,13 @@ id: orchestrator.deep_dive_bot
 bot_id: orchestrator
 title: Deep Dive Bot
 task_type: pipeline
-client_id: "orchestrator:home"
 prompt: "[System pipeline: deep-dive bot]"
 execution_config:
   featured: false
   description: >-
     Deep dive on a single bot's configuration, skill set, and recent
     activity, then propose tuning patches for review.
+  requires_channel: true
   params_schema:
     - name: bot_id
       required: true

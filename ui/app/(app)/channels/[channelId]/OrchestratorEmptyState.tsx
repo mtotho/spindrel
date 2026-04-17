@@ -20,7 +20,9 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { apiFetch } from "@/src/api/client";
 import { useRunTaskNow, useTaskChildren } from "@/src/api/hooks/useTasks";
+import type { StepState } from "@/src/api/hooks/useTasks";
 import { useBots } from "@/src/api/hooks/useBots";
+import { useFindings } from "./FindingsPanel";
 import { BotPicker } from "@/src/components/shared/BotPicker";
 import type { TasksResponse, TaskItem } from "@/src/components/shared/TaskConstants";
 import { cn } from "@/src/lib/cn";
@@ -206,20 +208,29 @@ function PipelineTile({
   pipeline,
   onLaunch,
   launchingId,
+  onOpenFindings,
 }: {
   pipeline: TaskItem;
   onLaunch: (pipeline: TaskItem) => void;
   launchingId: string | null;
+  onOpenFindings: () => void;
 }) {
   const { data: children } = useTaskChildren(pipeline.id, 5_000);
-  const activeChild = (children ?? [])
-    .filter((c) => c.status === "running" || c.status === "pending")
-    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))[0];
-  const lastRun = (children ?? [])
-    .map((c) => c.created_at)
-    .filter(Boolean)
-    .sort()
-    .pop();
+  const sortedChildren = (children ?? []).slice().sort(
+    (a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""),
+  );
+  // A child is "awaiting review" if any of its step_states is awaiting_user_input,
+  // regardless of the outer status (the outer is "running" while paused).
+  const awaitingChildren = sortedChildren.filter((c) =>
+    ((c.step_states as StepState[] | null) ?? []).some(
+      (s) => s?.status === "awaiting_user_input",
+    ),
+  );
+  const awaitingCount = awaitingChildren.length;
+  const activeChild = sortedChildren.find(
+    (c) => c.status === "running" || c.status === "pending",
+  );
+  const lastRun = sortedChildren.map((c) => c.created_at).filter(Boolean)[0];
 
   const Icon = iconFor(pipeline.id);
   const description = getDescription(pipeline) ?? pipeline.prompt;
@@ -254,8 +265,18 @@ function PipelineTile({
       </div>
 
       <div className="flex flex-row justify-between items-center mt-0.5 gap-2">
-        {/* Left: view active / last run link */}
-        {activeChild ? (
+        {/* Left: status affordance. Awaiting review wins over running
+            because the outer task is always "running" while paused. */}
+        {awaitingCount > 0 ? (
+          <button
+            onClick={onOpenFindings}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold
+                       text-accent hover:underline"
+          >
+            <PauseCircle size={11} className="animate-pulse" />
+            {awaitingCount} awaiting review
+          </button>
+        ) : activeChild ? (
           <Link
             to={`/admin/tasks/${activeChild.id}`}
             className="inline-flex items-center gap-1 text-[11px] text-accent/80 hover:text-accent
@@ -325,8 +346,15 @@ function saveCollapsed(channelId: string, value: boolean) {
   }
 }
 
-export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
+export function OrchestratorLaunchpad({
+  channelId,
+  onOpenFindings,
+}: {
+  channelId: string;
+  onOpenFindings: () => void;
+}) {
   const runNowMut = useRunTaskNow();
+  const { count: findingsCount } = useFindings(channelId);
   const [paramModalPipeline, setParamModalPipeline] = useState<TaskItem | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => loadCollapsed(channelId));
@@ -398,7 +426,7 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
     setLaunchError(null);
     setLaunchingId(pipeline.id);
     runNowMut.mutate(
-      { taskId: pipeline.id },
+      { taskId: pipeline.id, channel_id: channelId },
       {
         onSuccess: () => setLaunchingId(null),
         onError: (err) => {
@@ -418,7 +446,7 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
     setLaunchError(null);
     setLaunchingId(paramModalPipeline.id);
     runNowMut.mutate(
-      { taskId: paramModalPipeline.id, params },
+      { taskId: paramModalPipeline.id, params, channel_id: channelId },
       {
         onSuccess: () => {
           setLaunchingId(null);
@@ -467,6 +495,29 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
         )}
       </button>
 
+      {/* Awaiting reviews banner — the primary call-to-action when pipelines
+          are paused at a user_prompt step. Highest visual weight in the strip. */}
+      {findingsCount > 0 && !collapsed && (
+        <button
+          onClick={onOpenFindings}
+          className="mx-4 mt-2 px-3 py-2 rounded-md
+                     bg-accent/10 border border-accent/40
+                     flex flex-row items-center justify-between gap-2
+                     hover:bg-accent/15 transition-colors w-[calc(100%-2rem)]"
+        >
+          <div className="flex flex-row items-center gap-2 min-w-0">
+            <PauseCircle size={14} className="text-accent animate-pulse shrink-0" />
+            <span className="text-[12px] font-semibold text-accent truncate">
+              {findingsCount} pipeline run{findingsCount === 1 ? "" : "s"} awaiting your review
+            </span>
+          </div>
+          <span className="text-[11px] text-accent/80 shrink-0 flex items-center gap-1">
+            Open Findings
+            <ArrowRight size={11} />
+          </span>
+        </button>
+      )}
+
       {/* Launch error banner */}
       {launchError && !collapsed && (
         <div className="mx-4 mt-2 px-3 py-2 rounded-md bg-red-500/10 border border-red-500/30
@@ -506,6 +557,7 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
                   pipeline={pipeline}
                   onLaunch={handleLaunch}
                   launchingId={launchingId}
+                  onOpenFindings={onOpenFindings}
                 />
               ))}
             </div>

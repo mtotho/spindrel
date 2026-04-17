@@ -440,7 +440,10 @@ export default function ChatScreen() {
           Shares the same vertical-stack extension zone as HudStripBar
           (channel-scoped chrome above the message list). */}
       {isSystemChannel && channelId && (
-        <OrchestratorLaunchpad channelId={channelId} />
+        <OrchestratorLaunchpad
+          channelId={channelId}
+          onOpenFindings={() => setFindingsPanelOpen(true)}
+        />
       )}
 
       {/* Content area -- explorer + chat/file viewer */}
