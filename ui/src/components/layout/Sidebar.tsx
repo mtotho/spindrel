@@ -8,6 +8,7 @@ import {
   Heart,
   ClipboardList,
   Search,
+  Plus,
 } from "lucide-react";
 import { useIntegrationIcons } from "../../api/hooks/useIntegrations";
 import { useUIStore } from "../../stores/ui";
@@ -250,6 +251,13 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
               );
             })
           )}
+
+          <Link to="/admin/tasks?new=1" onClick={closeMobile}>
+            <div className="sidebar-nav-item flex flex-row items-center gap-2 rounded-md px-3 py-1.5 mt-1 cursor-pointer text-text-dim hover:text-accent">
+              <Plus size={13} />
+              <span className="flex-1 text-xs">New task</span>
+            </div>
+          </Link>
         </div>
 
       </div>

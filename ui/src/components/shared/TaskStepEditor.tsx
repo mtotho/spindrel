@@ -15,10 +15,10 @@ import { LlmModelDropdown } from "./LlmModelDropdown";
 // Step type metadata
 // ---------------------------------------------------------------------------
 
-const STEP_TYPES: { value: StepType; label: string; icon: typeof Terminal; color: string; bgBadge: string; nodeActive: string; borderAccent: string; cardBg: string }[] = [
-  { value: "exec", label: "Shell", icon: Terminal, color: "text-amber-700 dark:text-amber-300", bgBadge: "bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700", nodeActive: "bg-amber-500 text-white", borderAccent: "border-l-amber-400 dark:border-l-amber-500", cardBg: "bg-amber-50 dark:bg-amber-950/40" },
-  { value: "tool", label: "Tool", icon: Wrench, color: "text-blue-700 dark:text-blue-300", bgBadge: "bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-700", nodeActive: "bg-blue-500 text-white", borderAccent: "border-l-blue-400 dark:border-l-blue-500", cardBg: "bg-blue-50 dark:bg-blue-950/40" },
-  { value: "agent", label: "LLM", icon: Bot, color: "text-purple-700 dark:text-purple-300", bgBadge: "bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-200 border-purple-300 dark:border-purple-700", nodeActive: "bg-purple-500 text-white", borderAccent: "border-l-purple-400 dark:border-l-purple-500", cardBg: "bg-purple-50 dark:bg-purple-950/40" },
+const STEP_TYPES: { value: StepType; label: string; icon: typeof Terminal; color: string; bgBadge: string; node: string }[] = [
+  { value: "exec",  label: "Shell", icon: Terminal, color: "text-amber-300",  bgBadge: "bg-amber-500/10 text-amber-300 border-amber-500/25",   node: "bg-amber-500/15 text-amber-300 border border-amber-500/30" },
+  { value: "tool",  label: "Tool",  icon: Wrench,   color: "text-sky-300",    bgBadge: "bg-sky-500/10 text-sky-300 border-sky-500/25",         node: "bg-sky-500/15 text-sky-300 border border-sky-500/30" },
+  { value: "agent", label: "LLM",   icon: Bot,      color: "text-violet-300", bgBadge: "bg-violet-500/10 text-violet-300 border-violet-500/25", node: "bg-violet-500/15 text-violet-300 border border-violet-500/30" },
 ];
 
 function stepMeta(type: StepType) {
@@ -729,7 +729,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
   const update = (patch: Partial<StepDef>) => onChange({ ...step, ...patch });
 
   return (
-    <div className={`rounded-lg border border-surface-border ${meta.borderAccent} border-l-[3px] shadow-sm group transition-shadow hover:shadow-md ${meta.cardBg}`}>
+    <div className="rounded-lg border border-surface-border bg-surface-raised/40 group transition-colors hover:border-surface-border/80">
       {/* Header row */}
       <div className="flex flex-row items-center gap-2.5 px-2.5 sm:px-3.5 py-2.5">
         {/* Reorder controls */}
@@ -769,7 +769,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
             value={step.label ?? ""}
             onChange={(e) => update({ label: e.target.value })}
             placeholder="Step label (optional)"
-            className="flex-1 bg-transparent border-none text-xs text-text-muted outline-none placeholder:text-text-dim/40 min-w-0"
+            className="flex-1 bg-transparent border-none text-xs text-text outline-none placeholder:text-text-dim min-w-0"
           />
         ) : (
           step.label && <span className="text-xs text-text-muted flex-1">{step.label}</span>
@@ -1042,12 +1042,12 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
               const meta = stepMeta(step.type);
               const stepState = stepStates?.[i];
               const nodeColor = stepState?.status === "done"
-                ? "bg-emerald-500 text-white"
+                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
                 : stepState?.status === "failed"
-                  ? "bg-red-500 text-white"
+                  ? "bg-red-500/15 text-red-300 border border-red-500/30"
                   : stepState?.status === "running"
-                    ? "bg-blue-500 text-white animate-pulse"
-                    : meta.nodeActive;
+                    ? "bg-blue-500/15 text-blue-300 border border-blue-500/30 animate-pulse"
+                    : meta.node;
 
               return (
                 <div key={step.id} className="relative">

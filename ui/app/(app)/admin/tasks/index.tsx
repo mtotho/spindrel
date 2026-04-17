@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
@@ -73,6 +73,14 @@ export default function TasksScreen() {
   const setBaseDate = useCallback((d: Date) => updateParams({ date: d.toISOString().slice(0, 10) }), [updateParams]);
 
   const [editorState, setEditorState] = useState<EditorState>({ mode: "closed" });
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setEditorState({ mode: "create" });
+      updateParams({ new: null });
+    }
+  }, [searchParams, updateParams]);
+
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { refreshing, onRefresh } = usePageRefresh();
