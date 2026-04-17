@@ -58,7 +58,9 @@ export function useFindings(channelId: string | undefined) {
     queryKey: ["findings", channelId],
     queryFn: () =>
       apiFetch<TasksResponse>(
-        `/api/v1/admin/tasks?limit=200&channel_id=${encodeURIComponent(channelId ?? "")}`,
+        // include_children=true: awaiting_user_input step_states live on child
+        // tasks (the pipeline runs), which are hidden by default.
+        `/api/v1/admin/tasks?limit=200&include_children=true&channel_id=${encodeURIComponent(channelId ?? "")}`,
       ),
     enabled: !!channelId,
     refetchInterval: 10_000,

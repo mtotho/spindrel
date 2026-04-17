@@ -17,6 +17,7 @@ import {
   Circle,
 } from "lucide-react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { apiFetch } from "@/src/api/client";
 import { useRunTaskNow, useTaskChildren } from "@/src/api/hooks/useTasks";
 import { useBots } from "@/src/api/hooks/useBots";
@@ -204,12 +205,16 @@ function TaskRunModal({
 function PipelineTile({
   pipeline,
   onLaunch,
+  launchingId,
 }: {
   pipeline: TaskItem;
   onLaunch: (pipeline: TaskItem) => void;
+  launchingId: string | null;
 }) {
   const { data: children } = useTaskChildren(pipeline.id, 5_000);
-  const running = (children ?? []).some((c) => c.status === "running" || c.status === "pending");
+  const activeChild = (children ?? [])
+    .filter((c) => c.status === "running" || c.status === "pending")
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))[0];
   const lastRun = (children ?? [])
     .map((c) => c.created_at)
     .filter(Boolean)
@@ -218,25 +223,21 @@ function PipelineTile({
 
   const Icon = iconFor(pipeline.id);
   const description = getDescription(pipeline) ?? pipeline.prompt;
+  const isLaunching = launchingId === pipeline.id;
 
   return (
-    <button
-      onClick={() => !running && onLaunch(pipeline)}
-      disabled={running}
+    <div
       className={cn(
-        "group relative flex flex-col gap-1.5 p-4 rounded-lg text-left",
+        "group relative flex flex-col gap-1.5 p-4 rounded-lg",
         "bg-surface-raised border border-surface-border",
         "hover:border-accent/40 hover:-translate-y-0.5",
-        "transition-all duration-150 cursor-pointer",
-        "disabled:cursor-default disabled:hover:translate-y-0",
+        "transition-all duration-150",
       )}
     >
       <div className="flex flex-row items-start justify-between gap-2">
         <Icon size={18} className="text-accent shrink-0" />
         {lastRun && (
-          <span
-            className="text-[10px] text-text-dim flex items-center gap-1 shrink-0"
-          >
+          <span className="text-[10px] text-text-dim flex items-center gap-1 shrink-0">
             <Clock size={9} />
             {relTime(lastRun)}
           </span>
@@ -252,23 +253,48 @@ function PipelineTile({
         </p>
       </div>
 
-      <div className="flex flex-row justify-end items-center mt-0.5">
-        {running ? (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-accent font-medium">
-            <Loader2 size={11} className="animate-spin" />
-            Running
-          </span>
-        ) : (
-          <span
-            className="inline-flex items-center gap-1 text-[11px] text-accent font-medium
-                       opacity-50 group-hover:opacity-100 transition-opacity"
+      <div className="flex flex-row justify-between items-center mt-0.5 gap-2">
+        {/* Left: view active / last run link */}
+        {activeChild ? (
+          <Link
+            to={`/admin/tasks/${activeChild.id}`}
+            className="inline-flex items-center gap-1 text-[11px] text-accent/80 hover:text-accent
+                       font-medium"
+            onClick={(e) => e.stopPropagation()}
           >
-            Run
-            <ArrowRight size={11} />
-          </span>
+            <Loader2 size={10} className="animate-spin" />
+            Running · view
+          </Link>
+        ) : (
+          <span className="text-[10px] text-text-dim opacity-50" />
         )}
+
+        {/* Right: launch button — always enabled, allows re-running even if a
+            prior run is stuck. The stuck run is reachable via the "view" link. */}
+        <button
+          onClick={() => onLaunch(pipeline)}
+          disabled={isLaunching}
+          className={cn(
+            "inline-flex items-center gap-1 text-[11px] font-medium",
+            "px-2.5 py-1 rounded-md bg-accent/10 text-accent border border-accent/30",
+            "hover:bg-accent/20 transition-colors",
+            "disabled:opacity-60 disabled:cursor-not-allowed",
+          )}
+        >
+          {isLaunching ? (
+            <>
+              <Loader2 size={11} className="animate-spin" />
+              Launching
+            </>
+          ) : (
+            <>
+              {activeChild ? "Run again" : "Run"}
+              <ArrowRight size={11} />
+            </>
+          )}
+        </button>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -334,11 +360,13 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
 
   // Recent runs on this channel — child tasks of pipelines, ordered by recency.
   // Refreshes every 10s while the strip is expanded so in-flight runs update.
+  // include_children=true is required: pipeline runs are child tasks of the
+  // system pipeline definitions, and the list endpoint hides children by default.
   const { data: runsData } = useQuery({
     queryKey: ["orchestrator-runs", channelId],
     queryFn: () =>
       apiFetch<TasksResponse>(
-        `/api/v1/admin/tasks?channel_id=${encodeURIComponent(channelId)}&limit=20`,
+        `/api/v1/admin/tasks?channel_id=${encodeURIComponent(channelId)}&limit=20&include_children=true`,
       ),
     refetchInterval: collapsed ? false : 10_000,
     staleTime: 5_000,
@@ -477,6 +505,7 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
                   key={pipeline.id}
                   pipeline={pipeline}
                   onLaunch={handleLaunch}
+                  launchingId={launchingId}
                 />
               ))}
             </div>
@@ -519,10 +548,11 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
                     status;
                   const isSpinning = status === "running" || status === "pending";
                   return (
-                    <div
+                    <Link
+                      to={`/admin/tasks/${run.id}`}
                       key={run.id}
                       className="flex flex-row items-center justify-between gap-3 px-3 py-2
-                                 text-xs"
+                                 text-xs hover:bg-surface-raised transition-colors"
                     >
                       <div className="flex flex-row items-center gap-2.5 min-w-0 flex-1">
                         <StatusIcon
@@ -538,7 +568,7 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
                         <Clock size={9} />
                         {relTime(run.created_at)}
                       </span>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
