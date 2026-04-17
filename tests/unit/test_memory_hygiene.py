@@ -130,43 +130,30 @@ class TestResolvePrompt:
 
 class TestCreateHygieneTask:
     @pytest.mark.asyncio
-    async def test_creates_task_with_correct_fields(self):
+    async def test_when_creating_hygiene_task_then_task_row_is_pending_with_bot_scope(self, db_session):
+        from sqlalchemy import select
+
+        from app.db.models import Task
         from app.services.memory_hygiene import create_hygiene_task
+        from tests.factories.bots import build_bot
 
-        bot_row = MagicMock()
-        bot_row.id = "test-bot"
-        bot_row.memory_hygiene_prompt = None
-        bot_row.memory_scheme = "workspace-files"
+        bot = build_bot(id="test-bot", memory_scheme="workspace-files", memory_hygiene_prompt=None)
+        db_session.add(bot)
+        await db_session.commit()
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=bot_row)
-        db.add = MagicMock()
-        db.commit = AsyncMock()
+        task_id = await create_hygiene_task(bot.id, db_session)
 
-        with patch("app.services.memory_hygiene.settings") as mock_settings:
-            mock_settings.MEMORY_HYGIENE_PROMPT = ""
-            task_id = await create_hygiene_task("test-bot", db)
-
-        assert task_id is not None
-        db.add.assert_called_once()
-        task = db.add.call_args[0][0]
-        assert task.bot_id == "test-bot"
-        assert task.task_type == "memory_hygiene"
-        assert task.status == "pending"
-        assert task.channel_id is None
-        assert task.session_id is None
-        assert task.dispatch_type == "none"
-        db.commit.assert_awaited_once()
+        task = (await db_session.execute(select(Task).where(Task.id == task_id))).scalar_one()
+        assert (task.bot_id, task.task_type, task.status, task.channel_id, task.session_id, task.dispatch_type) == (
+            bot.id, "memory_hygiene", "pending", None, None, "none"
+        )
 
     @pytest.mark.asyncio
-    async def test_raises_on_missing_bot(self):
+    async def test_when_bot_missing_then_raises_value_error(self, db_session):
         from app.services.memory_hygiene import create_hygiene_task
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
-
         with pytest.raises(ValueError, match="Bot not found"):
-            await create_hygiene_task("nonexistent", db)
+            await create_hygiene_task("nonexistent", db_session)
 
 
 # ---------------------------------------------------------------------------

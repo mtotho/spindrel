@@ -131,6 +131,12 @@ async def set_integration_status(integration_id: str, body: StatusBody, _auth=De
             status_code=400,
             detail="Cannot enable: required settings are missing. Fill them first — the integration will auto-enable.",
         )
+    # Short-circuit: if the user is adding an integration that's already
+    # configured (no required settings, or all of them inherited from env),
+    # skip ``needs_setup`` and go straight to ``enabled``. Otherwise the card
+    # lands in a "Needs Setup" state with nothing to set up.
+    if target == "needs_setup" and is_configured(integration_id):
+        target = "enabled"
 
     previous = get_status(integration_id)
     if previous == target:

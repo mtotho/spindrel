@@ -330,6 +330,15 @@ async def admin_list_tasks(
         cb = t.callback_config or {}
         cid = corr_map.get(t.id)
         lr = last_run_map.get(t.id)
+        # One-shot pipelines/scheduled tasks execute as themselves (no child spawned),
+        # so `run_count` stays 0 and `last_run_map` has no entry. Fall back to the
+        # task's own run_at/completed_at + status so the Definitions view doesn't
+        # show "never" for a pipeline that clearly ran.
+        if lr is None and (t.run_at or t.completed_at) and not t.recurrence:
+            lr = {
+                "status": t.status,
+                "at": (t.completed_at or t.run_at).isoformat(),
+            }
         return {
             "id": str(t.id),
             "status": t.status,

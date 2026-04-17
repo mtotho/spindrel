@@ -101,3 +101,24 @@ class TestAdminTaskListScheduleClassification:
         body = resp.json()
         assert len(body["schedules"]) == 1
         assert body["schedules"][0]["bot_id"] == "bot-a"
+
+    async def test_one_shot_pipeline_surfaces_last_run_from_self(self, client, db_session):
+        """A one-shot pipeline runs as itself (no child spawn) so run_count stays 0.
+        The Definitions view must still see last_run_at from the task's own completed_at."""
+        completed = datetime.now(timezone.utc)
+        task = await _create_task(
+            db_session,
+            task_type="pipeline",
+            status="complete",
+            recurrence=None,
+            steps=[{"id": "s", "type": "exec", "prompt": "echo hi"}],
+            run_at=completed - timedelta(seconds=5),
+            completed_at=completed,
+            run_count=0,
+        )
+        resp = await client.get("/api/v1/admin/tasks", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        body = resp.json()
+        row = next(t for t in body["tasks"] if t["id"] == str(task.id))
+        assert row["last_run_at"] is not None, "one-shot pipeline should surface last_run_at"
+        assert row["last_run_status"] == "complete"

@@ -144,10 +144,11 @@ export function PinnedToolWidget({
 
   // Initial refresh on mount / re-pin.
   const refreshedForRef = useRef<string | null>(null);
+  const [hasCompletedInitialRefresh, setHasCompletedInitialRefresh] = useState(false);
   useEffect(() => {
     if (refreshedForRef.current === widget.id) return;
     refreshedForRef.current = widget.id;
-    refreshState();
+    refreshState().finally(() => setHasCompletedInitialRefresh(true));
   }, [widget.id, refreshState]);
 
   // Automatic interval refresh — driven by envelope.refresh_interval_seconds.
@@ -228,12 +229,17 @@ export function PinnedToolWidget({
           broadcastEnvelope(channelId, widget.tool_name, result.envelope);
           setLastRefreshedAt(new Date().toISOString());
         }
+        // Follow-up refresh — slow devices (e.g. Shelly relays through HA)
+        // sometimes haven't propagated state by the time the server's
+        // post-action poll fires, so the returned envelope can show stale
+        // state alongside an optimistic toggle. A delayed refresh reconciles.
+        window.setTimeout(() => { void refreshState(); }, 2500);
         return result;
       } finally {
         actionInFlightRef.current = false;
       }
     },
-    [rawDispatch, widget.id, channelId, widget.tool_name, onEnvelopeUpdate, broadcastEnvelope, patchWidgetConfig],
+    [rawDispatch, widget.id, channelId, widget.tool_name, onEnvelopeUpdate, broadcastEnvelope, patchWidgetConfig, refreshState],
   );
 
   const actionCtx = useMemo(
@@ -252,9 +258,16 @@ export function PinnedToolWidget({
     hasEverLoadedRef.current = true;
   }
 
+  // Show skeleton while awaiting first poll for refreshable pins. The saved
+  // envelope in the store is frozen from whenever the pin was last persisted,
+  // so rendering it before the state_poll lands shows stale state (then flips
+  // moments later when the poll returns). Skeleton avoids that flash.
+  const awaitingFirstPollForRefreshable =
+    !hasCompletedInitialRefresh && !!currentEnvelope?.refreshable;
+
   // Show skeleton placeholder on initial load (before first poll/hydration)
-  if (!currentEnvelope || body == null) {
-    if (!hasEverLoadedRef.current) {
+  if (!currentEnvelope || body == null || awaitingFirstPollForRefreshable) {
+    if (!hasEverLoadedRef.current || awaitingFirstPollForRefreshable) {
       return (
         <div
           ref={setNodeRef}

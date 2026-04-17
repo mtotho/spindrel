@@ -78,14 +78,15 @@ _SCHEDULE_TASK_SCHEMA = {
     "function": {
         "name": "schedule_task",
         "description": (
-            "Schedule a task for any bot to run later (or immediately). "
-            "Defaults to the current bot in the current channel. "
-            "To schedule work for a DIFFERENT bot, pass bot_id — the task "
-            "will run in that bot's primary channel automatically. "
+            "CREATE a NEW task or pipeline definition. Use this ONLY for work that does not already exist. "
+            "To RE-RUN an existing task or pipeline, call `run_task` with its task_id instead — "
+            "do NOT create a duplicate here. Call `list_tasks` first to check whether a matching "
+            "definition already exists. "
+            "Defaults to the current bot in the current channel. To schedule work for a DIFFERENT bot, "
+            "pass bot_id — the task will run in that bot's primary channel automatically. "
             "The result is dispatched back to the target channel/thread. "
-            "For multi-step pipelines, pass steps instead of prompt — "
-            "each step can be exec (shell), tool (direct call), or agent (LLM). "
-            "See the Pipeline Authoring skill for the full step schema."
+            "For multi-step pipelines, pass steps instead of prompt — each step can be exec (shell), "
+            "tool (direct call), or agent (LLM). See the Pipeline Authoring skill for the full step schema."
         ),
         "parameters": {
             "type": "object",
@@ -982,10 +983,13 @@ async def get_task_result(task_id: str) -> str:
     "function": {
         "name": "run_task",
         "description": (
-            "Manually trigger a task definition to run now. "
-            "Creates a concrete child task from the definition and schedules it immediately. "
-            "Works on active schedule templates, pipeline definitions, or event-triggered tasks. "
-            "Returns the new run's ID and status. Use list_tasks with parent_task_id to see run history."
+            "RE-RUN or trigger an existing task / pipeline / schedule by its id. "
+            "Use this when the user says 'run that pipeline again', 'trigger the job', "
+            "'re-run yesterday's task', or similar. Spawns a concrete child run from the "
+            "definition and schedules it immediately; does NOT duplicate the definition. "
+            "Works on active schedule templates, pipeline definitions, and event-triggered tasks. "
+            "If you don't know the task_id, call `list_tasks` first to find it. "
+            "Returns the new run's id and status. Use `list_tasks` with parent_task_id to view run history."
         ),
         "parameters": {
             "type": "object",

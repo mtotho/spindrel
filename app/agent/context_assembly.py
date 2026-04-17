@@ -7,7 +7,7 @@ import math
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -1767,19 +1767,90 @@ async def assemble_context(
     result.authorized_tool_names = _authorized_names
     result.effective_local_tools = list(bot.local_tools)
 
-    # --- datetime (injected late to avoid busting prompt cache prefix) ---
+    # --- datetime + conversation-gap framing (injected late to avoid busting prompt cache prefix) ---
     try:
         from zoneinfo import ZoneInfo
+        from app.services.temporal_context import (
+            ScanMessage,
+            TemporalBlockInputs,
+            build_current_time_block,
+        )
         _tz = ZoneInfo(settings.TIMEZONE)
         _now_local = datetime.now(_tz)
         _now_utc = datetime.now(timezone.utc)
-        messages.append({
-            "role": "system",
-            "content": (
-                f"Current time: {_now_local.strftime('%Y-%m-%d %H:%M %Z')} "
-                f"({_now_utc.strftime('%H:%M UTC')})"
-            ),
-        })
+
+        _last_human_dt: datetime | None = None
+        _last_non_human_dt: datetime | None = None
+        _scan_messages: list[ScanMessage] = []
+        if session_id is not None:
+            try:
+                from sqlalchemy import select as _sa_select_t
+                from app.db.engine import async_session as _async_session_t
+                from app.db.models import Message as _MessageT
+                # The incoming user message was pre-persisted to the DB by the
+                # turn worker before this function runs (see turn_worker.py:
+                # _persist_and_publish_user_message). Exclude it from the "most
+                # recent" / scan view so we surface the PRIOR turn, which is
+                # what conveys the gap.
+                _cutoff = _now_utc - timedelta(seconds=5)
+                async with _async_session_t() as _tdb:
+                    # Pull the recent message window once: content + role + metadata + created_at.
+                    # We derive last_human_dt, last_non_human_dt, AND the scan window
+                    # from this single query (~15 rows, indexed by session_id).
+                    _recent_rows = (await _tdb.execute(
+                        _sa_select_t(
+                            _MessageT.role,
+                            _MessageT.content,
+                            _MessageT.metadata_,
+                            _MessageT.created_at,
+                        )
+                        .where(_MessageT.session_id == session_id)
+                        .where(_MessageT.role.in_(("user", "assistant")))
+                        .where(_MessageT.created_at < _cutoff)
+                        .order_by(_MessageT.created_at.desc())
+                        .limit(15)
+                    )).all()
+
+                    for _r in _recent_rows:
+                        _meta = _r.metadata_ or {}
+                        _is_bot_sender = _meta.get("sender_type") == "bot"
+                        _is_hb = bool(_meta.get("is_heartbeat"))
+                        _is_human = _r.role == "user" and not _is_bot_sender and not _is_hb
+                        # "Non-user activity" = anything the user didn't send: any
+                        # assistant/tool message, plus bot-mirrored user-role
+                        # messages in multi-bot channels.
+                        if not _is_human and _last_non_human_dt is None:
+                            _last_non_human_dt = _r.created_at
+                        if _is_human and _last_human_dt is None:
+                            _last_human_dt = _r.created_at
+                        # Feed the scan window.
+                        _content = _r.content if isinstance(_r.content, str) else ""
+                        if _content:
+                            # is_self: True when the assistant turn was authored
+                            # by the bot currently running; drives "you" vs
+                            # "another bot" attribution in multi-bot sessions.
+                            _sender_id = _meta.get("sender_id") or _meta.get("bot_id")
+                            _is_self = _r.role == "assistant" and (
+                                _sender_id is None or _sender_id == bot.id
+                            )
+                            _scan_messages.append(ScanMessage(
+                                role=_r.role,
+                                content=_content,
+                                created_at=_r.created_at,
+                                is_human=_is_human,
+                                is_self=_is_self,
+                            ))
+            except Exception:
+                logger.debug("temporal_context: DB lookup failed", exc_info=True)
+
+        _time_block = build_current_time_block(TemporalBlockInputs(
+            now_local=_now_local,
+            now_utc=_now_utc,
+            last_human_dt=_last_human_dt,
+            last_non_human_dt=_last_non_human_dt,
+            recent_messages=_scan_messages,
+        ))
+        messages.append({"role": "system", "content": _time_block})
     except Exception:
         pass  # non-fatal if timezone lookup fails
 

@@ -308,3 +308,58 @@ async def test_sidebar_sections_only_shows_enabled():
 def test_is_configured_stub_callable():
     """Simple sanity check that the public is_configured helper is still importable."""
     assert callable(is_configured)
+
+
+# ---------------------------------------------------------------------------
+# Add-button short-circuit: already-configured integrations skip needs_setup
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_add_short_circuits_to_enabled_when_configured():
+    """Clicking Add (target=needs_setup) on an integration with no required
+    settings (is_configured True) should transition straight to enabled,
+    not land on a 'Needs Setup' card with nothing to fill in.
+    """
+    from app.routers.api_v1_admin.integrations import (
+        set_integration_status, StatusBody,
+    )
+
+    calls: list[tuple] = []
+
+    async def fake_set_status(iid, status):
+        calls.append(("set_status", iid, status))
+
+    async def fake_stop(iid):
+        calls.append(("stop", iid))
+
+    async def fake_load_mcp():
+        calls.append(("load_mcp",))
+
+    async def fake_index():
+        calls.append(("index",))
+
+    async def fake_remove_embeddings(iid):
+        calls.append(("remove_emb", iid))
+        return 0
+
+    with (
+        patch("app.services.integration_settings.get_status", return_value="available"),
+        patch("app.services.integration_settings.is_configured", return_value=True),
+        patch("app.services.integration_settings.set_status", new=fake_set_status),
+        patch("app.services.integration_processes.process_manager.stop", new=fake_stop),
+        patch("app.services.mcp_servers.load_mcp_servers", new=fake_load_mcp),
+        patch("app.agent.tools.index_local_tools", new=fake_index),
+        patch("app.agent.tools.remove_integration_embeddings", new=fake_remove_embeddings),
+        patch(
+            "integrations._iter_integration_candidates",
+            return_value=iter([]),
+        ),
+        patch("app.tools.loader.load_integration_tools", return_value=[]),
+    ):
+        result = await set_integration_status("excalidraw", StatusBody(status="needs_setup"))
+
+    assert result["status"] == "enabled", (
+        f"expected short-circuit to enabled, got {result['status']!r}"
+    )
+    assert ("set_status", "excalidraw", "enabled") in calls

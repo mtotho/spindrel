@@ -666,6 +666,26 @@ async def run_task(task: Task) -> None:
         await run_exec_task(task)
         return
     if task.task_type == "pipeline":
+        # Respect the scheduling session's lock so the pipeline (and its
+        # anchor envelope) fires AFTER the bot's "pipeline is running"
+        # reply is persisted — otherwise the envelope sorts into the
+        # chat before the bot's text, which reads backwards.
+        # Pipeline agent-step *children* skip this check (they're spawned
+        # mid-pipeline and need the same session) — see _skip_lock below.
+        _lock_held_elsewhere = (
+            task.session_id is not None
+            and session_locks.is_active(task.session_id)
+        )
+        if _lock_held_elsewhere:
+            async with async_session() as db:
+                t = await db.get(Task, task.id)
+                if t:
+                    t.status = "pending"
+                    t.run_at = None
+                    t.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=3)
+                    await db.commit()
+            logger.info("Pipeline %s deferred 3s: scheduling session %s busy", task.id, task.session_id)
+            return
         from app.services.step_executor import run_task_pipeline
         await run_task_pipeline(task)
         return

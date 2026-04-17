@@ -124,10 +124,12 @@ function MobileDefinitionCard({ def, onPress, onRunNow, isRunning }: {
 }) {
   const isCancelled = def.status === "cancelled";
   const statusCfg = STATUS_CFG[def.status] || STATUS_CFG.pending;
-  const hasRun = !!(def.run_count && def.run_count > 0);
   // Prefer last child run info over the definition's own status
   const lastRunTime = def.last_run_at || def.completed_at || def.run_at;
   const lastRunStatus = def.last_run_status || def.status;
+  // One-shot pipelines run as themselves (no child spawn), so run_count stays 0.
+  // Treat any observed run timestamp as evidence the def has executed.
+  const hasRun = !!(def.run_count && def.run_count > 0) || !!lastRunTime;
 
   return (
     <div
@@ -186,7 +188,7 @@ function MobileDefinitionCard({ def, onPress, onRunNow, isRunning }: {
               ? `${def.run_count} runs`
               : "never"
           }
-          {hasRun && ` · ${def.run_count ?? 0} runs`}
+          {hasRun && ` · ${(def.run_count ?? 0) || (lastRunTime ? 1 : 0)} runs`}
         </span>
       </div>
     </div>
@@ -201,10 +203,12 @@ function DefinitionRow({ def, onPress, onRunNow, isRunning }: {
 }) {
   const isCancelled = def.status === "cancelled";
   const statusCfg = STATUS_CFG[def.status] || STATUS_CFG.pending;
-  const hasRun = !!(def.run_count && def.run_count > 0);
   // Prefer last child run info over the definition's own status
   const lastRunTime = def.last_run_at || def.completed_at || def.run_at;
   const lastRunStatus = def.last_run_status || def.status;
+  // One-shot pipelines run as themselves (no child spawn), so run_count stays 0.
+  // Treat any observed run timestamp as evidence the def has executed.
+  const hasRun = !!(def.run_count && def.run_count > 0) || !!lastRunTime;
   const lastRunStatusCfg = hasRun ? (STATUS_CFG[lastRunStatus] || statusCfg) : statusCfg;
 
   return (
@@ -272,7 +276,7 @@ function DefinitionRow({ def, onPress, onRunNow, isRunning }: {
       {/* Run count */}
       <div className="w-16 shrink-0 text-right">
         <span className="text-[11px] text-text-muted font-mono">
-          {def.run_count ?? 0}
+          {(def.run_count ?? 0) || (lastRunTime ? 1 : 0)}
         </span>
       </div>
 
