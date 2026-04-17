@@ -1,0 +1,85 @@
+# System pipeline: orchestrator — full scan
+#
+# Scans the system's own configuration (bots, skills, tasks, recent
+# discovery traces), lets an agent step emit proposed configuration
+# patches, gates them behind a multi-item approval widget, then applies
+# approved patches via call_api against existing validated PATCH
+# endpoints. No bespoke apply-patch tools — the "tool" sub-step inside
+# the foreach calls the same admin endpoints a human admin would hit.
+id: orchestrator.full_scan
+bot_id: orchestrator
+title: Full System Scan
+task_type: pipeline
+client_id: "orchestrator:home"
+prompt: "[System pipeline: orchestrator full scan]"
+execution_config:
+  featured: true
+  description: >-
+    Analyze every bot's configuration, recent discovery behavior, and
+    tool activity, then propose tuning patches for review.
+steps:
+  - id: fetch_bots
+    type: tool
+    tool_name: call_api
+    tool_args:
+      method: GET
+      path: /api/v1/admin/bots
+
+  - id: fetch_endpoints
+    type: tool
+    tool_name: list_api_endpoints
+    tool_args:
+      scope: bots
+
+  - id: analyze
+    type: agent
+    prompt: |
+      You are auditing the bots returned in prior step `fetch_bots`. For
+      each bot that has an obviously missing or drift-prone field
+      (missing system_prompt, wrong memory_scheme, stale pinned_tools),
+      propose a single JSON patch.
+
+      Return ONLY valid JSON in this shape:
+
+      {
+        "proposals": [
+          {
+            "id": "<stable-slug>",
+            "scope": "bots",
+            "target_method": "PATCH",
+            "target_path": "/api/v1/admin/bots/<bot_id>",
+            "patch_body": { ... },
+            "rationale": "<one sentence>",
+            "diff_preview": "<short human-readable before/after>"
+          }
+        ]
+      }
+
+      If nothing needs changing, return {"proposals": []}.
+    result_max_chars: 8000
+
+  - id: review
+    type: user_prompt
+    title: Review proposed changes
+    widget_template:
+      kind: approval_review
+      title: Proposed system tuning
+      proposals_ref: "{{steps.analyze.result.proposals}}"
+    response_schema:
+      type: multi_item
+      items_ref: "{{steps.analyze.result.proposals}}"
+
+  - id: apply
+    type: foreach
+    over: "{{steps.analyze.result.proposals}}"
+    on_failure: continue
+    do:
+      - type: tool
+        tool_name: call_api
+        when:
+          step: review
+          output_contains: "approve"
+        tool_args:
+          method: "{{item.target_method}}"
+          path: "{{item.target_path}}"
+          body: "{{item.patch_body}}"

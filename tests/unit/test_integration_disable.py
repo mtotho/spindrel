@@ -1,8 +1,8 @@
 """Tests for the integration lifecycle-status model.
 
-Covers the three-state ``available | needs_setup | enabled`` system on
-``IntegrationSetting._status``. Legacy ``is_disabled`` / ``set_disabled``
-helpers have been retired; this file pins their replacement.
+Two-state lifecycle: ``available | enabled``. "Needs setup" is derived at
+render time from ``is_configured`` — not a stored state. Legacy
+``is_disabled`` / ``set_disabled`` helpers have been retired.
 """
 
 import pytest
@@ -23,8 +23,6 @@ from app.services.integration_settings import (
 
 
 class TestGetStatus:
-    """``get_status`` reads from the in-memory cache."""
-
     def setup_method(self):
         self._original_cache = dict(_cache)
 
@@ -40,12 +38,13 @@ class TestGetStatus:
         _cache[("test_intg", STATUS_KEY)] = "available"
         assert get_status("test_intg") == "available"
 
-    def test_round_trip_needs_setup(self):
-        _cache[("test_intg", STATUS_KEY)] = "needs_setup"
-        assert get_status("test_intg") == "needs_setup"
-
     def test_round_trip_enabled(self):
         _cache[("test_intg", STATUS_KEY)] = "enabled"
+        assert get_status("test_intg") == "enabled"
+
+    def test_legacy_needs_setup_coerces_to_enabled(self):
+        """A row written by the transitional 3-state model reads back as enabled."""
+        _cache[("test_intg", STATUS_KEY)] = "needs_setup"
         assert get_status("test_intg") == "enabled"
 
     def test_unknown_value_falls_back_to_available(self):
@@ -63,77 +62,12 @@ class TestGetStatus:
         ):
             assert is_active("test_intg") is False
 
-    def test_is_active_false_for_needs_setup(self):
-        _cache[("test_intg", STATUS_KEY)] = "needs_setup"
+    def test_is_active_false_when_available(self):
+        _cache[("test_intg", STATUS_KEY)] = "available"
         with patch(
             "app.services.integration_settings.is_configured", return_value=True
         ):
             assert is_active("test_intg") is False
-
-
-# ---------------------------------------------------------------------------
-# Auto-promote / auto-demote
-# ---------------------------------------------------------------------------
-
-
-class TestStatusReconciliation:
-    def setup_method(self):
-        self._original_cache = dict(_cache)
-
-    def teardown_method(self):
-        _cache.clear()
-        _cache.update(self._original_cache)
-
-    @pytest.mark.asyncio
-    async def test_promotes_needs_setup_to_enabled_when_configured(self):
-        from app.services.integration_settings import _reconcile_status
-
-        _cache[("test_intg", STATUS_KEY)] = "needs_setup"
-        with (
-            patch(
-                "app.services.integration_settings.is_configured", return_value=True
-            ),
-            patch(
-                "app.services.integration_settings.set_status",
-                new=AsyncMock(),
-            ) as set_mock,
-        ):
-            await _reconcile_status("test_intg")
-        set_mock.assert_awaited_once_with("test_intg", "enabled")
-
-    @pytest.mark.asyncio
-    async def test_demotes_enabled_to_needs_setup_when_unconfigured(self):
-        from app.services.integration_settings import _reconcile_status
-
-        _cache[("test_intg", STATUS_KEY)] = "enabled"
-        with (
-            patch(
-                "app.services.integration_settings.is_configured", return_value=False
-            ),
-            patch(
-                "app.services.integration_settings.set_status",
-                new=AsyncMock(),
-            ) as set_mock,
-        ):
-            await _reconcile_status("test_intg")
-        set_mock.assert_awaited_once_with("test_intg", "needs_setup")
-
-    @pytest.mark.asyncio
-    async def test_available_is_never_auto_flipped(self):
-        from app.services.integration_settings import _reconcile_status
-
-        _cache[("test_intg", STATUS_KEY)] = "available"
-        with (
-            patch(
-                "app.services.integration_settings.is_configured", return_value=True
-            ),
-            patch(
-                "app.services.integration_settings.set_status",
-                new=AsyncMock(),
-            ) as set_mock,
-        ):
-            await _reconcile_status("test_intg")
-        set_mock.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -204,20 +138,11 @@ async def test_remove_integration_embeddings():
 
 
 # ---------------------------------------------------------------------------
-# Process manager gating — only starts for status=enabled
+# Process manager gating — only starts when both enabled AND configured
 # ---------------------------------------------------------------------------
 
 
 class TestProcessManagerStatusGating:
-    @pytest.mark.asyncio
-    async def test_start_refuses_non_enabled(self):
-        from app.services.integration_processes import IntegrationProcessManager
-
-        pm = IntegrationProcessManager()
-        with patch("app.services.integration_settings.get_status", return_value="needs_setup"):
-            result = await pm.start("test_intg")
-        assert result is False
-
     @pytest.mark.asyncio
     async def test_start_refuses_available(self):
         from app.services.integration_processes import IntegrationProcessManager
@@ -228,11 +153,27 @@ class TestProcessManagerStatusGating:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_start_allows_enabled(self):
+    async def test_start_refuses_enabled_but_unconfigured(self):
+        """Enabled but missing required settings: process must not start."""
         from app.services.integration_processes import IntegrationProcessManager
 
         pm = IntegrationProcessManager()
-        with patch("app.services.integration_settings.get_status", return_value="enabled"):
+        with (
+            patch("app.services.integration_settings.get_status", return_value="enabled"),
+            patch("app.services.integration_settings.is_configured", return_value=False),
+        ):
+            result = await pm.start("test_intg")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_start_allows_enabled_and_configured(self):
+        from app.services.integration_processes import IntegrationProcessManager
+
+        pm = IntegrationProcessManager()
+        with (
+            patch("app.services.integration_settings.get_status", return_value="enabled"),
+            patch("app.services.integration_settings.is_configured", return_value=True),
+        ):
             # Still fails — no process.py exists — but we pass the status gate.
             result = await pm.start("nonexistent_intg")
         assert result is False
@@ -277,7 +218,8 @@ class TestDiscoverSetupStatusLifecycleField:
 
 
 @pytest.mark.asyncio
-async def test_sidebar_sections_only_shows_enabled():
+async def test_sidebar_sections_requires_active():
+    """Sidebar only surfaces integrations that are enabled AND configured."""
     from app.routers.api_v1_admin.integrations import list_sidebar_sections
 
     mock_section = {
@@ -288,50 +230,51 @@ async def test_sidebar_sections_only_shows_enabled():
         "items": [{"label": "Home", "href": "/test", "icon": "Home"}],
     }
 
-    with patch("integrations.discover_sidebar_sections", return_value=[mock_section]):
-        with patch("app.services.integration_settings.get_status", return_value="needs_setup"):
-            result = await list_sidebar_sections()
+    # available → hidden
+    with (
+        patch("integrations.discover_sidebar_sections", return_value=[mock_section]),
+        patch("app.services.integration_settings.is_active", return_value=False),
+    ):
+        result = await list_sidebar_sections()
     assert result["sections"] == []
 
-    with patch("integrations.discover_sidebar_sections", return_value=[mock_section]):
-        with patch("app.services.integration_settings.get_status", return_value="available"):
-            result = await list_sidebar_sections()
-    assert result["sections"] == []
-
-    with patch("integrations.discover_sidebar_sections", return_value=[mock_section]):
-        with patch("app.services.integration_settings.get_status", return_value="enabled"):
-            with patch("app.services.integration_settings.get_value", return_value="true"):
-                result = await list_sidebar_sections()
+    # active (enabled + configured) → visible
+    with (
+        patch("integrations.discover_sidebar_sections", return_value=[mock_section]),
+        patch("app.services.integration_settings.is_active", return_value=True),
+        patch("app.services.integration_settings.get_value", return_value="true"),
+    ):
+        result = await list_sidebar_sections()
     assert len(result["sections"]) == 1
 
 
-def test_is_configured_stub_callable():
-    """Simple sanity check that the public is_configured helper is still importable."""
-    assert callable(is_configured)
-
-
 # ---------------------------------------------------------------------------
-# Add-button short-circuit: already-configured integrations skip needs_setup
+# Endpoint: status transitions
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_add_short_circuits_to_enabled_when_configured():
-    """Clicking Add (target=needs_setup) on an integration with no required
-    settings (is_configured True) should transition straight to enabled,
-    not land on a 'Needs Setup' card with nothing to fill in.
+async def test_set_status_rejects_invalid_target():
+    from app.routers.api_v1_admin.integrations import set_integration_status, StatusBody
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        await set_integration_status("x", StatusBody(status="needs_setup"))
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_set_status_enabled_does_not_require_configured():
+    """User intent drives enablement; readiness is derived. Enabling a
+    misconfigured integration is allowed and leaves it in an enabled-but-
+    unready state (UI shows the Needs Setup badge; process won't auto-start).
     """
-    from app.routers.api_v1_admin.integrations import (
-        set_integration_status, StatusBody,
-    )
+    from app.routers.api_v1_admin.integrations import set_integration_status, StatusBody
 
     calls: list[tuple] = []
 
     async def fake_set_status(iid, status):
         calls.append(("set_status", iid, status))
-
-    async def fake_stop(iid):
-        calls.append(("stop", iid))
 
     async def fake_load_mcp():
         calls.append(("load_mcp",))
@@ -339,27 +282,20 @@ async def test_add_short_circuits_to_enabled_when_configured():
     async def fake_index():
         calls.append(("index",))
 
-    async def fake_remove_embeddings(iid):
-        calls.append(("remove_emb", iid))
-        return 0
-
     with (
         patch("app.services.integration_settings.get_status", return_value="available"),
-        patch("app.services.integration_settings.is_configured", return_value=True),
+        patch("app.services.integration_settings.is_configured", return_value=False),
         patch("app.services.integration_settings.set_status", new=fake_set_status),
-        patch("app.services.integration_processes.process_manager.stop", new=fake_stop),
         patch("app.services.mcp_servers.load_mcp_servers", new=fake_load_mcp),
         patch("app.agent.tools.index_local_tools", new=fake_index),
-        patch("app.agent.tools.remove_integration_embeddings", new=fake_remove_embeddings),
-        patch(
-            "integrations._iter_integration_candidates",
-            return_value=iter([]),
-        ),
+        patch("integrations._iter_integration_candidates", return_value=iter([])),
         patch("app.tools.loader.load_integration_tools", return_value=[]),
     ):
-        result = await set_integration_status("excalidraw", StatusBody(status="needs_setup"))
+        result = await set_integration_status("x", StatusBody(status="enabled"))
 
-    assert result["status"] == "enabled", (
-        f"expected short-circuit to enabled, got {result['status']!r}"
-    )
-    assert ("set_status", "excalidraw", "enabled") in calls
+    assert result["status"] == "enabled"
+    assert ("set_status", "x", "enabled") in calls
+
+
+def test_is_configured_stub_callable():
+    assert callable(is_configured)

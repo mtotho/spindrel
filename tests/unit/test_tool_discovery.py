@@ -615,6 +615,70 @@ class TestBm25ToolSearchUsesWebsearchTsquery:
 
 
 # ---------------------------------------------------------------------------
+# index_local_tools: embedding failure must still persist the row so the
+# tool appears in the admin Tool Pool (bot editor). RAG similarity search
+# won't match it until a later successful re-embed — but it's usable via
+# manual enrollment. Regression for external integrations (e.g.
+# bennieloggins) where a fresh enable + transient embed failure left the
+# tools invisible to bots even though the integration page showed them
+# live-registered.
+# ---------------------------------------------------------------------------
+
+
+class TestIndexLocalToolsEmbedFailure:
+    @pytest.mark.asyncio
+    async def test_embed_failure_still_upserts_row_with_sentinel_hash(self, engine):
+        from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+
+        from app.agent.tools import index_local_tools
+        from app.db.models import ToolEmbedding
+        from app.tools.registry import _tools
+
+        fake_schema = {
+            "type": "function",
+            "function": {
+                "name": "bennie_loggins_log_poop",
+                "description": "Log a poop event",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+        _tools["bennie_loggins_log_poop"] = {
+            "function": lambda: None,
+            "schema": fake_schema,
+            "source_dir": None,
+            "source_integration": "bennieloggins",
+            "source_file": "logging.py",
+            "safety_tier": "mutating",
+        }
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        try:
+            with (
+                patch("app.agent.tools.async_session", factory),
+                patch("app.agent.tools._embed_query", side_effect=RuntimeError("embedding provider down")),
+            ):
+                await index_local_tools()
+
+            async with factory() as db:
+                rows = (await db.execute(
+                    select(ToolEmbedding).where(
+                        ToolEmbedding.tool_name == "bennie_loggins_log_poop",
+                    )
+                )).scalars().all()
+
+            assert len(rows) == 1, "tool must be upserted even when embedding fails"
+            row = rows[0]
+            assert row.source_integration == "bennieloggins"
+            assert row.embedding is None
+            # Sentinel hash lets the next index pass detect the row as stale
+            # and retry the embed call.
+            assert row.content_hash.startswith("noembed:")
+        finally:
+            _tools.pop("bennie_loggins_log_poop", None)
+
+
+# ---------------------------------------------------------------------------
 # get_tool_info activates the tool for the next iteration
 # ---------------------------------------------------------------------------
 #

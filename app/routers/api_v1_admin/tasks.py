@@ -722,22 +722,96 @@ async def admin_list_cron_jobs(
     }
 
 
+class TaskRunIn(BaseModel):
+    """Optional body for POST /tasks/{id}/run.
+
+    ``params`` is merged into the child task's
+    ``execution_config['params']`` so pipeline step templates can reach
+    it as ``{{params.*}}``.
+    """
+    params: Optional[dict] = None
+
+
 @router.post("/tasks/{task_id}/run", response_model=TaskDetailOut, status_code=201)
 async def admin_run_task_now(
     task_id: uuid.UUID,
+    body: TaskRunIn | None = None,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("tasks:write")),
 ):
     """Manually trigger a task definition — spawns a concrete child task immediately."""
     from app.services.task_ops import spawn_child_run
 
+    params = body.params if body else None
     try:
-        concrete = await spawn_child_run(task_id, db)
+        concrete = await spawn_child_run(task_id, db, params=params)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     await db.commit()
     await db.refresh(concrete)
     return TaskDetailOut.model_validate(concrete)
+
+
+class StepResolveIn(BaseModel):
+    """Body for POST /tasks/{task_id}/steps/{index}/resolve.
+
+    ``response`` is validated against the step's stored
+    ``response_schema`` (binary / multi_item in v1).
+    """
+    response: dict
+
+
+@router.post("/tasks/{task_id}/steps/{step_index}/resolve", response_model=TaskDetailOut)
+async def admin_resolve_step(
+    task_id: uuid.UUID,
+    step_index: int,
+    body: StepResolveIn,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("tasks:write")),
+):
+    """Fulfill an awaiting ``user_prompt`` step and resume the pipeline.
+
+    Validates the supplied response against the step's stored
+    ``response_schema``, stores it as the step result, flips the status
+    to ``done``, and calls :func:`_advance_pipeline` to continue.
+    """
+    import copy as _copy
+    from app.services.step_executor import _advance_pipeline, _validate_resolve_response
+
+    task = await db.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    step_states = task.step_states or []
+    if step_index < 0 or step_index >= len(step_states):
+        raise HTTPException(status_code=404, detail="Step index out of range")
+
+    state = step_states[step_index]
+    if state.get("status") != "awaiting_user_input":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Step is not awaiting user input (status={state.get('status')!r})",
+        )
+
+    err = _validate_resolve_response(state.get("response_schema") or {}, body.response)
+    if err:
+        raise HTTPException(status_code=422, detail=err)
+
+    # JSONB mutation — per CLAUDE.md, deepcopy + flag_modified
+    new_states = _copy.deepcopy(step_states)
+    s = new_states[step_index]
+    s["status"] = "done"
+    s["result"] = body.response
+    s["completed_at"] = datetime.now(timezone.utc).isoformat()
+    task.step_states = new_states
+    sa_attributes.flag_modified(task, "step_states")
+    await db.commit()
+    await db.refresh(task)
+
+    # Resume the pipeline from the step after this one.
+    steps = task.steps or []
+    await _advance_pipeline(task, steps, task.step_states, start_index=step_index + 1)
+    await db.refresh(task)
+    return TaskDetailOut.model_validate(task)
 
 
 @router.delete("/tasks/{task_id}", status_code=204)

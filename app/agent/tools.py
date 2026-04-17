@@ -91,9 +91,15 @@ async def _upsert_tool_row(
     source_file: str | None = None,
     schema: dict[str, Any],
     embed_text_value: str,
-    embedding: list[float],
+    embedding: list[float] | None,
 ) -> None:
     h = content_hash(embed_text_value)
+    # When embedding failed, store a sentinel hash so the next index pass
+    # treats the row as stale and retries the embed. The tool still
+    # appears in the Tool Pool / bot editor (rows are selected regardless
+    # of embedding state) so it's usable via manual enrollment.
+    if embedding is None:
+        h = f"noembed:{h}"
     stmt = (
         pg_insert(ToolEmbedding)
         .values(
@@ -181,18 +187,21 @@ async def index_local_tools() -> None:
         if existing_hashes.get(tkey) == h:
             skipped += 1
             continue
-        if embed_disabled:
-            continue
-        try:
-            emb = await _embed_query(embed_txt)
-        except Exception as exc:
-            logger.exception("Failed to embed local tool %s", tool_name)
-            # Circuit breaker: if quota exhausted or auth error, skip remaining tools
-            exc_str = str(exc).lower()
-            if "insufficient_quota" in exc_str or "invalid_api_key" in exc_str:
-                logger.warning("Embedding provider quota/auth error — skipping remaining tool embeddings")
-                embed_disabled = True
-            continue
+        emb: list[float] | None = None
+        if not embed_disabled:
+            try:
+                emb = await _embed_query(embed_txt)
+            except Exception as exc:
+                logger.exception("Failed to embed local tool %s", tool_name)
+                # Circuit breaker: if quota exhausted or auth error, skip
+                # remaining embed calls but still persist the rows below so
+                # tools show up in the bot editor / Tool Pool UI. RAG similarity
+                # search won't match them until a later re-index, but the
+                # tools remain usable via manual enrollment.
+                exc_str = str(exc).lower()
+                if "insufficient_quota" in exc_str or "invalid_api_key" in exc_str:
+                    logger.warning("Embedding provider quota/auth error — skipping remaining tool embeddings")
+                    embed_disabled = True
         try:
             await _upsert_tool_row(
                 tool_key=tkey,

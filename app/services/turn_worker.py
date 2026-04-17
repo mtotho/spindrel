@@ -474,20 +474,34 @@ async def _persist_and_publish_user_message(
     """
     try:
         async with async_session() as db:
-            kw: dict = dict(
-                session_id=session_id,
-                role="user",
-                content=text,
-                correlation_id=correlation_id,
-                metadata_=metadata,
-                created_at=datetime.now(timezone.utc),
-            )
+            row: MessageModel | None = None
             if pre_allocated_id:
-                kw["id"] = pre_allocated_id
-            row = MessageModel(**kw)
-            db.add(row)
-            await db.commit()
-            await db.refresh(row)
+                # The POST handler pre-persists a stub row so attachment FKs
+                # resolve before the worker runs. Detect that row and update
+                # it in place with the worker-only fields (correlation_id,
+                # final metadata) instead of re-inserting.
+                row = await db.get(MessageModel, pre_allocated_id)
+                if row is not None:
+                    row.content = text
+                    row.correlation_id = correlation_id
+                    row.metadata_ = metadata
+                    await db.commit()
+                    await db.refresh(row)
+            if row is None:
+                kw: dict = dict(
+                    session_id=session_id,
+                    role="user",
+                    content=text,
+                    correlation_id=correlation_id,
+                    metadata_=metadata,
+                    created_at=datetime.now(timezone.utc),
+                )
+                if pre_allocated_id:
+                    kw["id"] = pre_allocated_id
+                row = MessageModel(**kw)
+                db.add(row)
+                await db.commit()
+                await db.refresh(row)
 
             domain_msg = DomainMessage(
                 id=row.id,

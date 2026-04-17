@@ -1,0 +1,77 @@
+# System pipeline: orchestrator — deep-dive a single bot.
+#
+# Same shape as full_scan but scoped by a runtime {{params.bot_id}} so
+# the admin UI can launch it from a specific bot's tile.
+id: orchestrator.deep_dive_bot
+bot_id: orchestrator
+title: Deep Dive Bot
+task_type: pipeline
+client_id: "orchestrator:home"
+prompt: "[System pipeline: deep-dive bot]"
+execution_config:
+  featured: false
+  description: >-
+    Deep dive on a single bot's configuration, skill set, and recent
+    activity, then propose tuning patches for review.
+  params_schema:
+    - name: bot_id
+      required: true
+      description: Bot id to analyze.
+steps:
+  - id: fetch_bot
+    type: tool
+    tool_name: call_api
+    tool_args:
+      method: GET
+      path: "/api/v1/admin/bots/{{params.bot_id}}"
+
+  - id: analyze
+    type: agent
+    prompt: |
+      Analyze bot `{{params.bot_id}}` using the record returned by
+      prior step `fetch_bot`. Look for obvious configuration drift
+      (missing system_prompt, memory_scheme inconsistencies, stale
+      pinned_tools, api_permissions scope gaps).
+
+      Return ONLY valid JSON:
+
+      {
+        "proposals": [
+          {
+            "id": "...", "scope": "bots",
+            "target_method": "PATCH",
+            "target_path": "/api/v1/admin/bots/{{params.bot_id}}",
+            "patch_body": { ... },
+            "rationale": "...",
+            "diff_preview": "..."
+          }
+        ]
+      }
+
+      If the bot looks healthy, return {"proposals": []}.
+
+  - id: review
+    type: user_prompt
+    title: Review proposed changes for {{params.bot_id}}
+    widget_template:
+      kind: approval_review
+      title: Tuning for {{params.bot_id}}
+      proposals_ref: "{{steps.analyze.result.proposals}}"
+    response_schema:
+      type: multi_item
+      items_ref: "{{steps.analyze.result.proposals}}"
+
+  - id: apply
+    type: foreach
+    over: "{{steps.analyze.result.proposals}}"
+    on_failure: continue
+    do:
+      - type: tool
+        tool_name: call_api
+        when:
+          step: review
+          output_contains: "approve"
+        tool_args:
+          method: "{{item.target_method}}"
+          path: "{{item.target_path}}"
+          body: "{{item.patch_body}}"

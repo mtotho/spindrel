@@ -1087,6 +1087,7 @@ class Task(Base):
     trigger_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     steps: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     step_states: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'user'"))
 
     __table_args__ = (
         Index("ix_tasks_status_run_at", "status", "run_at"),

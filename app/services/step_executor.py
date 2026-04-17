@@ -79,14 +79,20 @@ def evaluate_condition(condition: dict | None, context: dict) -> bool:
             return False
         if "status" in condition and state.get("status") != condition["status"]:
             return False
-        if "output_contains" in condition:
-            result_text = (state.get("result") or "").lower()
-            if condition["output_contains"].lower() not in result_text:
-                return False
-        if "output_not_contains" in condition:
-            result_text = (state.get("result") or "").lower()
-            if condition["output_not_contains"].lower() in result_text:
-                return False
+        if "output_contains" in condition or "output_not_contains" in condition:
+            raw = state.get("result")
+            if raw is None:
+                result_text = ""
+            elif isinstance(raw, (dict, list)):
+                result_text = json.dumps(raw).lower()
+            else:
+                result_text = str(raw).lower()
+            if "output_contains" in condition:
+                if condition["output_contains"].lower() not in result_text:
+                    return False
+            if "output_not_contains" in condition:
+                if condition["output_not_contains"].lower() in result_text:
+                    return False
         return True
 
     logger.warning("Unrecognized condition keys: %s — evaluating as False", list(condition.keys()))
@@ -121,7 +127,8 @@ def render_prompt(
     """Render a step prompt template with parameter and step result substitution.
 
     Supports:
-        {{param_name}}                    -> param value
+        {{param_name}}                    -> param value (flat)
+        {{params.key}} / {{params.a.b}}   -> nested param drilling
         {{steps.step_id.result}}          -> prior step's result text
         {{steps.step_id.status}}          -> prior step's status
         {{steps.step_id.result.json_key}} -> JSON field from result
@@ -145,6 +152,19 @@ def render_prompt(
 
     def _replace(match: re.Match) -> str:
         key = match.group(1).strip()
+
+        # Params reference: params.key or params.a.b.c (dotted)
+        if key.startswith("params."):
+            parts = key.split(".")
+            obj: any = params
+            for k in parts[1:]:
+                if isinstance(obj, dict) and k in obj:
+                    obj = obj[k]
+                else:
+                    return match.group(0)  # unresolved
+            if isinstance(obj, (dict, list)):
+                return _quote(json.dumps(obj))
+            return _quote(str(obj))
 
         # Steps reference: steps.step_id.field[.json_key]
         if key.startswith("steps."):
@@ -174,7 +194,26 @@ def render_prompt(
 
         # Param reference
         if key in params:
-            return _quote(str(params[key]))
+            val = params[key]
+            if isinstance(val, (dict, list)):
+                return _quote(json.dumps(val))
+            return _quote(str(val))
+
+        # Dotted flat-param drill (e.g. {{item.id}} when params has "item"):
+        # first segment names a param, remaining segments drill into it.
+        if "." in key:
+            parts = key.split(".")
+            head = parts[0]
+            if head in params:
+                obj: any = params[head]
+                for k in parts[1:]:
+                    if isinstance(obj, dict) and k in obj:
+                        obj = obj[k]
+                    else:
+                        return match.group(0)
+                if isinstance(obj, (dict, list)):
+                    return _quote(json.dumps(obj))
+                return _quote(str(obj))
 
         # Leave unresolved templates as-is
         return match.group(0)
@@ -190,6 +229,84 @@ def build_condition_context(steps: list[dict], step_states: list[dict], params: 
         if i < len(step_states):
             steps_ctx[sid] = step_states[i]
     return {"steps": steps_ctx, "params": params or {}}
+
+
+def task_params(task: Task) -> dict:
+    """Pull ``execution_config['params']`` off a task, defaulting to ``{}``."""
+    cfg = task.execution_config or {}
+    return dict(cfg.get("params") or {})
+
+
+def _resolve_value_ref(
+    expr: str,
+    params: dict,
+    step_states: list[dict],
+    steps: list[dict],
+) -> object:
+    """Resolve a value reference to its raw Python value (list/dict/scalar).
+
+    Unlike :func:`render_prompt` which returns a string, this function
+    returns the raw underlying value — used by ``foreach`` to iterate.
+
+    Supported forms:
+      * ``"{{steps.<id>.result[.json_key...]}}"`` / bare ``steps.<id>.result``
+      * ``"{{params.<key>[.nested...]}}"`` / bare ``params.<key>``
+      * ``"{{<flat_param>}}"`` / bare ``<flat_param>``
+
+    Unresolved references return ``None``.
+    """
+    if not isinstance(expr, str):
+        return expr
+    key = expr.strip()
+    if key.startswith("{{") and key.endswith("}}"):
+        key = key[2:-2].strip()
+
+    # Params reference: params.a.b.c
+    if key.startswith("params."):
+        parts = key.split(".")
+        obj: object = params
+        for k in parts[1:]:
+            if isinstance(obj, dict) and k in obj:
+                obj = obj[k]
+            else:
+                return None
+        return obj
+
+    # Steps reference: steps.<id>.<field>[.<json_key>...]
+    if key.startswith("steps."):
+        parts = key.split(".")
+        if len(parts) < 3:
+            return None
+        step_id = parts[1]
+        field = parts[2]
+
+        step_lookup: dict[str, dict] = {}
+        for i, step_def in enumerate(steps):
+            sid = step_def.get("id", f"step_{i}")
+            if i < len(step_states):
+                step_lookup[sid] = step_states[i]
+                step_lookup[str(i + 1)] = step_states[i]
+
+        state = step_lookup.get(step_id)
+        if not state:
+            return None
+        val = state.get(field)
+        # Drill into JSON result
+        if len(parts) > 3:
+            if not isinstance(val, (dict, list)):
+                parsed = _parse_result_json(str(val)) if val is not None else None
+                if parsed is None:
+                    return None
+                val = parsed
+            for k in parts[3:]:
+                if isinstance(val, dict) and k in val:
+                    val = val[k]
+                else:
+                    return None
+        return val
+
+    # Flat param
+    return params.get(key)
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +325,13 @@ def _build_prior_results_preamble(steps: list[dict], step_states: list[dict], cu
         step_def = steps[i]
         label = step_def.get("label") or step_def.get("id", f"step_{i}")
         step_type = step_def.get("type", "agent")
-        result = state.get("result", "")
+        result = state.get("result")
+        if result is None:
+            result = ""
+        elif not isinstance(result, str):
+            # user_prompt steps store dict responses; foreach stores a
+            # small summary dict too. Serialize so downstream str ops work.
+            result = json.dumps(result)
         max_chars = 2000
         if len(result) > max_chars:
             result = result[:max_chars] + "... [truncated]"
@@ -237,7 +360,13 @@ def _build_prior_results_env(steps: list[dict], step_states: list[dict], current
         state = step_states[i]
         if state.get("status") not in ("done", "failed"):
             continue
-        result = state.get("result", "") or ""
+        raw_result = state.get("result")
+        if raw_result is None:
+            result = ""
+        elif isinstance(raw_result, str):
+            result = raw_result
+        else:
+            result = json.dumps(raw_result)
         # By 1-based index (matches UI numbering)
         n = i + 1
         env[f"STEP_{n}_RESULT"] = result[:4000]
@@ -313,7 +442,7 @@ async def _run_exec_step(
 
     try:
         raw_command = step_def.get("prompt", "").strip()
-        command = render_prompt(raw_command, {}, step_states, steps, shell_escape=True)
+        command = render_prompt(raw_command, task_params(task), step_states, steps, shell_escape=True)
         working_directory = step_def.get("working_directory")
 
         bot = get_bot(task.bot_id)
@@ -385,7 +514,318 @@ async def _run_exec_step(
         return ("failed", None, str(e)[:2000])
 
 
+def _render_widget_envelope(
+    task: Task,
+    step_def: dict,
+    steps: list[dict],
+    step_states: list[dict],
+    item_ctx: dict | None = None,
+) -> dict:
+    """Render the ``widget_template`` / ``widget_args`` for a user_prompt step.
+
+    Substitution: ``{{params.*}}``, ``{{steps.*}}``, and — when called from
+    inside a ``foreach`` iteration — ``{{item.*}}`` / ``{{item_index}}``.
+    """
+    template = step_def.get("widget_template") or {}
+    widget_args = step_def.get("widget_args") or {}
+
+    params = dict(task_params(task))
+    if item_ctx:
+        params.update(item_ctx)
+
+    def _walk(v):
+        if isinstance(v, str):
+            return render_prompt(v, params, step_states, steps)
+        if isinstance(v, list):
+            return [_walk(x) for x in v]
+        if isinstance(v, dict):
+            return {k: _walk(x) for k, x in v.items()}
+        return v
+
+    rendered_args = _walk(widget_args)
+    rendered_template = _walk(template)
+
+    return {
+        "template": rendered_template,
+        "args": rendered_args,
+        "title": step_def.get("title") or step_def.get("label"),
+    }
+
+
+def _resolve_response_schema(
+    raw_schema: dict,
+    task: Task,
+    step_states: list[dict],
+    steps: list[dict],
+    item_ctx: dict | None = None,
+) -> dict:
+    """Resolve template refs inside a response schema.
+
+    For ``multi_item`` schemas, ``items_ref`` is evaluated against the
+    current step states and materialized as ``items`` (list of dicts each
+    with an ``id``). If ``items`` is already present, it's kept as-is.
+    """
+    schema = dict(raw_schema)
+    if schema.get("type") != "multi_item":
+        return schema
+    if schema.get("items"):
+        return schema
+    ref = schema.get("items_ref")
+    if not ref:
+        return schema
+    params = dict(task_params(task))
+    if item_ctx:
+        params.update(item_ctx)
+    resolved = _resolve_value_ref(ref, params, step_states, steps)
+    if isinstance(resolved, list):
+        schema["items"] = [x for x in resolved if isinstance(x, dict) and x.get("id")]
+    return schema
+
+
+def _validate_resolve_response(response_schema: dict, response: object) -> str | None:
+    """Return an error string if ``response`` does not match ``response_schema``.
+
+    Schema shapes (v1):
+      * ``{"type": "binary"}`` → ``{"decision": "approve" | "reject"}``
+      * ``{"type": "multi_item", "items": [{"id": ...}, ...]}``
+        → ``{item_id: "approve" | "reject", ...}`` — every key must be a
+        known item id, every value must be ``"approve"`` or ``"reject"``.
+    """
+    kind = (response_schema or {}).get("type")
+    if not isinstance(response, dict):
+        return "Response must be a JSON object"
+
+    if kind == "binary":
+        decision = response.get("decision")
+        if decision not in ("approve", "reject"):
+            return "Binary response requires 'decision' of 'approve' or 'reject'"
+        return None
+
+    if kind == "multi_item":
+        items = response_schema.get("items") or []
+        known_ids = {str(it.get("id")) for it in items if it.get("id") is not None}
+        for k, v in response.items():
+            if k not in known_ids:
+                return f"Unknown item id: {k!r}"
+            if v not in ("approve", "reject"):
+                return f"Invalid decision for item {k!r}: {v!r}"
+        return None
+
+    # Unknown/absent schema — permissive: accept any dict.
+    return None
+
+
+async def _run_foreach_step(
+    task: Task,
+    step_def: dict,
+    step_index: int,
+    steps: list[dict],
+    step_states: list[dict],
+) -> str:
+    """Run a ``foreach`` step: iterate a list, run ``do`` sub-steps per item.
+
+    Returns a terminal state: ``'done'``, ``'failed'``, or
+    ``'awaiting_user_input'`` (if a sub-step paused — NOT supported in v1:
+    currently treated as failed with a clear error). Intermediate state
+    is written to ``step_states[step_index]`` as:
+
+    ```
+    {
+      status, started_at, completed_at,
+      iterations: [[<sub_state>, ...], ...],   # parallel to items
+      items: [<item>, ...],                    # resolved list
+      result: <aggregated result string>,
+    }
+    ```
+
+    Sub-step types supported in v1: ``exec``, ``tool``. Nested
+    ``user_prompt`` / ``foreach`` / ``agent`` are deferred.
+    """
+    over_expr = step_def.get("over")
+    do_sub_steps = step_def.get("do") or []
+    on_failure = step_def.get("on_failure", "abort")
+
+    params = task_params(task)
+    items = _resolve_value_ref(over_expr, params, step_states, steps)
+
+    state = step_states[step_index]
+    if items is None:
+        state["status"] = "failed"
+        state["error"] = f"foreach 'over' expression did not resolve: {over_expr!r}"
+        return "failed"
+    if not isinstance(items, list):
+        state["status"] = "failed"
+        state["error"] = (
+            f"foreach 'over' must resolve to a list, got "
+            f"{type(items).__name__}"
+        )
+        return "failed"
+
+    state["items"] = items
+    state["iterations"] = [
+        [
+            {
+                "status": "pending",
+                "result": None,
+                "error": None,
+            }
+            for _ in do_sub_steps
+        ]
+        for _ in items
+    ]
+    await _persist_step_states(task.id, step_states)
+
+    any_failed = False
+    for iter_idx, item in enumerate(items):
+        iter_params = dict(params)
+        iter_params["item"] = item
+        iter_params["item_index"] = iter_idx
+        iter_params["item_count"] = len(items)
+
+        iter_failed = False
+        for sub_idx, sub_def in enumerate(do_sub_steps):
+            sub_state = state["iterations"][iter_idx][sub_idx]
+            sub_type = sub_def.get("type", "tool")
+
+            # when-gate on the sub-step (evaluated with item bound)
+            sub_ctx = build_condition_context(steps, step_states, iter_params)
+            if not evaluate_condition(sub_def.get("when"), sub_ctx):
+                sub_state["status"] = "skipped"
+                await _persist_step_states(task.id, step_states)
+                continue
+
+            sub_state["status"] = "running"
+            await _persist_step_states(task.id, step_states)
+
+            rendered = _render_sub_step_def(sub_def, iter_params, step_states, steps)
+
+            if sub_type == "tool":
+                rendered_args = {
+                    k: render_prompt(str(v), iter_params, step_states, steps)
+                    for k, v in (rendered.get("tool_args") or {}).items()
+                }
+                status, result, error = await _call_tool_with_args(
+                    rendered.get("tool_name"), rendered_args, rendered
+                )
+            else:
+                # v1: only `tool` sub-steps are supported inside foreach.
+                # exec/agent/user_prompt/foreach nesting is an explicit
+                # follow-up (see plan's "parked" list).
+                status = "failed"
+                result = None
+                error = f"Unsupported sub-step type in foreach: {sub_type!r}"
+
+            sub_state["status"] = status
+            sub_state["result"] = result
+            sub_state["error"] = error
+            await _persist_step_states(task.id, step_states)
+
+            if status == "failed":
+                iter_failed = True
+                any_failed = True
+                if sub_def.get("on_failure", "abort") == "abort":
+                    # stop this iteration's sub-steps
+                    break
+
+        if iter_failed and on_failure == "abort":
+            # mark remaining iterations as skipped
+            for j in range(iter_idx + 1, len(items)):
+                for sub_state in state["iterations"][j]:
+                    sub_state["status"] = "skipped"
+            await _persist_step_states(task.id, step_states)
+            state["status"] = "failed"
+            state["error"] = f"foreach aborted at iteration {iter_idx}"
+            return "failed"
+
+    state["status"] = "failed" if any_failed and on_failure == "abort" else "done"
+    if any_failed and on_failure == "continue":
+        state["error"] = "one or more foreach iterations failed"
+    state["result"] = json.dumps({
+        "iterations": len(items),
+        "failures": sum(
+            1
+            for iteration in state["iterations"]
+            for ss in iteration
+            if ss.get("status") == "failed"
+        ),
+    })
+    return state["status"]
+
+
+def _render_sub_step_def(
+    sub_def: dict,
+    iter_params: dict,
+    step_states: list[dict],
+    steps: list[dict],
+) -> dict:
+    """Render string fields on a sub-step definition with iter-local params."""
+    def _walk(v):
+        if isinstance(v, str):
+            return render_prompt(v, iter_params, step_states, steps)
+        if isinstance(v, list):
+            return [_walk(x) for x in v]
+        if isinstance(v, dict):
+            return {k: _walk(x) for k, x in v.items()}
+        return v
+    return _walk(sub_def)
+
+
+async def _call_tool_with_args(
+    tool_name: str | None,
+    rendered_args: dict,
+    sub_def: dict,
+) -> tuple[str, str | None, str | None]:
+    """Invoke a local tool by name with pre-rendered args."""
+    if not tool_name:
+        return ("failed", None, "foreach sub-step of type 'tool' requires 'tool_name'")
+    from app.tools.registry import call_local_tool
+    try:
+        result = await call_local_tool(tool_name, json.dumps(rendered_args))
+        max_chars = sub_def.get("result_max_chars", 2000)
+        if result and len(result) > max_chars:
+            result = result[:max_chars] + "... [truncated]"
+        return ("done", result, None)
+    except Exception as e:
+        return ("failed", None, str(e)[:2000])
+
+
+async def _run_user_prompt_step(
+    task: Task,
+    step_def: dict,
+    step_index: int,
+    steps: list[dict],
+    step_states: list[dict],
+    item_ctx: dict | None = None,
+) -> None:
+    """Pause the pipeline and emit an inline widget for user resolution.
+
+    Sets ``step_states[step_index]`` to ``awaiting_user_input`` with the
+    rendered widget envelope and response schema attached. The main loop
+    must treat this as a terminal pause and return; the pipeline resumes
+    via :func:`app.routers.api_v1_admin.tasks.admin_resolve_step`.
+    """
+    envelope = _render_widget_envelope(task, step_def, steps, step_states, item_ctx)
+
+    # Render the response schema too, so multi_item schemas that declare
+    # ``items_ref: "{{steps.foo.result.items}}"`` get materialized into a
+    # concrete ``items`` list at pause time. Otherwise _validate_resolve_response
+    # sees an empty items list and rejects every submission.
+    raw_schema = step_def.get("response_schema") or {"type": "binary"}
+    response_schema = _resolve_response_schema(
+        raw_schema, task, step_states, steps, item_ctx
+    )
+
+    state = step_states[step_index]
+    state["status"] = "awaiting_user_input"
+    state["widget_envelope"] = envelope
+    state["response_schema"] = response_schema
+    state["result"] = None
+    state["error"] = None
+    await _persist_step_states(task.id, step_states)
+
+
 async def _run_tool_step(
+    task: Task,
     step_def: dict,
     step_index: int,
     steps: list[dict],
@@ -399,8 +839,9 @@ async def _run_tool_step(
         return ("failed", None, "Step type 'tool' requires 'tool_name'")
 
     raw_args = step_def.get("tool_args", {})
+    params = task_params(task)
     rendered_args = {
-        k: render_prompt(str(v), {}, step_states, steps)
+        k: render_prompt(str(v), params, step_states, steps)
         for k, v in raw_args.items()
     }
 
@@ -498,7 +939,7 @@ async def _advance_pipeline(
         now = datetime.now(timezone.utc)
 
         # Evaluate condition
-        context = build_condition_context(steps, step_states)
+        context = build_condition_context(steps, step_states, task_params(task))
         condition = step_def.get("when")
         if not evaluate_condition(condition, context):
             state["status"] = "skipped"
@@ -527,7 +968,7 @@ async def _advance_pipeline(
                 return
 
         elif step_type == "tool":
-            status, result, error = await _run_tool_step(step_def, i, steps, step_states)
+            status, result, error = await _run_tool_step(task, step_def, i, steps, step_states)
             state["status"] = status
             state["result"] = result
             state["error"] = error
@@ -543,6 +984,20 @@ async def _advance_pipeline(
             # Agent steps spawn a child task and return — resumed via callback
             await _spawn_agent_step(task, step_def, i, steps, step_states)
             return  # Wait for callback
+
+        elif step_type == "user_prompt":
+            await _run_user_prompt_step(task, step_def, i, steps, step_states)
+            logger.info("Pipeline %s step %d user_prompt → awaiting_user_input", task.id, i + 1)
+            return  # Wait for /resolve
+
+        elif step_type == "foreach":
+            status = await _run_foreach_step(task, step_def, i, steps, step_states)
+            state["completed_at"] = datetime.now(timezone.utc).isoformat()
+            await _persist_step_states(task.id, step_states)
+            logger.info("Pipeline %s step %d foreach → %s", task.id, i + 1, status)
+            if status == "failed" and step_def.get("on_failure", "abort") == "abort":
+                await _finalize_pipeline(task, steps, step_states, failed=True)
+                return
 
         else:
             state["status"] = "failed"
@@ -565,7 +1020,7 @@ async def _spawn_agent_step(
 ) -> None:
     """Create a child task for an agent (LLM) step."""
     raw_prompt = step_def.get("prompt", "")
-    rendered_prompt = render_prompt(raw_prompt, {}, step_states, steps)
+    rendered_prompt = render_prompt(raw_prompt, task_params(parent_task), step_states, steps)
 
     # Auto-inject prior results into system preamble
     preamble_parts = []

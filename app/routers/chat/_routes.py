@@ -236,10 +236,23 @@ async def _enqueue_chat_turn(
 
     # Pre-allocate a user message UUID so attachments can be linked at
     # creation time instead of via the fragile orphan-linking sweep in
-    # persist_turn (which races with concurrent turns).
+    # persist_turn (which races with concurrent turns). The message row
+    # itself is also pre-persisted here so the attachment FK resolves —
+    # turn_worker's _persist_and_publish_user_message is idempotent on
+    # pre_allocated_id (it will find the existing row and only publish).
     pre_user_msg_id: uuid.UUID | None = None
     if req.file_metadata:
         pre_user_msg_id = uuid.uuid4()
+        _stub_meta = dict(req.msg_metadata or {})
+        db.add(MessageModel(
+            id=pre_user_msg_id,
+            session_id=session_id,
+            role="user",
+            content=message,
+            metadata_=_stub_meta,
+            created_at=datetime.now(timezone.utc),
+        ))
+        await db.commit()
         if req.msg_metadata is None:
             req.msg_metadata = {}
         req.msg_metadata["_pre_user_msg_id"] = str(pre_user_msg_id)
@@ -308,20 +321,21 @@ async def _enqueue_chat_turn(
         )
         db.add(queued_task)
         # Persist the user message so the UI's DB refetch sees it
-        # (prevents the optimistic message from vanishing).
-        _queued_meta = dict(req.msg_metadata or {})
-        _queued_meta.pop("_pre_user_msg_id", None)  # strip internal key
-        _queued_kw: dict = dict(
-            session_id=session_id,
-            role="user",
-            content=message,
-            metadata_=_queued_meta,
-            created_at=datetime.now(timezone.utc),
-        )
-        if pre_user_msg_id:
-            _queued_kw["id"] = pre_user_msg_id
-        user_msg = MessageModel(**_queued_kw)
-        db.add(user_msg)
+        # (prevents the optimistic message from vanishing). When
+        # file_metadata is present the row was already pre-persisted above
+        # so attachment FKs could resolve — skip re-insert in that case.
+        if not pre_user_msg_id:
+            _queued_meta = dict(req.msg_metadata or {})
+            _queued_meta.pop("_pre_user_msg_id", None)  # strip internal key
+            _queued_kw: dict = dict(
+                session_id=session_id,
+                role="user",
+                content=message,
+                metadata_=_queued_meta,
+                created_at=datetime.now(timezone.utc),
+            )
+            user_msg = MessageModel(**_queued_kw)
+            db.add(user_msg)
         await db.commit()
         await db.refresh(queued_task)
         logger.info(

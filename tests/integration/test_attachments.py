@@ -73,6 +73,41 @@ class TestPostMessageWithSlackFile:
             # _create_attachments_from_metadata was awaited directly
             mock_create.assert_awaited_once()
 
+    async def test_message_row_exists_before_attachment_insert(self, client, db_session):
+        """Regression: when file_metadata is present, the POST handler must
+        pre-persist the user message row so the attachment FK resolves. If
+        the message row is missing, create_attachment hits
+        ``attachments_message_id_fkey`` ForeignKeyViolationError and drops
+        the upload silently (only a WARNING is logged)."""
+        from sqlalchemy import select
+        from app.db.models import Attachment, Message
+
+        resp = await client.post(
+            "/chat",
+            json={
+                "message": "check this image",
+                "bot_id": "test-bot",
+                "file_metadata": [_make_file_metadata(filename="IMG_2658.jpg", mime_type="image/jpeg")],
+                "msg_metadata": {"source": "web"},
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 202
+
+        # Attachment must have been persisted AND must point at a message
+        # row that actually exists in the messages table.
+        att_rows = (await db_session.execute(
+            select(Attachment).where(Attachment.filename == "IMG_2658.jpg")
+        )).scalars().all()
+        assert len(att_rows) == 1, "attachment row should be persisted"
+        att = att_rows[0]
+        assert att.message_id is not None
+        msg = (await db_session.execute(
+            select(Message).where(Message.id == att.message_id)
+        )).scalar_one_or_none()
+        assert msg is not None, "attachment.message_id must point at an existing message"
+        assert msg.role == "user"
+
 
 # ---------------------------------------------------------------------------
 # test_message_history_redaction

@@ -7,11 +7,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Task
 
 
-async def spawn_child_run(parent_task_id: uuid.UUID, db: AsyncSession) -> Task:
+async def spawn_child_run(
+    parent_task_id: uuid.UUID,
+    db: AsyncSession,
+    params: dict | None = None,
+) -> Task:
     """Spawn a concrete child task from a task definition.
 
     Resolves the latest prompt, clones all execution fields from the parent,
     and increments the parent's run_count.
+
+    If ``params`` is provided, it is merged into the child's
+    ``execution_config['params']`` so step-template substitution can reach
+    it as ``{{params.*}}``.
 
     Raises:
         ValueError: If parent not found or not a valid definition.
@@ -42,6 +50,13 @@ async def spawn_child_run(parent_task_id: uuid.UUID, db: AsyncSession) -> Task:
         db=db,
     )
 
+    exec_cfg = dict(parent.execution_config) if parent.execution_config else None
+    if params:
+        exec_cfg = exec_cfg or {}
+        merged_params = dict(exec_cfg.get("params") or {})
+        merged_params.update(params)
+        exec_cfg["params"] = merged_params
+
     concrete = Task(
         bot_id=parent.bot_id,
         client_id=parent.client_id,
@@ -58,7 +73,7 @@ async def spawn_child_run(parent_task_id: uuid.UUID, db: AsyncSession) -> Task:
         dispatch_type=parent.dispatch_type,
         dispatch_config=dict(parent.dispatch_config) if parent.dispatch_config else None,
         callback_config=dict(parent.callback_config) if parent.callback_config else None,
-        execution_config=dict(parent.execution_config) if parent.execution_config else None,
+        execution_config=exec_cfg,
         recurrence=None,
         parent_task_id=parent.id,
         max_run_seconds=parent.max_run_seconds,

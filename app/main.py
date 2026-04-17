@@ -353,6 +353,9 @@ async def lifespan(application: FastAPI):
     logger.info("Ensuring orchestrator landing channel...")
     from app.services.channels import ensure_orchestrator_channel
     await ensure_orchestrator_channel()
+    logger.info("Seeding system pipelines from YAML...")
+    from app.services.task_seeding import ensure_system_pipelines
+    await ensure_system_pipelines()
     from app.agent.base_prompt import load_base_prompt
     load_base_prompt()
     logger.info("Synchronizing integration manifests...")

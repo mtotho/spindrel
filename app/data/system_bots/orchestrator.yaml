@@ -62,6 +62,21 @@ local_tools:
   - manage_integration
   - web_search
   - get_skill
+  - list_api_endpoints
+  - call_api
+  - get_trace
+# Scopes used by the orchestrator system pipelines (full_scan,
+# deep_dive_bot, analyze_discovery) when they call_api the admin API.
+api_permissions:
+  - bots:read
+  - bots:write
+  - skills:read
+  - skills:write
+  - tools:read
+  - tools:write
+  - tasks:read
+  - tasks:write
+  - traces:read
 tool_retrieval: true
 context_compaction: true
 workspace:
