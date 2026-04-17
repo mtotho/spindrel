@@ -125,7 +125,7 @@ export function BotPicker({ value, onChange, bots, allowNone, placeholder, disab
       {open && ReactDOM.createPortal(
         <div
           ref={dropdownRef}
-          className="fixed bg-surface border border-surface-border rounded-lg shadow-xl z-[10001] max-h-[320px] overflow-hidden flex flex-col"
+          className="fixed bg-surface border border-surface-border rounded-lg shadow-xl z-[10050] max-h-[320px] overflow-hidden flex flex-col"
           style={{ top: pos.top, left: pos.left, width: pos.width, maxWidth: "calc(100vw - 24px)" }}
         >
           {/* Search */}

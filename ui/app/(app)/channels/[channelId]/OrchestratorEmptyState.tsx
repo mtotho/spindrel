@@ -78,6 +78,23 @@ interface ParamDef {
   description?: string;
 }
 
+// Turn `bot_id` / `channel_id` / raw snake_case into human-readable labels.
+// Explicit overrides beat generic title-casing for terms where the snake-case
+// identifier would otherwise read awkwardly.
+const PARAM_LABEL_OVERRIDES: Record<string, string> = {
+  bot_id: "Bot",
+  channel_id: "Channel",
+  user_id: "User",
+  task_id: "Task",
+};
+
+function humanizeParam(name: string): string {
+  if (PARAM_LABEL_OVERRIDES[name]) return PARAM_LABEL_OVERRIDES[name];
+  return name
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function getParamsSchema(task: TaskItem): ParamDef[] | null {
   const schema = (task as any).execution_config?.params_schema;
   if (Array.isArray(schema) && schema.length > 0) return schema as ParamDef[];
@@ -170,8 +187,8 @@ function TaskRunModal({
         <div className="flex flex-col gap-3 mb-5">
           {schema.map((param) => (
             <div key={param.name} className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-text-dim uppercase tracking-wider">
-                {param.name}
+              <label className="text-[12px] font-semibold text-text">
+                {humanizeParam(param.name)}
                 {param.required && <span className="text-accent ml-1">*</span>}
               </label>
               {param.name === "bot_id" ? (

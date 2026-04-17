@@ -11,8 +11,9 @@ DB-touching classes use the real ``db_session`` + ``bot_registry`` fixtures
 from ``tests/conftest.py`` and ``tests/unit/conftest.py``; routing and
 mention resolution run the real SQL against SQLite-in-memory.
 """
+import asyncio
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -38,31 +39,6 @@ def _make_bot(**overrides):
     )
     defaults.update(overrides)
     return BotConfig(**defaults)
-
-
-# ---------------------------------------------------------------------------
-# Transitional helpers — still referenced by not-yet-rewritten classes below
-# (TestDetectMemberMentions, TestBotToBotMention, TestPrimaryBotMentionBack,
-# TestParallelInvocation, TestMemberBotFlush). Remove as each class is ported
-# to the real-DB + ``bot_registry`` pattern.
-# ---------------------------------------------------------------------------
-
-
-def _make_member_row(bot_id, config=None):
-    """Mock ChannelBotMember row for legacy mock-based tests."""
-    row = MagicMock()
-    row.bot_id = bot_id
-    row.config = config or {}
-    return row
-
-
-def _mock_db_with_member_rows(rows):
-    """Mock AsyncSession that returns ``rows`` from ``execute().scalars().all()``."""
-    db = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = rows
-    db.execute = AsyncMock(return_value=mock_result)
-    return db
 
 
 # ---------------------------------------------------------------------------
@@ -340,116 +316,104 @@ class TestContextInjection:
     builder inline (skill B.23 — self-validating re-implementation)."""
 
     @pytest.mark.asyncio
-    async def test_snapshot_strips_primary_system_messages(self):
-        """When using a snapshot, system messages from the primary bot should
-        be stripped and replaced with the member bot's own system prompt."""
+    async def test_when_snapshot_passed_then_primary_system_messages_replaced_with_member_prompt(
+        self, db_session, patched_async_sessions, bot_registry
+    ):
         from app.routers.chat import _run_member_bot_reply
 
-        primary = _make_bot(id="primary", name="Primary Bot", system_prompt="I am the primary bot.")
-        member = _make_bot(id="helper", name="Helper Bot", system_prompt="I am the helper bot.", persona=False)
-
-        # Simulate a snapshot containing the primary bot's system messages + conversation
+        bot_registry.register(
+            "primary", name="Primary Bot", system_prompt="I am the primary bot.",
+        )
+        bot_registry.register(
+            "helper", name="Helper Bot",
+            system_prompt="I am the helper bot.", persona=False,
+        )
+        channel = await db_session.merge(build_channel(bot_id="primary"))
+        await db_session.commit()
         snapshot = [
             {"role": "system", "content": "You are Primary Bot. I am the primary bot."},
             {"role": "system", "content": "[PERSONA]\nPrimary persona info"},
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi there from primary"},
         ]
-
-        captured_messages = []
+        captured: list[dict] = []
 
         async def fake_run_stream(messages, bot, prompt, **kwargs):
-            captured_messages.extend(messages)
+            captured.extend(messages)
             yield {"type": "response", "text": "Hello from helper"}
 
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary"
-        mock_db = AsyncMock()
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.agent.bots.get_bot", side_effect=lambda bid: member if bid == "helper" else primary), \
-             patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("app.agent.loop.run_stream", fake_run_stream), \
+        with patch("app.agent.loop.run_stream", fake_run_stream), \
              patch("app.services.channel_events.publish_typed"), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
              patch("app.agent.context.set_agent_context"), \
              patch("app.routers.chat._multibot._record_channel_run"), \
-             patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False):
+             patch(
+                 "app.services.sessions._resolve_workspace_base_prompt_enabled",
+                 new_callable=AsyncMock, return_value=False,
+             ):
             await _run_member_bot_reply(
-                uuid.uuid4(), uuid.uuid4(), "helper", {}, "primary",
+                channel.id, uuid.uuid4(), "helper", {}, "primary",
                 messages_snapshot=snapshot,
             )
 
-        # The member bot should NOT see the primary's system prompt
-        system_msgs = [m for m in captured_messages if m.get("role") == "system"]
-        assert len(system_msgs) >= 1
-        first_sys = system_msgs[0]["content"]
-        # Must NOT contain the primary bot's prompt
-        assert "I am the primary bot" not in first_sys
-        assert "Primary persona" not in first_sys
-        # Must contain the member bot's own prompt content
+        system_contents = [m["content"] for m in captured if m.get("role") == "system"]
+        first_sys = system_contents[0]
+        user_contents = [m["content"] for m in captured if m.get("role") == "user"]
         assert "I am the helper bot" in first_sys
-
-        # Conversation messages should still be present
-        user_msgs = [m for m in captured_messages if m.get("role") == "user"]
-        assert len(user_msgs) >= 1
-        assert user_msgs[0]["content"] == "Hello"
+        assert "I am the primary bot" not in first_sys and "Primary persona" not in first_sys
+        assert user_contents[0] == "Hello"
 
     @pytest.mark.asyncio
-    async def test_snapshot_injects_persona_when_enabled(self):
-        """When the member bot has persona enabled, its persona should be
-        injected into the snapshot messages."""
+    async def test_when_member_has_persona_enabled_then_persona_marker_injected(
+        self, db_session, patched_async_sessions, bot_registry
+    ):
         from app.routers.chat import _run_member_bot_reply
 
-        member = _make_bot(id="helper", name="Helper Bot", system_prompt="I am helper.", persona=True)
-        primary = _make_bot(id="primary", name="Primary Bot", system_prompt="I am primary.")
-
+        bot_registry.register(
+            "helper", name="Helper Bot", system_prompt="I am helper.", persona=True,
+        )
+        bot_registry.register(
+            "primary", name="Primary Bot", system_prompt="I am primary.",
+        )
+        channel = await db_session.merge(build_channel(bot_id="primary"))
+        await db_session.commit()
         snapshot = [
             {"role": "system", "content": "Primary system prompt"},
             {"role": "user", "content": "Hi"},
         ]
-
-        captured_messages = []
+        captured: list[dict] = []
 
         async def fake_run_stream(messages, bot, prompt, **kwargs):
-            captured_messages.extend(messages)
+            captured.extend(messages)
             yield {"type": "response", "text": "Hello"}
 
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary"
-        mock_db = AsyncMock()
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.agent.bots.get_bot", side_effect=lambda bid: member if bid == "helper" else primary), \
-             patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("app.agent.loop.run_stream", fake_run_stream), \
+        with patch("app.agent.loop.run_stream", fake_run_stream), \
              patch("app.services.channel_events.publish_typed"), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
              patch("app.agent.context.set_agent_context"), \
              patch("app.routers.chat._multibot._record_channel_run"), \
-             patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False), \
-             patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value="Helper persona text"):
+             patch(
+                 "app.services.sessions._resolve_workspace_base_prompt_enabled",
+                 new_callable=AsyncMock, return_value=False,
+             ), \
+             patch(
+                 "app.agent.persona.get_persona",
+                 new_callable=AsyncMock, return_value="Helper persona text",
+             ):
             await _run_member_bot_reply(
-                uuid.uuid4(), uuid.uuid4(), "helper", {}, "primary",
+                channel.id, uuid.uuid4(), "helper", {}, "primary",
                 messages_snapshot=snapshot,
             )
 
-        system_msgs = [m for m in captured_messages if m.get("role") == "system"]
-        # Should have the base system prompt + persona
-        persona_msgs = [m for m in system_msgs if "[PERSONA]" in m.get("content", "")]
-        assert len(persona_msgs) == 1
-        assert "Helper persona text" in persona_msgs[0]["content"]
-
-        # No primary system prompt content should remain
-        assert not any("Primary system prompt" in m.get("content", "") for m in captured_messages)
+        persona_msgs = [
+            m["content"] for m in captured
+            if m.get("role") == "system" and "[PERSONA]" in m.get("content", "")
+        ]
+        has_primary_prompt = any(
+            "Primary system prompt" in m.get("content", "") for m in captured
+        )
+        assert len(persona_msgs) == 1 and "Helper persona text" in persona_msgs[0]
+        assert not has_primary_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -458,134 +422,121 @@ class TestContextInjection:
 
 class TestMemberBotFlush:
     @pytest.mark.asyncio
-    async def test_flush_skips_non_workspace_bots(self):
-        """Member bots without memory_scheme='workspace-files' are skipped."""
+    async def test_when_member_not_on_workspace_files_scheme_then_skipped(
+        self, db_session, patched_async_sessions, bot_registry
+    ):
         from app.services.compaction import _flush_member_bots
 
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
+        bot_registry.register("helper", memory=None)  # BotConfig has memory_scheme indirectly
+        # BotConfig doesn't carry memory_scheme directly — it's on the Bot ORM row.
+        # For _flush_member_bots the lookup is via get_bot(), which returns BotConfig.
+        # We set memory_scheme on the registry entry by overriding after construction.
+        from app.agent.bots import _registry as _bot_reg
+        _bot_reg["helper"].memory_scheme = None  # type: ignore[attr-defined]
 
-        # Bot without workspace-files scheme
-        bot_no_ws = _make_bot(id="helper", memory_scheme=None)
+        channel = await db_session.merge(build_channel(bot_id="primary"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper",
+        ))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = ["helper"]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.compaction.async_session", return_value=mock_cm), \
-             patch("app.services.compaction._run_memory_flush", new_callable=AsyncMock) as mock_flush, \
-             patch("app.agent.bots.get_bot", return_value=bot_no_ws):
+        with patch("app.services.compaction._run_memory_flush", new_callable=AsyncMock) as mock_flush:
             await _flush_member_bots(channel, uuid.uuid4(), [])
 
         mock_flush.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_flush_triggers_for_workspace_bots(self):
-        """Member bots with memory_scheme='workspace-files' get flushed."""
+    async def test_when_member_is_workspace_files_bot_then_memory_flushed(
+        self, db_session, patched_async_sessions, bot_registry
+    ):
         from app.services.compaction import _flush_member_bots
+        from app.agent.bots import _registry as _bot_reg
 
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
+        bot_registry.register("helper")
+        _bot_reg["helper"].memory_scheme = "workspace-files"  # type: ignore[attr-defined]
 
-        bot_ws = _make_bot(id="helper", memory_scheme="workspace-files")
+        channel = await db_session.merge(build_channel(bot_id="primary"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper",
+        ))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = ["helper"]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.compaction.async_session", return_value=mock_cm), \
-             patch("app.services.compaction._run_memory_flush", new_callable=AsyncMock) as mock_flush, \
-             patch("app.agent.bots.get_bot", return_value=bot_ws):
-            await _flush_member_bots(channel, uuid.uuid4(), [{"role": "user", "content": "hi"}])
+        with patch("app.services.compaction._run_memory_flush", new_callable=AsyncMock) as mock_flush:
+            await _flush_member_bots(
+                channel, uuid.uuid4(), [{"role": "user", "content": "hi"}]
+            )
 
         mock_flush.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_flush_no_members_returns_early(self):
-        """No member bots → no flush calls, no errors."""
+    async def test_when_channel_has_no_members_then_no_flush(
+        self, db_session, patched_async_sessions
+    ):
         from app.services.compaction import _flush_member_bots
 
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
+        channel = await db_session.merge(build_channel(bot_id="primary"))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.compaction.async_session", return_value=mock_cm), \
-             patch("app.services.compaction._run_memory_flush", new_callable=AsyncMock) as mock_flush:
+        with patch("app.services.compaction._run_memory_flush", new_callable=AsyncMock) as mock_flush:
             await _flush_member_bots(channel, uuid.uuid4(), [])
 
         mock_flush.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_flush_db_error_handled_gracefully(self):
-        """DB error during member bot lookup is caught and logged."""
+    async def test_when_db_load_fails_then_exception_swallowed_and_no_flush(
+        self, db_session, patched_async_sessions
+    ):
+        """Contract per `compaction.py:358`: DB failure during member-bot
+        lookup is swallowed and logged at debug level — the flush is skipped
+        rather than propagated into the caller's turn loop."""
         from app.services.compaction import _flush_member_bots
 
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
+        channel = await db_session.merge(build_channel(bot_id="primary"))
+        await db_session.commit()
 
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(side_effect=Exception("DB down"))
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.compaction.async_session", return_value=mock_cm):
-            # Should not raise
+        with patch(
+            "app.services.compaction.async_session",
+            side_effect=Exception("DB down"),
+        ), patch(
+            "app.services.compaction._run_memory_flush", new_callable=AsyncMock
+        ) as mock_flush:
             await _flush_member_bots(channel, uuid.uuid4(), [])
 
+        mock_flush.assert_not_awaited()
+
     @pytest.mark.asyncio
-    async def test_flush_individual_bot_error_continues(self):
-        """If one member bot flush fails, others still proceed."""
+    async def test_when_one_member_flush_fails_then_remaining_members_still_attempted(
+        self, db_session, patched_async_sessions, bot_registry
+    ):
         from app.services.compaction import _flush_member_bots
+        from app.agent.bots import _registry as _bot_reg
 
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
+        bot_registry.register("bot-a")
+        bot_registry.register("bot-b")
+        _bot_reg["bot-a"].memory_scheme = "workspace-files"  # type: ignore[attr-defined]
+        _bot_reg["bot-b"].memory_scheme = "workspace-files"  # type: ignore[attr-defined]
 
-        bot_a = _make_bot(id="bot-a", memory_scheme="workspace-files")
-        bot_b = _make_bot(id="bot-b", memory_scheme="workspace-files")
-
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = ["bot-a", "bot-b"]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        call_count = 0
+        channel = await db_session.merge(build_channel(bot_id="primary"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="bot-a",
+        ))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="bot-b",
+        ))
+        await db_session.commit()
 
         async def flush_side_effect(ch, bot, sid, msgs, correlation_id=None):
-            nonlocal call_count
-            call_count += 1
             if bot.id == "bot-a":
                 raise Exception("flush failed for bot-a")
 
-        def get_bot_side_effect(bid):
-            return bot_a if bid == "bot-a" else bot_b
-
-        with patch("app.services.compaction.async_session", return_value=mock_cm), \
-             patch("app.services.compaction._run_memory_flush", new_callable=AsyncMock, side_effect=flush_side_effect), \
-             patch("app.agent.bots.get_bot", side_effect=get_bot_side_effect):
+        with patch(
+            "app.services.compaction._run_memory_flush",
+            new_callable=AsyncMock,
+            side_effect=flush_side_effect,
+        ) as mock_flush:
             await _flush_member_bots(channel, uuid.uuid4(), [])
 
-        assert call_count == 2  # both were attempted
+        assert mock_flush.await_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -695,222 +646,181 @@ class TestDetectMemberMentions:
 # ---------------------------------------------------------------------------
 
 class TestBotToBotMention:
-    """Tests for _trigger_member_bot_replies — fires background runs when
-    a bot's response @-mentions a channel member bot."""
+    """Tests for _trigger_member_bot_replies — returns the list of triggered
+    (bot_id, config) tuples. Background task execution is prevented via a
+    no-op patch of ``_run_member_bot_reply`` so tests don't need the full
+    LLM stack; the return value is the real observable."""
 
     @pytest.mark.asyncio
-    async def test_no_tags_in_response_does_nothing(self):
-        """Response without @-mentions creates no tasks."""
+    async def test_when_response_has_no_tags_then_returns_empty(
+        self, patched_async_sessions
+    ):
         from app.routers.chat import _trigger_member_bot_replies
 
-        # No @-mentions → should return immediately
-        await _trigger_member_bot_replies(
+        result = await _trigger_member_bot_replies(
             uuid.uuid4(), uuid.uuid4(), "primary-bot", "Hello, no mentions here."
         )
-        # No error = success (nothing to assert, just verifying no crash)
+
+        assert result == []
 
     @pytest.mark.asyncio
-    async def test_empty_response_does_nothing(self):
+    async def test_when_response_is_empty_then_returns_empty(
+        self, patched_async_sessions
+    ):
         from app.routers.chat import _trigger_member_bot_replies
 
-        await _trigger_member_bot_replies(
+        result = await _trigger_member_bot_replies(
             uuid.uuid4(), uuid.uuid4(), "primary-bot", ""
         )
 
+        assert result == []
+
     @pytest.mark.asyncio
-    async def test_mention_non_member_bot_ignored(self):
-        """@-mentioning a bot that isn't a channel member creates no tasks."""
+    async def test_when_mention_non_member_bot_then_no_trigger(
+        self, db_session, patched_async_sessions
+    ):
         from app.routers.chat import _trigger_member_bot_replies
 
-        channel_id = uuid.uuid4()
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []  # no members
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("asyncio.create_task") as mock_create_task:
-            await _trigger_member_bot_replies(
-                channel_id, uuid.uuid4(), "primary-bot",
+        with patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock):
+            result = await _trigger_member_bot_replies(
+                channel.id, uuid.uuid4(), "primary-bot",
                 "Hey @unknown_bot, what do you think?"
             )
 
-        mock_create_task.assert_not_called()
+        assert result == []
 
     @pytest.mark.asyncio
-    async def test_mention_member_bot_triggers_task(self):
-        """@-mentioning a channel member bot creates a background task."""
+    async def test_when_mention_member_bot_then_triggers_with_config(
+        self, db_session, patched_async_sessions
+    ):
         from app.routers.chat import _trigger_member_bot_replies
 
-        channel_id = uuid.uuid4()
-        session_id = uuid.uuid4()
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper-bot", config={"auto_respond": True},
+        ))
+        await db_session.commit()
 
-        member_row = _make_member_row("helper-bot", config={"auto_respond": True})
-
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("asyncio.create_task") as mock_create_task:
-            await _trigger_member_bot_replies(
-                channel_id, session_id, "primary-bot",
+        with patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock):
+            result = await _trigger_member_bot_replies(
+                channel.id, uuid.uuid4(), "primary-bot",
                 "Hey @helper-bot, can you help with this?"
             )
 
-        mock_create_task.assert_called_once()
+        assert result == [("helper-bot", {"auto_respond": True})]
 
     @pytest.mark.asyncio
-    async def test_self_mention_ignored(self):
-        """A bot mentioning itself does not trigger a task."""
+    async def test_when_bot_mentions_itself_then_no_trigger(
+        self, db_session, patched_async_sessions
+    ):
         from app.routers.chat import _trigger_member_bot_replies
 
-        channel_id = uuid.uuid4()
-        member_row = _make_member_row("helper-bot")
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper-bot",
+        ))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        # helper-bot mentions itself
-        with patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("asyncio.create_task") as mock_create_task:
-            await _trigger_member_bot_replies(
-                channel_id, uuid.uuid4(), "helper-bot",
+        with patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock):
+            result = await _trigger_member_bot_replies(
+                channel.id, uuid.uuid4(), "helper-bot",
                 "I am @helper-bot and I'm here."
             )
 
-        mock_create_task.assert_not_called()
+        assert result == []
 
     @pytest.mark.asyncio
-    async def test_depth_limit_prevents_infinite_chain(self):
-        """Exceeding max depth returns immediately without processing."""
+    async def test_when_at_max_depth_then_skips_db_entirely(
+        self, patched_async_sessions
+    ):
+        """At max depth the function must return without touching the DB — the
+        recursion guard runs before the member lookup query."""
         from app.routers.chat import _trigger_member_bot_replies, _MEMBER_MENTION_MAX_DEPTH
 
-        # At max depth, should not even attempt DB queries
-        with patch("app.db.engine.async_session") as mock_session:
-            await _trigger_member_bot_replies(
+        with patch.object(patched_async_sessions, "__call__") as session_spy:
+            result = await _trigger_member_bot_replies(
                 uuid.uuid4(), uuid.uuid4(), "bot",
                 "@helper-bot hello",
                 _depth=_MEMBER_MENTION_MAX_DEPTH,
             )
 
-        mock_session.assert_not_called()
+        assert result == []
+        session_spy.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_multiple_mentions_deduplicated(self):
-        """Same bot mentioned twice creates only one task."""
+    async def test_when_bot_mentioned_twice_then_dedup_to_single_trigger(
+        self, db_session, patched_async_sessions
+    ):
         from app.routers.chat import _trigger_member_bot_replies
 
-        channel_id = uuid.uuid4()
-        member_row = _make_member_row("helper-bot")
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper-bot",
+        ))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("asyncio.create_task") as mock_create_task:
-            await _trigger_member_bot_replies(
-                channel_id, uuid.uuid4(), "primary-bot",
+        with patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock):
+            result = await _trigger_member_bot_replies(
+                channel.id, uuid.uuid4(), "primary-bot",
                 "@helper-bot what do you think? Also @helper-bot please check this."
             )
 
-        # Only one task despite two mentions
-        mock_create_task.assert_called_once()
+        assert [bid for bid, _ in result] == ["helper-bot"]
 
     @pytest.mark.asyncio
-    async def test_skill_tag_not_treated_as_bot_mention(self):
-        """@skill:name and @tool:name are not treated as bot mentions."""
+    async def test_when_skill_typed_tag_matches_member_id_then_no_trigger(
+        self, db_session, patched_async_sessions
+    ):
+        """``@skill:name`` must not be treated as a bot mention, even if a
+        member bot happens to share the name."""
         from app.routers.chat import _trigger_member_bot_replies
 
-        channel_id = uuid.uuid4()
-        # Even if a member bot exists with these names, the prefix filter should exclude them
-        member_row = _make_member_row("myskill")
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="myskill",
+        ))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("asyncio.create_task") as mock_create_task:
-            await _trigger_member_bot_replies(
-                channel_id, uuid.uuid4(), "primary-bot",
+        with patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock):
+            result = await _trigger_member_bot_replies(
+                channel.id, uuid.uuid4(), "primary-bot",
                 "Let me check @skill:myskill for help."
             )
 
-        mock_create_task.assert_not_called()
+        assert result == []
 
     @pytest.mark.asyncio
-    async def test_run_member_bot_reply_throttled(self):
-        """Channel throttle prevents member bot reply."""
+    async def test_when_channel_throttled_then_run_member_bot_reply_returns_early(self):
         from app.routers.chat import _run_member_bot_reply
 
-        with patch("app.routers.chat._multibot._channel_throttled", return_value=True):
-            # Should return without doing anything
+        with patch("app.routers.chat._multibot._channel_throttled", return_value=True), \
+             patch("app.db.engine.async_session") as session_spy:
             await _run_member_bot_reply(
                 uuid.uuid4(), uuid.uuid4(), "helper-bot", {},
                 "primary-bot",
             )
-            # No error = throttle check worked
+
+        session_spy.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_run_member_bot_reply_lock_timeout(self):
-        """If session lock can't be acquired, reply is skipped."""
+    async def test_when_session_lock_busy_then_retries_then_gives_up(self):
+        """Lock contention → 30 retries at ~100ms each, then abort."""
         from app.routers.chat import _run_member_bot_reply
 
         with patch("app.routers.chat._multibot._channel_throttled", return_value=False), \
              patch("app.routers.chat._multibot.session_locks") as mock_locks, \
              patch("asyncio.sleep", new_callable=AsyncMock):
-            # Lock always busy
             mock_locks.acquire.return_value = False
 
             await _run_member_bot_reply(
                 uuid.uuid4(), uuid.uuid4(), "helper-bot", {},
                 "primary-bot",
             )
-            # Should have tried multiple times then given up
-            assert mock_locks.acquire.call_count == 30
+
+        assert mock_locks.acquire.call_count == 30
 
 
 # ---------------------------------------------------------------------------
@@ -921,7 +831,7 @@ class TestRewriteHistoryForMemberBot:
     """Tests for _rewrite_history_for_member_bot — ensures member bots
     have proper identity by rewriting other bots' messages."""
 
-    def test_member_bot_own_messages_rewritten_to_user(self):
+    def test_when_member_bot_is_message_sender_then_rewritten_to_user_role(self):
         """Member bot's own messages are rewritten to user role with attribution.
 
         This prevents poisoned history (prior identity-confused responses
@@ -942,7 +852,7 @@ class TestRewriteHistoryForMemberBot:
         assert messages[2]["role"] == "user"
         assert messages[2]["content"] == "[Helper Bot]: Hi there!"
 
-    def test_other_bot_messages_rewritten_to_user(self):
+    def test_when_other_bot_is_message_sender_then_rewritten_to_user_role(self):
         """Messages from another bot become role=user with name prefix."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -958,7 +868,7 @@ class TestRewriteHistoryForMemberBot:
         assert messages[2]["role"] == "user"
         assert messages[2]["content"] == "[Primary Bot]: I'm the primary bot."
 
-    def test_untagged_messages_treated_as_other_bot(self):
+    def test_when_message_has_no_sender_metadata_then_treated_as_other_bot(self):
         """Messages without sender_id (old messages) are treated as another bot."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -972,7 +882,7 @@ class TestRewriteHistoryForMemberBot:
         assert messages[2]["role"] == "user"
         assert messages[2]["content"] == "[Rolland]: Old response with no metadata."
 
-    def test_untagged_messages_use_fallback_label(self):
+    def test_when_no_metadata_and_no_primary_name_then_uses_fallback_other_bot_label(self):
         """Without primary_bot_name, fallback label is 'Other bot'."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -984,7 +894,7 @@ class TestRewriteHistoryForMemberBot:
         assert messages[0]["role"] == "user"
         assert messages[0]["content"] == "[Other bot]: No metadata at all."
 
-    def test_other_bot_tool_calls_dropped(self):
+    def test_when_other_bot_has_tool_calls_then_calls_and_results_dropped(self):
         """Tool call messages from other bots (and their results) are removed."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -1006,7 +916,7 @@ class TestRewriteHistoryForMemberBot:
         assert messages[1]["role"] == "user"
         assert messages[1]["content"] == "[Primary Bot]: Here's what I found."
 
-    def test_member_bot_tool_calls_dropped(self):
+    def test_when_member_bot_has_tool_calls_then_calls_and_results_dropped(self):
         """Tool call messages from the member bot itself are dropped.
 
         Member bots get ALL assistant messages (including their own) rewritten
@@ -1032,7 +942,7 @@ class TestRewriteHistoryForMemberBot:
         assert messages[1]["role"] == "user"
         assert messages[1]["content"] == "[Helper Bot]: Done!"
 
-    def test_user_messages_get_attribution(self):
+    def test_when_user_has_display_name_then_message_gets_bracketed_prefix(self):
         """User messages with sender_display_name get prefixed."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -1045,7 +955,7 @@ class TestRewriteHistoryForMemberBot:
 
         assert messages[0]["content"] == "[Mike]: What's up?"
 
-    def test_user_messages_not_double_prefixed(self):
+    def test_when_user_message_already_prefixed_then_not_double_prefixed(self):
         """Already-prefixed user messages aren't double-prefixed."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -1058,7 +968,7 @@ class TestRewriteHistoryForMemberBot:
 
         assert messages[0]["content"] == "[Mike]: hello"
 
-    def test_user_messages_without_display_name_unchanged(self):
+    def test_when_user_has_no_display_name_then_message_unchanged(self):
         """User messages without sender_display_name stay unchanged."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -1069,8 +979,7 @@ class TestRewriteHistoryForMemberBot:
 
         assert messages[0]["content"] == "just a message"
 
-    def test_system_messages_untouched(self):
-        """System messages are never modified."""
+    def test_when_message_is_system_role_then_rewrite_history_leaves_it_unchanged(self):
         from app.routers.chat import _rewrite_history_for_member_bot
 
         messages = [
@@ -1081,7 +990,7 @@ class TestRewriteHistoryForMemberBot:
         assert messages[0]["role"] == "system"
         assert messages[0]["content"] == "You are a helpful bot."
 
-    def test_mixed_conversation_realistic(self):
+    def test_when_mixed_multi_bot_conversation_then_rewrites_preserve_member_perspective(self):
         """Realistic multi-bot conversation with proper rewriting."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -1121,7 +1030,7 @@ class TestRewriteHistoryForMemberBot:
         assert messages[3]["role"] == "user"
         assert messages[3]["content"] == "[Dev Bot]: I checked the CI — all green."
 
-    def test_primary_bot_sees_member_responses_with_attribution(self):
+    def test_when_rewriting_from_primary_perspective_then_member_responses_attributed(self):
         """Primary bot should see member bot responses as attributed user messages."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -1164,7 +1073,7 @@ class TestRewriteHistoryForMemberBot:
         assert messages[3]["role"] == "user"
         assert messages[3]["content"] == "[Dev Bot]: Deployment started. ETA 5 minutes."
 
-    def test_hidden_messages_removed(self):
+    def test_when_message_has_hidden_metadata_then_removed_during_rewrite(self):
         """Messages with hidden=True metadata are removed during rewrite."""
         from app.routers.chat import _rewrite_history_for_member_bot
 
@@ -1188,14 +1097,14 @@ class TestRewriteHistoryForMemberBot:
 # ---------------------------------------------------------------------------
 
 class TestInjectMemberConfig:
-    def test_empty_config_no_injection(self):
+    def test_when_member_config_empty_then_no_injection(self):
         from app.routers.chat import _inject_member_config
 
         messages = [{"role": "system", "content": "base"}]
         _inject_member_config(messages, {})
         assert len(messages) == 1
 
-    def test_system_prompt_addon_injected(self):
+    def test_when_system_prompt_addon_set_then_appended_as_system_message(self):
         from app.routers.chat import _inject_member_config
 
         messages = [{"role": "system", "content": "base"}]
@@ -1204,7 +1113,7 @@ class TestInjectMemberConfig:
         assert "Always be brief." in messages[1]["content"]
         assert messages[1]["role"] == "system"
 
-    def test_response_style_injected(self):
+    def test_when_response_style_set_then_style_instruction_added(self):
         from app.routers.chat import _inject_member_config
 
         messages = []
@@ -1212,7 +1121,7 @@ class TestInjectMemberConfig:
         assert len(messages) == 1
         assert "brief and concise" in messages[0]["content"]
 
-    def test_combined_config(self):
+    def test_when_addon_and_style_both_set_then_both_appear_in_injection(self):
         from app.routers.chat import _inject_member_config
 
         messages = []
@@ -1234,7 +1143,7 @@ class TestApplyUserAttribution:
     using _metadata.sender_display_name, so the primary bot can distinguish
     multiple speakers."""
 
-    def test_adds_prefix_from_metadata(self):
+    def test_when_sender_display_name_set_then_user_message_gets_prefix(self):
         from app.routers.chat import _apply_user_attribution
 
         messages = [
@@ -1245,7 +1154,7 @@ class TestApplyUserAttribution:
         _apply_user_attribution(messages)
         assert messages[0]["content"] == "[Mike]: hello"
 
-    def test_no_metadata_unchanged(self):
+    def test_when_no_metadata_present_then_content_unchanged(self):
         from app.routers.chat import _apply_user_attribution
 
         messages = [
@@ -1254,7 +1163,7 @@ class TestApplyUserAttribution:
         _apply_user_attribution(messages)
         assert messages[0]["content"] == "hello"
 
-    def test_empty_display_name_unchanged(self):
+    def test_when_metadata_has_no_display_name_then_content_unchanged(self):
         from app.routers.chat import _apply_user_attribution
 
         messages = [
@@ -1263,7 +1172,7 @@ class TestApplyUserAttribution:
         _apply_user_attribution(messages)
         assert messages[0]["content"] == "hello"
 
-    def test_no_double_prefix(self):
+    def test_when_message_already_prefixed_then_apply_attribution_skips(self):
         from app.routers.chat import _apply_user_attribution
 
         messages = [
@@ -1274,7 +1183,7 @@ class TestApplyUserAttribution:
         _apply_user_attribution(messages)
         assert messages[0]["content"] == "[Mike]: hello"
 
-    def test_assistant_messages_untouched(self):
+    def test_when_message_is_assistant_role_then_apply_attribution_leaves_it_unchanged(self):
         from app.routers.chat import _apply_user_attribution
 
         messages = [
@@ -1285,7 +1194,7 @@ class TestApplyUserAttribution:
         _apply_user_attribution(messages)
         assert messages[0]["content"] == "hi"
 
-    def test_system_messages_untouched(self):
+    def test_when_message_is_system_role_then_apply_attribution_leaves_it_unchanged(self):
         from app.routers.chat import _apply_user_attribution
 
         messages = [
@@ -1296,7 +1205,7 @@ class TestApplyUserAttribution:
         _apply_user_attribution(messages)
         assert messages[0]["content"] == "prompt"
 
-    def test_multiple_users_distinguished(self):
+    def test_when_multiple_distinct_users_present_then_each_gets_own_prefix(self):
         """Two different users get their own prefixes."""
         from app.routers.chat import _apply_user_attribution
 
@@ -1482,119 +1391,74 @@ class TestPrimaryBotMentionBack:
     """Member bots can @-mention the primary bot to trigger a reply."""
 
     @pytest.mark.asyncio
-    async def test_primary_bot_detected_in_mentions(self):
-        """Primary bot is included as a valid mention target."""
+    async def test_when_member_mentions_primary_then_primary_returned_with_empty_config(
+        self, db_session, patched_async_sessions
+    ):
         from app.routers.chat import _detect_member_mentions
 
-        channel_id = uuid.uuid4()
-        member_row = _make_member_row("helper-bot")
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper-bot",
+        ))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
+        result = await _detect_member_mentions(
+            channel.id, "helper-bot", "Hey @primary-bot, can you check this?"
+        )
 
-        # Mock the Channel with a primary bot
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.db.engine.async_session", return_value=mock_cm):
-            result = await _detect_member_mentions(
-                channel_id, "helper-bot", "Hey @primary-bot, can you check this?"
-            )
-
-        assert len(result) == 1
-        assert result[0][0] == "primary-bot"
-        assert result[0][1] == {}  # primary bot has no member config
+        assert result == [("primary-bot", {})]
 
     @pytest.mark.asyncio
-    async def test_primary_bot_not_triggered_by_self(self):
-        """Primary bot mentioning itself doesn't trigger."""
+    async def test_when_primary_mentions_itself_then_no_trigger(
+        self, db_session, patched_async_sessions
+    ):
         from app.routers.chat import _detect_member_mentions
 
-        channel_id = uuid.uuid4()
-        member_row = _make_member_row("helper-bot")
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper-bot",
+        ))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.db.engine.async_session", return_value=mock_cm):
-            result = await _detect_member_mentions(
-                channel_id, "primary-bot", "I am @primary-bot."
-            )
+        result = await _detect_member_mentions(
+            channel.id, "primary-bot", "I am @primary-bot."
+        )
 
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_back_and_forth_chain(self):
-        """Primary → member → primary chain is allowed within depth limit."""
+    async def test_when_chain_within_depth_limit_then_allowed_at_each_level(
+        self, db_session, patched_async_sessions
+    ):
+        """Primary → member → primary → member is allowed at depths 0,1,2 and
+        blocked at depth 3 (``_MEMBER_MENTION_MAX_DEPTH``)."""
         from app.routers.chat import _detect_member_mentions
 
-        channel_id = uuid.uuid4()
-        member_row = _make_member_row("helper-bot", config={"auto_respond": True})
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper-bot", config={"auto_respond": True},
+        ))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
+        depth0 = await _detect_member_mentions(
+            channel.id, "primary-bot", "Hey @helper-bot check this", _depth=0,
+        )
+        depth1 = await _detect_member_mentions(
+            channel.id, "helper-bot", "Done, @primary-bot here are results", _depth=1,
+        )
+        depth2 = await _detect_member_mentions(
+            channel.id, "primary-bot", "@helper-bot one more thing", _depth=2,
+        )
+        depth3 = await _detect_member_mentions(
+            channel.id, "helper-bot", "@primary-bot results", _depth=3,
+        )
 
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        # Depth 0: primary bot mentions helper (allowed)
-        with patch("app.db.engine.async_session", return_value=mock_cm):
-            result = await _detect_member_mentions(
-                channel_id, "primary-bot", "Hey @helper-bot check this",
-                _depth=0,
-            )
-        assert len(result) == 1
-        assert result[0][0] == "helper-bot"
-
-        # Depth 1: helper mentions primary back (allowed)
-        with patch("app.db.engine.async_session", return_value=mock_cm):
-            result = await _detect_member_mentions(
-                channel_id, "helper-bot", "Done, @primary-bot here are results",
-                _depth=1,
-            )
-        assert len(result) == 1
-        assert result[0][0] == "primary-bot"
-
-        # Depth 2: primary mentions helper again (allowed, depth < 3)
-        with patch("app.db.engine.async_session", return_value=mock_cm):
-            result = await _detect_member_mentions(
-                channel_id, "primary-bot", "@helper-bot one more thing",
-                _depth=2,
-            )
-        assert len(result) == 1
-        assert result[0][0] == "helper-bot"
-
-        # Depth 3: blocked by max depth
-        with patch("app.db.engine.async_session", return_value=mock_cm):
-            result = await _detect_member_mentions(
-                channel_id, "helper-bot", "@primary-bot results",
-                _depth=3,
-            )
-        assert result == []
+        assert (
+            [bid for bid, _ in depth0],
+            [bid for bid, _ in depth1],
+            [bid for bid, _ in depth2],
+            depth3,
+        ) == (["helper-bot"], ["primary-bot"], ["helper-bot"], [])
 
 
 # ---------------------------------------------------------------------------
@@ -1602,118 +1466,99 @@ class TestPrimaryBotMentionBack:
 # ---------------------------------------------------------------------------
 
 class TestParallelInvocation:
-    """Tests for parallel member bot invocation features."""
+    """Tests for parallel member bot invocation features. Background task
+    execution is prevented by patching ``_run_member_bot_reply`` to a no-op
+    AsyncMock; the real observables are the return value of
+    ``_trigger_member_bot_replies`` and the kwargs captured on that patched
+    coroutine."""
 
     @pytest.mark.asyncio
-    async def test_trigger_passes_snapshot_to_run(self):
-        """_trigger_member_bot_replies passes messages_snapshot to each task."""
+    async def test_when_snapshot_provided_then_passed_through_to_member_reply(
+        self, db_session, patched_async_sessions
+    ):
         from app.routers.chat import _trigger_member_bot_replies
 
-        channel_id = uuid.uuid4()
-        session_id = uuid.uuid4()
-
-        member_row = _make_member_row("helper-bot", config={})
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper-bot",
+        ))
+        await db_session.commit()
         snapshot = [{"role": "user", "content": "hi"}]
-        captured_kwargs = {}
 
-        with patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("asyncio.create_task") as mock_create_task:
-            mock_create_task.return_value = MagicMock()
-            mock_create_task.return_value.add_done_callback = MagicMock()
+        with patch(
+            "app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock
+        ) as run_spy:
             result = await _trigger_member_bot_replies(
-                channel_id, session_id, "primary-bot",
+                channel.id, uuid.uuid4(), "primary-bot",
                 "Hey @helper-bot help",
                 messages_snapshot=snapshot,
             )
+            # Let the background task actually await the spy
+            await asyncio.sleep(0)
 
-        assert len(result) == 1
-        # Verify create_task was called with a coroutine containing snapshot
-        mock_create_task.assert_called_once()
+        assert [bid for bid, _ in result] == ["helper-bot"]
+        assert run_spy.await_args.kwargs["messages_snapshot"] == snapshot
 
     @pytest.mark.asyncio
-    async def test_trigger_skips_already_invoked(self):
-        """Bots in already_invoked set are skipped."""
+    async def test_when_bot_in_already_invoked_then_skipped(
+        self, db_session, patched_async_sessions
+    ):
         from app.routers.chat import _trigger_member_bot_replies
 
-        channel_id = uuid.uuid4()
-        member_row = _make_member_row("helper-bot", config={})
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper-bot",
+        ))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("asyncio.create_task") as mock_create_task:
+        with patch(
+            "app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock
+        ) as run_spy:
             result = await _trigger_member_bot_replies(
-                channel_id, uuid.uuid4(), "primary-bot",
+                channel.id, uuid.uuid4(), "primary-bot",
                 "Hey @helper-bot help",
                 already_invoked={"helper-bot"},
             )
 
-        # helper-bot was already invoked, so no task created
-        assert len(result) == 0
-        mock_create_task.assert_not_called()
+        assert result == []
+        run_spy.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_trigger_returns_mentioned_list(self):
-        """_trigger_member_bot_replies returns the list of triggered bots."""
+    async def test_when_multiple_members_mentioned_then_all_returned(
+        self, db_session, patched_async_sessions
+    ):
         from app.routers.chat import _trigger_member_bot_replies
 
-        channel_id = uuid.uuid4()
-        member_a = _make_member_row("bot-a", config={})
-        member_b = _make_member_row("bot-b", config={})
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="bot-a",
+        ))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="bot-b",
+        ))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_a, member_b]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("asyncio.create_task") as mock_create_task:
-            mock_create_task.return_value = MagicMock()
-            mock_create_task.return_value.add_done_callback = MagicMock()
+        with patch(
+            "app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock
+        ):
             result = await _trigger_member_bot_replies(
-                channel_id, uuid.uuid4(), "primary-bot",
+                channel.id, uuid.uuid4(), "primary-bot",
                 "@bot-a and @bot-b both help",
             )
 
-        assert len(result) == 2
-        bot_ids = [r[0] for r in result]
-        assert "bot-a" in bot_ids
-        assert "bot-b" in bot_ids
+        assert sorted(bid for bid, _ in result) == ["bot-a", "bot-b"]
 
     @pytest.mark.asyncio
-    async def test_snapshot_path_skips_lock(self):
-        """With messages_snapshot, _run_member_bot_reply doesn't acquire lock."""
+    async def test_when_snapshot_provided_then_run_member_bot_reply_skips_session_lock(
+        self, db_session, patched_async_sessions, bot_registry
+    ):
+        """Snapshot path must bypass the per-session mutex — the whole point
+        of passing the snapshot is parallel execution."""
         from app.routers.chat import _run_member_bot_reply
 
+        bot_registry.register("helper-bot", name="Helper")
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.commit()
         snapshot = [
             {"role": "system", "content": "You are helper."},
             {"role": "user", "content": "hello"},
@@ -1721,148 +1566,108 @@ class TestParallelInvocation:
 
         with patch("app.routers.chat._multibot._channel_throttled", return_value=False), \
              patch("app.routers.chat._multibot.session_locks") as mock_locks, \
-             patch("app.agent.bots.get_bot", return_value=_make_bot(id="helper-bot", name="Helper")), \
              patch("app.routers.chat._multibot._record_channel_run"), \
              patch("app.agent.context.set_agent_context"), \
              patch("app.agent.loop.run_stream", side_effect=_fake_stream), \
              patch("app.services.channel_events.publish_typed"), \
-             patch("app.db.engine.async_session") as mock_session:
+             patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
+             patch("app.services.sessions.strip_metadata_keys", side_effect=lambda x: x):
+            await _run_member_bot_reply(
+                channel.id, uuid.uuid4(), "helper-bot", {},
+                "primary-bot",
+                messages_snapshot=snapshot,
+                turn_id=uuid.uuid4(),
+            )
 
-            mock_db = AsyncMock()
-            mock_channel = MagicMock()
-            mock_channel.bot_id = "primary-bot"
-            mock_db.get = AsyncMock(return_value=mock_channel)
-            mock_db.execute = AsyncMock()
-            mock_db.commit = AsyncMock()
-            mock_cm = AsyncMock()
-            mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_cm.__aexit__ = AsyncMock(return_value=False)
-            mock_session.return_value = mock_cm
-
-            with patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-                 patch("app.services.sessions.strip_metadata_keys", side_effect=lambda x: x):
-                await _run_member_bot_reply(
-                    uuid.uuid4(), uuid.uuid4(), "helper-bot", {},
-                    "primary-bot",
-                    messages_snapshot=snapshot,
-                    turn_id=uuid.uuid4(),
-                )
-
-            # Lock should NOT have been acquired when using snapshot
-            mock_locks.acquire.assert_not_called()
-            mock_locks.release.assert_not_called()
+        mock_locks.acquire.assert_not_called()
+        mock_locks.release.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_chained_trigger_passes_snapshot(self):
-        """When a member bot's response triggers another bot, it passes a snapshot."""
+    async def test_when_member_response_mentions_another_bot_then_chained_trigger_passes_snapshot(
+        self, db_session, patched_async_sessions, bot_registry
+    ):
         from app.routers.chat import _run_member_bot_reply
 
-        channel_id = uuid.uuid4()
-        session_id = uuid.uuid4()
+        bot_registry.register("helper-bot", name="Helper")
+        bot_registry.register("primary-bot", name="Primary")
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.commit()
         messages_snapshot = [
             {"role": "system", "content": "system"},
             {"role": "user", "content": "hello"},
         ]
 
-        with patch("app.agent.bots.get_bot") as mock_get_bot, \
-             patch("app.services.channel_events.publish_typed") as mock_publish, \
-             patch("app.agent.loop.run_stream") as mock_run_stream, \
-             patch("app.db.engine.async_session") as mock_session_factory, \
+        with patch("app.agent.loop.run_stream", side_effect=_fake_stream), \
+             patch("app.services.channel_events.publish_typed"), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-             patch("app.routers.chat._multibot._trigger_member_bot_replies", new_callable=AsyncMock) as mock_trigger, \
-             patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False):
-
-            mock_get_bot.side_effect = lambda bid: _make_bot(id=bid, name=bid)
-            mock_run_stream.return_value = _fake_stream()
-
-            mock_db = AsyncMock()
-            mock_db.get = AsyncMock(return_value=MagicMock(bot_id="primary-bot"))
-            mock_cm = AsyncMock()
-            mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_cm.__aexit__ = AsyncMock(return_value=False)
-            mock_session_factory.return_value = mock_cm
-
+             patch(
+                 "app.routers.chat._multibot._trigger_member_bot_replies",
+                 new_callable=AsyncMock,
+             ) as mock_trigger, \
+             patch(
+                 "app.services.sessions._resolve_workspace_base_prompt_enabled",
+                 new_callable=AsyncMock, return_value=False,
+             ):
             await _run_member_bot_reply(
-                channel_id, session_id, "helper-bot", {},
+                channel.id, uuid.uuid4(), "helper-bot", {},
                 "primary-bot", _depth=1,
                 messages_snapshot=messages_snapshot,
                 turn_id=uuid.uuid4(),
             )
 
-            # The chained trigger should have been called with a snapshot
-            mock_trigger.assert_called_once()
-            call_kwargs = mock_trigger.call_args
-            assert call_kwargs.kwargs.get("messages_snapshot") is not None
-
+        assert mock_trigger.await_args.kwargs.get("messages_snapshot") is not None
 
     @pytest.mark.asyncio
-    async def test_user_message_mentions_trigger_parallel_streams(self):
-        """User @-mentioning multiple bots in their message triggers all of them."""
+    async def test_when_user_mentions_multiple_bots_then_all_detected_except_responder(
+        self, db_session, patched_async_sessions
+    ):
+        """primary-bot is the responder → it's excluded; helper-bot is
+        returned. The responder-exclusion invariant lives in
+        ``_detect_member_mentions``."""
         from app.routers.chat import _detect_member_mentions
 
-        channel_id = uuid.uuid4()
-        member_row = _make_member_row("helper-bot", config={})
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_db.get = AsyncMock(return_value=mock_channel)
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper-bot",
+        ))
+        await db_session.commit()
 
-        with patch("app.db.engine.async_session", return_value=mock_cm):
-            # Scan the USER's message — primary-bot is the responder, excluded
-            mentioned = await _detect_member_mentions(
-                channel_id, "primary-bot",
-                "Hey @bot:helper-bot and @bot:primary-bot check this out",
-                _depth=0,
-            )
-        bot_ids = [bid for bid, _ in mentioned]
-        assert "helper-bot" in bot_ids
-        # primary-bot excluded because it's the responding_bot_id
-        assert "primary-bot" not in bot_ids
+        mentioned = await _detect_member_mentions(
+            channel.id, "primary-bot",
+            "Hey @bot:helper-bot and @bot:primary-bot check this out",
+        )
+
+        assert [bid for bid, _ in mentioned] == ["helper-bot"]
 
     @pytest.mark.asyncio
-    async def test_user_mention_dedup_prevents_response_retrigger(self):
-        """Bots triggered by user @-mentions aren't re-triggered by response @-mentions."""
+    async def test_when_user_invoked_bot_already_seen_then_response_mention_is_filtered(
+        self, db_session, patched_async_sessions
+    ):
+        """Real callers combine user-mention detection with response-mention
+        detection and filter via ``already_invoked``. This verifies the filter
+        correctly dedupes cross-phase."""
         from app.routers.chat import _detect_member_mentions
 
-        channel_id = uuid.uuid4()
-        member_row = _make_member_row("helper-bot", config={})
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_db.get = AsyncMock(return_value=mock_channel)
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper-bot",
+        ))
+        await db_session.commit()
 
-        with patch("app.db.engine.async_session", return_value=mock_cm):
-            # Step 1: detect user mentions (helper-bot found)
-            user_mentioned = await _detect_member_mentions(
-                channel_id, "primary-bot",
-                "Hey @bot:helper-bot what do you think?",
-                _depth=0,
-            )
-        user_mentioned_ids = {bid for bid, _ in user_mentioned}
-        assert "helper-bot" in user_mentioned_ids
+        user_phase = await _detect_member_mentions(
+            channel.id, "primary-bot",
+            "Hey @bot:helper-bot what do you think?",
+        )
+        response_phase = await _detect_member_mentions(
+            channel.id, "primary-bot",
+            "I agree with @helper-bot's take",
+        )
+        user_mentioned_ids = {bid for bid, _ in user_phase}
+        filtered = [
+            (bid, cfg) for bid, cfg in response_phase if bid not in user_mentioned_ids
+        ]
 
-        # Step 2: simulate post-completion scan with already_invoked filtering
-        with patch("app.db.engine.async_session", return_value=mock_cm):
-            response_mentioned = await _detect_member_mentions(
-                channel_id, "primary-bot",
-                "I agree with @helper-bot's take",
-                _depth=0,
-            )
-        # Filter with already_invoked (as the real code does in event_generator)
-        filtered = [(bid, cfg) for bid, cfg in response_mentioned if bid not in user_mentioned_ids]
-        assert len(filtered) == 0  # helper-bot already invoked, not re-triggered
+        assert (user_mentioned_ids, filtered) == ({"helper-bot"}, [])
 
 
 async def _fake_stream(*a, **kw):

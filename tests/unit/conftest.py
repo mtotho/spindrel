@@ -54,7 +54,7 @@ async def patched_async_sessions(engine):
         "app.db.engine", async_session=factory
     ), patch("app.tools.local.tasks.async_session", factory), patch(
         "app.services.workflow_executor.async_session", factory
-    ):
+    ), patch("app.services.compaction.async_session", factory):
         yield factory
 
 
