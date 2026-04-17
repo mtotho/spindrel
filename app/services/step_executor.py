@@ -815,6 +815,29 @@ async def _run_user_prompt_step(
         raw_schema, task, step_states, steps, item_ctx
     )
 
+    # Auto-skip when multi_item resolves to zero items — there's nothing for
+    # a human to approve, so don't clutter the Findings panel with a phantom
+    # review. Downstream foreach steps that iterate the approved subset will
+    # also iterate zero items and complete immediately. Binary schemas still
+    # pause (always exactly one decision to make).
+    #
+    # Result is serialized as a JSON string ("{}") to match the string-typed
+    # contract every other step path uses — the admin editor's StepCard calls
+    # `.slice()` on step_state.result, which explodes if we store a raw dict.
+    if (
+        response_schema.get("type") == "multi_item"
+        and not response_schema.get("items")
+    ):
+        state = step_states[step_index]
+        state["status"] = "done"
+        state["widget_envelope"] = envelope
+        state["response_schema"] = response_schema
+        state["result"] = "{}"
+        state["error"] = None
+        state["completed_at"] = datetime.now(timezone.utc).isoformat()
+        await _persist_step_states(task.id, step_states)
+        return
+
     state = step_states[step_index]
     state["status"] = "awaiting_user_input"
     state["widget_envelope"] = envelope

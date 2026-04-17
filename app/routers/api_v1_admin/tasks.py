@@ -822,11 +822,15 @@ async def admin_resolve_step(
     if err:
         raise HTTPException(status_code=422, detail=err)
 
-    # JSONB mutation — per CLAUDE.md, deepcopy + flag_modified
+    # JSONB mutation — per CLAUDE.md, deepcopy + flag_modified.
+    # Result is serialized to a JSON string to match the string-typed
+    # contract the rest of the step runner uses. The admin editor UI
+    # reads stepState.result with .slice() and crashes on raw dicts.
+    import json as _json
     new_states = _copy.deepcopy(step_states)
     s = new_states[step_index]
     s["status"] = "done"
-    s["result"] = body.response
+    s["result"] = _json.dumps(body.response)
     s["completed_at"] = datetime.now(timezone.utc).isoformat()
     task.step_states = new_states
     sa_attributes.flag_modified(task, "step_states")

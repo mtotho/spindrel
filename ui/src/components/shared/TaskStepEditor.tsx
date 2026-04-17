@@ -1205,20 +1205,29 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
             </pre>
           </div>
         )}
-        {stepState && stepState.result && !stepState.error && (
-          <details className="group/result" open={stepState.status === "done" && steps.length <= 3}>
-            <summary className="flex flex-row items-center gap-1.5 cursor-pointer text-[10px] font-semibold text-emerald-400/70 uppercase tracking-wider hover:text-emerald-400 transition-colors select-none">
-              <CheckCircle2 size={11} />
-              Output
-              <span className="text-text-dim font-normal normal-case tracking-normal ml-1 truncate max-w-[200px]">
-                {stepState.result.slice(0, 60)}{stepState.result.length > 60 ? "..." : ""}
-              </span>
-            </summary>
-            <pre className="mt-1.5 p-2 rounded-md bg-surface border border-surface-border text-[11px] font-mono text-text-muted whitespace-pre-wrap max-h-40 overflow-y-auto m-0">
-              {stepState.result}
-            </pre>
-          </details>
-        )}
+        {stepState && stepState.result != null && !stepState.error && (() => {
+          // Some step types (user_prompt, resolve-endpoint responses) persist
+          // `result` as a JSON object / dict — the step runner writes dicts
+          // for user_prompt auto-skip and the resolve endpoint stores the
+          // response map verbatim. Coerce to string for display.
+          const raw = stepState.result as unknown;
+          const resultStr =
+            typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+          return (
+            <details className="group/result" open={stepState.status === "done" && steps.length <= 3}>
+              <summary className="flex flex-row items-center gap-1.5 cursor-pointer text-[10px] font-semibold text-emerald-400/70 uppercase tracking-wider hover:text-emerald-400 transition-colors select-none">
+                <CheckCircle2 size={11} />
+                Output
+                <span className="text-text-dim font-normal normal-case tracking-normal ml-1 truncate max-w-[200px]">
+                  {resultStr.slice(0, 60)}{resultStr.length > 60 ? "..." : ""}
+                </span>
+              </summary>
+              <pre className="mt-1.5 p-2 rounded-md bg-surface border border-surface-border text-[11px] font-mono text-text-muted whitespace-pre-wrap max-h-40 overflow-y-auto m-0">
+                {resultStr}
+              </pre>
+            </details>
+          );
+        })()}
       </div>
     </div>
   );

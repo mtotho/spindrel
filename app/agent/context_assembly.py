@@ -1854,6 +1854,19 @@ async def assemble_context(
     except Exception:
         pass  # non-fatal if timezone lookup fails
 
+    # --- pinned widget state (stale-but-OK, same cache-safety band as temporal) ---
+    try:
+        if _ch_row is not None:
+            _pins = (getattr(_ch_row, "config", None) or {}).get("pinned_widgets") or []
+            if _pins:
+                from app.services.widget_context import build_widget_context_block
+                _widget_block = build_widget_context_block(_pins, bot_id=bot.id)
+                if _widget_block:
+                    messages.append({"role": "system", "content": _widget_block})
+                    _inject_chars["pinned_widgets"] = len(_widget_block)
+    except Exception:
+        logger.debug("pinned_widgets: injection failed", exc_info=True)
+
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and _ch_row is not None:
         _ch_ws_path = getattr(_ch_row, "channel_prompt_workspace_file_path", None)

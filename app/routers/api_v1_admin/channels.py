@@ -1881,6 +1881,7 @@ async def admin_channel_config_overhead(
         "context_pruning": bot.context_pruning,
         "audio_input": bot.audio_input or "transcribe",
         "base_prompt": bot.base_prompt if bot.base_prompt is not None else True,
+        "pinned_widgets": (channel.config or {}).get("pinned_widgets") or [],
     }
 
     result = await estimate_bot_context(draft=draft, bot_id=bot.id)

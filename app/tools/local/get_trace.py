@@ -122,9 +122,12 @@ async def list_session_traces(limit: int = 10) -> str:
     "function": {
         "name": "get_trace",
         "description": (
-            "Read the full trace of a conversation turn: all RAG retrieval events, "
-            "tool calls (with arguments and results), token usage, and errors. "
-            "Defaults to the current turn. Pass a correlation_id, trace_id, or id to inspect a previous turn. "
+            "Read trace data from conversation turns. Two modes: "
+            "(1) Pass correlation_id/trace_id/id (or omit for current turn) to read the full timeline of ONE turn — "
+            "RAG retrieval events, tool calls, token usage, errors. "
+            "(2) Pass event_type + limit to list RECENT trace events of that type across all turns (newest first), "
+            "returned as a JSON array of {correlation_id, bot_id, created_at, data} — useful for pipelines "
+            "analyzing patterns across many turns (e.g. discovery_summary audits). "
             "Use list_session_traces to find correlation_ids with errors."
         ),
         "parameters": {
@@ -138,14 +141,30 @@ async def list_session_traces(limit: int = 10) -> str:
                 },
                 "trace_id": {
                     "type": "string",
-                    "description": (
-                        "Alias for correlation_id."
-                    ),
+                    "description": "Alias for correlation_id.",
                 },
                 "id": {
                     "type": "string",
+                    "description": "Alias for correlation_id.",
+                },
+                "event_type": {
+                    "type": "string",
                     "description": (
-                        "Alias for correlation_id."
+                        "List mode: filter TraceEvent rows by event_type (e.g. 'discovery_summary', "
+                        "'skill_index'). Returns a JSON array of recent matching events."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": (
+                        "List mode: maximum number of events to return (default 50, max 500). "
+                        "Only used when event_type is provided."
+                    ),
+                },
+                "bot_id": {
+                    "type": "string",
+                    "description": (
+                        "List mode: optional filter restricting returned events to one bot."
                     ),
                 },
             },
@@ -157,7 +176,41 @@ async def get_trace(
     correlation_id: str | None = None,
     trace_id: str | None = None,
     id: str | None = None,
+    event_type: str | None = None,
+    limit: int | None = None,
+    bot_id: str | None = None,
 ) -> str:
+    # ------------------------------------------------------------------
+    # List mode — event_type given: return recent events of that type as
+    # a JSON array. Separate code path; no correlation resolution.
+    # ------------------------------------------------------------------
+    if event_type:
+        capped_limit = max(1, min(int(limit or 50), 500))
+        async with async_session() as db:
+            q = (
+                select(TraceEvent)
+                .where(TraceEvent.event_type == event_type)
+                .order_by(TraceEvent.created_at.desc())
+                .limit(capped_limit)
+            )
+            if bot_id:
+                q = q.where(TraceEvent.bot_id == bot_id)
+            rows = (await db.execute(q)).scalars().all()
+        return json.dumps(
+            [
+                {
+                    "correlation_id": str(r.correlation_id) if r.correlation_id else None,
+                    "bot_id": r.bot_id,
+                    "event_type": r.event_type,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "data": r.data,
+                }
+                for r in rows
+            ],
+            ensure_ascii=False,
+            default=str,
+        )
+
     # Fuzzy pick the first defined parameter in the order correlation_id, trace_id, id
     param_val = correlation_id or trace_id or id
     if param_val:
