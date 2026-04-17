@@ -91,9 +91,8 @@ button, [role="button"], nav, a {
 }
 
 /* Full-height app shell.
-   No percentage chain — iOS standalone WKWebView resolves 100% to the
-   Safari-with-chrome viewport, not the full screen. Viewport units on
-   #root bypass that entirely. */
+   Without viewport-fit=cover the viewport IS the safe area — no env()
+   padding needed. This matches what Expo generated. */
 body {
   margin: 0;
   padding: 0;
@@ -106,14 +105,8 @@ body {
   height: 100dvh;
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
   overflow: hidden;
   background-color: rgb(var(--color-surface));
-  padding:
-    env(safe-area-inset-top, 0px)
-    env(safe-area-inset-right, 0px)
-    env(safe-area-inset-bottom, 0px)
-    env(safe-area-inset-left, 0px);
 }
 
 /* Prevent iOS auto-zoom on input focus (16px is the threshold) */

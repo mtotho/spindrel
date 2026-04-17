@@ -95,6 +95,7 @@ def _register_widgets(source: str, widgets: dict) -> int:
             "template": widget_def["template"],
             "transform": widget_def.get("transform"),
             "display_label": widget_def.get("display_label"),
+            "state_poll": widget_def.get("state_poll"),
             "source": source,
         }
         count += 1
@@ -192,7 +193,79 @@ def apply_widget_template(tool_name: str, raw_result: str) -> ToolResultEnvelope
         plain_body=plain_body,
         display=tmpl["display"],
         display_label=display_label,
+        refreshable=bool(tmpl.get("state_poll")),
     )
+
+
+def get_state_poll_config(tool_name: str) -> dict | None:
+    """Return the state_poll config for a tool, or None.
+
+    Tries the full name first, then strips the MCP server prefix.
+    """
+    tmpl = _widget_templates.get(tool_name)
+    if not tmpl and "-" in tool_name:
+        tmpl = _widget_templates.get(tool_name.split("-", 1)[1])
+    if not tmpl:
+        return None
+    return tmpl.get("state_poll")
+
+
+def apply_state_poll(
+    tool_name: str, raw_result: str, widget_meta: dict,
+) -> ToolResultEnvelope | None:
+    """Apply a state_poll template to a raw poll result.
+
+    ``widget_meta`` carries pinned widget metadata (display_label, etc.)
+    that the code transform can use to filter the poll result.
+
+    Flow: raw_result → code transform (optional) → template substitution → envelope.
+    """
+    poll_cfg = get_state_poll_config(tool_name)
+    if not poll_cfg or "template" not in poll_cfg:
+        return None
+
+    # Run code transform if declared — reshape raw result for template
+    transform_ref = poll_cfg.get("transform")
+    if transform_ref:
+        data = _apply_state_poll_transform(transform_ref, raw_result, widget_meta)
+    else:
+        try:
+            data = json.loads(raw_result)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    if not isinstance(data, dict):
+        return None
+
+    # Deep-copy and substitute template
+    filled = _substitute(copy.deepcopy(poll_cfg["template"]), data)
+
+    body = json.dumps(filled)
+    display_label = widget_meta.get("display_label")
+
+    return ToolResultEnvelope(
+        content_type="application/vnd.spindrel.components+json",
+        body=body,
+        plain_body=f"Widget: {tool_name}",
+        display="inline",
+        display_label=display_label,
+        refreshable=True,
+    )
+
+
+def _apply_state_poll_transform(ref: str, raw_result: str, widget_meta: dict) -> dict:
+    """Call a state poll transform: 'module.path:function_name'.
+
+    Receives (raw_result_str, widget_meta) and returns a dict for template substitution.
+    """
+    try:
+        module_path, func_name = ref.rsplit(":", 1)
+        module = importlib.import_module(module_path)
+        func = getattr(module, func_name)
+        return func(raw_result, widget_meta)
+    except Exception:
+        logger.warning("State poll transform '%s' failed", ref, exc_info=True)
+        return {}
 
 
 # ── Code extension hook ──

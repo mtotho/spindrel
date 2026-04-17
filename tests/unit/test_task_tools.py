@@ -97,7 +97,10 @@ class TestCreateTask:
             mock_dcfg.get.return_value = {}
 
             result = await create_task(prompt="do something")
-            assert "queued (runs immediately)" in result
+            data = json.loads(result)
+            assert data["status"] == "pending"
+            assert data["task_type"] == "scheduled"
+            assert data["bot_id"] == "test_bot"
 
 
 
@@ -114,18 +117,26 @@ class TestListTasks:
         task = MagicMock()
         task.id = task_id
         task.status = "pending"
+        task.task_type = "scheduled"
         task.bot_id = "test_bot"
         task.prompt = "test prompt"
         task.title = None
         task.scheduled_at = None
         task.run_at = None
         task.completed_at = None
+        task.created_at = None
         task.dispatch_type = "none"
         task.recurrence = None
         task.run_count = 0
         task.prompt_template_id = None
+        task.parent_task_id = None
         task.result = None
         task.error = None
+        task.steps = None
+        task.step_states = None
+        task.execution_config = None
+        task.trigger_config = None
+        task.max_run_seconds = None
 
         db = AsyncMock()
         db.get = AsyncMock(return_value=task)
@@ -138,6 +149,7 @@ class TestListTasks:
             data = json.loads(result)
             assert data["id"] == str(task_id)
             assert data["status"] == "pending"
+            assert data["task_type"] == "scheduled"
             assert data["prompt"] == "test prompt"
 
     @pytest.mark.asyncio
@@ -149,18 +161,26 @@ class TestListTasks:
         task = MagicMock()
         task.id = task_id
         task.status = "active"
+        task.task_type = "scheduled"
         task.bot_id = "test_bot"
         task.prompt = "test prompt"
         task.title = None
         task.scheduled_at = None
         task.run_at = None
         task.completed_at = None
+        task.created_at = None
         task.dispatch_type = "none"
         task.recurrence = "+1h"
         task.run_count = 5
         task.prompt_template_id = tpl_id
+        task.parent_task_id = None
         task.result = None
         task.error = None
+        task.steps = None
+        task.step_states = None
+        task.execution_config = None
+        task.trigger_config = None
+        task.max_run_seconds = None
 
         tpl = MagicMock()
         tpl.name = "daily_check"

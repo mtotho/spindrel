@@ -175,6 +175,15 @@ _SCHEDULE_TASK_SCHEMA = {
                         "Default: inherit from channel setting or global (1200s / 20min)."
                     ),
                 },
+                "trigger_config": {
+                    "type": "string",
+                    "description": (
+                        "JSON object configuring event-based triggers. "
+                        "When set, the task runs in response to events instead of (or in addition to) a schedule. "
+                        "Example: '{\"type\":\"event\",\"event_source\":\"github\",\"event_type\":\"push\"}'. "
+                        "The task status will be set to 'active' when trigger_config is provided."
+                    ),
+                },
             },
         },
     },
@@ -211,6 +220,7 @@ async def schedule_task(
     recurrence: str | None = None,
     trigger_rag_loop: bool = False,
     max_run_seconds: int | None = None,
+    trigger_config: str | None = None,
 ) -> str:
     # Rate limit: cap task creation per agent loop iteration
     count = task_creation_count.get(0)
@@ -235,6 +245,14 @@ async def schedule_task(
             parsed_ec = json.loads(execution_config)
         except json.JSONDecodeError:
             return json.dumps({"error": "Invalid JSON in execution_config parameter."})
+
+    # Parse trigger config
+    parsed_tc = None
+    if trigger_config:
+        try:
+            parsed_tc = json.loads(trigger_config)
+        except json.JSONDecodeError:
+            return json.dumps({"error": "Invalid JSON in trigger_config parameter."})
 
     # Must have at least one of prompt, steps, or workspace_file_path
     if not prompt and not parsed_steps and not workspace_file_path:
@@ -307,8 +325,9 @@ async def schedule_task(
         if dispatch_type == "slack":
             dispatch_config["reply_in_thread"] = reply_in_thread
 
-        # If recurrence is set, create as an active schedule template
-        initial_status = "active" if recurrence else "pending"
+        # Active status for schedule templates and event-triggered tasks
+        trigger_type = (parsed_tc or {}).get("type")
+        initial_status = "active" if (recurrence or trigger_type == "event") else "pending"
         task = Task(
             bot_id=effective_bot_id,
             client_id=client_id,
@@ -321,6 +340,7 @@ async def schedule_task(
             task_type=effective_task_type,
             steps=parsed_steps,
             execution_config=parsed_ec,
+            trigger_config=parsed_tc,
             dispatch_type=dispatch_type,
             dispatch_config=dispatch_config,
             callback_config=callback_cfg,
@@ -361,8 +381,9 @@ async def schedule_task(
     "function": {
         "name": "list_tasks",
         "description": (
-            "List tasks for the current channel (or another bot's channel). "
-            "By default only shows pending/running/active tasks, excluding internal tasks."
+            "List task definitions for the current bot, get detailed info on a specific task, "
+            "or view run history of a task definition. "
+            "By default only shows pending/running/active task definitions, excluding internal tasks."
         ),
         "parameters": {
             "type": "object",
@@ -396,12 +417,20 @@ async def schedule_task(
                         "that are normally hidden. Default false."
                     ),
                 },
+                "parent_task_id": {
+                    "type": "string",
+                    "description": (
+                        "List run history (child tasks) of a task definition. "
+                        "Pass the definition's task UUID to see its concrete runs. "
+                        "When set, completed runs are included automatically."
+                    ),
+                },
             },
             "required": [],
         },
     },
 })
-async def list_tasks(task_id: str | None = None, bot_id: str | None = None, include_completed: bool = False, include_internal: bool = False) -> str:
+async def list_tasks(task_id: str | None = None, bot_id: str | None = None, include_completed: bool = False, include_internal: bool = False, parent_task_id: str | None = None) -> str:
     # Detail mode: single task lookup
     if task_id:
         try:
@@ -424,16 +453,20 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
         data: dict = {
             "id": str(task.id),
             "status": task.status,
+            "task_type": task.task_type,
             "bot_id": task.bot_id,
             "title": task.title,
             "prompt": task.prompt,
             "scheduled_at": task.scheduled_at.isoformat() if task.scheduled_at else None,
             "run_at": task.run_at.isoformat() if task.run_at else None,
             "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+            "created_at": task.created_at.isoformat() if task.created_at else None,
             "dispatch_type": task.dispatch_type,
             "recurrence": task.recurrence,
             "run_count": task.run_count,
         }
+        if task.parent_task_id:
+            data["parent_task_id"] = str(task.parent_task_id)
         if tpl_name:
             data["prompt_template"] = tpl_name
         _wfp = getattr(task, "workspace_file_path", None)
@@ -443,7 +476,65 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
             data["result"] = task.result
         if task.error:
             data["error"] = task.error
+        if task.steps:
+            data["steps"] = task.steps
+            data["step_count"] = len(task.steps)
+        if task.step_states:
+            data["step_states"] = task.step_states
+        if task.execution_config:
+            data["execution_config"] = task.execution_config
+        if task.trigger_config:
+            data["trigger_config"] = task.trigger_config
+        if task.max_run_seconds:
+            data["max_run_seconds"] = task.max_run_seconds
         return json.dumps(data)
+
+    # Run history mode — list children of a task definition
+    if parent_task_id:
+        try:
+            pid = uuid.UUID(parent_task_id)
+        except ValueError:
+            return json.dumps({"error": f"Invalid parent_task_id: {parent_task_id}"})
+
+        async with async_session() as db:
+            parent = await db.get(Task, pid)
+            if not parent:
+                return json.dumps({"error": f"Task {parent_task_id} not found."})
+            stmt = (
+                select(Task)
+                .where(Task.parent_task_id == pid)
+                .order_by(Task.created_at.desc())
+                .limit(20)
+            )
+            children = list((await db.execute(stmt)).scalars().all())
+
+        if not children:
+            return json.dumps({"runs": [], "message": "No runs found for this task definition."})
+
+        run_list = []
+        for c in children:
+            entry: dict = {
+                "id": str(c.id),
+                "status": c.status,
+                "task_type": c.task_type,
+            }
+            if c.run_at:
+                entry["run_at"] = c.run_at.isoformat()
+            if c.completed_at:
+                entry["completed_at"] = c.completed_at.isoformat()
+            if c.created_at:
+                entry["created_at"] = c.created_at.isoformat()
+            if c.result:
+                entry["result_preview"] = c.result[:80] + ("..." if len(c.result) > 80 else "")
+            if c.error:
+                entry["error"] = c.error
+            if c.step_states:
+                done = sum(1 for s in c.step_states if s.get("status") == "done")
+                total = len(c.step_states)
+                entry["steps_summary"] = f"{done}/{total} done"
+            run_list.append(entry)
+
+        return json.dumps({"runs": run_list, "count": len(run_list), "definition_id": parent_task_id})
 
     # List mode — cross-bot or current channel
     async with async_session() as db:
@@ -498,6 +589,7 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
         entry: dict = {
             "id": str(t.id),
             "status": t.status,
+            "task_type": t.task_type,
             "bot_id": t.bot_id,
             "title": t.title,
         }
@@ -573,7 +665,8 @@ async def cancel_task(task_id: str) -> str:
     "function": {
         "name": "update_task",
         "description": (
-            "Update a pending or active task: schedule time, prompt, workspace file, recurrence, or bot. "
+            "Update a pending or active task definition: schedule, prompt, pipeline steps, "
+            "execution config, event triggers, recurrence, or bot. "
             "Omit any field to leave it unchanged."
         ),
         "parameters": {
@@ -620,6 +713,32 @@ async def cancel_task(task_id: str) -> str:
                     "type": "integer",
                     "description": "Max run time in seconds. Pass null to clear (inherit from channel/global). Omit to leave unchanged.",
                 },
+                "steps": {
+                    "type": "string",
+                    "description": (
+                        "Updated pipeline step definitions as a JSON array. "
+                        "Pass null to clear steps (converts back to agent task). "
+                        "Omit to leave unchanged."
+                    ),
+                },
+                "execution_config": {
+                    "type": "string",
+                    "description": (
+                        "Execution overrides as JSON object. Valid keys: "
+                        "model_override (string), tools (list of tool names), "
+                        "skills (list of skill IDs). Merged with existing config. "
+                        "Pass null to clear. Omit to leave unchanged."
+                    ),
+                },
+                "trigger_config": {
+                    "type": "string",
+                    "description": (
+                        "Event trigger configuration as JSON object. "
+                        "Example: '{\"type\":\"event\",\"event_source\":\"github\","
+                        "\"event_type\":\"push\"}'. "
+                        "Pass null to clear. Omit to leave unchanged."
+                    ),
+                },
             },
             "required": ["task_id"],
         },
@@ -636,6 +755,9 @@ async def update_task(
     reply_in_thread: bool | object = _UNSET,
     trigger_rag_loop: bool | object = _UNSET,
     max_run_seconds: int | None | object = _UNSET,
+    steps: str | None | object = _UNSET,
+    execution_config: str | None | object = _UNSET,
+    trigger_config: str | None | object = _UNSET,
 ) -> str:
     try:
         tid = uuid.UUID(task_id)
@@ -729,6 +851,60 @@ async def update_task(
             task.max_run_seconds = max_run_seconds
             changes.append(f"max_run_seconds → {max_run_seconds}")
 
+        if steps is not _UNSET:
+            from sqlalchemy.orm import attributes as sa_attributes
+            if steps is None:
+                task.steps = None
+                sa_attributes.flag_modified(task, "steps")
+                if task.task_type == "pipeline":
+                    task.task_type = "scheduled"
+                changes.append("steps cleared (task_type → scheduled)")
+            else:
+                try:
+                    parsed_steps = json.loads(steps)
+                except json.JSONDecodeError:
+                    return json.dumps({"error": "Invalid JSON in steps parameter."})
+                if not isinstance(parsed_steps, list) or not parsed_steps:
+                    return json.dumps({"error": "steps must be a non-empty JSON array."})
+                task.steps = parsed_steps
+                sa_attributes.flag_modified(task, "steps")
+                task.task_type = "pipeline"
+                changes.append(f"steps updated ({len(parsed_steps)} steps, task_type → pipeline)")
+
+        if execution_config is not _UNSET:
+            from sqlalchemy.orm import attributes as sa_attributes
+            if execution_config is None:
+                task.execution_config = None
+                sa_attributes.flag_modified(task, "execution_config")
+                changes.append("execution_config cleared")
+            else:
+                try:
+                    parsed_ec = json.loads(execution_config)
+                except json.JSONDecodeError:
+                    return json.dumps({"error": "Invalid JSON in execution_config parameter."})
+                ec = dict(task.execution_config or {})
+                ec.update(parsed_ec)
+                task.execution_config = ec
+                sa_attributes.flag_modified(task, "execution_config")
+                changes.append(f"execution_config updated ({', '.join(parsed_ec.keys())})")
+
+        if trigger_config is not _UNSET:
+            from sqlalchemy.orm import attributes as sa_attributes
+            if trigger_config is None:
+                task.trigger_config = None
+                changes.append("trigger_config cleared")
+            else:
+                try:
+                    parsed_tc = json.loads(trigger_config)
+                except json.JSONDecodeError:
+                    return json.dumps({"error": "Invalid JSON in trigger_config parameter."})
+                task.trigger_config = parsed_tc
+                if parsed_tc.get("type") == "event" and task.status == "pending":
+                    task.status = "active"
+                    changes.append("trigger_config set (status → active)")
+                else:
+                    changes.append("trigger_config updated")
+
         if not changes:
             return json.dumps({"error": "Provide at least one field to change."})
 
@@ -790,6 +966,12 @@ async def get_task_result(task_id: str) -> str:
             data["completed_at"] = task.completed_at.isoformat()
         if task.run_count:
             data["run_count"] = task.run_count
+        if task.parent_task_id:
+            data["parent_task_id"] = str(task.parent_task_id)
+        if task.step_states:
+            data["step_states"] = task.step_states
+        if task.steps:
+            data["step_count"] = len(task.steps)
 
         # Include child tasks count if any
         child_count = (await db.execute(
@@ -799,3 +981,58 @@ async def get_task_result(task_id: str) -> str:
             data["child_task_count"] = child_count
 
     return json.dumps(data)
+
+
+# ---------------------------------------------------------------------------
+# run_task — manually trigger a task definition
+# ---------------------------------------------------------------------------
+@register({
+    "type": "function",
+    "function": {
+        "name": "run_task",
+        "description": (
+            "Manually trigger a task definition to run now. "
+            "Creates a concrete child task from the definition and schedules it immediately. "
+            "Works on active schedule templates, pipeline definitions, or event-triggered tasks. "
+            "Returns the new run's ID and status. Use list_tasks with parent_task_id to see run history."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "The task definition UUID to trigger.",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+}, safety_tier="control_plane")
+async def run_task(task_id: str) -> str:
+    try:
+        tid = uuid.UUID(task_id)
+    except ValueError:
+        return json.dumps({"error": f"Invalid task_id: {task_id}"})
+
+    from app.services.task_ops import spawn_child_run
+
+    async with async_session() as db:
+        try:
+            child = await spawn_child_run(tid, db)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+        await db.commit()
+        await db.refresh(child)
+
+    result_data: dict = {
+        "id": str(child.id),
+        "parent_task_id": task_id,
+        "status": "pending",
+        "task_type": child.task_type,
+        "bot_id": child.bot_id,
+    }
+    if child.title:
+        result_data["title"] = child.title
+    if child.steps:
+        result_data["step_count"] = len(child.steps)
+    return json.dumps(result_data)

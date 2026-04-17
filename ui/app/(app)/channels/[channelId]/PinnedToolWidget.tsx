@@ -14,6 +14,7 @@ import type { WidgetActionResult } from "@/src/api/hooks/useWidgetAction";
 import { ComponentRenderer, WidgetActionContext } from "@/src/components/chat/renderers/ComponentRenderer";
 import type { PinnedWidget, ToolResultEnvelope } from "@/src/types/api";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
+import { apiFetch } from "@/src/api/client";
 
 /** Strip MCP server prefix: "homeassistant-HassTurnOn" → "HassTurnOn" */
 function cleanToolName(name: string): string {
@@ -57,6 +58,41 @@ export function PinnedToolWidget({
       setCurrentEnvelope(sharedEnvelope);
     }
   }, [sharedEnvelope]);
+
+  // Refresh on mount — fetch fresh state from the poll tool if widget is refreshable
+  const refreshedRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
+  useEffect(() => {
+    if (refreshedRef.current) return;
+    if (!widget.envelope?.refreshable) return;
+    refreshedRef.current = true;
+
+    const displayLabel = widget.envelope.display_label || widget.display_name || "";
+    setRefreshing(true);
+
+    apiFetch<{ ok: boolean; envelope?: Record<string, unknown> | null; error?: string }>("/api/v1/widget-actions/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tool_name: widget.tool_name,
+        display_label: displayLabel,
+        channel_id: channelId,
+        bot_id: widget.bot_id,
+      }),
+    })
+      .then((resp) => {
+        if (resp.ok && resp.envelope) {
+          const fresh = resp.envelope as unknown as ToolResultEnvelope;
+          setCurrentEnvelope(fresh);
+          onEnvelopeUpdate(widget.id, fresh);
+          broadcastEnvelope(channelId, widget.tool_name, fresh);
+        }
+      })
+      .catch(() => {
+        // Silently keep cached envelope — stale is better than empty
+      })
+      .finally(() => setRefreshing(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     attributes,
@@ -102,7 +138,7 @@ export function PinnedToolWidget({
     transform: CSS.Transform.toString(transform),
     transition,
     borderColor: `${t.surfaceBorder}80`,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.5 : refreshing ? 0.6 : 1,
   };
 
   return (

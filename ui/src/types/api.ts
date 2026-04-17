@@ -601,6 +601,8 @@ export interface ToolResultEnvelope {
   widget_type?: string;
   /** Resolved display label from widget template (e.g., entity name) */
   display_label?: string | null;
+  /** When true, this widget supports state refresh on load via state_poll */
+  refreshable?: boolean;
 }
 
 /** Action definition for interactive widget components (toggle, button, select, etc.) */

@@ -7,6 +7,55 @@ version: "1.0"
 # MCP servers are configured externally (official HA MCP + community ha-mcp).
 # No settings needed — this integration provides skills and widget templates.
 
+# Shared state_poll config — all HA widgets use the same poll mechanism.
+# GetLiveContext returns all entity states; the transform filters to the
+# specific entity by display_label.
+_ha_state_poll: &ha_state_poll
+  tool: GetLiveContext
+  args: {}
+  transform: "integrations.homeassistant.widget_transforms:entity_state"
+  template:
+    v: 1
+    components:
+      - type: status
+        when: "{{is_on}}"
+        text: "On"
+        color: success
+      - type: status
+        when: "{{is_on == false}}"
+        text: "Off"
+        color: muted
+      - type: toggle
+        label: Power
+        value: "{{is_on}}"
+        color: success
+        action:
+          dispatch: tool
+          tool: HassTurnOff
+          args:
+            name: "{{entity_name}}"
+          optimistic: true
+      - type: slider
+        when: "{{is_on}}"
+        label: Brightness
+        value: "{{brightness}}"
+        min: 0
+        max: 100
+        step: 5
+        unit: "%"
+        color: accent
+        action:
+          dispatch: tool
+          tool: HassLightSet
+          args:
+            name: "{{entity_name}}"
+          value_key: brightness
+      - type: properties
+        layout: inline
+        items:
+          - label: entity
+            value: "{{entity_name}}"
+
 tool_widgets:
   # Official HA MCP tools — intent-based
   # Result shape: {response_type, data: {targets[], success[{name, type, id}], failed[]}}
@@ -15,6 +64,7 @@ tool_widgets:
     content_type: application/vnd.spindrel.components+json
     display: inline
     display_label: "{{data.success | where: type=entity | pluck: name | first}}"
+    state_poll: *ha_state_poll
     template:
       v: 1
       components:
@@ -39,6 +89,7 @@ tool_widgets:
     content_type: application/vnd.spindrel.components+json
     display: inline
     display_label: "{{data.success | where: type=entity | pluck: name | first}}"
+    state_poll: *ha_state_poll
     template:
       v: 1
       components:
@@ -62,6 +113,7 @@ tool_widgets:
     content_type: application/vnd.spindrel.components+json
     display: inline
     display_label: "{{data.success | where: type=entity | pluck: name | first}}"
+    state_poll: *ha_state_poll
     template:
       v: 1
       components:

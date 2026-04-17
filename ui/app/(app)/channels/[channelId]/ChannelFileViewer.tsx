@@ -120,7 +120,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
   }, [isDirty, onDirtyChange]);
 
   const handleSave = useCallback(() => {
-    if (!isDirty || !editContent) return;
+    if (!isDirty || editContent == null) return;
     const writePath = useChannelEndpoint ? channelRelPath! : filePath;
     writeMutation.mutate(
       { path: writePath, content: editContent },

@@ -64,6 +64,7 @@ class ToolResultEnvelope:
     record_id: uuid.UUID | None = None
     byte_size: int = 0
     display_label: str | None = None
+    refreshable: bool = False
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -83,6 +84,8 @@ class ToolResultEnvelope:
         }
         if self.display_label:
             d["display_label"] = self.display_label
+        if self.refreshable:
+            d["refreshable"] = True
         return d
 
 

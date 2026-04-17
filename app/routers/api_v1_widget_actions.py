@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 from typing import Literal
 
@@ -28,7 +29,7 @@ from app.agent.tool_dispatch import (
     _build_default_envelope,
     _build_envelope_from_optin,
 )
-from app.services.widget_templates import apply_widget_template
+from app.services.widget_templates import apply_widget_template, get_state_poll_config, apply_state_poll
 
 logger = logging.getLogger(__name__)
 
@@ -207,3 +208,96 @@ def _build_result_envelope(tool_name: str, raw_result: str) -> ToolResultEnvelop
         return widget_env
 
     return _build_default_envelope(raw_result)
+
+
+# ── State poll cache — deduplicates concurrent GetLiveContext calls ──
+
+_poll_cache: dict[str, tuple[float, str]] = {}  # tool_name → (timestamp, raw_result)
+_POLL_CACHE_TTL = 30.0  # seconds
+
+
+class WidgetRefreshRequest(BaseModel):
+    tool_name: str
+    display_label: str = ""
+    channel_id: uuid.UUID
+    bot_id: str
+
+
+@router.post("/refresh", response_model=WidgetActionResponse)
+async def refresh_widget_state(req: WidgetRefreshRequest):
+    """Fetch fresh state for a pinned widget by calling its state_poll tool.
+
+    The state_poll config is declared in the widget template YAML. Results are
+    cached for 30s to avoid redundant calls when multiple pinned widgets from
+    the same integration refresh on page load.
+    """
+    # Look up state_poll config for this tool
+    poll_cfg = get_state_poll_config(req.tool_name)
+    if not poll_cfg:
+        return WidgetActionResponse(ok=False, error=f"No state_poll config for {req.tool_name}")
+
+    poll_tool = poll_cfg.get("tool")
+    if not poll_tool:
+        return WidgetActionResponse(ok=False, error="state_poll missing 'tool' field")
+
+    # Resolve the poll tool name (may need MCP prefix)
+    resolved_poll_tool = _resolve_tool_name(poll_tool)
+
+    # Check cache — reuse recent result for the same poll tool
+    now = time.monotonic()
+    cached = _poll_cache.get(resolved_poll_tool)
+    if cached and (now - cached[0]) < _POLL_CACHE_TTL:
+        raw_result = cached[1]
+        logger.debug("Widget refresh: using cached %s result (%.1fs old)", resolved_poll_tool, now - cached[0])
+    else:
+        # Call the poll tool
+        raw_result = None
+        error_msg = None
+
+        if is_local_tool(resolved_poll_tool):
+            poll_args = json.dumps(poll_cfg.get("args", {}))
+            try:
+                raw_result = await asyncio.wait_for(
+                    call_local_tool(resolved_poll_tool, poll_args),
+                    timeout=settings.TOOL_DISPATCH_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                error_msg = f"Poll tool '{resolved_poll_tool}' timed out"
+            except Exception as exc:
+                error_msg = f"Poll tool '{resolved_poll_tool}' failed: {exc}"
+        elif is_mcp_tool(resolved_poll_tool):
+            poll_args = json.dumps(poll_cfg.get("args", {}))
+            try:
+                raw_result = await asyncio.wait_for(
+                    call_mcp_tool(resolved_poll_tool, poll_args),
+                    timeout=settings.TOOL_DISPATCH_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                error_msg = f"Poll tool '{resolved_poll_tool}' timed out"
+            except Exception as exc:
+                error_msg = f"Poll tool '{resolved_poll_tool}' failed: {exc}"
+        else:
+            return WidgetActionResponse(ok=False, error=f"Unknown poll tool: {poll_tool}")
+
+        if error_msg:
+            return WidgetActionResponse(ok=False, error=error_msg)
+
+        if raw_result is None:
+            return WidgetActionResponse(ok=True, envelope=None)
+
+        # Cache the result
+        _poll_cache[resolved_poll_tool] = (now, raw_result)
+
+    # Apply state_poll transform + template
+    widget_meta = {"display_label": req.display_label, "tool_name": req.tool_name}
+    envelope = apply_state_poll(req.tool_name, raw_result, widget_meta)
+
+    if envelope is None:
+        return WidgetActionResponse(ok=False, error="State poll template failed to render")
+
+    logger.info(
+        "Widget refresh: tool=%s poll_tool=%s display_label=%s",
+        req.tool_name, resolved_poll_tool, req.display_label,
+    )
+
+    return WidgetActionResponse(ok=True, envelope=envelope.compact_dict())

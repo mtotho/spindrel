@@ -669,47 +669,12 @@ async def admin_run_task_now(
     _auth=Depends(require_scopes("tasks:write")),
 ):
     """Manually trigger a task definition — spawns a concrete child task immediately."""
-    parent = await db.get(Task, task_id)
-    if not parent:
-        raise HTTPException(status_code=404, detail="Task not found")
+    from app.services.task_ops import spawn_child_run
 
-    # Resolve latest prompt content (same as _spawn_from_schedule)
-    from app.services.prompt_resolution import resolve_prompt
-    prompt = await resolve_prompt(
-        workspace_id=str(parent.workspace_id) if parent.workspace_id else None,
-        workspace_file_path=parent.workspace_file_path,
-        template_id=str(parent.prompt_template_id) if parent.prompt_template_id else None,
-        inline_prompt=parent.prompt,
-        db=db,
-    )
-
-    concrete = Task(
-        bot_id=parent.bot_id,
-        client_id=parent.client_id,
-        session_id=parent.session_id,
-        channel_id=parent.channel_id,
-        prompt=prompt,
-        title=parent.title,
-        prompt_template_id=parent.prompt_template_id,
-        workspace_file_path=parent.workspace_file_path,
-        workspace_id=parent.workspace_id,
-        scheduled_at=datetime.now(timezone.utc),
-        status="pending",
-        task_type=parent.task_type,
-        dispatch_type=parent.dispatch_type,
-        dispatch_config=dict(parent.dispatch_config) if parent.dispatch_config else None,
-        callback_config=dict(parent.callback_config) if parent.callback_config else None,
-        execution_config=dict(parent.execution_config) if parent.execution_config else None,
-        recurrence=None,
-        parent_task_id=parent.id,
-        max_run_seconds=parent.max_run_seconds,
-        workflow_id=parent.workflow_id,
-        workflow_session_mode=parent.workflow_session_mode,
-        steps=list(parent.steps) if parent.steps else None,
-        created_at=datetime.now(timezone.utc),
-    )
-    db.add(concrete)
-    parent.run_count = (parent.run_count or 0) + 1
+    try:
+        concrete = await spawn_child_run(task_id, db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     await db.commit()
     await db.refresh(concrete)
     return TaskDetailOut.model_validate(concrete)

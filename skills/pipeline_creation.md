@@ -115,6 +115,63 @@ Purely deterministic — zero LLM cost:
 ]
 ```
 
+## Managing Task Definitions
+
+### Updating a Pipeline
+
+Use `update_task` to iterate on pipeline steps, execution config, or event triggers:
+
+```
+update_task(
+  task_id="<uuid>",
+  steps='[{"id": "check", "type": "exec", "prompt": "df -h /"}]'
+)
+```
+
+You can also update `execution_config` (model, tools, skills) and `trigger_config` (event-based triggers).
+
+### Triggering a Run Manually
+
+Use `run_task` to immediately execute a task definition:
+
+```
+run_task(task_id="<definition-uuid>")
+```
+
+This spawns a concrete child task and returns its ID. The definition itself is not modified.
+
+### Viewing Run History
+
+Use `list_tasks` with `parent_task_id` to see past runs of a definition:
+
+```
+list_tasks(parent_task_id="<definition-uuid>")
+```
+
+Returns runs with status, timing, result previews, and step progress summaries.
+
+### Inspecting a Run
+
+Use `get_task_result` to see step-by-step progress of a pipeline run:
+
+```
+get_task_result(task_id="<run-uuid>")
+```
+
+Returns `step_states` with per-step status, output, and timing.
+
+### Event-Triggered Tasks
+
+Use `trigger_config` on `schedule_task` to create tasks that fire on events:
+
+```
+schedule_task(
+  title="Deploy on push",
+  steps='[...]',
+  trigger_config='{"type": "event", "event_source": "github", "event_type": "push"}'
+)
+```
+
 ## Cross-Reference
 
 For the full step JSON schema — conditions, templates, failure handling, environment variables, model tiers — see the **Pipeline Authoring** skill.
