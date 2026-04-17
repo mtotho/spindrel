@@ -351,6 +351,15 @@ class SlackRenderer:
         if msg is None:
             return DeliveryReceipt.skipped("new_message without message payload")
 
+        # Task-run envelopes are UI-only — the web renderer shows a card
+        # with live step progress, but Slack would just see a
+        # "[Pipeline · running · 1/2 steps]" line which is noise. Dispatch
+        # only the separate ``task_run_summary`` message (gated on
+        # ``post_final_to_channel``), which DOES flow through here.
+        msg_meta_early = getattr(msg, "metadata", None) or {}
+        if msg_meta_early.get("kind") == "task_run" or msg_meta_early.get("ui_only"):
+            return DeliveryReceipt.skipped("slack skips UI-only task_run envelope")
+
         # Internal roles are never user-facing. Without this filter the
         # renderer happily serializes raw tool-result JSON (e.g.
         # ``{"ok": true, "bytes": 1181}`` from file_ops.write) into a

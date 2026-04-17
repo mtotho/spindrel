@@ -124,6 +124,12 @@ class TaskCreateIn(BaseModel):
     skills: Optional[list[str]] = None
     tools: Optional[list[str]] = None
     steps: Optional[list[dict]] = None
+    # Channel-output controls — surface dispatch + history behavior from
+    # execution_config in a structured way so the admin UI can wire them
+    # directly instead of requiring raw JSONB edits.
+    post_final_to_channel: Optional[bool] = None
+    history_mode: Optional[str] = None  # "none" | "recent" | "full"
+    history_recent_count: Optional[int] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -132,6 +138,13 @@ class TaskCreateIn(BaseModel):
     def _validate_task_type(cls, v: str) -> str:
         if v not in ALLOWED_TASK_TYPES:
             raise ValueError(f"task_type must be one of {sorted(ALLOWED_TASK_TYPES)}, got '{v}'")
+        return v
+
+    @field_validator("history_mode")
+    @classmethod
+    def _validate_history_mode_create(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("none", "recent", "full"):
+            raise ValueError("history_mode must be one of: none, recent, full")
         return v
 
     @model_validator(mode="after")
@@ -165,6 +178,9 @@ class TaskUpdateIn(BaseModel):
     skills: Optional[list[str]] = None
     tools: Optional[list[str]] = None
     steps: Optional[list[dict]] = None
+    post_final_to_channel: Optional[bool] = None
+    history_mode: Optional[str] = None  # "none" | "recent" | "full"
+    history_recent_count: Optional[int] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -173,6 +189,13 @@ class TaskUpdateIn(BaseModel):
     def _validate_task_type(cls, v: str | None) -> str | None:
         if v is not None and v not in ALLOWED_TASK_TYPES:
             raise ValueError(f"task_type must be one of {sorted(ALLOWED_TASK_TYPES)}, got '{v}'")
+        return v
+
+    @field_validator("history_mode")
+    @classmethod
+    def _validate_history_mode_update(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("none", "recent", "full"):
+            raise ValueError("history_mode must be one of: none, recent, full")
         return v
 
 
@@ -539,6 +562,12 @@ async def admin_create_task(
         ec_extras["skills"] = body.skills
     if body.tools:
         ec_extras["tools"] = body.tools
+    if body.post_final_to_channel is not None:
+        ec_extras["post_final_to_channel"] = bool(body.post_final_to_channel)
+    if body.history_mode is not None:
+        ec_extras["history_mode"] = body.history_mode
+    if body.history_recent_count is not None:
+        ec_extras["history_recent_count"] = int(body.history_recent_count)
     if cb_extras:
         callback_config = cb_extras
     if ec_extras:
@@ -637,7 +666,11 @@ async def admin_update_task(
         task.callback_config = cb
         sa_attributes.flag_modified(task, "callback_config")
 
-    ec_fields = {"model_override", "model_provider_id_override", "fallback_models", "skills", "tools"}
+    ec_fields = {
+        "model_override", "model_provider_id_override", "fallback_models",
+        "skills", "tools",
+        "post_final_to_channel", "history_mode", "history_recent_count",
+    }
     if ec_fields & updates.keys():
         ec = dict(task.execution_config or {})
         if "model_override" in updates:
@@ -650,6 +683,12 @@ async def admin_update_task(
             ec["skills"] = updates["skills"] or None
         if "tools" in updates:
             ec["tools"] = updates["tools"] or None
+        if "post_final_to_channel" in updates:
+            ec["post_final_to_channel"] = bool(updates["post_final_to_channel"]) if updates["post_final_to_channel"] is not None else None
+        if "history_mode" in updates:
+            ec["history_mode"] = updates["history_mode"] or None
+        if "history_recent_count" in updates:
+            ec["history_recent_count"] = int(updates["history_recent_count"]) if updates["history_recent_count"] is not None else None
         task.execution_config = ec
         sa_attributes.flag_modified(task, "execution_config")
 

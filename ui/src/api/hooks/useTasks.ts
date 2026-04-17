@@ -93,6 +93,9 @@ export interface TaskCreatePayload {
   skills?: string[] | null;
   tools?: string[] | null;
   steps?: StepDef[] | null;
+  post_final_to_channel?: boolean | null;
+  history_mode?: "none" | "recent" | "full" | null;
+  history_recent_count?: number | null;
 }
 
 export interface TaskUpdatePayload {
@@ -117,6 +120,9 @@ export interface TaskUpdatePayload {
   skills?: string[] | null;
   tools?: string[] | null;
   steps?: StepDef[] | null;
+  post_final_to_channel?: boolean | null;
+  history_mode?: "none" | "recent" | "full" | null;
+  history_recent_count?: number | null;
 }
 
 // ---------------------------------------------------------------------------

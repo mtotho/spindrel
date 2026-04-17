@@ -18,6 +18,19 @@ from app.services import session_locks
 logger = logging.getLogger(__name__)
 
 
+def _is_pipeline_child(task: Task) -> bool:
+    """True when this task is the child execution of a pipeline agent step.
+
+    Pipeline children funnel their output back into the parent pipeline via
+    the step_executor callback — the channel's UI envelope renders the
+    result from ``step_states``, not from a standalone assistant message.
+    Every channel-visible emission (NEW_MESSAGE, TURN_STARTED, TURN_ENDED,
+    outbox enqueue) is suppressed when this is True.
+    """
+    cb = task.callback_config or {}
+    return bool(cb.get("pipeline_task_id"))
+
+
 def _publish_turn_ended(
     task: Task,
     *,
@@ -33,7 +46,13 @@ def _publish_turn_ended(
     Tasks without a channel_id cannot reach a renderer; they are logged
     and dropped. Every production code path attaches a channel_id when
     creating a task — a missing one is a programming error.
+
+    Pipeline agent-step children suppress this publish entirely — their
+    output flows into the pipeline envelope via step_states, not as a
+    distinct turn on the channel.
     """
+    if _is_pipeline_child(task):
+        return
     channel_id = getattr(task, "channel_id", None)
     if channel_id is None:
         logger.warning("task %s has no channel_id, dropping TURN_ENDED publish", task.id)
@@ -731,8 +750,11 @@ async def run_task(task: Task) -> None:
     _turn_id = uuid.uuid4()
 
     # Tell the bus a queued task is starting; renderers (Slack/Discord)
-    # post a "thinking…" placeholder when this fires.
-    if task.channel_id is not None:
+    # post a "thinking…" placeholder when this fires. Suppressed for
+    # pipeline agent-step children — the parent pipeline's envelope
+    # shows the step's progress instead.
+    _suppress_channel = _is_pipeline_child(task)
+    if task.channel_id is not None and not _suppress_channel:
         try:
             from app.domain.channel_events import ChannelEvent, ChannelEventKind
             from app.domain.payloads import TurnStartedPayload
@@ -806,9 +828,27 @@ async def run_task(task: Task) -> None:
                     channel_id=task.channel_id,
                 )
 
-        # Trim conversation history for task models (same as heartbeat trim)
+        # Trim conversation history. Respects `execution_config.history_mode`
+        # set via the Task editor's "Chat context" picker, falling back to the
+        # heartbeat default for legacy tasks:
+        #   "none"   → 0 turns (system/preamble only — hermetic)
+        #   "recent" → `history_recent_count` turns (default 10)
+        #   "full"   → no trimming (-1)
         from app.services.heartbeat import _trim_history_for_task
-        messages = _trim_history_for_task(messages, settings.HEARTBEAT_MAX_HISTORY_TURNS)
+        _ecfg_hist = task.execution_config or {}
+        _hist_mode = _ecfg_hist.get("history_mode")
+        if _hist_mode == "none":
+            _hist_turns = 0
+        elif _hist_mode == "recent":
+            try:
+                _hist_turns = int(_ecfg_hist.get("history_recent_count") or 10)
+            except (TypeError, ValueError):
+                _hist_turns = 10
+        elif _hist_mode == "full":
+            _hist_turns = -1
+        else:
+            _hist_turns = settings.HEARTBEAT_MAX_HISTORY_TURNS
+        messages = _trim_history_for_task(messages, _hist_turns)
 
         correlation_id = uuid.uuid4()
         task.correlation_id = correlation_id  # reflect back to in-memory object for hooks
@@ -977,11 +1017,16 @@ async def run_task(task: Task) -> None:
                     task.id, _pre_user_msg_id_str,
                 )
         from app.services.sessions import persist_turn
+        # Pipeline agent-step children still persist to the session (so
+        # context carries over for subsequent steps), but we pass
+        # channel_id=None to skip outbox enqueue AND the bus publish —
+        # the pipeline envelope owns the channel-side rendering.
+        _persist_channel_id = None if _suppress_channel else task.channel_id
         async with async_session() as db:
             await persist_turn(
                 db, session_id, bot, messages, messages_start,
                 correlation_id=correlation_id,
-                channel_id=task.channel_id,
+                channel_id=_persist_channel_id,
                 msg_metadata=_task_meta,
                 pre_user_msg_id=_pre_user_msg_id,
             )

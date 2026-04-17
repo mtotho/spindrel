@@ -278,13 +278,25 @@ def _init_step_states(steps: list[dict]) -> list[dict]:
 
 
 async def _persist_step_states(task_id: uuid.UUID, step_states: list[dict]) -> None:
-    """Persist step_states to the database."""
+    """Persist step_states to the database and live-update the channel envelope."""
     async with async_session() as db:
         t = await db.get(Task, task_id)
         if t:
             t.step_states = copy.deepcopy(step_states)
             flag_modified(t, "step_states")
             await db.commit()
+            await db.refresh(t)
+            _task_for_anchor = t
+        else:
+            _task_for_anchor = None
+
+    # Publish MESSAGE_UPDATED so open channel UIs re-render the envelope.
+    if _task_for_anchor is not None and _task_for_anchor.channel_id is not None:
+        try:
+            from app.services.task_run_anchor import update_anchor
+            await update_anchor(_task_for_anchor)
+        except Exception:
+            logger.debug("update_anchor failed for task %s", task_id, exc_info=True)
 
 
 async def _run_exec_step(
@@ -434,6 +446,14 @@ async def run_task_pipeline(task: Task) -> None:
         t.step_states = copy.deepcopy(step_states)
         flag_modified(t, "step_states")
         await db.commit()
+
+    # Create (or look up) the in-channel envelope anchor so the UI can
+    # render live step progress. UI-only — not dispatched to integrations.
+    try:
+        from app.services.task_run_anchor import ensure_anchor_message
+        await ensure_anchor_message(task)
+    except Exception:
+        logger.warning("Pipeline %s: anchor creation failed", task.id, exc_info=True)
 
     try:
         await _advance_pipeline(task, steps, step_states)
@@ -677,5 +697,27 @@ async def _finalize_pipeline(
 
     status = "failed" if failed else "complete"
     logger.info("Pipeline %s finalized → %s", task.id, status)
+
+    # Refresh the envelope anchor with final state + optionally post a
+    # dispatcher-visible summary message to the channel.
+    if task.channel_id is not None:
+        try:
+            async with async_session() as _db:
+                _t_final = await _db.get(Task, task.id)
+            if _t_final is not None:
+                from app.services.task_run_anchor import (
+                    create_summary_message,
+                    update_anchor,
+                )
+                await update_anchor(_t_final)
+                ecfg = _t_final.execution_config or {}
+                if ecfg.get("post_final_to_channel"):
+                    await create_summary_message(_t_final)
+        except Exception:
+            logger.warning(
+                "Pipeline %s: finalize anchor/summary publish failed",
+                task.id, exc_info=True,
+            )
+
     from app.agent.tasks import _fire_task_complete
     await _fire_task_complete(task, status)

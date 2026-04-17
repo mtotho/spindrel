@@ -62,6 +62,9 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [selectedToolKeys, setSelectedToolKeys] = useState<string[]>([]);
   const [steps, setSteps] = useState<StepDef[] | null>(null);
+  const [postFinalToChannel, setPostFinalToChannel] = useState(false);
+  const [historyMode, setHistoryMode] = useState<"none" | "recent" | "full">("none");
+  const [historyRecentCount, setHistoryRecentCount] = useState(10);
   const [initialized, setInitialized] = useState(false);
 
   const stepsMode = steps !== null;
@@ -97,6 +100,9 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setSelectedSkillIds(existingTask.execution_config?.skills ?? []);
       setSelectedToolKeys(existingTask.execution_config?.tools ?? []);
       setSteps(existingTask.steps ?? null);
+      setPostFinalToChannel(!!existingTask.execution_config?.post_final_to_channel);
+      setHistoryMode((existingTask.execution_config?.history_mode as any) ?? "none");
+      setHistoryRecentCount(existingTask.execution_config?.history_recent_count ?? 10);
       setInitialized(true);
       return;
     }
@@ -125,6 +131,9 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setSelectedSkillIds(existingTask.execution_config?.skills ?? []);
       setSelectedToolKeys(existingTask.execution_config?.tools ?? []);
       setSteps(existingTask.steps ?? null);
+      setPostFinalToChannel(!!existingTask.execution_config?.post_final_to_channel);
+      setHistoryMode((existingTask.execution_config?.history_mode as any) ?? "none");
+      setHistoryRecentCount(existingTask.execution_config?.history_recent_count ?? 10);
       setInitialized(true);
     }
   }, [existingTask, initialized, isCreate, cloneFromId]);
@@ -161,6 +170,11 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       const effectiveSteps = steps && steps.length > 0 ? steps : null;
       const skillsPayload = selectedSkillIds.length > 0 ? selectedSkillIds : null;
       const toolsPayload = selectedToolKeys.length > 0 ? selectedToolKeys : null;
+      const channelOutputPayload = {
+        post_final_to_channel: postFinalToChannel,
+        history_mode: historyMode,
+        history_recent_count: historyMode === "recent" ? historyRecentCount : null,
+      };
 
       if (isCreate) {
         const created = await createMut.mutateAsync({
@@ -184,6 +198,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           skills: skillsPayload,
           tools: toolsPayload,
           steps: effectiveSteps,
+          ...channelOutputPayload,
         });
         invalidateExtra();
         onSaved(created.id);
@@ -210,6 +225,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           skills: skillsPayload,
           tools: toolsPayload,
           steps: effectiveSteps,
+          ...channelOutputPayload,
         });
       }
       invalidateExtra();
@@ -217,7 +233,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     } catch {
       // error shown via mutation state
     }
-  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps]);
+  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, postFinalToChannel, historyMode, historyRecentCount]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId || !confirm("Delete this task?")) return;
@@ -272,6 +288,9 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     selectedSkillIds, setSelectedSkillIds,
     selectedToolKeys, setSelectedToolKeys,
     steps, setSteps,
+    postFinalToChannel, setPostFinalToChannel,
+    historyMode, setHistoryMode,
+    historyRecentCount, setHistoryRecentCount,
 
     // Actions
     handleSave,

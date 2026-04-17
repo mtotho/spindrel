@@ -33,6 +33,7 @@ import { PinnedPanelsRail } from "@/src/components/chat/PinnedPanels";
 import { ParticipantsPanel } from "./ParticipantsPanel";
 import { BotInfoPanel } from "@/src/components/chat/BotInfoPanel";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
+import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
 import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnText } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { ChannelHeader } from "./ChannelHeader";
@@ -191,6 +192,9 @@ export default function ChatScreen() {
       const showDateSep = index === invertedData.length - 1 || (prevMsg && isDifferentDay(item.created_at, prevMsg.created_at));
       const dateSep = showDateSep ? <DateSeparator label={formatDateSeparator(item.created_at)} /> : null;
       const meta = (item.metadata ?? {}) as Record<string, any>;
+      if (meta.kind === "task_run") {
+        return <>{dateSep}<TaskRunEnvelope message={item} /></>;
+      }
       if (item.role === "user" && meta.trigger && SUPPORTED_TRIGGERS.has(meta.trigger)) {
         const card = <TriggerCard message={item} botName={bot?.name} />;
         return <>{dateSep}{card}</>;

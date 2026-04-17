@@ -132,8 +132,11 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     if (channelId && pages && turnsCount === 0 && !chatState.isProcessing) {
       const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages)
         .filter((m) => {
-          if (m.role !== "user" && m.role !== "assistant") return false;
           const meta = (m as any).metadata ?? {};
+          // Task-run envelopes render via a custom card. Keep them regardless
+          // of role/content — the renderer pulls everything from metadata.
+          if (meta.kind === "task_run") return true;
+          if (m.role !== "user" && m.role !== "assistant") return false;
           if (meta.passive && !meta.delegated_by) return false;
           if (m.role === "user" && meta.is_heartbeat) return false;
           if (meta.hidden) return false;

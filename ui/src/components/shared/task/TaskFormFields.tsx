@@ -197,6 +197,9 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
     fallbackModels, setFallbackModels,
     bots, channels, skillOptions, allTools,
     isCreate,
+    postFinalToChannel, setPostFinalToChannel,
+    historyMode, setHistoryMode,
+    historyRecentCount, setHistoryRecentCount,
   } = form;
 
   return (
@@ -236,6 +239,58 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
           onRemove={(key) => setSelectedToolKeys(selectedToolKeys.filter((x) => x !== key))}
         />
       </div>
+
+      {/* Channel output — dispatch + history */}
+      {channelId && (
+        <div className="flex flex-col gap-3 rounded-lg border border-surface-border/70 bg-surface-raised/30 p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+            Channel output
+          </div>
+          <Toggle
+            value={postFinalToChannel}
+            onChange={setPostFinalToChannel}
+            label="Post summary to channel"
+            description="Off: run lives only in the envelope card. On: a condensed summary is dispatched through the channel's connected integrations (Slack, Discord, etc.)."
+          />
+          <FormRow
+            label="Chat context"
+            description="What prior channel messages each agent step sees."
+          >
+            <div className="flex items-center gap-1 rounded-md border border-surface-border bg-input p-0.5 w-fit">
+              {(["none", "recent", "full"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setHistoryMode(m)}
+                  className={`px-3 py-1 rounded text-[11.5px] font-medium capitalize cursor-pointer border-none transition-colors ${
+                    historyMode === m
+                      ? "bg-accent/20 text-accent"
+                      : "bg-transparent text-text-muted hover:text-text"
+                  }`}
+                >
+                  {m === "recent" ? `last ${historyRecentCount}` : m}
+                </button>
+              ))}
+            </div>
+          </FormRow>
+          {historyMode === "recent" && (
+            <FormRow label="Messages">
+              <input
+                type="range"
+                min={1}
+                max={50}
+                step={1}
+                value={historyRecentCount}
+                onChange={(e) => setHistoryRecentCount(Number(e.target.value))}
+                className="w-full accent-accent"
+              />
+              <span className="ml-2 font-mono text-[11.5px] text-text-muted">
+                {historyRecentCount}
+              </span>
+            </FormRow>
+          )}
+        </div>
+      )}
 
       {/* Advanced — model config */}
       <AdvancedDisclosure label="Model Configuration">

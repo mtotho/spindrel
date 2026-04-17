@@ -1,0 +1,335 @@
+"""Task-run envelope anchor — one Message row per pipeline/task execution.
+
+When a channel-bound task starts running, this module persists a single
+Message row that the web UI renders as a `TaskRunEnvelope` (progress card
+showing steps, status, context, and actions). Subsequent step-state
+transitions mutate the row's metadata and publish `MESSAGE_UPDATED` on the
+typed channel bus so open tabs re-render in place.
+
+Anchor messages are UI-only:
+  - Persisted in the session's message stream (so channel history survives).
+  - Published to the SSE bus via ``publish_to_bus`` — web clients receive
+    and render.
+  - NOT enqueued to the outbox — Slack/Discord/etc. do NOT see the envelope.
+    Integrations still see the separate ``post_final_to_channel`` summary
+    Message when that flag is set on the task.
+
+The anchor is keyed on ``task_id``. Recurring tasks spawn a fresh Task row
+per occurrence (see ``tasks.py:_spawn_from_schedule``), so each run gets
+its own anchor and scrolls into history as a distinct event.
+"""
+from __future__ import annotations
+
+import copy
+import logging
+import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
+
+from app.db.engine import async_session
+from app.db.models import Channel, Message, Task
+
+logger = logging.getLogger(__name__)
+
+# Metadata key — renderMessage dispatches to TaskRunEnvelope on this.
+ANCHOR_KIND = "task_run"
+
+
+def _step_summary(task: Task) -> list[dict]:
+    """Shape step definitions + current states into the envelope payload."""
+    steps = list(task.steps or [])
+    states = list(task.step_states or [])
+    out: list[dict] = []
+    for i, sdef in enumerate(steps):
+        state = states[i] if i < len(states) else {}
+        result = state.get("result")
+        if result and len(result) > 400:
+            result = result[:400] + "…"
+        out.append({
+            "index": i,
+            "type": sdef.get("type", "agent"),
+            "label": sdef.get("label") or sdef.get("id") or f"Step {i + 1}",
+            "status": state.get("status", "pending"),
+            "duration_ms": _duration_ms(state),
+            "result_preview": result,
+            "error": state.get("error"),
+        })
+    return out
+
+
+def _duration_ms(state: dict) -> int | None:
+    started = state.get("started_at")
+    completed = state.get("completed_at")
+    if not started or not completed:
+        return None
+    try:
+        s = datetime.fromisoformat(started)
+        c = datetime.fromisoformat(completed)
+        return int((c - s).total_seconds() * 1000)
+    except (ValueError, TypeError):
+        return None
+
+
+def _fallback_text(task: Task, status: str, steps: list[dict]) -> str:
+    """Plain-text rendering for clients that can't render the envelope."""
+    title = task.title or task.task_type or "Task"
+    done = sum(1 for s in steps if s["status"] in ("done", "skipped"))
+    total = len(steps)
+    if total:
+        return f"[{title} · {status} · {done}/{total} steps]"
+    return f"[{title} · {status}]"
+
+
+def _build_metadata(task: Task) -> dict:
+    steps = _step_summary(task)
+    ecfg = task.execution_config or {}
+    return {
+        "kind": ANCHOR_KIND,
+        "trigger": ANCHOR_KIND,  # also matched by SUPPORTED_TRIGGERS-style filters
+        "task_id": str(task.id),
+        "task_type": task.task_type,
+        "bot_id": task.bot_id,
+        "title": task.title,
+        "status": task.status,
+        "scheduled_at": task.scheduled_at.isoformat() if task.scheduled_at else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "steps": steps,
+        "step_count": len(steps),
+        "context_mode": ecfg.get("history_mode", "none"),
+        "context_recent_count": ecfg.get("history_recent_count", 10),
+        "post_final_to_channel": bool(ecfg.get("post_final_to_channel", False)),
+        "result": (task.result or "")[:1000] if task.result else None,
+        "error": (task.error or "")[:1000] if task.error else None,
+        # UI-only marker: outbox enqueue paths should skip rows with this flag.
+        "ui_only": True,
+    }
+
+
+async def _resolve_session_id(db, task: Task) -> uuid.UUID | None:
+    """Find the session to anchor to: task.session_id, else channel.active_session_id."""
+    if task.session_id:
+        return task.session_id
+    if task.channel_id is None:
+        return None
+    channel = await db.get(Channel, task.channel_id)
+    return channel.active_session_id if channel else None
+
+
+async def _find_existing_anchor(db, task_id: uuid.UUID) -> Message | None:
+    """Look up an anchor message for this task_id (newest wins)."""
+    # SQLite JSON access differs from PG JSONB; use a simple Python filter
+    # over the session's recent messages. Per run there is one anchor; if a
+    # caller writes two, the newest is authoritative.
+    stmt = (
+        select(Message)
+        .where(Message.role == "assistant")
+        .order_by(Message.created_at.desc())
+        .limit(200)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    for m in rows:
+        meta = m.metadata_ or {}
+        if meta.get("kind") == ANCHOR_KIND and meta.get("task_id") == str(task_id):
+            return m
+    return None
+
+
+async def ensure_anchor_message(task: Task) -> uuid.UUID | None:
+    """Create (or look up) the task_run anchor Message for *task*.
+
+    Returns the Message id, or None if the task has no channel/session to
+    anchor to. Idempotent — calling twice returns the existing row.
+
+    Publishes NEW_MESSAGE on the bus so the web UI renders the envelope
+    immediately. Does NOT enqueue to the outbox (dispatchers skip).
+    """
+    if task.channel_id is None:
+        return None
+
+    async with async_session() as db:
+        session_id = await _resolve_session_id(db, task)
+        if session_id is None:
+            logger.debug("task %s has no session to anchor to", task.id)
+            return None
+
+        existing = await _find_existing_anchor(db, task.id)
+        if existing is not None:
+            return existing.id
+
+        metadata = _build_metadata(task)
+        fallback = _fallback_text(task, task.status or "pending", metadata["steps"])
+        msg = Message(
+            id=uuid.uuid4(),
+            session_id=session_id,
+            role="assistant",
+            content=fallback,
+            metadata_=metadata,
+        )
+        db.add(msg)
+        await db.commit()
+        await db.refresh(msg)
+
+        await _publish_new_message(task.channel_id, msg)
+        logger.info("task_run anchor created: task=%s msg=%s", task.id, msg.id)
+        return msg.id
+
+
+async def update_anchor(task: Task) -> None:
+    """Re-snapshot *task* into its anchor message and publish MESSAGE_UPDATED.
+
+    No-op if the task has no channel or no anchor row. Called after every
+    step-state transition and on pipeline finalization.
+    """
+    if task.channel_id is None:
+        return
+    async with async_session() as db:
+        existing = await _find_existing_anchor(db, task.id)
+        if existing is None:
+            # The pipeline started mid-flight before an anchor was created.
+            # Best-effort create now.
+            await db.rollback()
+            await ensure_anchor_message(task)
+            return
+
+        metadata = _build_metadata(task)
+        existing.metadata_ = copy.deepcopy(metadata)
+        existing.content = _fallback_text(task, task.status or metadata["status"], metadata["steps"])
+        flag_modified(existing, "metadata")
+        await db.commit()
+        await db.refresh(existing)
+
+        await _publish_message_updated(task.channel_id, existing)
+
+
+async def _publish_new_message(channel_id: uuid.UUID, msg: Message) -> None:
+    """Bus-only NEW_MESSAGE for the anchor (no outbox)."""
+    try:
+        from app.domain.channel_events import ChannelEvent, ChannelEventKind
+        from app.domain.message import Message as DomainMessage
+        from app.domain.payloads import MessagePayload
+        from app.services.outbox_publish import publish_to_bus
+
+        dm = DomainMessage.from_orm(msg, channel_id=channel_id)
+        publish_to_bus(
+            channel_id,
+            ChannelEvent(
+                channel_id=channel_id,
+                kind=ChannelEventKind.NEW_MESSAGE,
+                payload=MessagePayload(message=dm),
+            ),
+        )
+    except Exception:
+        logger.warning("task_run anchor bus publish failed for channel %s", channel_id, exc_info=True)
+
+
+async def _publish_message_updated(channel_id: uuid.UUID, msg: Message) -> None:
+    """Bus-only MESSAGE_UPDATED so the envelope re-renders in place."""
+    try:
+        from app.domain.channel_events import ChannelEvent, ChannelEventKind
+        from app.domain.message import Message as DomainMessage
+        from app.domain.payloads import MessageUpdatedPayload
+        from app.services.outbox_publish import publish_to_bus
+
+        dm = DomainMessage.from_orm(msg, channel_id=channel_id)
+        publish_to_bus(
+            channel_id,
+            ChannelEvent(
+                channel_id=channel_id,
+                kind=ChannelEventKind.MESSAGE_UPDATED,
+                payload=MessageUpdatedPayload(message=dm),
+            ),
+        )
+    except Exception:
+        logger.debug(
+            "task_run anchor MESSAGE_UPDATED publish failed for channel %s",
+            channel_id, exc_info=True,
+        )
+
+
+async def create_summary_message(task: Task) -> uuid.UUID | None:
+    """Post a condensed summary Message for a completed pipeline.
+
+    Called only when ``task.execution_config.post_final_to_channel`` is True.
+    This message IS routed through the outbox (Slack, etc.) — it's the
+    dispatcher-visible footprint of the run. Separate from the envelope
+    anchor which remains UI-only.
+    """
+    if task.channel_id is None:
+        return None
+    async with async_session() as db:
+        session_id = await _resolve_session_id(db, task)
+        if session_id is None:
+            return None
+
+        steps = _step_summary(task)
+        title = task.title or task.task_type or "Task"
+        status = task.status or "complete"
+        final_step_result = None
+        for s in reversed(steps):
+            if s.get("result_preview"):
+                final_step_result = s["result_preview"]
+                break
+        duration_total = sum(s.get("duration_ms") or 0 for s in steps)
+        duration_s = duration_total / 1000 if duration_total else None
+        ok = status == "complete"
+
+        # Plain-text body — dispatchers render Markdown; web UI uses the
+        # metadata to add the compact summary card styling.
+        header = f"{'✓' if ok else '✕'} {title} · {status}"
+        lines = [header]
+        if final_step_result:
+            lines.append(final_step_result)
+        meta_row_parts = [f"steps: {len(steps)}"]
+        if duration_s is not None:
+            meta_row_parts.append(f"{duration_s:.1f}s")
+        lines.append(" · ".join(meta_row_parts))
+        content = "\n".join(lines)
+
+        msg = Message(
+            id=uuid.uuid4(),
+            session_id=session_id,
+            role="assistant",
+            content=content,
+            metadata_={
+                "kind": "task_run_summary",
+                "task_id": str(task.id),
+                "status": status,
+                "title": title,
+                "duration_ms": duration_total or None,
+                "step_count": len(steps),
+            },
+        )
+        db.add(msg)
+        await db.commit()
+        await db.refresh(msg)
+
+        # Full outbox + bus so dispatchers pick it up.
+        try:
+            from app.domain.channel_events import ChannelEvent, ChannelEventKind
+            from app.domain.message import Message as DomainMessage
+            from app.domain.payloads import MessagePayload
+            from app.services.outbox_publish import (
+                enqueue_new_message_for_channel,
+                publish_to_bus,
+            )
+
+            dm = DomainMessage.from_orm(msg, channel_id=task.channel_id)
+            publish_to_bus(
+                task.channel_id,
+                ChannelEvent(
+                    channel_id=task.channel_id,
+                    kind=ChannelEventKind.NEW_MESSAGE,
+                    payload=MessagePayload(message=dm),
+                ),
+            )
+            await enqueue_new_message_for_channel(task.channel_id, dm)
+        except Exception:
+            logger.warning(
+                "task_run summary dispatch failed for channel %s msg %s",
+                task.channel_id, msg.id, exc_info=True,
+            )
+
+        logger.info("task_run summary posted: task=%s msg=%s", task.id, msg.id)
+        return msg.id
