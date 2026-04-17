@@ -398,6 +398,7 @@ export interface Channel {
   };
   category?: string | null;
   tags?: string[];
+  last_message_at?: string | null;
   created_at: string;
   updated_at: string;
 }

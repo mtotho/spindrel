@@ -12,6 +12,9 @@ interface WidgetActionRequest {
   channel_id: string;
   bot_id: string;
   source_record_id?: string;
+  /** When the dispatching widget has a state_poll, include display_label so the
+   * backend can fetch fresh polled state after the action and return it. */
+  display_label?: string;
 }
 
 interface WidgetActionResponse {
@@ -26,7 +29,11 @@ export interface WidgetActionResult {
   apiResponse: Record<string, unknown> | null;
 }
 
-export function useWidgetAction(channelId?: string, botId?: string) {
+export function useWidgetAction(
+  channelId?: string,
+  botId?: string,
+  displayLabel?: string | null,
+) {
   const dispatchAction = useCallback(
     async (action: WidgetAction, value: unknown): Promise<WidgetActionResult> => {
       if (!channelId || !botId) {
@@ -44,6 +51,7 @@ export function useWidgetAction(channelId?: string, botId?: string) {
         channel_id: channelId,
         bot_id: botId,
       };
+      if (displayLabel) req.display_label = displayLabel;
 
       if (action.dispatch === "tool") {
         req.tool = action.tool;
@@ -72,7 +80,7 @@ export function useWidgetAction(channelId?: string, botId?: string) {
         apiResponse: resp.api_response ?? null,
       };
     },
-    [channelId, botId],
+    [channelId, botId, displayLabel],
   );
 
   return dispatchAction;

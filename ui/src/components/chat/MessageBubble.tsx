@@ -213,11 +213,6 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} t={t} />
       )}
-      {(activeSkills.length > 0 || autoInjectedSkills.length > 0) && (
-        <div style={{ marginTop: 3, marginBottom: 1, display: "inline-flex" }}>
-          <SkillOrb active={activeSkills} autoInjected={autoInjectedSkills} t={t} />
-        </div>
-      )}
       {/* Inline widget cards — rendered outside ToolBadges chrome */}
       {inlineWidgets.map((w, i) => (
         <WidgetCard
@@ -319,6 +314,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           <span style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase" as const, letterSpacing: 0.5 }}>
             {timestamp}
           </span>
+          {(activeSkills.length > 0 || autoInjectedSkills.length > 0) && (
+            <SkillOrb active={activeSkills} autoInjected={autoInjectedSkills} t={t} />
+          )}
           {isMemberBot && (
             <span style={{
               fontSize: 10,

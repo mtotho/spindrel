@@ -53,6 +53,18 @@ async def get_tool_info(tool_name: str) -> str:
             row = (await db.execute(
                 select(ToolEmbedding).where(ToolEmbedding.tool_name == tool_name)
             )).scalar_one_or_none()
+            if row is None:
+                # Forgiving fallback: LiteLLM's MCP gateway namespaces tools as
+                # "<server>-<tool>" and small models drop the prefix. Try
+                # resolving the bare name to a prefixed MCP tool before failing.
+                from app.tools.mcp import resolve_mcp_tool_name
+                _resolved = resolve_mcp_tool_name(tool_name)
+                if _resolved and _resolved != tool_name:
+                    logger.info("get_tool_info: resolved bare %r -> %r", tool_name, _resolved)
+                    tool_name = _resolved
+                    row = (await db.execute(
+                        select(ToolEmbedding).where(ToolEmbedding.tool_name == tool_name)
+                    )).scalar_one_or_none()
         if row is None:
             return json.dumps({"error": f"Tool {tool_name!r} not found."})
         schema_for_activation = row.schema_ if isinstance(row.schema_, dict) else None

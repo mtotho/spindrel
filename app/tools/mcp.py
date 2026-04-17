@@ -246,3 +246,26 @@ def _find_server_for_tool(tool_name: str) -> str | None:
             if tool["function"]["name"] == tool_name:
                 return server_name
     return None
+
+
+def resolve_mcp_tool_name(name: str) -> str | None:
+    """Return the canonical MCP tool name for a possibly-bare call.
+
+    LiteLLM's MCP gateway namespaces tools as ``<server>-<tool>``. Smaller
+    models (Gemini 2.5 Flash etc.) frequently drop the prefix. This returns
+    the prefixed match if one exists, so callers can recover bare names
+    without forcing the model to retry.
+
+    - Exact match wins.
+    - Otherwise try ``<server>-<name>`` across all cached servers; returns
+      the first prefixed match.
+    - Returns None if nothing resolves.
+    """
+    if _find_server_for_tool(name) is not None:
+        return name
+    for server_name, cached in _cache.items():
+        prefixed = f"{server_name}-{name}"
+        for tool in cached.get("tools", []):
+            if tool["function"]["name"] == prefixed:
+                return prefixed
+    return None

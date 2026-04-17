@@ -42,18 +42,10 @@ def _resolve_tool_name(name: str) -> str:
     Widget templates use bare tool names (e.g., "HassTurnOff") but MCP tools
     are registered with a server prefix (e.g., "homeassistant-HassTurnOff").
     """
-    if is_local_tool(name) or is_mcp_tool(name):
+    if is_local_tool(name):
         return name
-
-    # Try finding an MCP tool with any server prefix
-    from app.tools.mcp import _cache as mcp_cache
-    for server_name, cached in mcp_cache.items():
-        prefixed = f"{server_name}-{name}"
-        for tool in cached.get("tools", []):
-            if tool["function"]["name"] == prefixed:
-                return prefixed
-
-    return name  # fall through — will error downstream
+    from app.tools.mcp import resolve_mcp_tool_name
+    return resolve_mcp_tool_name(name) or name
 
 # ── Allowlisted internal API path prefixes for dispatch:"api" ──
 _API_ALLOWLIST = [
@@ -75,6 +67,10 @@ class WidgetActionRequest(BaseModel):
     channel_id: uuid.UUID
     bot_id: str
     source_record_id: uuid.UUID | None = None
+    # When the dispatching widget has a state_poll, passing display_label lets
+    # the backend fetch fresh state after the action and return that envelope
+    # instead of the (often stateless) action template output.
+    display_label: str | None = None
 
 
 class WidgetActionResponse(BaseModel):
@@ -151,6 +147,22 @@ async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
         name, resolved_name, args_str, req.channel_id, result or "",
     )
 
+    # If the tool has a state_poll, the state on the external system just
+    # changed. Invalidate the cached poll result so subsequent refreshes hit
+    # the real service, and try to fetch fresh polled state now — the polled
+    # envelope is authoritative, the action envelope often is not.
+    poll_cfg = get_state_poll_config(resolved_name)
+    if poll_cfg:
+        invalidate_poll_cache_for(poll_cfg)
+        if req.display_label:
+            polled = await _do_state_poll(
+                tool_name=resolved_name,
+                display_label=req.display_label,
+                poll_cfg=poll_cfg,
+            )
+            if polled is not None:
+                return WidgetActionResponse(ok=True, envelope=polled.compact_dict())
+
     return WidgetActionResponse(ok=True, envelope=envelope.compact_dict())
 
 
@@ -224,6 +236,71 @@ def _evict_stale_cache() -> None:
         del _poll_cache[k]
 
 
+def invalidate_poll_cache_for(poll_cfg: dict) -> None:
+    """Drop the cached poll result for a given state_poll config.
+
+    Called after any tool mutation that may have changed the polled state
+    (widget-action dispatch or bot tool_dispatch) so the next refresh hits
+    the real service instead of serving a pre-mutation cache hit.
+    """
+    poll_tool = poll_cfg.get("tool")
+    if not poll_tool:
+        return
+    resolved = _resolve_tool_name(poll_tool)
+    _poll_cache.pop(resolved, None)
+
+
+async def _do_state_poll(
+    *, tool_name: str, display_label: str, poll_cfg: dict,
+) -> ToolResultEnvelope | None:
+    """Fetch fresh state via the configured poll tool and render its template.
+
+    Used by both the /refresh endpoint and the post-action envelope swap in
+    _dispatch_tool. Returns None on error.
+    """
+    poll_tool = poll_cfg.get("tool")
+    if not poll_tool:
+        return None
+
+    resolved_poll_tool = _resolve_tool_name(poll_tool)
+
+    now = time.monotonic()
+    cached = _poll_cache.get(resolved_poll_tool)
+    if cached and (now - cached[0]) < _POLL_CACHE_TTL:
+        raw_result: str | None = cached[1]
+    else:
+        poll_args = json.dumps(poll_cfg.get("args", {}))
+        raw_result = None
+        try:
+            if is_local_tool(resolved_poll_tool):
+                raw_result = await asyncio.wait_for(
+                    call_local_tool(resolved_poll_tool, poll_args),
+                    timeout=settings.TOOL_DISPATCH_TIMEOUT,
+                )
+            elif is_mcp_tool(resolved_poll_tool):
+                raw_result = await asyncio.wait_for(
+                    call_mcp_tool(resolved_poll_tool, poll_args),
+                    timeout=settings.TOOL_DISPATCH_TIMEOUT,
+                )
+            else:
+                logger.warning("Unknown poll tool: %s", poll_tool)
+                return None
+        except asyncio.TimeoutError:
+            logger.warning("Poll tool '%s' timed out", resolved_poll_tool)
+            return None
+        except Exception:
+            logger.warning("Poll tool '%s' failed", resolved_poll_tool, exc_info=True)
+            return None
+
+        if raw_result is None:
+            return None
+
+        _poll_cache[resolved_poll_tool] = (now, raw_result)
+
+    widget_meta = {"display_label": display_label, "tool_name": tool_name}
+    return apply_state_poll(tool_name, raw_result, widget_meta)
+
+
 class WidgetRefreshRequest(BaseModel):
     tool_name: str
     display_label: str = ""
@@ -241,73 +318,21 @@ async def refresh_widget_state(req: WidgetRefreshRequest):
     """
     _evict_stale_cache()
 
-    # Look up state_poll config for this tool
     poll_cfg = get_state_poll_config(req.tool_name)
     if not poll_cfg:
         return WidgetActionResponse(ok=False, error=f"No state_poll config for {req.tool_name}")
-
-    poll_tool = poll_cfg.get("tool")
-    if not poll_tool:
+    if not poll_cfg.get("tool"):
         return WidgetActionResponse(ok=False, error="state_poll missing 'tool' field")
 
-    # Resolve the poll tool name (may need MCP prefix)
-    resolved_poll_tool = _resolve_tool_name(poll_tool)
-
-    # Check cache — reuse recent result for the same poll tool
-    now = time.monotonic()
-    cached = _poll_cache.get(resolved_poll_tool)
-    if cached and (now - cached[0]) < _POLL_CACHE_TTL:
-        raw_result = cached[1]
-        logger.debug("Widget refresh: using cached %s result (%.1fs old)", resolved_poll_tool, now - cached[0])
-    else:
-        # Call the poll tool
-        raw_result = None
-        error_msg = None
-
-        if is_local_tool(resolved_poll_tool):
-            poll_args = json.dumps(poll_cfg.get("args", {}))
-            try:
-                raw_result = await asyncio.wait_for(
-                    call_local_tool(resolved_poll_tool, poll_args),
-                    timeout=settings.TOOL_DISPATCH_TIMEOUT,
-                )
-            except asyncio.TimeoutError:
-                error_msg = f"Poll tool '{resolved_poll_tool}' timed out"
-            except Exception as exc:
-                error_msg = f"Poll tool '{resolved_poll_tool}' failed: {exc}"
-        elif is_mcp_tool(resolved_poll_tool):
-            poll_args = json.dumps(poll_cfg.get("args", {}))
-            try:
-                raw_result = await asyncio.wait_for(
-                    call_mcp_tool(resolved_poll_tool, poll_args),
-                    timeout=settings.TOOL_DISPATCH_TIMEOUT,
-                )
-            except asyncio.TimeoutError:
-                error_msg = f"Poll tool '{resolved_poll_tool}' timed out"
-            except Exception as exc:
-                error_msg = f"Poll tool '{resolved_poll_tool}' failed: {exc}"
-        else:
-            return WidgetActionResponse(ok=False, error=f"Unknown poll tool: {poll_tool}")
-
-        if error_msg:
-            return WidgetActionResponse(ok=False, error=error_msg)
-
-        if raw_result is None:
-            return WidgetActionResponse(ok=True, envelope=None)
-
-        # Cache the result
-        _poll_cache[resolved_poll_tool] = (now, raw_result)
-
-    # Apply state_poll transform + template
-    widget_meta = {"display_label": req.display_label, "tool_name": req.tool_name}
-    envelope = apply_state_poll(req.tool_name, raw_result, widget_meta)
-
+    envelope = await _do_state_poll(
+        tool_name=req.tool_name,
+        display_label=req.display_label,
+        poll_cfg=poll_cfg,
+    )
     if envelope is None:
-        return WidgetActionResponse(ok=False, error="State poll template failed to render")
+        return WidgetActionResponse(ok=False, error="State poll failed to produce an envelope")
 
     logger.info(
-        "Widget refresh: tool=%s poll_tool=%s display_label=%s",
-        req.tool_name, resolved_poll_tool, req.display_label,
+        "Widget refresh: tool=%s display_label=%s", req.tool_name, req.display_label,
     )
-
     return WidgetActionResponse(ok=True, envelope=envelope.compact_dict())

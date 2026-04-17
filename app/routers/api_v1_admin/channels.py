@@ -116,6 +116,7 @@ class ChannelOut(BaseModel):
     resolved_workspace_id: Optional[str] = None
     category: Optional[str] = None
     tags: list[str] = []
+    last_message_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -2162,11 +2163,25 @@ async def admin_channels_enriched(
     # Batch-load heartbeat rows for all channels
     channel_ids = [ch.id for ch in channels]
     hb_map: dict[uuid.UUID, ChannelHeartbeat] = {}
+    last_active_map: dict[uuid.UUID, datetime] = {}
     if channel_ids:
         hb_rows = (await db.execute(
             select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id.in_(channel_ids))
         )).scalars().all()
         hb_map = {hb.channel_id: hb for hb in hb_rows}
+
+        # Per-channel last activity via most recent session. Session.last_active
+        # is updated whenever a message is persisted (see app/services/sessions.py),
+        # so it tracks "last message time" without hitting the messages table.
+        activity_rows = (await db.execute(
+            select(
+                Session.channel_id,
+                func.max(Session.last_active).label("last_active"),
+            )
+            .where(Session.channel_id.in_(channel_ids))
+            .group_by(Session.channel_id)
+        )).all()
+        last_active_map = {r.channel_id: r.last_active for r in activity_rows if r.channel_id}
 
     from app.services.heartbeat import _is_heartbeat_in_quiet_hours
 
@@ -2178,6 +2193,7 @@ async def admin_channels_enriched(
         out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(ch.bot_id)
         out.category = (ch.metadata_ or {}).get("category")
         out.tags = (ch.metadata_ or {}).get("tags", [])
+        out.last_message_at = last_active_map.get(ch.id)
         hb = hb_map.get(ch.id)
         if hb and hb.enabled:
             out.heartbeat_enabled = True

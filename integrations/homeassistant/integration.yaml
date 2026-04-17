@@ -128,36 +128,16 @@ tool_widgets:
     display: inline
     display_label: "{{data.success | where: type=entity | pluck: name | first}}"
     state_poll: *ha_state_poll
+    # Template is intentionally state-neutral: HassLightSet's result shape has no
+    # brightness/on-state echo, so we can't infer the new state from it. The
+    # pinned-widget state_poll (above) fetches live HA state and renders the
+    # real toggle + brightness slider.
     template:
       v: 1
       components:
         - type: status
           text: "Light adjusted"
           color: accent
-        - type: toggle
-          label: Power
-          value: true
-          color: success
-          action:
-            dispatch: tool
-            tool: HassTurnOff
-            args:
-              name: "{{data.success | where: type=entity | pluck: name | first}}"
-            optimistic: true
-        - type: slider
-          label: Brightness
-          value: "{{data.brightness | default: 100}}"
-          min: 0
-          max: 100
-          step: 5
-          unit: "%"
-          color: accent
-          action:
-            dispatch: tool
-            tool: HassLightSet
-            args:
-              name: "{{data.success | where: type=entity | pluck: name | first}}"
-            value_key: brightness
         - type: properties
           layout: inline
           items: "{{data.success | map: {label: type, value: name}}}"

@@ -271,3 +271,36 @@ class TestAdminChannelsVisibility:
         assert resp.status_code == 200
         body = resp.json()
         assert "channels" in body
+
+    async def test_admin_channels_enriched_exposes_last_message_at(self, client, db_session):
+        """HomeGrid tiles rely on last_message_at to show last-activity pills."""
+        from app.db.models import Session as SessionRow
+        ch = await _create_channel_row(db_session)
+        last = datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc)
+        db_session.add(SessionRow(
+            id=uuid.uuid4(),
+            client_id=ch.client_id,
+            bot_id=ch.bot_id,
+            channel_id=ch.id,
+            created_at=last,
+            last_active=last,
+        ))
+        await db_session.commit()
+
+        resp = await client.get("/api/v1/admin/channels-enriched", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        rows = {row["id"]: row for row in resp.json()["channels"]}
+        row = rows.get(str(ch.id))
+        assert row is not None
+        assert row["last_message_at"] is not None
+        assert row["last_message_at"].startswith("2026-04-01T12:00")
+
+    async def test_admin_channels_enriched_last_message_at_null_for_new_channel(self, client, db_session):
+        ch = await _create_channel_row(db_session)
+        await db_session.commit()
+        resp = await client.get("/api/v1/admin/channels-enriched", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        rows = {row["id"]: row for row in resp.json()["channels"]}
+        row = rows.get(str(ch.id))
+        assert row is not None
+        assert row["last_message_at"] is None

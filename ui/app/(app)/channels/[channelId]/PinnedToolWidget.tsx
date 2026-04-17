@@ -48,75 +48,109 @@ export function PinnedToolWidget({
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);
   const broadcastEnvelope = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
 
-  // Subscribe to shared envelope map — sync from inline WidgetCard actions
-  const envelopeKey = `${channelId}::${envelopeIdentityKey(widget.tool_name, currentEnvelope)}`;
+  // Resolve the entity name we'll pass to the state_poll refresh endpoint.
+  // Prefer display_label on the latest envelope (template-resolved), then
+  // display_name, finally scan the envelope body for a `label: entity` row.
+  const resolveDisplayLabel = useCallback((env: ToolResultEnvelope | undefined): string => {
+    if (env?.display_label) return env.display_label;
+    const toolShort = cleanToolName(widget.tool_name);
+    if (widget.display_name && widget.display_name !== toolShort) return widget.display_name;
+    try {
+      const parsed = typeof env?.body === "string" ? JSON.parse(env.body) : env?.body;
+      for (const c of parsed?.components ?? []) {
+        if (c.type === "properties" && Array.isArray(c.items)) {
+          const ent = c.items.find((it: { label?: string; value?: string }) =>
+            it.label?.toLowerCase() === "entity" && it.value,
+          );
+          if (ent?.value) return ent.value;
+        }
+      }
+    } catch { /* not JSON */ }
+    return "";
+  }, [widget.tool_name, widget.display_name]);
+
+  // Subscribe to shared envelope map — sync from inline WidgetCard actions.
+  // Key by the ORIGINAL envelope (from initial paint); if we re-keyed on every
+  // currentEnvelope change, an incoming broadcast (e.g., chat message) and
+  // our own state_poll output could drift to different keys and miss updates.
+  const envelopeKey = useMemo(
+    () => `${channelId}::${envelopeIdentityKey(widget.tool_name, widget.envelope)}`,
+    [channelId, widget.tool_name, widget.envelope],
+  );
   const sharedEnvelope = usePinnedWidgetsStore((s) => s.widgetEnvelopes[envelopeKey]);
   const envelopeRef = useRef(currentEnvelope);
   envelopeRef.current = currentEnvelope;
-  useEffect(() => {
-    if (sharedEnvelope && sharedEnvelope !== envelopeRef.current) {
-      setCurrentEnvelope(sharedEnvelope);
-    }
-  }, [sharedEnvelope]);
 
-  // Refresh on mount — try fetching fresh state from the poll tool.
-  // Always attempt (not gated on envelope.refreshable) so widgets pinned before
-  // the state_poll feature was added still get refreshed. Backend returns error
-  // if no state_poll config exists, which we silently ignore.
-  // Key by widget.id so re-pinning triggers a fresh poll.
-  const refreshedForRef = useRef<string | null>(null);
+  // Refresh state from the poll tool. Always try (even without envelope.refreshable)
+  // so widgets pinned before the state_poll feature still refresh. Backend returns
+  // an error for tools with no state_poll config, which we ignore.
   const [refreshing, setRefreshing] = useState(false);
   const actionInFlightRef = useRef(false);
+  const selfBroadcastRef = useRef<ToolResultEnvelope | null>(null);
+  const refreshState = useCallback(async () => {
+    const displayLabel = resolveDisplayLabel(envelopeRef.current);
+    setRefreshing(true);
+    try {
+      const resp = await apiFetch<{ ok: boolean; envelope?: Record<string, unknown> | null; error?: string }>(
+        "/api/v1/widget-actions/refresh",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tool_name: widget.tool_name,
+            display_label: displayLabel,
+            channel_id: channelId,
+            bot_id: widget.bot_id,
+          }),
+        },
+      );
+      // Skip if user dispatched an action while poll was in-flight — the action's
+      // own polled envelope is more authoritative than a concurrent background poll.
+      if (actionInFlightRef.current) return;
+      if (resp.ok && resp.envelope) {
+        const fresh = resp.envelope as unknown as ToolResultEnvelope;
+        selfBroadcastRef.current = fresh;
+        setCurrentEnvelope(fresh);
+        onEnvelopeUpdate(widget.id, fresh);
+        broadcastEnvelope(channelId, widget.tool_name, fresh);
+      }
+    } catch {
+      // Silently keep current envelope — stale is better than empty.
+    } finally {
+      setRefreshing(false);
+    }
+  }, [widget.id, widget.tool_name, widget.bot_id, channelId, onEnvelopeUpdate, broadcastEnvelope, resolveDisplayLabel]);
+
+  // Initial refresh on mount / re-pin.
+  const refreshedForRef = useRef<string | null>(null);
   useEffect(() => {
     if (refreshedForRef.current === widget.id) return;
     refreshedForRef.current = widget.id;
+    refreshState();
+  }, [widget.id, refreshState]);
 
-    // Resolve entity name: prefer display_label, fall back to display_name,
-    // and if display_name is just the tool name, try extracting from envelope body
-    let displayLabel = widget.envelope?.display_label || "";
-    if (!displayLabel) {
-      const toolShort = cleanToolName(widget.tool_name);
-      if (widget.display_name && widget.display_name !== toolShort) {
-        displayLabel = widget.display_name;
-      } else {
-        try {
-          const parsed = typeof widget.envelope?.body === "string" ? JSON.parse(widget.envelope.body) : widget.envelope?.body;
-          for (const c of parsed?.components ?? []) {
-            if (c.type === "properties" && Array.isArray(c.items)) {
-              const ent = c.items.find((it: any) => it.label?.toLowerCase() === "entity" && it.value);
-              if (ent) { displayLabel = ent.value; break; }
-            }
-          }
-        } catch { /* not JSON */ }
-      }
+  // React to external envelope updates (chat broadcasts, other pinned widgets).
+  // Two cases:
+  //   1. Another pinned widget for the SAME entity just polled — its body JSON
+  //      is byte-equal to what our own poll would produce. Accept without
+  //      re-polling (otherwise duplicate widgets ping-pong forever, each
+  //      treating the other's write as an "external" change).
+  //   2. Chat broadcast with the (often stateless) tool-action template —
+  //      body differs from polled truth. Accept as transient display and
+  //      re-poll to overwrite with live state.
+  useEffect(() => {
+    if (!sharedEnvelope) return;
+    if (sharedEnvelope === envelopeRef.current) return;
+    if (sharedEnvelope === selfBroadcastRef.current) return;
+    // Body equality = same rendered state. No re-poll, just adopt.
+    if (sharedEnvelope.body === envelopeRef.current?.body) {
+      selfBroadcastRef.current = sharedEnvelope;
+      setCurrentEnvelope(sharedEnvelope);
+      return;
     }
-    setRefreshing(true);
-
-    apiFetch<{ ok: boolean; envelope?: Record<string, unknown> | null; error?: string }>("/api/v1/widget-actions/refresh", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tool_name: widget.tool_name,
-        display_label: displayLabel,
-        channel_id: channelId,
-        bot_id: widget.bot_id,
-      }),
-    })
-      .then((resp) => {
-        // Skip if user dispatched an action while poll was in-flight
-        if (actionInFlightRef.current) return;
-        if (resp.ok && resp.envelope) {
-          const fresh = resp.envelope as unknown as ToolResultEnvelope;
-          setCurrentEnvelope(fresh);
-          onEnvelopeUpdate(widget.id, fresh);
-          broadcastEnvelope(channelId, widget.tool_name, fresh);
-        }
-      })
-      .catch(() => {
-        // Silently keep cached envelope — stale is better than empty
-      })
-      .finally(() => setRefreshing(false));
-  }, [widget.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    setCurrentEnvelope(sharedEnvelope);
+    refreshState();
+  }, [sharedEnvelope, refreshState]);
 
   const {
     attributes,
@@ -127,23 +161,33 @@ export function PinnedToolWidget({
     isDragging,
   } = useSortable({ id: widget.id });
 
-  const rawDispatch = useWidgetAction(channelId, widget.bot_id);
+  // Pass the current display_label so the backend can fetch fresh polled state
+  // after the action and return that envelope (instead of the action template's
+  // often-stateless output).
+  const currentDisplayLabel = resolveDisplayLabel(currentEnvelope);
+  const rawDispatch = useWidgetAction(channelId, widget.bot_id, currentDisplayLabel);
 
-  // Intercepting dispatcher: captures response envelopes, updates state, and broadcasts
+  // Intercepting dispatcher: captures the (polled) response envelope, updates
+  // local state, and broadcasts so the inline chat widget stays in sync.
   const interceptingDispatch = useCallback(
     async (action: import("@/src/types/api").WidgetAction, value: unknown): Promise<WidgetActionResult> => {
       actionInFlightRef.current = true;
-      const result = await rawDispatch(action, value);
-      if (
-        result.envelope &&
-        result.envelope.content_type === "application/vnd.spindrel.components+json" &&
-        result.envelope.body
-      ) {
-        setCurrentEnvelope(result.envelope);
-        onEnvelopeUpdate(widget.id, result.envelope);
-        broadcastEnvelope(channelId, widget.tool_name, result.envelope);
+      try {
+        const result = await rawDispatch(action, value);
+        if (
+          result.envelope &&
+          result.envelope.content_type === "application/vnd.spindrel.components+json" &&
+          result.envelope.body
+        ) {
+          selfBroadcastRef.current = result.envelope;
+          setCurrentEnvelope(result.envelope);
+          onEnvelopeUpdate(widget.id, result.envelope);
+          broadcastEnvelope(channelId, widget.tool_name, result.envelope);
+        }
+        return result;
+      } finally {
+        actionInFlightRef.current = false;
       }
-      return result;
     },
     [rawDispatch, widget.id, channelId, widget.tool_name, onEnvelopeUpdate, broadcastEnvelope],
   );

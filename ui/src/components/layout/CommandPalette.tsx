@@ -285,8 +285,16 @@ export function useCommandPaletteShortcut() {
     function handler(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        // Toggle based on current store state (reading inside the closure
-        // avoids resubscribing the listener on every open/close).
+        // On the desktop home page the grid IS the palette, so route Ctrl+K
+        // to focus the grid's search input instead of opening an overlay on
+        // top of the same content. Mobile `/` still falls through to the
+        // overlay since the hamburger-palette lives there.
+        const path = typeof window !== "undefined" ? window.location.pathname : "";
+        const isDesktop = typeof window !== "undefined" && window.innerWidth >= 768;
+        if (path === "/" && isDesktop) {
+          window.dispatchEvent(new Event("palette:focus"));
+          return;
+        }
         const isOpen = useUIStore.getState().paletteOpen;
         if (isOpen) closePalette();
         else openPalette();

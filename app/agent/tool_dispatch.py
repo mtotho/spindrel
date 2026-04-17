@@ -16,7 +16,7 @@ from app.agent.tracing import _trace
 from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
 from app.config import settings
 from app.tools.client_tools import is_client_tool
-from app.tools.mcp import call_mcp_tool, get_mcp_server_for_tool, is_mcp_tool
+from app.tools.mcp import call_mcp_tool, get_mcp_server_for_tool, is_mcp_tool, resolve_mcp_tool_name
 from app.tools.registry import call_local_tool, is_local_tool
 from app.tools.local.persona import call_persona_tool
 
@@ -253,6 +253,24 @@ async def dispatch_tool_call(
     from app.agent.message_utils import _event_with_compaction_tag
 
     result_obj = ToolCallResult()
+
+    # --- Forgiving MCP name resolution ---
+    # LiteLLM's MCP gateway namespaces tools as "<server>-<tool>". Small models
+    # (e.g. Gemini 2.5 Flash) frequently drop the prefix. If the name isn't a
+    # known tool of any kind, try the prefixed MCP variant before failing so
+    # the call lands instead of forcing a get_tool_info round-trip.
+    if (
+        not is_client_tool(name)
+        and not is_local_tool(name)
+        and not is_mcp_tool(name)
+    ):
+        _resolved = resolve_mcp_tool_name(name)
+        if _resolved is not None and _resolved != name:
+            logger.info(
+                "dispatch_tool_call: resolved bare name %r -> %r",
+                name, _resolved,
+            )
+            name = _resolved
 
     # --- Authorization check ---
     if allowed_tool_names is not None and name not in allowed_tool_names:
@@ -613,12 +631,23 @@ async def dispatch_tool_call(
     else:
         # Check for widget template (any tool with a declared widget template)
         _widget_envelope: ToolResultEnvelope | None = None
-        from app.services.widget_templates import apply_widget_template
+        from app.services.widget_templates import apply_widget_template, get_state_poll_config
         _widget_envelope = apply_widget_template(name, result_obj.result)
         if _widget_envelope is not None:
             result_obj.envelope = _widget_envelope
         else:
             result_obj.envelope = _build_default_envelope(result_obj.result)
+
+        # A bot-triggered mutation may have changed state that a pinned widget
+        # is tracking. Drop the cached poll result so the next refresh hits
+        # the real service instead of serving stale data.
+        _poll_cfg = get_state_poll_config(name)
+        if _poll_cfg:
+            try:
+                from app.routers.api_v1_widget_actions import invalidate_poll_cache_for
+                invalidate_poll_cache_for(_poll_cfg)
+            except Exception:
+                logger.debug("poll-cache invalidation skipped", exc_info=True)
 
     # Pre-generate tool call ID so we can reference it in the retrieval hint.
     # Store full result for any result large enough to be pruned later, so the
