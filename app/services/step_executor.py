@@ -1036,6 +1036,8 @@ async def _spawn_agent_step(
         ecfg["tools"] = step_def["tools"]
     if step_def.get("carapaces"):
         ecfg["carapaces"] = step_def["carapaces"]
+    if step_def.get("skills"):
+        ecfg["skills"] = step_def["skills"]
     if preamble_parts:
         ecfg["system_preamble"] = "\n\n".join(preamble_parts)
 

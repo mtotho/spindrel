@@ -6,23 +6,41 @@
  */
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import ReactDOM from "react-dom";
-import { ChevronUp, ChevronDown, Trash2, Terminal, Wrench, Bot, Plus, CheckCircle2, XCircle, Clock, SkipForward, ChevronDown as ChevronDownIcon } from "lucide-react";
-import type { StepDef, StepType, StepState } from "@/src/api/hooks/useTasks";
+import { ChevronUp, ChevronDown, Trash2, Terminal, Wrench, Bot, Plus, CheckCircle2, XCircle, Clock, SkipForward, PauseCircle, MessageCircleQuestion, Repeat, AlertCircle, HelpCircle, ChevronDown as ChevronDownIcon } from "lucide-react";
+import type { StepDef, StepType, StepState, ResponseSchema } from "@/src/api/hooks/useTasks";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { LlmModelDropdown } from "./LlmModelDropdown";
+import { JsonObjectEditor } from "./task/JsonObjectEditor";
 
 // ---------------------------------------------------------------------------
 // Step type metadata
 // ---------------------------------------------------------------------------
 
-const STEP_TYPES: { value: StepType; label: string; icon: typeof Terminal; color: string; bgBadge: string; node: string }[] = [
-  { value: "exec",  label: "Shell", icon: Terminal, color: "text-amber-300",  bgBadge: "bg-amber-500/10 text-amber-300 border-amber-500/25",   node: "bg-amber-500/15 text-amber-300 border border-amber-500/30" },
-  { value: "tool",  label: "Tool",  icon: Wrench,   color: "text-sky-300",    bgBadge: "bg-sky-500/10 text-sky-300 border-sky-500/25",         node: "bg-sky-500/15 text-sky-300 border border-sky-500/30" },
-  { value: "agent", label: "LLM",   icon: Bot,      color: "text-violet-300", bgBadge: "bg-violet-500/10 text-violet-300 border-violet-500/25", node: "bg-violet-500/15 text-violet-300 border border-violet-500/30" },
+type StepTypeMeta = { value: StepType; label: string; icon: typeof Terminal; color: string; bgBadge: string; node: string };
+
+const STEP_TYPES: StepTypeMeta[] = [
+  { value: "exec",         label: "Shell",       icon: Terminal,               color: "text-amber-300",   bgBadge: "bg-amber-500/10 text-amber-300 border-amber-500/25",       node: "bg-amber-500/15 text-amber-300 border border-amber-500/30" },
+  { value: "tool",         label: "Tool",        icon: Wrench,                 color: "text-sky-300",     bgBadge: "bg-sky-500/10 text-sky-300 border-sky-500/25",             node: "bg-sky-500/15 text-sky-300 border border-sky-500/30" },
+  { value: "agent",        label: "LLM",         icon: Bot,                    color: "text-violet-300",  bgBadge: "bg-violet-500/10 text-violet-300 border-violet-500/25",    node: "bg-violet-500/15 text-violet-300 border border-violet-500/30" },
+  { value: "user_prompt",  label: "User prompt", icon: MessageCircleQuestion,  color: "text-teal-300",    bgBadge: "bg-teal-500/10 text-teal-300 border-teal-500/25",          node: "bg-teal-500/15 text-teal-300 border border-teal-500/30" },
+  { value: "foreach",      label: "For each",    icon: Repeat,                 color: "text-fuchsia-300", bgBadge: "bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/25", node: "bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/30" },
 ];
 
-function stepMeta(type: StepType) {
-  return STEP_TYPES.find((s) => s.value === type) ?? STEP_TYPES[0];
+const UNKNOWN_STEP_META: StepTypeMeta = {
+  value: "exec",
+  label: "Unknown",
+  icon: HelpCircle,
+  color: "text-text-dim",
+  bgBadge: "bg-surface-overlay text-text-dim border-surface-border",
+  node: "bg-surface-overlay text-text-dim border border-surface-border",
+};
+
+function stepMeta(type: string): StepTypeMeta {
+  return STEP_TYPES.find((s) => s.value === type) ?? UNKNOWN_STEP_META;
+}
+
+function isKnownStepType(type: string): type is StepType {
+  return STEP_TYPES.some((s) => s.value === type);
 }
 
 let _stepCounter = 0;
@@ -31,11 +49,30 @@ function nextStepId(): string {
 }
 
 function emptyStep(type: StepType): StepDef {
-  return {
+  const base: StepDef = {
     id: nextStepId(),
     type,
     label: "",
-    prompt: "",
+    on_failure: "abort",
+  };
+  if (type === "exec" || type === "agent") {
+    base.prompt = "";
+  } else if (type === "user_prompt") {
+    base.title = "";
+    base.response_schema = { type: "binary" };
+  } else if (type === "foreach") {
+    base.over = "";
+    base.on_failure = "continue";
+    base.do = [];
+  }
+  return base;
+}
+
+function emptyToolSubStep(): StepDef {
+  return {
+    id: nextStepId(),
+    type: "tool",
+    label: "",
     on_failure: "abort",
   };
 }
@@ -542,18 +579,19 @@ function StepConditionEditor({ step, stepIndex, steps, onChange }: {
 // ---------------------------------------------------------------------------
 
 function StepResultBadge({ state }: { state: StepState }) {
-  const config: Record<string, { classes: string; Icon: typeof CheckCircle2 }> = {
-    done: { classes: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", Icon: CheckCircle2 },
-    failed: { classes: "bg-red-500/10 text-red-400 border-red-500/20", Icon: XCircle },
-    skipped: { classes: "bg-surface-overlay text-text-dim border-surface-border", Icon: SkipForward },
-    running: { classes: "bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse", Icon: Clock },
-    pending: { classes: "bg-surface-overlay text-text-dim border-surface-border", Icon: Clock },
+  const config: Record<string, { classes: string; Icon: typeof CheckCircle2; label: string }> = {
+    done: { classes: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", Icon: CheckCircle2, label: "done" },
+    failed: { classes: "bg-red-500/10 text-red-400 border-red-500/20", Icon: XCircle, label: "failed" },
+    skipped: { classes: "bg-surface-overlay text-text-dim border-surface-border", Icon: SkipForward, label: "skipped" },
+    running: { classes: "bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse", Icon: Clock, label: "running" },
+    pending: { classes: "bg-surface-overlay text-text-dim border-surface-border", Icon: Clock, label: "pending" },
+    awaiting_user_input: { classes: "bg-accent/10 text-accent border-accent/25 animate-pulse", Icon: PauseCircle, label: "awaiting input" },
   };
-  const { classes, Icon } = config[state.status] ?? config.pending;
+  const { classes, Icon, label } = config[state.status] ?? config.pending;
   return (
     <span className={`inline-flex flex-row items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${classes}`}>
       <Icon size={10} />
-      {state.status}
+      {label}
     </span>
   );
 }
@@ -701,6 +739,247 @@ function StepTypeSelector({ value, onChange }: { value: StepType; onChange: (v: 
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// user_prompt + foreach field renderers
+// ---------------------------------------------------------------------------
+
+const RESPONSE_SCHEMA_OPTIONS = [
+  { value: "binary", label: "Approve / Reject" },
+  { value: "multi_item", label: "Per-item approve/reject" },
+];
+
+const WIDGET_TEMPLATE_SKELETON = {
+  kind: "approval_review",
+  title: "Proposed changes",
+  proposals_ref: "{{steps.analyze.result.proposals}}",
+};
+
+function UserPromptFields({ step, readOnly, onChange }: {
+  step: StepDef;
+  readOnly?: boolean;
+  onChange: (patch: Partial<StepDef>) => void;
+}) {
+  const schemaType = step.response_schema?.type ?? "binary";
+  const itemsRef =
+    step.response_schema && step.response_schema.type === "multi_item"
+      ? step.response_schema.items_ref ?? ""
+      : "";
+
+  const setSchema = (next: ResponseSchema) => onChange({ response_schema: next });
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">Title</label>
+        <input
+          type="text"
+          value={step.title ?? ""}
+          onChange={(e) => onChange({ title: e.target.value })}
+          readOnly={readOnly}
+          placeholder="Shown above the widget"
+          className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs outline-none focus:border-accent w-full"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">Response</label>
+        <div className="flex flex-row items-center gap-2 flex-wrap">
+          {readOnly ? (
+            <span className="text-xs text-text-muted font-mono">{schemaType}</span>
+          ) : (
+            <MiniDropdown
+              value={schemaType}
+              options={RESPONSE_SCHEMA_OPTIONS}
+              onChange={(v) => {
+                if (v === "binary") setSchema({ type: "binary" });
+                else setSchema({ type: "multi_item", items_ref: itemsRef });
+              }}
+            />
+          )}
+          {schemaType === "multi_item" && (
+            <input
+              type="text"
+              value={itemsRef}
+              onChange={(e) => setSchema({ type: "multi_item", items_ref: e.target.value })}
+              readOnly={readOnly}
+              placeholder="{{steps.analyze.result.proposals}}"
+              className="flex-1 min-w-[200px] bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none focus:border-accent"
+            />
+          )}
+        </div>
+      </div>
+
+      <JsonObjectEditor
+        label="Widget template"
+        hint="kind + args"
+        value={step.widget_template ?? null}
+        onChange={(next) => onChange({ widget_template: next })}
+        readOnly={readOnly}
+        schemaSkeleton={WIDGET_TEMPLATE_SKELETON}
+        schemaLabel="Insert skeleton"
+        placeholder='{"kind": "approval_review", ...}'
+      />
+
+      <JsonObjectEditor
+        label="Widget args (optional)"
+        hint="extra substitutions"
+        value={step.widget_args ?? null}
+        onChange={(next) => onChange({ widget_args: next })}
+        readOnly={readOnly}
+        placeholder="{}"
+        minHeight={80}
+        maxHeight={200}
+      />
+    </div>
+  );
+}
+
+function ForeachFields({ step, tools, readOnly, onChange }: {
+  step: StepDef;
+  tools: ToolItem[];
+  readOnly?: boolean;
+  onChange: (patch: Partial<StepDef>) => void;
+}) {
+  const subSteps = step.do ?? [];
+
+  const updateSub = (idx: number, next: StepDef) => {
+    const out = subSteps.slice();
+    out[idx] = next;
+    onChange({ do: out });
+  };
+  const deleteSub = (idx: number) => {
+    onChange({ do: subSteps.filter((_, i) => i !== idx) });
+  };
+  const addSub = () => onChange({ do: [...subSteps, emptyToolSubStep()] });
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">Iterate over</label>
+        <input
+          type="text"
+          value={step.over ?? ""}
+          onChange={(e) => onChange({ over: e.target.value })}
+          readOnly={readOnly}
+          placeholder="{{steps.analyze.result.proposals}}"
+          className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none focus:border-accent w-full"
+        />
+        <span className="text-[10px] text-text-dim opacity-70">
+          A <code className="text-accent/80 bg-accent/5 px-1 rounded">{"{{steps.*}}"}</code> or{" "}
+          <code className="text-accent/80 bg-accent/5 px-1 rounded">{"{{params.*}}"}</code> expression resolving to a list.
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <div className="flex flex-row items-center">
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">For each item, run</label>
+          <span className="ml-2 text-[10px] text-text-dim opacity-70">
+            v1 supports only <code className="text-accent/80 bg-accent/5 px-1 rounded">tool</code> sub-steps.
+          </span>
+        </div>
+        <div className="flex flex-col gap-2 pl-2 border-l-2 border-dashed border-surface-border">
+          {subSteps.length === 0 && !readOnly && (
+            <div className="text-[11px] text-text-dim italic py-1">No sub-steps yet.</div>
+          )}
+          {subSteps.map((sub, idx) => (
+            <ForeachSubStepCard
+              key={sub.id || idx}
+              sub={sub}
+              tools={tools}
+              readOnly={readOnly}
+              onChange={(next) => updateSub(idx, next)}
+              onDelete={() => deleteSub(idx)}
+            />
+          ))}
+          {!readOnly && (
+            <button
+              onClick={addSub}
+              className="self-start flex flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-text-muted bg-transparent border border-dashed border-surface-border rounded-md cursor-pointer hover:border-accent/50 hover:text-accent transition-colors"
+            >
+              <Plus size={11} />
+              Add tool sub-step
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="text-[10px] text-text-dim opacity-70 leading-relaxed">
+        Inside sub-steps, reference the current item with{" "}
+        <code className="text-accent/80 bg-accent/5 px-1 rounded">{"{{item.field}}"}</code>,{" "}
+        <code className="text-accent/80 bg-accent/5 px-1 rounded">{"{{item_index}}"}</code>, or{" "}
+        <code className="text-accent/80 bg-accent/5 px-1 rounded">{"{{item_count}}"}</code>. Per-outer-step gating
+        via <code className="text-accent/80 bg-accent/5 px-1 rounded">when</code> is supported — edit via the JSON view.
+      </div>
+    </div>
+  );
+}
+
+function ForeachSubStepCard({ sub, tools, readOnly, onChange, onDelete }: {
+  sub: StepDef;
+  tools: ToolItem[];
+  readOnly?: boolean;
+  onChange: (next: StepDef) => void;
+  onDelete: () => void;
+}) {
+  const update = (patch: Partial<StepDef>) => onChange({ ...sub, ...patch });
+
+  return (
+    <div className="rounded-md border border-surface-border bg-surface-raised/30 group">
+      <div className="flex flex-row items-center gap-2 px-2.5 py-2">
+        <span className="inline-flex flex-row items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-full border bg-sky-500/10 text-sky-300 border-sky-500/25">
+          <Wrench size={10} />
+          Tool
+        </span>
+        {!readOnly ? (
+          <input
+            type="text"
+            value={sub.label ?? ""}
+            onChange={(e) => update({ label: e.target.value })}
+            placeholder="Sub-step label (optional)"
+            className="flex-1 bg-transparent border-none text-xs text-text outline-none placeholder:text-text-dim min-w-0"
+          />
+        ) : (
+          sub.label && <span className="text-xs text-text-muted flex-1">{sub.label}</span>
+        )}
+        {!readOnly && (
+          <button
+            onClick={onDelete}
+            className="p-1 bg-transparent border-none cursor-pointer text-text-dim hover:text-danger transition-colors rounded hover:bg-danger/5 opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity"
+            title="Delete sub-step"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
+      </div>
+
+      <div className="px-2.5 py-2 flex flex-col gap-2 border-t border-surface-border/50">
+        {readOnly ? (
+          <div className="text-xs text-text font-mono">{sub.tool_name ?? "No tool selected"}</div>
+        ) : (
+          <ToolSelector
+            value={sub.tool_name ?? null}
+            tools={tools}
+            onChange={(toolName, tool) => {
+              const scaffold = scaffoldArgsFromSchema(tool);
+              update({
+                tool_name: toolName,
+                label: sub.label || toolName,
+                tool_args: Object.keys(scaffold).length > 0 ? scaffold : sub.tool_args,
+              });
+            }}
+          />
+        )}
+        <ToolArgsEditor
+          step={sub}
+          tools={tools}
+          readOnly={readOnly}
+          onChange={(args) => update({ tool_args: args })}
+        />
+      </div>
     </div>
   );
 }
@@ -868,6 +1147,29 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
               </div>
             )}
           </>
+        )}
+
+        {step.type === "user_prompt" && (
+          <UserPromptFields step={step} readOnly={readOnly} onChange={update} />
+        )}
+
+        {step.type === "foreach" && (
+          <ForeachFields step={step} tools={tools} readOnly={readOnly} onChange={update} />
+        )}
+
+        {!isKnownStepType(step.type) && (
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-row items-start gap-2 text-[11px] text-text-dim bg-surface-overlay/40 border border-surface-border rounded-md p-2">
+              <AlertCircle size={12} className="shrink-0 mt-0.5 text-amber-400" />
+              <span>
+                Step type <code className="text-accent/80 bg-accent/5 px-1 rounded">{String(step.type)}</code> isn't
+                editable in this view — open the JSON view to edit raw fields.
+              </span>
+            </div>
+            <pre className="m-0 p-2 rounded-md bg-surface border border-surface-border text-[11px] font-mono text-text-muted whitespace-pre-wrap max-h-52 overflow-y-auto">
+              {JSON.stringify(step, null, 2)}
+            </pre>
+          </div>
         )}
 
         {/* Condition row */}

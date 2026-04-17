@@ -1,11 +1,17 @@
 ---
 name: Pipeline Authoring
 description: >
-  Complete reference for authoring task pipeline steps — JSON schema, all three
-  step types (exec/tool/agent), template syntax, condition logic, failure handling,
-  environment variables, and real examples. Load when creating or editing pipeline
-  definitions, generating steps for AI, or troubleshooting pipeline execution.
-triggers: pipeline, task pipeline, steps, step definition, pipeline json, create pipeline, edit pipeline, pipeline authoring, multi-step task, step executor, pipeline schema
+  Complete reference for authoring task pipeline steps — JSON schema, all five
+  step types (exec / tool / agent / user_prompt / foreach), params + template
+  syntax, condition logic, failure handling, environment variables, and real
+  examples. Load when creating or editing pipeline definitions, generating
+  steps for AI, or troubleshooting pipeline execution.
+use_when: >
+  Authoring or editing any pipeline step, deciding which step type to use
+  (especially user_prompt vs foreach vs agent), wiring up params, writing
+  `when:` conditions, or debugging why a template / step state / resolve
+  call isn't behaving as expected.
+triggers: pipeline, task pipeline, steps, step definition, pipeline json, create pipeline, edit pipeline, pipeline authoring, multi-step task, step executor, pipeline schema, user_prompt, foreach, approval gate, widget template
 category: core
 ---
 
@@ -119,8 +125,10 @@ Spawns a child task that runs as an LLM conversation. Prior step results are aut
 |-------|------|-------------|
 | `prompt` | string | The prompt sent to the LLM. Prior results are auto-prepended |
 | `model` | string \| null | Model override (e.g. `"gpt-4o"`, `"claude-sonnet-4-20250514"`). Null = inherit from task. See Model Tiers below for guidance |
-| `tools` | string[] \| null | Tool names available to the agent during this step |
-| `carapaces` | string[] \| null | Capability/skill IDs to activate for this step |
+| `tools` | string[] \| null | Extra tool names to **add** to what the bot already has. Additive, not a whitelist — the step still sees the bot's base tools + auto-discovered tools |
+| `carapaces` | string[] \| null | Capability IDs to activate for this step (adds their tools + system prompt fragments) |
+| `skills` | string[] \| null | Skill IDs to ephemerally inject for this step only. Use for just-in-time expertise (e.g. load `pipeline_authoring` for a step that writes pipelines) without enrolling them on the bot permanently |
+| `timeout` | number \| null | Max seconds for the child task |
 
 **Example:**
 ```json
@@ -141,6 +149,94 @@ Previous step results:
 - List docker images (exec, done): REPOSITORY   TAG   SIZE ...
 ```
 
+### Type: `user_prompt` — Human Approval Gate
+
+Pauses the pipeline with a rendered widget and a response schema. Execution resumes when a human (or bot) posts to the `/resolve` endpoint. No LLM is involved — this is a synchronous gate.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `widget_template` | string | ID of a registered widget template (see Widget Templates in the UI) |
+| `widget_args` | object | Args passed to the template. Values support template substitution |
+| `response_schema` | object | Shape the resolver must post. `{"type": "binary"}` (approve/reject) or `{"type": "multi_item", "items": [...]}` (per-item approval) |
+
+While paused the step's state is `awaiting_user_input` with `widget_envelope` and `response_schema` populated. Downstream steps can read the resolved payload via `{{steps.<id>.result}}`.
+
+**Example — binary approval gate:**
+```json
+{
+  "id": "approve_deploy",
+  "type": "user_prompt",
+  "widget_template": "confirmation_card",
+  "widget_args": {
+    "title": "Deploy {{params.version}} to production?",
+    "body": "{{steps.test.result}}"
+  },
+  "response_schema": { "type": "binary" }
+}
+```
+
+**Resolving**: `POST /api/v1/admin/tasks/{task_id}/steps/{step_index}/resolve` with the payload shape defined by `response_schema`. The endpoint validates, writes `result`, flips state to `done`, and resumes the pipeline.
+
+### Type: `foreach` — Iterate Over a List
+
+Iterates a list from a prior step or param, running a `do` block of sub-steps for each item. Sequential in v1 (not parallel).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `over` | string | Reference to the list to iterate: `"{{steps.<id>.result}}"`, `"{{steps.<id>.result.items}}"`, `"{{params.<key>}}"`. Must resolve to a list |
+| `do` | object[] | Sub-step(s) to run per item. **v1: sub-steps must be `type: tool`** (exec / agent / user_prompt inside foreach is deferred) |
+| `on_failure` | `"abort"` \| `"continue"` | Outer policy: stop iterating on the first failing iteration, or keep going |
+
+Inside `do`, these substitutions are bound per iteration:
+- `{{item}}` — the current item (full JSON-encoded if dict/list)
+- `{{item.<key>}}` / `{{item.<a>.<b>}}` — dotted access for dict items
+- `{{item_index}}` — 0-based index
+- `{{item_count}}` — total items
+
+**Example — apply approved patches:**
+```json
+{
+  "id": "apply",
+  "type": "foreach",
+  "over": "{{steps.review.result.proposals}}",
+  "do": [
+    {
+      "id": "apply_one",
+      "type": "tool",
+      "tool_name": "call_api",
+      "tool_args": {
+        "method": "PATCH",
+        "path": "/api/v1/admin/bots/{{item.bot_id}}",
+        "body": "{{item.patch}}"
+      },
+      "when": { "step": "review", "output_contains": "approve" }
+    }
+  ],
+  "on_failure": "continue"
+}
+```
+
+**`when:` gotcha**: the inner `when:` is evaluated against *outer* step results, not per-item. If the review step contains "approve" *anywhere*, the gate passes for *every* iteration. Per-item gating requires a richer `when:` form that can reference `{{item.id}}` against the review payload — currently parked. If you need strict per-item filtering today, pre-filter the list in an `agent`/`exec` step and have `foreach` iterate the already-approved subset.
+
+**State shape**: `step_states[i]` for a foreach step is `{items, iterations: [[sub_state, ...], ...]}` — sub-states parallel to sub-steps across iterations.
+
+## Params
+
+Pipelines can accept runtime params — passed at trigger time via the `params:` body on `POST /api/v1/admin/tasks/{id}/run`, or the `params` arg of `run_task`. Params are merged into the child's `execution_config["params"]` and are visible to every step via templates.
+
+| Pattern | Resolves to |
+|---------|-------------|
+| `{{params.key}}` | Top-level param value |
+| `{{params.a.b.c}}` | Dotted access into nested dict params |
+| `{{key}}` (bare) | Fallback — `params["key"]` if present |
+
+Dict/list param values are JSON-encoded when substituted into a string context, so `tool_args` can safely contain `"body": "{{params.patch}}"` and the rendered result is valid JSON.
+
+Use params for:
+- Triggering the same pipeline definition with different inputs (per-bot, per-env)
+- Bindings that should *not* be baked into the pipeline YAML
+- Passing the output of an LLM's JSON payload into a structured `foreach` / `call_api` chain
+
 ## Template Syntax
 
 Templates use `{{double_braces}}` and are rendered before execution.
@@ -155,7 +251,8 @@ Templates use `{{double_braces}}` and are rendered before execution.
 | `{{steps.check_disk.status}}` | Status by step ID |
 | `{{steps.1.result.llm}}` | Extract `llm` key from step 1's JSON result |
 | `{{steps.1.result.config.model}}` | Dotted access into nested JSON: `result.config.model` |
-| `{{param_name}}` | Workflow parameter value (when used in workflow context) |
+| `{{params.key}}` / `{{param_name}}` | Runtime parameter passed to `/tasks/{id}/run` or `run_task(..., params=...)` |
+| `{{item}}` / `{{item.key}}` / `{{item_index}}` / `{{item_count}}` | Bound inside `foreach` `do` sub-steps (see Foreach) |
 
 **JSON field access:** If a step's result is valid JSON (a dict), you can drill into it with dotted notation after `.result`. For example, if step 1 returns `{"llm": "gpt-4o", "count": 30}`, then `{{steps.1.result.llm}}` resolves to `gpt-4o`. Nested access works too: `{{steps.1.result.config.model}}`. If the key doesn't exist or the result isn't JSON, the template is preserved as-is.
 
@@ -259,14 +356,16 @@ During and after execution, each step has a corresponding entry in `step_states`
 
 ```json
 {
-  "status": "done",        // "pending" | "running" | "done" | "failed" | "skipped"
-  "result": "78%",         // Step output (string, truncated to result_max_chars)
+  "status": "done",        // "pending" | "running" | "done" | "failed" | "skipped" | "awaiting_user_input"
+  "result": "78%",         // Step output (string or JSON, truncated to result_max_chars)
   "error": null,           // Error message if failed
   "started_at": "2026-04-16T10:00:00Z",
   "completed_at": "2026-04-16T10:00:01Z",
   "task_id": null           // For agent steps: ID of the spawned child task
 }
 ```
+
+For `user_prompt` steps while paused, the state also carries `widget_envelope` and `response_schema`. For `foreach` steps, `result` is replaced by `{items, iterations: [[sub_state, ...], ...]}`.
 
 ## Complete Examples
 

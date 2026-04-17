@@ -87,6 +87,33 @@ PG_UUID.bind_processor = _patched_bind_processor
 PG_UUID.result_processor = _patched_result_processor
 
 
+# SQLite stores TIMESTAMP(timezone=True) as ISO string and the default aiosqlite
+# result processor strips tzinfo. Monkey-patch PG_TIMESTAMP so values read back
+# on SQLite are always UTC-aware — matches Postgres semantics and stops
+# ``can't compare offset-naive and offset-aware datetimes`` test failures.
+import datetime as _dt_mod
+
+_orig_ts_result = PG_TIMESTAMP.result_processor
+
+
+def _patched_ts_result_processor(self, dialect, coltype):
+    base = _orig_ts_result(self, dialect, coltype)
+    if dialect.name != "sqlite":
+        return base
+
+    def process(value):
+        if base is not None:
+            value = base(value)
+        if isinstance(value, _dt_mod.datetime) and value.tzinfo is None:
+            return value.replace(tzinfo=_dt_mod.timezone.utc)
+        return value
+
+    return process
+
+
+PG_TIMESTAMP.result_processor = _patched_ts_result_processor
+
+
 # Import app.db.models at module load so every table is registered with Base
 # before the engine fixture runs create_all. Without this, tables added by
 # modules imported lazily at test time are missing from the SQLite schema.

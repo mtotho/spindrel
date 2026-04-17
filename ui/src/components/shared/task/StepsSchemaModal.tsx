@@ -27,7 +27,7 @@ Key principle: use exec and tool steps for deterministic work (free, no LLM toke
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | id | string | yes | — | Unique identifier. Used in templates and conditions |
-| type | "exec" | "tool" | "agent" | yes | — | Determines execution engine |
+| type | "exec" | "tool" | "agent" | "user_prompt" | "foreach" | yes | — | Determines execution engine |
 | label | string | no | — | Human-readable name shown in UI |
 | on_failure | "abort" | "continue" | no | "abort" | abort = stop pipeline. continue = proceed |
 | when | object | no | — | Conditional execution. False → "skipped" |
@@ -55,6 +55,30 @@ Fields: tool_name (string, exact name), tool_args (object, supports templates)
 Spawns a child LLM task. Prior results auto-injected in preamble.
 
 Fields: prompt (string), model (string, optional override), tools (string[], optional), carapaces (string[], optional)
+
+### user_prompt — Pause for Human Approval
+Pauses the pipeline and emits a widget into the channel. Resumes when the user resolves it.
+
+Fields:
+  title (string, optional)                            — shown above the widget
+  widget_template (object)                            — { kind: "...", ...args }; supports {{steps.*}}, {{params.*}}, {{item.*}}
+  widget_args (object, optional)                      — extra substitution context
+  response_schema (object, required)                  — one of:
+    { "type": "binary" }                              — response is { decision: "approve"|"reject" }
+    { "type": "multi_item", "items_ref": "..." }      — response is { "<item_id>": "approve"|"reject", ... }
+
+Downstream steps read the response via {{steps.<id>.result.decision}} or key-indexed per-item access.
+
+### foreach — Iterate Over a List
+Runs a sub-sequence of steps once per item of a prior-step list result. Sequential in v1.
+
+Fields:
+  over (string, required)                             — {{steps.*}} / {{params.*}} expression resolving to a list
+  on_failure ("abort"|"continue")                     — default "abort" on the outer loop
+  do (step[])                                         — v1 supports only tool sub-steps
+
+Per-iteration bindings: {{item}}, {{item.field}}, {{item_index}}, {{item_count}}. Sub-step when: can gate on
+outer-pipeline steps.
 
 ## Templates
 
@@ -100,6 +124,23 @@ Shell values auto-escaped. Tool args support templates. Unresolved templates pre
   { "id": "search", "type": "tool", "tool_name": "web_search", "tool_args": { "query": "topic here" } },
   { "id": "analyze", "type": "agent", "prompt": "Identify top 3 findings and implications.", "tools": ["web_search"] },
   { "id": "format", "type": "agent", "prompt": "Format as executive briefing.", "model": "gpt-4o-mini" }
+]
+
+### Approval Gate + Batch Apply (user_prompt + foreach)
+[
+  { "id": "analyze", "type": "agent", "prompt": "Return JSON: { \\"proposals\\": [{ \\"id\\": \\"...\\", \\"target_path\\": \\"...\\", \\"patch_body\\": {...} }] }" },
+  { "id": "review", "type": "user_prompt",
+    "title": "Review proposed changes",
+    "widget_template": { "kind": "approval_review", "proposals_ref": "{{steps.analyze.result.proposals}}" },
+    "response_schema": { "type": "multi_item", "items_ref": "{{steps.analyze.result.proposals}}" } },
+  { "id": "apply", "type": "foreach",
+    "over": "{{steps.analyze.result.proposals}}",
+    "on_failure": "continue",
+    "do": [
+      { "id": "apply_one", "type": "tool", "tool_name": "call_api",
+        "when": { "step": "review", "output_contains": "approve" },
+        "tool_args": { "method": "PATCH", "path": "{{item.target_path}}", "body": "{{item.patch_body}}" } }
+    ] }
 ]
 
 ### Deployment with Rollback

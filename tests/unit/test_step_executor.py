@@ -715,6 +715,49 @@ class TestSpawnAgentStep:
         assert child.callback_config["pipeline_task_id"] == str(parent.id)
         assert child.callback_config["pipeline_step_index"] == 1
 
+    @pytest.mark.asyncio
+    @patch("app.services.step_executor.async_session")
+    async def test_forwards_skills_tools_carapaces_to_execution_config(self, mock_session_factory):
+        from app.services.step_executor import _spawn_agent_step
+
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.refresh = AsyncMock()
+
+        ctx = AsyncMock()
+        ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_session_factory.return_value = ctx
+
+        parent = MagicMock()
+        parent.id = uuid.uuid4()
+        parent.bot_id = "test-bot"
+        parent.channel_id = "ch1"
+        parent.session_id = "sess1"
+        parent.dispatch_type = "none"
+        parent.dispatch_config = {}
+
+        step_def = {
+            "id": "analyze",
+            "type": "agent",
+            "prompt": "analyze",
+            "tools": ["web_search"],
+            "carapaces": ["researcher"],
+            "skills": ["pipeline_authoring"],
+        }
+        steps = [step_def]
+        step_states = [
+            {"status": "running", "result": None, "error": None, "started_at": None, "completed_at": None, "task_id": None},
+        ]
+
+        await _spawn_agent_step(parent, step_def, 0, steps, step_states)
+
+        child = mock_db.add.call_args[0][0]
+        assert child.execution_config["tools"] == ["web_search"]
+        assert child.execution_config["carapaces"] == ["researcher"]
+        assert child.execution_config["skills"] == ["pipeline_authoring"]
+
 
 # ---------------------------------------------------------------------------
 # on_pipeline_step_completed

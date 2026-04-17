@@ -31,6 +31,7 @@ export interface TaskItem {
   workflow_run_id?: string | null;
   workflow_step_index?: number | null;
   trigger_config?: { type?: string; event_source?: string; [key: string]: any } | null;
+  source?: "user" | "system";
   /** For virtual entries, the real schedule ID to open in editor */
   _schedule_id?: string;
 }

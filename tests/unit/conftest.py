@@ -1,0 +1,121 @@
+"""Shared fixtures for unit tests.
+
+These fixtures replace the inline ``MagicMock()`` session + stacked ``patch()``
+pattern that recurred in the five headline offenders audited on 2026-04-17.
+See ``vault/Projects/agent-server/Test Audit - Deep Review.md`` "Cross-file
+Patterns" and ``~/.claude/skills/testing-python/SKILL.md`` section G.
+
+Fixtures here are additive to ``tests/conftest.py`` (which provides the real
+SQLite ``engine`` + ``db_session`` fixtures); unit tests that don't touch the
+DB simply don't request them.
+"""
+from __future__ import annotations
+
+from contextlib import contextmanager
+from unittest.mock import patch
+
+import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.agent import context as agent_context_mod
+
+
+# ---------------------------------------------------------------------------
+# async_session patching
+# ---------------------------------------------------------------------------
+#
+# Four of the five headline offenders drive services that open their own
+# ``async with async_session() as db:`` blocks. Two import the alias at module
+# level (``tasks.py``, ``workflow_executor.py``); two use function-local
+# imports (``bot_skills.py``, ``memory_hygiene.py``). Patch both surfaces so
+# either style resolves to the test engine.
+#
+# ``_MODULE_LEVEL_ALIASES`` covers re-exported names; ``app.db.engine`` is the
+# source of truth for function-local imports.
+
+_MODULE_LEVEL_ALIASES = (
+    "app.tools.local.tasks.async_session",
+    "app.services.workflow_executor.async_session",
+    "app.db.engine.async_session",
+)
+
+
+@pytest_asyncio.fixture
+async def patched_async_sessions(engine):
+    """Point every ``async_session()`` call at the test engine.
+
+    Service modules that open their own session inside a function (via
+    ``async with async_session() as db:``) will transparently use the
+    SQLite-in-memory test DB for the duration of the test.
+    """
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    with patch.multiple(
+        "app.db.engine", async_session=factory
+    ), patch("app.tools.local.tasks.async_session", factory), patch(
+        "app.services.workflow_executor.async_session", factory
+    ):
+        yield factory
+
+
+# ---------------------------------------------------------------------------
+# ContextVar harness
+# ---------------------------------------------------------------------------
+#
+# Tests that call bot-tool entry points (``schedule_task``, ``manage_bot_skill``,
+# etc.) need the per-turn ContextVars set. Setting them inline with no teardown
+# leaks state across tests (B.28 hazard). This fixture hands the test a setter
+# that records every token and resets them in teardown.
+
+_AGENT_CONTEXT_VARS = {
+    "bot_id": agent_context_mod.current_bot_id,
+    "session_id": agent_context_mod.current_session_id,
+    "channel_id": agent_context_mod.current_channel_id,
+    "client_id": agent_context_mod.current_client_id,
+    "correlation_id": agent_context_mod.current_correlation_id,
+    "dispatch_type": agent_context_mod.current_dispatch_type,
+    "dispatch_config": agent_context_mod.current_dispatch_config,
+    "turn_id": agent_context_mod.current_turn_id,
+    "turn_responded_bots": agent_context_mod.current_turn_responded_bots,
+    "invoked_member_bots": agent_context_mod.current_invoked_member_bots,
+}
+
+
+_UNSET = object()
+
+
+@pytest.fixture
+def agent_context():
+    """Set app.agent.context ContextVars for the duration of the test.
+
+    Usage::
+
+        async def test_something(agent_context):
+            agent_context(bot_id="test-bot", channel_id=uuid.uuid4())
+            # ... exercise a tool that reads current_bot_id.get() ...
+
+    Snapshots each var's prior value on first ``_set`` and restores it on
+    teardown. Uses ``.get()`` / ``.set()`` rather than tokens because
+    pytest-asyncio runs teardown in a different ``contextvars.Context`` than
+    the async test body — tokens from the inner context raise ``ValueError``
+    on ``.reset()`` from the outer one.
+    """
+    snapshots: dict = {}
+
+    def _set(**kwargs):
+        for key, value in kwargs.items():
+            if key not in _AGENT_CONTEXT_VARS:
+                raise KeyError(f"Unknown agent context var: {key!r}")
+            var = _AGENT_CONTEXT_VARS[key]
+            if key not in snapshots:
+                snapshots[key] = var.get(_UNSET)
+            var.set(value)
+
+    yield _set
+
+    for key, prev in snapshots.items():
+        var = _AGENT_CONTEXT_VARS[key]
+        # ContextVars in app.agent.context all default to None or an empty
+        # collection; restoring to None when the var was unset is close enough
+        # for test isolation (the next test's fixture will overwrite anyway).
+        var.set(None if prev is _UNSET else prev)

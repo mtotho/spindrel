@@ -107,7 +107,12 @@ _SCHEDULE_TASK_SCHEMA = {
                     "type": "string",
                     "description": (
                         "JSON array of pipeline step definitions. Each step needs at minimum "
-                        "id and type ('exec', 'tool', or 'agent'). Providing steps creates "
+                        "id and type ('exec', 'tool', 'agent', 'user_prompt', or 'foreach'). "
+                        "'user_prompt' pauses the pipeline for human approval (response shapes: "
+                        "'binary' or 'multi_item'; resolved via POST /tasks/{id}/steps/{i}/resolve). "
+                        "'foreach' iterates a list from a prior step ('over: {{steps.X.result.items}}') "
+                        "running 'do' sub-steps per item — sub-step type 'tool' only in v1. "
+                        "Providing steps creates "
                         "a pipeline task that executes steps sequentially. "
                         "Example: '[{\"id\":\"search\",\"type\":\"tool\",\"tool_name\":\"web_search\","
                         "\"tool_args\":{\"query\":\"latest news\"}},{\"id\":\"analyze\",\"type\":\"agent\","

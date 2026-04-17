@@ -614,7 +614,11 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
         else:
             entry["tool_files"] = []
         # Self-healing: if tools exist on disk but aren't loaded, and
-        # the integration is active, load them now.
+        # the integration is active, load them now and index into
+        # ToolEmbedding so they show up in the bot editor's Tool Pool.
+        # Without the index_local_tools call, tools live in the in-memory
+        # registry but are invisible to /bots/{id}/editor-data, which
+        # queries ToolEmbedding directly.
         if entry["tool_files"] and not entry["tool_names"]:
             try:
                 from app.services.integration_settings import is_active as _is_active
@@ -627,6 +631,17 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
                             name for name, meta in _reg_tools.items()
                             if meta.get("source_integration") == integration_id
                         )
+                        # Schedule ToolEmbedding upsert so the Tool Pool
+                        # shows these immediately. Fire-and-forget: the
+                        # admin endpoint is sync from the user's POV and
+                        # we don't want to block page load on embedding.
+                        try:
+                            import asyncio
+                            from app.agent.tools import index_local_tools
+                            loop = asyncio.get_running_loop()
+                            loop.create_task(index_local_tools())
+                        except RuntimeError:
+                            pass  # no running loop (e.g. startup); index_local_tools runs elsewhere
             except Exception:
                 pass
         skills_dir = candidate / "skills"

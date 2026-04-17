@@ -5,7 +5,7 @@ import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useTask, useTaskChildren, useRunTaskNow, type TaskDetail, type StepState, type StepDef } from "@/src/api/hooks/useTasks";
 import { useTaskFormState } from "@/src/components/shared/task/useTaskFormState";
 import { ContentFields, ExecutionFields, TriggerFields } from "@/src/components/shared/task/TaskFormFields";
-import { Trash2, Play, ExternalLink, ArrowUpRight, BookOpen, ChevronRight, Terminal, Bot, Wrench, CheckCircle2, XCircle, Clock, SkipForward, Loader2 } from "lucide-react";
+import { Trash2, Play, ExternalLink, ArrowUpRight, BookOpen, ChevronRight, Terminal, Bot, Wrench, CheckCircle2, XCircle, Clock, SkipForward, Loader2, PauseCircle, Cog } from "lucide-react";
 import { Section } from "@/src/components/shared/FormControls";
 import {
   EnableToggle,
@@ -74,6 +74,7 @@ export default function TaskDetailScreen() {
   }, [task?.title, task?.prompt, loc.pathname, enrichRecentPage]);
   const SYSTEM_TASK_TYPES = new Set(["memory_hygiene", "skill_review"]);
   const isSystemManaged = !!(task && SYSTEM_TASK_TYPES.has(task.task_type));
+  const isSystemSeeded = task?.source === "system";
   const systemLabel = task?.task_type === "skill_review" ? "Skill Review" : "Memory Hygiene";
 
   const handleDelete = useCallback(async () => {
@@ -129,7 +130,7 @@ export default function TaskDetailScreen() {
                 <span className="hidden sm:inline">Run Now</span>
               </button>
             )}
-            {!isSystemManaged && (
+            {!isSystemManaged && !isSystemSeeded && (
               <EnableToggle
                 enabled={form.status !== "cancelled"}
                 onChange={(on) => {
@@ -138,7 +139,7 @@ export default function TaskDetailScreen() {
                 compact
               />
             )}
-            {!isSystemManaged && (
+            {!isSystemManaged && !isSystemSeeded && (
               <button
                 onClick={handleDelete}
                 disabled={form.deleteMut.isPending}
@@ -148,7 +149,7 @@ export default function TaskDetailScreen() {
                 <Trash2 size={13} />
               </button>
             )}
-            {!isSystemManaged && (
+            {!isSystemManaged && !isSystemSeeded && (
               <button
                 onClick={form.handleSave}
                 disabled={form.saving || !form.canSave}
@@ -171,6 +172,20 @@ export default function TaskDetailScreen() {
       {form.error && (
         <div className="px-5 py-2 bg-danger/[0.08] text-danger text-xs">
           {form.error?.message || "An error occurred"}
+        </div>
+      )}
+
+      {/* System-seeded banner */}
+      {isSystemSeeded && (
+        <div className="flex flex-row items-start gap-2 px-5 py-2.5 bg-accent/[0.06] border-b border-accent/[0.15] text-xs text-accent">
+          <Cog size={13} className="shrink-0 mt-px" />
+          <span className="leading-relaxed">
+            <span className="font-semibold">System pipeline</span> — seeded from{" "}
+            <code className="font-mono bg-accent/10 px-1 rounded">
+              app/data/system_pipelines/{task.id}.yaml
+            </code>
+            . Edits are overwritten on server restart.
+          </span>
         </div>
       )}
 
@@ -215,7 +230,7 @@ export default function TaskDetailScreen() {
         {isSystemManaged ? (
           <SystemManagedOverview task={task} label={systemLabel} />
         ) : tab === "overview" ? (
-          <OverviewTab form={form} task={task} />
+          <OverviewTab form={form} task={task} readOnly={isSystemSeeded} />
         ) : (
           <RunsTab
             taskId={taskId!}
@@ -234,9 +249,12 @@ export default function TaskDetailScreen() {
 // ---------------------------------------------------------------------------
 // Overview Tab — reuses shared form fields
 // ---------------------------------------------------------------------------
-function OverviewTab({ form, task }: { form: ReturnType<typeof useTaskFormState>; task: TaskDetail }) {
+function OverviewTab({ form, task, readOnly }: { form: ReturnType<typeof useTaskFormState>; task: TaskDetail; readOnly?: boolean }) {
   return (
-    <div className="flex flex-col gap-0 max-w-4xl">
+    <fieldset
+      disabled={readOnly}
+      className={`flex flex-col gap-0 max-w-4xl border-0 p-0 m-0 ${readOnly ? "opacity-95" : ""}`}
+    >
       <div className="px-5 py-5 flex flex-col gap-4">
         <ContentFields form={form} promptRows={10} />
       </div>
@@ -280,7 +298,7 @@ function OverviewTab({ form, task }: { form: ReturnType<typeof useTaskFormState>
           </Section>
         </div>
       )}
-    </div>
+    </fieldset>
   );
 }
 
@@ -353,6 +371,7 @@ const STEP_STATUS_ICON: Record<string, typeof CheckCircle2> = {
   running: Loader2,
   pending: Clock,
   skipped: SkipForward,
+  awaiting_user_input: PauseCircle,
 };
 
 const STEP_TYPE_ICON: Record<string, typeof Terminal> = {
@@ -366,6 +385,7 @@ function StepStatusIcon({ status }: { status: string }) {
   const color = status === "done" ? "text-success" :
     status === "failed" ? "text-danger" :
     status === "running" ? "text-accent animate-spin" :
+    status === "awaiting_user_input" ? "text-accent animate-pulse" :
     status === "skipped" ? "text-text-dim" : "text-text-dim";
   return <Icon size={12} className={color} />;
 }

@@ -2,10 +2,15 @@
 name: Pipeline Creation
 description: >
   Decision guide for creating task pipelines. When to use a pipeline vs work
-  inline, how to use schedule_task with steps, step type selection (exec/tool/agent),
-  optimization tips, and worked examples. Load when building multi-step automations
-  or deciding whether a task needs a pipeline.
-triggers: create pipeline, pipeline task, multi-step task, schedule pipeline, automate steps, when to pipeline, build automation
+  inline, how to use schedule_task with steps, step type selection across all
+  five types (exec / tool / agent / user_prompt / foreach), params, optimization
+  tips, and worked examples. Load when building multi-step automations or
+  deciding whether a task needs a pipeline.
+use_when: >
+  Deciding if work belongs in a pipeline at all, choosing between the five
+  step types, wiring up params for a reusable pipeline, or picking
+  user_prompt vs agent-asks-a-question for an approval gate.
+triggers: create pipeline, pipeline task, multi-step task, schedule pipeline, automate steps, when to pipeline, build automation, approval gate, batch operation, iterate list
 category: core
 ---
 
@@ -59,8 +64,28 @@ Pick the cheapest step type that gets the job done:
 | Run a shell command | `exec` | Free | `df -h`, `docker ps`, `curl` |
 | Call a tool with known args | `tool` | Free | `web_search`, `slack-send_message` |
 | Interpret, reason, or decide | `agent` | LLM tokens | Analyze results, write a report |
+| Human approval before continuing | `user_prompt` | Free | "Apply these 5 patches?", multi-item review |
+| Run a sub-step per item in a list | `foreach` | Per-iteration | Apply 10 patches, notify 3 channels |
 
 **Decision question for each step:** "Is the LLM adding value, or just wrapping a deterministic action?" If the action has fixed inputs and predictable output, use `exec` or `tool`.
+
+### user_prompt vs. asking the agent
+
+Use `user_prompt` — **not** an agent step that prompts the user — when:
+- The pipeline must **block** until a human responds (agent steps just emit text and move on)
+- You want a **structured response** (binary approve/reject, per-item selection) rather than free-form prose
+- You want the response **auditable** (it's stored in `step_states[i].result` as validated JSON, not a chat message)
+
+Use an agent step asking a question when the "response" is really just *the next message in the conversation* and the pipeline doesn't need to gate on it.
+
+### foreach vs. an agent step "just call the tool N times"
+
+Use `foreach` when:
+- The list is **deterministic** (comes from a prior step / params) — don't pay LLM tokens to dispatch N identical tool calls
+- You want **per-iteration failure handling** (`on_failure: continue` inside the `do` block) without the LLM giving up after the first error
+- You want **predictable cost** — one iteration = one tool call, not N × agent-loop turns
+
+Use an agent step when the *choice* of what to do per item needs judgment.
 
 ### Common Conversions
 
@@ -103,6 +128,29 @@ Use `when` conditions instead of asking the LLM to decide:
 ]
 ```
 
+### Review → Approve → Apply
+Agent proposes, human approves, foreach applies. Zero bespoke apply-tools:
+
+```json
+[
+  {"id": "scan", "type": "tool", "tool_name": "list_api_endpoints"},
+  {"id": "review", "type": "agent",
+   "prompt": "Scan results:\n{{steps.scan.result}}\n\nPropose a JSON list of patches: [{bot_id, patch}, ...]"},
+  {"id": "approve", "type": "user_prompt",
+   "widget_template": "confirmation_card",
+   "widget_args": {"title": "Apply proposed patches?", "body": "{{steps.review.result}}"},
+   "response_schema": {"type": "binary"}},
+  {"id": "apply", "type": "foreach",
+   "over": "{{steps.review.result.proposals}}",
+   "do": [{
+     "id": "apply_one", "type": "tool", "tool_name": "call_api",
+     "tool_args": {"method": "PATCH", "path": "/api/v1/admin/bots/{{item.bot_id}}", "body": "{{item.patch}}"},
+     "when": {"step": "approve", "output_contains": "approve"}
+   }],
+   "on_failure": "continue"}
+]
+```
+
 ### Tool Chain
 Purely deterministic — zero LLM cost:
 
@@ -136,6 +184,15 @@ Use `run_task` to immediately execute a task definition:
 
 ```
 run_task(task_id="<definition-uuid>")
+```
+
+Pass `params` to bind runtime inputs into `{{params.*}}` substitutions inside the pipeline:
+
+```
+run_task(
+  task_id="<definition-uuid>",
+  params='{"target_bot": "rolland", "dry_run": true}'
+)
 ```
 
 This spawns a concrete child task and returns its ID. The definition itself is not modified.

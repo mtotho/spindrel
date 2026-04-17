@@ -90,7 +90,8 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Secrets & Redaction](guides/secrets.md) | Secret vault, automatic redaction, and user input detection. |
 | [Content Ingestion](guides/ingestion.md) | Security pipeline for content feeds with sidebar dashboard and feed health HUD. |
 | [Usage & Billing](guides/usage-and-billing.md) | Cost tracking, budget limits, spend forecasting, and provider pricing. |
-| [Workflows](guides/workflows.md) | Multi-step automations with conditions, approval gates, cross-bot delegation, and scoped secrets. |
+| [Pipelines](guides/pipelines.md) | Multi-step task automation — exec, tool, agent, user_prompt, and foreach steps with conditions, params, and approval gates. |
+| [Workflows](guides/workflows.md) | **Deprecated** — superseded by pipelines. Kept for reference. |
 | [Heartbeats](guides/heartbeats.md) | Periodic autonomous check-ins with quiet hours, dispatch modes, repetition detection, and workflow triggers. |
 | [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair with capabilities for domain expertise. |
 | [Self-Improving Agents](guides/bot-skills.md) | Bot-authored skills, the RAG pipeline, skill hygiene, and admin visibility. |

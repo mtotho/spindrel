@@ -2,7 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type { CronEntry } from "../../types/api";
 
-export type StepType = "exec" | "tool" | "agent";
+export type StepType = "exec" | "tool" | "agent" | "user_prompt" | "foreach";
+
+export type ResponseSchema =
+  | { type: "binary" }
+  | { type: "multi_item"; items_ref?: string };
 
 export interface StepDef {
   id: string;
@@ -18,16 +22,40 @@ export interface StepDef {
   when?: Record<string, any> | null;
   on_failure?: "abort" | "continue";
   result_max_chars?: number;
+  // user_prompt
+  title?: string;
+  widget_template?: Record<string, any> | null;
+  widget_args?: Record<string, any> | null;
+  response_schema?: ResponseSchema | null;
+  // foreach
+  over?: string;
+  do?: StepDef[];
 }
 
+export type StepStatus =
+  | "pending"
+  | "running"
+  | "done"
+  | "failed"
+  | "skipped"
+  | "awaiting_user_input";
+
 export interface StepState {
-  status: "pending" | "running" | "done" | "failed" | "skipped";
+  status: StepStatus;
   result?: string | null;
   error?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
   task_id?: string | null;
+  // user_prompt runtime payload
+  widget_envelope?: Record<string, any> | null;
+  response_schema?: ResponseSchema | null;
+  // foreach runtime payload — sub-states parallel to sub-steps, one array per iteration
+  items?: any[] | null;
+  iterations?: StepState[][] | null;
 }
+
+export type TaskSource = "user" | "system";
 
 export interface TaskDetail {
   id: string;
@@ -69,6 +97,9 @@ export interface TaskDetail {
   run_at?: string | null;
   completed_at?: string | null;
   is_schedule?: boolean;
+  source?: TaskSource;
+  last_run_status?: string | null;
+  last_run_at?: string | null;
 }
 
 export interface TaskCreatePayload {

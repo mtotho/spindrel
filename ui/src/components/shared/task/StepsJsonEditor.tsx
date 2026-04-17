@@ -93,21 +93,37 @@ function highlightJson(text: string): string {
 // Validation
 // ---------------------------------------------------------------------------
 
+const ALLOWED_STEP_TYPES = ["exec", "tool", "agent", "user_prompt", "foreach"] as const;
+
+function validateStepArray(
+  arr: any,
+  path: string,
+): string | null {
+  if (!Array.isArray(arr)) return `${path}: must be an array`;
+  for (let i = 0; i < arr.length; i++) {
+    const s = arr[i];
+    const loc = `${path}[${i + 1}]`;
+    if (!s || typeof s !== "object") return `${loc}: must be an object`;
+    if (!s.type || !ALLOWED_STEP_TYPES.includes(s.type)) {
+      return `${loc}: type must be one of ${ALLOWED_STEP_TYPES.join(", ")}`;
+    }
+    if (!s.id || typeof s.id !== "string") {
+      return `${loc}: id must be a string`;
+    }
+    if (s.type === "foreach" && s.do !== undefined) {
+      const sub = validateStepArray(s.do, `${loc}.do`);
+      if (sub) return sub;
+    }
+  }
+  return null;
+}
+
 function validateSteps(text: string): { steps: StepDef[] | null; error: string | null } {
   if (!text.trim()) return { steps: [], error: null };
   try {
     const parsed = JSON.parse(text);
-    if (!Array.isArray(parsed)) return { steps: null, error: "Root must be an array of steps" };
-    for (let i = 0; i < parsed.length; i++) {
-      const s = parsed[i];
-      if (!s || typeof s !== "object") return { steps: null, error: `Step ${i + 1}: must be an object` };
-      if (!s.type || !["exec", "tool", "agent"].includes(s.type)) {
-        return { steps: null, error: `Step ${i + 1}: type must be "exec", "tool", or "agent"` };
-      }
-      if (!s.id || typeof s.id !== "string") {
-        return { steps: null, error: `Step ${i + 1}: id must be a string` };
-      }
-    }
+    const err = validateStepArray(parsed, "Step");
+    if (err) return { steps: null, error: err };
     return { steps: parsed, error: null };
   } catch (e: any) {
     return { steps: null, error: e.message ?? "Invalid JSON" };

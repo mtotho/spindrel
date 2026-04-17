@@ -4,7 +4,7 @@ import { RefreshableScrollView } from "@/src/components/shared/RefreshableScroll
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChevronLeft, ChevronRight, Plus, Calendar, CalendarDays, CalendarRange, List, Terminal, ListChecks,
+  ChevronLeft, ChevronRight, Plus, Calendar, CalendarDays, CalendarRange, List, Terminal, ListChecks, Cog,
 } from "lucide-react";
 import { AlertCircle } from "lucide-react";
 import { useRunTaskNow } from "@/src/api/hooks/useTasks";
@@ -74,6 +74,19 @@ export default function TasksScreen() {
 
   const [editorState, setEditorState] = useState<EditorState>({ mode: "closed" });
 
+  // System-seeded tasks (source=system) are hidden from the admin list by default.
+  // Persist the toggle across sessions so power users who opt in stay opted in.
+  const [showSystem, setShowSystem] = useState<boolean>(() => {
+    try { return localStorage.getItem("admin.tasks.showSystem") === "1"; } catch { return false; }
+  });
+  const toggleShowSystem = useCallback(() => {
+    setShowSystem((v) => {
+      const next = !v;
+      try { localStorage.setItem("admin.tasks.showSystem", next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (searchParams.get("new") === "1") {
       setEditorState({ mode: "create" });
@@ -101,12 +114,29 @@ export default function TasksScreen() {
     : "";
   const defsParam = viewMode === "definitions" ? "&definitions_only=true" : "";
 
-  const { data, isLoading } = useQuery({
+  const { data: rawData, isLoading } = useQuery({
     queryKey: ["admin-tasks-timeline", viewMode, rangeStart.toISOString(), rangeEnd.toISOString(), typeFilter, botFilter],
     queryFn: () => apiFetch<TasksResponse>(
       `/api/v1/admin/tasks?limit=200${dateParams}${typeParam}${botParam}${defsParam}`
     ),
   });
+
+  // Client-side system-source filter. Server has no `source` query param yet;
+  // filtering here keeps user-authored and system-seeded rows cleanly separated
+  // without a second fetch. The count lets us surface "N system hidden" in UI.
+  const { data, systemHiddenCount } = useMemo(() => {
+    if (!rawData) return { data: rawData, systemHiddenCount: 0 };
+    if (showSystem) return { data: rawData, systemHiddenCount: 0 };
+    const filteredTasks = rawData.tasks.filter((t) => t.source !== "system");
+    const filteredSchedules = rawData.schedules.filter((s) => s.source !== "system");
+    const hidden =
+      (rawData.tasks.length - filteredTasks.length) +
+      (rawData.schedules.length - filteredSchedules.length);
+    return {
+      data: { ...rawData, tasks: filteredTasks, schedules: filteredSchedules },
+      systemHiddenCount: hidden,
+    };
+  }, [rawData, showSystem]);
 
   // Upcoming activity (heartbeats + memory hygiene) — only needed for views that
   // surface upcoming runs. Tasks' pending rows are already in `data.tasks`; we only
@@ -366,6 +396,19 @@ export default function TasksScreen() {
                   <option key={b.id} value={b.id}>{b.name || b.id}</option>
                 ))}
               </select>
+
+              <button
+                onClick={toggleShowSystem}
+                title={showSystem ? "Hide system-seeded pipelines" : "Show system-seeded pipelines"}
+                className={`flex flex-row items-center gap-1.5 px-2 py-[5px] text-[11px] rounded-md cursor-pointer outline-none transition-colors ${
+                  showSystem
+                    ? "bg-accent/10 text-accent border border-accent/40"
+                    : "bg-surface-raised text-text-dim border border-surface-border hover:text-text"
+                }`}
+              >
+                <Cog size={12} />
+                {showSystem ? "System on" : systemHiddenCount > 0 ? `${systemHiddenCount} system hidden` : "System"}
+              </button>
 
               <div className="flex flex-row gap-0.5 bg-surface-raised rounded-lg border border-surface-border p-0.5">
                 {VIEW_MODES.map((m) => {

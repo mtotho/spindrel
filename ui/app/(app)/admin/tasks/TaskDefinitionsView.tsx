@@ -1,9 +1,21 @@
 import { useMemo } from "react";
-import { Play, MoreVertical, RefreshCw, Zap, Calendar } from "lucide-react";
+import { Play, MoreVertical, RefreshCw, Zap, Calendar, Cog } from "lucide-react";
 import {
   type TaskItem, displayTitle,
   TaskStatusBadge, TypeBadge, BotDot, botColor, STATUS_CFG,
 } from "@/src/components/shared/TaskConstants";
+
+function SystemBadge() {
+  return (
+    <span
+      title="System-seeded pipeline — read-only"
+      className="inline-flex flex-row items-center gap-1 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border border-accent/30 bg-accent/10 text-accent shrink-0"
+    >
+      <Cog size={9} />
+      system
+    </span>
+  );
+}
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -149,6 +161,7 @@ function MobileDefinitionCard({ def, onPress, onRunNow, isRunning }: {
         }`}>
           {displayTitle(def)}
         </span>
+        {def.source === "system" && <SystemBadge />}
         <button
           onClick={(e) => { e.stopPropagation(); onRunNow(); }}
           disabled={isRunning}
@@ -228,12 +241,13 @@ function DefinitionRow({ def, onPress, onRunNow, isRunning }: {
       </div>
 
       {/* Name */}
-      <div className="flex-1 min-w-0">
-        <span className={`text-[13px] font-semibold truncate block ${
+      <div className="flex-1 min-w-0 flex flex-row items-center gap-2">
+        <span className={`text-[13px] font-semibold truncate ${
           isCancelled ? "text-text-dim line-through" : "text-text"
         }`}>
           {displayTitle(def)}
         </span>
+        {def.source === "system" && <SystemBadge />}
       </div>
 
       {/* Bot */}
