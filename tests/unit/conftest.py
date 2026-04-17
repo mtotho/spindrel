@@ -119,3 +119,51 @@ def agent_context():
         # collection; restoring to None when the var was unset is close enough
         # for test isolation (the next test's fixture will overwrite anyway).
         var.set(None if prev is _UNSET else prev)
+
+
+# ---------------------------------------------------------------------------
+# Bot registry harness
+# ---------------------------------------------------------------------------
+#
+# ``app.agent.bots.get_bot()`` is a ``_registry`` dict lookup, not a DB query.
+# Tests that exercise multi-bot routing (``_multibot.py``) need both (a) a
+# ``Bot`` ORM row so SQL joins succeed and (b) a ``BotConfig`` entry in the
+# in-memory registry so ``get_bot()`` resolves. This fixture manages (b); the
+# test still inserts (a) via ``db_session.merge(build_bot(...))`` where needed.
+
+
+@pytest.fixture
+def bot_registry():
+    """Replace ``app.agent.bots._registry`` with an empty dict for the test.
+
+    Usage::
+
+        def test_something(bot_registry):
+            helper = bot_registry.register("helper", name="Helper Bot")
+            # get_bot("helper") now returns ``helper``
+
+    Snapshot/restore ensures tests don't leak registry state. The fixture
+    yields a small object with a ``register(bot_id, **overrides)`` method
+    that constructs a minimal ``BotConfig`` and inserts it.
+    """
+    from app.agent import bots as _bots_mod
+
+    original = dict(_bots_mod._registry)
+    _bots_mod._registry.clear()
+
+    class _Harness:
+        def register(self, bot_id: str, **overrides) -> "_bots_mod.BotConfig":
+            defaults = dict(
+                id=bot_id,
+                name=overrides.pop("name", bot_id.replace("-", " ").title()),
+                model=overrides.pop("model", "test/model"),
+                system_prompt=overrides.pop("system_prompt", "You are a test bot."),
+            )
+            cfg = _bots_mod.BotConfig(**defaults, **overrides)
+            _bots_mod._registry[bot_id] = cfg
+            return cfg
+
+    yield _Harness()
+
+    _bots_mod._registry.clear()
+    _bots_mod._registry.update(original)

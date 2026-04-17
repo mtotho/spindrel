@@ -40,6 +40,7 @@ import { ChannelHeader } from "./ChannelHeader";
 import { OrchestratorLaunchpad } from "./OrchestratorEmptyState";
 import { useChannelPipelines } from "@/src/api/hooks/useChannelPipelines";
 import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
+import { ReviewNeededChip } from "./ReviewNeededChip";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
 import type { Message } from "@/src/types/api";
@@ -476,6 +477,7 @@ export default function ChatScreen() {
           <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", minHeight: 0 }}>
             <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
               <ChatMessageArea {...messageAreaProps} />
+              {channelId && <ReviewNeededChip channelId={channelId} />}
               {floatingActions.map((h) => (
                 <HudFloatingAction key={h.key} hud={h} />
               ))}
@@ -562,6 +564,7 @@ export default function ChatScreen() {
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
               <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
                 <ChatMessageArea {...messageAreaProps} />
+                {channelId && <ReviewNeededChip channelId={channelId} />}
                 {floatingActions.map((h) => (
                   <HudFloatingAction key={h.key} hud={h} />
                 ))}

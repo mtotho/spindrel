@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, Cog, Check, XCircle, Loader2, AlertTriangle, Trash2 } from "lucide-react";
+import { X, Cog, Trash2, MoreHorizontal, SkipForward, Loader2 } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import type { TasksResponse, TaskItem } from "@/src/components/shared/TaskConstants";
 import type { StepState, StepDef } from "@/src/api/hooks/useTasks";
+import { useResolveStep } from "@/src/api/hooks/useResolveStep";
+import { InlineApprovalReview } from "@/src/components/chat/InlineApprovalReview";
 import { cn } from "@/src/lib/cn";
 
 // ---------------------------------------------------------------------------
@@ -17,17 +19,6 @@ export interface Finding {
   stepIndex: number;
   stepDef: StepDef | null;
   stepState: StepState;
-}
-
-interface ProposalItem {
-  id: string;
-  label?: string;
-  rationale?: string;
-  diff_preview?: string;
-  scope?: string;
-  target_path?: string;
-  target_method?: string;
-  [k: string]: any;
 }
 
 function collectFindings(rows: TaskItem[]): Finding[] {
@@ -72,33 +63,8 @@ export function useFindings(channelId: string | undefined) {
 }
 
 // ---------------------------------------------------------------------------
-// Resolve / cancel mutations
+// Delete mutation — secondary action, tucked behind a menu.
 // ---------------------------------------------------------------------------
-
-function useResolveStep() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      taskId,
-      stepIndex,
-      response,
-    }: {
-      taskId: string;
-      stepIndex: number;
-      response: Record<string, any>;
-    }) =>
-      apiFetch(`/api/v1/admin/tasks/${taskId}/steps/${stepIndex}/resolve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ response }),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["findings"] });
-      qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
-      qc.invalidateQueries({ queryKey: ["orchestrator-runs"] });
-    },
-  });
-}
 
 function useDeleteTask() {
   const qc = useQueryClient();
@@ -114,216 +80,58 @@ function useDeleteTask() {
 }
 
 // ---------------------------------------------------------------------------
-// Approval Review renderer — handles {template: {kind: "approval_review"}} +
-// response_schema.type === "multi_item" or "binary".
+// Per-finding card: header + shared approval review + overflow menu.
+// Skip is the primary cleanup action (resolves with empty response, keeps
+// the run visible in admin history). Delete is demoted to a secondary menu.
 // ---------------------------------------------------------------------------
 
-function ProposalRow({
-  item,
-  decision,
-  onDecide,
-}: {
-  item: ProposalItem;
-  decision: "approve" | "reject" | undefined;
-  onDecide: (d: "approve" | "reject") => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const label = item.label || item.id;
-  const summary = item.rationale || item.diff_preview || "";
-
-  return (
-    <div
-      className={cn(
-        "rounded-md border p-2.5 flex flex-col gap-2 transition-colors",
-        decision === "approve" && "border-emerald-500/50 bg-emerald-500/5",
-        decision === "reject" && "border-red-500/50 bg-red-500/5",
-        !decision && "border-surface-border bg-surface",
-      )}
-    >
-      <div className="flex flex-row items-start justify-between gap-2">
-        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-          <span className="text-xs font-semibold text-text truncate">{label}</span>
-          {item.scope && item.target_path && (
-            <span className="text-[10px] text-text-dim font-mono truncate">
-              {item.target_method || "PATCH"} {item.target_path}
-            </span>
-          )}
-          {summary && (
-            <p className={cn(
-              "text-[11px] text-text-dim leading-snug",
-              expanded ? "" : "line-clamp-2",
-            )}>
-              {summary}
-            </p>
-          )}
-          {summary && summary.length > 120 && (
-            <button
-              onClick={() => setExpanded((v) => !v)}
-              className="text-[10px] text-accent hover:underline self-start"
-            >
-              {expanded ? "Less" : "More"}
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-row gap-1.5 shrink-0">
-        <button
-          onClick={() => onDecide("approve")}
-          className={cn(
-            "flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors",
-            decision === "approve"
-              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
-              : "bg-surface-raised text-text-dim border border-surface-border hover:bg-emerald-500/10 hover:text-emerald-400",
-          )}
-        >
-          <Check size={11} />
-          Approve
-        </button>
-        <button
-          onClick={() => onDecide("reject")}
-          className={cn(
-            "flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors",
-            decision === "reject"
-              ? "bg-red-500/20 text-red-400 border border-red-500/50"
-              : "bg-surface-raised text-text-dim border border-surface-border hover:bg-red-500/10 hover:text-red-400",
-          )}
-        >
-          <XCircle size={11} />
-          Reject
-        </button>
-      </div>
-    </div>
-  );
+function relTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (!then) return "";
+  const diff = Date.now() - then;
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
 }
 
-function ApprovalReviewRenderer({ finding }: { finding: Finding }) {
+function proposalCount(finding: Finding): number {
   const schema = (finding.stepState.response_schema as any) || {};
-  const schemaType = schema.type;
-  const items: ProposalItem[] = Array.isArray(schema.items) ? schema.items : [];
-  const [decisions, setDecisions] = useState<Record<string, "approve" | "reject">>({});
-  const [binaryDecision, setBinaryDecision] = useState<"approve" | "reject" | undefined>(undefined);
-  const resolveMut = useResolveStep();
-
-  const handleSubmit = () => {
-    let response: Record<string, any>;
-    if (schemaType === "binary") {
-      if (!binaryDecision) return;
-      response = { decision: binaryDecision };
-    } else {
-      response = { ...decisions };
-      for (const it of items) {
-        if (!response[it.id]) response[it.id] = "reject";
-      }
-    }
-    resolveMut.mutate({
-      taskId: finding.task.id,
-      stepIndex: finding.stepIndex,
-      response,
-    });
-  };
-
-  if (schemaType === "multi_item" && items.length === 0) {
-    return (
-      <div className="flex flex-col gap-2">
-        <div className="text-[11px] text-text-dim italic flex items-center gap-1.5">
-          <AlertTriangle size={11} className="text-amber-500" />
-          No proposals — the agent step returned an empty list.
-        </div>
-        <button
-          onClick={() =>
-            resolveMut.mutate({
-              taskId: finding.task.id,
-              stepIndex: finding.stepIndex,
-              response: {},
-            })
-          }
-          disabled={resolveMut.isPending}
-          className="px-2.5 py-1 text-[11px] rounded-md bg-surface-raised border border-surface-border
-                     text-text-dim hover:text-text self-start disabled:opacity-50"
-        >
-          {resolveMut.isPending ? "Resolving..." : "Dismiss"}
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      {schemaType === "binary" ? (
-        <div className="flex flex-row gap-1.5">
-          <button
-            onClick={() => setBinaryDecision("approve")}
-            className={cn(
-              "flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-medium",
-              binaryDecision === "approve"
-                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
-                : "bg-surface-raised text-text-dim border border-surface-border hover:text-text",
-            )}
-          >
-            <Check size={12} /> Approve
-          </button>
-          <button
-            onClick={() => setBinaryDecision("reject")}
-            className={cn(
-              "flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-medium",
-              binaryDecision === "reject"
-                ? "bg-red-500/20 text-red-400 border border-red-500/50"
-                : "bg-surface-raised text-text-dim border border-surface-border hover:text-text",
-            )}
-          >
-            <XCircle size={12} /> Reject
-          </button>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-1.5">
-          {items.map((item) => (
-            <ProposalRow
-              key={item.id}
-              item={item}
-              decision={decisions[item.id]}
-              onDecide={(d) => setDecisions((s) => ({ ...s, [item.id]: d }))}
-            />
-          ))}
-        </div>
-      )}
-
-      {resolveMut.isError && (
-        <div className="text-[11px] text-red-400">
-          {(resolveMut.error as Error)?.message ?? "Resolve failed"}
-        </div>
-      )}
-
-      <button
-        onClick={handleSubmit}
-        disabled={
-          resolveMut.isPending ||
-          (schemaType === "binary" ? !binaryDecision : false)
-        }
-        className="mt-1 px-3 py-1.5 rounded-md bg-accent text-white text-xs font-semibold
-                   hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed
-                   inline-flex items-center justify-center gap-1.5"
-      >
-        {resolveMut.isPending && <Loader2 size={12} className="animate-spin" />}
-        {schemaType === "multi_item"
-          ? `Submit (${Object.values(decisions).filter((d) => d === "approve").length} approved, ${items.length - Object.values(decisions).filter((d) => d === "approve").length} rejected)`
-          : "Submit"}
-      </button>
-    </div>
-  );
+  if (Array.isArray(schema.items)) return schema.items.length;
+  const tmpl = (finding.stepState.widget_envelope as any)?.template;
+  const fromTmpl = tmpl?.proposals;
+  if (Array.isArray(fromTmpl)) return fromTmpl.length;
+  return 0;
 }
-
-// ---------------------------------------------------------------------------
-// Per-finding card with a Cancel option (deletes the whole pipeline run —
-// the cleanup path for old stuck reviews the user can't or won't resolve).
-// ---------------------------------------------------------------------------
 
 function FindingCard({ finding }: { finding: Finding }) {
   const envelope = (finding.stepState.widget_envelope as any) || {};
   const template = envelope.template || {};
   const kind = template.kind;
-  const deleteMut = useDeleteTask();
 
-  const title =
+  const deleteMut = useDeleteTask();
+  const resolveMut = useResolveStep();
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [menuOpen]);
+
+  const headerTitle =
     envelope.title ||
     finding.stepDef?.title ||
     finding.stepDef?.label ||
@@ -331,32 +139,121 @@ function FindingCard({ finding }: { finding: Finding }) {
     finding.task.title ||
     "Pending review";
   const when = finding.stepState.started_at || finding.task.run_at || finding.task.created_at;
+  const count = proposalCount(finding);
+
+  const handleSkip = () => {
+    resolveMut.mutate({
+      taskId: finding.task.id,
+      stepIndex: finding.stepIndex,
+      response: {},
+    });
+    setMenuOpen(false);
+  };
+
+  const handleDelete = () => {
+    deleteMut.mutate(finding.task.id);
+    setMenuOpen(false);
+    setConfirmDelete(false);
+  };
 
   return (
     <article className="rounded-md bg-surface border border-surface-border p-3 flex flex-col gap-2">
       <header className="flex flex-row items-start justify-between gap-2">
         <div className="flex flex-col min-w-0 flex-1">
-          <h4 className="text-sm font-medium text-text truncate">{title}</h4>
-          <span className="text-[10px] text-text-dim">
-            {finding.task.title ?? finding.task.id} · {when ? new Date(when).toLocaleString() : ""}
+          <h4 className="text-sm font-medium text-text truncate">{headerTitle}</h4>
+          <span className="text-[10px] text-text-dim flex flex-row flex-wrap items-center gap-1.5">
+            <span className="truncate">{finding.task.title ?? "pipeline"}</span>
+            {count > 0 && (
+              <>
+                <span className="opacity-50">·</span>
+                <span>
+                  {count} proposal{count === 1 ? "" : "s"}
+                </span>
+              </>
+            )}
+            {when && (
+              <>
+                <span className="opacity-50">·</span>
+                <span>{relTime(when)}</span>
+              </>
+            )}
           </span>
         </div>
-        <button
-          onClick={() => {
-            if (confirm("Cancel this pipeline run? The stuck review will be deleted.")) {
-              deleteMut.mutate(finding.task.id);
-            }
-          }}
-          disabled={deleteMut.isPending}
-          className="p-1 text-text-dim/60 hover:text-red-400 shrink-0"
-          title="Cancel this run and delete it"
-        >
-          <Trash2 size={12} />
-        </button>
+        <div ref={menuRef} className="relative shrink-0">
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="p-1 text-text-dim/70 hover:text-text rounded"
+            title="More actions"
+            aria-label="More actions"
+          >
+            <MoreHorizontal size={14} />
+          </button>
+          {menuOpen && (
+            <div
+              className="absolute right-0 top-6 z-10 w-40 rounded-md border border-surface-border
+                         bg-surface-raised shadow-[0_8px_24px_rgba(0,0,0,0.3)] py-1"
+            >
+              <button
+                onClick={handleSkip}
+                disabled={resolveMut.isPending}
+                className="w-full px-3 py-1.5 text-left text-[11px] text-text-dim
+                           hover:bg-surface-overlay hover:text-text flex items-center gap-2
+                           disabled:opacity-50"
+              >
+                {resolveMut.isPending ? (
+                  <Loader2 size={11} className="animate-spin" />
+                ) : (
+                  <SkipForward size={11} />
+                )}
+                Skip review
+              </button>
+              <button
+                onClick={() => setConfirmDelete(true)}
+                disabled={deleteMut.isPending}
+                className="w-full px-3 py-1.5 text-left text-[11px] text-red-400/90
+                           hover:bg-red-500/10 flex items-center gap-2
+                           disabled:opacity-50"
+              >
+                <Trash2 size={11} />
+                Delete run
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
+      {confirmDelete && (
+        <div className="rounded-md bg-red-500/5 border border-red-500/30 p-2 flex flex-col gap-1.5">
+          <span className="text-[11px] text-red-300">
+            Delete the pipeline run? This removes it from admin history too.
+          </span>
+          <div className="flex flex-row gap-1.5">
+            <button
+              onClick={handleDelete}
+              disabled={deleteMut.isPending}
+              className="flex-1 px-2 py-1 rounded bg-red-500/20 text-red-300 text-[11px]
+                         hover:bg-red-500/30 disabled:opacity-50"
+            >
+              {deleteMut.isPending ? "Deleting..." : "Delete"}
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="flex-1 px-2 py-1 rounded border border-surface-border text-[11px]
+                         text-text-dim hover:text-text"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {kind === "approval_review" ? (
-        <ApprovalReviewRenderer finding={finding} />
+        <InlineApprovalReview
+          taskId={finding.task.id}
+          stepIndex={finding.stepIndex}
+          widgetEnvelope={finding.stepState.widget_envelope}
+          responseSchema={finding.stepState.response_schema}
+        />
       ) : (
         <div className="text-[11px] text-text-dim italic">
           Unsupported widget kind: {kind || "(unspecified)"}
@@ -370,7 +267,13 @@ function FindingCard({ finding }: { finding: Finding }) {
 // Main panels — desktop right rail + mobile bottom sheet.
 // ---------------------------------------------------------------------------
 
-function FindingsBody({ findings }: { findings: Finding[] }) {
+function FindingsBody({
+  findings,
+  subtitle,
+}: {
+  findings: Finding[];
+  subtitle?: string;
+}) {
   if (findings.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-2 p-6 text-text-dim">
@@ -384,6 +287,11 @@ function FindingsBody({ findings }: { findings: Finding[] }) {
   }
   return (
     <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+      {subtitle && (
+        <span className="text-[10px] text-text-dim uppercase tracking-wider">
+          {subtitle}
+        </span>
+      )}
       {findings.map((f) => (
         <FindingCard key={`${f.task.id}:${f.stepIndex}`} finding={f} />
       ))}
@@ -422,7 +330,7 @@ export function FindingsPanel({
           <X size={14} />
         </button>
       </header>
-      <FindingsBody findings={findings} />
+      <FindingsBody findings={findings} subtitle="Pending reviews on this channel" />
     </aside>
   );
 }
@@ -443,8 +351,10 @@ export function FindingsSheet({
     <div className="fixed inset-0 z-[10010] md:hidden">
       <div className="absolute inset-0 bg-black/45" onClick={onClose} />
       <div
-        className="absolute inset-x-0 bottom-0 h-[85vh] bg-surface-raised
-                   border-t border-surface-border rounded-t-xl flex flex-col"
+        className={cn(
+          "absolute inset-x-0 bottom-0 h-[85vh] bg-surface-raised",
+          "border-t border-surface-border rounded-t-xl flex flex-col",
+        )}
       >
         <header className="h-12 px-4 flex flex-row items-center justify-between
                            border-b border-surface-border shrink-0">
@@ -461,7 +371,7 @@ export function FindingsSheet({
             <X size={16} />
           </button>
         </header>
-        <FindingsBody findings={findings} />
+        <FindingsBody findings={findings} subtitle="Pending reviews on this channel" />
       </div>
     </div>
   );

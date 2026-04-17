@@ -1,440 +1,315 @@
-"""Unit tests for app.tools.local.tasks — tool functions and helpers."""
+"""Unit tests for app.tools.local.tasks — tool functions and helpers.
+
+Every DB-touching test here uses the real SQLite `db_session` fixture plus
+`patched_async_sessions` to redirect the module-level `async_session` alias
+at the test engine. `agent_context` sets the per-turn ContextVars that the
+tool entry points read.
+
+Kept out of scope: fuzzy bot resolution (`resolve_bot_id`) runs against an
+in-memory registry, not the DB. Patching it is a legitimate external-dep
+seam per SKILL.md E.1.
+"""
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import select
 
+from app.db.models import PromptTemplate, Task
+from app.tools.local.tasks import (
+    _resolve_template,
+    list_tasks,
+    schedule_task,
+    update_task,
+)
+from tests.factories import build_prompt_template, build_task
 
-# ---------------------------------------------------------------------------
-# _resolve_template
-# ---------------------------------------------------------------------------
 
 class TestResolveTemplate:
     @pytest.mark.asyncio
-    async def test_finds_existing_template(self):
-        from app.tools.local.tasks import _resolve_template
+    async def test_when_template_exists_then_returns_existing_row(self, db_session):
+        tpl = build_prompt_template(name="nightly_review")
+        db_session.add(tpl)
+        await db_session.commit()
 
-        tpl = MagicMock()
-        tpl.id = uuid.uuid4()
-        tpl.name = "nightly_review"
+        got = await _resolve_template("Nightly_Review", None, db_session)
 
-        db = AsyncMock()
-        result = MagicMock()
-        result.scalar_one_or_none.return_value = tpl
-        db.execute = AsyncMock(return_value=result)
-
-        got = await _resolve_template("Nightly_Review", None, db)
-        assert got is tpl
+        assert got.id == tpl.id
+        assert got.name == "nightly_review"
 
     @pytest.mark.asyncio
-    async def test_auto_creates_when_prompt_provided(self):
-        from app.tools.local.tasks import _resolve_template
+    async def test_when_missing_and_prompt_provided_then_auto_creates_manual_template(self, db_session):
+        got = await _resolve_template("new_template", "do stuff", db_session)
+        await db_session.commit()
 
-        db = AsyncMock()
-        result = MagicMock()
-        result.scalar_one_or_none.return_value = None
-        db.execute = AsyncMock(return_value=result)
-        db.add = MagicMock()
-        db.flush = AsyncMock()
-        # Track what gets added
-        db.new = set()
-
-        got = await _resolve_template("new_template", "do stuff", db)
-        assert got.name == "new_template"
-        assert got.content == "do stuff"
-        assert got.source_type == "manual"
-        db.add.assert_called_once()
-        db.flush.assert_awaited_once()
+        row = (
+            await db_session.execute(
+                select(PromptTemplate).where(PromptTemplate.name == "new_template")
+            )
+        ).scalar_one()
+        assert row.id == got.id
+        assert row.content == "do stuff"
+        assert row.source_type == "manual"
 
     @pytest.mark.asyncio
-    async def test_error_when_not_found_and_no_prompt(self):
-        from app.tools.local.tasks import _resolve_template
-
-        db = AsyncMock()
-        result = MagicMock()
-        result.scalar_one_or_none.return_value = None
-        db.execute = AsyncMock(return_value=result)
-
+    async def test_when_missing_and_no_prompt_then_raises_value_error(self, db_session):
         with pytest.raises(ValueError, match="Template 'missing' not found"):
-            await _resolve_template("missing", None, db)
+            await _resolve_template("missing", None, db_session)
 
 
-# ---------------------------------------------------------------------------
-# create_task
-# ---------------------------------------------------------------------------
+class TestScheduleTask:
+    @pytest.mark.asyncio
+    async def test_when_scheduling_task_with_bot_context_then_persists_pending_scheduled_task(
+        self, db_session, patched_async_sessions, agent_context
+    ):
+        agent_context(
+            bot_id="test_bot",
+            session_id=uuid.uuid4(),
+            channel_id=uuid.uuid4(),
+            client_id="client1",
+            dispatch_type="none",
+            dispatch_config={},
+        )
 
-class TestCreateTask:
-    def _mock_async_session(self, db):
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-        return cm
+        result = json.loads(await schedule_task(prompt="do something"))
+
+        assert {k: result[k] for k in ("status", "task_type", "bot_id")} == {
+            "status": "pending",
+            "task_type": "scheduled",
+            "bot_id": "test_bot",
+        }
+        row = (
+            await db_session.execute(select(Task).where(Task.id == uuid.UUID(result["id"])))
+        ).scalar_one()
+        assert row.bot_id == "test_bot"
+        assert row.prompt == "do something"
+        assert row.status == "pending"
 
     @pytest.mark.asyncio
-    async def test_basic_create(self):
-        from app.tools.local.tasks import schedule_task as create_task
+    async def test_when_no_prompt_or_steps_or_workspace_file_then_returns_error(
+        self, patched_async_sessions, agent_context
+    ):
+        agent_context(bot_id="test_bot")
 
-        db = AsyncMock()
-        db.add = MagicMock()
-        db.commit = AsyncMock()
-        db.refresh = AsyncMock()
-        cm = self._mock_async_session(db)
+        result = json.loads(await schedule_task())
 
-        with patch("app.tools.local.tasks.async_session", return_value=cm), \
-             patch("app.tools.local.tasks.current_bot_id") as mock_bot, \
-             patch("app.tools.local.tasks.current_session_id") as mock_sid, \
-             patch("app.tools.local.tasks.current_channel_id") as mock_cid, \
-             patch("app.tools.local.tasks.current_client_id") as mock_client, \
-             patch("app.tools.local.tasks.current_dispatch_type") as mock_dtype, \
-             patch("app.tools.local.tasks.current_dispatch_config") as mock_dcfg:
-            mock_bot.get.return_value = "test_bot"
-            mock_sid.get.return_value = uuid.uuid4()
-            mock_cid.get.return_value = uuid.uuid4()
-            mock_client.get.return_value = "client1"
-            mock_dtype.get.return_value = "none"
-            mock_dcfg.get.return_value = {}
-
-            result = await create_task(prompt="do something")
-            data = json.loads(result)
-            assert data["status"] == "pending"
-            assert data["task_type"] == "scheduled"
-            assert data["bot_id"] == "test_bot"
+        assert "error" in result
+        assert "prompt" in result["error"]
 
 
-
-# ---------------------------------------------------------------------------
-# list_tasks
-# ---------------------------------------------------------------------------
-
-class TestListTasks:
+class TestListTasksDetailMode:
     @pytest.mark.asyncio
-    async def test_detail_mode(self):
-        from app.tools.local.tasks import list_tasks
+    async def test_when_task_exists_then_returns_detail_payload(
+        self, db_session, patched_async_sessions
+    ):
+        task = build_task(
+            bot_id="test_bot",
+            status="pending",
+            task_type="scheduled",
+            prompt="test prompt",
+        )
+        db_session.add(task)
+        await db_session.commit()
 
-        task_id = uuid.uuid4()
-        task = MagicMock()
-        task.id = task_id
-        task.status = "pending"
-        task.task_type = "scheduled"
-        task.bot_id = "test_bot"
-        task.prompt = "test prompt"
-        task.title = None
-        task.scheduled_at = None
-        task.run_at = None
-        task.completed_at = None
-        task.created_at = None
-        task.dispatch_type = "none"
-        task.recurrence = None
-        task.run_count = 0
-        task.prompt_template_id = None
-        task.parent_task_id = None
-        task.result = None
-        task.error = None
-        task.steps = None
-        task.step_states = None
-        task.execution_config = None
-        task.trigger_config = None
-        task.max_run_seconds = None
+        data = json.loads(await list_tasks(task_id=str(task.id)))
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=task)
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.tools.local.tasks.async_session", return_value=cm):
-            result = await list_tasks(task_id=str(task_id))
-            data = json.loads(result)
-            assert data["id"] == str(task_id)
-            assert data["status"] == "pending"
-            assert data["task_type"] == "scheduled"
-            assert data["prompt"] == "test prompt"
+        assert {
+            "id": data["id"],
+            "status": data["status"],
+            "task_type": data["task_type"],
+            "prompt": data["prompt"],
+        } == {
+            "id": str(task.id),
+            "status": "pending",
+            "task_type": "scheduled",
+            "prompt": "test prompt",
+        }
 
     @pytest.mark.asyncio
-    async def test_detail_mode_with_template(self):
-        from app.tools.local.tasks import list_tasks
+    async def test_when_task_linked_to_template_then_includes_template_name_and_recurrence(
+        self, db_session, patched_async_sessions
+    ):
+        tpl = build_prompt_template(name="daily_check")
+        task = build_task(
+            status="active",
+            prompt_template_id=tpl.id,
+            recurrence="+1h",
+            run_count=5,
+        )
+        db_session.add_all([tpl, task])
+        await db_session.commit()
 
-        task_id = uuid.uuid4()
-        tpl_id = uuid.uuid4()
-        task = MagicMock()
-        task.id = task_id
-        task.status = "active"
-        task.task_type = "scheduled"
-        task.bot_id = "test_bot"
-        task.prompt = "test prompt"
-        task.title = None
-        task.scheduled_at = None
-        task.run_at = None
-        task.completed_at = None
-        task.created_at = None
-        task.dispatch_type = "none"
-        task.recurrence = "+1h"
-        task.run_count = 5
-        task.prompt_template_id = tpl_id
-        task.parent_task_id = None
-        task.result = None
-        task.error = None
-        task.steps = None
-        task.step_states = None
-        task.execution_config = None
-        task.trigger_config = None
-        task.max_run_seconds = None
+        data = json.loads(await list_tasks(task_id=str(task.id)))
 
-        tpl = MagicMock()
-        tpl.name = "daily_check"
-
-        db = AsyncMock()
-        db.get = AsyncMock(side_effect=lambda model, id: task if id == task_id else tpl)
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.tools.local.tasks.async_session", return_value=cm):
-            result = await list_tasks(task_id=str(task_id))
-            data = json.loads(result)
-            assert data["prompt_template"] == "daily_check"
-            assert data["recurrence"] == "+1h"
+        assert data["prompt_template"] == "daily_check"
+        assert data["recurrence"] == "+1h"
+        assert data["run_count"] == 5
 
     @pytest.mark.asyncio
-    async def test_detail_mode_not_found(self):
-        from app.tools.local.tasks import list_tasks
+    async def test_when_task_id_not_found_then_returns_error(
+        self, patched_async_sessions
+    ):
+        data = json.loads(await list_tasks(task_id=str(uuid.uuid4())))
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.tools.local.tasks.async_session", return_value=cm):
-            result = await list_tasks(task_id=str(uuid.uuid4()))
-            data = json.loads(result)
-            assert "error" in data
+        assert "error" in data
+        assert "not found" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_list_mode_no_context(self):
-        """When no session/channel context, list_tasks scopes by bot_id and returns no tasks."""
-        from app.tools.local.tasks import list_tasks
+    async def test_when_task_id_malformed_then_returns_error(
+        self, patched_async_sessions
+    ):
+        data = json.loads(await list_tasks(task_id="not-a-uuid"))
 
-        db = AsyncMock()
-        # Return empty result set
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        db.execute = AsyncMock(return_value=mock_result)
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.tools.local.tasks.current_session_id") as mock_sid, \
-             patch("app.tools.local.tasks.current_channel_id") as mock_cid, \
-             patch("app.tools.local.tasks.current_bot_id") as mock_bid, \
-             patch("app.tools.local.tasks.async_session", return_value=cm):
-            mock_sid.get.return_value = None
-            mock_cid.get.return_value = None
-            mock_bid.get.return_value = None
-
-            result = await list_tasks()
-            assert "No" in result and "tasks" in result
+        assert "error" in data
+        assert "Invalid task_id" in data["error"]
 
 
-# ---------------------------------------------------------------------------
-# update_task
-# ---------------------------------------------------------------------------
+class TestListTasksListMode:
+    @pytest.mark.asyncio
+    async def test_when_no_tasks_exist_then_returns_empty_list_with_message(
+        self, patched_async_sessions, agent_context
+    ):
+        agent_context(bot_id=None, session_id=None, channel_id=None)
+
+        data = json.loads(await list_tasks())
+
+        assert data == {
+            "tasks": [],
+            "message": (
+                "No pending/running/active tasks. "
+                "Use include_completed=true to see completed/failed tasks."
+            ),
+        }
+
+    @pytest.mark.asyncio
+    async def test_when_pending_tasks_exist_then_returns_them_hiding_internals(
+        self, db_session, patched_async_sessions, agent_context
+    ):
+        agent_context(bot_id=None)
+        visible = build_task(
+            bot_id="test_bot",
+            status="pending",
+            task_type="scheduled",
+            title="Visible task",
+        )
+        internal = build_task(
+            bot_id="test_bot",
+            status="pending",
+            task_type="callback",
+            title="Internal",
+        )
+        db_session.add_all([visible, internal])
+        await db_session.commit()
+
+        data = json.loads(await list_tasks())
+
+        assert data["count"] == 1
+        assert data["tasks"][0]["id"] == str(visible.id)
+
 
 class TestUpdateTask:
     @pytest.mark.asyncio
-    async def test_update_scheduled_at(self):
-        from app.tools.local.tasks import update_task
+    async def test_when_updating_scheduled_at_then_sets_new_time_and_persists(
+        self, db_session, patched_async_sessions
+    ):
+        task = build_task(status="pending")
+        db_session.add(task)
+        await db_session.commit()
 
-        task_id = uuid.uuid4()
-        task = MagicMock()
-        task.id = task_id
-        task.status = "pending"
-        task.dispatch_config = {}
-        task.callback_config = {}
+        before = datetime.now(timezone.utc)
+        result = await update_task(task_id=str(task.id), scheduled_at="+2h")
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=task)
-        db.commit = AsyncMock()
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.tools.local.tasks.async_session", return_value=cm):
-            result = await update_task(task_id=str(task_id), scheduled_at="+2h")
-            assert "updated" in result
-            assert "time →" in result
+        assert "time →" in result
+        await db_session.refresh(task)
+        assert task.scheduled_at is not None
+        assert task.scheduled_at > before
 
     @pytest.mark.asyncio
-    async def test_update_prompt(self):
-        from app.tools.local.tasks import update_task
+    async def test_when_updating_prompt_then_replaces_prompt_text(
+        self, db_session, patched_async_sessions
+    ):
+        task = build_task(status="pending", prompt="old")
+        db_session.add(task)
+        await db_session.commit()
 
-        task_id = uuid.uuid4()
-        task = MagicMock()
-        task.id = task_id
-        task.status = "pending"
+        result = await update_task(task_id=str(task.id), prompt="new prompt")
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=task)
-        db.commit = AsyncMock()
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.tools.local.tasks.async_session", return_value=cm):
-            result = await update_task(task_id=str(task_id), prompt="new prompt")
-            assert "prompt updated" in result
-            assert task.prompt == "new prompt"
+        assert "prompt updated" in result
+        await db_session.refresh(task)
+        assert task.prompt == "new prompt"
 
     @pytest.mark.asyncio
-    async def test_recurrence_adds_active_status(self):
-        from app.tools.local.tasks import update_task
+    async def test_when_adding_recurrence_to_pending_task_then_status_flips_to_active(
+        self, db_session, patched_async_sessions
+    ):
+        task = build_task(status="pending", recurrence=None)
+        db_session.add(task)
+        await db_session.commit()
 
-        task_id = uuid.uuid4()
-        task = MagicMock()
-        task.id = task_id
-        task.status = "pending"
-        task.recurrence = None
+        result = await update_task(task_id=str(task.id), recurrence="+1h")
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=task)
-        db.commit = AsyncMock()
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.tools.local.tasks.async_session", return_value=cm):
-            result = await update_task(task_id=str(task_id), recurrence="+1h")
-            assert "status → active" in result
-            assert task.status == "active"
-            assert task.recurrence == "+1h"
+        assert "status → active" in result
+        await db_session.refresh(task)
+        assert task.status == "active"
+        assert task.recurrence == "+1h"
 
     @pytest.mark.asyncio
-    async def test_remove_recurrence_to_pending(self):
-        from app.tools.local.tasks import update_task
+    async def test_when_clearing_recurrence_on_active_task_then_status_flips_to_pending(
+        self, db_session, patched_async_sessions
+    ):
+        task = build_task(status="active", recurrence="+1h")
+        db_session.add(task)
+        await db_session.commit()
 
-        task_id = uuid.uuid4()
-        task = MagicMock()
-        task.id = task_id
-        task.status = "active"
-        task.recurrence = "+1h"
+        result = await update_task(task_id=str(task.id), recurrence=None)
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=task)
-        db.commit = AsyncMock()
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.tools.local.tasks.async_session", return_value=cm):
-            result = await update_task(task_id=str(task_id), recurrence=None)
-            assert "status → pending" in result
-            assert task.status == "pending"
-            assert task.recurrence is None
+        assert "status → pending" in result
+        await db_session.refresh(task)
+        assert task.status == "pending"
+        assert task.recurrence is None
 
     @pytest.mark.asyncio
-    async def test_update_bot_id(self):
-        from app.tools.local.tasks import update_task
+    async def test_when_changing_bot_id_to_resolved_bot_then_row_bot_id_updates(
+        self, db_session, patched_async_sessions
+    ):
+        task = build_task(status="pending", bot_id="old_bot")
+        db_session.add(task)
+        await db_session.commit()
 
-        task_id = uuid.uuid4()
-        task = MagicMock()
-        task.id = task_id
-        task.status = "pending"
-
-        resolved_bot = MagicMock()
-        resolved_bot.id = "new_bot"
-
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=task)
-        db.commit = AsyncMock()
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.tools.local.tasks.async_session", return_value=cm), \
-             patch("app.agent.bots.resolve_bot_id", return_value=resolved_bot), \
+        resolved = MagicMock()
+        resolved.id = "new_bot"
+        with patch("app.agent.bots.resolve_bot_id", return_value=resolved), \
              patch("app.agent.bots.list_bots", return_value=[]):
-            result = await update_task(task_id=str(task_id), bot_id="new_bot")
-            assert "bot → new_bot" in result
+            result = await update_task(task_id=str(task.id), bot_id="new_bot")
+
+        assert "bot → new_bot" in result
+        await db_session.refresh(task)
+        assert task.bot_id == "new_bot"
 
     @pytest.mark.asyncio
-    async def test_no_changes_error(self):
-        from app.tools.local.tasks import update_task
+    async def test_when_no_fields_provided_then_returns_error(
+        self, db_session, patched_async_sessions
+    ):
+        task = build_task(status="pending")
+        db_session.add(task)
+        await db_session.commit()
 
-        task_id = uuid.uuid4()
-        task = MagicMock()
-        task.id = task_id
-        task.status = "pending"
+        data = json.loads(await update_task(task_id=str(task.id)))
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=task)
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.tools.local.tasks.async_session", return_value=cm):
-            result = await update_task(task_id=str(task_id))
-            data = json.loads(result)
-            assert "error" in data
+        assert "error" in data
+        assert "at least one field" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_wrong_status_error(self):
-        from app.tools.local.tasks import update_task
+    async def test_when_task_is_complete_then_update_returns_error(
+        self, db_session, patched_async_sessions
+    ):
+        task = build_task(status="complete")
+        db_session.add(task)
+        await db_session.commit()
 
-        task_id = uuid.uuid4()
-        task = MagicMock()
-        task.id = task_id
-        task.status = "complete"
+        data = json.loads(await update_task(task_id=str(task.id), prompt="new"))
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=task)
-        cm = AsyncMock()
-        cm.__aenter__ = AsyncMock(return_value=db)
-        cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.tools.local.tasks.async_session", return_value=cm):
-            result = await update_task(task_id=str(task_id), prompt="new")
-            data = json.loads(result)
-            assert "error" in data
-            assert "complete" in data["error"]
-
-
-# ---------------------------------------------------------------------------
-# Heartbeat PATCH null coercion
-# ---------------------------------------------------------------------------
-
-class TestHeartbeatPatchNull:
-    """Test that the heartbeat PATCH loop coerces None → '' for non-nullable fields."""
-
-    def test_prompt_null_coerced(self):
-        """Simulate the heartbeat field processing logic for prompt=None."""
-        from datetime import time as dt_time
-
-        # Replicate the fixed loop logic inline
-        hb_updates = {"prompt": None}
-        for field, value in hb_updates.items():
-            if field == "prompt":
-                value = value.strip() if value else ""
-            assert value == ""
-
-    def test_model_null_coerced(self):
-        hb_updates = {"model": None}
-        for field, value in hb_updates.items():
-            if field == "model":
-                value = value.strip() if value else ""
-            assert value == ""
-
-    def test_prompt_with_value_stripped(self):
-        hb_updates = {"prompt": "  hello  "}
-        for field, value in hb_updates.items():
-            if field == "prompt":
-                value = value.strip() if value else ""
-            assert value == "hello"
-
-    def test_model_with_value_stripped(self):
-        hb_updates = {"model": "  gpt-4  "}
-        for field, value in hb_updates.items():
-            if field == "model":
-                value = value.strip() if value else ""
-            assert value == "gpt-4"
+        assert "error" in data
+        assert "complete" in data["error"]

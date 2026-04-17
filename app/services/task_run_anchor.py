@@ -54,7 +54,7 @@ def _step_summary(task: Task) -> list[dict]:
         result = state.get("result")
         if result and len(result) > 400:
             result = result[:400] + "…"
-        out.append({
+        entry: dict = {
             "index": i,
             "type": sdef.get("type", "agent"),
             "label": sdef.get("label") or sdef.get("id") or f"Step {i + 1}",
@@ -62,7 +62,22 @@ def _step_summary(task: Task) -> list[dict]:
             "duration_ms": _duration_ms(state),
             "result_preview": result,
             "error": state.get("error"),
-        })
+        }
+        # When paused for user input, carry the rendered widget envelope
+        # + response schema + step title into the anchor payload so the
+        # web client can render the approval UI inline in chat without
+        # a second fetch. Data already lives on step_states[i].
+        if state.get("status") == "awaiting_user_input":
+            env = state.get("widget_envelope")
+            if env is not None:
+                entry["widget_envelope"] = env
+            schema = state.get("response_schema")
+            if schema is not None:
+                entry["response_schema"] = schema
+            step_title = sdef.get("title")
+            if step_title:
+                entry["title"] = step_title
+        out.append(entry)
     return out
 
 

@@ -266,39 +266,25 @@ function PipelineTile({
   return (
     <div
       className={cn(
-        "group relative flex flex-col gap-1.5 p-4 rounded-lg",
-        "bg-surface-raised border border-surface-border",
-        "hover:border-accent/40 hover:-translate-y-0.5",
-        "transition-all duration-150",
+        "group relative flex flex-row items-center gap-3 px-3.5 py-3 rounded-lg",
+        "bg-surface-raised/60 border border-surface-border",
+        "hover:border-accent/40 hover:bg-surface-raised",
+        "transition-colors",
       )}
+      title={description || undefined}
     >
-      <div className="flex flex-row items-start justify-between gap-2">
-        <Icon size={18} className="text-accent shrink-0" />
-        {lastRun && (
-          <span className="text-[10px] text-text-dim flex items-center gap-1 shrink-0">
-            <Clock size={9} />
-            {relTime(lastRun)}
-          </span>
-        )}
-      </div>
+      <Icon size={16} className="text-accent shrink-0" />
 
-      <div className="flex flex-col gap-1 flex-1 min-w-0">
+      <div className="flex flex-col min-w-0 flex-1">
         <h3 className="text-sm font-semibold text-text leading-tight truncate">
           {pipeline.title || pipeline.id}
         </h3>
-        <p className="text-xs text-text-dim leading-snug line-clamp-2">
-          {description}
-        </p>
-      </div>
-
-      <div className="flex flex-row justify-between items-center mt-0.5 gap-2">
-        {/* Left: status affordance. Awaiting review wins over running
-            because the outer task is always "running" while paused. */}
+        {/* Status sub-row — priority: awaiting > running > last-run chip (hover-only) */}
         {awaitingCount > 0 ? (
           <button
             onClick={onOpenFindings}
             className="inline-flex items-center gap-1 text-[11px] font-semibold
-                       text-accent hover:underline"
+                       text-accent hover:underline self-start mt-0.5"
           >
             <PauseCircle size={11} className="animate-pulse" />
             {awaitingCount} awaiting review
@@ -307,41 +293,45 @@ function PipelineTile({
           <Link
             to={`/admin/tasks/${activeChild.id}`}
             className="inline-flex items-center gap-1 text-[11px] text-accent/80 hover:text-accent
-                       font-medium"
+                       font-medium self-start mt-0.5"
             onClick={(e) => e.stopPropagation()}
           >
             <Loader2 size={10} className="animate-spin" />
             Running · view
           </Link>
-        ) : (
-          <span className="text-[10px] text-text-dim opacity-50" />
-        )}
-
-        {/* Right: launch button — always enabled, allows re-running even if a
-            prior run is stuck. The stuck run is reachable via the "view" link. */}
-        <button
-          onClick={() => onLaunch(pipeline)}
-          disabled={isLaunching}
-          className={cn(
-            "inline-flex items-center gap-1 text-[11px] font-medium",
-            "px-2.5 py-1 rounded-md bg-accent/10 text-accent border border-accent/30",
-            "hover:bg-accent/20 transition-colors",
-            "disabled:opacity-60 disabled:cursor-not-allowed",
-          )}
-        >
-          {isLaunching ? (
-            <>
-              <Loader2 size={11} className="animate-spin" />
-              Launching
-            </>
-          ) : (
-            <>
-              {activeChild ? "Run again" : "Run"}
-              <ArrowRight size={11} />
-            </>
-          )}
-        </button>
+        ) : lastRun ? (
+          <span
+            className="text-[10px] text-text-dim inline-flex items-center gap-1 self-start mt-0.5
+                       opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <Clock size={9} />
+            Last run {relTime(lastRun)}
+          </span>
+        ) : null}
       </div>
+
+      <button
+        onClick={() => onLaunch(pipeline)}
+        disabled={isLaunching}
+        className={cn(
+          "shrink-0 inline-flex items-center gap-1 text-[11px] font-medium",
+          "px-2.5 py-1 rounded-md bg-accent/10 text-accent border border-accent/30",
+          "hover:bg-accent/20 transition-colors",
+          "disabled:opacity-60 disabled:cursor-not-allowed",
+        )}
+      >
+        {isLaunching ? (
+          <>
+            <Loader2 size={11} className="animate-spin" />
+            Launching
+          </>
+        ) : (
+          <>
+            {activeChild ? "Run again" : "Run"}
+            <ArrowRight size={11} />
+          </>
+        )}
+      </button>
     </div>
   );
 }
@@ -353,12 +343,18 @@ function PipelineTile({
 
 const COLLAPSED_STORAGE_KEY = "orchestrator-launchpad-collapsed";
 
-function loadCollapsed(channelId: string): boolean {
+// Stored preference is tri-state:
+//   "1" → user explicitly collapsed (sticks even when activity returns)
+//   "0" → user explicitly expanded (sticks across idle periods)
+//   null → follow activity heuristic
+function loadCollapsedPref(channelId: string): boolean | null {
   try {
     const raw = localStorage.getItem(`${COLLAPSED_STORAGE_KEY}:${channelId}`);
-    return raw === "1";
+    if (raw === "1") return true;
+    if (raw === "0") return false;
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -384,12 +380,29 @@ export function OrchestratorLaunchpad({
   const { count: findingsCount } = useFindings(channelId);
   const [paramModalPipeline, setParamModalPipeline] = useState<TaskItem | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState<boolean>(() => loadCollapsed(channelId));
+  // When the user has no explicit preference, follow activity: collapsed by
+  // default, auto-expanded when findings are pending. We seed from findingsCount
+  // only; running-state comes from per-tile polls and would cause thrash if we
+  // included it in the default.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    const pref = loadCollapsedPref(channelId);
+    if (pref !== null) return pref;
+    return findingsCount === 0;
+  });
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
 
   useEffect(() => {
-    setCollapsed(loadCollapsed(channelId));
+    const pref = loadCollapsedPref(channelId);
+    if (pref !== null) {
+      setCollapsed(pref);
+    } else {
+      setCollapsed(findingsCount === 0);
+    }
+    // Intentionally not watching findingsCount here — the initial seed follows
+    // activity, but live changes shouldn't force-collapse/expand the strip while
+    // the user is interacting with it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId]);
 
   // Phase 5: launchpad is driven by the channel's pipeline subscriptions
@@ -508,12 +521,12 @@ export function OrchestratorLaunchpad({
   if (!isLoading && systemTasks.length === 0) return null;
 
   return (
-    <div className="border-b border-surface-border bg-surface-raised/50">
+    <div className={cn(!collapsed && "bg-surface-raised/40")}>
       {/* Header — always visible, clickable to collapse/expand */}
       <button
         onClick={toggleCollapsed}
         className="w-full flex flex-row items-center justify-between
-                   px-4 py-2 hover:bg-surface-raised/80 transition-colors"
+                   px-4 py-2 hover:bg-surface-raised/70 transition-colors"
         aria-expanded={!collapsed}
       >
         <div className="flex flex-row items-center gap-2">
@@ -521,11 +534,6 @@ export function OrchestratorLaunchpad({
           <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
             Pipelines
           </span>
-          {!isLoading && featured.length > 0 && (
-            <span className="text-[10px] text-text-dim opacity-60">
-              {featured.length} featured{libraryItems.length > 0 ? ` · ${libraryItems.length} more` : ""}
-            </span>
-          )}
         </div>
         {collapsed ? (
           <ChevronDown size={14} className="text-text-dim" />
@@ -575,11 +583,11 @@ export function OrchestratorLaunchpad({
       {!collapsed && (
         <div className="px-4 pb-4 pt-1 flex flex-col gap-3">
           {isLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {[0, 1, 2].map((i) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {[0, 1].map((i) => (
                 <div
                   key={i}
-                  className="h-[110px] p-4 rounded-lg bg-surface-raised border border-surface-border
+                  className="h-[52px] p-3.5 rounded-lg bg-surface-raised border border-surface-border
                              animate-pulse opacity-60"
                 />
               ))}
@@ -589,7 +597,7 @@ export function OrchestratorLaunchpad({
               No featured system pipelines.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {featured.map((pipeline) => (
                 <PipelineTile
                   key={pipeline.id}
@@ -602,7 +610,9 @@ export function OrchestratorLaunchpad({
             </div>
           )}
 
-          {recentRuns.length > 0 && (
+          {/* Recent runs are hidden while reviews are pending — the launchpad's
+              purpose in that moment is the review CTA, not browsing history. */}
+          {recentRuns.length > 0 && findingsCount === 0 && (
             <div className="flex flex-col gap-1.5">
               <div className="flex flex-row items-center gap-2">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">

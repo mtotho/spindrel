@@ -6,14 +6,26 @@ Covers:
 - Anti-loop protection (ContextVar tracking)
 - Context injection (membership awareness + delegate index merge)
 - Member bot memory flush on compaction
+
+DB-touching classes use the real ``db_session`` + ``bot_registry`` fixtures
+from ``tests/conftest.py`` and ``tests/unit/conftest.py``; routing and
+mention resolution run the real SQL against SQLite-in-memory.
 """
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.factories import build_channel, build_channel_bot_member
+
 
 def _make_bot(**overrides):
+    """Construct a ``BotConfig`` (the in-registry shape, not the ORM row).
+
+    Used where production code calls ``app.agent.bots.get_bot()`` and needs a
+    ``BotConfig``. For routing tests that also need a ``Bot`` ORM row, use the
+    ``bot_registry`` fixture plus ``build_bot()`` from ``tests.factories``.
+    """
     from app.agent.bots import BotConfig, MemoryConfig
 
     defaults = dict(
@@ -29,11 +41,15 @@ def _make_bot(**overrides):
 
 
 # ---------------------------------------------------------------------------
-# _maybe_route_to_member_bot
+# Transitional helpers — still referenced by not-yet-rewritten classes below
+# (TestDetectMemberMentions, TestBotToBotMention, TestPrimaryBotMentionBack,
+# TestParallelInvocation, TestMemberBotFlush). Remove as each class is ported
+# to the real-DB + ``bot_registry`` pattern.
 # ---------------------------------------------------------------------------
 
+
 def _make_member_row(bot_id, config=None):
-    """Create a mock ChannelBotMember row."""
+    """Mock ChannelBotMember row for legacy mock-based tests."""
     row = MagicMock()
     row.bot_id = bot_id
     row.config = config or {}
@@ -41,7 +57,7 @@ def _make_member_row(bot_id, config=None):
 
 
 def _mock_db_with_member_rows(rows):
-    """Create a mock DB session that returns the given member rows from execute."""
+    """Mock AsyncSession that returns ``rows`` from ``execute().scalars().all()``."""
     db = AsyncMock()
     mock_result = MagicMock()
     mock_result.scalars.return_value.all.return_value = rows
@@ -49,166 +65,186 @@ def _mock_db_with_member_rows(rows):
     return db
 
 
+# ---------------------------------------------------------------------------
+# _maybe_route_to_member_bot
+# ---------------------------------------------------------------------------
+
+
 class TestMemberBotRouting:
     @pytest.mark.asyncio
-    async def test_no_message_returns_original_bot(self):
+    async def test_when_message_is_empty_then_returns_original_bot(self, db_session):
         from app.routers.chat import _maybe_route_to_member_bot
 
-        bot = _make_bot()
-        result_bot, result_cfg = await _maybe_route_to_member_bot(MagicMock(), MagicMock(), bot, "")
-        assert result_bot is bot
-        assert result_cfg == {}
+        primary = _make_bot()
+        channel = await db_session.merge(build_channel(bot_id=primary.id))
+        await db_session.commit()
+
+        result_bot, result_cfg = await _maybe_route_to_member_bot(db_session, channel, primary, "")
+
+        assert (result_bot, result_cfg) == (primary, {})
 
     @pytest.mark.asyncio
-    async def test_no_tags_returns_original_bot(self):
+    async def test_when_message_has_no_tags_then_returns_original_bot(self, db_session):
         from app.routers.chat import _maybe_route_to_member_bot
 
-        bot = _make_bot()
-        result_bot, result_cfg = await _maybe_route_to_member_bot(
-            MagicMock(), MagicMock(), bot, "hello world no tags here"
-        )
-        assert result_bot is bot
-        assert result_cfg == {}
-
-    @pytest.mark.asyncio
-    async def test_tag_matches_member_bot(self):
-        from app.routers.chat import _maybe_route_to_member_bot
-
-        primary = _make_bot(id="primary-bot")
-        member = _make_bot(id="helper", name="Helper Bot")
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
-
-        db = _mock_db_with_member_rows([_make_member_row("helper")])
-
-        with patch("app.agent.bots.get_bot", return_value=member):
-            result_bot, result_cfg = await _maybe_route_to_member_bot(
-                db, channel, primary, "@helper what do you think?"
-            )
-
-        assert result_bot.id == "helper"
-        assert result_cfg == {}
-
-    @pytest.mark.asyncio
-    async def test_typed_bot_tag_matches(self):
-        from app.routers.chat import _maybe_route_to_member_bot
-
-        primary = _make_bot(id="primary-bot")
-        member = _make_bot(id="helper", name="Helper Bot")
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
-
-        db = _mock_db_with_member_rows([_make_member_row("helper")])
-
-        with patch("app.agent.bots.get_bot", return_value=member):
-            result_bot, result_cfg = await _maybe_route_to_member_bot(
-                db, channel, primary, "@bot:helper please respond"
-            )
-
-        assert result_bot.id == "helper"
-
-    @pytest.mark.asyncio
-    async def test_non_bot_typed_tag_ignored(self):
-        """@skill:helper should NOT route to a member bot named helper."""
-        from app.routers.chat import _maybe_route_to_member_bot
-
-        primary = _make_bot(id="primary-bot")
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
-
-        db = _mock_db_with_member_rows([_make_member_row("helper")])
-
-        result_bot, _ = await _maybe_route_to_member_bot(
-            db, channel, primary, "@skill:helper describe yourself"
-        )
-        assert result_bot is primary
-
-    @pytest.mark.asyncio
-    async def test_tag_not_in_members_returns_original(self):
-        from app.routers.chat import _maybe_route_to_member_bot
-
-        primary = _make_bot(id="primary-bot")
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
-
-        db = _mock_db_with_member_rows([_make_member_row("helper")])
-
-        result_bot, _ = await _maybe_route_to_member_bot(
-            db, channel, primary, "@unknown_bot hello"
-        )
-        assert result_bot is primary
-
-    @pytest.mark.asyncio
-    async def test_no_members_returns_original(self):
-        from app.routers.chat import _maybe_route_to_member_bot
-
-        primary = _make_bot(id="primary-bot")
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
-
-        db = _mock_db_with_member_rows([])
-
-        result_bot, _ = await _maybe_route_to_member_bot(
-            db, channel, primary, "@helper hello"
-        )
-        assert result_bot is primary
-
-    @pytest.mark.asyncio
-    async def test_member_bot_not_in_registry_falls_through(self):
-        """If member bot ID is in DB but not in bot registry, skip it."""
-        from app.routers.chat import _maybe_route_to_member_bot
-
-        primary = _make_bot(id="primary-bot")
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
-
-        db = _mock_db_with_member_rows([_make_member_row("helper")])
-
-        with patch("app.agent.bots.get_bot", side_effect=Exception("not found")):
-            result_bot, _ = await _maybe_route_to_member_bot(
-                db, channel, primary, "@helper hello"
-            )
-
-        assert result_bot is primary
-
-    @pytest.mark.asyncio
-    async def test_routing_returns_member_config(self):
-        """When routed to a member bot, the member's config dict is returned."""
-        from app.routers.chat import _maybe_route_to_member_bot
-
-        primary = _make_bot(id="primary-bot")
-        member = _make_bot(id="helper", name="Helper Bot")
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
-
-        cfg = {"model_override": "gpt-4o", "auto_respond": True, "priority": 1}
-        db = _mock_db_with_member_rows([_make_member_row("helper", config=cfg)])
-
-        with patch("app.agent.bots.get_bot", return_value=member):
-            result_bot, result_cfg = await _maybe_route_to_member_bot(
-                db, channel, primary, "@helper hello"
-            )
-
-        assert result_bot.id == "helper"
-        assert result_cfg == cfg
-        assert result_cfg["model_override"] == "gpt-4o"
-
-    @pytest.mark.asyncio
-    async def test_routing_returns_empty_config_for_primary(self):
-        """When no member is matched, config is empty dict."""
-        from app.routers.chat import _maybe_route_to_member_bot
-
-        primary = _make_bot(id="primary-bot")
-        channel = MagicMock()
-        channel.id = uuid.uuid4()
-
-        db = _mock_db_with_member_rows([_make_member_row("helper", config={"auto_respond": True})])
+        primary = _make_bot()
+        channel = await db_session.merge(build_channel(bot_id=primary.id))
+        await db_session.commit()
 
         result_bot, result_cfg = await _maybe_route_to_member_bot(
-            db, channel, primary, "@unknown hello"
+            db_session, channel, primary, "hello world no tags here"
         )
-        assert result_bot is primary
+
+        assert (result_bot, result_cfg) == (primary, {})
+
+    @pytest.mark.asyncio
+    async def test_when_mention_matches_channel_member_then_routes_to_member(
+        self, db_session, bot_registry
+    ):
+        from app.routers.chat import _maybe_route_to_member_bot
+
+        primary = _make_bot(id="primary-bot")
+        helper = bot_registry.register("helper", name="Helper Bot")
+        channel = await db_session.merge(build_channel(bot_id=primary.id))
+        await db_session.merge(build_channel_bot_member(channel_id=channel.id, bot_id="helper"))
+        await db_session.commit()
+
+        result_bot, result_cfg = await _maybe_route_to_member_bot(
+            db_session, channel, primary, "@helper what do you think?"
+        )
+
+        assert result_bot is helper
         assert result_cfg == {}
+
+    @pytest.mark.asyncio
+    async def test_when_typed_bot_tag_matches_member_then_routes_to_member(
+        self, db_session, bot_registry
+    ):
+        from app.routers.chat import _maybe_route_to_member_bot
+
+        primary = _make_bot(id="primary-bot")
+        helper = bot_registry.register("helper", name="Helper Bot")
+        channel = await db_session.merge(build_channel(bot_id=primary.id))
+        await db_session.merge(build_channel_bot_member(channel_id=channel.id, bot_id="helper"))
+        await db_session.commit()
+
+        result_bot, _ = await _maybe_route_to_member_bot(
+            db_session, channel, primary, "@bot:helper please respond"
+        )
+
+        assert result_bot is helper
+
+    @pytest.mark.asyncio
+    async def test_when_non_bot_typed_tag_matches_member_id_then_ignored(
+        self, db_session, bot_registry
+    ):
+        """@skill:helper must NOT route to a member bot named helper."""
+        from app.routers.chat import _maybe_route_to_member_bot
+
+        primary = _make_bot(id="primary-bot")
+        bot_registry.register("helper", name="Helper Bot")
+        channel = await db_session.merge(build_channel(bot_id=primary.id))
+        await db_session.merge(build_channel_bot_member(channel_id=channel.id, bot_id="helper"))
+        await db_session.commit()
+
+        result_bot, _ = await _maybe_route_to_member_bot(
+            db_session, channel, primary, "@skill:helper describe yourself"
+        )
+
+        assert result_bot is primary
+
+    @pytest.mark.asyncio
+    async def test_when_tag_not_in_member_list_then_returns_original(
+        self, db_session, bot_registry
+    ):
+        from app.routers.chat import _maybe_route_to_member_bot
+
+        primary = _make_bot(id="primary-bot")
+        bot_registry.register("helper", name="Helper Bot")
+        channel = await db_session.merge(build_channel(bot_id=primary.id))
+        await db_session.merge(build_channel_bot_member(channel_id=channel.id, bot_id="helper"))
+        await db_session.commit()
+
+        result_bot, _ = await _maybe_route_to_member_bot(
+            db_session, channel, primary, "@unknown_bot hello"
+        )
+
+        assert result_bot is primary
+
+    @pytest.mark.asyncio
+    async def test_when_channel_has_no_members_then_returns_original(self, db_session):
+        from app.routers.chat import _maybe_route_to_member_bot
+
+        primary = _make_bot(id="primary-bot")
+        channel = await db_session.merge(build_channel(bot_id=primary.id))
+        await db_session.commit()
+
+        result_bot, _ = await _maybe_route_to_member_bot(
+            db_session, channel, primary, "@helper hello"
+        )
+
+        assert result_bot is primary
+
+    @pytest.mark.asyncio
+    async def test_when_member_bot_id_missing_from_registry_then_falls_through(
+        self, db_session
+    ):
+        """DB row for member bot exists but registry lookup raises — don't route."""
+        from app.routers.chat import _maybe_route_to_member_bot
+
+        primary = _make_bot(id="primary-bot")
+        channel = await db_session.merge(build_channel(bot_id=primary.id))
+        await db_session.merge(build_channel_bot_member(channel_id=channel.id, bot_id="helper"))
+        await db_session.commit()
+        # bot_registry fixture NOT requested — helper is absent from _registry,
+        # so get_bot("helper") raises and the router falls through to primary.
+
+        result_bot, _ = await _maybe_route_to_member_bot(
+            db_session, channel, primary, "@helper hello"
+        )
+
+        assert result_bot is primary
+
+    @pytest.mark.asyncio
+    async def test_when_member_is_routed_then_config_dict_returned(
+        self, db_session, bot_registry
+    ):
+        from app.routers.chat import _maybe_route_to_member_bot
+
+        primary = _make_bot(id="primary-bot")
+        helper = bot_registry.register("helper", name="Helper Bot")
+        member_cfg = {"model_override": "gpt-4o", "auto_respond": True, "priority": 1}
+        channel = await db_session.merge(build_channel(bot_id=primary.id))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper", config=member_cfg,
+        ))
+        await db_session.commit()
+
+        result_bot, result_cfg = await _maybe_route_to_member_bot(
+            db_session, channel, primary, "@helper hello"
+        )
+
+        assert (result_bot, result_cfg) == (helper, member_cfg)
+
+    @pytest.mark.asyncio
+    async def test_when_no_member_matched_then_config_is_empty(
+        self, db_session, bot_registry
+    ):
+        from app.routers.chat import _maybe_route_to_member_bot
+
+        primary = _make_bot(id="primary-bot")
+        bot_registry.register("helper", name="Helper Bot")
+        channel = await db_session.merge(build_channel(bot_id=primary.id))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper", config={"auto_respond": True},
+        ))
+        await db_session.commit()
+
+        result_bot, result_cfg = await _maybe_route_to_member_bot(
+            db_session, channel, primary, "@unknown hello"
+        )
+
+        assert (result_bot, result_cfg) == (primary, {})
 
 
 # ---------------------------------------------------------------------------
@@ -216,64 +252,23 @@ class TestMemberBotRouting:
 # ---------------------------------------------------------------------------
 
 class TestAntiLoop:
-    def test_contextvar_tracks_responded_bots(self):
-        from app.agent.context import current_turn_responded_bots
-
-        # Simulate outermost run_stream initialization
-        responded = {"primary-bot"}
-        current_turn_responded_bots.set(responded)
-
-        # Check that adding works
-        responded.add("helper-bot")
-        assert "helper-bot" in current_turn_responded_bots.get()
-
-    def test_anti_loop_blocks_duplicate(self):
-        from app.agent.context import current_turn_responded_bots
-
-        responded = {"primary-bot", "helper-bot"}
-        current_turn_responded_bots.set(responded)
-
-        # Simulating what delegation.py does
-        bot_id = "helper-bot"
-        _responded = current_turn_responded_bots.get()
-        assert _responded is not None and bot_id in _responded
-
-    def test_anti_loop_allows_new_bot(self):
-        from app.agent.context import current_turn_responded_bots
-
-        responded = {"primary-bot"}
-        current_turn_responded_bots.set(responded)
-
-        bot_id = "new-bot"
-        _responded = current_turn_responded_bots.get()
-        assert _responded is not None
-        assert bot_id not in _responded
-
-    def test_anti_loop_none_is_safe(self):
-        """When ContextVar is None (e.g. task worker), anti-loop is skipped."""
-        from app.agent.context import current_turn_responded_bots
-
-        current_turn_responded_bots.set(None)
-        _responded = current_turn_responded_bots.get()
-        assert _responded is None
-        # The check `if _responded is not None and X in _responded` should short-circuit
+    """Anti-loop is enforced inside ``DelegationService.run_immediate`` — tests
+    drive that real entry point rather than asserting on ``ContextVar`` get/set
+    (pure Python semantics, not product code)."""
 
     @pytest.mark.asyncio
-    async def test_delegation_blocks_repeated_bot(self):
-        """DelegationService.run_immediate raises when bot already responded."""
-        from app.agent.context import current_turn_responded_bots
+    async def test_when_delegate_already_responded_then_run_immediate_raises(
+        self, agent_context
+    ):
         from app.services.delegation import DelegationError, DelegationService
 
-        svc = DelegationService()
         parent = _make_bot(id="primary-bot", delegate_bots=["helper-bot"])
-
-        # Pre-populate the anti-loop set with helper-bot
-        current_turn_responded_bots.set({"primary-bot", "helper-bot"})
+        agent_context(turn_responded_bots={"primary-bot", "helper-bot"})
 
         with patch("app.services.delegation.settings") as s:
             s.DELEGATION_MAX_DEPTH = 5
             with pytest.raises(DelegationError, match="Anti-loop"):
-                await svc.run_immediate(
+                await DelegationService().run_immediate(
                     parent_session_id=uuid.uuid4(),
                     parent_bot=parent,
                     delegate_bot_id="helper-bot",
@@ -285,31 +280,25 @@ class TestAntiLoop:
                 )
 
     @pytest.mark.asyncio
-    async def test_delegation_adds_bot_to_set(self):
-        """run_immediate adds the delegate bot to the anti-loop set."""
-        from app.agent.context import current_turn_responded_bots
+    async def test_when_delegate_runs_then_bot_id_added_to_responded_set(
+        self, agent_context, bot_registry
+    ):
         from app.services.delegation import DelegationService
 
-        svc = DelegationService()
         parent = _make_bot(id="primary-bot", delegate_bots=["helper-bot"])
-        child = _make_bot(id="helper-bot", name="Helper")
-        responded = {"primary-bot"}
-        current_turn_responded_bots.set(responded)
+        bot_registry.register("helper-bot", name="Helper")
+        responded: set[str] = {"primary-bot"}
+        agent_context(turn_responded_bots=responded)
 
         async def fake_stream(*a, **kw):
             yield {"type": "response", "text": "ok", "client_actions": []}
 
         with patch("app.services.delegation.settings") as s, \
-             patch("app.agent.bots.get_bot", return_value=child), \
              patch("app.agent.loop.run_stream", side_effect=fake_stream), \
              patch("app.services.sessions._effective_system_prompt", return_value="sys"), \
-             patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value=None), \
-             patch("app.agent.context.snapshot_agent_context", return_value=MagicMock(turn_responded_bots=responded)), \
-             patch("app.agent.context.set_agent_context"), \
-             patch("app.agent.context.restore_agent_context"):
+             patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value=None):
             s.DELEGATION_MAX_DEPTH = 5
-
-            await svc.run_immediate(
+            await DelegationService().run_immediate(
                 parent_session_id=uuid.uuid4(),
                 parent_bot=parent,
                 delegate_bot_id="helper-bot",
@@ -322,27 +311,21 @@ class TestAntiLoop:
 
         assert "helper-bot" in responded
 
-    def test_snapshot_preserves_responded_bots(self):
-        """snapshot_agent_context captures turn_responded_bots."""
-        from app.agent.context import (
-            current_turn_responded_bots,
-            current_session_id,
-            current_channel_id,
-            current_correlation_id,
-            current_client_id,
-            current_bot_id,
-            snapshot_agent_context,
-        )
+    def test_when_snapshot_taken_then_responded_bots_preserved(self, agent_context):
+        from app.agent.context import snapshot_agent_context
 
         responded = {"bot-a", "bot-b"}
-        current_turn_responded_bots.set(responded)
-        current_session_id.set(uuid.uuid4())
-        current_channel_id.set(uuid.uuid4())
-        current_correlation_id.set(uuid.uuid4())
-        current_client_id.set("test")
-        current_bot_id.set("bot-a")
+        agent_context(
+            turn_responded_bots=responded,
+            session_id=uuid.uuid4(),
+            channel_id=uuid.uuid4(),
+            correlation_id=uuid.uuid4(),
+            client_id="test",
+            bot_id="bot-a",
+        )
 
         snap = snapshot_agent_context()
+
         assert snap.turn_responded_bots is responded
 
 
@@ -351,198 +334,10 @@ class TestAntiLoop:
 # ---------------------------------------------------------------------------
 
 class TestContextInjection:
-    """Test that multi-bot channel context is injected correctly.
-    These test the logic inline — we mock the DB query and verify the
-    system message and delegate index merge."""
-
-    def test_member_bot_ids_merged_into_delegate_index(self):
-        """Verify that member bot IDs appear in the combined delegate list."""
-        # This tests the dict.fromkeys merge logic used in context_assembly.py
-        delegate_bots = ["delegate-a"]
-        tagged_bot_names = ["tagged-b"]
-        member_bot_ids = ["member-c", "delegate-a"]  # duplicate with delegate
-
-        all_delegate_ids = list(dict.fromkeys(
-            delegate_bots + tagged_bot_names + member_bot_ids
-        ))
-
-        assert all_delegate_ids == ["delegate-a", "tagged-b", "member-c"]
-
-    def test_awareness_message_format(self):
-        """Verify the awareness message format includes primary and members with @ prefix."""
-        bot = _make_bot(id="primary", name="Primary Bot")
-        member_bots = [
-            _make_bot(id="helper", name="Helper Bot"),
-            _make_bot(id="qa", name="QA Bot"),
-        ]
-
-        participant_lines = [f"  - @{bot.id} (primary): {bot.name}"]
-        for mb in member_bots:
-            participant_lines.append(f"  - @{mb.id} (member): {mb.name}")
-
-        msg = (
-            "This channel has multiple bot participants:\n"
-            + "\n".join(participant_lines)
-            + "\nTo mention another bot, use @bot_id or @Display_Name."
-        )
-
-        assert "@primary (primary): Primary Bot" in msg
-        assert "@helper (member): Helper Bot" in msg
-        assert "@qa (member): QA Bot" in msg
-        assert "@bot_id" in msg
-
-    def test_awareness_message_includes_config_badges(self):
-        """Verify config info is included in awareness message."""
-        cfg = {"auto_respond": True, "response_style": "brief"}
-        cfg_parts = []
-        if cfg.get("auto_respond"):
-            cfg_parts.append("auto-respond")
-        if cfg.get("response_style"):
-            cfg_parts.append(f"style={cfg['response_style']}")
-        cfg_suffix = f" [{', '.join(cfg_parts)}]" if cfg_parts else ""
-
-        line = f"  - helper (member): Helper Bot{cfg_suffix}"
-        assert "[auto-respond, style=brief]" in line
-
-    def test_awareness_message_no_config_no_suffix(self):
-        """Members with empty config get no suffix."""
-        cfg = {}
-        cfg_parts = []
-        if cfg.get("auto_respond"):
-            cfg_parts.append("auto-respond")
-        if cfg.get("response_style"):
-            cfg_parts.append(f"style={cfg['response_style']}")
-        cfg_suffix = f" [{', '.join(cfg_parts)}]" if cfg_parts else ""
-
-        line = f"  - helper (member): Helper Bot{cfg_suffix}"
-        assert line == "  - helper (member): Helper Bot"
-        assert "[" not in line
-
-
-class TestMultiBotIdentity:
-    """Test that multi-bot awareness correctly identifies primary vs member bots
-    and includes 'You are' identity."""
-
-    def test_awareness_identifies_current_bot(self):
-        """Awareness message should start with 'You are {bot.name}'."""
-        bot = _make_bot(id="helper", name="Helper Bot")
-        # Simulate the awareness message construction from context_assembly.py
-        # when the responding bot is a member (not the primary)
-        primary_bot_id = "primary"
-        member_bot_ids = ["helper"]
-
-        _all_bot_ids = [primary_bot_id] + [mid for mid in member_bot_ids if mid != primary_bot_id]
-        if bot.id != primary_bot_id and bot.id not in _all_bot_ids:
-            _all_bot_ids.append(bot.id)
-
-        participant_lines = []
-        for _bid in _all_bot_ids:
-            _is_primary = _bid == primary_bot_id
-            _is_self = _bid == bot.id
-            _role_label = "primary" if _is_primary else "member"
-            _you_marker = " ← you" if _is_self else ""
-            participant_lines.append(f"  - {_bid} ({_role_label}): Bot{_you_marker}")
-
-        msg = (
-            f"You are {bot.name} (bot_id: {bot.id}).\n\n"
-            "This channel has multiple bot participants:\n"
-            + "\n".join(participant_lines)
-            + "\nDo not @-mention yourself."
-        )
-
-        assert msg.startswith("You are Helper Bot (bot_id: helper).")
-        assert "helper (member)" in msg
-        assert "← you" in msg
-        assert "primary (primary)" in msg
-
-    def test_member_bot_not_labeled_as_primary(self):
-        """When a member bot is responding, it should NOT be labeled (primary)."""
-        bot = _make_bot(id="helper", name="Helper Bot")
-        primary_bot_id = "rolland"
-        member_bot_ids = ["helper"]
-
-        _all_bot_ids = [primary_bot_id] + [mid for mid in member_bot_ids if mid != primary_bot_id]
-        if bot.id != primary_bot_id and bot.id not in _all_bot_ids:
-            _all_bot_ids.append(bot.id)
-
-        participant_lines = []
-        for _bid in _all_bot_ids:
-            _is_primary = _bid == primary_bot_id
-            _is_self = _bid == bot.id
-            _role_label = "primary" if _is_primary else "member"
-            _you_marker = " ← you" if _is_self else ""
-            participant_lines.append(f"  - {_bid} ({_role_label}): Bot{_you_marker}")
-
-        msg = "\n".join(participant_lines)
-
-        # Helper should be labeled as member, not primary
-        assert "helper (member)" in msg
-        assert "helper (primary)" not in msg
-        # Primary should be labeled as primary
-        assert "rolland (primary)" in msg
-        # Helper should have the "← you" marker
-        assert "helper (member): Bot ← you" in msg
-        # Primary should NOT have "← you"
-        assert "rolland (primary): Bot ← you" not in msg
-
-    def test_primary_bot_labeled_correctly_when_responding(self):
-        """When the primary bot is responding, it should be labeled (primary) and ← you."""
-        bot = _make_bot(id="primary", name="Primary Bot")
-        primary_bot_id = "primary"
-        member_bot_ids = ["helper"]
-
-        _all_bot_ids = [primary_bot_id] + [mid for mid in member_bot_ids if mid != primary_bot_id]
-        if bot.id != primary_bot_id and bot.id not in _all_bot_ids:
-            _all_bot_ids.append(bot.id)
-
-        participant_lines = []
-        for _bid in _all_bot_ids:
-            _is_primary = _bid == primary_bot_id
-            _is_self = _bid == bot.id
-            _role_label = "primary" if _is_primary else "member"
-            _you_marker = " ← you" if _is_self else ""
-            participant_lines.append(f"  - {_bid} ({_role_label}): Bot{_you_marker}")
-
-        msg = "\n".join(participant_lines)
-
-        assert "primary (primary): Bot ← you" in msg
-        assert "helper (member): Bot" in msg
-        # Helper should not have ← you
-        assert "helper (member): Bot ← you" not in msg
-
-    def test_awareness_includes_do_not_self_mention(self):
-        """Awareness message should tell the bot not to @-mention itself."""
-        bot = _make_bot(id="helper", name="Helper Bot")
-        msg = (
-            f"You are {bot.name} (bot_id: {bot.id}).\n\n"
-            "This channel has multiple bot participants:\n"
-            "  - primary (primary): Primary Bot\n"
-            "  - helper (member): Helper Bot ← you\n"
-            "Do not @-mention yourself."
-        )
-        assert "Do not @-mention yourself." in msg
-
-    def test_trigger_prompt_uses_system_preamble(self):
-        """The identity info should go into system_preamble (not user message)."""
-        member_bot_name = "Helper Bot"
-        member_bot_id = "helper"
-        mentioning_bot_name = "Rolland"
-        mentioning_bot_id = "rolland"
-
-        # system_preamble carries identity (injected as system message)
-        preamble = (
-            f"You are {member_bot_name} (bot_id: {member_bot_id}). "
-            f"{mentioning_bot_name} (@{mentioning_bot_id}) mentioned you. "
-            f"Read the conversation and respond naturally. Do not @-mention yourself."
-        )
-
-        assert preamble.startswith("You are Helper Bot (bot_id: helper).")
-        assert "Do not @-mention yourself." in preamble
-        assert "Rolland (@rolland) mentioned you" in preamble
-
-        # user_message is empty — no text to leak into the response
-        prompt = ""
-        assert prompt == ""
+    """Snapshot-level tests: verify the member bot run path strips the primary
+    bot's system messages and injects persona when enabled. Pure-string
+    awareness-message format tests were deleted — they re-implemented the
+    builder inline (skill B.23 — self-validating re-implementation)."""
 
     @pytest.mark.asyncio
     async def test_snapshot_strips_primary_system_messages(self):
@@ -799,175 +594,100 @@ class TestMemberBotFlush:
 
 class TestDetectMemberMentions:
     @pytest.mark.asyncio
-    async def test_detects_member_mention(self):
+    async def test_when_response_mentions_member_bot_then_returned_with_config(
+        self, db_session, patched_async_sessions
+    ):
         from app.routers.chat import _detect_member_mentions
 
-        channel_id = uuid.uuid4()
-        member_row = _make_member_row("helper-bot", config={"auto_respond": True})
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="helper-bot", config={"auto_respond": True},
+        ))
+        await db_session.commit()
 
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        # Mock Channel lookup (primary bot)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
+        result = await _detect_member_mentions(
+            channel.id, "primary-bot", "Hey @helper-bot, help me!"
+        )
 
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.db.engine.async_session", return_value=mock_cm):
-            result = await _detect_member_mentions(
-                channel_id, "primary-bot", "Hey @helper-bot, help me!"
-            )
-
-        assert len(result) == 1
-        assert result[0][0] == "helper-bot"
-        assert result[0][1] == {"auto_respond": True}
+        assert result == [("helper-bot", {"auto_respond": True})]
 
     @pytest.mark.asyncio
-    async def test_returns_empty_for_no_mentions(self):
+    async def test_when_no_mentions_in_response_then_returns_empty(self):
         from app.routers.chat import _detect_member_mentions
 
         result = await _detect_member_mentions(
             uuid.uuid4(), "primary-bot", "No mentions here"
         )
+
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_returns_empty_at_depth_limit(self):
+    async def test_when_at_max_depth_then_returns_empty(self):
         from app.routers.chat import _detect_member_mentions, _MEMBER_MENTION_MAX_DEPTH
 
         result = await _detect_member_mentions(
             uuid.uuid4(), "primary-bot", "@helper-bot hello",
             _depth=_MEMBER_MENTION_MAX_DEPTH,
         )
+
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_display_name_resolves_to_bot_id(self):
-        """@Rolland (display name) should resolve to qa-bot (bot_id)."""
+    async def test_when_display_name_mentioned_then_resolves_to_bot_id(
+        self, db_session, patched_async_sessions, bot_registry
+    ):
+        bot_registry.register("qa-bot", name="Rolland")
+        bot_registry.register("primary-bot", name="Primary Bot")
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="qa-bot", config={"auto_respond": True},
+        ))
+        await db_session.commit()
+
         from app.routers.chat import _detect_member_mentions
+        result = await _detect_member_mentions(
+            channel.id, "primary-bot", "Hey @Rolland, can you review this?"
+        )
 
-        channel_id = uuid.uuid4()
-        member_row = _make_member_row("qa-bot", config={"auto_respond": True})
-
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        bots = {
-            "qa-bot": _make_bot(id="qa-bot", name="Rolland"),
-            "primary-bot": _make_bot(id="primary-bot", name="Primary Bot"),
-        }
-
-        def _get_bot_side_effect(bid):
-            if bid in bots:
-                return bots[bid]
-            from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail=f"Unknown bot: {bid}")
-
-        with patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("app.agent.bots.get_bot", side_effect=_get_bot_side_effect):
-            result = await _detect_member_mentions(
-                channel_id, "primary-bot", "Hey @Rolland, can you review this?"
-            )
-
-        assert len(result) == 1
-        assert result[0][0] == "qa-bot"
+        assert [bid for bid, _ in result] == ["qa-bot"]
 
     @pytest.mark.asyncio
-    async def test_case_insensitive_bot_id_match(self):
-        """@QA-BOT (uppercase) should resolve to qa-bot."""
+    async def test_when_bot_id_mentioned_in_uppercase_then_matches_case_insensitively(
+        self, db_session, patched_async_sessions, bot_registry
+    ):
+        bot_registry.register("qa-bot", name="QA Bot")
+        bot_registry.register("primary-bot", name="Primary Bot")
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="qa-bot",
+        ))
+        await db_session.commit()
+
         from app.routers.chat import _detect_member_mentions
+        result = await _detect_member_mentions(
+            channel.id, "primary-bot", "Hey @QA-BOT check this"
+        )
 
-        channel_id = uuid.uuid4()
-        # Note: tag regex requires [A-Za-z_][\w\-\.] so QA-BOT is valid
-        member_row = _make_member_row("qa-bot", config={})
-
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        bots = {
-            "qa-bot": _make_bot(id="qa-bot", name="QA Bot"),
-            "primary-bot": _make_bot(id="primary-bot", name="Primary Bot"),
-        }
-
-        def _get_bot_side_effect(bid):
-            if bid in bots:
-                return bots[bid]
-            from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail=f"Unknown bot: {bid}")
-
-        with patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("app.agent.bots.get_bot", side_effect=_get_bot_side_effect):
-            result = await _detect_member_mentions(
-                channel_id, "primary-bot", "Hey @QA-BOT check this"
-            )
-
-        # QA-BOT → qa-bot via case-insensitive match
-        assert len(result) == 1
-        assert result[0][0] == "qa-bot"
+        assert [bid for bid, _ in result] == ["qa-bot"]
 
     @pytest.mark.asyncio
-    async def test_display_name_and_bot_id_deduplicated(self):
-        """@Rolland and @qa-bot in same message should only trigger once."""
+    async def test_when_same_bot_mentioned_by_id_and_display_name_then_deduplicated(
+        self, db_session, patched_async_sessions, bot_registry
+    ):
+        bot_registry.register("qa-bot", name="Rolland")
+        bot_registry.register("primary-bot", name="Primary Bot")
+        channel = await db_session.merge(build_channel(bot_id="primary-bot"))
+        await db_session.merge(build_channel_bot_member(
+            channel_id=channel.id, bot_id="qa-bot",
+        ))
+        await db_session.commit()
+
         from app.routers.chat import _detect_member_mentions
+        result = await _detect_member_mentions(
+            channel.id, "primary-bot", "@Rolland and @qa-bot both refer to the same bot"
+        )
 
-        channel_id = uuid.uuid4()
-        member_row = _make_member_row("qa-bot", config={})
-
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [member_row]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_channel = MagicMock()
-        mock_channel.bot_id = "primary-bot"
-        mock_db.get = AsyncMock(return_value=mock_channel)
-
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_cm.__aexit__ = AsyncMock(return_value=False)
-
-        bots = {
-            "qa-bot": _make_bot(id="qa-bot", name="Rolland"),
-            "primary-bot": _make_bot(id="primary-bot", name="Primary Bot"),
-        }
-
-        def _get_bot_side_effect(bid):
-            if bid in bots:
-                return bots[bid]
-            from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail=f"Unknown bot: {bid}")
-
-        with patch("app.db.engine.async_session", return_value=mock_cm), \
-             patch("app.agent.bots.get_bot", side_effect=_get_bot_side_effect):
-            result = await _detect_member_mentions(
-                channel_id, "primary-bot", "@Rolland and @qa-bot both refer to the same bot"
-            )
-
-        # Both resolve to qa-bot; deduplication should give us exactly one
-        assert len(result) == 1
-        assert result[0][0] == "qa-bot"
+        assert [bid for bid, _ in result] == ["qa-bot"]
 
 
 # ---------------------------------------------------------------------------
@@ -2031,25 +1751,6 @@ class TestParallelInvocation:
             # Lock should NOT have been acquired when using snapshot
             mock_locks.acquire.assert_not_called()
             mock_locks.release.assert_not_called()
-
-    def test_invoked_member_bots_contextvar(self):
-        """current_invoked_member_bots tracks invoked bots."""
-        from app.agent.context import current_invoked_member_bots
-
-        # Default is None
-        current_invoked_member_bots.set(None)
-        assert current_invoked_member_bots.get() is None
-
-        # Set and track
-        invoked = set()
-        current_invoked_member_bots.set(invoked)
-        invoked.add("bot-a")
-        invoked.add("bot-b")
-
-        result = current_invoked_member_bots.get()
-        assert result is not None
-        assert "bot-a" in result
-        assert "bot-b" in result
 
     @pytest.mark.asyncio
     async def test_chained_trigger_passes_snapshot(self):

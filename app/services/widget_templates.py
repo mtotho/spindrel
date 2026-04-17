@@ -73,6 +73,8 @@ def _register_widgets(source: str, widgets: dict) -> int:
     Returns the number of templates registered. Later registrations do NOT
     override earlier ones — first-registered wins (integration > core).
     """
+    from app.services.widget_package_validation import _validate_parsed_definition
+
     count = 0
     for tool_name, widget_def in widgets.items():
         # Skip YAML anchors (keys starting with _) — not real tool names
@@ -92,14 +94,39 @@ def _register_widgets(source: str, widgets: dict) -> int:
             )
             continue
 
+        # Component-tree validation — fail fast on misauthored templates
+        # rather than letting them surface as `Unknown: <type>` blocks or
+        # silent runtime errors.
+        errors, warnings = _validate_parsed_definition(widget_def)
+        for w in warnings:
+            logger.warning("%s: tool_widgets[%s]: %s", source, tool_name, w.message)
+        if errors:
+            for e in errors:
+                logger.error("%s: tool_widgets[%s]: %s", source, tool_name, e.message)
+            continue
+
+        # Expand fragment references, then default state_poll.template to
+        # template if the author omitted it. Expansion errors skip the
+        # widget (like schema errors).
+        from app.services.widget_fragments import resolve_fragments
+        expanded, frag_errors = resolve_fragments(widget_def)
+        if frag_errors:
+            for msg in frag_errors:
+                logger.error("%s: tool_widgets[%s]: %s", source, tool_name, msg)
+            continue
+        state_poll = expanded.get("state_poll")
+        if isinstance(state_poll, dict) and state_poll.get("template") is None:
+            state_poll = {**state_poll, "template": copy.deepcopy(expanded["template"])}
+            expanded["state_poll"] = state_poll
+
         _widget_templates[tool_name] = {
-            "content_type": widget_def.get("content_type", "application/vnd.spindrel.components+json"),
-            "display": widget_def.get("display", "inline"),
-            "template": widget_def["template"],
-            "transform": widget_def.get("transform"),
-            "display_label": widget_def.get("display_label"),
-            "state_poll": widget_def.get("state_poll"),
-            "default_config": widget_def.get("default_config") or {},
+            "content_type": expanded.get("content_type", "application/vnd.spindrel.components+json"),
+            "display": expanded.get("display", "inline"),
+            "template": expanded["template"],
+            "transform": expanded.get("transform"),
+            "display_label": expanded.get("display_label"),
+            "state_poll": expanded.get("state_poll"),
+            "default_config": expanded.get("default_config") or {},
             "source": source,
         }
         count += 1

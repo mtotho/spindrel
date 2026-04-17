@@ -1,11 +1,9 @@
-# System pipeline: orchestrator — full scan
+# System pipeline: orchestrator — full scan of bot configuration drift.
 #
-# Scans the system's own configuration (bots, skills, tasks, recent
-# discovery traces), lets an agent step emit proposed configuration
-# patches, gates them behind a multi-item approval widget, then applies
-# approved patches via call_api against existing validated PATCH
-# endpoints. No bespoke apply-patch tools — the "tool" sub-step inside
-# the foreach calls the same admin endpoints a human admin would hit.
+# Audits every bot's *configuration* (system_prompt, memory_scheme,
+# pinned_tools, api_permissions) for drift and proposes fixes. Does NOT
+# analyze discovery / selection behavior — that is Analyze Discovery's
+# job, scoped to one bot at a time.
 id: orchestrator.full_scan
 bot_id: orchestrator
 title: Full System Scan
@@ -14,8 +12,8 @@ prompt: "[System pipeline: orchestrator full scan]"
 execution_config:
   featured: true
   description: >-
-    Analyze every bot's configuration, recent discovery behavior, and
-    tool activity, then propose tuning patches for review.
+    Audit every bot's configuration (system_prompt, memory_scheme,
+    pinned_tools) for drift and propose fixes.
   # Must be launched from a channel — the run's anchor message posts
   # back into the caller's channel, and the approval widget needs a
   # surface to render in. Launcher supplies channel_id at POST /run time.
@@ -37,23 +35,41 @@ steps:
   - id: analyze
     type: agent
     prompt: |
-      You are auditing the bots returned in prior step `fetch_bots`. For
-      each bot that has an obviously missing or drift-prone field
-      (missing system_prompt, wrong memory_scheme, stale pinned_tools),
-      propose a single JSON patch.
+      Audit the bots returned in prior step `fetch_bots` for configuration
+      drift. Do NOT analyze discovery / selection behavior — `Analyze
+      Discovery` handles that, scoped to one bot at a time.
 
-      Return ONLY valid JSON in this shape:
+      For each bot that has an obviously missing or drift-prone
+      configuration field (empty/weak system_prompt, wrong memory_scheme,
+      stale pinned_tools, missing api_permissions scopes), propose a
+      single JSON patch.
+
+      Every proposal MUST cite at least 2 concrete signals in its
+      `evidence` array. For config-drift proposals, the `correlation_id`
+      field may be left empty; use the `signal` field to quote the
+      specific config value from `fetch_bots` that justifies the change.
+      If you cannot cite 2 concrete signals, do NOT emit the proposal.
+
+      Return ONLY valid JSON:
 
       {
         "proposals": [
           {
             "id": "<stable-slug>",
-            "scope": "bots",
+            "scope": {
+              "target_kind": "bots",
+              "target_id": "<bot_id>",
+              "bots_affected": ["<bot_id>"]
+            },
             "target_method": "PATCH",
             "target_path": "/api/v1/admin/bots/<bot_id>",
             "patch_body": { ... },
             "rationale": "<one sentence>",
-            "diff_preview": "<short human-readable before/after>"
+            "evidence": [
+              {"correlation_id": "", "bot_id": "<bot_id>", "signal": "<quoted config value>"},
+              {"correlation_id": "", "bot_id": "<bot_id>", "signal": "<quoted config value>"}
+            ],
+            "diff_preview": "before: ... / after: ..."
           }
         ]
       }
@@ -63,10 +79,10 @@ steps:
 
   - id: review
     type: user_prompt
-    title: Review proposed changes
+    title: Review proposed configuration changes
     widget_template:
       kind: approval_review
-      title: Proposed system tuning
+      title: Proposed bot configuration changes
       proposals_ref: "{{steps.analyze.result.proposals}}"
     response_schema:
       type: multi_item

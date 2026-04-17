@@ -95,10 +95,30 @@ list_tasks:
 # We render a rich live card and re-poll via list_tasks so the status,
 # run_at/completed_at, and run_count stay current. display_label carries
 # the task id forward so state_poll args can look it up.
+#
+# Fragments (P1-1) factor out the footer controls so the initial and
+# polled views share one definition.
 schedule_task:
   content_type: application/vnd.spindrel.components+json
   display: inline
   display_label: "{{id}}"
+  fragments:
+    cancel_task_button:
+      type: button
+      label: Cancel
+      variant: danger
+      when: "{{status | in: pending,active,running}}"
+      action:
+        dispatch: tool
+        tool: cancel_task
+        args:
+          task_id: "{{id}}"
+    edit_task_links:
+      type: links
+      items:
+        - url: "/admin/tasks/{{id}}"
+          title: Edit task
+          icon: link
   template:
     v: 1
     components:
@@ -127,20 +147,8 @@ schedule_task:
           - label: File
             value: "{{workspace_file_path}}"
             when: "{{workspace_file_path | not_empty}}"
-      - type: button
-        label: Cancel
-        variant: danger
-        when: "{{status | in: pending,active,running}}"
-        action:
-          dispatch: tool
-          tool: cancel_task
-          args:
-            task_id: "{{id}}"
-      - type: links
-        items:
-          - url: "/admin/tasks/{{id}}"
-            title: Edit task
-            icon: link
+      - {type: fragment, ref: cancel_task_button}
+      - {type: fragment, ref: edit_task_links}
   state_poll:
     tool: list_tasks
     args:
@@ -192,20 +200,8 @@ schedule_task:
           children:
             - type: code
               content: "{{error}}"
-        - type: button
-          label: Cancel
-          variant: danger
-          when: "{{status | in: pending,active,running}}"
-          action:
-            dispatch: tool
-            tool: cancel_task
-            args:
-              task_id: "{{id}}"
-        - type: links
-          items:
-            - url: "/admin/tasks/{{id}}"
-              title: Edit task
-              icon: link
+        - {type: fragment, ref: cancel_task_button}
+        - {type: fragment, ref: edit_task_links}
 
 # get_task_result
 get_task_result:

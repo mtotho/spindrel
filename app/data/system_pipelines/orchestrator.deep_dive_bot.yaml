@@ -1,7 +1,6 @@
 # System pipeline: orchestrator — deep-dive a single bot.
 #
-# Same shape as full_scan but scoped by a runtime {{params.bot_id}} so
-# the admin UI can launch it from a specific bot's tile.
+# Same shape as full_scan but scoped to one bot via {{params.bot_id}}.
 id: orchestrator.deep_dive_bot
 bot_id: orchestrator
 title: Deep Dive Bot
@@ -28,22 +27,36 @@ steps:
   - id: analyze
     type: agent
     prompt: |
-      Analyze bot `{{params.bot_id}}` using the record returned by
-      prior step `fetch_bot`. Look for obvious configuration drift
-      (missing system_prompt, memory_scheme inconsistencies, stale
-      pinned_tools, api_permissions scope gaps).
+      Analyze bot `{{params.bot_id}}` using the record returned by prior
+      step `fetch_bot`. Look for obvious configuration drift (missing
+      system_prompt, memory_scheme inconsistencies, stale pinned_tools,
+      api_permissions scope gaps).
+
+      Every proposal MUST cite at least 2 concrete signals in its
+      `evidence` array — quote the specific config field values from
+      `fetch_bot` that justify the change. If you cannot cite 2 concrete
+      signals, do NOT emit the proposal.
 
       Return ONLY valid JSON:
 
       {
         "proposals": [
           {
-            "id": "...", "scope": "bots",
+            "id": "<stable-slug>",
+            "scope": {
+              "target_kind": "bots",
+              "target_id": "{{params.bot_id}}",
+              "bots_affected": ["{{params.bot_id}}"]
+            },
             "target_method": "PATCH",
             "target_path": "/api/v1/admin/bots/{{params.bot_id}}",
             "patch_body": { ... },
-            "rationale": "...",
-            "diff_preview": "..."
+            "rationale": "<one sentence>",
+            "evidence": [
+              {"correlation_id": "", "bot_id": "{{params.bot_id}}", "signal": "<quoted config value>"},
+              {"correlation_id": "", "bot_id": "{{params.bot_id}}", "signal": "<quoted config value>"}
+            ],
+            "diff_preview": "before: ... / after: ..."
           }
         ]
       }

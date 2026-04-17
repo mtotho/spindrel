@@ -1,8 +1,9 @@
-# System pipeline: orchestrator — discovery-behavior audit.
+# System pipeline: orchestrator — discovery-behavior audit for one bot.
 #
-# Reads recent `discovery_summary` trace events (emitted by the
-# per-turn discovery pass) and proposes description/trigger rewrites
-# for tools/skills that are being under- or over-selected.
+# Reads recent `discovery_summary` trace events for a specific bot and
+# proposes description/trigger rewrites for tools/skills that are being
+# under- or over-selected. Launched with a `bot_id` param — without
+# scope, the analysis has no denominator and proposals are mush.
 id: orchestrator.analyze_discovery
 bot_id: orchestrator
 title: Analyze Discovery
@@ -11,50 +12,84 @@ prompt: "[System pipeline: analyze discovery]"
 execution_config:
   featured: true
   description: >-
-    Review recent discovery (tool/skill selection) behavior and propose
-    description or trigger rewrites for under- or over-selected items.
+    Audit one bot's discovery behavior (which skills/tools it picked per
+    turn) over the last ~100 turns and propose trigger/description rewrites
+    for under- or over-selected items.
   requires_channel: true
+  params_schema:
+    - name: bot_id
+      required: true
+      description: Bot whose discovery traces should be audited.
 steps:
   - id: fetch_traces
     type: tool
     tool_name: get_trace
     tool_args:
       event_type: discovery_summary
-      limit: 50
+      bot_id: "{{params.bot_id}}"
+      limit: 100
+
+  - id: fetch_bot
+    type: tool
+    tool_name: call_api
+    tool_args:
+      method: GET
+      path: "/api/v1/admin/bots/{{params.bot_id}}"
 
   - id: analyze
     type: agent
     prompt: |
-      Review the discovery_summary events in prior step `fetch_traces`.
-      Identify tools or skills that were selected repeatedly for the
-      wrong reasons, never selected when they should have been, or
-      consistently out-ranked.
+      Audit discovery behavior for bot `{{params.bot_id}}`.
 
-      For each, propose a description/trigger rewrite as a JSON patch.
+      Prior step `fetch_traces` is a JSON array of `discovery_summary`
+      events — one per turn. Each entry's `data` shows which skills and
+      tools the ranker surfaced, their scores, and which the bot actually
+      fetched / called. Prior step `fetch_bot` gives you the bot's current
+      skills and pinned_tools so you can read the *current* description
+      and triggers for anything you want to change.
+
+      Find items (skills or tools) that are:
+        - ranked above threshold repeatedly but rarely fetched → description/trigger too generic
+        - ranked below threshold despite obvious user intent in the trace → triggers missing keywords
+        - fetched for turns unrelated to their purpose → triggers too aggressive
+
+      Every proposal MUST cite at least 2 real `correlation_id` values
+      copied from `fetch_traces` in its `evidence` array. If you cannot
+      cite 2 traces, do NOT emit the proposal.
+
       Return ONLY valid JSON:
 
       {
         "proposals": [
           {
-            "id": "...",
-            "scope": "skills" | "tools",
+            "id": "<stable-slug>",
+            "scope": {
+              "target_kind": "skills" | "tools",
+              "target_id": "<skill-or-tool-id>",
+              "bots_affected": ["{{params.bot_id}}"]
+            },
             "target_method": "PATCH",
             "target_path": "/api/v1/admin/skills/<id>" | "/api/v1/admin/tools/<id>",
             "patch_body": { ... },
-            "rationale": "...",
-            "diff_preview": "..."
+            "rationale": "<one sentence naming the pattern>",
+            "evidence": [
+              {"correlation_id": "<uuid>", "bot_id": "{{params.bot_id}}", "signal": "<what was seen>"},
+              {"correlation_id": "<uuid>", "bot_id": "{{params.bot_id}}", "signal": "<what was seen>"}
+            ],
+            "diff_preview": "before: ... / after: ..."
           }
         ]
       }
 
       If discovery behavior looks healthy, return {"proposals": []}.
+    result_max_chars: 10000
 
   - id: review
     type: user_prompt
-    title: Review discovery tuning proposals
+    title: Review discovery tuning proposals for {{params.bot_id}}
     widget_template:
       kind: approval_review
-      title: Discovery tuning
+      title: Discovery tuning — {{params.bot_id}}
       proposals_ref: "{{steps.analyze.result.proposals}}"
     response_schema:
       type: multi_item

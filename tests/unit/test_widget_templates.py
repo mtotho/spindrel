@@ -7,6 +7,7 @@ from app.services.widget_templates import (
     _substitute_string,
     _resolve_path,
     _evaluate_expression,
+    _register_widgets,
     apply_widget_template,
     apply_state_poll,
     substitute_vars,
@@ -494,3 +495,122 @@ class TestWidgetConfigThreading:
         )
         text = json.loads(env.body)["components"][0]["text"]
         assert text == "metric"
+
+
+class TestRegisterWidgetsFragments:
+    """P1-1: `fragments:` resolution + state_poll.template defaulting, end-to-end
+    through the public registration path."""
+
+    def setup_method(self):
+        _widget_templates.clear()
+
+    def teardown_method(self):
+        _widget_templates.clear()
+
+    def test_fragment_is_inlined_at_registration(self):
+        widgets = {
+            "my_tool": {
+                "fragments": {
+                    "cancel": {
+                        "type": "button",
+                        "label": "Cancel",
+                        "action": {"dispatch": "tool", "tool": "cancel_task"},
+                    },
+                },
+                "template": {
+                    "v": 1,
+                    "components": [
+                        {"type": "heading", "text": "Hi"},
+                        {"type": "fragment", "ref": "cancel"},
+                    ],
+                },
+            },
+        }
+        count = _register_widgets("test", widgets)
+        assert count == 1
+        expanded = _widget_templates["my_tool"]["template"]["components"]
+        assert [c["type"] for c in expanded] == ["heading", "button"]
+        # `fragments:` key is stripped from the cached definition.
+        assert "fragments" not in _widget_templates["my_tool"]
+
+    def test_state_poll_without_template_defaults_to_main(self):
+        widgets = {
+            "live_tool": {
+                "template": {
+                    "v": 1,
+                    "components": [{"type": "status", "text": "{{status}}"}],
+                },
+                "state_poll": {
+                    "tool": "live_tool",
+                    "refresh_interval_seconds": 5,
+                },
+            },
+        }
+        count = _register_widgets("test", widgets)
+        assert count == 1
+        cached = _widget_templates["live_tool"]
+        assert cached["state_poll"]["template"] == cached["template"]
+
+    def test_fragment_inlined_in_both_template_and_state_poll(self):
+        widgets = {
+            "t": {
+                "fragments": {
+                    "divider": {"type": "divider", "label": "shared"},
+                },
+                "template": {
+                    "v": 1,
+                    "components": [{"type": "fragment", "ref": "divider"}],
+                },
+                "state_poll": {
+                    "refresh_interval_seconds": 10,
+                    "template": {
+                        "v": 1,
+                        "components": [{"type": "fragment", "ref": "divider"}],
+                    },
+                },
+            },
+        }
+        _register_widgets("test", widgets)
+        main = _widget_templates["t"]["template"]["components"][0]
+        polled = _widget_templates["t"]["state_poll"]["template"]["components"][0]
+        assert main["type"] == "divider" and main["label"] == "shared"
+        assert polled["type"] == "divider" and polled["label"] == "shared"
+
+    def test_unknown_fragment_ref_skips_widget(self):
+        widgets = {
+            "bad": {
+                "template": {
+                    "v": 1,
+                    "components": [{"type": "fragment", "ref": "missing"}],
+                },
+            },
+        }
+        count = _register_widgets("test", widgets)
+        assert count == 0
+        assert "bad" not in _widget_templates
+
+    def test_state_poll_defaulting_renders_at_poll_time(self):
+        widgets = {
+            "pollable": {
+                "template": {
+                    "v": 1,
+                    "components": [
+                        {"type": "status", "text": "{{status}}"},
+                    ],
+                },
+                "state_poll": {
+                    "tool": "pollable",
+                    "refresh_interval_seconds": 5,
+                    # template omitted — defaults to main template
+                },
+            },
+        }
+        _register_widgets("test", widgets)
+        env = apply_state_poll(
+            "pollable",
+            '{"status": "running"}',
+            {"display_label": "x", "tool_name": "pollable"},
+        )
+        assert env is not None
+        comps = json.loads(env.body)["components"]
+        assert comps[0]["text"] == "running"

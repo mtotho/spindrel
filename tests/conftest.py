@@ -129,10 +129,16 @@ async def engine():
 
     eng = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
 
-    from sqlalchemy import text as sa_text
+    from sqlalchemy import event, text as sa_text
     from sqlalchemy.schema import DefaultClause
 
     originals = {}
+    # UUID primary keys whose Postgres gen_random_uuid() default was stripped
+    # for SQLite. We fill these via a Session.before_flush listener below —
+    # post-construction col.default assignment doesn't re-register with SA's
+    # insert machinery, and Mapper.before_insert registered after mapper config
+    # doesn't fire for already-configured mappers.
+    pk_targets: dict[str, str] = {}
     _REPLACEMENTS = {
         "now()": "CURRENT_TIMESTAMP",
         "gen_random_uuid()": None,
@@ -162,16 +168,37 @@ async def engine():
                     col.server_default = DefaultClause(sa_text(new_default))
                 else:
                     col.server_default = None
+                if (
+                    "gen_random_uuid()" in sd_text
+                    and col.primary_key
+                    and isinstance(col.type, PG_UUID)
+                ):
+                    pk_targets[table.name] = col.name
 
     async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    for (tname, cname), default in originals.items():
-        table = Base.metadata.tables[tname]
-        table.c[cname].server_default = default
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy.orm import Session as _SA_Session
 
-    yield eng
-    await eng.dispose()
+    def _fill_uuid_pks(session, flush_context, instances):
+        for obj in session.new:
+            state = sa_inspect(obj)
+            tname = state.mapper.local_table.name if state.mapper.local_table is not None else None
+            cname = pk_targets.get(tname)
+            if cname and getattr(obj, cname, None) is None:
+                setattr(obj, cname, _uuid_mod.uuid4())
+
+    event.listen(_SA_Session, "before_flush", _fill_uuid_pks)
+
+    try:
+        yield eng
+    finally:
+        event.remove(_SA_Session, "before_flush", _fill_uuid_pks)
+        for (tname, cname), default in originals.items():
+            table = Base.metadata.tables[tname]
+            table.c[cname].server_default = default
+        await eng.dispose()
 
 
 @pytest_asyncio.fixture
