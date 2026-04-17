@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Radar,
@@ -7,10 +7,14 @@ import {
   ArrowRight,
   Loader2,
   ChevronDown,
-  ChevronRight,
+  ChevronUp,
   X,
   Cog,
   Clock,
+  CheckCircle2,
+  AlertCircle,
+  PauseCircle,
+  Circle,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { apiFetch } from "@/src/api/client";
@@ -35,7 +39,7 @@ function iconFor(id: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Param schema shape (matches app/data/system_pipelines/*.yaml execution_config.params_schema)
+// Param schema + config helpers — read execution_config directly off the task.
 // ---------------------------------------------------------------------------
 
 interface ParamDef {
@@ -45,8 +49,7 @@ interface ParamDef {
 }
 
 function getParamsSchema(task: TaskItem): ParamDef[] | null {
-  const cfg = (task as any).execution_config as Record<string, any> | undefined;
-  const schema = cfg?.params_schema;
+  const schema = (task as any).execution_config?.params_schema;
   if (Array.isArray(schema) && schema.length > 0) return schema as ParamDef[];
   return null;
 }
@@ -59,10 +62,6 @@ function getDescription(task: TaskItem): string | null {
   const d = (task as any).execution_config?.description;
   return typeof d === "string" && d.trim() ? d.trim() : null;
 }
-
-// ---------------------------------------------------------------------------
-// Relative-time chip — "Last run 3h ago"
-// ---------------------------------------------------------------------------
 
 function relTime(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -80,7 +79,7 @@ function relTime(iso: string | null | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
-// Param-picker modal — shown when pipeline declares params_schema
+// Param-picker modal (pipelines declaring params_schema)
 // ---------------------------------------------------------------------------
 
 function TaskRunModal({
@@ -199,7 +198,7 @@ function TaskRunModal({
 }
 
 // ---------------------------------------------------------------------------
-// Hero tile — one featured pipeline
+// Tile — compact enough to fit 2-3 across inside a strip.
 // ---------------------------------------------------------------------------
 
 function PipelineTile({
@@ -209,7 +208,6 @@ function PipelineTile({
   pipeline: TaskItem;
   onLaunch: (pipeline: TaskItem) => void;
 }) {
-  // Poll children every 5s to detect in-flight runs.
   const { data: children } = useTaskChildren(pipeline.id, 5_000);
   const running = (children ?? []).some((c) => c.status === "running" || c.status === "pending");
   const lastRun = (children ?? [])
@@ -226,49 +224,47 @@ function PipelineTile({
       onClick={() => !running && onLaunch(pipeline)}
       disabled={running}
       className={cn(
-        "group relative flex flex-col gap-2 p-5 rounded-lg text-left",
+        "group relative flex flex-col gap-1.5 p-4 rounded-lg text-left",
         "bg-surface-raised border border-surface-border",
         "hover:border-accent/40 hover:-translate-y-0.5",
         "transition-all duration-150 cursor-pointer",
         "disabled:cursor-default disabled:hover:translate-y-0",
-        "min-h-[140px]",
       )}
     >
-      <div className="flex flex-row items-start justify-between">
-        <Icon size={20} className="text-accent shrink-0" />
+      <div className="flex flex-row items-start justify-between gap-2">
+        <Icon size={18} className="text-accent shrink-0" />
         {lastRun && (
           <span
-            className="text-[10px] text-text-dim opacity-60 md:opacity-0 md:group-hover:opacity-100
-                       transition-opacity flex items-center gap-1"
+            className="text-[10px] text-text-dim flex items-center gap-1 shrink-0"
           >
             <Clock size={9} />
-            Last run {relTime(lastRun)}
+            {relTime(lastRun)}
           </span>
         )}
       </div>
 
-      <div className="flex flex-col gap-1.5 flex-1">
-        <h3 className="text-base font-semibold text-text leading-tight">
+      <div className="flex flex-col gap-1 flex-1 min-w-0">
+        <h3 className="text-sm font-semibold text-text leading-tight truncate">
           {pipeline.title || pipeline.id}
         </h3>
-        <p className="text-sm text-text-dim leading-relaxed line-clamp-3">
+        <p className="text-xs text-text-dim leading-snug line-clamp-2">
           {description}
         </p>
       </div>
 
-      <div className="flex flex-row justify-end items-center mt-1">
+      <div className="flex flex-row justify-end items-center mt-0.5">
         {running ? (
-          <span className="inline-flex items-center gap-1.5 text-xs text-accent font-medium">
-            <Loader2 size={12} className="animate-spin" />
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-accent font-medium">
+            <Loader2 size={11} className="animate-spin" />
             Running
           </span>
         ) : (
           <span
-            className="inline-flex items-center gap-1 text-xs text-accent font-medium
-                       opacity-60 md:opacity-40 group-hover:opacity-100 transition-opacity"
+            className="inline-flex items-center gap-1 text-[11px] text-accent font-medium
+                       opacity-50 group-hover:opacity-100 transition-opacity"
           >
             Run
-            <ArrowRight size={12} />
+            <ArrowRight size={11} />
           </span>
         )}
       </div>
@@ -277,16 +273,42 @@ function PipelineTile({
 }
 
 // ---------------------------------------------------------------------------
-// Main component
+// Main — always-visible collapsible strip that sits above the chat on system
+// channels. Modelled on the HudStripBar vertical-stack pattern.
 // ---------------------------------------------------------------------------
 
-export function OrchestratorEmptyState({ channelId: _channelId }: { channelId: string }) {
+const COLLAPSED_STORAGE_KEY = "orchestrator-launchpad-collapsed";
+
+function loadCollapsed(channelId: string): boolean {
+  try {
+    const raw = localStorage.getItem(`${COLLAPSED_STORAGE_KEY}:${channelId}`);
+    return raw === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveCollapsed(channelId: string, value: boolean) {
+  try {
+    localStorage.setItem(
+      `${COLLAPSED_STORAGE_KEY}:${channelId}`,
+      value ? "1" : "0",
+    );
+  } catch {
+    // ignore
+  }
+}
+
+export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
   const runNowMut = useRunTaskNow();
   const [paramModalPipeline, setParamModalPipeline] = useState<TaskItem | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() => loadCollapsed(channelId));
 
-  // Fetch all task definitions. Client-side filter on source==="system".
-  // When a backend ?source= filter lands we can drop the client-side pass.
+  useEffect(() => {
+    setCollapsed(loadCollapsed(channelId));
+  }, [channelId]);
+
   const { data, isLoading } = useQuery({
     queryKey: ["admin-tasks-definitions", "system"],
     queryFn: () =>
@@ -308,6 +330,35 @@ export function OrchestratorEmptyState({ channelId: _channelId }: { channelId: s
     [systemTasks],
   );
 
+  // Recent runs on this channel — child tasks of pipelines, ordered by recency.
+  // Refreshes every 10s while the strip is expanded so in-flight runs update.
+  const { data: runsData } = useQuery({
+    queryKey: ["orchestrator-runs", channelId],
+    queryFn: () =>
+      apiFetch<TasksResponse>(
+        `/api/v1/admin/tasks?channel_id=${encodeURIComponent(channelId)}&limit=20`,
+      ),
+    refetchInterval: collapsed ? false : 10_000,
+    staleTime: 5_000,
+  });
+
+  const recentRuns = useMemo(() => {
+    const rows = runsData?.tasks ?? [];
+    const systemIds = new Set(systemTasks.map((t) => t.id));
+    return rows
+      .filter((r) => r.parent_task_id && systemIds.has(r.parent_task_id))
+      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))
+      .slice(0, 6);
+  }, [runsData, systemTasks]);
+
+  const toggleCollapsed = () => {
+    setCollapsed((v) => {
+      const next = !v;
+      saveCollapsed(channelId, next);
+      return next;
+    });
+  };
+
   const handleLaunch = (pipeline: TaskItem) => {
     const schema = getParamsSchema(pipeline);
     if (schema && schema.length > 0) {
@@ -327,76 +378,163 @@ export function OrchestratorEmptyState({ channelId: _channelId }: { channelId: s
     );
   };
 
+  // Hide entirely if there aren't any system pipelines to show (fresh install
+  // with no seeded pipelines shouldn't render a dead strip).
+  if (!isLoading && systemTasks.length === 0) return null;
+
   return (
-    <div className="w-full max-w-3xl mx-auto px-4 md:px-6 py-8 md:py-12 flex flex-col gap-8">
-      <header className="flex flex-col gap-1.5">
-        <h2 className="text-lg font-semibold text-text">
-          Run a system pipeline
-        </h2>
-        <p className="text-sm text-text-dim leading-relaxed">
-          Pipelines analyze your configuration and propose tuning patches. You
-          review and approve each change before anything is applied.
-        </p>
-      </header>
+    <div className="border-b border-surface-border bg-surface-raised/50">
+      {/* Header — always visible, clickable to collapse/expand */}
+      <button
+        onClick={toggleCollapsed}
+        className="w-full flex flex-row items-center justify-between
+                   px-4 py-2 hover:bg-surface-raised/80 transition-colors"
+        aria-expanded={!collapsed}
+      >
+        <div className="flex flex-row items-center gap-2">
+          <Cog size={12} className="text-accent" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+            Pipelines
+          </span>
+          {!isLoading && featured.length > 0 && (
+            <span className="text-[10px] text-text-dim opacity-60">
+              {featured.length} featured{libraryItems.length > 0 ? ` · ${libraryItems.length} more` : ""}
+            </span>
+          )}
+        </div>
+        {collapsed ? (
+          <ChevronDown size={14} className="text-text-dim" />
+        ) : (
+          <ChevronUp size={14} className="text-text-dim" />
+        )}
+      </button>
 
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[0, 1].map((i) => (
-            <div
-              key={i}
-              className="min-h-[140px] p-5 rounded-lg bg-surface-raised border border-surface-border
-                         animate-pulse opacity-60"
-            />
-          ))}
-        </div>
-      ) : featured.length === 0 ? (
-        <div className="text-sm text-text-dim text-center py-8">
-          No system pipelines available.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {featured.map((pipeline) => (
-            <PipelineTile
-              key={pipeline.id}
-              pipeline={pipeline}
-              onLaunch={handleLaunch}
-            />
-          ))}
-        </div>
-      )}
+      {/* Body — tiles + library */}
+      {!collapsed && (
+        <div className="px-4 pb-4 pt-1 flex flex-col gap-3">
+          {isLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="h-[110px] p-4 rounded-lg bg-surface-raised border border-surface-border
+                             animate-pulse opacity-60"
+                />
+              ))}
+            </div>
+          ) : featured.length === 0 ? (
+            <div className="text-xs text-text-dim py-4 text-center">
+              No featured system pipelines.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {featured.map((pipeline) => (
+                <PipelineTile
+                  key={pipeline.id}
+                  pipeline={pipeline}
+                  onLaunch={handleLaunch}
+                />
+              ))}
+            </div>
+          )}
 
-      {libraryItems.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <button
-            onClick={() => setLibraryOpen((v) => !v)}
-            className="flex flex-row items-center gap-1.5 text-xs text-text-dim
-                       hover:text-text self-start"
-          >
-            {libraryOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            More pipelines ({libraryItems.length})
-          </button>
-          {libraryOpen && (
-            <div className="flex flex-col gap-1 border border-surface-border rounded-md
-                            bg-surface-raised overflow-hidden">
-              {libraryItems.map((pipeline) => {
-                const Icon = iconFor(pipeline.id);
-                return (
-                  <button
-                    key={pipeline.id}
-                    onClick={() => handleLaunch(pipeline)}
-                    className="flex flex-row items-center justify-between gap-3 px-3 py-2
-                               hover:bg-surface text-left"
-                  >
-                    <div className="flex flex-row items-center gap-2.5 min-w-0">
-                      <Icon size={14} className="text-text-dim shrink-0" />
-                      <span className="text-sm font-medium text-text truncate">
-                        {pipeline.title || pipeline.id}
+          {recentRuns.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex flex-row items-center gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+                  Recent runs
+                </span>
+              </div>
+              <div className="flex flex-col gap-1 border border-surface-border rounded-md
+                              bg-surface overflow-hidden">
+                {recentRuns.map((run) => {
+                  const parent = systemTasks.find((t) => t.id === run.parent_task_id);
+                  const pipelineTitle = parent?.title ?? run.parent_task_id ?? "pipeline";
+                  const hasAwaiting = ((run as any).step_states ?? []).some(
+                    (s: any) => s?.status === "awaiting_user_input",
+                  );
+                  const status = hasAwaiting ? "awaiting_user_input" : run.status;
+                  const StatusIcon =
+                    status === "running" || status === "pending" ? Loader2 :
+                    status === "complete" ? CheckCircle2 :
+                    status === "failed" ? AlertCircle :
+                    status === "awaiting_user_input" ? PauseCircle :
+                    Circle;
+                  const statusColor =
+                    status === "running" || status === "pending" ? "text-accent" :
+                    status === "complete" ? "text-emerald-500" :
+                    status === "failed" ? "text-red-500" :
+                    status === "awaiting_user_input" ? "text-accent animate-pulse" :
+                    "text-text-dim";
+                  const statusLabel =
+                    status === "awaiting_user_input" ? "awaiting review" :
+                    status === "running" ? "running" :
+                    status === "pending" ? "queued" :
+                    status === "complete" ? "complete" :
+                    status === "failed" ? "failed" :
+                    status;
+                  const isSpinning = status === "running" || status === "pending";
+                  return (
+                    <div
+                      key={run.id}
+                      className="flex flex-row items-center justify-between gap-3 px-3 py-2
+                                 text-xs"
+                    >
+                      <div className="flex flex-row items-center gap-2.5 min-w-0 flex-1">
+                        <StatusIcon
+                          size={13}
+                          className={cn(statusColor, "shrink-0", isSpinning && "animate-spin")}
+                        />
+                        <span className="font-medium text-text truncate">{pipelineTitle}</span>
+                        <span className="text-text-dim truncate shrink-0">
+                          · {statusLabel}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-text-dim shrink-0 flex items-center gap-1">
+                        <Clock size={9} />
+                        {relTime(run.created_at)}
                       </span>
                     </div>
-                    <ArrowRight size={12} className="text-text-dim shrink-0 opacity-60" />
-                  </button>
-                );
-              })}
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {libraryItems.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <button
+                onClick={() => setLibraryOpen((v) => !v)}
+                className="flex flex-row items-center gap-1.5 text-[11px] text-text-dim
+                           hover:text-text self-start"
+              >
+                {libraryOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                More pipelines ({libraryItems.length})
+              </button>
+              {libraryOpen && (
+                <div className="flex flex-col gap-1 border border-surface-border rounded-md
+                                bg-surface overflow-hidden">
+                  {libraryItems.map((pipeline) => {
+                    const Icon = iconFor(pipeline.id);
+                    return (
+                      <button
+                        key={pipeline.id}
+                        onClick={() => handleLaunch(pipeline)}
+                        className="flex flex-row items-center justify-between gap-3 px-3 py-2
+                                   hover:bg-surface-raised text-left"
+                      >
+                        <div className="flex flex-row items-center gap-2.5 min-w-0">
+                          <Icon size={13} className="text-text-dim shrink-0" />
+                          <span className="text-xs font-medium text-text truncate">
+                            {pipeline.title || pipeline.id}
+                          </span>
+                        </div>
+                        <ArrowRight size={11} className="text-text-dim shrink-0 opacity-60" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -413,3 +551,9 @@ export function OrchestratorEmptyState({ channelId: _channelId }: { channelId: s
     </div>
   );
 }
+
+// Backwards-compatible alias — earlier code passed this via emptyStateComponent.
+// Kept exported so the generalized ChatMessageArea prop still works if some other
+// channel wires it up; on system channels we now mount OrchestratorLaunchpad
+// above the chat instead.
+export const OrchestratorEmptyState = OrchestratorLaunchpad;

@@ -37,7 +37,7 @@ import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
 import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnText } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { ChannelHeader } from "./ChannelHeader";
-import { OrchestratorEmptyState } from "./OrchestratorEmptyState";
+import { OrchestratorLaunchpad } from "./OrchestratorEmptyState";
 import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
@@ -377,9 +377,6 @@ export default function ChatScreen() {
     handleLoadMore,
     isProcessing: chatState.isProcessing,
     t,
-    emptyStateComponent: isSystemChannel && channelId
-      ? <OrchestratorEmptyState channelId={channelId} />
-      : undefined,
   };
 
   const outerChildren = (
@@ -439,6 +436,13 @@ export default function ChatScreen() {
         />
       )}
 
+      {/* Orchestrator pipelines launchpad — always visible, collapsible.
+          Shares the same vertical-stack extension zone as HudStripBar
+          (channel-scoped chrome above the message list). */}
+      {isSystemChannel && channelId && (
+        <OrchestratorLaunchpad channelId={channelId} />
+      )}
+
       {/* Content area -- explorer + chat/file viewer */}
       {isMobile ? (
         /* ---- Mobile: chat + bottom sheet OmniPanel ---- */
@@ -484,8 +488,8 @@ export default function ChatScreen() {
                 mobile
               />
             )}
-            {/* Mobile OmniPanel bottom sheet */}
-            {channelId && (
+            {/* Mobile OmniPanel bottom sheet — hidden on system channels. */}
+            {channelId && !isSystemChannel && (
               <MobileOmniSheet
                 open={showExplorer}
                 onClose={handleCloseExplorer}
@@ -503,8 +507,10 @@ export default function ChatScreen() {
       ) : (
         /* ---- Desktop/tablet: side-by-side layout ---- */
         <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden" }}>
-          {/* OmniPanel — always rendered, animated via width clip */}
-          {channelId && (
+          {/* OmniPanel — always rendered, animated via width clip.
+              Hidden on system channels (orchestrator has no workspace files
+              or channel-specific pinned widgets worth surfacing). */}
+          {channelId && !isSystemChannel && (
             <div
               style={{
                 width: showExplorer ? explorerWidth : 0,
@@ -587,8 +593,8 @@ export default function ChatScreen() {
             <HudSidePanel key={h.key} hud={h} />
           ))}
 
-          {/* Pinned workspace-file panels */}
-          {!isMobile && channelId && (
+          {/* Pinned workspace-file panels — hidden on system channels. */}
+          {!isMobile && channelId && !isSystemChannel && (
             <PinnedPanelsRail channelId={channelId} workspaceId={workspaceId} />
           )}
 
