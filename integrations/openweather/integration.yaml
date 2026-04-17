@@ -1,0 +1,119 @@
+id: openweather
+name: OpenWeather
+icon: CloudSun
+description: >-
+  Current weather, hourly and daily forecasts, and government severe-weather
+  alerts via OpenWeatherMap One Call 3.0. Accepts city names, US zip codes, or
+  "City, State/Country" strings.
+version: "1.0"
+
+settings:
+  - key: OPENWEATHERMAP_API_KEY
+    type: string
+    label: API Key
+    secret: true
+    required: true
+    description: "OpenWeatherMap One Call 3.0 API key (free tier works)"
+  - key: POLL_INTERVAL_MINUTES
+    type: string
+    label: Pinned widget refresh interval (minutes)
+    description: "How often pinned weather widgets re-poll the API. Default 60."
+
+provides:
+  - tools
+
+# Shared component tree — reused for the initial tool call and for state_poll
+# refreshes. Both render the same raw get_weather JSON, so a single template
+# keeps them byte-identical.
+_weather_template: &weather_template
+  v: 1
+  components:
+    - type: heading
+      text: "{{location}}"
+      level: 3
+    # Error path
+    - type: status
+      when: "{{error | not_empty}}"
+      text: "{{error}}"
+      color: danger
+    # Current conditions — big temp + description
+    - type: heading
+      when: "{{current.temperature | not_empty}}"
+      text: "{{current.temperature}} · {{current.conditions}}"
+      level: 2
+    - type: properties
+      layout: inline
+      when: "{{current.temperature | not_empty}}"
+      items:
+        - label: Feels like
+          value: "{{current.feels_like}}"
+        - label: Humidity
+          value: "{{current.humidity}}"
+        - label: Wind
+          value: "{{current.wind_speed}}"
+        - label: Gust
+          value: "{{current.wind_gust}}"
+          when: "{{current.wind_gust | not_empty}}"
+        - label: UV
+          value: "{{current.uv_index}}"
+          when: "{{current.uv_index | not_empty}}"
+        - label: Clouds
+          value: "{{current.cloud_cover}}"
+          when: "{{current.cloud_cover | not_empty}}"
+    # Severe-weather alerts
+    - type: section
+      label: "Active alerts"
+      collapsible: true
+      defaultOpen: true
+      when: "{{alerts | not_empty}}"
+      children:
+        - type: table
+          columns: ["Event", "Sender", "Start", "End"]
+          compact: true
+          rows:
+            each: "{{alerts}}"
+            template: ["{{_.event}}", "{{_.sender}}", "{{_.start}}", "{{_.end}}"]
+    # Hourly forecast
+    - type: section
+      label: "Next 12 hours"
+      collapsible: true
+      defaultOpen: false
+      when: "{{hourly_forecast | not_empty}}"
+      children:
+        - type: table
+          columns: ["Time", "Temp", "Conditions", "Precip"]
+          compact: true
+          rows:
+            each: "{{hourly_forecast}}"
+            template: ["{{_.time}}", "{{_.temperature}}", "{{_.conditions}}", "{{_.precip_probability}}"]
+    # Daily forecast
+    - type: section
+      label: "7-day forecast"
+      collapsible: true
+      defaultOpen: false
+      when: "{{daily_forecast | not_empty}}"
+      children:
+        - type: table
+          columns: ["Day", "Range", "Conditions", "Precip"]
+          compact: true
+          rows:
+            each: "{{daily_forecast}}"
+            template: ["{{_.date}}", "{{_.temp_range}}", "{{_.conditions}}", "{{_.precip_probability}}"]
+
+# Rich widget for get_weather results. Pinned widgets re-poll by recalling
+# get_weather with the resolved location (carried via display_label).
+tool_widgets:
+  get_weather:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "{{location}}"
+    state_poll:
+      tool: get_weather
+      # {{display_label}} is substituted from widget_meta at poll time so each
+      # pinned weather widget re-fetches its own location.
+      args:
+        location: "{{display_label}}"
+      # Hint to the UI for auto-refresh cadence on pinned widgets.
+      refresh_interval_seconds: 3600
+      template: *weather_template
+    template: *weather_template

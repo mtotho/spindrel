@@ -238,12 +238,33 @@ Review your complete skill list in the "## Working set" snapshot appended below.
 - Protected: `prune_enrolled_skills(skill_ids=["id1"], overrides={"id1": "reason"})`
 - **Do not call `manage_bot_skill(action="delete")` on catalog skills you don't own** — that archives the skill itself, not just your enrollment.
 
+## Step 2.5 — Discovery audit
+If a "## Discovery Audit" section is appended below, act on it. It aggregates the
+last 14 days of ranker signal:
+
+**For each enrolled skill in the "ranked but rarely fetched" list**:
+- Large gap (ranked ≥ 8x, fetched ≤ 1x) on an authored skill: rewrite description
+  + triggers via `manage_bot_skill(action="update")`. The description should answer
+  "use when ___" — what user phrasing should trigger this skill?
+- Catalog skill enrolled 14+ days ago with zero fetches: prune.
+- `avg sim` < 0.45: ranker is borderline. Skip this pass and revisit after Step 2
+  description fixes have time to take effect.
+
+**For each catalog skill in the "repeatedly suggested" list**:
+- Read it (`get_skill`) — that fetch enrolls it.
+- If it covers a recurring topic in "## Recent Activity", note the new enrollment
+  in the daily log so it's intentional, not accidental.
+
+If no "## Discovery Audit" section is present, the bot has insufficient ranker
+history — skip this step.
+
 ## Step 3 — Summarize
 Write a `## Skill Review` section to today's daily log (`memory/logs/YYYY-MM-DD.md`) using
 the `file` tool (append if the file exists, create if not). Include:
 - Reflections generated or updated (with brief rationale)
 - Skills created / merged / pruned / updated (with IDs)
 - Auto-inject quality issues found and corrected
+- Discovery audit fixes (skill IDs + what changed: rewrote triggers, enrolled, pruned)
 - Any knowledge gaps that couldn't be addressed"""
 
 

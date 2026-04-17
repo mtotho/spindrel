@@ -143,6 +143,15 @@ def get_widget_template(tool_name: str) -> dict | None:
     return _widget_templates.get(tool_name)
 
 
+def substitute_vars(obj: Any, data: dict) -> Any:
+    """Public helper: deep-substitute ``{{...}}`` expressions in a template/dict.
+
+    Used by callers outside this module (e.g. state_poll args) to template
+    widget_meta values into arbitrary YAML-loaded structures.
+    """
+    return _substitute(copy.deepcopy(obj), data)
+
+
 def apply_widget_template(tool_name: str, raw_result: str) -> ToolResultEnvelope | None:
     """Apply a widget template to a raw tool result, returning an envelope or None.
 
@@ -190,6 +199,9 @@ def apply_widget_template(tool_name: str, raw_result: str) -> ToolResultEnvelope
         if resolved and isinstance(resolved, str) and resolved.strip():
             display_label = resolved.strip()
 
+    state_poll = tmpl.get("state_poll") or {}
+    interval = state_poll.get("refresh_interval_seconds")
+
     return ToolResultEnvelope(
         content_type=tmpl["content_type"],
         body=body,
@@ -197,6 +209,7 @@ def apply_widget_template(tool_name: str, raw_result: str) -> ToolResultEnvelope
         display=tmpl["display"],
         display_label=display_label,
         refreshable=bool(tmpl.get("state_poll")),
+        refresh_interval_seconds=int(interval) if interval else None,
     )
 
 
@@ -245,6 +258,7 @@ def apply_state_poll(
 
     body = json.dumps(filled)
     display_label = widget_meta.get("display_label")
+    interval = poll_cfg.get("refresh_interval_seconds")
 
     return ToolResultEnvelope(
         content_type="application/vnd.spindrel.components+json",
@@ -253,6 +267,7 @@ def apply_state_poll(
         display="inline",
         display_label=display_label,
         refreshable=True,
+        refresh_interval_seconds=int(interval) if interval else None,
     )
 
 
@@ -365,10 +380,17 @@ def _substitute_string(s: str, data: dict) -> Any:
     any type (bool, list, dict). If the string contains mixed text and
     expressions, the result is always a string.
     """
-    # Fast path: entire string is a single expression
-    m = _VAR_PATTERN.fullmatch(s.strip())
-    if m:
-        return _evaluate_expression(m.group(1).strip(), data)
+    # Fast path: entire string is a single expression. Use prefix/suffix
+    # checks (not fullmatch) because the non-greedy _VAR_PATTERN will happily
+    # span across multiple {{...}} pairs under fullmatch's backtracking.
+    stripped = s.strip()
+    if (
+        stripped.startswith("{{")
+        and stripped.endswith("}}")
+        and stripped.count("{{") == 1
+        and stripped.count("}}") == 1
+    ):
+        return _evaluate_expression(stripped[2:-2].strip(), data)
 
     # Mixed content: substitute inline, convert results to strings
     def replacer(match: re.Match) -> str:

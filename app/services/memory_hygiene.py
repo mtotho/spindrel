@@ -419,6 +419,124 @@ async def _build_inject_audit_samples(bot_id: str, db: AsyncSession) -> str:
     return "\n".join(lines)
 
 
+async def _build_discovery_audit_snapshot(bot_id: str, db: AsyncSession) -> str:
+    """Aggregate `skill_index` trace events into actionable hygiene signals.
+
+    Two passes over `trace_events.data`:
+      1. Enrolled skills ranked above the per-trace `relevance_threshold` (the ↑
+         signal the model sees) but never observed in `skills_in_history` for the
+         same correlation_id — i.e. the model didn't load them. High count = weak
+         description / wrong category.
+      2. Catalog skills that appear in `suggested_ids` repeatedly without ever
+         being enrolled — the discovery layer keeps surfacing them. Good
+         enrollment candidates.
+
+    Returns markdown for direct concatenation into the skill_review prompt, or
+    `""` when both passes are empty (caller skips the section).
+    """
+    from sqlalchemy import text as sa_text
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+
+    # --- Pass 1: ranked-relevant-but-not-fetched -----------------------------
+    # `ranking_scores` is a JSONB array of {skill_id, similarity}; flatten with
+    # jsonb_to_recordset, gate on per-trace threshold (0.40 fallback for old
+    # rows pre-relevance_threshold field). LEFT JOIN against `skills_in_history`
+    # for the same correlation_id to detect load-after-rank.
+    rank_rows = (await db.execute(sa_text(
+        "WITH ranked AS ("
+        "  SELECT te.correlation_id, sr.skill_id, sr.similarity"
+        "  FROM trace_events te,"
+        "    jsonb_to_recordset(te.data->'ranking_scores')"
+        "      AS sr(skill_id text, similarity double precision)"
+        "  WHERE te.event_type = 'skill_index' AND te.bot_id = :bot_id"
+        "    AND te.created_at >= :cutoff"
+        "    AND sr.similarity >= COALESCE("
+        "      (te.data->>'relevance_threshold')::double precision, 0.40)"
+        "), fetched AS ("
+        "  SELECT DISTINCT te.correlation_id, je.value::text AS skill_id"
+        "  FROM trace_events te,"
+        "    jsonb_array_elements_text(te.data->'skills_in_history') je"
+        "  WHERE te.event_type = 'skill_index' AND te.bot_id = :bot_id"
+        "    AND te.created_at >= :cutoff"
+        ") "
+        "SELECT r.skill_id,"
+        "  COUNT(*) AS times_ranked,"
+        "  COUNT(f.correlation_id) AS times_fetched_after_rank,"
+        "  AVG(r.similarity) AS avg_similarity "
+        "FROM ranked r "
+        "LEFT JOIN fetched f"
+        "  ON f.correlation_id = r.correlation_id AND f.skill_id = r.skill_id "
+        "GROUP BY r.skill_id "
+        "HAVING COUNT(*) >= 3 "
+        "ORDER BY (COUNT(*) - COUNT(f.correlation_id)) DESC "
+        "LIMIT 10"
+    ).bindparams(bot_id=bot_id, cutoff=cutoff))).all()
+
+    # --- Pass 2: repeatedly-suggested catalog skills -------------------------
+    sugg_rows = (await db.execute(sa_text(
+        "SELECT je.value::text AS skill_id, COUNT(*) AS times_suggested "
+        "FROM trace_events te,"
+        "  jsonb_array_elements_text(te.data->'suggested_ids') je "
+        "WHERE te.event_type = 'skill_index' AND te.bot_id = :bot_id "
+        "  AND te.created_at >= :cutoff "
+        "GROUP BY je.value "
+        "HAVING COUNT(*) >= 5 "
+        "ORDER BY COUNT(*) DESC "
+        "LIMIT 10"
+    ).bindparams(bot_id=bot_id, cutoff=cutoff))).all()
+
+    gap_rows = [r for r in rank_rows if r.times_ranked > r.times_fetched_after_rank]
+
+    if not gap_rows and not sugg_rows:
+        return ""
+
+    # Resolve skill names in one batched lookup for both lists.
+    from app.db.models import Skill as SkillRow
+    needed_ids = {r.skill_id for r in gap_rows} | {r.skill_id for r in sugg_rows}
+    name_rows = (await db.execute(
+        select(SkillRow.id, SkillRow.name).where(SkillRow.id.in_(needed_ids))
+    )).all() if needed_ids else []
+    names = {r.id: r.name for r in name_rows}
+
+    lines = ["## Discovery Audit (last 14 days)", ""]
+
+    if gap_rows:
+        lines += [
+            "### Enrolled skills ranked relevant but rarely fetched",
+            "These were marked ↑ in your context but you didn't load them. Either the description didn't match the situation, or the skill is no longer relevant.",
+            "",
+        ]
+        for r in gap_rows:
+            gap = r.times_ranked - r.times_fetched_after_rank
+            name = names.get(r.skill_id, "(unknown)")
+            avg = float(r.avg_similarity or 0.0)
+            lines.append(
+                f"- `{r.skill_id}` ({name}) — ranked {r.times_ranked}x, "
+                f"fetched {r.times_fetched_after_rank}x (gap {gap}), "
+                f"avg sim {avg:.2f}"
+            )
+        lines.append(
+            "  → For authored skills with large gap: rewrite description + triggers "
+            "(`manage_bot_skill(action=\"update\")`). For catalog skills enrolled "
+            "14+ days ago with zero fetches: prune."
+        )
+        lines.append("")
+
+    if sugg_rows:
+        lines += [
+            "### Catalog skills repeatedly suggested but not enrolled",
+            "The discovery layer keeps surfacing these because of recurring relevance. The next `get_skill()` call enrolls them.",
+            "",
+        ]
+        for r in sugg_rows:
+            name = names.get(r.skill_id, "(unknown)")
+            lines.append(f"- `{r.skill_id}` ({name}) — suggested {r.times_suggested}x")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 async def _build_channel_snapshot(bot_id: str, db: AsyncSession) -> str:
     """Build a markdown snapshot of the bot's channels with last activity.
 
@@ -629,6 +747,13 @@ async def create_hygiene_task(
                 prompt = f"{prompt}\n\n{prev_review}"
         except Exception:
             logger.warning("Failed to build previous review snapshot for %s %s", job_type, bot_id, exc_info=True)
+
+        try:
+            audit = await _build_discovery_audit_snapshot(bot_id, db)
+            if audit:
+                prompt = f"{prompt}\n\n{audit}"
+        except Exception:
+            logger.warning("Failed to build discovery audit snapshot for %s %s", job_type, bot_id, exc_info=True)
 
     # Build execution_config with model overrides if set
     exec_cfg: dict | None = None

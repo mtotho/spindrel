@@ -65,6 +65,7 @@ class ToolResultEnvelope:
     byte_size: int = 0
     display_label: str | None = None
     refreshable: bool = False
+    refresh_interval_seconds: int | None = None
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -86,6 +87,8 @@ class ToolResultEnvelope:
             d["display_label"] = self.display_label
         if self.refreshable:
             d["refreshable"] = True
+        if self.refresh_interval_seconds:
+            d["refresh_interval_seconds"] = self.refresh_interval_seconds
         return d
 
 

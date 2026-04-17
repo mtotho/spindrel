@@ -29,7 +29,12 @@ from app.agent.tool_dispatch import (
     _build_default_envelope,
     _build_envelope_from_optin,
 )
-from app.services.widget_templates import apply_widget_template, get_state_poll_config, apply_state_poll
+from app.services.widget_templates import (
+    apply_widget_template,
+    get_state_poll_config,
+    apply_state_poll,
+    substitute_vars,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -222,9 +227,11 @@ def _build_result_envelope(tool_name: str, raw_result: str) -> ToolResultEnvelop
     return _build_default_envelope(raw_result)
 
 
-# ── State poll cache — deduplicates concurrent GetLiveContext calls ──
+# ── State poll cache — deduplicates concurrent poll calls ──
+# Keyed by (resolved_tool_name, json_args) so widgets that re-poll the same
+# tool with different args (e.g. per-location weather) don't clobber each other.
 
-_poll_cache: dict[str, tuple[float, str]] = {}  # tool_name → (timestamp, raw_result)
+_poll_cache: dict[tuple[str, str], tuple[float, str]] = {}
 _POLL_CACHE_TTL = 30.0  # seconds
 
 
@@ -237,17 +244,19 @@ def _evict_stale_cache() -> None:
 
 
 def invalidate_poll_cache_for(poll_cfg: dict) -> None:
-    """Drop the cached poll result for a given state_poll config.
+    """Drop cached poll results for a given state_poll config.
 
     Called after any tool mutation that may have changed the polled state
     (widget-action dispatch or bot tool_dispatch) so the next refresh hits
-    the real service instead of serving a pre-mutation cache hit.
+    the real service instead of serving a pre-mutation cache hit. Invalidates
+    all arg variants since we don't know which widget triggered the mutation.
     """
     poll_tool = poll_cfg.get("tool")
     if not poll_tool:
         return
     resolved = _resolve_tool_name(poll_tool)
-    _poll_cache.pop(resolved, None)
+    for key in [k for k in _poll_cache if k[0] == resolved]:
+        _poll_cache.pop(key, None)
 
 
 async def _do_state_poll(
@@ -264,12 +273,20 @@ async def _do_state_poll(
 
     resolved_poll_tool = _resolve_tool_name(poll_tool)
 
+    # Substitute widget_meta ({{display_label}}, {{tool_name}}) into args so each
+    # pinned widget can re-poll with its own identifying value. Static configs
+    # pass through unchanged.
+    raw_args = poll_cfg.get("args", {}) or {}
+    widget_meta = {"display_label": display_label, "tool_name": tool_name}
+    substituted_args = substitute_vars(raw_args, widget_meta)
+    poll_args = json.dumps(substituted_args, sort_keys=True)
+    cache_key = (resolved_poll_tool, poll_args)
+
     now = time.monotonic()
-    cached = _poll_cache.get(resolved_poll_tool)
+    cached = _poll_cache.get(cache_key)
     if cached and (now - cached[0]) < _POLL_CACHE_TTL:
         raw_result: str | None = cached[1]
     else:
-        poll_args = json.dumps(poll_cfg.get("args", {}))
         raw_result = None
         try:
             if is_local_tool(resolved_poll_tool):
@@ -295,9 +312,8 @@ async def _do_state_poll(
         if raw_result is None:
             return None
 
-        _poll_cache[resolved_poll_tool] = (now, raw_result)
+        _poll_cache[cache_key] = (now, raw_result)
 
-    widget_meta = {"display_label": display_label, "tool_name": tool_name}
     return apply_state_poll(tool_name, raw_result, widget_meta)
 
 

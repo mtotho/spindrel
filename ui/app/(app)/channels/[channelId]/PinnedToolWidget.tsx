@@ -129,6 +129,16 @@ export function PinnedToolWidget({
     refreshState();
   }, [widget.id, refreshState]);
 
+  // Automatic interval refresh — driven by envelope.refresh_interval_seconds.
+  // The template engine sets this from state_poll.refresh_interval_seconds in
+  // the integration's widget YAML (e.g. OpenWeather uses 3600 for hourly).
+  const intervalSec = currentEnvelope?.refresh_interval_seconds;
+  useEffect(() => {
+    if (!intervalSec || intervalSec <= 0) return;
+    const handle = setInterval(refreshState, intervalSec * 1000);
+    return () => clearInterval(handle);
+  }, [intervalSec, refreshState]);
+
   // React to external envelope updates (chat broadcasts, other pinned widgets).
   // Two cases:
   //   1. Another pinned widget for the SAME entity just polled — its body JSON

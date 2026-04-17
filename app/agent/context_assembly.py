@@ -1427,11 +1427,16 @@ async def assemble_context(
                 "auto_injected": _auto_injected,
                 "ranking_scores": [
                     {"skill_id": r["skill_id"], "similarity": _safe_sim(r["similarity"])}
-                    for r in _ranking[:5]
+                    for r in _ranking
                 ] if _ranking else [],
                 "skills_in_history": sorted(_history_fetched_skills) if _history_fetched_skills else [],
                 "skipped_in_history": _skipped_in_history if _skipped_in_history else [],
                 "skipped_budget": _skipped_budget if _skipped_budget else [],
+                # Thresholds frozen with the trace so the hygiene job can
+                # reproduce "ranked relevant" classification without re-reading
+                # config (which may drift over the audit window).
+                "relevance_threshold": settings.SKILL_ENROLLED_RELEVANCE_THRESHOLD,
+                "auto_inject_threshold": settings.SKILL_ENROLLED_AUTO_INJECT_THRESHOLD,
             }
             yield {
                 "type": "skill_index",

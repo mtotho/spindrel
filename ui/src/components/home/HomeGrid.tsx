@@ -74,19 +74,44 @@ export function HomeGrid() {
     return () => obs.disconnect();
   }, []);
 
-  // Flat list of tiles the user can navigate with the keyboard. During search
-  // the NewChannelTile is hidden so Enter jumps to the top scored result
-  // instead of drifting to the CTA.
-  const flatTiles = useMemo(() => {
-    const flat: ({ kind: "new" } | { kind: "item"; scored: import("../palette/types").ScoredItem; category: string })[] = [];
+  // Each section is its own CSS grid, so keyboard nav has to respect section
+  // boundaries — Down from a short 1-tile section must land on row 0 of the
+  // next section, not N columns later in flat index space.
+  type FlatTile =
+    | { kind: "new" }
+    | { kind: "item"; scored: import("../palette/types").ScoredItem };
+  type Section = { category: string; tiles: FlatTile[] };
+
+  const sections = useMemo<Section[]>(() => {
     const searching = query.trim().length > 0;
-    const hasChannelsGroup = groups.some((g) => g.category === "Channels");
-    if (!searching && hasChannelsGroup) flat.push({ kind: "new" });
+    const out: Section[] = [];
     for (const g of groups) {
-      for (const s of g.items) flat.push({ kind: "item", scored: s, category: g.category });
+      const tiles: FlatTile[] = [];
+      if (g.category === "Channels" && !searching) tiles.push({ kind: "new" });
+      for (const s of g.items) tiles.push({ kind: "item", scored: s });
+      if (tiles.length > 0) out.push({ category: g.category, tiles });
     }
-    return flat;
+    return out;
   }, [groups, query]);
+
+  const flatTiles = useMemo(
+    () => sections.flatMap((s) => s.tiles),
+    [sections],
+  );
+
+  // Flat index → (section, position-in-section). Also compute offsets so we
+  // can translate back when moving between sections.
+  const { positions, sectionOffsets } = useMemo(() => {
+    const pos: { sectionIdx: number; posInSection: number }[] = [];
+    const offsets: number[] = [];
+    let offset = 0;
+    sections.forEach((s, si) => {
+      offsets.push(offset);
+      s.tiles.forEach((_, i) => pos.push({ sectionIdx: si, posInSection: i }));
+      offset += s.tiles.length;
+    });
+    return { positions: pos, sectionOffsets: offsets };
+  }, [sections]);
 
   // Refs for each rendered tile, keyed by flat index.
   const tileRefs = useRef<(HTMLAnchorElement | null)[]>([]);
@@ -113,20 +138,57 @@ export function HomeGrid() {
     tileRefs.current[selectedIndex]?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
+  function moveVertical(flatIdx: number, dir: 1 | -1): number {
+    if (flatIdx < 0) return 0;
+    const p = positions[flatIdx];
+    if (!p) return flatIdx;
+    const section = sections[p.sectionIdx];
+    const col = p.posInSection % columns;
+    const row = Math.floor(p.posInSection / columns);
+    const nextRowStart = (row + dir) * columns;
+
+    // Move within the current section if the target row exists.
+    if (nextRowStart >= 0 && nextRowStart < section.tiles.length) {
+      const rowLen = Math.min(columns, section.tiles.length - nextRowStart);
+      const destCol = Math.min(col, rowLen - 1);
+      return sectionOffsets[p.sectionIdx] + nextRowStart + destCol;
+    }
+
+    // Cross into neighbor section, preserving column when possible.
+    const neighborIdx = p.sectionIdx + dir;
+    if (neighborIdx < 0 || neighborIdx >= sections.length) return flatIdx;
+    const ns = sections[neighborIdx];
+    if (dir === 1) {
+      const firstRowLen = Math.min(columns, ns.tiles.length);
+      return sectionOffsets[neighborIdx] + Math.min(col, firstRowLen - 1);
+    }
+    // Up: land on the LAST row of the previous section, same column clamped.
+    const lastRowStart = Math.floor((ns.tiles.length - 1) / columns) * columns;
+    const lastRowLen = ns.tiles.length - lastRowStart;
+    const destCol = Math.min(col, lastRowLen - 1);
+    return sectionOffsets[neighborIdx] + lastRowStart + destCol;
+  }
+
+  function moveHorizontal(flatIdx: number, dir: 1 | -1): number {
+    if (flatIdx < 0) return 0;
+    const next = flatIdx + dir;
+    return Math.max(0, Math.min(flatTiles.length - 1, next));
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (flatTiles.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelectedIndex((i) => Math.min(flatTiles.length - 1, (i < 0 ? 0 : i + columns)));
+      setSelectedIndex((i) => moveVertical(i, 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSelectedIndex((i) => (i <= 0 ? 0 : Math.max(0, i - columns)));
+      setSelectedIndex((i) => moveVertical(i, -1));
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
-      setSelectedIndex((i) => Math.min(flatTiles.length - 1, (i < 0 ? 0 : i + 1)));
+      setSelectedIndex((i) => moveHorizontal(i, 1));
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      setSelectedIndex((i) => Math.max(0, (i < 0 ? 0 : i - 1)));
+      setSelectedIndex((i) => moveHorizontal(i, -1));
     } else if (e.key === "Enter") {
       // Empty query + no keyboard selection = nothing to submit.
       // Non-empty query with no selection yet = jump to the top result.

@@ -604,6 +604,8 @@ export interface ToolResultEnvelope {
   display_label?: string | null;
   /** When true, this widget supports state refresh on load via state_poll */
   refreshable?: boolean;
+  /** If set, pinned widgets should auto-refresh on this interval (seconds) */
+  refresh_interval_seconds?: number | null;
 }
 
 /** Action definition for interactive widget components (toggle, button, select, etc.) */

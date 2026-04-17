@@ -1262,3 +1262,140 @@ class TestCrossJobStagger:
 
         result = _cross_job_stagger(bot, "skill_review", now)
         assert result == now  # unchanged
+
+
+# ---------------------------------------------------------------------------
+# Discovery audit snapshot
+# ---------------------------------------------------------------------------
+
+class TestDiscoveryAuditSnapshot:
+    """Tests for `_build_discovery_audit_snapshot`.
+
+    The snapshot's two SQL passes use PostgreSQL JSONB functions
+    (`jsonb_to_recordset`, `jsonb_array_elements_text`) that don't run on
+    SQLite. So we mock `db.execute` with side_effect to feed canned rows for
+    each call (rank pass, suggestion pass, name lookup) and assert on the
+    rendered markdown shape.
+    """
+
+    @staticmethod
+    def _row(**kwargs):
+        m = MagicMock()
+        for k, v in kwargs.items():
+            setattr(m, k, v)
+        return m
+
+    @staticmethod
+    def _result(rows):
+        r = MagicMock()
+        r.all.return_value = rows
+        return r
+
+    def _make_db(self, rank_rows, sugg_rows, name_rows):
+        db = MagicMock()
+        # 3 calls: pass1 (rank), pass2 (suggestions), name lookup.
+        # When both rank+suggestion are empty the function returns early
+        # and never makes the name lookup call — the test for that case
+        # passes only 2 results.
+        results = [self._result(rank_rows), self._result(sugg_rows)]
+        if rank_rows or sugg_rows:
+            results.append(self._result(name_rows))
+        db.execute = AsyncMock(side_effect=results)
+        return db
+
+    @pytest.mark.asyncio
+    async def test_empty_returns_blank(self):
+        from app.services.memory_hygiene import _build_discovery_audit_snapshot
+        db = self._make_db(rank_rows=[], sugg_rows=[], name_rows=[])
+        out = await _build_discovery_audit_snapshot("test-bot", db)
+        assert out == ""
+
+    @pytest.mark.asyncio
+    async def test_ranked_never_fetched_appears(self):
+        from app.services.memory_hygiene import _build_discovery_audit_snapshot
+        rank_rows = [
+            self._row(skill_id="arch_linux", times_ranked=12,
+                      times_fetched_after_rank=1, avg_similarity=0.48),
+        ]
+        name_rows = [self._row(id="arch_linux", name="Arch Linux setup")]
+        db = self._make_db(rank_rows=rank_rows, sugg_rows=[], name_rows=name_rows)
+        out = await _build_discovery_audit_snapshot("test-bot", db)
+
+        assert "## Discovery Audit" in out
+        assert "ranked relevant but rarely fetched" in out
+        assert "`arch_linux` (Arch Linux setup)" in out
+        assert "ranked 12x" in out
+        assert "fetched 1x" in out
+        assert "gap 11" in out
+        assert "0.48" in out
+        # Suggestions section should NOT appear
+        assert "repeatedly suggested" not in out
+
+    @pytest.mark.asyncio
+    async def test_fetched_equals_ranked_excluded_from_gap(self):
+        """When times_fetched_after_rank == times_ranked, no gap → row dropped."""
+        from app.services.memory_hygiene import _build_discovery_audit_snapshot
+        rank_rows = [
+            self._row(skill_id="sourdough", times_ranked=5,
+                      times_fetched_after_rank=5, avg_similarity=0.62),
+        ]
+        # SQL HAVING already filters times_ranked < 3; we test the post-filter
+        # gap_rows comprehension that drops zero-gap rows entirely.
+        db = self._make_db(rank_rows=rank_rows, sugg_rows=[], name_rows=[])
+        out = await _build_discovery_audit_snapshot("test-bot", db)
+        assert out == ""
+
+    @pytest.mark.asyncio
+    async def test_suggestion_aggregation(self):
+        from app.services.memory_hygiene import _build_discovery_audit_snapshot
+        sugg_rows = [
+            self._row(skill_id="gardening_basics", times_suggested=8),
+            self._row(skill_id="home_lab_dns", times_suggested=6),
+        ]
+        name_rows = [
+            self._row(id="gardening_basics", name="Gardening basics"),
+            self._row(id="home_lab_dns", name="Home lab DNS"),
+        ]
+        db = self._make_db(rank_rows=[], sugg_rows=sugg_rows, name_rows=name_rows)
+        out = await _build_discovery_audit_snapshot("test-bot", db)
+
+        assert "Catalog skills repeatedly suggested but not enrolled" in out
+        assert "`gardening_basics` (Gardening basics) — suggested 8x" in out
+        assert "`home_lab_dns` (Home lab DNS) — suggested 6x" in out
+        # No gap section
+        assert "ranked relevant but rarely fetched" not in out
+
+    @pytest.mark.asyncio
+    async def test_combined_sections_render(self):
+        from app.services.memory_hygiene import _build_discovery_audit_snapshot
+        rank_rows = [
+            self._row(skill_id="weak_skill", times_ranked=10,
+                      times_fetched_after_rank=2, avg_similarity=0.44),
+        ]
+        sugg_rows = [
+            self._row(skill_id="useful_catalog", times_suggested=7),
+        ]
+        name_rows = [
+            self._row(id="weak_skill", name="Weak skill"),
+            self._row(id="useful_catalog", name="Useful catalog"),
+        ]
+        db = self._make_db(rank_rows=rank_rows, sugg_rows=sugg_rows, name_rows=name_rows)
+        out = await _build_discovery_audit_snapshot("test-bot", db)
+
+        assert "ranked relevant but rarely fetched" in out
+        assert "Catalog skills repeatedly suggested" in out
+        assert "weak_skill" in out
+        assert "useful_catalog" in out
+
+    @pytest.mark.asyncio
+    async def test_unknown_skill_name_falls_back(self):
+        from app.services.memory_hygiene import _build_discovery_audit_snapshot
+        rank_rows = [
+            self._row(skill_id="ghost_skill", times_ranked=8,
+                      times_fetched_after_rank=0, avg_similarity=0.50),
+        ]
+        # Skill row was deleted between trace recording and audit run
+        db = self._make_db(rank_rows=rank_rows, sugg_rows=[], name_rows=[])
+        out = await _build_discovery_audit_snapshot("test-bot", db)
+        assert "`ghost_skill` ((unknown))" in out
+        assert "gap 8" in out
