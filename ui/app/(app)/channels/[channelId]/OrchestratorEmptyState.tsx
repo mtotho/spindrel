@@ -304,6 +304,8 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
   const [paramModalPipeline, setParamModalPipeline] = useState<TaskItem | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => loadCollapsed(channelId));
+  const [launchError, setLaunchError] = useState<string | null>(null);
+  const [launchingId, setLaunchingId] = useState<string | null>(null);
 
   useEffect(() => {
     setCollapsed(loadCollapsed(channelId));
@@ -365,15 +367,43 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
       setParamModalPipeline(pipeline);
       return;
     }
-    runNowMut.mutate({ taskId: pipeline.id });
+    setLaunchError(null);
+    setLaunchingId(pipeline.id);
+    runNowMut.mutate(
+      { taskId: pipeline.id },
+      {
+        onSuccess: () => setLaunchingId(null),
+        onError: (err) => {
+          setLaunchingId(null);
+          setLaunchError(
+            err instanceof Error
+              ? `${pipeline.title || pipeline.id}: ${err.message}`
+              : `Failed to launch ${pipeline.title || pipeline.id}`,
+          );
+        },
+      },
+    );
   };
 
   const handleModalLaunch = (params: Record<string, any>) => {
     if (!paramModalPipeline) return;
+    setLaunchError(null);
+    setLaunchingId(paramModalPipeline.id);
     runNowMut.mutate(
       { taskId: paramModalPipeline.id, params },
       {
-        onSuccess: () => setParamModalPipeline(null),
+        onSuccess: () => {
+          setLaunchingId(null);
+          setParamModalPipeline(null);
+        },
+        onError: (err) => {
+          setLaunchingId(null);
+          setLaunchError(
+            err instanceof Error
+              ? `${paramModalPipeline.title || paramModalPipeline.id}: ${err.message}`
+              : `Failed to launch ${paramModalPipeline.title || paramModalPipeline.id}`,
+          );
+        },
       },
     );
   };
@@ -408,6 +438,20 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
           <ChevronUp size={14} className="text-text-dim" />
         )}
       </button>
+
+      {/* Launch error banner */}
+      {launchError && !collapsed && (
+        <div className="mx-4 mt-2 px-3 py-2 rounded-md bg-red-500/10 border border-red-500/30
+                        flex flex-row items-center justify-between gap-2 text-[12px] text-red-400">
+          <span className="flex-1 min-w-0 truncate">{launchError}</span>
+          <button
+            onClick={() => setLaunchError(null)}
+            className="shrink-0 text-red-400/70 hover:text-red-400"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
 
       {/* Body — tiles + library */}
       {!collapsed && (
@@ -516,20 +560,31 @@ export function OrchestratorLaunchpad({ channelId }: { channelId: string }) {
                                 bg-surface overflow-hidden">
                   {libraryItems.map((pipeline) => {
                     const Icon = iconFor(pipeline.id);
+                    const pipelineRunning = launchingId === pipeline.id;
                     return (
                       <button
                         key={pipeline.id}
-                        onClick={() => handleLaunch(pipeline)}
+                        onClick={() => !pipelineRunning && handleLaunch(pipeline)}
+                        disabled={pipelineRunning}
                         className="flex flex-row items-center justify-between gap-3 px-3 py-2
-                                   hover:bg-surface-raised text-left"
+                                   hover:bg-surface-raised text-left disabled:opacity-60"
                       >
                         <div className="flex flex-row items-center gap-2.5 min-w-0">
                           <Icon size={13} className="text-text-dim shrink-0" />
                           <span className="text-xs font-medium text-text truncate">
                             {pipeline.title || pipeline.id}
                           </span>
+                          {getDescription(pipeline) && (
+                            <span className="text-[10px] text-text-dim truncate opacity-70">
+                              · {getDescription(pipeline)}
+                            </span>
+                          )}
                         </div>
-                        <ArrowRight size={11} className="text-text-dim shrink-0 opacity-60" />
+                        {pipelineRunning ? (
+                          <Loader2 size={12} className="text-accent animate-spin shrink-0" />
+                        ) : (
+                          <ArrowRight size={11} className="text-text-dim shrink-0 opacity-60" />
+                        )}
                       </button>
                     );
                   })}

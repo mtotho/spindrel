@@ -369,6 +369,10 @@ async def admin_list_tasks(
             "trigger_config": t.trigger_config,
             "steps": t.steps,
             "step_states": t.step_states,
+            # Surface execution_config so the admin list + orchestrator
+            # launchpad can read featured/description/params_schema without
+            # an extra per-row fetch. Small JSONB; safe to include.
+            "execution_config": t.execution_config,
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
             "run_at": t.run_at.isoformat() if t.run_at else None,
