@@ -69,6 +69,11 @@ export interface ChatMessageAreaProps {
   handleLoadMore: () => void;
   isProcessing?: boolean;
   t: ReturnType<typeof useThemeTokens>;
+  /** Custom empty-state content shown when there are no messages. Overrides the
+      default "Send a message to start the conversation" span. Channel-agnostic:
+      any channel can inject a purpose-specific empty-state (e.g. orchestrator's
+      launchpad, DM channels' suggested prompts, etc). */
+  emptyStateComponent?: React.ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +112,7 @@ export function ChatMessageArea({
   handleLoadMore,
   isProcessing,
   t,
+  emptyStateComponent,
 }: ChatMessageAreaProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -224,9 +230,11 @@ export function ChatMessageArea({
             within this wrapper; the reverse only applies to the outer
             container's children. */}
         {invertedData.length === 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: isLoading ? "flex-end" : "center", alignItems: isLoading ? "stretch" : "center", padding: isLoading ? "16px 0" : "80px 20px", flex: 1 }}>
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: isLoading ? "flex-end" : "center", alignItems: isLoading ? "stretch" : "center", padding: isLoading ? "16px 0" : emptyStateComponent ? "20px 0" : "80px 20px", flex: 1 }}>
             {isLoading ? (
               <MessageSkeletons />
+            ) : emptyStateComponent ? (
+              emptyStateComponent
             ) : (
               <span style={{ color: t.textDim, fontSize: 14 }}>
                 Send a message to start the conversation

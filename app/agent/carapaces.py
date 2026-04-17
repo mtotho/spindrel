@@ -173,20 +173,24 @@ def _sha256(content: str) -> str:
 
 
 def _integration_dirs() -> list[Path]:
-    """Return all integration/package directories."""
+    """Return all integration/package directories.
+
+    Includes in-repo ``integrations/`` + ``packages/`` plus every directory
+    returned by ``effective_integration_dirs()`` (SPINDREL_HOME, legacy
+    INTEGRATION_DIRS, runtime-added dirs). Without the centralized helper
+    we'd miss carapaces living under SPINDREL_HOME, which is how external
+    user integrations (e.g. spindrel-home/bennieloggins/carapaces/*.yaml)
+    are delivered — see the 2026-04-17 bennieloggins fix.
+    """
     dirs = [Path("integrations"), Path("packages")]
     try:
-        from app.config import settings
-        extra = settings.INTEGRATION_DIRS
+        from app.services.paths import effective_integration_dirs
+        for p in effective_integration_dirs():
+            path = Path(p)
+            if path.is_dir() and path not in dirs:
+                dirs.append(path)
     except Exception:
-        extra = ""
-    if extra:
-        for p in extra.split(":"):
-            p = p.strip()
-            if p:
-                path = Path(p).expanduser().resolve()
-                if path.is_dir():
-                    dirs.append(path)
+        logger.warning("Could not resolve effective_integration_dirs", exc_info=True)
     return dirs
 
 

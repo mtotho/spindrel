@@ -161,6 +161,17 @@ async def set_integration_status(integration_id: str, body: StatusBody, _auth=De
                 break
         from app.agent.tools import index_local_tools
         await index_local_tools()
+        # Re-sync file-managed assets (skills, prompts, carapaces, workflows).
+        # At server startup, collect_carapace_files()/collect_skill_files()
+        # skip integrations whose is_active() returns False, so an
+        # integration that was `available` at boot never gets its carapace
+        # local_tools (or skills) seeded into the DB. Without this,
+        # resolve_carapaces() returns an empty local_tools list and the
+        # bot's runtime tool set stays limited to whatever was manually
+        # pinned — the integration's capability is effectively inert even
+        # though tools loaded into the registry.
+        from app.services import file_sync
+        await file_sync.sync_all_files()
         logger.info("Integration %s → enabled: loaded %d tool(s)", integration_id, len(loaded))
 
     # MCP servers honor the new active state.

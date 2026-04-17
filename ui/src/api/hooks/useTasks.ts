@@ -238,12 +238,27 @@ export function useDeleteTask() {
   });
 }
 
+export interface RunTaskArgs {
+  taskId: string;
+  /** Optional runtime params merged into the child's execution_config.params
+      (for system pipelines declaring a params_schema). */
+  params?: Record<string, any>;
+}
+
 export function useRunTaskNow() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (taskId: string) =>
-      apiFetch<TaskDetail>(`/api/v1/admin/tasks/${taskId}/run`, { method: "POST" }),
-    onSuccess: (_data, taskId) => {
+    mutationFn: (arg: string | RunTaskArgs) => {
+      const { taskId, params } = typeof arg === "string" ? { taskId: arg, params: undefined } : arg;
+      return apiFetch<TaskDetail>(`/api/v1/admin/tasks/${taskId}/run`, {
+        method: "POST",
+        ...(params && Object.keys(params).length > 0
+          ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ params }) }
+          : {}),
+      });
+    },
+    onSuccess: (_data, arg) => {
+      const taskId = typeof arg === "string" ? arg : arg.taskId;
       qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
       qc.invalidateQueries({ queryKey: ["admin-task", taskId] });
       qc.invalidateQueries({ queryKey: ["admin-task-children", taskId] });

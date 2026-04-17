@@ -87,20 +87,22 @@ async def _embed_skill_from_content(skill_id: str, content: str, content_hash: s
 
 
 def _integration_dirs() -> list[Path]:
-    """Return all integration/package directories (in-repo + INTEGRATION_DIRS)."""
+    """Return all integration/package directories.
+
+    Includes in-repo ``integrations/`` + ``packages/`` plus every directory
+    returned by ``effective_integration_dirs()`` (SPINDREL_HOME, legacy
+    INTEGRATION_DIRS, runtime-added dirs). Without SPINDREL_HOME we'd miss
+    skills/carapaces living under external user integrations.
+    """
     dirs = [Path("integrations"), Path("packages")]
     try:
-        from app.config import settings
-        extra = settings.INTEGRATION_DIRS
+        from app.services.paths import effective_integration_dirs
+        for p in effective_integration_dirs():
+            path = Path(p)
+            if path.is_dir() and path not in dirs:
+                dirs.append(path)
     except Exception:
-        extra = ""
-    if extra:
-        for p in extra.split(":"):
-            p = p.strip()
-            if p:
-                path = Path(p).expanduser().resolve()
-                if path.is_dir():
-                    dirs.append(path)
+        logger.warning("Could not resolve effective_integration_dirs", exc_info=True)
     return dirs
 
 

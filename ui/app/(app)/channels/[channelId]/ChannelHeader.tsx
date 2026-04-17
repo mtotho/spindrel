@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Settings, Menu, ArrowLeft, Hash, FolderOpen, Code, PanelLeft, Columns2, Users, Wrench } from "lucide-react";
+import { Settings, Menu, ArrowLeft, Hash, FolderOpen, Code, PanelLeft, Columns2, Users, Wrench, Cog, PanelRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
 import { useUIStore } from "@/src/stores/ui";
@@ -34,6 +34,14 @@ export interface ChannelHeaderProps {
   contextBudget?: { utilization: number; consumed: number; total: number } | null;
   /** Called when user clicks the context budget indicator */
   onContextBudgetClick?: () => void;
+  /** Orchestrator / system-control channel — renders SYSTEM pill next to title
+      and a subtitle clarifying its role. Replaces the legacy yellow admin banner. */
+  isSystemChannel?: boolean;
+  /** Findings panel state (awaiting-user-input pipelines) — present on system
+      channels. When defined, renders a PanelRight toggle with a badge count. */
+  findingsPanelOpen?: boolean;
+  toggleFindingsPanel?: () => void;
+  findingsCount?: number;
 }
 
 export function ChannelHeader({
@@ -60,6 +68,10 @@ export function ChannelHeader({
   onToggleSplit,
   contextBudget,
   onContextBudgetClick,
+  isSystemChannel,
+  findingsPanelOpen,
+  toggleFindingsPanel,
+  findingsCount = 0,
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
@@ -100,12 +112,34 @@ export function ChannelHeader({
             <Menu size={20} color={t.textMuted} />
           </button>
         ) : null}
-        <Hash size={18} color={t.textDim} style={{ marginLeft: 2, flexShrink: 0 }} />
+        {isSystemChannel ? (
+          <Cog size={18} className="text-accent ml-0.5 shrink-0" />
+        ) : (
+          <Hash size={18} color={t.textDim} style={{ marginLeft: 2, flexShrink: 0 }} />
+        )}
         <div style={{ flex: 1, minWidth: 0, padding: "8px 0" }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {displayName}
+          <div className="flex flex-row items-center gap-2 min-w-0">
+            <span style={{ fontSize: 16, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {displayName}
+            </span>
+            {isSystemChannel && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+                           bg-accent/10 text-accent text-[10px] uppercase tracking-wider
+                           border border-accent/30 shrink-0"
+                title="System configuration channel — pipelines here can modify bots, skills, and tasks."
+              >
+                <Cog size={10} />
+                SYSTEM
+              </span>
+            )}
           </div>
-          {bot && (
+          {isSystemChannel && (
+            <div className="text-[11px] text-text-dim mt-0.5 truncate">
+              System configuration channel
+            </div>
+          )}
+          {!isSystemChannel && bot && (
             <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2, minWidth: 0 }}>
               <a
                 className="header-bot-link"
@@ -198,6 +232,30 @@ export function ChannelHeader({
               <Code size={16} color={t.textDim} />
             </button>
           </>
+        )}
+        {toggleFindingsPanel && (
+          <button
+            className="header-icon-btn relative"
+            style={{
+              width: isMobile ? 36 : 36,
+              height: isMobile ? 36 : 36,
+              backgroundColor: findingsPanelOpen ? t.surfaceOverlay : "transparent",
+            }}
+            onClick={toggleFindingsPanel}
+            title={findingsPanelOpen ? "Hide findings" : `Findings${findingsCount ? ` (${findingsCount} pending)` : ""}`}
+          >
+            <PanelRight size={16} color={findingsPanelOpen ? t.accent : t.textDim} />
+            {findingsCount > 0 && (
+              <span
+                className="absolute top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full
+                           bg-accent text-[9px] font-bold flex items-center justify-center
+                           leading-none"
+                style={{ color: t.surface }}
+              >
+                {findingsCount > 9 ? "9+" : findingsCount}
+              </span>
+            )}
+          </button>
         )}
         {toggleParticipantsPanel && !isMobile && (
           <button

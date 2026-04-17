@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -84,6 +85,46 @@ class TestSeedPipelinesFromYaml:
             assert row.task_type == "pipeline"
             assert row.bot_id == "orchestrator"
             assert row.steps == [{"id": "s1", "type": "exec", "prompt": "echo hello"}]
+
+    @pytest.mark.asyncio
+    async def test_insert_sets_status_active_not_pending(self, patched_session, tmp_path):
+        """System pipelines are definitions — they must NEVER seed as status=pending,
+        which fetch_due_tasks would pick up and auto-run at boot."""
+        _write_yaml(tmp_path / "full_scan.yaml", _pipeline_yaml("full_scan", "Full Scan"))
+
+        await seed_pipelines_from_yaml(tmp_path)
+
+        async with patched_session() as db:
+            row = await db.get(Task, pipeline_uuid("full_scan"))
+            assert row is not None
+            assert row.status == "active", (
+                f"system pipeline must seed as status=active, got {row.status!r} — "
+                "a pending status would be picked up by fetch_due_tasks and "
+                "auto-executed in-place on boot"
+            )
+
+    @pytest.mark.asyncio
+    async def test_refresh_resets_stuck_pending_or_failed_status(self, patched_session, tmp_path):
+        """If a prior boot auto-ran a system pipeline in-place (leaving the
+        parent row at status=failed or status=done), the next seed refresh must
+        reset it back to 'active' so it behaves as a pure definition again."""
+        _write_yaml(tmp_path / "x.yaml", _pipeline_yaml("x", "X"))
+        await seed_pipelines_from_yaml(tmp_path)
+
+        # Simulate a previous boot's auto-run corrupting the parent row.
+        async with patched_session() as db:
+            row = await db.get(Task, pipeline_uuid("x"))
+            row.status = "failed"
+            row.run_at = datetime.now(timezone.utc)
+            row.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+
+        # Reseed — same YAML, no content change — should still reset status.
+        await seed_pipelines_from_yaml(tmp_path)
+
+        async with patched_session() as db:
+            row = await db.get(Task, pipeline_uuid("x"))
+            assert row.status == "active"
 
     @pytest.mark.asyncio
     async def test_reseed_is_idempotent_and_refreshes_content(self, patched_session, tmp_path):

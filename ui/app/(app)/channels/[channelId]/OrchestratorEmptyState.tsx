@@ -1,0 +1,415 @@
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Radar,
+  Compass,
+  Activity,
+  ArrowRight,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  X,
+  Cog,
+  Clock,
+} from "lucide-react";
+import { createPortal } from "react-dom";
+import { apiFetch } from "@/src/api/client";
+import { useRunTaskNow, useTaskChildren } from "@/src/api/hooks/useTasks";
+import { useBots } from "@/src/api/hooks/useBots";
+import { BotPicker } from "@/src/components/shared/BotPicker";
+import type { TasksResponse, TaskItem } from "@/src/components/shared/TaskConstants";
+import { cn } from "@/src/lib/cn";
+
+// ---------------------------------------------------------------------------
+// Icon selection — pipeline-id prefix match. Falls back to Radar.
+// ---------------------------------------------------------------------------
+
+const PIPELINE_ICON: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+  "orchestrator.full_scan": Radar,
+  "orchestrator.deep_dive_bot": Compass,
+  "orchestrator.analyze_discovery": Activity,
+};
+
+function iconFor(id: string) {
+  return PIPELINE_ICON[id] ?? Radar;
+}
+
+// ---------------------------------------------------------------------------
+// Param schema shape (matches app/data/system_pipelines/*.yaml execution_config.params_schema)
+// ---------------------------------------------------------------------------
+
+interface ParamDef {
+  name: string;
+  required?: boolean;
+  description?: string;
+}
+
+function getParamsSchema(task: TaskItem): ParamDef[] | null {
+  const cfg = (task as any).execution_config as Record<string, any> | undefined;
+  const schema = cfg?.params_schema;
+  if (Array.isArray(schema) && schema.length > 0) return schema as ParamDef[];
+  return null;
+}
+
+function getFeatured(task: TaskItem): boolean {
+  return !!(task as any).execution_config?.featured;
+}
+
+function getDescription(task: TaskItem): string | null {
+  const d = (task as any).execution_config?.description;
+  return typeof d === "string" && d.trim() ? d.trim() : null;
+}
+
+// ---------------------------------------------------------------------------
+// Relative-time chip — "Last run 3h ago"
+// ---------------------------------------------------------------------------
+
+function relTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (!then) return "";
+  const diffMs = Date.now() - then;
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
+}
+
+// ---------------------------------------------------------------------------
+// Param-picker modal — shown when pipeline declares params_schema
+// ---------------------------------------------------------------------------
+
+function TaskRunModal({
+  pipeline,
+  onClose,
+  onLaunch,
+  running,
+}: {
+  pipeline: TaskItem;
+  onClose: () => void;
+  onLaunch: (params: Record<string, any>) => void;
+  running: boolean;
+}) {
+  const schema = getParamsSchema(pipeline) ?? [];
+  const [values, setValues] = useState<Record<string, any>>({});
+  const { data: bots = [] } = useBots();
+
+  const canLaunch = useMemo(() => {
+    return schema.every((p) => {
+      if (!p.required) return true;
+      const v = values[p.name];
+      return v !== undefined && v !== null && v !== "";
+    });
+  }, [schema, values]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <>
+      <div
+        onClick={running ? undefined : onClose}
+        className="fixed inset-0 bg-black/45 z-[10020]"
+      />
+      <div
+        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
+                   w-[440px] max-w-[92vw] z-[10021]
+                   bg-surface-raised border border-surface-border rounded-xl
+                   shadow-[0_16px_48px_rgba(0,0,0,0.3)] p-5"
+      >
+        <div className="flex flex-row items-center justify-between mb-3">
+          <div className="flex flex-row items-center gap-2 min-w-0">
+            <Cog size={14} className="text-accent shrink-0" />
+            <span className="text-sm font-semibold truncate">{pipeline.title}</span>
+          </div>
+          {!running && (
+            <button onClick={onClose} className="p-1 text-text-dim hover:text-text">
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
+        {getDescription(pipeline) && (
+          <p className="text-xs text-text-dim leading-relaxed mb-4">
+            {getDescription(pipeline)}
+          </p>
+        )}
+
+        <div className="flex flex-col gap-3 mb-5">
+          {schema.map((param) => (
+            <div key={param.name} className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-text-dim uppercase tracking-wider">
+                {param.name}
+                {param.required && <span className="text-accent ml-1">*</span>}
+              </label>
+              {param.name === "bot_id" ? (
+                <BotPicker
+                  value={values[param.name] ?? ""}
+                  onChange={(v) => setValues({ ...values, [param.name]: v })}
+                  bots={bots}
+                  placeholder="Select a bot..."
+                  disabled={running}
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={values[param.name] ?? ""}
+                  onChange={(e) => setValues({ ...values, [param.name]: e.target.value })}
+                  disabled={running}
+                  placeholder={param.description}
+                  className="px-2.5 py-1.5 text-sm bg-surface border border-surface-border
+                             rounded-md focus:outline-none focus:border-accent/50
+                             text-text placeholder:text-text-dim"
+                />
+              )}
+              {param.description && (
+                <span className="text-[10px] text-text-dim">{param.description}</span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-row justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={running}
+            className="px-3 py-1.5 text-xs rounded-md border border-surface-border
+                       text-text-dim hover:text-text disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onLaunch(values)}
+            disabled={!canLaunch || running}
+            className="px-3 py-1.5 text-xs rounded-md bg-accent text-white font-semibold
+                       hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed
+                       flex flex-row items-center gap-1.5"
+          >
+            {running ? <Loader2 size={12} className="animate-spin" /> : null}
+            {running ? "Launching..." : "Launch"}
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hero tile — one featured pipeline
+// ---------------------------------------------------------------------------
+
+function PipelineTile({
+  pipeline,
+  onLaunch,
+}: {
+  pipeline: TaskItem;
+  onLaunch: (pipeline: TaskItem) => void;
+}) {
+  // Poll children every 5s to detect in-flight runs.
+  const { data: children } = useTaskChildren(pipeline.id, 5_000);
+  const running = (children ?? []).some((c) => c.status === "running" || c.status === "pending");
+  const lastRun = (children ?? [])
+    .map((c) => c.created_at)
+    .filter(Boolean)
+    .sort()
+    .pop();
+
+  const Icon = iconFor(pipeline.id);
+  const description = getDescription(pipeline) ?? pipeline.prompt;
+
+  return (
+    <button
+      onClick={() => !running && onLaunch(pipeline)}
+      disabled={running}
+      className={cn(
+        "group relative flex flex-col gap-2 p-5 rounded-lg text-left",
+        "bg-surface-raised border border-surface-border",
+        "hover:border-accent/40 hover:-translate-y-0.5",
+        "transition-all duration-150 cursor-pointer",
+        "disabled:cursor-default disabled:hover:translate-y-0",
+        "min-h-[140px]",
+      )}
+    >
+      <div className="flex flex-row items-start justify-between">
+        <Icon size={20} className="text-accent shrink-0" />
+        {lastRun && (
+          <span
+            className="text-[10px] text-text-dim opacity-60 md:opacity-0 md:group-hover:opacity-100
+                       transition-opacity flex items-center gap-1"
+          >
+            <Clock size={9} />
+            Last run {relTime(lastRun)}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1.5 flex-1">
+        <h3 className="text-base font-semibold text-text leading-tight">
+          {pipeline.title || pipeline.id}
+        </h3>
+        <p className="text-sm text-text-dim leading-relaxed line-clamp-3">
+          {description}
+        </p>
+      </div>
+
+      <div className="flex flex-row justify-end items-center mt-1">
+        {running ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-accent font-medium">
+            <Loader2 size={12} className="animate-spin" />
+            Running
+          </span>
+        ) : (
+          <span
+            className="inline-flex items-center gap-1 text-xs text-accent font-medium
+                       opacity-60 md:opacity-40 group-hover:opacity-100 transition-opacity"
+          >
+            Run
+            <ArrowRight size={12} />
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export function OrchestratorEmptyState({ channelId: _channelId }: { channelId: string }) {
+  const runNowMut = useRunTaskNow();
+  const [paramModalPipeline, setParamModalPipeline] = useState<TaskItem | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+
+  // Fetch all task definitions. Client-side filter on source==="system".
+  // When a backend ?source= filter lands we can drop the client-side pass.
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-tasks-definitions", "system"],
+    queryFn: () =>
+      apiFetch<TasksResponse>("/api/v1/admin/tasks?limit=200&definitions_only=true"),
+    staleTime: 30_000,
+  });
+
+  const systemTasks = useMemo(() => {
+    const rows = [...(data?.tasks ?? []), ...(data?.schedules ?? [])];
+    return rows.filter((t) => t.source === "system");
+  }, [data]);
+
+  const featured = useMemo(
+    () => systemTasks.filter(getFeatured),
+    [systemTasks],
+  );
+  const libraryItems = useMemo(
+    () => systemTasks.filter((t) => !getFeatured(t)),
+    [systemTasks],
+  );
+
+  const handleLaunch = (pipeline: TaskItem) => {
+    const schema = getParamsSchema(pipeline);
+    if (schema && schema.length > 0) {
+      setParamModalPipeline(pipeline);
+      return;
+    }
+    runNowMut.mutate({ taskId: pipeline.id });
+  };
+
+  const handleModalLaunch = (params: Record<string, any>) => {
+    if (!paramModalPipeline) return;
+    runNowMut.mutate(
+      { taskId: paramModalPipeline.id, params },
+      {
+        onSuccess: () => setParamModalPipeline(null),
+      },
+    );
+  };
+
+  return (
+    <div className="w-full max-w-3xl mx-auto px-4 md:px-6 py-8 md:py-12 flex flex-col gap-8">
+      <header className="flex flex-col gap-1.5">
+        <h2 className="text-lg font-semibold text-text">
+          Run a system pipeline
+        </h2>
+        <p className="text-sm text-text-dim leading-relaxed">
+          Pipelines analyze your configuration and propose tuning patches. You
+          review and approve each change before anything is applied.
+        </p>
+      </header>
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {[0, 1].map((i) => (
+            <div
+              key={i}
+              className="min-h-[140px] p-5 rounded-lg bg-surface-raised border border-surface-border
+                         animate-pulse opacity-60"
+            />
+          ))}
+        </div>
+      ) : featured.length === 0 ? (
+        <div className="text-sm text-text-dim text-center py-8">
+          No system pipelines available.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {featured.map((pipeline) => (
+            <PipelineTile
+              key={pipeline.id}
+              pipeline={pipeline}
+              onLaunch={handleLaunch}
+            />
+          ))}
+        </div>
+      )}
+
+      {libraryItems.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={() => setLibraryOpen((v) => !v)}
+            className="flex flex-row items-center gap-1.5 text-xs text-text-dim
+                       hover:text-text self-start"
+          >
+            {libraryOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            More pipelines ({libraryItems.length})
+          </button>
+          {libraryOpen && (
+            <div className="flex flex-col gap-1 border border-surface-border rounded-md
+                            bg-surface-raised overflow-hidden">
+              {libraryItems.map((pipeline) => {
+                const Icon = iconFor(pipeline.id);
+                return (
+                  <button
+                    key={pipeline.id}
+                    onClick={() => handleLaunch(pipeline)}
+                    className="flex flex-row items-center justify-between gap-3 px-3 py-2
+                               hover:bg-surface text-left"
+                  >
+                    <div className="flex flex-row items-center gap-2.5 min-w-0">
+                      <Icon size={14} className="text-text-dim shrink-0" />
+                      <span className="text-sm font-medium text-text truncate">
+                        {pipeline.title || pipeline.id}
+                      </span>
+                    </div>
+                    <ArrowRight size={12} className="text-text-dim shrink-0 opacity-60" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {paramModalPipeline && (
+        <TaskRunModal
+          pipeline={paramModalPipeline}
+          onClose={() => setParamModalPipeline(null)}
+          onLaunch={handleModalLaunch}
+          running={runNowMut.isPending}
+        />
+      )}
+    </div>
+  );
+}

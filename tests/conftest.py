@@ -87,19 +87,20 @@ PG_UUID.bind_processor = _patched_bind_processor
 PG_UUID.result_processor = _patched_result_processor
 
 
-# SQLite stores TIMESTAMP(timezone=True) as ISO string and the default aiosqlite
-# result processor strips tzinfo. Monkey-patch PG_TIMESTAMP so values read back
-# on SQLite are always UTC-aware — matches Postgres semantics and stops
-# ``can't compare offset-naive and offset-aware datetimes`` test failures.
+# SQLite's dialect substitutes its own ``DATETIME`` class for any
+# DateTime/TIMESTAMP column via ``SQLiteDialect.colspecs``. Patching PG_TIMESTAMP
+# doesn't help — we have to wrap the SQLite DATETIME's result_processor so
+# values read back are always UTC-aware, matching Postgres semantics. Without
+# this, tests that round-trip ``TIMESTAMP(timezone=True)`` columns hit
+# ``can't compare offset-naive and offset-aware datetimes`` at assert time.
 import datetime as _dt_mod
+from sqlalchemy.dialects.sqlite.base import DATETIME as _SQLITE_DATETIME
 
-_orig_ts_result = PG_TIMESTAMP.result_processor
+_orig_sqlite_dt_result = _SQLITE_DATETIME.result_processor
 
 
-def _patched_ts_result_processor(self, dialect, coltype):
-    base = _orig_ts_result(self, dialect, coltype)
-    if dialect.name != "sqlite":
-        return base
+def _patched_sqlite_dt_result_processor(self, dialect, coltype):
+    base = _orig_sqlite_dt_result(self, dialect, coltype)
 
     def process(value):
         if base is not None:
@@ -111,7 +112,7 @@ def _patched_ts_result_processor(self, dialect, coltype):
     return process
 
 
-PG_TIMESTAMP.result_processor = _patched_ts_result_processor
+_SQLITE_DATETIME.result_processor = _patched_sqlite_dt_result_processor
 
 
 # Import app.db.models at module load so every table is registered with Base

@@ -113,9 +113,15 @@ async def seed_pipelines_from_yaml(directory: Path = SYSTEM_PIPELINES_DIR) -> No
             existing = await db.get(Task, row_id)
             now = datetime.now(timezone.utc)
             if existing is None:
+                # status="active" is load-bearing: system pipelines are definitions,
+                # not pending executions. The default Task.status is "pending", which
+                # fetch_due_tasks (app/agent/tasks.py) polls and auto-runs in-place.
+                # System pipelines must only run via POST /tasks/{id}/run or an event
+                # trigger, never at boot.
                 row = Task(
                     id=row_id,
                     source="system",
+                    status="active",
                     created_at=now,
                     **fields,
                 )
@@ -132,6 +138,17 @@ async def seed_pipelines_from_yaml(directory: Path = SYSTEM_PIPELINES_DIR) -> No
             else:
                 for key, value in fields.items():
                     setattr(existing, key, value)
+                # Force definition status on every refresh so a prior boot that
+                # auto-ran the pipeline in-place (leaving status=failed/done on
+                # the parent) gets reset back to "active". Child runs created
+                # via spawn_child_run carry their own status rows — parent
+                # status has no meaning beyond "definition is active".
+                if existing.status != "active":
+                    logger.info(
+                        "Resetting system pipeline '%s' status %s → active",
+                        slug, existing.status,
+                    )
+                    existing.status = "active"
                 logger.info("Refreshed system pipeline '%s' (%s)", slug, path.name)
 
         await db.commit()

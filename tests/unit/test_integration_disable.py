@@ -282,12 +282,17 @@ async def test_set_status_enabled_does_not_require_configured():
     async def fake_index():
         calls.append(("index",))
 
+    async def fake_sync_all_files():
+        calls.append(("sync_all_files",))
+        return {}
+
     with (
         patch("app.services.integration_settings.get_status", return_value="available"),
         patch("app.services.integration_settings.is_configured", return_value=False),
         patch("app.services.integration_settings.set_status", new=fake_set_status),
         patch("app.services.mcp_servers.load_mcp_servers", new=fake_load_mcp),
         patch("app.agent.tools.index_local_tools", new=fake_index),
+        patch("app.services.file_sync.sync_all_files", new=fake_sync_all_files),
         patch("integrations._iter_integration_candidates", return_value=iter([])),
         patch("app.tools.loader.load_integration_tools", return_value=[]),
     ):

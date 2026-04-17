@@ -552,7 +552,7 @@ export default function TasksScreen() {
               schedules={data?.schedules ?? []}
               onTaskPress={handleTaskPress}
               onRunNow={handleRunNow}
-              runningTaskId={runNowMut.isPending ? (runNowMut.variables ?? null) : null}
+              runningTaskId={runNowMut.isPending ? (typeof runNowMut.variables === "string" ? runNowMut.variables : runNowMut.variables?.taskId ?? null) : null}
               isMobile={isMobile}
             />
           </RefreshableScrollView>

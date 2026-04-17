@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { Shield, ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { ChannelFileExplorer } from "./ChannelFileExplorer";
 import { OmniPanel } from "./OmniPanel";
@@ -37,6 +37,8 @@ import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
 import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnText } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { ChannelHeader } from "./ChannelHeader";
+import { OrchestratorEmptyState } from "./OrchestratorEmptyState";
+import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
 import type { Message } from "@/src/types/api";
@@ -141,8 +143,14 @@ export default function ChatScreen() {
 
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [participantsPanelOpen, setParticipantsPanelOpen] = useState(false);
+  const [findingsPanelOpen, setFindingsPanelOpen] = useState(false);
   const [botInfoBotId, setBotInfoBotId] = useState<string | null>(null);
   const memberBotCount = channel?.member_bots?.length ?? 0;
+  const isSystemChannel = channel?.client_id === "orchestrator:home";
+
+  // Findings count drives the ChannelHeader badge. Hook is a no-op when
+  // channelId is undefined or the channel isn't a system channel.
+  const { count: findingsCount } = useFindings(isSystemChannel ? channelId : undefined);
 
   const {
     chatState,
@@ -369,6 +377,9 @@ export default function ChatScreen() {
     handleLoadMore,
     isProcessing: chatState.isProcessing,
     t,
+    emptyStateComponent: isSystemChannel && channelId
+      ? <OrchestratorEmptyState channelId={channelId} />
+      : undefined,
   };
 
   const outerChildren = (
@@ -411,6 +422,10 @@ export default function ChatScreen() {
             } : null
           )}
           onContextBudgetClick={() => setBotInfoBotId(channel?.bot_id || null)}
+          isSystemChannel={isSystemChannel}
+          findingsPanelOpen={isSystemChannel ? findingsPanelOpen : undefined}
+          toggleFindingsPanel={isSystemChannel ? () => setFindingsPanelOpen((p) => !p) : undefined}
+          findingsCount={isSystemChannel ? findingsCount : 0}
         />
         {channelId && <ActiveBadgeBar channelId={channelId} compact={isMobile} />}
       </div>
@@ -422,26 +437,6 @@ export default function ChatScreen() {
           channelId={channelId!}
           compact={isMobile}
         />
-      )}
-
-      {/* Protected channel warning */}
-      {channel?.client_id === "orchestrator:home" && (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            padding: "6px 16px",
-            borderBottom: "1px solid rgba(245, 158, 11, 0.2)",
-            backgroundColor: "rgba(245, 158, 11, 0.08)",
-          }}
-        >
-          <Shield size={13} color="#d97706" />
-          <span style={{ fontSize: 12, color: "#d97706" }}>
-            System admin channel — this bot has unrestricted tool access and can delegate to all bots.
-          </span>
-        </div>
       )}
 
       {/* Content area -- explorer + chat/file viewer */}
@@ -606,7 +601,24 @@ export default function ChatScreen() {
               onClose={() => setParticipantsPanelOpen(false)}
             />
           )}
+
+          {/* Findings panel — pipelines awaiting user approval (system channels only) */}
+          {!isMobile && isSystemChannel && findingsPanelOpen && channelId && (
+            <FindingsPanel
+              channelId={channelId}
+              onClose={() => setFindingsPanelOpen(false)}
+            />
+          )}
         </div>
+      )}
+
+      {/* Mobile findings sheet */}
+      {isMobile && isSystemChannel && channelId && (
+        <FindingsSheet
+          channelId={channelId}
+          open={findingsPanelOpen}
+          onClose={() => setFindingsPanelOpen(false)}
+        />
       )}
       <ConfirmDialog
         open={pendingDirtyAction !== null}

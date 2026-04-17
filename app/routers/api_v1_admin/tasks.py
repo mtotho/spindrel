@@ -342,6 +342,7 @@ async def admin_list_tasks(
         return {
             "id": str(t.id),
             "status": t.status,
+            "source": t.source,
             "bot_id": t.bot_id,
             "prompt": t.prompt,
             "title": t.title,

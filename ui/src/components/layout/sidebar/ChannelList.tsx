@@ -174,36 +174,32 @@ function OrchestratorItem({ channel, mobile }: { channel: Channel; mobile?: bool
   const unread = !isActive && isUnread(channel.id, channel.updated_at);
 
   return (
-    <div className="px-3 pt-2 pb-1">
-      <Link to={`/channels/${channel.id}`} onClick={closeMobile}>
-        <div
+    <Link to={`/channels/${channel.id}`} onClick={closeMobile}>
+      <div
+        className={cn(
+          "sidebar-nav-item flex flex-row items-center gap-2.5 px-3 rounded-md cursor-pointer",
+          mobile ? "py-3" : "py-2",
+          isActive && "bg-accent/15",
+        )}
+      >
+        <Home
+          size={mobile ? 18 : 14}
+          className={isActive ? "text-accent" : "text-text-dim"}
+        />
+        <span
           className={cn(
-            "sidebar-nav-item flex flex-row items-center gap-2.5 px-3 rounded-lg cursor-pointer",
-            mobile ? "py-3" : "py-2",
-            isActive && "bg-accent/15",
+            "flex-1 truncate",
+            mobile ? "text-[15px]" : "text-[13px]",
+            isActive ? "text-text font-medium" : unread ? "text-text font-semibold" : "text-text-muted font-normal",
           )}
         >
-          <Home
-            size={mobile ? 18 : 14}
-            className={isActive ? "text-accent" : "text-text"}
-          />
-          <span
-            className={cn(
-              "flex-1 truncate",
-              mobile ? "text-[15px]" : "text-sm",
-              isActive || !unread ? "font-medium" : "font-semibold",
-              isActive ? "text-accent" : "text-text",
-            )}
-          >
-            Orchestrator
-          </span>
-          <Shield size={12} className="text-text-dim opacity-60 shrink-0" />
-          {unread && (
-            <span className="w-2 h-2 rounded-full bg-accent shrink-0 inline-block" />
-          )}
-        </div>
-      </Link>
-    </div>
+          Orchestrator
+        </span>
+        {unread && (
+          <span className="w-2 h-2 rounded-full bg-accent shrink-0 inline-block" />
+        )}
+      </div>
+    </Link>
   );
 }
 
@@ -327,9 +323,14 @@ export function ChannelList({
 
   return (
     <>
-      {/* Orchestrator */}
+      {/* System channels (orchestrator + any future system-seeded channels) */}
       {!channelsLoading && orchestratorChannel && (
-        <OrchestratorItem channel={orchestratorChannel} mobile={mobile} />
+        <div className="px-3 pt-4 pb-1">
+          <div className="flex flex-row items-center justify-between px-0 mb-2">
+            <span className="sidebar-section-label">SYSTEM</span>
+          </div>
+          <OrchestratorItem channel={orchestratorChannel} mobile={mobile} />
+        </div>
       )}
 
       {/* Channels */}
