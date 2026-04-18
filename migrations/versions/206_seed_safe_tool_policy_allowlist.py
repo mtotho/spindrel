@@ -93,7 +93,7 @@ def upgrade() -> None:
         )
         insert_file = sa.text(
             "INSERT INTO tool_policy_rules (bot_id, tool_name, action, conditions, priority, reason, enabled) "
-            "VALUES (NULL, 'file', 'allow', :conditions::jsonb, :priority, :reason, TRUE)"
+            "VALUES (NULL, 'file', 'allow', CAST(:conditions AS jsonb), :priority, :reason, TRUE)"
         )
     else:
         # SQLite (tests): JSON column accepts text
