@@ -577,7 +577,7 @@ export function OrchestratorLaunchpad({
   ];
 
   return (
-    <div className="bg-surface-overlay border-b border-surface-border">
+    <div className="bg-surface shadow-[0_8px_12px_-12px_rgba(0,0,0,0.6)] relative z-[1]">
       {/* Header row — title chip on the left, tabs in the middle (when open),
           awaiting badge on the right. Header is a div with separate clickable
           regions so tab buttons and the awaiting CTA can coexist with the

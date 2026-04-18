@@ -765,7 +765,16 @@ async def _run_foreach_step(
             state["error"] = f"foreach aborted at iteration {iter_idx}"
             return "failed"
 
-    state["status"] = "failed" if any_failed and on_failure == "abort" else "done"
+    # Empty foreach: nothing iterated → 'skipped' (not 'done') so the UI shows
+    # the step as a no-op rather than a successful completion the user has to
+    # mentally explain. Pairs with the user_prompt auto-skip path which also
+    # marks 'skipped' when the multi_item items list resolves to empty.
+    if not items:
+        state["status"] = "skipped"
+    elif any_failed and on_failure == "abort":
+        state["status"] = "failed"
+    else:
+        state["status"] = "done"
     if any_failed and on_failure == "continue":
         state["error"] = "one or more foreach iterations failed"
     state["result"] = json.dumps({
@@ -873,7 +882,12 @@ async def _run_user_prompt_step(
         and not response_schema.get("items")
     ):
         state = step_states[step_index]
-        state["status"] = "done"
+        # Mark as 'skipped' (not 'done') so the UI naturally renders the row
+        # with strikethrough + dim styling. Downstream foreach steps that
+        # iterate the same empty proposals list will also resolve to skipped,
+        # so the entire tail of the pipeline reads as "no work to do" instead
+        # of as a string of green checkmarks the user has to interpret.
+        state["status"] = "skipped"
         state["widget_envelope"] = envelope
         state["response_schema"] = response_schema
         state["result"] = (
@@ -892,6 +906,101 @@ async def _run_user_prompt_step(
     state["result"] = None
     state["error"] = None
     await _persist_step_states(task.id, step_states)
+
+
+async def _run_evaluate_step(
+    task: Task,
+    step_def: dict,
+    step_index: int,
+    steps: list[dict],
+    step_states: list[dict],
+) -> tuple[str, str | None, str | None]:
+    """Run an `evaluate` step. Returns (status, result_json, error).
+
+    YAML shape:
+      type: evaluate
+      evaluator: exec | bot_invoke
+      cases: "{{steps.load_cases.result}}"   # list of dicts (resolved from prior step)
+      command: "..."                          # exec only — supports {{case.<field>}}
+      parallelism: 4                          # max in-flight cases
+      per_case_timeout: 30                    # seconds
+
+    The result is a JSON-encoded list of {case, captured, error} ready for
+    ``score_eval_results``.
+    """
+    from app.services.eval_evaluator import run_evaluator
+
+    evaluator = step_def.get("evaluator")
+    if not evaluator:
+        return ("failed", None, "evaluate step requires 'evaluator'")
+
+    # Resolve cases ref → raw list. When the prior step stored a JSON string,
+    # _resolve_value_ref returns that string verbatim — try to parse it as a
+    # JSON list before bailing.
+    cases_ref = step_def.get("cases")
+    raw_cases = _resolve_value_ref(cases_ref, task_params(task), step_states, steps) if cases_ref else None
+    if isinstance(raw_cases, str):
+        try:
+            parsed = json.loads(raw_cases)
+            if isinstance(parsed, list):
+                raw_cases = parsed
+            elif isinstance(parsed, dict) and isinstance(parsed.get("cases"), list):
+                raw_cases = parsed["cases"]
+        except (ValueError, TypeError):
+            pass
+    if raw_cases is None:
+        return ("failed", None, f"evaluate: cases ref '{cases_ref}' resolved to None")
+    if not isinstance(raw_cases, list):
+        return ("failed", None, f"evaluate: cases must resolve to a list, got {type(raw_cases).__name__}")
+    cases = [c if isinstance(c, dict) else {"input": c} for c in raw_cases]
+
+    # Resolve parallelism / per_case_timeout (may be templated as well)
+    def _coerce_int(val, default: int) -> int:
+        if val is None:
+            return default
+        if isinstance(val, str):
+            rendered = render_prompt(val, task_params(task), step_states, steps)
+            try:
+                return int(rendered)
+            except (ValueError, TypeError):
+                return default
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return default
+
+    parallelism = _coerce_int(step_def.get("parallelism"), 1)
+    per_case_timeout = float(_coerce_int(step_def.get("per_case_timeout"), 60))
+
+    # Build evaluator-specific spec from the step_def, with template
+    # substitution on string values (so command/prompt can reference
+    # {{steps.X.result}} or {{params.Y}}).
+    spec_keys_passthrough = ("command", "prompt", "bot_id", "override")
+    spec: dict = {}
+    for key in spec_keys_passthrough:
+        if key not in step_def:
+            continue
+        val = step_def[key]
+        if isinstance(val, str):
+            spec[key] = render_prompt(val, task_params(task), step_states, steps)
+        else:
+            spec[key] = val
+
+    try:
+        results = await run_evaluator(
+            evaluator, cases, spec,
+            parallelism=parallelism,
+            per_case_timeout=per_case_timeout,
+        )
+    except Exception as e:
+        logger.exception("evaluate step %d crashed", step_index)
+        return ("failed", None, str(e)[:2000])
+
+    result_json = json.dumps(results, default=str)
+    max_chars = step_def.get("result_max_chars", 50000)
+    if len(result_json) > max_chars:
+        result_json = result_json[:max_chars] + '... [truncated]"'
+    return ("done", result_json, None)
 
 
 async def _run_tool_step(
@@ -1168,6 +1277,16 @@ async def _advance_pipeline(
 
         elif step_type == "user_prompt":
             await _run_user_prompt_step(task, step_def, i, steps, step_states)
+            # Auto-skip path (multi_item with zero items) marks the step as
+            # terminal in-place. Without this check the orchestrator returns
+            # waiting for a /resolve callback that will never come, leaving
+            # the pipeline stuck at "running" forever.
+            if state["status"] in ("done", "skipped"):
+                logger.info(
+                    "Pipeline %s step %d user_prompt auto-skipped (%s) → continue",
+                    task.id, i + 1, state["status"],
+                )
+                continue
             logger.info("Pipeline %s step %d user_prompt → awaiting_user_input", task.id, i + 1)
             return  # Wait for /resolve
 
@@ -1177,6 +1296,19 @@ async def _advance_pipeline(
             await _persist_step_states(task.id, step_states)
             logger.info("Pipeline %s step %d foreach → %s", task.id, i + 1, status)
             if status == "failed" and step_def.get("on_failure", "abort") == "abort":
+                await _finalize_pipeline(task, steps, step_states, failed=True)
+                return
+
+        elif step_type == "evaluate":
+            status, result, error = await _run_evaluate_step(task, step_def, i, steps, step_states)
+            state["status"] = status
+            state["result"] = result
+            state["error"] = error
+            state["completed_at"] = datetime.now(timezone.utc).isoformat()
+            _apply_fail_if_to_state(state, step_def, i, steps, step_states, task)
+            await _persist_step_states(task.id, step_states)
+            logger.info("Pipeline %s step %d evaluate → %s%s", task.id, i + 1, state["status"], f" error={state['error']}" if state.get("error") else "")
+            if state["status"] == "failed" and step_def.get("on_failure", "abort") == "abort":
                 await _finalize_pipeline(task, steps, step_states, failed=True)
                 return
 

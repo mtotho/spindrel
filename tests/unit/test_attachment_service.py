@@ -555,3 +555,59 @@ class TestDeleteAttachment:
         assert result["integration_deleted"] is False
         gone = (await db_session.execute(select(Attachment).where(Attachment.id == att.id))).scalar_one_or_none()
         assert gone is None
+
+
+# ---------------------------------------------------------------------------
+# TestFindOrphanDuplicate (real-DB)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestFindOrphanDuplicate:
+    async def test_when_matching_orphan_exists_then_returns_it(self, db_session, patched_async_sessions):
+        from tests.factories import build_attachment
+        from app.services.attachments import find_orphan_duplicate
+        channel_id = uuid.uuid4()
+        orphan = await db_session.merge(build_attachment(
+            channel_id=channel_id, message_id=None, posted_by="bot:sender",
+            size_bytes=512, mime_type="image/png",
+        ))
+        await db_session.commit()
+
+        result = await find_orphan_duplicate(channel_id, 512, "image/png")
+
+        assert result.id == orphan.id
+
+    async def test_when_no_orphan_in_channel_then_returns_none(self, db_session, patched_async_sessions):
+        from app.services.attachments import find_orphan_duplicate
+
+        result = await find_orphan_duplicate(uuid.uuid4(), 512, "image/png")
+
+        assert result is None
+
+    async def test_when_orphan_size_mismatch_then_excluded(self, db_session, patched_async_sessions):
+        from tests.factories import build_attachment
+        from app.services.attachments import find_orphan_duplicate
+        channel_id = uuid.uuid4()
+        await db_session.merge(build_attachment(
+            channel_id=channel_id, message_id=None, posted_by="bot:sender",
+            size_bytes=1024, mime_type="image/png",
+        ))
+        await db_session.commit()
+
+        result = await find_orphan_duplicate(channel_id, 512, "image/png")
+
+        assert result is None
+
+    async def test_when_attachment_has_message_id_then_not_orphan(self, db_session, patched_async_sessions):
+        from tests.factories import build_attachment
+        from app.services.attachments import find_orphan_duplicate
+        channel_id = uuid.uuid4()
+        await db_session.merge(build_attachment(
+            channel_id=channel_id, message_id=uuid.uuid4(), posted_by="bot:sender",
+            size_bytes=512, mime_type="image/png",
+        ))
+        await db_session.commit()
+
+        result = await find_orphan_duplicate(channel_id, 512, "image/png")
+
+        assert result is None

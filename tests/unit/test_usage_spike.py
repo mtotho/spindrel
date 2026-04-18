@@ -357,7 +357,8 @@ class TestDispatchAlert:
         mock_renderer.render = AsyncMock(return_value=DeliveryReceipt.ok())
 
         with patch("app.agent.hooks.get_integration_meta", return_value=mock_meta), \
-             patch("app.integrations.renderer_registry.get", return_value=mock_renderer):
+             patch("app.integrations.renderer_registry.get", return_value=mock_renderer), \
+             patch("app.domain.dispatch_target.parse_dispatch_target", return_value=MagicMock()):
 
             attempted, succeeded, details = await _dispatch_alert(config, "test message")
 
@@ -397,7 +398,8 @@ class TestDispatchAlert:
         with patch("app.services.usage_spike.async_session") as mock_session, \
              patch("app.services.channel_events.publish_typed") as mock_publish, \
              patch("app.integrations.renderer_registry.get", return_value=mock_renderer), \
-             patch("app.agent.hooks.get_integration_meta", return_value=mock_meta):
+             patch("app.agent.hooks.get_integration_meta", return_value=mock_meta), \
+             patch("app.domain.dispatch_target.parse_dispatch_target", return_value=MagicMock()):
 
             mock_db = AsyncMock()
             mock_db.get = AsyncMock(return_value=mock_channel)
@@ -431,3 +433,52 @@ class TestDispatchAlert:
         assert attempted == 1
         assert succeeded == 0
         assert "unknown target type" in details[0]["error"]
+
+
+# ---------------------------------------------------------------------------
+# start_spike_refresh_task
+# ---------------------------------------------------------------------------
+
+import app.services.usage_spike as _spike_mod
+
+
+class TestStartSpikeRefreshTask:
+    def setup_method(self):
+        self._original = _spike_mod._refresh_task
+
+    def teardown_method(self):
+        _spike_mod._refresh_task = self._original
+
+    def test_when_no_existing_task_then_creates_one(self):
+        _spike_mod._refresh_task = None
+
+        with patch("app.services.usage_spike._refresh_loop", MagicMock()), \
+             patch("app.services.usage_spike.asyncio.create_task", return_value=MagicMock()) as mock_ct:
+            _spike_mod.start_spike_refresh_task()
+
+        mock_ct.assert_called_once()
+        assert _spike_mod._refresh_task is not None
+
+    def test_when_task_still_running_then_no_new_task(self):
+        running = MagicMock()
+        running.done.return_value = False
+        _spike_mod._refresh_task = running
+
+        with patch("app.services.usage_spike.asyncio.create_task") as mock_ct:
+            _spike_mod.start_spike_refresh_task()
+
+        mock_ct.assert_not_called()
+        assert _spike_mod._refresh_task is running
+
+    def test_when_task_done_then_replaces_it(self):
+        done_task = MagicMock()
+        done_task.done.return_value = True
+        new_task = MagicMock()
+        _spike_mod._refresh_task = done_task
+
+        with patch("app.services.usage_spike._refresh_loop"), \
+             patch("app.services.usage_spike.asyncio.create_task", return_value=new_task) as mock_ct:
+            _spike_mod.start_spike_refresh_task()
+
+        mock_ct.assert_called_once()
+        assert _spike_mod._refresh_task is new_task

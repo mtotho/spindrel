@@ -20,6 +20,48 @@ def _make_bot(**overrides) -> BotConfig:
 
 
 # ---------------------------------------------------------------------------
+# normalize_stored_content
+# ---------------------------------------------------------------------------
+
+class TestNormalizeStoredContent:
+    def test_when_none_then_returns_none(self):
+        from app.services.sessions import normalize_stored_content
+        assert normalize_stored_content(None) is None
+
+    def test_when_plain_string_then_returns_unchanged(self):
+        from app.services.sessions import normalize_stored_content
+        result = normalize_stored_content("hello world")
+        assert result == "hello world"
+
+    def test_when_multimodal_json_then_returns_parsed_list(self):
+        from app.services.sessions import normalize_stored_content
+        content = json.dumps([
+            {"type": "text", "text": "hello"},
+            {"type": "image_url", "image_url": {"url": "https://img.example.com/x.png"}},
+        ])
+        result = normalize_stored_content(content)
+        assert isinstance(result, list)
+        assert result[0]["type"] == "text"
+
+    def test_when_list_of_strings_json_then_returns_unchanged(self):
+        from app.services.sessions import normalize_stored_content
+        raw = '["a", "b"]'
+        result = normalize_stored_content(raw)
+        assert result == raw
+
+    def test_when_invalid_json_starting_with_bracket_then_returns_unchanged(self):
+        from app.services.sessions import normalize_stored_content
+        bad = "[not valid json"
+        result = normalize_stored_content(bad)
+        assert result == bad
+
+    def test_when_empty_json_array_then_returns_unchanged(self):
+        from app.services.sessions import normalize_stored_content
+        result = normalize_stored_content("[]")
+        assert result == "[]"
+
+
+# ---------------------------------------------------------------------------
 # _content_for_db
 # ---------------------------------------------------------------------------
 

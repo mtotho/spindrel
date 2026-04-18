@@ -232,9 +232,9 @@ class TestUserPromptPausesPipeline:
     @pytest.mark.asyncio
     async def test_multi_item_empty_auto_skips_with_informative_result(self):
         """When multi_item resolves to zero items, the step auto-completes with
-        a human-readable result explaining why (not an opaque ``{}``). Without
-        this the UI renders "review: done 34ms" and users think they missed a
-        review window."""
+        a human-readable result explaining why (not an opaque ``{}``). Status
+        is ``skipped`` (not ``done``) so the UI renders strikethrough rather
+        than a successful-looking checkmark the user has to interpret."""
         from app.services.step_executor import _advance_pipeline
 
         task = AsyncMock()
@@ -255,13 +255,58 @@ class TestUserPromptPausesPipeline:
              patch("app.services.step_executor._finalize_pipeline", new=AsyncMock()):
             await _advance_pipeline(task, steps, states)
 
-        # Auto-skipped (not awaiting)
-        assert states[0]["status"] == "done"
+        # Auto-skipped (not awaiting, not 'done')
+        assert states[0]["status"] == "skipped"
         # Result is a non-empty human-readable string, not "{}"
         result = states[0]["result"]
         assert isinstance(result, str)
         assert "auto-skipped" in result.lower() or "no items" in result.lower()
         assert result != "{}"
+
+    @pytest.mark.asyncio
+    async def test_user_prompt_auto_skip_advances_to_next_step(self):
+        """Regression: auto-skip on a user_prompt step must NOT leave the
+        pipeline stuck at "running". The orchestrator used to always return
+        after user_prompt expecting a /resolve callback, but the auto-skip
+        path completes the step in-place — no callback ever comes. Pipelines
+        with a tail of foreach-over-empty steps would stall forever, showing
+        "running 4/5" indefinitely. Fix: continue when the step is terminal
+        on return."""
+        from app.services.step_executor import _advance_pipeline
+
+        task = AsyncMock()
+        task.id = uuid.uuid4()
+        task.bot_id = "orchestrator"
+        # Resolves to empty list — mimics analyze returning {"proposals": []}
+        task.execution_config = {"params": {"proposals": []}}
+
+        steps = [
+            {
+                "id": "review",
+                "type": "user_prompt",
+                "widget_template": {"kind": "approval_review"},
+                "widget_args": {},
+                "response_schema": {"type": "multi_item", "items_ref": "{{params.proposals}}"},
+            },
+            {
+                "id": "apply",
+                "type": "foreach",
+                "over": "{{params.proposals}}",
+                "do": [],
+            },
+        ]
+        states = _init_step_states(steps)
+
+        with patch("app.services.step_executor._persist_step_states", new=AsyncMock()), \
+             patch("app.services.step_executor._finalize_pipeline", new=AsyncMock()) as finalize:
+            await _advance_pipeline(task, steps, states)
+
+        assert states[0]["status"] == "skipped"
+        # The apply step ALSO runs and resolves to skipped (empty foreach),
+        # not stuck at "pending"
+        assert states[1]["status"] == "skipped"
+        # Pipeline must finalize (was previously stuck waiting for /resolve)
+        finalize.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_user_prompt_in_middle_pauses_before_later_steps(self):

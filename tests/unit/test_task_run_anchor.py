@@ -1,4 +1,4 @@
-"""Unit tests for the task-run anchor step-summary builder.
+"""Unit tests for the task-run anchor step-summary builder and update_anchor.
 
 Focus: when a step is `awaiting_user_input`, the anchor payload must carry
 the step's `widget_envelope`, `response_schema`, and step `title` so the web
@@ -6,8 +6,13 @@ client can render the approval UI inline in chat without a second fetch.
 """
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
-from app.services.task_run_anchor import _build_metadata, _step_summary
+import pytest
+
+from app.db.models import Message, Session
+from app.services.task_run_anchor import ANCHOR_MSG_KEY, _build_metadata, _step_summary, update_anchor
+from tests.factories import build_channel, build_task
 
 
 def _make_task(steps, step_states):
@@ -133,3 +138,74 @@ def test_step_summary_envelope_not_leaked_when_status_is_done():
     assert out[0]["status"] == "done"
     assert "widget_envelope" not in out[0]
     assert "response_schema" not in out[0]
+
+
+# ---------------------------------------------------------------------------
+# update_anchor
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestUpdateAnchor:
+    async def test_when_channel_id_none_then_no_op(self):
+        task = build_task(channel_id=None)
+
+        result = await update_anchor(task)
+
+        assert result is None
+
+    async def test_when_task_not_in_db_then_returns_silently(self, db_session, patched_async_sessions):
+        task = build_task(channel_id=uuid.uuid4())
+
+        await update_anchor(task)  # task not committed — service gets None, returns
+
+    async def test_when_anchor_exists_then_metadata_refreshed(self, db_session, patched_async_sessions):
+        session_id = uuid.uuid4()
+        channel_id = uuid.uuid4()
+        msg_id = uuid.uuid4()
+
+        channel = build_channel(id=channel_id)
+        session_row = Session(id=session_id, client_id="test")
+        task = build_task(
+            channel_id=channel_id,
+            session_id=session_id,
+            status="complete",
+            steps=[{"type": "agent", "label": "Step 1"}],
+            step_states=[{"status": "done"}],
+            execution_config={ANCHOR_MSG_KEY: str(msg_id)},
+        )
+        msg = Message(
+            id=msg_id,
+            session_id=session_id,
+            role="assistant",
+            content="old content",
+            metadata_={"kind": "task_run", "task_id": str(task.id)},
+        )
+        db_session.add_all([channel, session_row, task, msg])
+        await db_session.commit()
+
+        with patch("app.services.task_run_anchor._publish_message_updated", new_callable=AsyncMock):
+            await update_anchor(task)
+
+        await db_session.refresh(msg)
+        assert msg.metadata_["status"] == "complete"
+        assert msg.metadata_["task_id"] == str(task.id)
+
+    async def test_when_no_existing_anchor_then_ensure_anchor_message_called(self, db_session, patched_async_sessions):
+        session_id = uuid.uuid4()
+        channel_id = uuid.uuid4()
+
+        channel = build_channel(id=channel_id)
+        session_row = Session(id=session_id, client_id="test")
+        task = build_task(
+            channel_id=channel_id,
+            session_id=session_id,
+            execution_config={},
+        )
+        db_session.add_all([channel, session_row, task])
+        await db_session.commit()
+
+        ensure_mock = AsyncMock()
+        with patch("app.services.task_run_anchor.ensure_anchor_message", ensure_mock):
+            await update_anchor(task)
+
+        ensure_mock.assert_awaited_once()
