@@ -15,6 +15,7 @@ from app.services.step_executor import (
     _build_prior_results_preamble,
     _build_prior_results_env,
     _init_step_states,
+    _parse_result_json,
 )
 
 
@@ -1187,3 +1188,56 @@ class TestApplyFailIfToState:
         flipped = _apply_fail_if_to_state(state, step_def, 0, [step_def], [state], MagicMock())
         assert flipped is False
         assert state["status"] == "skipped"
+
+
+# ---------------------------------------------------------------------------
+# _parse_result_json — plain JSON + fenced-block fallback
+# ---------------------------------------------------------------------------
+
+class TestParseResultJson:
+    """LLMs often emit prose + fenced JSON blocks even when told "return ONLY JSON";
+    the parser must fall back to fenced extraction so `{{steps.X.result.key}}`
+    and `fail_if: {result_empty_keys: [...]}` keep working on those outputs."""
+
+    def test_none_returns_none(self):
+        assert _parse_result_json(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert _parse_result_json("") is None
+
+    def test_plain_json_object(self):
+        assert _parse_result_json('{"a": 1}') == {"a": 1}
+
+    def test_json_array_returns_none(self):
+        # the caller expects a dict; arrays are skipped
+        assert _parse_result_json("[1, 2, 3]") is None
+
+    def test_non_json_returns_none(self):
+        assert _parse_result_json("just prose, no JSON at all") is None
+
+    def test_prose_with_fenced_json_block(self):
+        text = (
+            "Based on my analysis, here are the proposals:\n\n"
+            "```json\n"
+            '{"proposals": [{"id": "p1"}]}\n'
+            "```"
+        )
+        assert _parse_result_json(text) == {"proposals": [{"id": "p1"}]}
+
+    def test_fenced_block_without_json_language_tag(self):
+        text = "Output:\n\n```\n{\"ok\": true}\n```"
+        assert _parse_result_json(text) == {"ok": True}
+
+    def test_picks_largest_dict_when_multiple_fenced_blocks(self):
+        text = (
+            "```json\n{\"a\": 1}\n```\n\n"
+            "```json\n{\"b\": 2, \"c\": 3, \"d\": 4}\n```"
+        )
+        result = _parse_result_json(text)
+        assert result == {"b": 2, "c": 3, "d": 4}
+
+    def test_ignores_fenced_array_falls_through(self):
+        text = "```json\n[1, 2, 3]\n```"
+        # array fences dont satisfy "dict" — no dict candidates — None
+        assert _parse_result_json(text) is None
+

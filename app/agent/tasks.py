@@ -1529,11 +1529,13 @@ async def recover_stalled_workflow_runs() -> None:
             async with async_session() as db:
                 fresh_run = await db.get(WorkflowRun, run.id)
                 if fresh_run and fresh_run.status in ("running", "awaiting_approval"):
-                    ss = list(fresh_run.step_states)
+                    import copy as _copy
+                    from app.services.workflow_executor import _set_step_states
+                    ss = _copy.deepcopy(fresh_run.step_states or [])
                     ss[running_step_idx]["status"] = "failed"
                     ss[running_step_idx]["error"] = "Recovered: task was never created (server crash)"
                     ss[running_step_idx]["completed_at"] = now.isoformat()
-                    fresh_run.step_states = ss
+                    _set_step_states(fresh_run, ss)
                     await db.commit()
             from app.services.workflow_executor import advance_workflow
             await advance_workflow(run.id)

@@ -482,6 +482,10 @@ function RunRow({ run }: { run: TaskDetail }) {
                   const stepDef = run.steps?.[i];
                   const StepIcon = STEP_TYPE_ICON[stepDef?.type || "agent"] || Bot;
                   const label = stepDef?.label || stepDef?.id || `Step ${i + 1}`;
+                  // Agent steps spawn a child task (stored as step_state.task_id).
+                  // Surface a direct link to that child run so users can jump to
+                  // the LLM trace for this step without hunting in /admin/traces.
+                  const childTaskId = ss.task_id;
                   return (
                     <div key={i} className="flex flex-col gap-1 rounded-lg bg-surface-raised/40 px-3 py-2">
                       <div className="flex flex-row items-center gap-2">
@@ -491,6 +495,17 @@ function RunRow({ run }: { run: TaskDetail }) {
                         <span className="text-[10px] text-text-dim ml-auto">
                           {ss.started_at && ss.completed_at ? durationStr(ss.started_at, ss.completed_at) : ss.status}
                         </span>
+                        {childTaskId && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigate(`/admin/tasks/${childTaskId}`); }}
+                            title="Open the child run (LLM trace)"
+                            className="flex items-center gap-1 text-[10px] text-accent/80 hover:text-accent
+                                       px-1.5 py-0.5 rounded hover:bg-accent/10 transition-colors"
+                          >
+                            Trace
+                            <ExternalLink size={10} />
+                          </button>
+                        )}
                       </div>
                       {ss.result && (
                         <pre className="text-[10px] text-text-muted font-mono whitespace-pre-wrap bg-input/50 px-2 py-1.5 rounded border border-surface-border/50 max-h-40 overflow-auto m-0 ml-5">

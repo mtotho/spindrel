@@ -107,15 +107,37 @@ def evaluate_condition(condition: dict | None, context: dict) -> bool:
 _TEMPLATE_RE = re.compile(r"\{\{(.+?)\}\}")
 
 
+_FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", re.DOTALL)
+
+
 def _parse_result_json(result: str | None) -> dict | None:
-    """Try to parse a step result as JSON. Returns dict or None."""
+    """Try to parse a step result as JSON. Returns dict or None.
+
+    LLM agent steps commonly produce prose + a fenced JSON block even when
+    the prompt says "Return ONLY JSON". To keep ``{{steps.X.result.key}}``
+    lookups and ``fail_if: {result_empty_keys: [...]}`` working across those
+    outputs, we fall back to extracting the largest ```json``` / ``` block
+    whose contents parse as a JSON object. Arrays and scalars are ignored
+    (the caller expects a dict).
+    """
     if not result:
         return None
     try:
         parsed = json.loads(result)
         return parsed if isinstance(parsed, dict) else None
     except (json.JSONDecodeError, TypeError):
-        return None
+        pass
+    # Fallback: scan for fenced JSON blocks and return the largest valid dict.
+    best: dict | None = None
+    for match in _FENCED_JSON_RE.finditer(result):
+        candidate = match.group(1)
+        try:
+            obj = json.loads(candidate)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(obj, dict) and (best is None or len(candidate) > len(json.dumps(best))):
+            best = obj
+    return best
 
 
 def render_prompt(

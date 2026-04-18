@@ -37,6 +37,7 @@ export interface ProposalItem {
   scope?: ProposalScope | string;
   target_path?: string;
   target_method?: string;
+  patch_body?: Record<string, any> | null;
   evidence?: Evidence[];
   [k: string]: any;
 }
@@ -141,29 +142,37 @@ function ProposalRow({
           )}
         </div>
         <div className="flex flex-row gap-1 shrink-0">
+          {/* Approve / Reject are explicit labels — the reject icon alone was
+              getting mistaken for a "dismiss this card" close button. The X
+              means "don't apply this patch"; to clear the whole review, use
+              the card's overflow menu (Skip review / Delete run). */}
           <button
             onClick={() => onDecide("approve")}
             aria-label="Approve"
+            title="Apply this patch on Submit"
             className={cn(
-              "inline-flex items-center justify-center w-7 h-7 rounded transition-colors",
+              "inline-flex items-center justify-center gap-1 h-7 px-2 rounded text-[10px] font-semibold uppercase tracking-wider transition-colors",
               decision === "approve"
                 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
                 : "bg-surface-raised text-text-dim border border-surface-border hover:bg-emerald-500/10 hover:text-emerald-400",
             )}
           >
-            <Check size={12} />
+            <Check size={11} />
+            <span>Approve</span>
           </button>
           <button
             onClick={() => onDecide("reject")}
             aria-label="Reject"
+            title="Don't apply this patch"
             className={cn(
-              "inline-flex items-center justify-center w-7 h-7 rounded transition-colors",
+              "inline-flex items-center justify-center gap-1 h-7 px-2 rounded text-[10px] font-semibold uppercase tracking-wider transition-colors",
               decision === "reject"
                 ? "bg-red-500/20 text-red-400 border border-red-500/50"
                 : "bg-surface-raised text-text-dim border border-surface-border hover:bg-red-500/10 hover:text-red-400",
             )}
           >
-            <XCircle size={12} />
+            <XCircle size={11} />
+            <span>Reject</span>
           </button>
         </div>
       </div>
@@ -198,8 +207,12 @@ function ProposalRow({
         </div>
       )}
 
-      {/* Row 3: diff expander */}
-      {diff && (
+      {/* Row 3: diff + patch body expander. diff_preview is the LLM's
+          human-readable "before: ... / after: ..." blurb; patch_body is the
+          literal JSON that will be PATCH'd on approve. Show both when we
+          have them — the raw patch is the source of truth and old runs
+          have only thin diff_preview strings like "...". */}
+      {(diff || item.patch_body) && (
         <div className="flex flex-col gap-1">
           <button
             onClick={() => setDiffOpen((v) => !v)}
@@ -207,14 +220,30 @@ function ProposalRow({
                        hover:text-text uppercase tracking-wider"
           >
             {diffOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-            Diff
+            {diff && item.patch_body ? "Diff + patch" : diff ? "Diff" : "Patch"}
           </button>
           {diffOpen && (
-            <pre className="m-0 rounded bg-surface-overlay/60 border border-surface-border
-                           px-2 py-1.5 font-mono text-[10.5px] text-text-muted
-                           whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-              {diff}
-            </pre>
+            <div className="flex flex-col gap-1.5">
+              {diff && (
+                <pre className="m-0 rounded bg-surface-overlay/60 border border-surface-border
+                               px-2 py-1.5 font-mono text-[10.5px] text-text-muted
+                               whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                  {diff}
+                </pre>
+              )}
+              {item.patch_body && (
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[9px] text-text-dim uppercase tracking-wider">
+                    PATCH body
+                  </span>
+                  <pre className="m-0 rounded bg-surface-overlay/60 border border-surface-border
+                                 px-2 py-1.5 font-mono text-[10.5px] text-text-muted
+                                 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                    {JSON.stringify(item.patch_body, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}

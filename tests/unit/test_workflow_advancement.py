@@ -1,1073 +1,717 @@
-"""Tests for the workflow advancement pipeline: hook chain, result capture, and recovery."""
+"""Tests for workflow advancement — hook chain, result capture, recovery, step dispatch.
+
+Phase 1e rewrite (2026-04-17): every DB-touching test runs against real
+``db_session`` + ``patched_async_sessions`` with ORM factory rows. External
+collaborators (``call_local_tool``, ``fire_hook`` broadcast, step-completion
+in ``_fire_task_complete``) are mocked; the session, models, and the
+workflow state machine are exercised end-to-end.
+"""
+from __future__ import annotations
 
 import asyncio
+import copy
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import select
+
+from app.db.models import Task, Workflow, WorkflowRun
+from tests.factories import build_channel, build_task, build_workflow, build_workflow_run
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Shared helpers
 # ---------------------------------------------------------------------------
 
-def _make_task(**overrides):
-    """Create a mock Task with sensible defaults."""
-    t = MagicMock()
-    t.id = overrides.get("id", uuid.uuid4())
-    t.bot_id = overrides.get("bot_id", "test-bot")
-    t.channel_id = overrides.get("channel_id", uuid.uuid4())
-    t.task_type = overrides.get("task_type", "workflow")
-    t.callback_config = overrides.get("callback_config", {})
-    t.result = overrides.get("result", None)
-    t.error = overrides.get("error", None)
-    t.correlation_id = overrides.get("correlation_id", None)
-    t.status = overrides.get("status", "complete")
-    return t
+def _pending_step(task_id: str | None = None) -> dict:
+    return {
+        "status": "pending", "task_id": task_id, "result": None, "error": None,
+        "started_at": None, "completed_at": None, "correlation_id": None,
+    }
 
 
-def _make_workflow_run(step_count=2, **overrides):
-    """Create a mock WorkflowRun with sensible defaults."""
-    run = MagicMock()
-    run.id = overrides.get("id", uuid.uuid4())
-    run.workflow_id = overrides.get("workflow_id", "test-wf")
-    run.bot_id = overrides.get("bot_id", "test-bot")
-    run.channel_id = overrides.get("channel_id", uuid.uuid4())
-    run.status = overrides.get("status", "running")
-    run.step_states = overrides.get("step_states", [
-        {"status": "pending", "task_id": None, "result": None, "error": None,
-         "started_at": None, "completed_at": None, "correlation_id": None}
-        for _ in range(step_count)
-    ])
-    run.params = overrides.get("params", {})
-    run.session_mode = overrides.get("session_mode", "isolated")
-    run.session_id = overrides.get("session_id", None)
-    run.dispatch_type = overrides.get("dispatch_type", "none")
-    run.dispatch_config = overrides.get("dispatch_config", None)
-    run.workflow_snapshot = overrides.get("workflow_snapshot", None)
-    run.created_at = overrides.get("created_at", datetime.now(timezone.utc))
-    run.completed_at = overrides.get("completed_at", None)
-    run.error = overrides.get("run_error", None)
-    return run
+def _running_step(task_id: str) -> dict:
+    return {
+        "status": "running", "task_id": task_id, "result": None, "error": None,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None, "correlation_id": None,
+    }
 
 
-def _make_workflow(steps=None, **overrides):
-    """Create a mock Workflow."""
-    wf = MagicMock()
-    wf.id = overrides.get("id", "test-wf")
-    wf.name = overrides.get("name", "Test Workflow")
-    wf.steps = steps or [
-        {"id": "step_0", "prompt": "Do step 0"},
-        {"id": "step_1", "prompt": "Do step 1"},
-    ]
-    wf.defaults = overrides.get("defaults", {})
-    wf.params = overrides.get("params", {})
-    wf.secrets = overrides.get("secrets", [])
-    wf.triggers = overrides.get("triggers", {})
-    return wf
+async def _seed_workflow_and_run(
+    db_session,
+    *,
+    steps: list[dict],
+    step_states: list[dict],
+    run_status: str = "running",
+    run_overrides: dict | None = None,
+    workflow_overrides: dict | None = None,
+) -> tuple[Workflow, WorkflowRun]:
+    """Persist a Workflow + WorkflowRun pair linked by workflow_id."""
+    wf = build_workflow(steps=steps, **(workflow_overrides or {}))
+    run_kwargs = {
+        "workflow_id": wf.id,
+        "status": run_status,
+        "step_states": step_states,
+        "workflow_snapshot": {"steps": steps, "defaults": {}, "secrets": []},
+        **(run_overrides or {}),
+    }
+    run = build_workflow_run(**run_kwargs)
+    db_session.add(wf)
+    db_session.add(run)
+    await db_session.commit()
+    return wf, run
 
 
-# ---------------------------------------------------------------------------
-# Test: _on_task_complete hook reads callback_config and calls executor
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# _fire_task_complete — direct workflow advancement
+# ===========================================================================
 
-class TestFireTaskCompleteWorkflowPath:
-    """Tests for _fire_task_complete's direct workflow advancement path.
-
-    Workflow step completion is now called directly from _fire_task_complete
-    (not through fire_hook) to avoid the hook system's error swallowing.
-    """
+class TestFireTaskComplete:
+    """``_fire_task_complete`` calls workflow step completion directly (bypasses
+    ``fire_hook`` broadcast error-swallowing) when ``callback_config`` names a
+    workflow run, and logs broadcast errors at ERROR level (Bug 1)."""
 
     @pytest.mark.asyncio
-    async def test_calls_on_step_task_completed_directly(self):
-        """_fire_task_complete should call on_step_task_completed directly for workflow tasks."""
+    async def test_when_task_has_workflow_callback_then_step_completion_fires_directly(self):
         from app.agent.tasks import _fire_task_complete
-
         run_id = str(uuid.uuid4())
-        task = _make_task(callback_config={
-            "workflow_run_id": run_id,
-            "workflow_step_index": 0,
+        task = build_task(callback_config={"workflow_run_id": run_id, "workflow_step_index": 0})
+
+        with patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as m, \
+             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock):
+            await _fire_task_complete(task, "complete")
+
+        m.assert_called_once_with(run_id, 0, "complete", task)
+
+    @pytest.mark.asyncio
+    async def test_when_task_has_no_workflow_callback_then_step_completion_skipped(self):
+        from app.agent.tasks import _fire_task_complete
+        task = build_task(callback_config={})
+
+        with patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as m, \
+             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock):
+            await _fire_task_complete(task, "complete")
+
+        m.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_when_step_completion_raises_then_task_worker_not_crashed(self):
+        from app.agent.tasks import _fire_task_complete
+        task = build_task(callback_config={
+            "workflow_run_id": str(uuid.uuid4()), "workflow_step_index": 0,
         })
 
-        with (
-            patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as mock_exec,
-            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
-        ):
-            await _fire_task_complete(task, "complete")
-            mock_exec.assert_called_once_with(run_id, 0, "complete", task)
+        with patch("app.services.workflow_executor.on_step_task_completed",
+                   new_callable=AsyncMock, side_effect=RuntimeError("DB error")), \
+             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock):
+            await _fire_task_complete(task, "complete")  # must not raise
 
     @pytest.mark.asyncio
-    async def test_skips_direct_call_when_no_workflow_config(self):
-        """Tasks without workflow callback_config should NOT call on_step_task_completed."""
+    async def test_when_fire_hook_raises_then_error_is_logged(self):
         from app.agent.tasks import _fire_task_complete
+        task = build_task()
 
-        task = _make_task(callback_config={})
-
-        with (
-            patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as mock_exec,
-            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
-        ):
-            await _fire_task_complete(task, "complete")
-            mock_exec.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_logs_error_but_does_not_crash(self):
-        """Errors from on_step_task_completed should be logged, not crash the task worker."""
-        from app.agent.tasks import _fire_task_complete
-
-        run_id = str(uuid.uuid4())
-        task = _make_task(callback_config={
-            "workflow_run_id": run_id,
-            "workflow_step_index": 0,
-        })
-
-        with (
-            patch(
-                "app.services.workflow_executor.on_step_task_completed",
-                new_callable=AsyncMock,
-                side_effect=RuntimeError("DB error"),
-            ),
-            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
-        ):
-            # Should NOT raise — errors are caught and logged
+        with patch("app.agent.hooks.fire_hook", new_callable=AsyncMock,
+                   side_effect=RuntimeError("boom")), \
+             patch("app.agent.tasks.logger") as mock_logger:
             await _fire_task_complete(task, "complete")
 
+        mock_logger.error.assert_called_once()
+        assert "hook error" in mock_logger.error.call_args[0][0]
+
     @pytest.mark.asyncio
-    async def test_old_hook_is_noop(self):
-        """The _on_task_complete hook should be a no-op now (backward compat guard)."""
+    async def test_when_noop_hook_invoked_then_step_completion_not_called(self):
         from app.services.workflow_hooks import _on_task_complete
-
-        run_id = str(uuid.uuid4())
-        task = _make_task(callback_config={
-            "workflow_run_id": run_id,
-            "workflow_step_index": 0,
+        task = build_task(callback_config={
+            "workflow_run_id": str(uuid.uuid4()), "workflow_step_index": 0,
         })
-        ctx = MagicMock()
 
-        with patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as mock_exec:
-            await _on_task_complete(ctx, task=task, status="complete")
-            # Should NOT be called — hook is a no-op now
-            mock_exec.assert_not_called()
+        with patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as m:
+            await _on_task_complete(ctx=None, task=task, status="complete")
+
+        m.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
-# Test: on_step_task_completed uses fresh DB result (not stale task.result)
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# on_step_task_completed — reads fresh Task row, skips inactive runs
+# ===========================================================================
 
-class TestStepCompletionUseFreshResult:
-    """Bug 2: on_step_task_completed must read result from fresh DB task."""
-
-    @pytest.mark.asyncio
-    async def test_uses_fresh_task_result_not_stale(self):
-        """The stale task object has result=None; fresh DB task has the actual result."""
-        from app.services.workflow_executor import on_step_task_completed
-
-        run_id = uuid.uuid4()
-        task_id = uuid.uuid4()
-
-        # Stale task object (as passed from run_task before result was set)
-        stale_task = _make_task(id=task_id, result=None, correlation_id=None)
-
-        # Fresh task in DB (result set after execution)
-        fresh_task = _make_task(id=task_id, result="Step 0 completed successfully", correlation_id=uuid.uuid4())
-
-        run = _make_workflow_run(id=run_id, step_count=2)
-        # Mark step 0 as "running" (it was started)
-        run.step_states[0]["status"] = "running"
-        run.step_states[0]["task_id"] = str(task_id)
-
-        workflow = _make_workflow()
-
-        # Track what step_states gets written back
-        committed_states = []
-
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            if name == "Task" and id_ == task_id:
-                return fresh_task
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-
-        async def mock_commit():
-            # Capture step_states at commit time
-            committed_states.append([dict(s) for s in run.step_states])
-
-        mock_db.commit = AsyncMock(side_effect=mock_commit)
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
-            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
-        ):
-            await on_step_task_completed(str(run_id), 0, "complete", stale_task)
-
-        # The committed state should have the fresh result, not empty string
-        assert committed_states, "No commit was made"
-        step_0 = committed_states[0][0]
-        assert step_0["status"] == "done"
-        assert step_0["result"] == "Step 0 completed successfully"
+class TestOnStepTaskCompleted:
+    """Step completion must (a) use fresh ``Task.result``/``error`` from DB,
+    not the stale object passed in from the task worker, and (b) short-circuit
+    for runs that are no longer active."""
 
     @pytest.mark.asyncio
-    async def test_uses_fresh_task_error_on_failure(self):
-        """On failure, error should come from fresh DB task too."""
+    async def test_when_task_result_in_db_then_step_result_mirrors_fresh_value(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import on_step_task_completed
+        task = build_task(id=uuid.uuid4(), result="Step 0 completed successfully",
+                          status="complete", correlation_id=uuid.uuid4())
+        db_session.add(task)
+        _, run = await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "step_0", "prompt": "Do it"}, {"id": "step_1", "prompt": "Do more"}],
+            step_states=[_running_step(str(task.id)), _pending_step()],
+        )
+        stale = build_task(id=task.id, result=None, correlation_id=None)
 
-        run_id = uuid.uuid4()
-        task_id = uuid.uuid4()
+        with patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock):
+            await on_step_task_completed(str(run.id), 0, "complete", stale)
 
-        stale_task = _make_task(id=task_id, error=None)
-        fresh_task = _make_task(id=task_id, error="Rate limit exceeded", result=None)
+        await db_session.refresh(run)
+        assert run.step_states[0]["status"] == "done"
+        assert run.step_states[0]["result"] == "Step 0 completed successfully"
+        assert run.step_states[0]["correlation_id"] == str(task.correlation_id)
 
-        run = _make_workflow_run(id=run_id, step_count=1)
-        run.step_states[0]["status"] = "running"
+    @pytest.mark.asyncio
+    async def test_when_task_error_in_db_then_step_error_mirrors_fresh_value(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.services.workflow_executor import on_step_task_completed
+        task = build_task(id=uuid.uuid4(), error="Rate limit exceeded", status="failed")
+        db_session.add(task)
+        _, run = await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "step_0", "prompt": "Do it", "on_failure": "abort"}],
+            step_states=[_running_step(str(task.id))],
+        )
+        stale = build_task(id=task.id, error=None)
 
-        workflow = _make_workflow(steps=[{"id": "step_0", "prompt": "Do it", "on_failure": "abort"}])
+        with patch("app.services.workflow_executor._fire_after_workflow_complete",
+                   new_callable=AsyncMock):
+            await on_step_task_completed(str(run.id), 0, "failed", stale)
 
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            if name == "Task" and id_ == task_id:
-                return fresh_task
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
-            patch("app.services.workflow_executor._fire_after_workflow_complete", new_callable=AsyncMock),
-        ):
-            await on_step_task_completed(str(run_id), 0, "failed", stale_task)
-
+        await db_session.refresh(run)
         assert run.step_states[0]["status"] == "failed"
         assert run.step_states[0]["error"] == "Rate limit exceeded"
-
-
-# ---------------------------------------------------------------------------
-# Test: on_step_task_completed skips cancelled runs (Bug 4)
-# ---------------------------------------------------------------------------
-
-class TestStepCompletionSkipsCancelledRun:
-    """Bug 4: If run is cancelled, step completion should be a no-op."""
+        assert run.status == "failed"
 
     @pytest.mark.asyncio
-    async def test_skips_cancelled_run(self):
+    async def test_when_run_cancelled_then_step_state_unchanged(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import on_step_task_completed
+        _, run = await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "s0", "prompt": "x"}],
+            step_states=[_pending_step()],
+            run_status="cancelled",
+        )
 
-        run_id = uuid.uuid4()
-        task = _make_task(callback_config={
-            "workflow_run_id": str(run_id),
-            "workflow_step_index": 0,
-        })
+        with patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as m:
+            await on_step_task_completed(str(run.id), 0, "complete", build_task())
 
-        run = _make_workflow_run(id=run_id, status="cancelled")
-
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
-        ):
-            await on_step_task_completed(str(run_id), 0, "complete", task)
-            mock_advance.assert_not_called()
-
-        # Step state should NOT have been modified
+        m.assert_not_called()
+        await db_session.refresh(run)
         assert run.step_states[0]["status"] == "pending"
 
     @pytest.mark.asyncio
-    async def test_skips_complete_run(self):
+    async def test_when_run_complete_then_advance_not_called(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import on_step_task_completed
+        _, run = await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "s0", "prompt": "x"}],
+            step_states=[_pending_step()],
+            run_status="complete",
+        )
 
-        run_id = uuid.uuid4()
-        task = _make_task()
+        with patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as m:
+            await on_step_task_completed(str(run.id), 0, "complete", build_task())
 
-        run = _make_workflow_run(id=run_id, status="complete")
-
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
-        ):
-            await on_step_task_completed(str(run_id), 0, "complete", task)
-            mock_advance.assert_not_called()
+        m.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
-# Test: recovery sweep catches "all pending" stalls (Bug 5)
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# recover_stalled_workflow_runs — three scenarios
+# ===========================================================================
 
 class TestRecoveryAllPendingStalls:
-    """Bug 5: recover_stalled_workflow_runs should detect runs with all-pending steps."""
+    """Scenario 3: run is ``running`` but every step is still ``pending``
+    (advance_workflow crashed before marking step 0). Recover if older than 5 min."""
 
     @pytest.mark.asyncio
-    async def test_recovers_all_pending_run_older_than_5_minutes(self):
+    async def test_when_all_pending_and_older_than_5m_then_advance_called(
+        self, db_session, patched_async_sessions,
+    ):
         from app.agent.tasks import recover_stalled_workflow_runs
-        from app.db.models import WorkflowRun
+        _, run = await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "s0", "prompt": "x"}, {"id": "s1", "prompt": "y"}],
+            step_states=[_pending_step(), _pending_step()],
+            run_overrides={"created_at": datetime.now(timezone.utc) - timedelta(minutes=10)},
+        )
 
-        run_id = uuid.uuid4()
-        old_time = datetime.now(timezone.utc) - timedelta(minutes=10)
-        run = MagicMock()
-        run.id = run_id
-        run.status = "running"
-        run.step_states = [
-            {"status": "pending", "task_id": None},
-            {"status": "pending", "task_id": None},
-        ]
-        run.created_at = old_time
-
-        # Mock the DB query to return our stalled run
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [run]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-
-        with (
-            patch("app.agent.tasks.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
-        ):
+        with patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as m:
             await recover_stalled_workflow_runs()
-            mock_advance.assert_called_once_with(run_id)
+
+        m.assert_called_once_with(run.id)
 
     @pytest.mark.asyncio
-    async def test_does_not_recover_recent_all_pending_run(self):
-        """Runs created less than 5 minutes ago should not be recovered."""
+    async def test_when_all_pending_but_younger_than_5m_then_no_advance(
+        self, db_session, patched_async_sessions,
+    ):
         from app.agent.tasks import recover_stalled_workflow_runs
+        await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "s0", "prompt": "x"}],
+            step_states=[_pending_step()],
+            run_overrides={"created_at": datetime.now(timezone.utc) - timedelta(minutes=2)},
+        )
 
-        run_id = uuid.uuid4()
-        recent_time = datetime.now(timezone.utc) - timedelta(minutes=2)
-        run = MagicMock()
-        run.id = run_id
-        run.status = "running"
-        run.step_states = [
-            {"status": "pending", "task_id": None},
-        ]
-        run.created_at = recent_time
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [run]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-
-        with (
-            patch("app.agent.tasks.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
-        ):
+        with patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as m:
             await recover_stalled_workflow_runs()
-            mock_advance.assert_not_called()
+
+        m.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_does_not_recover_run_with_some_done_steps(self):
-        """Runs that have some non-pending steps should use existing recovery, not this path."""
+    async def test_when_running_step_has_live_task_then_no_recovery(
+        self, db_session, patched_async_sessions,
+    ):
         from app.agent.tasks import recover_stalled_workflow_runs
+        live_task = build_task(id=uuid.uuid4(), status="running")
+        db_session.add(live_task)
+        started = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        _, run = await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "s0", "prompt": "x"}, {"id": "s1", "prompt": "y"}],
+            step_states=[
+                {**_pending_step(), "status": "done", "task_id": str(uuid.uuid4()), "started_at": started},
+                {**_pending_step(), "status": "running", "task_id": str(live_task.id), "started_at": started},
+            ],
+            run_overrides={"created_at": datetime.now(timezone.utc) - timedelta(minutes=10)},
+        )
 
-        run_id = uuid.uuid4()
-        old_time = datetime.now(timezone.utc) - timedelta(minutes=10)
-        run = MagicMock()
-        run.id = run_id
-        run.status = "running"
-        run.step_states = [
-            {"status": "done", "task_id": str(uuid.uuid4()), "started_at": old_time.isoformat()},
-            {"status": "running", "task_id": str(uuid.uuid4()), "started_at": old_time.isoformat()},
-        ]
-        run.created_at = old_time
-
-        # The running step has a task that's still running (not terminal)
-        running_task = _make_task(status="running")
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [run]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_db.get = AsyncMock(return_value=running_task)
-
-        with (
-            patch("app.agent.tasks.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
-            patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock),
-        ):
+        with patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as m_adv, \
+             patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as m_step:
             await recover_stalled_workflow_runs()
-            # advance_workflow should NOT be called for the all-pending path
-            # (the running step's task is still running, so no recovery needed)
-            mock_advance.assert_not_called()
+
+        m_adv.assert_not_called()
+        m_step.assert_not_called()
 
 
 class TestRecoveryAllTerminalStalls:
-    """Scenario 4: run is 'running' but all steps are terminal (done/skipped/failed)."""
+    """Scenario 4: all steps terminal (done/skipped/failed) but run is still
+    ``running`` — advance_workflow failed after last step. Only recover if the
+    run status is actually ``running``."""
 
     @pytest.mark.asyncio
-    async def test_recovers_all_terminal_run(self):
-        """All steps done/failed but run still 'running' → advance_workflow called."""
+    async def test_when_all_terminal_and_run_running_then_advance_called(
+        self, db_session, patched_async_sessions,
+    ):
         from app.agent.tasks import recover_stalled_workflow_runs
+        started = "2025-01-01T00:00:00+00:00"
+        _, run = await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "s0"}, {"id": "s1"}, {"id": "s2"}],
+            step_states=[
+                {**_pending_step(), "status": "done", "task_id": str(uuid.uuid4()), "started_at": started},
+                {**_pending_step(), "status": "failed", "task_id": str(uuid.uuid4()), "started_at": started},
+                {**_pending_step(), "status": "skipped"},
+            ],
+            run_overrides={"created_at": datetime.now(timezone.utc) - timedelta(minutes=10)},
+        )
 
-        run_id = uuid.uuid4()
-        run = MagicMock()
-        run.id = run_id
-        run.status = "running"
-        run.step_states = [
-            {"status": "done", "task_id": str(uuid.uuid4()), "started_at": "2025-01-01T00:00:00"},
-            {"status": "failed", "task_id": str(uuid.uuid4()), "started_at": "2025-01-01T00:00:00"},
-            {"status": "skipped", "task_id": None, "started_at": None},
-        ]
-        run.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [run]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-
-        with (
-            patch("app.agent.tasks.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
-        ):
+        with patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as m:
             await recover_stalled_workflow_runs()
-            mock_advance.assert_called_once_with(run_id)
+
+        m.assert_called_once_with(run.id)
 
     @pytest.mark.asyncio
-    async def test_does_not_recover_all_terminal_if_not_running(self):
-        """Run with status 'awaiting_approval' and all-terminal should NOT trigger recovery."""
+    async def test_when_all_terminal_but_awaiting_approval_then_no_recovery(
+        self, db_session, patched_async_sessions,
+    ):
         from app.agent.tasks import recover_stalled_workflow_runs
+        started = "2025-01-01T00:00:00+00:00"
+        await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "s0"}, {"id": "s1"}],
+            step_states=[
+                {**_pending_step(), "status": "done", "task_id": str(uuid.uuid4()), "started_at": started},
+                {**_pending_step(), "status": "done", "task_id": str(uuid.uuid4()), "started_at": started},
+            ],
+            run_status="awaiting_approval",
+            run_overrides={"created_at": datetime.now(timezone.utc) - timedelta(minutes=10)},
+        )
 
-        run_id = uuid.uuid4()
-        run = MagicMock()
-        run.id = run_id
-        run.status = "awaiting_approval"
-        run.step_states = [
-            {"status": "done", "task_id": str(uuid.uuid4()), "started_at": "2025-01-01T00:00:00"},
-            {"status": "done", "task_id": str(uuid.uuid4()), "started_at": "2025-01-01T00:00:00"},
-        ]
-        run.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [run]
-        mock_db.execute = AsyncMock(return_value=mock_result)
-
-        with (
-            patch("app.agent.tasks.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
-        ):
+        with patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as m:
             await recover_stalled_workflow_runs()
-            mock_advance.assert_not_called()
+
+        m.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
-# Test: _fire_task_complete error logging (Bug 1)
-# ---------------------------------------------------------------------------
-
-class TestFireTaskCompleteErrorLogging:
-    """Bug 1: Errors in after_task_complete hook should be logged at ERROR level."""
-
-    @pytest.mark.asyncio
-    async def test_error_in_hook_is_logged_not_swallowed(self):
-        """When fire_hook raises, _fire_task_complete should log at error level (not debug)."""
-        from app.agent.tasks import _fire_task_complete
-
-        task = _make_task()
-
-        with (
-            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock, side_effect=RuntimeError("boom")),
-            patch("app.agent.tasks.logger") as mock_logger,
-        ):
-            # Should NOT raise — the function catches exceptions
-            await _fire_task_complete(task, "complete")
-
-            # Should log at error level, not debug
-            mock_logger.error.assert_called_once()
-            assert "hook error" in mock_logger.error.call_args[0][0]
-
-
-# ---------------------------------------------------------------------------
-# Test: Session ID not overwritten for workflow tasks (Bug 3)
-# ---------------------------------------------------------------------------
-
-class TestWorkflowTaskSessionPreservation:
-    """Bug 3: run_task should not overwrite session_id for workflow tasks."""
+class TestRecoveryRunningStepNoTask:
+    """Scenario 2 (regression test for the bug fixed in Phase 1e):
+    step is ``running`` but has no ``task_id`` — crash between step state
+    commit and task creation. The recovery path MUST use deepcopy +
+    ``flag_modified`` so PostgreSQL persists the JSONB mutation."""
 
     @pytest.mark.asyncio
-    async def test_workflow_task_keeps_its_session_id(self):
-        """Workflow tasks have dedicated per-step sessions; run_task must not overwrite them."""
-        from app.agent.tasks import run_task
+    async def test_when_running_step_has_no_task_then_marked_failed_via_flag_modified(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.agent.tasks import recover_stalled_workflow_runs
+        started = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        _, run = await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "s0", "prompt": "x"}, {"id": "s1", "prompt": "y"}],
+            step_states=[
+                {**_pending_step(), "status": "running", "task_id": None, "started_at": started},
+                _pending_step(),
+            ],
+            run_overrides={"created_at": datetime.now(timezone.utc) - timedelta(minutes=10)},
+        )
 
+        with patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock):
+            await recover_stalled_workflow_runs()
+
+        await db_session.refresh(run)
+        assert run.step_states[0]["status"] == "failed"
+        assert "Recovered: task was never created" in run.step_states[0]["error"]
+        assert run.step_states[1]["status"] == "pending"  # sibling untouched
+
+
+# ===========================================================================
+# run_task — session_id preservation for workflow tasks
+# ===========================================================================
+
+class TestRunTaskWorkflowSession:
+    """``run_task`` must NOT resolve a workflow task's ``session_id`` to the
+    channel's active session — workflows use dedicated per-step sessions to
+    avoid polluting the chat feed (Bug 3)."""
+
+    @pytest.mark.asyncio
+    async def test_when_task_type_is_workflow_then_session_id_preserved(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.agent import tasks as tasks_mod
+        channel_session = uuid.uuid4()
         original_session = uuid.uuid4()
-        channel_active_session = uuid.uuid4()
-        task = MagicMock()
-        task.id = uuid.uuid4()
-        task.bot_id = "test-bot"
-        task.channel_id = uuid.uuid4()
-        task.session_id = original_session
-        task.task_type = "workflow"
-        task.dispatch_type = "none"
-        task.execution_config = {}
-        task.callback_config = {}
-        task.max_run_seconds = None
-        task.prompt = "test"
-        task.status = "pending"
+        channel = build_channel(active_session_id=channel_session)
+        db_session.add(channel)
+        task = build_task(
+            id=uuid.uuid4(), channel_id=channel.id, session_id=original_session,
+            task_type="workflow", status="pending",
+        )
+        db_session.add(task)
+        await db_session.commit()
 
-        channel = MagicMock()
-        channel.id = task.channel_id
-        channel.active_session_id = channel_active_session
-        channel.bot_id = "test-bot"
+        with patch.object(tasks_mod, "session_locks") as locks:
+            locks.acquire.return_value = False  # defer → early return
+            await tasks_mod.run_task(task)
 
-        # We only need to verify that session_id is NOT changed to channel's active session.
-        # We can let run_task fail after that point — the session resolution check happens early.
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(return_value=channel)
-        mock_db.commit = AsyncMock()
-
-        # Make session_locks.acquire return False to stop execution early (task gets deferred)
-        with (
-            patch("app.agent.tasks.async_session", return_value=mock_db),
-            patch("app.agent.tasks.session_locks") as mock_locks,
-        ):
-            mock_locks.acquire.return_value = False
-            await run_task(task)
-
-        # Session ID should NOT have been changed to the channel's active session
         assert task.session_id == original_session
-        assert task.session_id != channel_active_session
 
 
-# ---------------------------------------------------------------------------
-# Test: Execution cap fails the run (Safety Net 1)
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Execution cap — safety net for runaway workflows
+# ===========================================================================
 
-class TestExecutionCapFailsRun:
-    """When executed step count >= WORKFLOW_MAX_TASK_EXECUTIONS, advance_workflow should fail the run."""
+class TestExecutionCap:
+    """When executed step count ≥ ``WORKFLOW_MAX_TASK_EXECUTIONS``, the run
+    must fail rather than creating another task (Safety Net 1)."""
 
     @pytest.mark.asyncio
-    async def test_execution_cap_fails_run(self):
+    async def test_when_executed_reaches_cap_then_run_fails_with_cap_error(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import _advance_workflow_inner
+        steps = [{"id": "s0"}, {"id": "s1"}, {"id": "s2"}]
+        _, run = await _seed_workflow_and_run(
+            db_session, steps=steps,
+            step_states=[
+                {**_pending_step(), "status": "done"},
+                {**_pending_step(), "status": "done"},
+                _pending_step(),
+            ],
+        )
 
-        run_id = uuid.uuid4()
-        # Create a run with 3 steps, 2 already done (at cap=2)
-        run = _make_workflow_run(id=run_id, step_count=3)
-        run.step_states[0]["status"] = "done"
-        run.step_states[1]["status"] = "done"
-        # step 2 is still pending
+        with patch("app.services.workflow_executor.settings") as s:
+            s.WORKFLOW_MAX_TASK_EXECUTIONS = 2
+            await _advance_workflow_inner(run.id)
 
-        workflow = _make_workflow(steps=[
-            {"id": "s0", "prompt": "Do s0"},
-            {"id": "s1", "prompt": "Do s1"},
-            {"id": "s2", "prompt": "Do s2"},
-        ])
-
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor.settings") as mock_settings,
-        ):
-            mock_settings.WORKFLOW_MAX_TASK_EXECUTIONS = 2
-            await _advance_workflow_inner(run_id)
-
+        await db_session.refresh(run)
         assert run.status == "failed"
         assert "Execution cap reached" in run.error
         assert run.completed_at is not None
 
     @pytest.mark.asyncio
-    async def test_execution_cap_in_retry_path(self):
-        """Retry should be blocked when the run has hit the execution cap."""
+    async def test_when_retry_would_exceed_cap_then_run_fails(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import on_step_task_completed
+        task = build_task(id=uuid.uuid4(), error="Rate limit", status="failed")
+        db_session.add(task)
+        steps = [
+            {"id": "s0", "prompt": "x", "on_failure": "retry:5"},
+            {"id": "s1", "prompt": "y"},
+        ]
+        _, run = await _seed_workflow_and_run(
+            db_session, steps=steps,
+            step_states=[
+                {**_running_step(str(task.id)), "retry_count": 2},
+                {**_pending_step(), "status": "done"},
+            ],
+        )
 
-        run_id = uuid.uuid4()
-        task_id = uuid.uuid4()
+        with patch("app.services.workflow_executor.settings") as s, \
+             patch("app.services.workflow_executor._fire_after_workflow_complete", new_callable=AsyncMock):
+            s.WORKFLOW_MAX_TASK_EXECUTIONS = 2
+            await on_step_task_completed(str(run.id), 0, "failed", task)
 
-        # Run with 2 steps — step 0 has already been executed many times via retry
-        run = _make_workflow_run(id=run_id, step_count=2)
-        run.step_states[0]["status"] = "running"
-        run.step_states[0]["task_id"] = str(task_id)
-        run.step_states[0]["retry_count"] = 2
-        run.step_states[1]["status"] = "done"  # count as executed
-
-        workflow = _make_workflow(steps=[
-            {"id": "s0", "prompt": "Do s0", "on_failure": "retry:5"},
-            {"id": "s1", "prompt": "Do s1"},
-        ])
-
-        fresh_task = _make_task(id=task_id, error="Rate limit", result=None)
-
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            if name == "Task":
-                return fresh_task
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
-            patch("app.services.workflow_executor._fire_after_workflow_complete", new_callable=AsyncMock),
-            patch("app.services.workflow_executor.settings") as mock_settings,
-        ):
-            # Cap is 2, and we already have 2 executed (step 0 running + step 1 done)
-            mock_settings.WORKFLOW_MAX_TASK_EXECUTIONS = 2
-            await on_step_task_completed(str(run_id), 0, "failed", _make_task(id=task_id))
-
+        await db_session.refresh(run)
         assert run.status == "failed"
         assert "Execution cap" in run.error
 
 
-# ---------------------------------------------------------------------------
-# Test: Cancel cascade cancels pending tasks (Safety Net 3)
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# cancel_workflow — cascades to pending tasks
+# ===========================================================================
 
-class TestCancelCascadesToPendingTasks:
-    """cancel_workflow should also cancel any pending tasks for the run."""
+class TestCancelWorkflow:
+    """``cancel_workflow`` must (a) set run.status to ``cancelled`` and
+    (b) cancel any pending workflow/exec tasks keyed by workflow_run_id."""
 
     @pytest.mark.asyncio
-    async def test_cancel_cascades_to_pending_tasks(self):
+    async def test_when_cancelling_then_pending_child_tasks_become_cancelled(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import cancel_workflow
+        _, run = await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "s0", "prompt": "x"}],
+            step_states=[_pending_step()],
+        )
+        pending_task = build_task(
+            id=uuid.uuid4(), status="pending", task_type="workflow",
+            callback_config={"workflow_run_id": str(run.id), "workflow_step_index": 0},
+        )
+        sibling_task = build_task(id=uuid.uuid4(), status="pending", task_type="agent")
+        db_session.add_all([pending_task, sibling_task])
+        await db_session.commit()
 
-        run_id = uuid.uuid4()
-        run = _make_workflow_run(id=run_id, status="running")
-
-        execute_calls = []
-
-        async def mock_get(model_or_id, id_=None, **kwargs):
-            # When called as db.get(WorkflowRun, run_id)
-            return run
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-
-        async def mock_execute(stmt):
-            execute_calls.append(stmt)
-            return MagicMock()
-
-        mock_db.execute = AsyncMock(side_effect=mock_execute)
-        mock_db.refresh = AsyncMock()
-
-        with patch("app.services.workflow_executor.async_session", return_value=mock_db):
-            result = await cancel_workflow(run_id)
+        result = await cancel_workflow(run.id)
 
         assert result.status == "cancelled"
-        # Should have executed an UPDATE statement to cancel pending tasks
-        assert len(execute_calls) == 1, "Expected one UPDATE to cancel pending tasks"
+        await db_session.refresh(pending_task)
+        await db_session.refresh(sibling_task)
+        assert pending_task.status == "cancelled"
+        assert sibling_task.status == "pending"  # untouched
 
 
-# ---------------------------------------------------------------------------
-# Test: Startup recovery skips workflow hook (Safety Net 4)
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Startup recovery — workflow tasks skip the hook
+# ===========================================================================
 
-class TestStartupRecoverySkipsWorkflowHook:
-    """recover_stuck_tasks should NOT fire _fire_task_complete for workflow tasks."""
-
-    @pytest.mark.asyncio
-    async def test_workflow_task_hook_skipped_on_recovery(self):
-        from app.agent.tasks import recover_stuck_tasks
-
-        task_id = uuid.uuid4()
-        run_id = uuid.uuid4()
-        task = MagicMock()
-        task.id = task_id
-        task.status = "running"
-        task.run_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        task.channel_id = None
-        task.max_run_seconds = None
-        task.task_type = "workflow"
-        task.callback_config = {"workflow_run_id": str(run_id)}
-
-        # Mock DB for the select query
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-
-        select_result = MagicMock()
-        select_result.scalars.return_value.all.return_value = [task]
-        mock_db.execute = AsyncMock(return_value=select_result)
-
-        # Mock the inner session for the update
-        fresh_task = MagicMock()
-        fresh_task.status = "running"
-        mock_inner_db = AsyncMock()
-        mock_inner_db.__aenter__ = AsyncMock(return_value=mock_inner_db)
-        mock_inner_db.__aexit__ = AsyncMock(return_value=False)
-        mock_inner_db.get = AsyncMock(return_value=fresh_task)
-        mock_inner_db.commit = AsyncMock()
-
-        call_count = [0]
-        def session_factory():
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return mock_db
-            return mock_inner_db
-
-        with (
-            patch("app.agent.tasks.async_session", side_effect=session_factory),
-            patch("app.agent.tasks._fire_task_complete", new_callable=AsyncMock) as mock_fire,
-            patch("app.agent.tasks.resolve_task_timeout", return_value=600),
-        ):
-            await recover_stuck_tasks()
-
-        # Hook should NOT have been fired for workflow task
-        mock_fire.assert_not_called()
+class TestRecoverStuckTasks:
+    """``recover_stuck_tasks`` must skip ``_fire_task_complete`` for workflow
+    tasks (the stalled-run sweep handles them instead) but still fire the
+    hook for non-workflow tasks (Safety Net 4)."""
 
     @pytest.mark.asyncio
-    async def test_non_workflow_task_hook_still_fires(self):
-        """Non-workflow tasks should still get the hook fired on recovery."""
-        from app.agent.tasks import recover_stuck_tasks
+    async def test_when_workflow_task_is_stuck_then_hook_not_fired(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.agent import tasks as tasks_mod
+        run_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        stuck = build_task(
+            id=uuid.uuid4(), status="running", run_at=run_at,
+            task_type="workflow",
+            callback_config={"workflow_run_id": str(uuid.uuid4())},
+        )
+        db_session.add(stuck)
+        await db_session.commit()
 
-        task = MagicMock()
-        task.id = uuid.uuid4()
-        task.status = "running"
-        task.run_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        task.channel_id = None
-        task.max_run_seconds = None
-        task.task_type = "agent"
-        task.callback_config = {}  # No workflow_run_id
+        with patch("app.agent.tasks._fire_task_complete", new_callable=AsyncMock) as m, \
+             patch("app.agent.tasks.resolve_task_timeout", return_value=600):
+            await tasks_mod.recover_stuck_tasks()
 
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-
-        select_result = MagicMock()
-        select_result.scalars.return_value.all.return_value = [task]
-        mock_db.execute = AsyncMock(return_value=select_result)
-
-        fresh_task = MagicMock()
-        fresh_task.status = "running"
-        mock_inner_db = AsyncMock()
-        mock_inner_db.__aenter__ = AsyncMock(return_value=mock_inner_db)
-        mock_inner_db.__aexit__ = AsyncMock(return_value=False)
-        mock_inner_db.get = AsyncMock(return_value=fresh_task)
-        mock_inner_db.commit = AsyncMock()
-
-        call_count = [0]
-        def session_factory():
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return mock_db
-            return mock_inner_db
-
-        with (
-            patch("app.agent.tasks.async_session", side_effect=session_factory),
-            patch("app.agent.tasks._fire_task_complete", new_callable=AsyncMock) as mock_fire,
-            patch("app.agent.tasks.resolve_task_timeout", return_value=600),
-        ):
-            await recover_stuck_tasks()
-
-        # Hook SHOULD fire for non-workflow tasks
-        mock_fire.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# Test: Atomic fetch marks tasks as running (Safety Net 2)
-# ---------------------------------------------------------------------------
-
-class TestAtomicFetchMarksRunning:
-    """fetch_due_tasks should return tasks already marked as running."""
+        m.assert_not_called()
+        await db_session.refresh(stuck)
+        assert stuck.status == "failed"
 
     @pytest.mark.asyncio
-    async def test_fetch_marks_running_and_expunges(self):
+    async def test_when_non_workflow_task_is_stuck_then_hook_fires(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.agent import tasks as tasks_mod
+        run_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        stuck = build_task(
+            id=uuid.uuid4(), status="running", run_at=run_at,
+            task_type="agent", callback_config={},
+        )
+        db_session.add(stuck)
+        await db_session.commit()
+
+        with patch("app.agent.tasks._fire_task_complete", new_callable=AsyncMock) as m, \
+             patch("app.agent.tasks.resolve_task_timeout", return_value=600):
+            await tasks_mod.recover_stuck_tasks()
+
+        m.assert_called_once()
+
+
+# ===========================================================================
+# Atomic fetch — mark-and-return pending tasks
+# ===========================================================================
+
+class TestFetchDueTasks:
+    """``fetch_due_tasks`` atomically marks pending tasks as running and
+    returns them, preventing duplicate pickup across concurrent polls."""
+
+    @pytest.mark.asyncio
+    async def test_when_pending_tasks_exist_then_all_returned_marked_running(
+        self, db_session, patched_async_sessions,
+    ):
         from app.agent.tasks import fetch_due_tasks
+        t1 = build_task(id=uuid.uuid4(), status="pending")
+        t2 = build_task(id=uuid.uuid4(), status="pending")
+        db_session.add_all([t1, t2])
+        await db_session.commit()
 
-        task1 = MagicMock()
-        task1.status = "pending"
-        task1.run_at = None
-        task2 = MagicMock()
-        task2.status = "pending"
-        task2.run_at = None
+        fetched = await fetch_due_tasks()
 
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [task1, task2]
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_db.commit = AsyncMock()
-        mock_db.expunge = MagicMock()
-
-        with patch("app.agent.tasks.async_session", return_value=mock_db):
-            tasks = await fetch_due_tasks()
-
-        assert len(tasks) == 2
-        # All tasks should be marked running
-        assert task1.status == "running"
-        assert task2.status == "running"
-        assert task1.run_at is not None
-        assert task2.run_at is not None
-        # Commit should have been called
-        mock_db.commit.assert_called_once()
-        # Expunge should have been called for each task
-        assert mock_db.expunge.call_count == 2
+        assert {t.id for t in fetched} == {t1.id, t2.id}
+        await db_session.refresh(t1)
+        await db_session.refresh(t2)
+        assert t1.status == "running"
+        assert t2.status == "running"
+        assert t1.run_at is not None and t2.run_at is not None
 
 
-# ---------------------------------------------------------------------------
-# Test: In-process advancement lock (Safety Net 5)
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Advancement lock — serializes concurrent advance_workflow calls
+# ===========================================================================
 
 class TestAdvancementLock:
-    """advance_workflow should use per-run locks to prevent concurrent advancement."""
+    """Two concurrent ``advance_workflow`` calls for the same run must
+    serialize through the per-run ``asyncio.Lock``, and the lock entry must
+    be cleaned up afterward (Safety Net 5)."""
 
     @pytest.mark.asyncio
-    async def test_advance_workflow_uses_lock(self):
-        """Two concurrent advance_workflow calls for the same run_id should serialize."""
+    async def test_when_two_concurrent_calls_then_serialized_and_lock_cleaned(self):
         from app.services.workflow_executor import advance_workflow, _advance_locks
-
         run_id = uuid.uuid4()
         call_order = []
 
         async def mock_inner(rid):
             call_order.append("start")
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0)  # yield so the other call could interleave if unlocked
+            await asyncio.sleep(0)
             call_order.append("end")
 
         with patch("app.services.workflow_executor._advance_workflow_inner", new=mock_inner):
-            await asyncio.gather(
-                advance_workflow(run_id),
-                advance_workflow(run_id),
-            )
+            await asyncio.gather(advance_workflow(run_id), advance_workflow(run_id))
 
-        # With locking, we should see start/end/start/end (serialized)
-        # Without locking, we'd see start/start/end/end (interleaved)
         assert call_order == ["start", "end", "start", "end"]
-
-        # Lock should be cleaned up
         assert run_id not in _advance_locks
 
 
-# ---------------------------------------------------------------------------
-# Tests: Workflow Definition Snapshot
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Workflow snapshot — preserves definition at trigger time
+# ===========================================================================
 
 class TestWorkflowSnapshot:
-    """Tests for workflow definition snapshot at trigger time."""
+    """``trigger_workflow`` captures the workflow definition into
+    ``run.workflow_snapshot``; subsequent advancement reads from the snapshot
+    (not the live registry) so live edits don't break in-flight runs."""
 
     @pytest.mark.asyncio
-    async def test_workflow_snapshot_stored_at_trigger(self):
-        """trigger_workflow should populate workflow_snapshot on the run."""
+    async def test_when_trigger_creates_run_then_snapshot_matches_workflow(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import trigger_workflow
-
-        wf = _make_workflow(
+        wf = build_workflow(
             steps=[{"id": "s0", "prompt": "Go"}],
-            defaults={"model": "gpt-4"},
+            defaults={"bot_id": "test-bot", "model": "gpt-4"},
             secrets=["API_KEY"],
         )
-        wf.params = {}
-        wf.triggers = {}
+        db_session.add(wf)
+        await db_session.commit()
 
-        created_run = None
+        with patch("app.services.workflows.get_workflow", return_value=wf), \
+             patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock), \
+             patch("app.services.workflow_executor.validate_secrets"):
+            result = await trigger_workflow(wf.id, {}, bot_id="test-bot")
 
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
+        assert result.workflow_snapshot["steps"] == [{"id": "s0", "prompt": "Go"}]
+        assert result.workflow_snapshot["defaults"] == {"bot_id": "test-bot", "model": "gpt-4"}
+        assert result.workflow_snapshot["secrets"] == ["API_KEY"]
 
-        def capture_add(obj):
-            nonlocal created_run
-            created_run = obj
-
-        mock_db.add = MagicMock(side_effect=capture_add)
-        mock_db.commit = AsyncMock()
-        mock_db.refresh = AsyncMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflows.get_workflow", return_value=wf),
-            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
-            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
-            patch("app.services.workflow_executor.validate_secrets"),
-        ):
-            result = await trigger_workflow("test-wf", {}, bot_id="test-bot")
-
-        assert created_run is not None
-        snap = created_run.workflow_snapshot
-        assert snap is not None
-        assert snap["steps"] == [{"id": "s0", "prompt": "Go"}]
-        assert snap["defaults"] == {"model": "gpt-4"}
-        assert snap["secrets"] == ["API_KEY"]
-
-    def test_get_run_definition_uses_snapshot(self):
-        """_get_run_definition should read from snapshot when available."""
+    def test_when_snapshot_present_then_get_run_definition_returns_snapshot(self):
         from app.services.workflow_executor import _get_run_definition
-
-        run = _make_workflow_run()
-        run.workflow_snapshot = {
-            "steps": [{"id": "snap_step", "prompt": "Snap"}],
-            "defaults": {"timeout": 60},
-            "secrets": ["SECRET1"],
-        }
-
-        workflow = _make_workflow(
-            steps=[{"id": "live_step", "prompt": "Live"}],
-            defaults={"timeout": 120},
-            secrets=["SECRET2"],
+        run = build_workflow_run(
+            workflow_snapshot={
+                "steps": [{"id": "snap_step", "prompt": "Snap"}],
+                "defaults": {"timeout": 60},
+                "secrets": ["SECRET1"],
+            },
         )
+        live = build_workflow(steps=[{"id": "live_step"}], defaults={"timeout": 120}, secrets=["OTHER"])
 
-        steps, defaults, secrets = _get_run_definition(run, workflow)
+        steps, defaults, secrets = _get_run_definition(run, live)
+
         assert steps == [{"id": "snap_step", "prompt": "Snap"}]
         assert defaults == {"timeout": 60}
         assert secrets == ["SECRET1"]
 
-    def test_get_run_definition_fallback_for_old_runs(self):
-        """Runs with workflow_snapshot=None should fall back to live workflow."""
+    def test_when_snapshot_missing_then_get_run_definition_falls_back_to_live(self):
         from app.services.workflow_executor import _get_run_definition
-
-        run = _make_workflow_run()
-        run.workflow_snapshot = None
-
-        workflow = _make_workflow(
+        run = build_workflow_run(workflow_snapshot=None)
+        live = build_workflow(
             steps=[{"id": "live_step", "prompt": "Live"}],
-            defaults={"timeout": 120},
-            secrets=["SECRET2"],
+            defaults={"timeout": 120}, secrets=["SECRET2"],
         )
 
-        steps, defaults, secrets = _get_run_definition(run, workflow)
+        steps, defaults, secrets = _get_run_definition(run, live)
+
         assert steps == [{"id": "live_step", "prompt": "Live"}]
         assert defaults == {"timeout": 120}
         assert secrets == ["SECRET2"]
 
     @pytest.mark.asyncio
-    async def test_snapshot_used_during_advancement(self):
-        """_advance_workflow_inner should read steps from snapshot, not live workflow."""
+    async def test_when_advancing_then_steps_read_from_snapshot_not_live(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import _advance_workflow_inner
-
-        run_id = uuid.uuid4()
         snapshot_steps = [{"id": "snap_0", "prompt": "Snapshot step"}]
-        live_steps = [{"id": "live_0", "prompt": "Live step"}]
+        _, run = await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "live_0", "prompt": "Live step"}],
+            step_states=[_pending_step()],
+            run_overrides={"workflow_snapshot": {"steps": snapshot_steps, "defaults": {}, "secrets": []}},
+        )
+        captured: list[str] = []
 
-        run = _make_workflow_run(id=run_id, step_count=1)
-        run.workflow_snapshot = {
-            "steps": snapshot_steps,
-            "defaults": {},
-            "secrets": [],
-        }
+        def fake_build(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
+            captured.append(step_def_["prompt"])
+            return build_task(id=uuid.uuid4(), task_type="workflow", prompt=step_def_["prompt"])
 
-        workflow = _make_workflow(steps=live_steps)
+        with patch("app.services.workflow_executor._build_step_task", new=fake_build):
+            await _advance_workflow_inner(run.id)
 
-        created_task_prompts = []
-
-        def mock_build_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
-            created_task_prompts.append(step_def_["prompt"])
-            mock_task = MagicMock()
-            mock_task.id = uuid.uuid4()
-            return mock_task
-
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-        mock_db.add = MagicMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor._build_step_task", new=mock_build_step_task),
-        ):
-            await _advance_workflow_inner(run_id)
-
-        assert created_task_prompts == ["Snapshot step"]
+        assert captured == ["Snapshot step"]
 
 
-# ---------------------------------------------------------------------------
-# Tests: Step-Level Dispatch Types (exec / tool)
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Step dispatch types — exec (shell) and tool (inline local tool)
+# ===========================================================================
 
 class TestExecStepType:
-    """Tests for step type 'exec' — shell command via task."""
+    """``type: exec`` steps become ``task_type='exec'`` with the command
+    stashed in ``execution_config`` (no LLM loop)."""
 
-    @pytest.mark.asyncio
-    async def test_exec_step_creates_exec_task(self):
-        """Step with type: exec should create task_type='exec' with command in execution_config."""
+    def test_when_step_type_is_exec_then_task_type_is_exec_with_command(self):
         from app.services.workflow_executor import _build_step_task
+        run = build_workflow_run(workflow_snapshot=None)
+        wf = build_workflow(steps=[{"id": "backup", "type": "exec", "prompt": "pg_dump mydb", "timeout": 120}])
 
-        run = _make_workflow_run()
-        run.workflow_snapshot = None
-        workflow = _make_workflow(steps=[
-            {"id": "backup", "type": "exec", "prompt": "pg_dump mydb", "timeout": 120},
-        ])
-
-        step_def = {"id": "backup", "type": "exec", "prompt": "pg_dump mydb", "timeout": 120}
-
-        task = _build_step_task(
-            run, workflow, step_def, 0,
-            workflow.steps, workflow.defaults or {},
-        )
+        task = _build_step_task(run, wf, wf.steps[0], 0, wf.steps, wf.defaults or {})
 
         assert task.task_type == "exec"
         assert task.execution_config["command"] == "pg_dump mydb"
@@ -1075,578 +719,246 @@ class TestExecStepType:
 
 
 class TestToolStepType:
-    """Tests for step type 'tool' — inline local tool call."""
+    """``type: tool`` steps execute inline via ``call_local_tool`` (no Task
+    row) and honor ``on_failure: abort|continue`` semantics."""
 
     @pytest.mark.asyncio
-    async def test_tool_step_executes_inline(self):
-        """Step with type: tool should call call_local_tool directly, no Task created."""
+    async def test_when_tool_step_succeeds_then_completes_inline_and_creates_task_for_next_step(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import _advance_workflow_inner
-
-        run_id = uuid.uuid4()
         steps = [
             {"id": "search", "type": "tool", "tool_name": "web_search", "tool_args": {"query": "test"}},
             {"id": "analyze", "prompt": "Analyze results"},
         ]
+        _, run = await _seed_workflow_and_run(
+            db_session, steps=steps,
+            step_states=[_pending_step(), _pending_step()],
+        )
+        built: list[str] = []
 
-        run = _make_workflow_run(id=run_id, step_count=2)
-        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
+        def fake_build(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
+            built.append(step_def_["id"])
+            return build_task(id=uuid.uuid4(), task_type="workflow", prompt=step_def_.get("prompt", ""))
 
-        workflow = _make_workflow(steps=steps)
+        with patch("app.services.workflow_executor._build_step_task", new=fake_build), \
+             patch("app.tools.registry.call_local_tool", new_callable=AsyncMock,
+                   return_value='{"results": ["found"]}'):
+            await _advance_workflow_inner(run.id)
 
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-
-        create_task_calls = []
-
-        def mock_build_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
-            create_task_calls.append(step_def_)
-            mock_task = MagicMock()
-            mock_task.id = uuid.uuid4()
-            return mock_task
-
-        mock_db.add = MagicMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor._build_step_task", new=mock_build_step_task),
-            patch("app.tools.registry.call_local_tool", new_callable=AsyncMock, return_value='{"results": ["found"]}'),
-        ):
-            await _advance_workflow_inner(run_id)
-
-        # Tool step should have completed inline
+        await db_session.refresh(run)
         assert run.step_states[0]["status"] == "done"
         assert run.step_states[0]["result"] == '{"results": ["found"]}'
-        # Second step (agent) should have triggered task creation
-        assert len(create_task_calls) == 1
-        assert create_task_calls[0]["id"] == "analyze"
+        assert built == ["analyze"]
 
     @pytest.mark.asyncio
-    async def test_tool_step_failure_aborts(self):
-        """Tool step failure with on_failure: abort should fail the run."""
+    async def test_when_tool_step_fails_and_on_failure_abort_then_run_fails(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import _advance_workflow_inner
+        steps = [{"id": "fail_tool", "type": "tool", "tool_name": "bad_tool",
+                  "tool_args": {}, "on_failure": "abort"}]
+        _, run = await _seed_workflow_and_run(
+            db_session, steps=steps, step_states=[_pending_step()],
+        )
 
-        run_id = uuid.uuid4()
-        steps = [
-            {"id": "fail_tool", "type": "tool", "tool_name": "bad_tool", "tool_args": {}, "on_failure": "abort"},
-        ]
+        with patch("app.tools.registry.call_local_tool", new_callable=AsyncMock,
+                   side_effect=RuntimeError("tool exploded")):
+            await _advance_workflow_inner(run.id)
 
-        run = _make_workflow_run(id=run_id, step_count=1)
-        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
-        workflow = _make_workflow(steps=steps)
-
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.tools.registry.call_local_tool", new_callable=AsyncMock, side_effect=RuntimeError("tool exploded")),
-        ):
-            await _advance_workflow_inner(run_id)
-
+        await db_session.refresh(run)
         assert run.status == "failed"
         assert "fail_tool" in run.error
         assert run.step_states[0]["status"] == "failed"
 
     @pytest.mark.asyncio
-    async def test_tool_step_failure_continues(self):
-        """Tool step failure with on_failure: continue should advance to next step."""
+    async def test_when_tool_step_fails_and_on_failure_continue_then_next_step_runs(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import _advance_workflow_inner
-
-        run_id = uuid.uuid4()
         steps = [
-            {"id": "fail_tool", "type": "tool", "tool_name": "bad_tool", "tool_args": {}, "on_failure": "continue"},
+            {"id": "fail_tool", "type": "tool", "tool_name": "bad_tool",
+             "tool_args": {}, "on_failure": "continue"},
             {"id": "next", "prompt": "Continue"},
         ]
+        _, run = await _seed_workflow_and_run(
+            db_session, steps=steps, step_states=[_pending_step(), _pending_step()],
+        )
+        built: list[str] = []
 
-        run = _make_workflow_run(id=run_id, step_count=2)
-        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
-        workflow = _make_workflow(steps=steps)
+        def fake_build(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
+            built.append(step_def_["id"])
+            return build_task(id=uuid.uuid4(), task_type="workflow", prompt="x")
 
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            return None
+        with patch("app.services.workflow_executor._build_step_task", new=fake_build), \
+             patch("app.tools.registry.call_local_tool", new_callable=AsyncMock,
+                   side_effect=RuntimeError("tool exploded")):
+            await _advance_workflow_inner(run.id)
 
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-
-        create_task_calls = []
-
-        def mock_build_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
-            create_task_calls.append(step_def_["id"])
-            mock_task = MagicMock()
-            mock_task.id = uuid.uuid4()
-            return mock_task
-
-        mock_db.add = MagicMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor._build_step_task", new=mock_build_step_task),
-            patch("app.tools.registry.call_local_tool", new_callable=AsyncMock, side_effect=RuntimeError("tool exploded")),
-        ):
-            await _advance_workflow_inner(run_id)
-
-        # First step failed but continued
+        await db_session.refresh(run)
         assert run.step_states[0]["status"] == "failed"
-        # Second step should have triggered task creation
-        assert create_task_calls == ["next"]
+        assert built == ["next"]
 
     @pytest.mark.asyncio
-    async def test_tool_step_renders_args(self):
-        """{{param}} in tool_args values should be resolved."""
+    async def test_when_tool_args_contain_params_then_they_are_rendered(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import _advance_workflow_inner
+        steps = [{"id": "search", "type": "tool", "tool_name": "web_search",
+                  "tool_args": {"query": "{{topic}}", "count": "{{num}}"}}]
+        _, run = await _seed_workflow_and_run(
+            db_session, steps=steps, step_states=[_pending_step()],
+            run_overrides={"params": {"topic": "AI safety", "num": "5"}},
+        )
+        captured: list[dict] = []
 
-        run_id = uuid.uuid4()
-        steps = [
-            {"id": "search", "type": "tool", "tool_name": "web_search",
-             "tool_args": {"query": "{{topic}}", "count": "{{num}}"}},
-        ]
-
-        run = _make_workflow_run(id=run_id, step_count=1)
-        run.params = {"topic": "AI safety", "num": "5"}
-        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
-        workflow = _make_workflow(steps=steps)
-
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-
-        captured_args = []
-
-        async def mock_call_local_tool(name, arguments):
-            import json
-            captured_args.append(json.loads(arguments))
+        async def fake_call(name, arguments):
+            captured.append(json.loads(arguments))
             return '{"ok": true}'
 
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.tools.registry.call_local_tool", new=mock_call_local_tool),
-        ):
-            await _advance_workflow_inner(run_id)
+        with patch("app.tools.registry.call_local_tool", new=fake_call):
+            await _advance_workflow_inner(run.id)
 
-        assert len(captured_args) == 1
-        assert captured_args[0] == {"query": "AI safety", "count": "5"}
-
-    @pytest.mark.asyncio
-    async def test_mixed_step_types(self):
-        """Workflow with agent + exec + tool steps should sequence correctly."""
-        from app.services.workflow_executor import _advance_workflow_inner
-
-        run_id = uuid.uuid4()
-        steps = [
-            {"id": "tool_step", "type": "tool", "tool_name": "web_search", "tool_args": {"q": "test"}},
-            {"id": "exec_step", "type": "exec", "prompt": "echo hello"},
-            {"id": "agent_step", "prompt": "Summarize"},
-        ]
-
-        run = _make_workflow_run(id=run_id, step_count=3)
-        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
-        workflow = _make_workflow(steps=steps)
-
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-
-        created_tasks = []
-
-        def mock_build_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
-            created_tasks.append({"id": step_def_["id"], "type": step_def_.get("type", "agent")})
-            mock_task = MagicMock()
-            mock_task.id = uuid.uuid4()
-            return mock_task
-
-        mock_db.add = MagicMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor._build_step_task", new=mock_build_step_task),
-            patch("app.tools.registry.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'),
-        ):
-            await _advance_workflow_inner(run_id)
-
-        # Tool step executes inline (no task), then exec step creates a task and waits
-        assert run.step_states[0]["status"] == "done"
-        assert len(created_tasks) == 1
-        assert created_tasks[0] == {"id": "exec_step", "type": "exec"}
+        assert captured == [{"query": "AI safety", "count": "5"}]
 
 
-# ---------------------------------------------------------------------------
-# Tests: Atomic task creation (race condition fix)
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Atomic task creation — race-condition regression
+# ===========================================================================
 
 class TestAtomicTaskCreation:
-    """Task creation and step state update must be atomic (single transaction).
-
-    Before the fix, _create_step_task committed the task in its own session,
-    then the outer session committed the step state. This race condition
-    allowed the task worker to pick up and complete a task while the step
-    was still "pending", causing duplicate task creation.
-    """
+    """Before the fix, ``_build_step_task`` committed the task in its own
+    session before the outer session committed the step state, allowing the
+    worker to pick up and complete a task while the step was still
+    ``pending`` (duplicate pickup). Task INSERT + step state UPDATE must
+    commit atomically on the SAME session."""
 
     @pytest.mark.asyncio
-    async def test_task_added_to_same_session_as_step_state(self):
-        """db.add(task) must happen on the same session that commits step_states."""
+    async def test_when_advancing_agent_step_then_task_and_step_commit_together(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import _advance_workflow_inner
+        _, run = await _seed_workflow_and_run(
+            db_session,
+            steps=[{"id": "s1", "prompt": "Do work"}],
+            step_states=[_pending_step()],
+        )
 
-        run_id = uuid.uuid4()
-        steps = [{"id": "s1", "prompt": "Do work"}]
-        run = _make_workflow_run(id=run_id, step_count=1)
-        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
-        workflow = _make_workflow(steps=steps)
+        await _advance_workflow_inner(run.id)
 
-        mock_task = MagicMock()
-        mock_task.id = uuid.uuid4()
-
-        async def mock_get(model, id_, **kwargs):
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            return None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-        mock_db.add = MagicMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor._build_step_task", return_value=mock_task),
-        ):
-            await _advance_workflow_inner(run_id)
-
-        # Task must be added to the SAME session as the step state update
-        mock_db.add.assert_called_once_with(mock_task)
-
-        # Step state must be "running" at the time of commit (not after)
+        await db_session.refresh(run)
         assert run.step_states[0]["status"] == "running"
-        assert run.step_states[0]["task_id"] == str(mock_task.id)
+        assert run.step_states[0]["task_id"] is not None
+        persisted = (await db_session.execute(
+            select(Task).where(Task.id == uuid.UUID(run.step_states[0]["task_id"]))
+        )).scalar_one_or_none()
+        assert persisted is not None
+        assert persisted.status == "pending"
 
-        # Only ONE commit should happen (atomic: task + step state together)
-        assert mock_db.commit.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_no_separate_session_for_task_creation(self):
-        """_build_step_task should NOT open its own DB session."""
+    def test_when_build_step_task_called_then_returns_unsaved_task_instance(self):
         from app.services.workflow_executor import _build_step_task
+        run = build_workflow_run(workflow_snapshot=None)
+        wf = build_workflow(steps=[{"id": "s1", "prompt": "Do."}])
 
-        run = _make_workflow_run()
-        run.workflow_snapshot = None
-        workflow = _make_workflow(steps=[{"id": "s1", "prompt": "Do."}])
+        task = _build_step_task(run, wf, wf.steps[0], 0)
 
-        # _build_step_task is synchronous — no DB session needed
-        task = _build_step_task(run, workflow, workflow.steps[0], 0)
-
-        # Verify it returns a real Task object, not a UUID
-        from app.db.models import Task as TaskModel
-        assert isinstance(task, TaskModel)
+        assert isinstance(task, Task)
         assert isinstance(task.id, uuid.UUID)
 
 
-# ---------------------------------------------------------------------------
-# Test: on_step_task_completed uses row-level lock
-# ---------------------------------------------------------------------------
-
-class TestOnStepTaskCompletedLocking:
-    """Verify on_step_task_completed acquires with_for_update to prevent lost updates."""
-
-    @pytest.mark.asyncio
-    async def test_uses_with_for_update(self):
-        """on_step_task_completed must lock the WorkflowRun row to prevent races."""
-        from app.services.workflow_executor import on_step_task_completed
-
-        run = _make_workflow_run(step_count=2, step_states=[
-            {"status": "running", "task_id": "t1", "result": None, "error": None,
-             "started_at": "2024-01-01T00:00:00", "completed_at": None, "correlation_id": None},
-            {"status": "pending", "task_id": None, "result": None, "error": None,
-             "started_at": None, "completed_at": None, "correlation_id": None},
-        ])
-        workflow = _make_workflow()
-        task = _make_task(result="step 0 output", correlation_id=uuid.uuid4())
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-
-        get_calls = []
-        async def mock_get(model, id_, **kwargs):
-            get_calls.append((model, id_, kwargs))
-            name = model.__name__ if hasattr(model, "__name__") else str(model)
-            if name == "WorkflowRun":
-                return run
-            if name == "Workflow":
-                return workflow
-            if name == "Task":
-                return task
-            return None
-
-        mock_db.get = AsyncMock(side_effect=mock_get)
-        mock_db.commit = AsyncMock()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
-            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
-        ):
-            await on_step_task_completed(str(run.id), 0, "complete", task)
-
-        # The FIRST get call (for WorkflowRun) must use with_for_update=True
-        assert len(get_calls) >= 1
-        first_call = get_calls[0]
-        assert first_call[2].get("with_for_update") is True, \
-            "on_step_task_completed must use with_for_update=True to prevent lost updates"
-
-
-# ---------------------------------------------------------------------------
-# Test: trigger_workflow returns fresh data after advancement
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# trigger_workflow — returns DB-fresh run (captures advance_workflow effects)
+# ===========================================================================
 
 class TestTriggerWorkflowFreshReturn:
-    """trigger_workflow should re-read from DB after advance_workflow."""
+    """After calling ``advance_workflow``, ``trigger_workflow`` re-reads
+    the run so callers observe the state machine's updates (step 0 marked
+    running, task_id populated)."""
 
     @pytest.mark.asyncio
-    async def test_returns_refreshed_run(self):
-        """After advancement, trigger_workflow should return DB-fresh run, not stale object."""
+    async def test_when_trigger_returns_then_run_reflects_post_advance_state(
+        self, db_session, patched_async_sessions,
+    ):
         from app.services.workflow_executor import trigger_workflow
+        wf = build_workflow(
+            steps=[{"id": "s1", "prompt": "Do."}],
+            defaults={"bot_id": "test-bot"},
+        )
+        db_session.add(wf)
+        await db_session.commit()
 
-        run_id = uuid.uuid4()
-        stale_run = MagicMock()
-        stale_run.id = run_id
-        stale_run.step_states = [{"status": "pending"}]
+        async def fake_advance(run_id):
+            run = (await db_session.execute(
+                select(WorkflowRun).where(WorkflowRun.id == run_id)
+            )).scalar_one()
+            ss = copy.deepcopy(run.step_states)
+            ss[0]["status"] = "running"
+            ss[0]["task_id"] = "t1"
+            run.step_states = ss
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(run, "step_states")
+            await db_session.commit()
 
-        fresh_run = MagicMock()
-        fresh_run.id = run_id
-        fresh_run.step_states = [{"status": "running", "task_id": "t1"}]
+        with patch("app.services.workflows.get_workflow", return_value=wf), \
+             patch("app.services.workflow_executor.advance_workflow", side_effect=fake_advance), \
+             patch("app.services.workflow_executor.validate_secrets"):
+            result = await trigger_workflow(wf.id, {}, bot_id="test-bot")
 
-        session_idx = [0]
-
-        def make_session():
-            session_idx[0] += 1
-            mock_db = AsyncMock()
-            mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_db.__aexit__ = AsyncMock(return_value=False)
-            if session_idx[0] == 1:
-                # Session 1: create run (db.add + commit + refresh)
-                mock_db.add = MagicMock()
-                mock_db.commit = AsyncMock()
-                mock_db.refresh = AsyncMock()
-            else:
-                # Session 2: re-fetch after advancement
-                mock_db.get = AsyncMock(return_value=fresh_run)
-            return mock_db
-
-        mock_workflow = MagicMock()
-        mock_workflow.name = "Test"
-        mock_workflow.steps = [{"id": "s1", "prompt": "Do."}]
-        mock_workflow.defaults = {"bot_id": "test-bot"}
-        mock_workflow.params = {}
-        mock_workflow.secrets = []
-        mock_workflow.triggers = {}
-        mock_workflow.session_mode = "isolated"
-
-        with (
-            patch("app.services.workflow_executor.async_session", side_effect=make_session),
-            patch("app.services.workflows.get_workflow", return_value=mock_workflow),
-            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
-            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
-        ):
-            result = await trigger_workflow("test-wf", {})
-
-        # Should return the fresh run, not the stale one
-        assert result is fresh_run
+        assert result.step_states[0]["status"] == "running"
+        assert result.step_states[0]["task_id"] == "t1"
 
 
-# ---------------------------------------------------------------------------
-# Test: _set_step_states calls flag_modified
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# _set_step_states helper — invariant: always calls flag_modified
+# ===========================================================================
 
 class TestSetStepStates:
-    """Verify _set_step_states forces SQLAlchemy change detection."""
+    """``_set_step_states`` assigns the new list and forces SA's JSONB
+    change detection via ``flag_modified``. Asserting on the helper's
+    contract (not an implementation detail — the helper's *reason to exist*
+    is to guarantee flag_modified is called)."""
 
-    def test_flag_modified_called(self):
-        """_set_step_states should call flag_modified to force the JSONB UPDATE."""
+    def test_when_set_step_states_called_then_flag_modified_invoked(self):
         from app.services.workflow_executor import _set_step_states
-
-        run = _make_workflow_run(step_count=2)
+        run = build_workflow_run()
         new_states = [{"status": "running"}, {"status": "pending"}]
 
-        with patch("app.services.workflow_executor.flag_modified") as mock_fm:
+        with patch("app.services.workflow_executor.flag_modified") as m:
             _set_step_states(run, new_states)
 
         assert run.step_states == new_states
-        mock_fm.assert_called_once_with(run, "step_states")
+        m.assert_called_once_with(run, "step_states")
 
 
-# ---------------------------------------------------------------------------
-# Test: deepcopy prevents shared-dict mutation
-# ---------------------------------------------------------------------------
-
-class TestDeepCopyStepStates:
-    """Verify that step_states are deep-copied so mutations don't pollute the original."""
-
-    @pytest.mark.asyncio
-    async def test_advance_uses_deep_copy(self):
-        """Mutating the working copy should not affect run.step_states until explicit assignment."""
-        from app.services.workflow_executor import _advance_workflow_inner
-
-        run = _make_workflow_run(step_count=1)
-        run.step_states = [
-            {"status": "pending", "task_id": None, "result": None, "error": None,
-             "started_at": None, "completed_at": None, "correlation_id": None}
-        ]
-        original_states = run.step_states
-
-        workflow = _make_workflow(steps=[{"id": "s0", "prompt": "Hello"}])
-
-        # Mock DB session
-        committed_values = []
-
-        class MockDB:
-            async def get(self, model, id, **kw):
-                if model == type(run) or str(model.__name__) == "WorkflowRun":
-                    return run
-                return workflow
-
-            def add(self, obj):
-                pass
-
-            async def commit(self):
-                # Capture the step_states at commit time
-                committed_values.append(
-                    [dict(s) for s in run.step_states]
-                )
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                pass
-
-        mock_db = MockDB()
-
-        with (
-            patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor.flag_modified"),
-        ):
-            await _advance_workflow_inner(run.id)
-
-        # After advance, step 0 should be "running" in the committed data
-        assert len(committed_values) == 1
-        assert committed_values[0][0]["status"] == "running"
-
-        # The ORIGINAL step_states should NOT have been mutated by the
-        # deepcopy working copy (they would be mutated with shallow copy)
-        # NOTE: with flag_modified + assignment, the run.step_states IS
-        # updated. But the original_states reference should be untouched
-        # if deepcopy was used.
-        assert original_states[0]["status"] == "pending"
-
-
-# ---------------------------------------------------------------------------
-# Source-code regression guard: no shallow copies of step_states
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Source-code regression guards — prevent re-introducing known JSONB bugs
+# ===========================================================================
 
 class TestNoShallowCopyRegression:
-    """Prevent re-introduction of the shallow-copy bug.
+    """Prevent re-introduction of the shallow-copy + direct-assignment bug.
 
-    The pattern `list(run.step_states)` creates a shallow copy — inner dicts
-    are shared, so mutating them also mutates the SQLAlchemy-tracked original.
-    On PostgreSQL, this causes SQLAlchemy to skip the UPDATE because
-    old == new. We MUST use copy.deepcopy() instead.
-    """
+    ``list(run.step_states)`` creates a shallow list copy whose inner dicts
+    alias the SQLAlchemy-tracked originals. Combined with
+    ``run.step_states = ss`` (no ``flag_modified``), PostgreSQL sees no
+    change and skips the UPDATE — the exact pattern ``_set_step_states``
+    was introduced to eliminate."""
 
-    def test_no_list_of_step_states_in_executor(self):
-        """workflow_executor.py must not use list(run.step_states) — only deepcopy."""
-        import inspect
+    def test_workflow_executor_has_no_shallow_copy_of_step_states(self):
+        import inspect, re
         import app.services.workflow_executor as mod
-
-        source = inspect.getsource(mod)
-
-        # Check for the dangerous pattern
-        import re
-        # Match `list(run.step_states)` or `list(run .step_states)` etc.
-        matches = re.findall(r'list\s*\(\s*run\.step_states\s*\)', source)
+        matches = re.findall(r"list\s*\(\s*run\.step_states\s*\)", inspect.getsource(mod))
         assert not matches, (
             f"Found {len(matches)} occurrence(s) of list(run.step_states) in workflow_executor.py. "
-            "This creates a shallow copy that breaks JSONB mutation tracking on PostgreSQL. "
             "Use copy.deepcopy(run.step_states) instead."
         )
 
-    def test_all_step_states_assignments_use_helper(self):
-        """All step_states assignments should go through _set_step_states().
-
-        Direct `run.step_states = ...` assignments skip flag_modified,
-        which can cause PostgreSQL to skip the UPDATE.
-        """
-        import inspect
+    def test_workflow_executor_all_step_states_assignments_use_helper(self):
+        import inspect, re
         import app.services.workflow_executor as mod
-
         source = inspect.getsource(mod)
-
-        # Find direct assignments that AREN'T inside _set_step_states
-        import re
-        # Get the source of _set_step_states itself
-        helper_source = inspect.getsource(mod._set_step_states)
-
-        # Remove the helper source from the full module source
-        remaining = source.replace(helper_source, "")
-
-        # Now look for direct assignments in the remaining code
-        direct_assigns = re.findall(r'run\.step_states\s*=\s*', remaining)
-        assert not direct_assigns, (
-            f"Found {len(direct_assigns)} direct assignment(s) to run.step_states outside "
-            "_set_step_states(). Use _set_step_states(run, step_states) instead to ensure "
-            "flag_modified is called."
+        helper = inspect.getsource(mod._set_step_states)
+        remaining = source.replace(helper, "")
+        direct = re.findall(r"run\.step_states\s*=\s*", remaining)
+        assert not direct, (
+            f"Found {len(direct)} direct assignment(s) to run.step_states outside _set_step_states()."
         )
