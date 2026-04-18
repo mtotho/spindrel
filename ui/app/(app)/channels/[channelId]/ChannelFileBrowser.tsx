@@ -12,6 +12,7 @@ import {
   useUploadChannelWorkspaceFile,
   type ChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -50,6 +51,7 @@ function ExplorerFileRow({
   const t = useThemeTokens();
   const deleteMutation = useDeleteChannelWorkspaceFile(channelId);
   const [hovered, setHovered] = useState(false);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   const icon =
     file.section === "archive" ? <Archive size={14} color={t.textMuted} /> :
@@ -94,9 +96,14 @@ function ExplorerFileRow({
       </span>
       {hovered ? (
         <button type="button"
-          onClick={(e) => {
+          onClick={async (e) => {
             e.stopPropagation();
-            if (confirm(`Delete ${displayName}?`)) {
+            const ok = await confirm(`Delete ${displayName}?`, {
+              title: "Delete file",
+              confirmLabel: "Delete",
+              variant: "danger",
+            });
+            if (ok) {
               deleteMutation.mutate(file.path);
             }
           }}
@@ -109,6 +116,7 @@ function ExplorerFileRow({
           {formatSize(file.size)}
         </span>
       )}
+      <ConfirmDialogSlot />
     </button>
   );
 }

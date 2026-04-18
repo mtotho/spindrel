@@ -22,6 +22,7 @@ import {
 } from "@/src/api/hooks/useChannelPipelines";
 import { CronScheduleModal } from "@/src/components/shared/CronScheduleModal";
 import { humanLabelFor } from "@/src/components/shared/CronInput";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 
 interface TasksListResponse {
   tasks: Array<{
@@ -139,6 +140,7 @@ function SubscriptionRow({
   const update = useUpdateSubscription(channelId);
   const unsub = useUnsubscribePipeline(channelId);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
   const p = sub.pipeline;
 
   const scheduleLabel = sub.schedule
@@ -294,8 +296,12 @@ function SubscriptionRow({
       </Link>
       <button
         title="Unsubscribe"
-        onClick={() => {
-          if (!window.confirm(`Unsubscribe this channel from "${p?.title ?? "pipeline"}"?`)) return;
+        onClick={async () => {
+          const ok = await confirm(
+            `Unsubscribe this channel from "${p?.title ?? "pipeline"}"?`,
+            { title: "Unsubscribe", confirmLabel: "Unsubscribe", variant: "danger" },
+          );
+          if (!ok) return;
           unsub.mutate(sub.id);
         }}
         style={{
@@ -324,6 +330,7 @@ function SubscriptionRow({
           }}
         />
       )}
+      <ConfirmDialogSlot />
     </div>
   );
 }

@@ -14,6 +14,7 @@ import {
 import { useUsageForecast, type LimitForecast } from "@/src/api/hooks/useUsageForecast";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 
 function fmtCost(v: number | null | undefined): string {
   if (v == null) return "--";
@@ -270,6 +271,7 @@ function LimitsTable() {
   const { data: limits, isLoading } = useUsageLimits();
   const updateMutation = useUpdateUsageLimit();
   const deleteMutation = useDeleteUsageLimit();
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   if (isLoading) return <Spinner />;
   if (!limits || limits.length === 0) {
@@ -342,7 +344,14 @@ function LimitsTable() {
           </span>
           <span style={{ width: 30, textAlign: "center" }}>
             <button
-              onClick={() => { if (confirm("Delete this limit?")) deleteMutation.mutate(lim.id); }}
+              onClick={async () => {
+                const ok = await confirm("Delete this limit?", {
+                  title: "Delete limit",
+                  confirmLabel: "Delete",
+                  variant: "danger",
+                });
+                if (ok) deleteMutation.mutate(lim.id);
+              }}
               style={{
                 background: "none",
                 border: "none",
@@ -357,6 +366,7 @@ function LimitsTable() {
           </span>
         </div>
       ))}
+      <ConfirmDialogSlot />
     </div>
   );
 }

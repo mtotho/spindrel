@@ -19,6 +19,7 @@ import {
   SelectInput,
   Toggle,
 } from "@/src/components/shared/FormControls";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 const ACTION_OPTIONS = [
@@ -51,6 +52,7 @@ export default function ToolPolicyDetailScreen() {
   const [approvalTimeout, setApprovalTimeout] = useState("300");
   const [conditionsJson, setConditionsJson] = useState("{}");
   const [initialized, setInitialized] = useState(isNew);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   // Test panel state
   const [testBotId, setTestBotId] = useState("");
@@ -115,10 +117,15 @@ export default function ToolPolicyDetailScreen() {
   ]);
 
   const handleDelete = useCallback(async () => {
-    if (!confirm("Delete this policy rule?")) return;
+    const ok = await confirm("Delete this policy rule?", {
+      title: "Delete policy",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     await deleteMut.mutateAsync(ruleId!);
     goBack();
-  }, [ruleId, deleteMut, goBack]);
+  }, [ruleId, deleteMut, goBack, confirm]);
 
   const handleTest = useCallback(async () => {
     let args = {};
@@ -392,6 +399,7 @@ export default function ToolPolicyDetailScreen() {
           )}
         </div>
       </div>
+      <ConfirmDialogSlot />
     </div>
   );
 }

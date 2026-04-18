@@ -11,6 +11,7 @@ import {
 } from "@/src/api/hooks/useAttachments";
 import { SelectInput } from "@/src/components/shared/FormControls";
 import { ActionButton } from "@/src/components/shared/SettingsControls";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { formatBytes } from "@/src/utils/format";
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ size: number; color: string }>> = {
@@ -31,6 +32,7 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [filterType, setFilterType] = useState("");
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   const filtered = filterType
     ? attachments?.filter((a) => a.type === filterType)
@@ -44,7 +46,12 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
   };
 
   const handleDelete = async (id: string, filename: string) => {
-    if (!confirm(`Delete "${filename}"?`)) return;
+    const ok = await confirm(`Delete "${filename}"?`, {
+      title: "Delete attachment",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     setDeletingId(id);
     try { await deleteMut.mutateAsync(id); } finally { setDeletingId(null); }
   };
@@ -159,6 +166,7 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
           })}
         </div>
       )}
+      <ConfirmDialogSlot />
     </div>
   );
 }

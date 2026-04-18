@@ -36,6 +36,7 @@ import {
 } from "@/src/api/hooks/useIntegrations";
 import { useAuthStore } from "@/src/stores/auth";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { StatusBadge, CapBadge, EnvVarPill, formatUptime } from "../components";
 import { IntegrationDebugSection } from "./IntegrationDebugSection";
 import { ManifestEditor } from "./ManifestEditor";
@@ -616,6 +617,7 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
 
   const { data: status, isLoading } = useOAuthStatus(item.id, oauth.status);
   const disconnectMut = useOAuthDisconnect(item.id, oauth.disconnect);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
   const [selectedScopes, setSelectedScopes] = useState<string[]>(
     oauth.scope_services.slice(0, 3)
   );
@@ -659,10 +661,12 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
             Connected{status.email ? ` as ${status.email}` : ""}
           </span>
           <button
-            onClick={() => {
-              if (window.confirm("Disconnect Google account? Bots will lose access to Google services.")) {
-                disconnectMut.mutate();
-              }
+            onClick={async () => {
+              const ok = await confirm(
+                "Disconnect Google account? Bots will lose access to Google services.",
+                { title: "Disconnect", confirmLabel: "Disconnect", variant: "danger" },
+              );
+              if (ok) disconnectMut.mutate();
             }}
             disabled={disconnectMut.isPending}
             style={{
@@ -739,6 +743,7 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
         <Link size={13} />
         Connect Google Account
       </button>
+      <ConfirmDialogSlot />
     </div>
   );
 }
@@ -933,6 +938,7 @@ function ReadmeSection({ content }: { content: string }) {
 function StatusControl({ item }: { item: IntegrationItem }) {
   const t = useThemeTokens();
   const mut = useSetIntegrationStatus(item.id);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
   const isEnabled = item.lifecycle_status === "enabled";
   const missingRequired = item.env_vars.filter((v) => v.required && !v.is_set);
   const needsSetup = isEnabled && missingRequired.length > 0;
@@ -943,8 +949,12 @@ function StatusControl({ item }: { item: IntegrationItem }) {
       ? { bg: "rgba(234,179,8,0.08)", border: "rgba(234,179,8,0.25)", color: "#eab308", label: "Enabled · Needs Setup" }
       : { bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.15)", color: "#22c55e", label: "Enabled" };
 
-  const onRemove = () => {
-    if (!window.confirm("Remove from Active? The process will stop and tools will unload. Your settings are preserved — re-adding is instant.")) return;
+  const onRemove = async () => {
+    const ok = await confirm(
+      "Remove from Active? The process will stop and tools will unload. Your settings are preserved — re-adding is instant.",
+      { title: "Remove from Active", confirmLabel: "Remove", variant: "warning" },
+    );
+    if (!ok) return;
     mut.mutate("available");
   };
   const onEnable = () => mut.mutate("enabled");
@@ -1025,6 +1035,7 @@ function StatusControl({ item }: { item: IntegrationItem }) {
           </span>
         </div>
       )}
+      <ConfirmDialogSlot />
     </div>
   );
 }

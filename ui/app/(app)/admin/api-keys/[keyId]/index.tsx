@@ -19,6 +19,7 @@ import {
   TextInput,
   Toggle,
 } from "@/src/components/shared/FormControls";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 function ScopeCheckboxGroup({
@@ -151,6 +152,7 @@ export default function ApiKeyDetailScreen() {
   const [isActive, setIsActive] = useState(true);
   const [expiresAt, setExpiresAt] = useState("");
   const [initialized, setInitialized] = useState(isNew);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   // Preset state (create flow only)
   const [activePreset, setActivePreset] = useState<string | null>(null);
@@ -193,10 +195,15 @@ export default function ApiKeyDetailScreen() {
   }, [isNew, name, scopes, isActive, expiresAt, createMut, updateMut]);
 
   const handleDelete = useCallback(async () => {
-    if (!confirm("Delete this API key? This cannot be undone.")) return;
+    const ok = await confirm("Delete this API key? This cannot be undone.", {
+      title: "Delete API key",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     await deleteMut.mutateAsync(keyId!);
     goBack();
-  }, [keyId, deleteMut, goBack]);
+  }, [keyId, deleteMut, goBack, confirm]);
 
   const handlePreset = useCallback(
     (key: string | null) => {
@@ -571,6 +578,7 @@ export default function ApiKeyDetailScreen() {
           )}
         </div>
       </div>
+      <ConfirmDialogSlot />
     </div>
   );
 }

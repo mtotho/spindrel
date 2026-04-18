@@ -13,6 +13,7 @@ import {
   useWriteWorkspaceFile,
 } from "@/src/api/hooks/useWorkspaces";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { CodeEditor } from "./CodeEditor";
 import { createPortal } from "react-dom";
 
@@ -44,6 +45,7 @@ interface ChannelFileViewerProps {
 export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, splitMode, onToggleSplit, onDirtyChange }: ChannelFileViewerProps) {
   const t = useThemeTokens();
   const isImage = isImageFile(filePath);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   // Decide which API to use based on path scope.
   // Workspace-relative path inside the channel → use channel endpoints (preserves re-indexing).
@@ -160,10 +162,17 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
     return () => window.removeEventListener("keydown", handler);
   }, [handleSave]);
 
-  const handleBack = useCallback(() => {
-    if (isDirty && !confirm("You have unsaved changes. Discard them?")) return;
+  const handleBack = useCallback(async () => {
+    if (isDirty) {
+      const ok = await confirm("You have unsaved changes. Discard them?", {
+        title: "Discard changes",
+        confirmLabel: "Discard",
+        variant: "warning",
+      });
+      if (!ok) return;
+    }
     onBack();
-  }, [isDirty, onBack]);
+  }, [isDirty, onBack, confirm]);
 
   const fileName = filePath.split("/").pop() ?? filePath;
   const pathSegments = filePath.split("/");
@@ -360,8 +369,12 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
           loading={versionsQuery.isLoading}
           restoring={restoreMutation.isPending}
           onClose={() => setHistoryOpen(false)}
-          onRestore={(version) => {
-            if (!confirm(`Restore "${fileName}" to version ${version}? Your current file will be backed up first.`)) return;
+          onRestore={async (version) => {
+            const ok = await confirm(
+              `Restore "${fileName}" to version ${version}? Your current file will be backed up first.`,
+              { title: "Restore version", confirmLabel: "Restore", variant: "warning" },
+            );
+            if (!ok) return;
             restoreMutation.mutate(
               { path: versionsPath, version },
               {
@@ -376,6 +389,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
         />,
         document.body,
       )}
+      <ConfirmDialogSlot />
     </div>
   );
 }

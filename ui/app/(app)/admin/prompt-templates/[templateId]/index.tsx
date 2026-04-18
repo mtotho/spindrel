@@ -16,6 +16,7 @@ import { useGeneratePrompt } from "@/src/api/hooks/usePrompts";
 import { useWorkspaces, useWorkspaceFileContent } from "@/src/api/hooks/useWorkspaces";
 import { FormRow, TextInput, Section, SelectInput } from "@/src/components/shared/FormControls";
 import { WorkspaceFilePicker } from "@/src/components/shared/WorkspaceFilePicker";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 function fmtDate(iso: string | null | undefined) {
@@ -63,6 +64,7 @@ export default function PromptTemplateDetailScreen() {
   const [workspaceId, setWorkspaceId] = useState("");
   const [sourcePath, setSourcePath] = useState("");
   const [initialized, setInitialized] = useState(isNew);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   if (template && !initialized) {
     setName(template.name || "");
@@ -160,10 +162,16 @@ export default function PromptTemplateDetailScreen() {
   }, [isNew, name, description, content, category, tags, sourceType, workspaceId, sourcePath, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
-    if (!templateId || !confirm("Delete this template?")) return;
+    if (!templateId) return;
+    const ok = await confirm("Delete this template?", {
+      title: "Delete template",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     await deleteMut.mutateAsync(templateId);
     goBack();
-  }, [templateId, deleteMut, goBack]);
+  }, [templateId, deleteMut, goBack, confirm]);
 
   const isSaving = createMut.isPending || updateMut.isPending;
   const canSave = isNew
@@ -451,6 +459,7 @@ export default function PromptTemplateDetailScreen() {
           </div>
         </div>
       </div>
+      <ConfirmDialogSlot />
     </div>
   );
 }

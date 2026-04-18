@@ -14,6 +14,7 @@ import {
   type ProviderModelItem,
 } from "@/src/api/hooks/useProviders";
 import { FormRow, TextInput, SelectInput, Toggle, Section, Row, Col } from "@/src/components/shared/FormControls";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { ProviderCapabilitySections } from "./ProviderCapabilitySections";
 
@@ -100,6 +101,7 @@ export default function ProviderDetailScreen() {
   const [newModelOutputCost, setNewModelOutputCost] = useState("");
   const [newModelNoSysMsg, setNewModelNoSysMsg] = useState(false);
   const [newModelNoTools, setNewModelNoTools] = useState(false);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   if (provider && !initialized) {
     setDisplayName(provider.display_name || "");
@@ -148,10 +150,16 @@ export default function ProviderDetailScreen() {
   }, [isNew, id, displayName, providerType, apiKey, baseUrl, isEnabled, tpmLimit, rpmLimit, managementKey, billingType, planCost, planPeriod, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
-    if (!providerId || !confirm("Delete this provider?")) return;
+    if (!providerId) return;
+    const ok = await confirm("Delete this provider?", {
+      title: "Delete provider",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     await deleteMut.mutateAsync(providerId);
     goBack();
-  }, [providerId, deleteMut, goBack]);
+  }, [providerId, deleteMut, goBack, confirm]);
 
   const handleTest = useCallback(() => {
     setTestResult(null);
@@ -411,9 +419,13 @@ export default function ProviderDetailScreen() {
                       )}
                       {caps?.delete_model && (
                         <button
-                          onClick={() => {
-                            if (confirm(`Remove ${m.model_id} from provider?`))
-                              deleteRemoteMut.mutate(m.model_id);
+                          onClick={async () => {
+                            const ok = await confirm(`Remove ${m.model_id} from provider?`, {
+                              title: "Remove model",
+                              confirmLabel: "Remove",
+                              variant: "danger",
+                            });
+                            if (ok) deleteRemoteMut.mutate(m.model_id);
                           }}
                           disabled={deleteRemoteMut.isPending}
                           style={{
@@ -618,6 +630,7 @@ export default function ProviderDetailScreen() {
           )}
         </div>
       </div>
+      <ConfirmDialogSlot />
     </div>
   );
 }

@@ -218,6 +218,10 @@ def _effective_system_prompt(
     reads common/prompts/base.md (+ bots/{bot_id}/prompts/base.md) from the
     workspace filesystem and uses that instead of the global base prompt.
     """
+    from app.agent.context import current_system_prompt_override
+    _override = current_system_prompt_override.get()
+    if _override is not None:
+        return _override
     from app.agent.base_prompt import render_base_prompt, resolve_workspace_base_prompt
     from app.config import settings as _settings
     parts = []

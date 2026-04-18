@@ -788,7 +788,7 @@ async def run_task(task: Task) -> None:
     # so cross-bot detection can correctly identify the parent and create a
     # proper child session with the right linkage.
     _task_channel: Channel | None = None
-    if task.channel_id and task.task_type not in ("workflow", "delegation"):
+    if task.channel_id and task.task_type not in ("workflow", "delegation", "eval"):
         async with async_session() as db:
             channel = await db.get(Channel, task.channel_id)
             if channel:
@@ -865,6 +865,17 @@ async def run_task(task: Task) -> None:
             logger.debug("publish TURN_STARTED failed for task %s", task.id, exc_info=True)
 
     _task_timeout = settings.TASK_MAX_RUN_SECONDS  # default; overridden below after channel loads
+
+    # Bot-invoke evaluator injects a per-case system_prompt_override via
+    # execution_config. Set the ContextVar before load_or_create so the fresh
+    # session's system message is built from the variant text, not the bot's
+    # configured prompt. Task-scoped: asyncio.create_task copies this context
+    # at spawn, so parallel eval tasks don't bleed into each other.
+    _ecfg_override = (task.execution_config or {}).get("system_prompt_override")
+    if _ecfg_override is not None:
+        from app.agent.context import current_system_prompt_override
+        current_system_prompt_override.set(_ecfg_override)
+
     try:
         from app.agent.loop import run
         from app.agent.persona import get_persona

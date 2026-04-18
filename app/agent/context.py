@@ -70,6 +70,15 @@ current_activated_tools: ContextVar[list[dict] | None] = ContextVar("current_act
 
 current_allowed_secrets: ContextVar[list[str] | None] = ContextVar("current_allowed_secrets", default=None)
 
+# Set by the bot_invoke evaluator to swap the bot's system_prompt per-case
+# without mutating the bot row. Read by ``_effective_system_prompt`` — when
+# set, it replaces the entire effective prompt (no base prompt, no memory
+# scheme layer), so experiments can measure the exact variant text in
+# isolation. Unset means "use the bot's configured prompt" (normal path).
+current_system_prompt_override: ContextVar[str | None] = ContextVar(
+    "current_system_prompt_override", default=None,
+)
+
 # Per-request task creation counter (capped to prevent runaway loops)
 task_creation_count: ContextVar[int] = ContextVar("task_creation_count", default=0)
 

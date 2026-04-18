@@ -991,6 +991,7 @@ async def _run_evaluate_step(
             evaluator, cases, spec,
             parallelism=parallelism,
             per_case_timeout=per_case_timeout,
+            parent_task_id=task.id,
         )
     except Exception as e:
         logger.exception("evaluate step %d crashed", step_index)

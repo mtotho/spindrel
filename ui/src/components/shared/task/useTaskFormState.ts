@@ -236,7 +236,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
   }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, postFinalToChannel, historyMode, historyRecentCount]);
 
   const handleDelete = useCallback(async () => {
-    if (!taskId || !confirm("Delete this task?")) return;
+    if (!taskId) return;
     await deleteMut.mutateAsync(taskId);
     invalidateExtra();
     onSaved();

@@ -402,8 +402,13 @@ export function ChannelFileExplorer({
     });
   }, [currentPath, mkdirWorkspace, refetchTree]);
 
-  const deleteEntry = useCallback((name: string, path: string, isDir: boolean) => {
-    if (!window.confirm(`Delete ${isDir ? "folder" : "file"} "${name}"?`)) return;
+  const deleteEntry = useCallback(async (name: string, path: string, isDir: boolean) => {
+    const ok = await confirm(`Delete ${isDir ? "folder" : "file"} "${name}"?`, {
+      title: `Delete ${isDir ? "folder" : "file"}`,
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     const stripped = stripSlashes(path);
     deleteWorkspace.mutate(stripped, { onSuccess: () => refetchTree() });
   }, [deleteWorkspace, refetchTree]);
@@ -440,10 +445,15 @@ export function ChannelFileExplorer({
     const basename = f.name.includes("/") ? f.name.substring(f.name.lastIndexOf("/") + 1) : f.name;
     moveChannel.mutate({ old_path: f.path, new_path: `archive/${basename}` });
   }, [moveChannel]);
-  const deleteActiveFile = useCallback((f: ChannelWorkspaceFile) => {
-    if (!window.confirm(`Delete ${f.name}?`)) return;
+  const deleteActiveFile = useCallback(async (f: ChannelWorkspaceFile) => {
+    const ok = await confirm(`Delete ${f.name}?`, {
+      title: "Delete file",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     deleteChannel.mutate(f.path);
-  }, [deleteChannel]);
+  }, [deleteChannel, confirm]);
 
   // ── Context menus ─────────────────────────────────────────────────────
 
@@ -465,8 +475,12 @@ export function ChannelFileExplorer({
         items.push({
           label: "Move to Active",
           separator: true,
-          action: () => {
-            if (window.confirm(`Move "${basename}" to Active?\n\nActive files are injected into context every turn.`)) {
+          action: async () => {
+            const ok = await confirm(
+              `Move "${basename}" to Active?\n\nActive files are injected into context every turn.`,
+              { title: "Move to Active", confirmLabel: "Move", variant: "warning" },
+            );
+            if (ok) {
               moveChannel.mutate({ old_path: channelRel, new_path: basename });
             }
             setContextMenu(null);
@@ -585,7 +599,11 @@ export function ChannelFileExplorer({
         label: `Delete ${count} item${count !== 1 ? "s" : ""}`,
         danger: true,
         action: async () => {
-          if (!window.confirm(`Delete ${count} item${count !== 1 ? "s" : ""}?`)) {
+          const ok = await confirm(
+            `Delete ${count} item${count !== 1 ? "s" : ""}?`,
+            { title: "Delete items", confirmLabel: "Delete", variant: "danger" },
+          );
+          if (!ok) {
             setContextMenu(null);
             return;
           }

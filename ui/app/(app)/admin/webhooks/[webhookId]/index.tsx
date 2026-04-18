@@ -15,6 +15,7 @@ import {
 import { writeToClipboard } from "@/src/utils/clipboard";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { PageHeader } from "@/src/components/layout/PageHeader";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import {
   useWebhook,
   useWebhookEvents,
@@ -208,6 +209,7 @@ export default function WebhookDetailScreen() {
 
   // Test result
   const [testResult, setTestResult] = useState<WebhookTestResult | null>(null);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   // Initialize from loaded data
   if (webhook && !initialized) {
@@ -243,18 +245,24 @@ export default function WebhookDetailScreen() {
   }, [isNew, name, url, events, isActive, description, createMut, updateMut]);
 
   const handleDelete = useCallback(async () => {
-    if (!confirm("Delete this webhook endpoint? All delivery history will be lost."))
-      return;
+    const ok = await confirm(
+      "Delete this webhook endpoint? All delivery history will be lost.",
+      { title: "Delete webhook", confirmLabel: "Delete", variant: "danger" },
+    );
+    if (!ok) return;
     await deleteMut.mutateAsync(webhookId!);
     goBack();
-  }, [webhookId, deleteMut, goBack]);
+  }, [webhookId, deleteMut, goBack, confirm]);
 
   const handleRotate = useCallback(async () => {
-    if (!confirm("Rotate the signing secret? The old secret will stop working immediately."))
-      return;
+    const ok = await confirm(
+      "Rotate the signing secret? The old secret will stop working immediately.",
+      { title: "Rotate secret", confirmLabel: "Rotate", variant: "warning" },
+    );
+    if (!ok) return;
     const result = await rotateMut.mutateAsync();
     setRotatedSecret(result.secret);
-  }, [rotateMut]);
+  }, [rotateMut, confirm]);
 
   const handleTest = useCallback(async () => {
     setTestResult(null);
@@ -590,6 +598,7 @@ export default function WebhookDetailScreen() {
           )}
         </div>
       </div>
+      <ConfirmDialogSlot />
     </div>
   );
 }

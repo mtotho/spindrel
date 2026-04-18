@@ -22,6 +22,7 @@ import {
 } from "@/src/components/shared/SchedulingPickers";
 import { TaskStatusBadge, TypeBadge, BotDot } from "@/src/components/shared/TaskConstants";
 import { useUIStore } from "@/src/stores/ui";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 
 function fmtDatetime(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -67,6 +68,7 @@ export default function TaskDetailScreen() {
   });
 
   const [pollRuns, setPollRuns] = useState(false);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
   const { data: children, isLoading: loadingChildren } = useTaskChildren(
     taskId,
     tab === "runs" && pollRuns ? 3000 : false,
@@ -92,10 +94,16 @@ export default function TaskDetailScreen() {
   const systemLabel = task?.task_type === "skill_review" ? "Skill Review" : "Memory Hygiene";
 
   const handleDelete = useCallback(async () => {
-    if (!taskId || !confirm("Delete this task?")) return;
+    if (!taskId) return;
+    const ok = await confirm("Delete this task?", {
+      title: "Delete task",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     await form.handleDelete();
     navigate("/admin/tasks");
-  }, [taskId, form, navigate]);
+  }, [taskId, form, navigate, confirm]);
 
   const handleRunNow = useCallback(() => {
     if (taskId) runNowMut.mutate(taskId, {
@@ -256,6 +264,7 @@ export default function TaskDetailScreen() {
           />
         )}
       </div>
+      <ConfirmDialogSlot />
     </div>
   );
 }
@@ -729,6 +738,7 @@ function TaskSubscriptionRow({ sub }: { sub: TaskSubscription }) {
   const update = useUpdateSubscription(sub.channel_id);
   const unsub = useUnsubscribePipeline(sub.channel_id);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
   const scheduleLabel = sub.schedule
     ? humanLabelFor(sub.schedule) ?? sub.schedule
     : "—";
@@ -765,13 +775,12 @@ function TaskSubscriptionRow({ sub }: { sub: TaskSubscription }) {
       </label>
       <button
         title="Unsubscribe"
-        onClick={() => {
-          if (
-            !window.confirm(
-              `Unsubscribe ${sub.channel.name ?? "this channel"} from this pipeline?`,
-            )
-          )
-            return;
+        onClick={async () => {
+          const ok = await confirm(
+            `Unsubscribe ${sub.channel.name ?? "this channel"} from this pipeline?`,
+            { title: "Unsubscribe", confirmLabel: "Unsubscribe", variant: "danger" },
+          );
+          if (!ok) return;
           unsub.mutate(sub.id);
         }}
         className="p-1 text-text-dim hover:text-danger bg-transparent border-none cursor-pointer"
@@ -791,6 +800,7 @@ function TaskSubscriptionRow({ sub }: { sub: TaskSubscription }) {
           }}
         />
       )}
+      <ConfirmDialogSlot />
     </div>
   );
 }

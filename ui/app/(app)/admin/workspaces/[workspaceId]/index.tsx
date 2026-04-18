@@ -12,6 +12,7 @@ import type { SharedWorkspace } from "@/src/types/api";
 import {
   FormRow, TextInput, Toggle,
 } from "@/src/components/shared/FormControls";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 // Section components
@@ -85,6 +86,7 @@ export default function WorkspaceDetailScreen() {
   const [basePromptEnabled, setBasePromptEnabled] = useState(true);
   const [writeProtectedPaths, setWriteProtectedPaths] = useState<string[]>([]);
   const [initialized, setInitialized] = useState(isNew);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   if (workspace && !initialized) {
     setName(workspace.name || "");
@@ -118,10 +120,15 @@ export default function WorkspaceDetailScreen() {
   }, [isNew, name, description, basePromptEnabled, writeProtectedPaths, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
-    if (!workspaceId || !confirm("Delete this workspace? All workspace data will be removed.")) return;
+    if (!workspaceId) return;
+    const ok = await confirm(
+      "Delete this workspace? All workspace data will be removed.",
+      { title: "Delete workspace", confirmLabel: "Delete", variant: "danger" },
+    );
+    if (!ok) return;
     await deleteMut.mutateAsync(workspaceId);
     goBack();
-  }, [workspaceId, deleteMut, goBack]);
+  }, [workspaceId, deleteMut, goBack, confirm]);
 
   // -- Dirty tracking --
   const savedSnapshot = useRef<string>("");
@@ -338,6 +345,7 @@ export default function WorkspaceDetailScreen() {
           )}
         </div>
       </div>
+      <ConfirmDialogSlot />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   FormRow, TextInput, SelectInput, Row, Col,
 } from "@/src/components/shared/FormControls";
 import { ActionButton, StatusBadge, InfoBanner } from "@/src/components/shared/SettingsControls";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import {
   useBotHooks,
   useCreateBotHook,
@@ -318,6 +319,7 @@ export function BotHooksSection({ botId }: { botId: string }) {
   const deleteMutation = useDeleteBotHook(botId);
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   const handleCreate = (form: HookFormState) => {
     createMutation.mutate({
@@ -345,8 +347,13 @@ export function BotHooksSection({ botId }: { botId: string }) {
     }, { onSuccess: () => setEditingId(null) });
   };
 
-  const handleDelete = (hookId: string) => {
-    if (confirm("Delete this hook? This cannot be undone.")) {
+  const handleDelete = async (hookId: string) => {
+    const ok = await confirm("Delete this hook? This cannot be undone.", {
+      title: "Delete hook",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (ok) {
       deleteMutation.mutate(hookId);
     }
   };
@@ -435,6 +442,7 @@ export function BotHooksSection({ botId }: { botId: string }) {
           icon={<Plus size={14} />}
         />
       )}
+      <ConfirmDialogSlot />
     </div>
   );
 }

@@ -12,6 +12,7 @@ import {
   type MCPServerTestResult,
 } from "@/src/api/hooks/useMCPServers";
 import { FormRow, TextInput, Section } from "@/src/components/shared/FormControls";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChange: (v: boolean) => void; compact?: boolean }) {
@@ -67,6 +68,7 @@ export default function MCPServerDetailScreen() {
   const [isEnabled, setIsEnabled] = useState(true);
   const [testResult, setTestResult] = useState<MCPServerTestResult | null>(null);
   const [initialized, setInitialized] = useState(isNew);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   if (server && !initialized) {
     setDisplayName(server.display_name || "");
@@ -92,10 +94,16 @@ export default function MCPServerDetailScreen() {
   }, [isNew, id, displayName, url, apiKey, isEnabled, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
-    if (!serverId || !confirm("Delete this MCP server?")) return;
+    if (!serverId) return;
+    const ok = await confirm("Delete this MCP server?", {
+      title: "Delete MCP server",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     await deleteMut.mutateAsync(serverId);
     goBack();
-  }, [serverId, deleteMut, goBack]);
+  }, [serverId, deleteMut, goBack, confirm]);
 
   const handleTest = useCallback(() => {
     setTestResult(null);
@@ -277,6 +285,7 @@ export default function MCPServerDetailScreen() {
           )}
         </div>
       </div>
+      <ConfirmDialogSlot />
     </div>
   );
 }

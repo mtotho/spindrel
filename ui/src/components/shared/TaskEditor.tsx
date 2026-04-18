@@ -18,6 +18,7 @@ import {
   TASK_TYPE_OPTIONS_CREATE,
 } from "@/src/components/shared/SchedulingPickers";
 import { FormRow, SelectInput, Section } from "@/src/components/shared/FormControls";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 
 // ---------------------------------------------------------------------------
 // TaskEditor (near-fullscreen overlay)
@@ -57,6 +58,17 @@ export function TaskEditor({
   });
 
   const navigate = useNavigate();
+  const { confirm, ConfirmDialogSlot } = useConfirm();
+
+  const handleDeleteClick = useCallback(async () => {
+    const ok = await confirm("Delete this task?", {
+      title: "Delete task",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
+    await form.handleDelete();
+  }, [confirm, form]);
 
   if (typeof document === "undefined") return null;
 
@@ -118,7 +130,7 @@ export function TaskEditor({
 
         {!isCreate && (
           <button
-            onClick={form.handleDelete}
+            onClick={handleDeleteClick}
             disabled={form.deleteMut.isPending}
             title="Delete"
             className={`flex flex-row items-center ${isWide ? "gap-1.5 px-3.5" : "px-2"} py-1.5 text-[13px] border border-danger/[0.15] rounded-md bg-transparent text-danger cursor-pointer shrink-0 hover:bg-danger/[0.06] transition-colors`}
@@ -292,6 +304,7 @@ export function TaskEditor({
           </div>
         </div>
       )}
+      <ConfirmDialogSlot />
     </div>,
     document.body,
   );

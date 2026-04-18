@@ -6,6 +6,7 @@ import { apiFetch } from "../../api/client";
 import type { WorkspaceFileEntry } from "../../types/api";
 import { useThemeTokens } from "../../theme/tokens";
 import { writeToClipboard } from "../../utils/clipboard";
+import { useConfirm } from "../shared/ConfirmDialog";
 import { createPortal } from "react-dom";
 
 interface FileContextMenuProps {
@@ -31,6 +32,7 @@ export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRena
   const openFile = useFileBrowserStore((s) => s.openFile);
   const splitMode = useFileBrowserStore((s) => s.splitMode);
   const deleteMutation = useDeleteWorkspaceFile(workspaceId);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === "Escape") onClose();
@@ -84,9 +86,13 @@ export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRena
     onClose();
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!entry) return;
-    if (confirm(`Delete ${entry.is_dir ? "folder" : "file"} "${entry.name}"?`)) {
+    const ok = await confirm(
+      `Delete ${entry.is_dir ? "folder" : "file"} "${entry.name}"?`,
+      { title: `Delete ${entry.is_dir ? "folder" : "file"}`, confirmLabel: "Delete", variant: "danger" },
+    );
+    if (ok) {
       deleteMutation.mutate(entry.path);
     }
     onClose();
@@ -166,6 +172,7 @@ export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRena
           </div>
         ))}
       </div>
+      <ConfirmDialogSlot />
     </>,
     document.body
   );

@@ -21,6 +21,7 @@ import {
 
 import { formatBytes } from "@/src/utils/format";
 import type { AttachmentAdmin } from "@/src/api/hooks/useAttachments";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -397,9 +398,15 @@ function PurgeModal({
   const [channelId, setChannelId] = useState("");
   const [type, setType] = useState("");
   const [fileDataOnly, setFileDataOnly] = useState(false);
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   const handlePurge = async () => {
-    if (!confirm(`Purge attachments before ${beforeDate}?`)) return;
+    const ok = await confirm(`Purge attachments before ${beforeDate}?`, {
+      title: "Purge attachments",
+      confirmLabel: "Purge",
+      variant: "danger",
+    });
+    if (!ok) return;
     await purge.mutateAsync({
       before_date: new Date(beforeDate).toISOString(),
       channel_id: channelId || undefined,
@@ -487,6 +494,7 @@ function PurgeModal({
           </button>
         </div>
       </div>
+      <ConfirmDialogSlot />
     </div>
   );
 }
@@ -510,6 +518,7 @@ export default function AttachmentsPage() {
   const [filterType, setFilterType] = useState("");
   const [groupByChannel, setGroupByChannel] = useState(true);
   const [page, setPage] = useState(0);
+  const { confirm, ConfirmDialogSlot: DeleteConfirmSlot } = useConfirm();
 
   const { data, isLoading } = useAdminAttachments({
     channelId: filterChannel || undefined,
@@ -552,7 +561,12 @@ export default function AttachmentsPage() {
   }, [data?.attachments]);
 
   const handleDelete = async (id: string, filename: string) => {
-    if (!confirm(`Delete attachment "${filename}"?`)) return;
+    const ok = await confirm(`Delete attachment "${filename}"?`, {
+      title: "Delete attachment",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     setDeletingId(id);
     try { await deleteMut.mutateAsync(id); } finally { setDeletingId(null); }
   };
@@ -722,6 +736,7 @@ export default function AttachmentsPage() {
       {previewAtt && (
         <PreviewModal att={previewAtt} onClose={() => setPreviewAtt(null)} />
       )}
+      <DeleteConfirmSlot />
     </div>
   );
 }
