@@ -40,9 +40,22 @@ steps:
       Discovery` handles that, scoped to one bot at a time.
 
       For each bot that has an obviously missing or drift-prone
-      configuration field (empty/weak system_prompt, wrong memory_scheme,
-      stale pinned_tools, missing api_permissions scopes), propose a
-      single JSON patch.
+      configuration field, propose a single JSON patch. You MAY only
+      propose changes to these fields (whitelist):
+
+        - system_prompt       → only when current is empty, < 40 chars,
+                                or verbatim default placeholder. Never
+                                rewrite an existing non-trivial prompt.
+        - memory_scheme       → set to "workspace-files" if null and the
+                                bot has an active workspace. Never change
+                                an already-set value.
+        - pinned_tools        → append only; never remove existing pins.
+        - api_permissions     → add scopes only; never remove.
+
+      Do NOT propose changes to: model, model_provider_id, fallback_models,
+      persona_content, display_name, avatar_url, compaction_*, memory_*,
+      skill_review_*, tool_similarity_threshold, or any field not in the
+      whitelist above.
 
       Every proposal MUST cite at least 2 concrete signals in its
       `evidence` array. For config-drift proposals, the `correlation_id`

@@ -28,9 +28,23 @@ steps:
     type: agent
     prompt: |
       Analyze bot `{{params.bot_id}}` using the record returned by prior
-      step `fetch_bot`. Look for obvious configuration drift (missing
-      system_prompt, memory_scheme inconsistencies, stale pinned_tools,
-      api_permissions scope gaps).
+      step `fetch_bot`. Look for obvious configuration drift.
+
+      You MAY only propose changes to these fields (whitelist):
+
+        - system_prompt       → only when current is empty, < 40 chars,
+                                or verbatim default placeholder. Never
+                                rewrite an existing non-trivial prompt.
+        - memory_scheme       → set to "workspace-files" if null and the
+                                bot has an active workspace.
+        - pinned_tools        → append only; never remove existing pins.
+        - api_permissions     → add scopes only; never remove.
+
+      Do NOT propose changes to: model, model_provider_id, fallback_models,
+      persona_content, display_name, avatar_url, compaction_*, memory_*,
+      skill_review_*, tool_similarity_threshold, or any field not in the
+      whitelist above. For discovery/threshold tuning, the caller should
+      use `Analyze Discovery` instead.
 
       Every proposal MUST cite at least 2 concrete signals in its
       `evidence` array — quote the specific config field values from

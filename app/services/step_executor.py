@@ -972,19 +972,28 @@ async def _run_evaluate_step(
     parallelism = _coerce_int(step_def.get("parallelism"), 1)
     per_case_timeout = float(_coerce_int(step_def.get("per_case_timeout"), 60))
 
-    # Build evaluator-specific spec from the step_def, with template
-    # substitution on string values (so command/prompt can reference
-    # {{steps.X.result}} or {{params.Y}}).
+    # Build evaluator-specific spec from the step_def, rendering {{...}} on
+    # every string found inside (dicts, lists, nested). Without recursion
+    # `override.value: "{{steps.propose.result.prompt}}"` would pass through
+    # verbatim and the evaluator would treat the literal template as the
+    # system prompt.
+    params = task_params(task)
+
+    def _render_deep(val):
+        if isinstance(val, str):
+            return render_prompt(val, params, step_states, steps)
+        if isinstance(val, dict):
+            return {k: _render_deep(v) for k, v in val.items()}
+        if isinstance(val, list):
+            return [_render_deep(v) for v in val]
+        return val
+
     spec_keys_passthrough = ("command", "prompt", "bot_id", "override")
     spec: dict = {}
     for key in spec_keys_passthrough:
         if key not in step_def:
             continue
-        val = step_def[key]
-        if isinstance(val, str):
-            spec[key] = render_prompt(val, task_params(task), step_states, steps)
-        else:
-            spec[key] = val
+        spec[key] = _render_deep(step_def[key])
 
     try:
         results = await run_evaluator(

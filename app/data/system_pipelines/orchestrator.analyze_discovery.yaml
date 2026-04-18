@@ -28,6 +28,7 @@ steps:
       event_type: discovery_summary
       bot_id: "{{params.bot_id}}"
       limit: 100
+      include_user_message: true
 
   - id: fetch_bot
     type: tool
@@ -42,20 +43,87 @@ steps:
       Audit discovery behavior for bot `{{params.bot_id}}`.
 
       Prior step `fetch_traces` is a JSON array of `discovery_summary`
-      events — one per turn. Each entry's `data` shows which skills and
-      tools the ranker surfaced, their scores, and which the bot actually
-      fetched / called. Prior step `fetch_bot` gives you the bot's current
-      skills and pinned_tools so you can read the *current* description
-      and triggers for anything you want to change.
+      events — one per turn. Each entry's `data` shows:
+        - `threshold` — the tool_similarity_threshold frozen for that turn
+        - `top_candidates[:5]` — tool candidates with their similarity scores
+        - `retrieved` — tools that cleared the threshold and were loaded
+        - `pinned`, `included`, `enrolled_working_set` — always-on tools
+        - `best_similarity`, `pool_total`, `unretrieved_count`
+      Each entry also carries a `user_message` field — the first user
+      message on that turn, truncated to ~400 chars. Use it to judge
+      whether a missed tool was actually relevant to user intent or
+      whether a retrieved tool fired for an unrelated reason.
+      Prior step `fetch_bot` gives you the bot's current skills,
+      pinned_tools, and tool_similarity_threshold so you can read the
+      *current* values before proposing a change.
 
-      Find items (skills or tools) that are:
-        - ranked above threshold repeatedly but rarely fetched → description/trigger too generic
-        - ranked below threshold despite obvious user intent in the trace → triggers missing keywords
-        - fetched for turns unrelated to their purpose → triggers too aggressive
+      Look for these dysfunction patterns and emit the matching proposal
+      shape. Emit NOTHING that doesn't fit one of the four shapes below.
 
+      ─────────────────────────────────────────────────────────────────
+      Pattern 1: CALIBRATION DRIFT (bot-level threshold)
+      ─────────────────────────────────────────────────────────────────
+      Signal: across ≥5 diverse turns, relevant-looking `top_candidates`
+      consistently score in a band 0.02–0.10 BELOW the turn's `threshold`
+      and are not retrieved. The ranker is working; the cutoff is too
+      tight for this bot's tool pool size.
+
+      Proposal shape:
+        target_kind: "bots"
+        target_path: "/api/v1/admin/bots/{{params.bot_id}}"
+        patch_body: {"tool_similarity_threshold": <float in [0.15, 0.55]>}
+      Pick the new threshold so it would have retrieved the missed
+      candidates. Do NOT propose any other bot field in this patch.
+
+      ─────────────────────────────────────────────────────────────────
+      Pattern 2: PIN-WORTHY TOOL (bot-level pinned_tools append)
+      ─────────────────────────────────────────────────────────────────
+      Signal: a tool appears in `retrieved` in ≥70% of turns where it
+      was in the candidate pool, and is not already in `pinned`. Pinning
+      saves the ranker cost and guarantees availability.
+
+      Proposal shape:
+        target_kind: "bots"
+        target_path: "/api/v1/admin/bots/{{params.bot_id}}"
+        patch_body: {"pinned_tools": [<current pinned list>, "<new_tool>"]}
+      Append only — never remove existing pins. Do NOT propose any other
+      bot field in this patch.
+
+      ─────────────────────────────────────────────────────────────────
+      Pattern 3: ITEM DESCRIPTION / TRIGGER REWRITE (skill-level)
+      ─────────────────────────────────────────────────────────────────
+      Signal: a specific skill is ranked above threshold repeatedly but
+      rarely fetched (triggers/description too generic), or ranked BELOW
+      threshold despite obvious user intent in the trace (triggers
+      missing keywords), or fetched for turns unrelated to its purpose
+      (triggers too aggressive).
+
+      Proposal shape:
+        target_kind: "skills"
+        target_path: "/api/v1/admin/skills/<skill_id>"
+        patch_body: {"description": "...", "triggers": [...]}   # one or both
+      Only these two fields. Do NOT touch skill body/content here.
+
+      ─────────────────────────────────────────────────────────────────
+      Pattern 4: TOOL DESCRIPTION DRIFT (advisory)
+      ─────────────────────────────────────────────────────────────────
+      Signal: same as Pattern 3 but for a tool. Tool descriptions live in
+      integration packages / code — there's no writable endpoint, so these
+      are advisory-only in the review UI.
+
+      Proposal shape:
+        target_kind: "tools"
+        target_path: "/api/v1/admin/tools/<tool_id>"
+        patch_body: {"description": "..."}
+
+      ─────────────────────────────────────────────────────────────────
+      Evidence rule (applies to ALL patterns)
+      ─────────────────────────────────────────────────────────────────
       Every proposal MUST cite at least 2 real `correlation_id` values
-      copied from `fetch_traces` in its `evidence` array. If you cannot
-      cite 2 traces, do NOT emit the proposal.
+      copied from `fetch_traces` in its `evidence` array. Each evidence
+      entry's `signal` field must quote a concrete observation (scores,
+      retrieval outcome, user intent). If you cannot cite 2 traces, do
+      NOT emit the proposal.
 
       Return ONLY valid JSON:
 
@@ -64,17 +132,17 @@ steps:
           {
             "id": "<stable-slug>",
             "scope": {
-              "target_kind": "skills" | "tools",
-              "target_id": "<skill-or-tool-id>",
+              "target_kind": "bots" | "skills" | "tools",
+              "target_id": "<bot_id | skill_id | tool_id>",
               "bots_affected": ["{{params.bot_id}}"]
             },
             "target_method": "PATCH",
-            "target_path": "/api/v1/admin/skills/<id>" | "/api/v1/admin/tools/<id>",
+            "target_path": "<as specified per pattern>",
             "patch_body": { ... },
             "rationale": "<one sentence naming the pattern>",
             "evidence": [
-              {"correlation_id": "<uuid>", "bot_id": "{{params.bot_id}}", "signal": "<what was seen>"},
-              {"correlation_id": "<uuid>", "bot_id": "{{params.bot_id}}", "signal": "<what was seen>"}
+              {"correlation_id": "<uuid>", "bot_id": "{{params.bot_id}}", "signal": "<concrete observation>"},
+              {"correlation_id": "<uuid>", "bot_id": "{{params.bot_id}}", "signal": "<concrete observation>"}
             ],
             "diff_preview": "before: ... / after: ..."
           }

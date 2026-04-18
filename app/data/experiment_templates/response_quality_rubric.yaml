@@ -1,0 +1,69 @@
+# Experiment template: response_quality_rubric
+#
+# Phase 4 canonical template — "improve a bot's responses on a fuzzy
+# criterion" — but also serves as the Phase 2 hand-written demo: system
+# prompt tuning for a bot, literal user-authored cases, LLM-judge rubric,
+# review-gated apply. Placeholders: {{params.bot_id}}.
+#
+# To instantiate manually (Phase 2): copy this file to the channel workspace
+# at `<ws>/data/experiments/<exp_id>/spec.yaml`, substitute {{params.bot_id}}
+# with a real bot id, tune cases/rubric, then create a
+# ChannelPipelineSubscription pointing at the `experiment.iterate` pipeline
+# with `schedule_config.params.experiment_id = <exp_id>`.
+id: "response-quality-{{params.bot_id}}"
+description: >-
+  Tune {{params.bot_id}}'s system_prompt on a rubric-scored set of example
+  conversations. Review-gated apply — LLM judge is noisier than
+  tool_selection_accuracy, so humans should look before we PATCH the bot.
+
+target:
+  kind: bot_field
+  bot_id: "{{params.bot_id}}"
+  field: system_prompt
+
+cases:
+  source: literal
+  items:
+    - input: "hi"
+    - input: "hey there"
+    - input: "good morning, what's up"
+    - input: "can you help me with something"
+    - input: "quick question for you"
+
+metric:
+  primary:
+    kind: llm_judge_rubric
+    args:
+      rubric: |
+        Score the bot's response on overall quality. Rate 1-5 where:
+        5 = brief, warm, on-topic; invites follow-up
+        4 = brief and on-topic but slightly stiff
+        3 = acceptable but verbose or off-voice
+        2 = long-winded, apologetic, or off-voice
+        1 = unhelpful, rambling, or out-of-character
+        Return JSON: {"overall": <int>, "why": "<one sentence>"}
+      score_field: overall
+      aggregate: mean
+  guards:
+    - name: not_more_verbose
+      kind: token_count_under
+      args: {}
+      p95_max: "baseline * 1.3"
+    - name: response_still_non_empty
+      kind: regex_match
+      args: {pattern: ".+", field: "response_text"}
+      min_pass: 1.0
+
+budget:
+  max_iterations: 15
+  max_tokens: 100000
+  max_wallclock_minutes: 30
+
+batch_size: 1
+
+apply_policy:
+  mode: review
+
+reproducibility:
+  seed: 42
+  temperature: 0.0

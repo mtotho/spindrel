@@ -1,0 +1,165 @@
+# System pipeline: orchestrator — cost / token efficiency audit for one bot.
+#
+# Reads `token_usage` trace events plus llm retry/fallback events and
+# proposes compaction or model-fallback changes. Distinct from
+# analyze_memory_quality which looks at compaction cadence — this one
+# looks at the economic tail.
+id: orchestrator.analyze_costs
+bot_id: orchestrator
+title: Analyze Costs
+task_type: pipeline
+prompt: "[System pipeline: analyze costs]"
+execution_config:
+  featured: true
+  description: >-
+    Audit a bot's token usage and retry/fallback patterns. Propose
+    compaction tuning or model fallback reordering when tokens drift or
+    the primary model is unreliable.
+  requires_channel: true
+  params_schema:
+    - name: bot_id
+      required: true
+      description: Bot whose cost/usage pattern should be audited.
+steps:
+  - id: fetch_usage
+    type: tool
+    tool_name: get_trace
+    tool_args:
+      event_type: token_usage
+      bot_id: "{{params.bot_id}}"
+      limit: 200
+
+  - id: fetch_llm_status
+    type: tool
+    tool_name: get_trace
+    tool_args:
+      event_type: llm_status
+      bot_id: "{{params.bot_id}}"
+      limit: 100
+
+  - id: fetch_bot
+    type: tool
+    tool_name: call_api
+    tool_args:
+      method: GET
+      path: "/api/v1/admin/bots/{{params.bot_id}}"
+
+  - id: analyze
+    type: agent
+    prompt: |
+      Audit cost / token efficiency for bot `{{params.bot_id}}`.
+
+      Prior step `fetch_usage` is the last ~200 `token_usage` trace
+      events — one per LLM call. Each `data` includes prompt_tokens,
+      completion_tokens, and total.
+      Prior step `fetch_llm_status` is retry/fallback/cooldown events
+      when the primary model failed or was rate-limited.
+      Prior step `fetch_bot` shows the bot's current `model`,
+      `fallback_models`, `compaction_interval`, and `compaction_keep_turns`.
+
+      Look for these patterns. Emit nothing outside these shapes.
+
+      ─────────────────────────────────────────────────────────────────
+      Pattern 1: PROMPT-TOKEN CREEP (compaction not keeping up)
+      ─────────────────────────────────────────────────────────────────
+      Signal: median `prompt_tokens` across `fetch_usage` is ≥60% of
+      model context window AND the top quartile crosses 80%. Compaction
+      is running too seldom for this workload.
+
+      Proposal shape:
+        target_kind: "bots"
+        target_path: "/api/v1/admin/bots/{{params.bot_id}}"
+        patch_body: {"compaction_interval": <int lower than current>}
+
+      ─────────────────────────────────────────────────────────────────
+      Pattern 2: FALLBACK REORDER (primary model unreliable)
+      ─────────────────────────────────────────────────────────────────
+      Signal: `fetch_llm_status` shows ≥20% of recent turns hit
+      fallback or retry on the primary model due to rate limit /
+      provider errors. Reordering puts a cheaper, more reliable model
+      first.
+
+      Proposal shape:
+        target_kind: "bots"
+        target_path: "/api/v1/admin/bots/{{params.bot_id}}"
+        patch_body: {"fallback_models": [<reordered list>]}
+      Never invent a model id — only reorder entries already present
+      in `fetch_bot.fallback_models` or promote one to primary by
+      swapping with `model`. Both-field patches allowed only for this
+      swap.
+
+      ─────────────────────────────────────────────────────────────────
+      Pattern 3: KEEP-TURNS TOO AGGRESSIVE
+      ─────────────────────────────────────────────────────────────────
+      Signal: compaction trigger turns show prompt_tokens barely drops
+      post-compaction (keep_turns is so high that compaction is almost
+      a no-op).
+
+      Proposal shape:
+        target_kind: "bots"
+        target_path: "/api/v1/admin/bots/{{params.bot_id}}"
+        patch_body: {"compaction_keep_turns": <int lower than current>}
+
+      Do NOT propose changes to: system_prompt, skills, pinned_tools,
+      memory_*, skill_review_*, or any field outside the three patterns.
+
+      ─────────────────────────────────────────────────────────────────
+      Evidence rule
+      ─────────────────────────────────────────────────────────────────
+      Every proposal MUST cite at least 2 real `correlation_id` values
+      from `fetch_usage` or `fetch_llm_status`. Each `signal` must
+      quote a concrete token count or retry/fallback reason. If you
+      cannot cite 2 traces, do NOT emit the proposal.
+
+      Return ONLY valid JSON:
+
+      {
+        "proposals": [
+          {
+            "id": "<stable-slug>",
+            "scope": {
+              "target_kind": "bots",
+              "target_id": "{{params.bot_id}}",
+              "bots_affected": ["{{params.bot_id}}"]
+            },
+            "target_method": "PATCH",
+            "target_path": "/api/v1/admin/bots/{{params.bot_id}}",
+            "patch_body": { ... },
+            "rationale": "<one sentence>",
+            "evidence": [
+              {"correlation_id": "<uuid>", "bot_id": "{{params.bot_id}}", "signal": "<concrete observation>"},
+              {"correlation_id": "<uuid>", "bot_id": "{{params.bot_id}}", "signal": "<concrete observation>"}
+            ],
+            "diff_preview": "before: ... / after: ..."
+          }
+        ]
+      }
+
+      If cost/usage looks healthy, return {"proposals": []}.
+    result_max_chars: 10000
+
+  - id: review
+    type: user_prompt
+    title: Review cost/usage proposals for {{params.bot_id}}
+    widget_template:
+      kind: approval_review
+      title: Cost audit — {{params.bot_id}}
+      proposals_ref: "{{steps.analyze.result.proposals}}"
+    response_schema:
+      type: multi_item
+      items_ref: "{{steps.analyze.result.proposals}}"
+
+  - id: apply
+    type: foreach
+    over: "{{steps.analyze.result.proposals}}"
+    on_failure: continue
+    do:
+      - type: tool
+        tool_name: call_api
+        when:
+          step: review
+          output_contains: '"{{item.id}}": "approve"'
+        tool_args:
+          method: "{{item.target_method}}"
+          path: "{{item.target_path}}"
+          body: "{{item.patch_body}}"

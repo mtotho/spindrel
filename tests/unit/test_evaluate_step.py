@@ -364,6 +364,59 @@ class TestEvaluateStepWiring:
         assert "evaluator" in error
 
     @pytest.mark.asyncio
+    async def test_override_value_rendered_from_prior_step(self):
+        """The `override.value` string must be template-rendered so the
+        hill-climb pipeline can feed a proposed prompt into the evaluator.
+        Regression: _run_evaluate_step used to pass dict values through raw,
+        leaving `{{steps.propose.result.prompt}}` un-substituted."""
+        from app.services.step_executor import _run_evaluate_step
+
+        task = MagicMock()
+        task.execution_config = {"params": {}}
+        task.id = uuid.uuid4()
+
+        steps = [
+            {"id": "propose", "type": "agent"},
+            {"id": "load_cases", "type": "tool"},
+            {
+                "id": "run_eval",
+                "type": "evaluate",
+                "evaluator": "bot_invoke",
+                "bot_id": "{{steps.propose.result.bot_id}}",
+                "override": {
+                    "field": "system_prompt",
+                    "value": "{{steps.propose.result.prompt}}",
+                },
+                "cases": "{{steps.load_cases.result}}",
+            },
+        ]
+        step_states = [
+            {"id": "propose", "status": "done",
+             "result": json.dumps({"bot_id": "sprout", "prompt": "Be polite."})},
+            {"id": "load_cases", "status": "done", "result": json.dumps([{"input": "hi"}])},
+            {"id": "run_eval", "status": "running"},
+        ]
+
+        captured_spec: dict = {}
+
+        async def _fake_run_evaluator(evaluator, cases, spec, **kwargs):
+            captured_spec.update(spec)
+            return [{"case": cases[0], "captured": {"response_text": "ok"}, "error": None}]
+
+        with patch("app.services.eval_evaluator.run_evaluator", side_effect=_fake_run_evaluator):
+            status, result, error = await _run_evaluate_step(
+                task, steps[2], 2, steps, step_states,
+            )
+
+        assert error is None, f"unexpected error: {error}"
+        assert status == "done"
+        assert captured_spec["bot_id"] == "sprout"
+        assert captured_spec["override"] == {
+            "field": "system_prompt",
+            "value": "Be polite.",
+        }
+
+    @pytest.mark.asyncio
     async def test_cases_resolves_to_non_list_fails(self):
         from app.services.step_executor import _run_evaluate_step
         task = MagicMock()

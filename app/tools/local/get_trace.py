@@ -9,6 +9,8 @@ from app.db.engine import async_session
 from app.db.models import Message, ToolCall, TraceEvent
 from app.tools.registry import register
 
+_USER_MESSAGE_PREVIEW_CHARS = 400
+
 
 @register({
     "type": "function",
@@ -167,6 +169,16 @@ async def list_session_traces(limit: int = 10) -> str:
                         "List mode: optional filter restricting returned events to one bot."
                     ),
                 },
+                "include_user_message": {
+                    "type": "boolean",
+                    "description": (
+                        "List mode: when true, each returned event also includes the "
+                        "first user message for its correlation_id (truncated to ~400 "
+                        "chars). Useful for auditing why a ranker/discovery event "
+                        "fired the way it did — the message reveals user intent that "
+                        "the trace payload alone doesn't capture."
+                    ),
+                },
             },
             "required": [],
         },
@@ -179,6 +191,7 @@ async def get_trace(
     event_type: str | None = None,
     limit: int | None = None,
     bot_id: str | None = None,
+    include_user_message: bool = False,
 ) -> str:
     # ------------------------------------------------------------------
     # List mode — event_type given: return recent events of that type as
@@ -196,20 +209,45 @@ async def get_trace(
             if bot_id:
                 q = q.where(TraceEvent.bot_id == bot_id)
             rows = (await db.execute(q)).scalars().all()
-        return json.dumps(
-            [
-                {
-                    "correlation_id": str(r.correlation_id) if r.correlation_id else None,
-                    "bot_id": r.bot_id,
-                    "event_type": r.event_type,
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
-                    "data": r.data,
-                }
-                for r in rows
-            ],
-            ensure_ascii=False,
-            default=str,
-        )
+
+            user_messages: dict[uuid.UUID, str] = {}
+            if include_user_message and rows:
+                # Fetch first user message per correlation_id in one batch
+                corr_ids = [r.correlation_id for r in rows if r.correlation_id]
+                if corr_ids:
+                    msg_rows = (await db.execute(
+                        select(Message.correlation_id, Message.content)
+                        .where(
+                            Message.correlation_id.in_(corr_ids),
+                            Message.role == "user",
+                        )
+                        .order_by(Message.created_at)
+                    )).all()
+                    for mr in msg_rows:
+                        if mr.correlation_id in user_messages:
+                            continue  # keep the first user message per turn
+                        if not mr.content:
+                            continue
+                        content = mr.content
+                        if len(content) > _USER_MESSAGE_PREVIEW_CHARS:
+                            content = content[:_USER_MESSAGE_PREVIEW_CHARS] + "…"
+                        user_messages[mr.correlation_id] = content.replace("\n", " ")
+
+        out: list[dict] = []
+        for r in rows:
+            entry: dict = {
+                "correlation_id": str(r.correlation_id) if r.correlation_id else None,
+                "bot_id": r.bot_id,
+                "event_type": r.event_type,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "data": r.data,
+            }
+            if include_user_message:
+                entry["user_message"] = (
+                    user_messages.get(r.correlation_id) if r.correlation_id else None
+                )
+            out.append(entry)
+        return json.dumps(out, ensure_ascii=False, default=str)
 
     # Fuzzy pick the first defined parameter in the order correlation_id, trace_id, id
     param_val = correlation_id or trace_id or id

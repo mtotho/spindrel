@@ -77,6 +77,9 @@ local_tools:
   - create_slides
   - read_conversation_history
   - spawn_subagents
+  - list_pipelines
+  - run_pipeline
+  - get_trace
 
 pinned_tools:
   - get_system_status
@@ -169,6 +172,7 @@ system_prompt_fragment: |
   **Orchestration:**
   | When you need... | Fetch this skill |
   |---|---|
+  | Audit / tune a bot (discovery, skills, memory, tool usage, costs) | `get_skill('carapaces/orchestrator/audits')` |
   | Delegation patterns, Claude Code usage, fan-out/pipeline workflows | `get_skill('carapaces/orchestrator/workspace-delegation')` |
   | Server API endpoints, permissions, scopes, `call_api` / `list_api_endpoints` | `get_skill('carapaces/orchestrator/workspace-api-reference')` |
   | Channels, memory patterns, base template, checklists | `get_skill('carapaces/orchestrator/workspace-management')` |

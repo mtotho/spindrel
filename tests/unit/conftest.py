@@ -36,6 +36,8 @@ from app.agent import context as agent_context_mod
 
 _MODULE_LEVEL_ALIASES = (
     "app.tools.local.tasks.async_session",
+    "app.tools.local.pipelines.async_session",
+    "app.tools.local.get_trace.async_session",
     "app.tools.local.skills.async_session",
     "app.services.workflow_executor.async_session",
     "app.services.compaction.async_session",
@@ -45,6 +47,7 @@ _MODULE_LEVEL_ALIASES = (
     "app.services.workflows.async_session",
     "app.services.task_run_anchor.async_session",
     "app.agent.tasks.async_session",
+    "app.services.sessions.async_session",
     "app.db.engine.async_session",
 )
 
@@ -61,6 +64,10 @@ async def patched_async_sessions(engine):
     with patch.multiple(
         "app.db.engine", async_session=factory
     ), patch("app.tools.local.tasks.async_session", factory), patch(
+        "app.tools.local.pipelines.async_session", factory
+    ), patch(
+        "app.tools.local.get_trace.async_session", factory
+    ), patch(
         "app.tools.local.skills.async_session", factory
     ), patch(
         "app.services.workflow_executor.async_session", factory
@@ -76,7 +83,9 @@ async def patched_async_sessions(engine):
         "app.services.workflows.async_session", factory
     ), patch(
         "app.services.task_run_anchor.async_session", factory
-    ), patch("app.agent.tasks.async_session", factory):
+    ), patch("app.agent.tasks.async_session", factory), patch(
+        "app.services.sessions.async_session", factory
+    ):
         yield factory
 
 

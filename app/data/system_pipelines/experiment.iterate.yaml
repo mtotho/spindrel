@@ -1,0 +1,135 @@
+# System pipeline: experiment.iterate — one hill-climb step.
+#
+# Called on cron by a `ChannelPipelineSubscription` pointed at this pipeline
+# with `params.experiment_id`. Each run: read spec + history, propose one
+# variant, evaluate on the spec's cases, score against primary + guards,
+# append to history, and overwrite `current_best.json` iff the variant won.
+#
+# The experiment itself lives at `<channel_workspace>/data/experiments/<id>/`
+# and is hand-authored in Phase 2 (no `experiment.create` pipeline yet).
+# When the budget is exhausted, every post-check step short-circuits via
+# `when:` so the pipeline closes cleanly without spurious failures.
+id: experiment.iterate
+bot_id: orchestrator
+title: Experiment — Iterate
+task_type: pipeline
+prompt: "[System pipeline: experiment.iterate]"
+execution_config:
+  featured: false
+  description: >-
+    Run a single hill-climb iteration for an experiment_id in this channel's
+    workspace. Reads spec.yaml + history, proposes a variant, evaluates, and
+    updates history + current_best.
+  requires_channel: true
+  params_schema:
+    - name: experiment_id
+      required: true
+      description: Experiment id (directory under data/experiments/).
+
+steps:
+  - id: check_budget
+    type: tool
+    tool_name: check_experiment_budget
+    tool_args:
+      experiment_id: "{{params.experiment_id}}"
+
+  - id: read_state
+    type: tool
+    tool_name: read_experiment_state
+    when:
+      step: check_budget
+      output_contains: "BUDGET_OK"
+    tool_args:
+      experiment_id: "{{params.experiment_id}}"
+    result_max_chars: 40000
+
+  - id: propose_variant
+    type: agent
+    when:
+      step: check_budget
+      output_contains: "BUDGET_OK"
+    result_max_chars: 8000
+    prompt: |
+      You are proposing the next variant in a hill-climb experiment. Prior
+      step `read_state` returned a JSON object with:
+        - spec       — the experiment's spec.yaml (target, metric, cases)
+        - history    — array of prior iterations (variant + scores)
+        - current_best — best variant so far (or null)
+        - baseline   — the target's original value and its baseline scores
+
+      Propose ONE new candidate value for `spec.target.field`. If history is
+      empty, start by proposing a conservative tweak to the baseline value. If
+      history has entries, read the scores — including `guards` rejections —
+      and propose something that either:
+        (a) hill-climbs on the primary metric, or
+        (b) repairs a guard rejection while staying near current_best.
+
+      Return ONLY valid JSON:
+
+      {
+        "prompt": "<new system_prompt candidate — the full string>",
+        "rationale": "<one sentence: what you changed and why>"
+      }
+
+      Do not wrap the JSON in prose. Do not include explanatory text outside
+      the JSON object.
+
+  - id: run_eval
+    type: evaluate
+    when:
+      step: check_budget
+      output_contains: "BUDGET_OK"
+    evaluator: bot_invoke
+    bot_id: "{{steps.read_state.result.spec.target.bot_id}}"
+    override:
+      field: system_prompt
+      value: "{{steps.propose_variant.result.prompt}}"
+    cases: "{{steps.read_state.result.spec.cases.items}}"
+    parallelism: 3
+    per_case_timeout: 120
+    result_max_chars: 80000
+
+  - id: score
+    type: tool
+    tool_name: score_eval_results
+    when:
+      step: check_budget
+      output_contains: "BUDGET_OK"
+    tool_args:
+      metric_block_json: "{{steps.read_state.result.spec.metric}}"
+      eval_results_json: "{{steps.run_eval.result}}"
+      baseline_json: "{{steps.read_state.result.baseline}}"
+    result_max_chars: 40000
+
+  - id: build_record
+    type: tool
+    tool_name: build_experiment_record
+    when:
+      step: check_budget
+      output_contains: "BUDGET_OK"
+    tool_args:
+      iteration_n: "{{steps.read_state.result.iterations_so_far}}"
+      variant_prompt: "{{steps.propose_variant.result.prompt}}"
+      variant_rationale: "{{steps.propose_variant.result.rationale}}"
+      scores_json: "{{steps.score.result}}"
+    result_max_chars: 40000
+
+  - id: append_history
+    type: tool
+    tool_name: append_experiment_history
+    when:
+      step: check_budget
+      output_contains: "BUDGET_OK"
+    tool_args:
+      experiment_id: "{{params.experiment_id}}"
+      record_json: "{{steps.build_record.result}}"
+
+  - id: update_best
+    type: tool
+    tool_name: update_best_if_improved
+    when:
+      step: check_budget
+      output_contains: "BUDGET_OK"
+    tool_args:
+      experiment_id: "{{params.experiment_id}}"
+      candidate_json: "{{steps.build_record.result}}"
