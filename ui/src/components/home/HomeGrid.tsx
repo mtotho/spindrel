@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Search, AlertTriangle, ChevronRight, Home } from "lucide-react";
+import { Search, AlertTriangle, ChevronRight, Compass } from "lucide-react";
 import { useChannels, useEnsureOrchestrator } from "../../api/hooks/useChannels";
 import { useProviders } from "../../api/hooks/useProviders";
 import { useAuthStore } from "../../stores/auth";
@@ -43,10 +43,35 @@ export function HomeGrid() {
     [allItems],
   );
 
-  const { groups, isEmpty } = usePaletteSearch(items, query, {
+  const { groups: rawGroups, isEmpty } = usePaletteSearch(items, query, {
     currentHref: location.pathname + (location.hash || ""),
     searchLimit: 200,
   });
+
+  // Home page order differs from the palette overlay's CATEGORY_ORDER: we push
+  // admin/feature categories above Recent and Channels because `/` is the
+  // setup + discovery surface, not the fast-nav surface. Palette overlay
+  // (Ctrl+K) keeps Recent/Channels on top since that's the quick-jump use case.
+  const HOME_CATEGORY_ORDER = [
+    "Configure",
+    "Automate",
+    "Integrations",
+    "Bots",
+    "Monitor",
+    "Security",
+    "Developer",
+    "Recent",
+    "Channels",
+    "Settings",
+  ];
+  const groups = useMemo(() => {
+    if (!isEmpty) return rawGroups;
+    const rank = (cat: string) => {
+      const idx = HOME_CATEGORY_ORDER.indexOf(cat);
+      return idx === -1 ? HOME_CATEGORY_ORDER.length : idx;
+    };
+    return [...rawGroups].sort((a, b) => rank(a.category) - rank(b.category));
+  }, [rawGroups, isEmpty]);
 
   // Surface setup affordances when an admin has no orchestrator channel yet.
   const { data: channels, isLoading: channelsLoading } = useChannels();
@@ -121,16 +146,6 @@ export function HomeGrid() {
   useEffect(() => {
     setSelectedIndex(query.trim() ? (flatTiles.length > 0 ? 0 : -1) : -1);
   }, [query, flatTiles.length]);
-
-  // Listen for "focus me" Ctrl+K signal while on `/`.
-  useEffect(() => {
-    const handler = () => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    };
-    window.addEventListener("palette:focus", handler);
-    return () => window.removeEventListener("palette:focus", handler);
-  }, []);
 
   // Scroll the selected tile into view on keyboard nav.
   useEffect(() => {
@@ -334,12 +349,12 @@ export function HomeGrid() {
                     backgroundColor: t.accent + "20",
                   }}
                 >
-                  <Home size={22} color={t.accent} />
+                  <Compass size={22} color={t.accent} />
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
-                  <span style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Home</span>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Orchestrate</span>
                   <span style={{ fontSize: 13, color: t.textMuted }}>
-                    Setup, projects, and system management
+                    Launchpad for pipelines, recent runs, and system status
                   </span>
                 </div>
                 <ChevronRight size={18} color={t.textDim} />
@@ -404,7 +419,7 @@ export function HomeGrid() {
                     backgroundColor: t.accent + "20",
                   }}
                 >
-                  <Home size={22} color={t.accent} />
+                  <Compass size={22} color={t.accent} />
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
                   <span style={{ fontSize: 16, fontWeight: 700, color: t.text }}>

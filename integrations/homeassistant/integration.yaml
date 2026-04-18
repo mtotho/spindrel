@@ -230,6 +230,73 @@ tool_widgets:
     transform: "integrations.homeassistant.widget_transforms:live_context_summary"
     default_config:
       filter: ""
+    # state_poll drives the pinned-card view. Needed so that clicking a
+    # filter button (dispatch: widget_config) triggers a re-render —
+    # _dispatch_widget_config returns envelope=None unless a state_poll
+    # is configured. The transform shares a computation helper with the
+    # main template transform so both renders show the same data.
+    state_poll:
+      tool: GetLiveContext
+      args: {}
+      transform: "integrations.homeassistant.widget_transforms:live_context_poll"
+      refresh_interval_seconds: 120
+      template:
+        v: 1
+        components:
+          - type: status
+            text: "{{status_text}}"
+            color: "{{status_color}}"
+          - type: button
+            when: "{{filter_active}}"
+            label: "Clear filter"
+            subtle: true
+            action:
+              dispatch: widget_config
+              config:
+                filter: ""
+          - type: tiles
+            when: "{{domain_counts | not_empty}}"
+            min_width: 140
+            items: "{{domain_counts}}"
+          - type: section
+            when: "{{active | not_empty}}"
+            label: "Active now"
+            collapsible: true
+            defaultOpen: false
+            children:
+              - type: tiles
+                min_width: 180
+                items: "{{active}}"
+          - type: section
+            when: "{{filter_active | not}}"
+            label: "Filter by area"
+            collapsible: true
+            defaultOpen: false
+            children:
+              each: "{{area_buttons}}"
+              template:
+                type: button
+                label: "{{_.label}}"
+                subtle: true
+                action:
+                  dispatch: widget_config
+                  config:
+                    filter: "{{_.filter_value}}"
+          - type: section
+            when: "{{filter_active | not}}"
+            label: "Filter by domain"
+            collapsible: true
+            defaultOpen: false
+            children:
+              each: "{{domain_buttons}}"
+              template:
+                type: button
+                label: "{{_.label}}"
+                subtle: true
+                action:
+                  dispatch: widget_config
+                  config:
+                    filter: "{{_.filter_value}}"
     template:
       v: 1
       components:

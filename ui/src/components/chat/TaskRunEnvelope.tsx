@@ -1,7 +1,6 @@
 import { memo, useState } from "react";
 import {
   CheckCircle2,
-  ChevronDown,
   ChevronRight,
   Circle,
   CircleDot,
@@ -202,26 +201,30 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapse
   const timestamp = formatTimeShort(message.created_at);
   const taskId = meta.task_id;
 
-  // Active states get a left accent stripe — matches the Findings banner's
-  // visual weight so the eye knows which runs need attention. Done/failed
-  // anchors stay on the shared card surface; their status is already
-  // conveyed by the header icon + label.
-  const isActiveAnchor =
-    headerStatus === "awaiting_user_input" || headerStatus === "running";
-
+  // Active states signal via header pill ("Your review needed" / "running"
+  // + spinner icon) rather than a saturated left-border stripe. The
+  // stripe-on-tall-card look read as AI-slop chrome; with the shared card
+  // surface it wasn't carrying its weight.
   return (
     <div
-      className={cn(
-        "mx-5 my-1.5 group rounded-lg bg-surface-raised border border-surface-border transition-colors",
-        isActiveAnchor && "border-l-2",
-        headerStatus === "awaiting_user_input" && "border-l-accent",
-        headerStatus === "running" && "border-l-accent/60",
-      )}
+      className="mx-5 my-1.5 group rounded-lg bg-surface-raised border border-surface-border transition-colors"
       data-task-id={taskId || undefined}
       data-awaiting-review={awaitingStep ? "true" : undefined}
     >
-      {/* ── Header row ─────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-2 px-3.5 py-2.5">
+      {/* ── Header row ───────────────────────────────────────────────
+          For collapsed anchors the entire header is the expand target —
+          a small chevron button alone is too easy to miss. For expanded
+          anchors the header is passive (body is already visible).         */}
+      <div
+        className={cn(
+          "flex items-center justify-between gap-2 px-3.5 py-2.5",
+          collapsedByDefault && "cursor-pointer hover:bg-surface-overlay/30 transition-colors",
+          collapsedByDefault && !bodyOpen && "rounded-lg",
+        )}
+        onClick={collapsedByDefault ? () => setBodyOpen((v) => !v) : undefined}
+        role={collapsedByDefault ? "button" : undefined}
+        aria-expanded={collapsedByDefault ? bodyOpen : undefined}
+      >
         <div className="flex min-w-0 items-center gap-2">
           <Workflow size={14} className="text-text-dim flex-shrink-0" />
           <span className="truncate text-xs font-semibold text-text">{title}</span>
@@ -256,16 +259,16 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapse
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="hidden sm:inline text-[10px] text-text-dim whitespace-nowrap">{timestamp}</span>
+          <span className="hidden sm:inline text-[10px] text-text-dim whitespace-nowrap tabular-nums">{timestamp}</span>
           {collapsedByDefault && (
-            <button
-              onClick={() => setBodyOpen((v) => !v)}
-              className="text-[10px] text-text-dim hover:text-text-muted uppercase tracking-wider flex items-center gap-0.5 bg-transparent border-none cursor-pointer"
-              aria-label={bodyOpen ? "Collapse" : "Expand"}
-            >
-              {bodyOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-              <span className="hidden sm:inline">{bodyOpen ? "collapse" : "expand"}</span>
-            </button>
+            <ChevronRight
+              size={14}
+              className={cn(
+                "text-text-muted transition-transform",
+                bodyOpen && "rotate-90",
+              )}
+              aria-hidden="true"
+            />
           )}
         </div>
       </div>

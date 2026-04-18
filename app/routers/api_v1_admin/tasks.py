@@ -27,6 +27,7 @@ from sqlalchemy.orm import attributes as sa_attributes
 from app.agent.bots import get_bot
 from app.db.models import Channel, Session, Task
 from app.dependencies import get_db, require_scopes
+from app.utils import safe_create_task
 from ._helpers import _heartbeat_correlation_ids
 
 router = APIRouter()
@@ -866,11 +867,34 @@ async def admin_resolve_step(
     await db.commit()
     await db.refresh(task)
 
-    # Resume the pipeline from the step after this one.
-    steps = task.steps or []
-    await _advance_pipeline(task, steps, task.step_states, start_index=step_index + 1)
-    await db.refresh(task)
+    # Resume the pipeline from the step after this one in a background task.
+    # `_advance_pipeline` may iterate over a `foreach` with many `call_api`
+    # sub-steps, which can take minutes — holding the HTTP request open for
+    # that long blocks the UI. The background task uses its own session so
+    # it doesn't depend on the request session staying alive.
+    safe_create_task(
+        _resume_pipeline_background(task_id, step_index + 1),
+        name=f"resolve-resume-{task_id}",
+    )
     return TaskDetailOut.model_validate(task)
+
+
+async def _resume_pipeline_background(task_id: uuid.UUID, start_index: int) -> None:
+    """Re-fetch the task in a fresh session and advance the pipeline.
+
+    Decoupled from the admin_resolve_step request session — that one closes
+    immediately after the response is sent. Fetching anew keeps the ORM
+    instance bound to a live session for the duration of the apply phase.
+    """
+    from app.db.engine import async_session
+    from app.services.step_executor import _advance_pipeline
+
+    async with async_session() as bg_db:
+        bg_task = await bg_db.get(Task, task_id)
+        if bg_task is None:
+            return
+        steps = bg_task.steps or []
+        await _advance_pipeline(bg_task, steps, bg_task.step_states, start_index=start_index)
 
 
 @router.delete("/tasks/{task_id}", status_code=204)

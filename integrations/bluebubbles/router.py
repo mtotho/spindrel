@@ -46,10 +46,15 @@ async def _fetch_owner_address(server_url: str, password: str) -> str | None:
     and emails registered on the Mac's iMessage account. We pick the first
     phone number (starts with ``+``) as the owner's address.
 
-    Cached in ``_owner_address`` so we only call the API once per process.
+    Cached in ``_owner_address`` ONLY on successful resolution. Failures
+    (no phone in aliases, exception) are NOT cached so subsequent webhooks
+    will retry — otherwise a single transient failure poisons the cache for
+    the lifetime of the process and every is_from_me message renders as
+    ``[unknown]``.
     """
-    if "phone" in _owner_address:
-        return _owner_address["phone"]
+    cached = _owner_address.get("phone")
+    if cached:
+        return cached
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -66,12 +71,13 @@ async def _fetch_owner_address(server_url: str, password: str) -> str | None:
                     _owner_address["phone"] = alias
                     logger.info("BB owner phone resolved: %s", alias)
                     return alias
-            # No phone found — cache empty so we don't retry
-            _owner_address["phone"] = ""
-            logger.warning("BB server/info returned no phone aliases: %s", aliases)
-            return ""
+            logger.warning(
+                "BB server/info returned no phone aliases: %s — will retry on next webhook",
+                aliases,
+            )
+            return None
     except Exception:
-        logger.debug("BB _fetch_owner_address failed", exc_info=True)
+        logger.warning("BB _fetch_owner_address failed — will retry on next webhook", exc_info=True)
         return None
 
 
@@ -1108,8 +1114,15 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     # Extract sender info.
     # For is_from_me: BB doesn't include a handle (the handle is the REMOTE
     # participant). Use the cached owner phone from /api/v1/server/info.
+    # Retry the resolve if the startup fetch never succeeded — otherwise a
+    # single transient failure at boot would render every is_from_me message
+    # as ``[unknown]`` for the life of the process.
     handle = data.get("handle") or {}
     _cached_owner = _owner_address.get("phone", "")
+    if is_from_me and not _cached_owner:
+        _cached_owner = await _fetch_owner_address(
+            bb_settings.BLUEBUBBLES_SERVER_URL, bb_settings.BLUEBUBBLES_PASSWORD,
+        ) or ""
     sender = handle.get("address", "unknown") if not is_from_me else (_cached_owner or "unknown")
     # Sender display name is resolved per-binding below (needs binding.display_name)
 

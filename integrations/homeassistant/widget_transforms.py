@@ -153,39 +153,21 @@ def single_entity_state(raw_result: str, widget_meta: dict) -> dict:
     }
 
 
-def live_context_summary(data: dict, components: list[dict]) -> list[dict]:
-    """Main-template transform for homeassistant-GetLiveContext.
+def _compute_live_context_view(raw_text: str, raw_filter: str) -> dict:
+    """Shared view-data helper used by both the main transform (for the
+    initial in-thread render) and the state_poll transform (for pinned
+    re-renders driven by config changes).
 
-    The raw result is a YAML blob nested inside the JSON wrapper's
-    ``result`` string — no template dot-path can reach per-entity fields.
-    So we parse it here and rebuild the component tree with computed
-    counts, an "active now" section, and a filter UI driven by
-    ``config.filter``.
-
-    Filter semantics: a case-insensitive substring match against entity
-    name / domain / area. Set via preset buttons (one per discovered
-    area + domain) that dispatch ``widget_config`` — only functional on
-    pinned cards, same constraint as other ``widget_config`` actions.
-
-    Signature matches the top-level ``transform`` contract in
-    ``app/services/widget_templates.py:_apply_code_transform``.
+    Returns a flat dict with pre-computed counts, the active-entity
+    tiles, and the data-driven filter button lists.
     """
-    result_text = data.get("result")
-    if not isinstance(result_text, str):
-        return components
-
     entities = [
-        e for e in _parse_live_context(result_text)
+        e for e in _parse_live_context(raw_text)
         if e.get("domain") and e.get("state")
     ]
 
-    cfg = data.get("config") if isinstance(data.get("config"), dict) else {}
-    raw_filter = str(cfg.get("filter", "") or "").strip()
-    filter_lc = raw_filter.lower()
+    filter_lc = raw_filter.strip().lower()
 
-    # Derive the unique area + domain sets from the FULL entity list (not
-    # the filtered one) so filter buttons stay visible/stable as the user
-    # narrows.
     all_areas = sorted({e.get("area") for e in entities if e.get("area")})
     all_domains = sorted({e.get("domain") for e in entities if e.get("domain")})
 
@@ -209,26 +191,68 @@ def live_context_summary(data: dict, components: list[dict]) -> list[dict]:
         if str(e.get("state", "")).lower() in _ON_STATES
     ]
 
-    domain_tallies: dict[str, int] = {}
+    tallies: dict[str, int] = {}
     for e in matching:
         d = e.get("domain", "") or "unknown"
-        domain_tallies[d] = domain_tallies.get(d, 0) + 1
+        tallies[d] = tallies.get(d, 0) + 1
     domain_counts = [
         {"label": d, "value": str(count)}
-        for d, count in sorted(domain_tallies.items(), key=lambda kv: -kv[1])
+        for d, count in sorted(tallies.items(), key=lambda kv: -kv[1])
     ]
 
     total = len(entities)
     shown = len(matching)
+    filter_active = bool(filter_lc)
 
-    new_components: list[dict] = []
+    if filter_active:
+        status_text = f"Filtered: {raw_filter.strip()} · {shown}/{total} entities"
+        status_color = "accent"
+    else:
+        status_text = f"{total} entities · {len(active)} active"
+        status_color = "info"
 
-    if filter_lc:
-        new_components.append({
-            "type": "status",
-            "text": f"Filtered: {raw_filter} · {shown}/{total} entities",
-            "color": "accent",
-        })
+    area_buttons = [
+        {"label": area, "filter_value": area} for area in all_areas
+    ]
+    domain_buttons = [
+        {"label": domain, "filter_value": domain} for domain in all_domains
+    ]
+
+    return {
+        "status_text": status_text,
+        "status_color": status_color,
+        "total": total,
+        "shown": shown,
+        "filter_active": filter_active,
+        "active_count": len(active),
+        "active": active,
+        "domain_counts": domain_counts,
+        "area_buttons": area_buttons,
+        "domain_buttons": domain_buttons,
+    }
+
+
+def live_context_summary(data: dict, components: list[dict]) -> list[dict]:
+    """Main-template transform for homeassistant-GetLiveContext.
+
+    Used for the initial in-thread render. The pinned-card interactive
+    view is driven by ``live_context_poll`` + a state_poll template that
+    uses each-blocks to emit buttons dynamically.
+
+    Signature matches the top-level ``transform`` contract in
+    ``app/services/widget_templates.py:_apply_code_transform``.
+    """
+    result_text = data.get("result")
+    if not isinstance(result_text, str):
+        return components
+
+    cfg = data.get("config") if isinstance(data.get("config"), dict) else {}
+    view = _compute_live_context_view(result_text, str(cfg.get("filter", "") or ""))
+
+    new_components: list[dict] = [
+        {"type": "status", "text": view["status_text"], "color": view["status_color"]},
+    ]
+    if view["filter_active"]:
         new_components.append({
             "type": "button",
             "label": "Clear filter",
@@ -238,86 +262,79 @@ def live_context_summary(data: dict, components: list[dict]) -> list[dict]:
                 "config": {"filter": ""},
             },
         })
-    else:
-        new_components.append({
-            "type": "status",
-            "text": f"{total} entities · {len(active)} active",
-            "color": "info",
-        })
-
-    if domain_counts:
+    if view["domain_counts"]:
         new_components.append({
             "type": "tiles",
             "min_width": 140,
-            "items": domain_counts,
+            "items": view["domain_counts"],
         })
-
-    if active:
+    if view["active"]:
         new_components.append({
             "type": "section",
-            "label": f"Active now ({len(active)})",
+            "label": f"Active now ({view['active_count']})",
             "collapsible": True,
             "defaultOpen": False,
-            "children": [
-                {"type": "tiles", "min_width": 180, "items": active},
-            ],
+            "children": [{"type": "tiles", "min_width": 180, "items": view["active"]}],
         })
-
-    # Filter presets — one button per area, one per domain. Invisible
-    # once the filter is set (user can pick a different one after
-    # clearing). Only functional on pinned cards, matching the
-    # widget_config dispatch contract.
-    if not filter_lc and (all_areas or all_domains):
-        area_buttons = [
+    if not view["filter_active"] and (view["area_buttons"] or view["domain_buttons"]):
+        area_btns = [
             {
-                "type": "button",
-                "label": area,
-                "subtle": True,
+                "type": "button", "label": b["label"], "subtle": True,
                 "action": {
                     "dispatch": "widget_config",
-                    "config": {"filter": area},
+                    "config": {"filter": b["filter_value"]},
                 },
             }
-            for area in all_areas
+            for b in view["area_buttons"]
         ]
-        domain_buttons = [
+        domain_btns = [
             {
-                "type": "button",
-                "label": domain,
-                "subtle": True,
+                "type": "button", "label": b["label"], "subtle": True,
                 "action": {
                     "dispatch": "widget_config",
-                    "config": {"filter": domain},
+                    "config": {"filter": b["filter_value"]},
                 },
             }
-            for domain in all_domains
+            for b in view["domain_buttons"]
         ]
-
-        filter_section_children: list[dict] = []
-        if area_buttons:
-            filter_section_children.append({
-                "type": "properties",
-                "layout": "inline",
+        children: list[dict] = []
+        if area_btns:
+            children.append({
+                "type": "properties", "layout": "inline",
                 "items": [{"label": "By area", "value": ""}],
             })
-            filter_section_children.extend(area_buttons)
-        if domain_buttons:
-            filter_section_children.append({
-                "type": "properties",
-                "layout": "inline",
+            children.extend(area_btns)
+        if domain_btns:
+            children.append({
+                "type": "properties", "layout": "inline",
                 "items": [{"label": "By domain", "value": ""}],
             })
-            filter_section_children.extend(domain_buttons)
-
+            children.extend(domain_btns)
         new_components.append({
-            "type": "section",
-            "label": "Filter",
-            "collapsible": True,
-            "defaultOpen": False,
-            "children": filter_section_children,
+            "type": "section", "label": "Filter",
+            "collapsible": True, "defaultOpen": False,
+            "children": children,
         })
 
     return new_components
+
+
+def live_context_poll(raw_result: str, widget_meta: dict) -> dict:
+    """State-poll transform for homeassistant-GetLiveContext.
+
+    Called on pin refresh (interval + widget_config changes). Returns the
+    view-data dict that the state_poll template substitutes into an
+    each-block driven component tree — so a Clear-filter or area-button
+    click re-renders the pinned card without touching the DB for a new
+    envelope.
+    """
+    parsed = _unwrap(raw_result)
+    raw_text = parsed.get("result", "")
+    if not isinstance(raw_text, str):
+        raw_text = ""
+
+    cfg = widget_meta.get("config") if isinstance(widget_meta.get("config"), dict) else {}
+    return _compute_live_context_view(raw_text, str(cfg.get("filter", "") or ""))
 
 
 def _parse_brightness(raw: str | int | float) -> int:

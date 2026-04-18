@@ -14,8 +14,13 @@ export interface RecentPage {
   category?: string;
 }
 
+export const SIDEBAR_MIN_WIDTH = 180;
+export const SIDEBAR_MAX_WIDTH = 360;
+export const SIDEBAR_DEFAULT_WIDTH = 240;
+
 interface UIState {
   sidebarCollapsed: boolean;
+  sidebarWidth: number;
   paletteOpen: boolean;
   detailPanel: DetailPanelState;
   hiddenSidebarSections: string[];
@@ -24,6 +29,7 @@ interface UIState {
   hudCollapsedChannels: string[];
   recentPages: RecentPage[];
   toggleSidebar: () => void;
+  setSidebarWidth: (width: number) => void;
   openPalette: () => void;
   closePalette: () => void;
   // Legacy aliases — palette replaces the mobile drawer, so these now drive
@@ -46,6 +52,7 @@ export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
       sidebarCollapsed: false,
+      sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
       paletteOpen: false,
       detailPanel: { type: null, id: null },
       hiddenSidebarSections: [],
@@ -55,6 +62,10 @@ export const useUIStore = create<UIState>()(
       recentPages: [],
       toggleSidebar: () =>
         set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+      setSidebarWidth: (width) =>
+        set({
+          sidebarWidth: Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, width)),
+        }),
       openPalette: () => set({ paletteOpen: true }),
       closePalette: () => set({ paletteOpen: false }),
       openMobileSidebar: () => set({ paletteOpen: true }),
@@ -98,6 +109,7 @@ export const useUIStore = create<UIState>()(
       name: "spindrel-ui",
       partialize: (state) => ({
         sidebarCollapsed: state.sidebarCollapsed,
+        sidebarWidth: state.sidebarWidth,
         hiddenSidebarSections: state.hiddenSidebarSections,
         fileExplorerOpen: state.fileExplorerOpen,
         fileExplorerSplit: state.fileExplorerSplit,

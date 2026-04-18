@@ -2,6 +2,7 @@
 and for /tasks/{id}/run params support (Phase 1 + 2a plumbing)."""
 from __future__ import annotations
 
+import json
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -62,7 +63,10 @@ class TestResolveEndpoint:
         body = resp.json()
         step = body["step_states"][0]
         assert step["status"] == "done"
-        assert step["result"] == {"decision": "approve"}
+        # result is intentionally serialized to a JSON string — the admin editor
+        # UI reads stepState.result with .slice() and crashes on raw dicts.
+        # See app/routers/api_v1_admin/tasks.py:855-857.
+        assert json.loads(step["result"]) == {"decision": "approve"}
         advance.assert_called_once()
 
     async def test_404_on_unknown_task(self, client):

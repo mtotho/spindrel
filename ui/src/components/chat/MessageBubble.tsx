@@ -281,8 +281,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         gap: 12,
         paddingLeft: 20,
         paddingRight: 20,
-        paddingTop: 8,
-        paddingBottom: 4,
+        paddingTop: 14,
+        paddingBottom: 6,
         borderRadius: 4,
       }}
     >

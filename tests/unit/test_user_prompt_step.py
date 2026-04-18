@@ -230,6 +230,40 @@ class TestUserPromptPausesPipeline:
         finalize.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_multi_item_empty_auto_skips_with_informative_result(self):
+        """When multi_item resolves to zero items, the step auto-completes with
+        a human-readable result explaining why (not an opaque ``{}``). Without
+        this the UI renders "review: done 34ms" and users think they missed a
+        review window."""
+        from app.services.step_executor import _advance_pipeline
+
+        task = AsyncMock()
+        task.id = uuid.uuid4()
+        task.bot_id = "orchestrator"
+        task.execution_config = {"params": {}}
+
+        steps = [{
+            "id": "review",
+            "type": "user_prompt",
+            "widget_template": {"kind": "approval_review"},
+            "widget_args": {},
+            "response_schema": {"type": "multi_item", "items_ref": "{{params.missing}}"},
+        }]
+        states = _init_step_states(steps)
+
+        with patch("app.services.step_executor._persist_step_states", new=AsyncMock()), \
+             patch("app.services.step_executor._finalize_pipeline", new=AsyncMock()):
+            await _advance_pipeline(task, steps, states)
+
+        # Auto-skipped (not awaiting)
+        assert states[0]["status"] == "done"
+        # Result is a non-empty human-readable string, not "{}"
+        result = states[0]["result"]
+        assert isinstance(result, str)
+        assert "auto-skipped" in result.lower() or "no items" in result.lower()
+        assert result != "{}"
+
+    @pytest.mark.asyncio
     async def test_user_prompt_in_middle_pauses_before_later_steps(self):
         from app.services.step_executor import _advance_pipeline
 

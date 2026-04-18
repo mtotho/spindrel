@@ -5,9 +5,8 @@ import {
   Compass,
   Activity,
   ArrowRight,
+  ChevronRight,
   Loader2,
-  ChevronDown,
-  ChevronUp,
   X,
   Cog,
   Clock,
@@ -169,7 +168,7 @@ function TaskRunModal({
         <div className="flex flex-row items-center justify-between mb-3">
           <div className="flex flex-row items-center gap-2 min-w-0">
             <Cog size={14} className="text-accent shrink-0" />
-            <span className="text-sm font-semibold truncate">{pipeline.title}</span>
+            <span className="text-sm font-semibold text-text truncate">{pipeline.title}</span>
           </div>
           {!running && (
             <button onClick={onClose} className="p-1 text-text-dim hover:text-text">
@@ -283,9 +282,9 @@ function PipelineTile({
   return (
     <div
       className={cn(
-        "group relative flex flex-row items-center gap-3 px-3.5 py-3 rounded-lg",
+        "group relative flex flex-row items-center gap-3 px-3.5 py-2 md:py-3 rounded-lg",
         "bg-surface-raised border border-surface-border",
-        "hover:border-accent/40",
+        "hover:border-accent/40 hover:bg-surface-raised/70",
         "transition-colors",
       )}
       title={description || undefined}
@@ -537,44 +536,59 @@ export function OrchestratorLaunchpad({
   // with no seeded pipelines shouldn't render a dead strip).
   if (!isLoading && systemTasks.length === 0) return null;
 
+  const totalPipelineCount = systemTasks.length;
+
   return (
-    <div>
-      {/* Header — always visible, clickable to collapse/expand */}
+    <div className="mx-4 my-2 rounded-lg bg-surface-overlay border border-surface-border overflow-hidden">
+      {/* Header — always visible, clickable to collapse/expand.
+          The whole row is the target so the affordance is obvious at a glance. */}
       <button
         onClick={toggleCollapsed}
-        className="w-full flex flex-row items-center justify-between
-                   px-4 py-2 hover:bg-surface-raised/40 transition-colors"
+        className="w-full flex flex-row items-center justify-between gap-2
+                   px-3.5 py-2.5 hover:bg-surface-overlay/40 transition-colors"
         aria-expanded={!collapsed}
       >
-        <div className="flex flex-row items-center gap-2">
-          <Cog size={12} className="text-accent" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
-            Pipelines
-          </span>
+        <div className="flex flex-row items-center gap-2 min-w-0">
+          <Cog size={14} className="text-accent shrink-0" />
+          <span className="text-xs font-semibold text-text">Pipelines</span>
+          {totalPipelineCount > 0 && (
+            <span className="text-[11px] text-text-dim tabular-nums">
+              {totalPipelineCount}
+            </span>
+          )}
+          {findingsCount > 0 && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+                             bg-accent/15 border border-accent/40 text-[10px]
+                             font-semibold text-accent">
+              <PauseCircle size={10} className="animate-pulse" />
+              {findingsCount} awaiting
+            </span>
+          )}
         </div>
-        {collapsed ? (
-          <ChevronDown size={14} className="text-text-dim" />
-        ) : (
-          <ChevronUp size={14} className="text-text-dim" />
-        )}
+        <ChevronRight
+          size={14}
+          className={cn(
+            "text-text-muted transition-transform shrink-0",
+            !collapsed && "rotate-90",
+          )}
+        />
       </button>
 
-      {/* Awaiting reviews banner — desktop only. Each tile already shows its
-          own per-pipeline "N awaiting review" CTA; on mobile that's enough and
-          a second global banner is redundant chrome. On desktop the banner
-          gives quick single-click access to the Findings rail. */}
+      {/* Awaiting reviews banner — desktop only. The header chip already
+          surfaces the count; this banner is the direct CTA into the Findings
+          rail. On mobile the header chip + per-tile link are enough. */}
       {findingsCount > 0 && !collapsed && (
         <button
           onClick={onOpenFindings}
-          className="hidden md:flex mx-4 mt-2 px-3 py-2 rounded-md
-                     bg-accent/10 border border-accent/40
+          className="hidden md:flex w-full border-t border-surface-border
+                     px-3.5 py-2 bg-accent/5
                      flex-row items-center justify-between gap-2
-                     hover:bg-accent/15 transition-colors w-[calc(100%-2rem)]"
+                     hover:bg-accent/10 transition-colors"
         >
           <div className="flex flex-row items-center gap-2 min-w-0">
             <PauseCircle size={14} className="text-accent animate-pulse shrink-0" />
             <span className="text-[12px] font-semibold text-accent truncate">
-              {findingsCount} pipeline run{findingsCount === 1 ? "" : "s"} awaiting your review
+              {findingsCount} run{findingsCount === 1 ? "" : "s"} awaiting your review
             </span>
           </div>
           <span className="text-[11px] text-accent/80 shrink-0 flex items-center gap-1">
@@ -586,7 +600,8 @@ export function OrchestratorLaunchpad({
 
       {/* Launch error banner */}
       {launchError && !collapsed && (
-        <div className="mx-4 mt-2 px-3 py-2 rounded-md bg-red-500/10 border border-red-500/30
+        <div className="w-full border-t border-surface-border
+                        px-3.5 py-2 bg-red-500/5
                         flex flex-row items-center justify-between gap-2 text-[12px] text-red-400">
           <span className="flex-1 min-w-0 truncate">{launchError}</span>
           <button
@@ -598,51 +613,52 @@ export function OrchestratorLaunchpad({
         </div>
       )}
 
-      {/* Body — tiles + library */}
+      {/* Body — tiles, recent runs, library. Sections separate with a top
+          border instead of outer gaps so everything reads as one card with
+          internal dividers (not a stack of independent boxes). */}
       {!collapsed && (
-        <div className="px-4 pb-4 pt-1 flex flex-col gap-3">
-          {isLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {[0, 1].map((i) => (
-                <div
-                  key={i}
-                  className="h-[52px] p-3.5 rounded-lg bg-surface-raised border border-surface-border
-                             animate-pulse opacity-60"
-                />
-              ))}
-            </div>
-          ) : featured.length === 0 ? (
-            <div className="text-xs text-text-dim py-4 text-center">
-              No featured system pipelines.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {featured.map((pipeline) => (
-                <PipelineTile
-                  key={pipeline.id}
-                  pipeline={pipeline}
-                  onLaunch={handleLaunch}
-                  launchingId={launchingId}
-                  onOpenFindings={onOpenFindings}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Recent runs are hidden while reviews are pending — the launchpad's
-              purpose in that moment is the review CTA, not browsing history.
-              Also hidden on mobile: chat anchors cover the same runs and the
-              launchpad already dominates a narrow viewport. Desktop keeps the
-              strip as a quick-scan surface. */}
-          {recentRuns.length > 0 && findingsCount === 0 && (
-            <div className="hidden md:flex flex-col gap-1.5">
-              <div className="flex flex-row items-center gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
-                  Recent runs
-                </span>
+        <>
+          {/* Tiles */}
+          <div className="p-3 border-t border-surface-border">
+            {isLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {[0, 1].map((i) => (
+                  <div
+                    key={i}
+                    className="h-[52px] p-3.5 rounded-lg bg-surface-overlay/40 border border-surface-border
+                               animate-pulse opacity-60"
+                  />
+                ))}
               </div>
-              <div className="flex flex-col border border-surface-border rounded-lg
-                              bg-surface-raised divide-y divide-surface-border/50 overflow-hidden">
+            ) : featured.length === 0 ? (
+              <div className="text-xs text-text-dim py-2 text-center">
+                No featured system pipelines.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {featured.map((pipeline) => (
+                  <PipelineTile
+                    key={pipeline.id}
+                    pipeline={pipeline}
+                    onLaunch={handleLaunch}
+                    launchingId={launchingId}
+                    onOpenFindings={onOpenFindings}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Recent runs — desktop only, hidden during findings (CTA focus).
+              Rows live flush inside the card with internal dividers, no
+              nested card wrapper. */}
+          {recentRuns.length > 0 && findingsCount === 0 && (
+            <div className="hidden md:block border-t border-surface-border">
+              <div className="px-3.5 pt-2 pb-1 text-[10px] font-semibold uppercase
+                              tracking-wider text-text-dim">
+                Recent runs
+              </div>
+              <div className="flex flex-col divide-y divide-surface-border/50">
                 {recentRuns.map((run) => {
                   const parent = systemTasks.find((t) => t.id === run.parent_task_id);
                   const pipelineTitle = parent?.title ?? run.parent_task_id ?? "pipeline";
@@ -674,7 +690,7 @@ export function OrchestratorLaunchpad({
                     <Link
                       to={`/admin/tasks/${run.id}`}
                       key={run.id}
-                      className="flex flex-row items-center justify-between gap-3 px-3.5 py-2.5
+                      className="flex flex-row items-center justify-between gap-3 px-3.5 py-2
                                  text-xs hover:bg-surface-overlay/40 transition-colors"
                     >
                       <div className="flex flex-row items-center gap-2.5 min-w-0 flex-1">
@@ -697,19 +713,28 @@ export function OrchestratorLaunchpad({
             </div>
           )}
 
+          {/* Library — subtle footer row. Toggle lives inside the same card
+              as a thin ghost row, not a separate button-card-button stack. */}
           {libraryItems.length > 0 && (
-            <div className="flex flex-col gap-1.5">
+            <div className="border-t border-surface-border">
               <button
                 onClick={() => setLibraryOpen((v) => !v)}
-                className="flex flex-row items-center gap-1.5 text-[11px] font-semibold
-                           uppercase tracking-wider text-text-dim hover:text-text self-start"
+                className="w-full flex flex-row items-center justify-between gap-2
+                           px-3.5 py-2 text-[11px] text-text-dim hover:text-text
+                           hover:bg-surface-overlay/40 transition-colors"
+                aria-expanded={libraryOpen}
               >
-                {libraryOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                More pipelines ({libraryItems.length})
+                <span className="inline-flex items-center gap-1.5">
+                  More pipelines
+                  <span className="tabular-nums text-text-dim">({libraryItems.length})</span>
+                </span>
+                <ChevronRight
+                  size={12}
+                  className={cn("transition-transform", libraryOpen && "rotate-90")}
+                />
               </button>
               {libraryOpen && (
-                <div className="flex flex-col border border-surface-border rounded-lg
-                                bg-surface-raised divide-y divide-surface-border/50 overflow-hidden">
+                <div className="flex flex-col divide-y divide-surface-border/50 border-t border-surface-border/50">
                   {libraryItems.map((pipeline) => {
                     const Icon = iconFor(pipeline.id);
                     const pipelineRunning = launchingId === pipeline.id;
@@ -719,7 +744,7 @@ export function OrchestratorLaunchpad({
                         onClick={() => !pipelineRunning && handleLaunch(pipeline)}
                         disabled={pipelineRunning}
                         title={getDescription(pipeline) || undefined}
-                        className="flex flex-row items-center justify-between gap-3 px-3.5 py-2.5
+                        className="flex flex-row items-center justify-between gap-3 px-3.5 py-2
                                    hover:bg-surface-overlay/40 text-left disabled:opacity-60"
                       >
                         <div className="flex flex-row items-center gap-2.5 min-w-0 flex-1">
@@ -727,10 +752,6 @@ export function OrchestratorLaunchpad({
                           <span className="text-xs font-medium text-text truncate">
                             {pipeline.title || pipeline.id}
                           </span>
-                          {/* Description hidden on mobile — it truncates the
-                              title to "Dee..." on narrow viewports. Available
-                              in the `title` tooltip on desktop, visible inline
-                              on md+ where there's room. */}
                           {getDescription(pipeline) && (
                             <span className="hidden md:inline text-[10px] text-text-dim truncate opacity-70">
                               · {getDescription(pipeline)}
@@ -749,7 +770,7 @@ export function OrchestratorLaunchpad({
               )}
             </div>
           )}
-        </div>
+        </>
       )}
 
       {paramModalPipeline && (

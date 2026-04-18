@@ -188,6 +188,10 @@ async def admin_delete_mcp_server(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("mcp_servers:write")),
 ):
+    row = await db.get(MCPServerRow, server_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="MCP server not found")
+
     # Check if any bots reference this server
     bot_rows = (await db.execute(select(BotRow))).scalars().all()
     bots_using = [b.id for b in bot_rows if server_id in (b.mcp_servers or [])]
@@ -196,10 +200,6 @@ async def admin_delete_mcp_server(
             status_code=400,
             detail=f"Cannot delete: referenced by bots {', '.join(bots_using)}",
         )
-
-    row = await db.get(MCPServerRow, server_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="MCP server not found")
 
     await db.delete(row)
     await db.commit()

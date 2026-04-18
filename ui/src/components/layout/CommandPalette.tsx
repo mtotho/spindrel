@@ -48,6 +48,7 @@ import { useSidebarSections, useIntegrations } from "../../api/hooks/useIntegrat
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useThemeTokens } from "../../theme/tokens";
 import { useUIStore, type RecentPage } from "../../stores/ui";
+import { SpindrelLogo } from "./SpindrelLogo";
 
 // ---------------------------------------------------------------------------
 // Fuzzy matching
@@ -285,16 +286,6 @@ export function useCommandPaletteShortcut() {
     function handler(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        // On the desktop home page the grid IS the palette, so route Ctrl+K
-        // to focus the grid's search input instead of opening an overlay on
-        // top of the same content. Mobile `/` still falls through to the
-        // overlay since the hamburger-palette lives there.
-        const path = typeof window !== "undefined" ? window.location.pathname : "";
-        const isDesktop = typeof window !== "undefined" && window.innerWidth >= 768;
-        if (path === "/" && isDesktop) {
-          window.dispatchEvent(new Event("palette:focus"));
-          return;
-        }
         const isOpen = useUIStore.getState().paletteOpen;
         if (isOpen) closePalette();
         else openPalette();
@@ -759,6 +750,18 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             borderBottom: `1px solid ${t.surfaceBorder}`,
           }}
         >
+          <span
+            style={{
+              flexShrink: 0,
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "center",
+              color: t.textMuted,
+            }}
+            aria-label="Spindrel"
+          >
+            <SpindrelLogo size={isMobile ? 20 : 18} />
+          </span>
           <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}><Search size={isMobile ? 18 : 16} color={t.textDim} /></span>
           <input
             ref={inputRef}

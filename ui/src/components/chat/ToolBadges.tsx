@@ -244,8 +244,17 @@ export function ToolBadges({
           <div key={idx} className="flex flex-col">
             {/* ── Badge pill ── */}
             <div
+              role={expandable ? "button" : undefined}
+              tabIndex={expandable ? 0 : undefined}
+              aria-expanded={expandable ? isExpanded : undefined}
               onClick={expandable ? () => handleExpand(idx) : undefined}
-              className={`inline-flex items-center self-start gap-1.5 px-2.5 py-1 transition-colors duration-150 ${expandable ? "cursor-pointer" : "cursor-default"} ${isExpanded ? "rounded-t-lg border border-b-0" : "rounded-lg border"}`}
+              onKeyDown={expandable ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleExpand(idx);
+                }
+              } : undefined}
+              className={`inline-flex items-center self-start gap-1.5 px-2.5 py-1 transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${expandable ? "cursor-pointer" : "cursor-default"} ${isExpanded ? "rounded-t-lg border border-b-0" : "rounded-lg border"}`}
               style={{
                 backgroundColor: t.surfaceRaised,
                 borderColor: t.surfaceBorder,
@@ -256,6 +265,12 @@ export function ToolBadges({
               } : undefined}
               onMouseLeave={expandable ? (e) => {
                 e.currentTarget.style.backgroundColor = t.surfaceRaised;
+                e.currentTarget.style.borderColor = t.surfaceBorder;
+              } : undefined}
+              onFocus={expandable ? (e) => {
+                e.currentTarget.style.borderColor = t.textDim;
+              } : undefined}
+              onBlur={expandable ? (e) => {
                 e.currentTarget.style.borderColor = t.surfaceBorder;
               } : undefined}
             >

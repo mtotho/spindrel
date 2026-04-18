@@ -10,6 +10,7 @@ import json
 import pytest
 
 from integrations.homeassistant.widget_transforms import (
+    live_context_poll,
     live_context_summary,
     single_entity_state,
 )
@@ -282,6 +283,45 @@ def test_ha_get_state_widget_shape_matches_transform_contract():
         "from friendly_name."
     )
     assert spec["state_poll"]["args"]["entity_id"] == "{{display_label}}"
+
+
+def test_live_context_poll_returns_data_dict_for_each_block_template():
+    """The state_poll template uses each-blocks over area_buttons /
+    domain_buttons — the poll transform must expose those as lists of
+    dicts with `label` + `filter_value` keys so the each-expansion can
+    produce valid button components.
+    """
+    out = live_context_poll(
+        json.dumps(GET_LIVE_CONTEXT_RESULT),
+        {"config": {"filter": ""}, "display_label": "whatever", "tool_name": "GetLiveContext"},
+    )
+    assert out["filter_active"] is False
+    for key in ("area_buttons", "domain_buttons"):
+        assert isinstance(out[key], list)
+        for b in out[key]:
+            assert "label" in b and "filter_value" in b
+    # An active filter should suppress the button lists in the template
+    # via {{filter_active | not}}, but the data shape is the same.
+    out2 = live_context_poll(
+        json.dumps(GET_LIVE_CONTEXT_RESULT),
+        {"config": {"filter": "kitchen"}},
+    )
+    assert out2["filter_active"] is True
+    assert "Filtered: kitchen" in out2["status_text"]
+    assert "1/5" in out2["status_text"]
+
+
+def test_get_live_context_widget_has_state_poll_wired():
+    """The filter buttons are useless without a state_poll — clicking
+    them hits _dispatch_widget_config which returns envelope=None when
+    no state_poll is configured (see app/routers/api_v1_widget_actions.py).
+    """
+    import yaml
+    with open("integrations/homeassistant/integration.yaml") as f:
+        spec = yaml.safe_load(f)["tool_widgets"]["GetLiveContext"]
+    assert "state_poll" in spec
+    assert spec["state_poll"]["tool"] == "GetLiveContext"
+    assert spec["state_poll"]["transform"].endswith(":live_context_poll")
 
 
 def test_single_entity_state_via_state_poll_contract():

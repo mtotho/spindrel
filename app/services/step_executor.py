@@ -858,9 +858,11 @@ async def _run_user_prompt_step(
     # also iterate zero items and complete immediately. Binary schemas still
     # pause (always exactly one decision to make).
     #
-    # Result is serialized as a JSON string ("{}") to match the string-typed
-    # contract every other step path uses — the admin editor's StepCard calls
-    # `.slice()` on step_state.result, which explodes if we store a raw dict.
+    # Write a human-readable result so the UI can explain the instant-done
+    # — without it the step row reads as "review: done 34ms" which looks
+    # like the user somehow missed a review window. The result is still
+    # JSON-serialized to match the string-typed contract every other step
+    # path uses (the admin editor's StepCard calls `.slice()` on it).
     if (
         response_schema.get("type") == "multi_item"
         and not response_schema.get("items")
@@ -869,7 +871,10 @@ async def _run_user_prompt_step(
         state["status"] = "done"
         state["widget_envelope"] = envelope
         state["response_schema"] = response_schema
-        state["result"] = "{}"
+        state["result"] = (
+            "Auto-skipped: the prior step returned no items to review — "
+            "nothing for a human to approve or reject."
+        )
         state["error"] = None
         state["completed_at"] = datetime.now(timezone.utc).isoformat()
         await _persist_step_states(task.id, step_states)
