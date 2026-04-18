@@ -62,6 +62,6 @@ get_system_status:
             layout: inline
             items:
               - label: Timezone
-                value: "{{config.timezone | default: —}}"
+                value: "{{system_config.timezone | default: —}}"
               - label: Embedding model
-                value: "{{config.embedding_model | default: —}}"
+                value: "{{system_config.embedding_model | default: —}}"

@@ -79,9 +79,11 @@ async def get_system_status() -> str:
         for p in list_providers()
     ]
 
-    # Config
+    # System config — renamed from `config` to avoid colliding with the
+    # widget engine's per-pin `{{config.*}}` scope, which clobbers any
+    # payload key named `config` during render.
     from app.config import settings
-    config = {
+    system_config = {
         "workspace_base_dir": settings.WORKSPACE_BASE_DIR or None,
         "timezone": settings.TIMEZONE,
         "embedding_model": settings.EMBEDDING_MODEL,
@@ -95,6 +97,6 @@ async def get_system_status() -> str:
         "channels": channels,
         "integrations": integrations,
         "providers": providers,
-        "config": config,
+        "system_config": system_config,
         "is_fresh_install": is_fresh_install,
     }, ensure_ascii=False)
