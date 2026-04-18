@@ -3,7 +3,6 @@ import { ArrowLeft, Menu, ChevronRight } from "lucide-react";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
 import { cn } from "../../lib/cn";
-import { SpindrelLogo } from "./SpindrelLogo";
 
 export interface PageHeaderProps {
   variant: "list" | "detail";
@@ -62,28 +61,12 @@ export function PageHeader({
     </button>
   );
 
-  // Mobile-only brand mark — keeps Spindrel identity visible when the sidebar is
-  // gone (palette takes over nav). Tapping it opens the palette (primary search
-  // surface on mobile). Desktop gets the rail logo instead.
-  const brandMark = isMobile && (
-    <button
-      onClick={openPalette}
-      aria-label="Spindrel — open search"
-      className="w-9 h-9 rounded-md flex flex-row items-center justify-center hover:bg-surface-overlay/60 transition-colors cursor-pointer bg-transparent border-none p-0 shrink-0"
-    >
-      <span className="text-text">
-        <SpindrelLogo size={20} />
-      </span>
-    </button>
-  );
-
   return (
     <div className={cn(
       "flex flex-row items-center shrink-0",
       !inline && "min-h-[52px] bg-surface border-b border-surface-border",
       isMobile ? "px-2 gap-1" : "px-4 gap-3",
     )}>
-      {brandMark}
       {navButton}
 
       {variant === "detail" && !isMobile && parentLabel && (

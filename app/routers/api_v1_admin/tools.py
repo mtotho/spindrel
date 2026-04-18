@@ -146,24 +146,32 @@ async def admin_execute_tool(
     (including tools provided by carapaces).  Admin keys have unrestricted access.
     """
     from app.tools.registry import is_local_tool, call_local_tool
-
-    if not is_local_tool(tool_name):
-        raise HTTPException(status_code=404, detail=f"Local tool '{tool_name}' not found")
-
-    # Enforce bot-level tool permissions for scoped API keys
-    if isinstance(auth, ApiKeyAuth) and not has_scope(auth.scopes, "admin"):
-        if not has_scope(auth.scopes, "tools:execute"):
-            raise HTTPException(status_code=403, detail="Missing tools:execute scope")
-        allowed = await _resolve_bot_tools(db, auth.key_id)
-        if allowed is not None and tool_name not in allowed:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Bot does not have access to tool '{tool_name}'",
-            )
+    from app.tools.mcp import is_mcp_tool, call_mcp_tool
 
     args_json = json.dumps(body.arguments)
-    logger.info("Direct tool execute: %s args=%s", tool_name, args_json[:200])
-    raw = await call_local_tool(tool_name, args_json)
+
+    if is_local_tool(tool_name):
+        if isinstance(auth, ApiKeyAuth) and not has_scope(auth.scopes, "admin"):
+            if not has_scope(auth.scopes, "tools:execute"):
+                raise HTTPException(status_code=403, detail="Missing tools:execute scope")
+            allowed = await _resolve_bot_tools(db, auth.key_id)
+            if allowed is not None and tool_name not in allowed:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Bot does not have access to tool '{tool_name}'",
+                )
+        logger.info("Direct tool execute (local): %s args=%s", tool_name, args_json[:200])
+        raw = await call_local_tool(tool_name, args_json)
+    elif is_mcp_tool(tool_name):
+        if isinstance(auth, ApiKeyAuth) and not has_scope(auth.scopes, "admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="MCP tools can only be executed by admin keys from this endpoint",
+            )
+        logger.info("Direct tool execute (mcp): %s args=%s", tool_name, args_json[:200])
+        raw = await call_mcp_tool(tool_name, args_json)
+    else:
+        raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
 
     # Try to parse as JSON for structured output
     try:

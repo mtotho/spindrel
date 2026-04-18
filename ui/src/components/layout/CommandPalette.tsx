@@ -41,6 +41,7 @@ import {
   Home,
   Plus,
   X,
+  LayoutDashboard,
 } from "lucide-react";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
@@ -309,6 +310,7 @@ const CATEGORY_ORDER = [
   "Recent",
   "This Channel",
   "Channels",
+  "Widgets",
   "Bots",
   "Configure",
   "Automate",
@@ -401,6 +403,22 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       href: "/channels/new",
       icon: Plus,
       category: "Channels",
+    });
+    items.push({
+      id: "nav-widgets",
+      label: "Widgets",
+      hint: "Pinned widgets dashboard",
+      href: "/widgets",
+      icon: LayoutDashboard,
+      category: "Widgets",
+    });
+    items.push({
+      id: "nav-widgets-dev",
+      label: "Widgets: Developer panel",
+      hint: "Widgets",
+      href: "/widgets/dev",
+      icon: Wrench,
+      category: "Widgets",
     });
 
     if (channels) {

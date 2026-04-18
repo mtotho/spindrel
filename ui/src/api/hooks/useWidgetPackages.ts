@@ -211,3 +211,14 @@ export function previewWidgetForTool(body: {
     { method: "POST", body: JSON.stringify(body) },
   );
 }
+
+export function genericRenderWidget(body: {
+  tool_name: string;
+  raw_result: unknown;
+  config?: Record<string, unknown> | null;
+}): Promise<PreviewResponse> {
+  return apiFetch<PreviewResponse>(
+    "/api/v1/admin/widget-packages/generic-render",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}

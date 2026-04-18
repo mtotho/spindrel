@@ -167,6 +167,19 @@ class PreviewOut(BaseModel):
     errors: list[ValidationIssueOut] = []
 
 
+class GenericRenderIn(BaseModel):
+    """Auto-render an arbitrary tool result as a dashboard card.
+
+    Used when no widget template exists for the tool — turns raw JSON into a
+    component tree so the sandbox can offer a single-click pin. Reserved
+    ``config`` hook is unused in v1.
+    """
+
+    tool_name: str = Field(min_length=1)
+    raw_result: Any = None
+    config: Optional[dict] = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -625,6 +638,46 @@ async def preview_widget_inline(
     finally:
         discard_preview_module(preview_mod_name)
 
+    return PreviewOut(ok=True, envelope=envelope)
+
+
+@router.post("/widget-packages/generic-render", response_model=PreviewOut)
+async def generic_render(
+    body: GenericRenderIn,
+    _auth: str = Depends(require_scopes("admin")),
+):
+    """Auto-render an arbitrary tool result as a generic dashboard card.
+
+    Untemplated tools have no bespoke widget YAML; this endpoint turns their
+    raw JSON into a component-tree envelope so users can pin the result as a
+    static card from ``/widgets/dev#tools``. Static snapshot only — the
+    returned envelope is never refreshable.
+    """
+    from app.services.generic_widget_view import render_generic_view
+
+    try:
+        env = render_generic_view(
+            body.raw_result,
+            tool_name=body.tool_name,
+            config=body.config,
+        )
+    except Exception as exc:
+        logger.warning(
+            "generic-render failed for %s: %s", body.tool_name, exc, exc_info=True,
+        )
+        return PreviewOut(
+            ok=False,
+            errors=[ValidationIssueOut(phase="render", message=str(exc))],
+        )
+
+    envelope = PreviewEnvelope(
+        content_type=env.content_type,
+        body=env.body or "",
+        display=env.display,
+        display_label=env.display_label,
+        refreshable=env.refreshable,
+        refresh_interval_seconds=env.refresh_interval_seconds,
+    )
     return PreviewOut(ok=True, envelope=envelope)
 
 

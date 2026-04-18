@@ -42,8 +42,9 @@ async def test_execute_local_tool(auth_headers):
 
 @pytest.mark.asyncio
 async def test_execute_unknown_tool_404(auth_headers):
-    """Unknown tool returns 404."""
-    with patch("app.tools.registry.is_local_tool", return_value=False):
+    """Unknown tool — neither local nor MCP — returns 404."""
+    with patch("app.tools.registry.is_local_tool", return_value=False), \
+         patch("app.tools.mcp.is_mcp_tool", return_value=False):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
                 "/api/v1/admin/tools/nonexistent/execute",
@@ -51,6 +52,7 @@ async def test_execute_unknown_tool_404(auth_headers):
                 headers=auth_headers,
             )
     assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
@@ -206,6 +208,70 @@ async def test_non_bot_scoped_key_allowed():
                     headers={"Authorization": "Bearer fake"},
                 )
         assert resp.status_code == 200
+    finally:
+        _clear_overrides()
+
+
+# ---------------------------------------------------------------------------
+# MCP tool execution tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_execute_mcp_tool_admin(auth_headers):
+    """Admin key can execute an MCP tool; dispatch routes to call_mcp_tool."""
+    with patch("app.tools.registry.is_local_tool", return_value=False), \
+         patch("app.tools.mcp.is_mcp_tool", return_value=True), \
+         patch("app.tools.mcp.call_mcp_tool", new_callable=AsyncMock) as mock_mcp:
+        mock_mcp.return_value = json.dumps({"temperature": 72, "conditions": "sunny"})
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/admin/tools/openweather-current/execute",
+                json={"arguments": {"city": "Seattle"}},
+                headers=auth_headers,
+            )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tool_name"] == "openweather-current"
+    assert data["result"]["temperature"] == 72
+    assert data["error"] is None
+    mock_mcp.assert_called_once_with("openweather-current", '{"city": "Seattle"}')
+
+
+@pytest.mark.asyncio
+async def test_execute_mcp_tool_error_passthrough(auth_headers):
+    """MCP tool error JSON is surfaced in the error field."""
+    with patch("app.tools.registry.is_local_tool", return_value=False), \
+         patch("app.tools.mcp.is_mcp_tool", return_value=True), \
+         patch("app.tools.mcp.call_mcp_tool", new_callable=AsyncMock) as mock_mcp:
+        mock_mcp.return_value = json.dumps({"error": "MCP tool call failed: timeout"})
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/admin/tools/some-mcp-tool/execute",
+                json={"arguments": {}},
+                headers=auth_headers,
+            )
+    assert resp.status_code == 200
+    assert "timeout" in resp.json()["error"]
+
+
+@pytest.mark.asyncio
+async def test_execute_mcp_tool_bot_scoped_forbidden():
+    """Bot-scoped keys cannot execute MCP tools from this endpoint."""
+    auth = ApiKeyAuth(key_id=uuid4(), scopes=["tools:execute"], name="bot:test-bot")
+    _scoped_auth_overrides(auth)
+    try:
+        with patch("app.tools.registry.is_local_tool", return_value=False), \
+             patch("app.tools.mcp.is_mcp_tool", return_value=True), \
+             patch("app.tools.mcp.call_mcp_tool", new_callable=AsyncMock) as mock_mcp:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/admin/tools/openweather-current/execute",
+                    json={"arguments": {"city": "Seattle"}},
+                    headers={"Authorization": "Bearer fake"},
+                )
+        assert resp.status_code == 403
+        assert "admin" in resp.json()["detail"].lower()
+        mock_mcp.assert_not_called()
     finally:
         _clear_overrides()
 
