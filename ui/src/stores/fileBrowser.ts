@@ -89,7 +89,7 @@ export const useFileBrowserStore = create<FileBrowserState>()(
   treeVisible: true,
   expandedDirs: {} as DirMap,
   treeWidth: 220,
-  channelExplorerWidth: 300,
+  channelExplorerWidth: 260,
   channelExplorerPaths: {},
 
   setChannelExplorerPath: (channelId, path) =>
@@ -217,7 +217,7 @@ export const useFileBrowserStore = create<FileBrowserState>()(
       treeVisible: true,
       expandedDirs: {} as DirMap,
       treeWidth: 220,
-      channelExplorerWidth: 300,
+      channelExplorerWidth: 260,
       channelExplorerPaths: {},
     }),
     }),

@@ -11,7 +11,12 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from app.agent.llm import _summarize_tool_result
-from app.agent.recording import _record_tool_call, _record_trace_event
+from app.agent.recording import (
+    _complete_tool_call,
+    _record_tool_call,
+    _record_trace_event,
+    _start_tool_call,
+)
 from app.agent.tracing import _trace
 from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
 from app.config import settings
@@ -254,6 +259,10 @@ async def dispatch_tool_call(
     skip_policy: bool = False,
     # Authorization — if set, only these tool names are allowed
     allowed_tool_names: set[str] | None = None,
+    # Re-dispatch after approval: reuse the existing 'awaiting_approval' row
+    # instead of inserting a new one. Set by ``app/agent/loop.py`` from the
+    # ``record_id`` returned on the first (gated) dispatch.
+    existing_record_id: uuid.UUID | None = None,
 ) -> ToolCallResult:
     """Route a single tool call to the appropriate handler, record it, and build the result event."""
     from app.agent.message_utils import _event_with_compaction_tag
@@ -298,6 +307,7 @@ async def dispatch_tool_call(
             error=_auth_err,
             duration_ms=0,
             correlation_id=correlation_id,
+            status="denied",
         ))
         return result_obj
 
@@ -335,6 +345,7 @@ async def dispatch_tool_call(
                         error=_deny_err,
                         duration_ms=0,
                         correlation_id=correlation_id,
+                        status="denied",
                     ))
                     return result_obj
                 elif decision.action == "require_approval":
@@ -349,6 +360,23 @@ async def dispatch_tool_call(
                     _approval_reason = decision.reason
                     if decision.tier:
                         _approval_reason = f"[{decision.tier}] {decision.reason}"
+                    # Pre-allocate the ToolCall row id so the approval row
+                    # links to it (the re-dispatch path in loop.py reuses
+                    # the row via ``existing_record_id``).
+                    _tc_pending_id = uuid.uuid4()
+                    safe_create_task(_start_tool_call(
+                        id=_tc_pending_id,
+                        session_id=session_id,
+                        client_id=client_id,
+                        bot_id=bot_id,
+                        tool_name=name,
+                        tool_type=_ap_type,
+                        server_name=None,
+                        iteration=iteration,
+                        arguments=_tc_args_for_policy,
+                        correlation_id=correlation_id,
+                        status="awaiting_approval",
+                    ))
                     approval_id = await _create_approval_record(
                         session_id=session_id,
                         channel_id=channel_id,
@@ -361,11 +389,13 @@ async def dispatch_tool_call(
                         policy_rule_id=decision.rule_id,
                         reason=_approval_reason,
                         timeout=decision.timeout,
+                        tool_call_id=_tc_pending_id,
                     )
                     result_obj.needs_approval = True
                     result_obj.approval_id = approval_id
                     result_obj.approval_timeout = decision.timeout
                     result_obj.approval_reason = _approval_reason
+                    result_obj.record_id = _tc_pending_id
                     result_obj.result_for_llm = json.dumps({"status": "pending_approval", "reason": _approval_reason})
                     result_obj.tool_event = {"type": "tool_result", "tool": name, "pending_approval": True}
                     _trace("⏳ %s requires approval (%s)", name,
@@ -412,6 +442,20 @@ async def dispatch_tool_call(
                             "tools_count": len(_cap_data.get("local_tools") or []) if _cap_data else 0,
                         },
                     }
+                    _tc_pending_id = uuid.uuid4()
+                    safe_create_task(_start_tool_call(
+                        id=_tc_pending_id,
+                        session_id=session_id,
+                        client_id=client_id,
+                        bot_id=bot_id,
+                        tool_name=name,
+                        tool_type="local",
+                        server_name=None,
+                        iteration=iteration,
+                        arguments=_tc_args_for_policy,
+                        correlation_id=correlation_id,
+                        status="awaiting_approval",
+                    ))
                     approval_id = await _create_approval_record(
                         session_id=session_id,
                         channel_id=channel_id,
@@ -425,11 +469,13 @@ async def dispatch_tool_call(
                         reason=_cap_reason,
                         timeout=300,
                         extra_metadata=_cap_meta,
+                        tool_call_id=_tc_pending_id,
                     )
                     result_obj.needs_approval = True
                     result_obj.approval_id = approval_id
                     result_obj.approval_timeout = 300
                     result_obj.approval_reason = _cap_reason
+                    result_obj.record_id = _tc_pending_id
                     result_obj.tool_event = {
                         "type": "tool_result", "tool": name, "pending_approval": True,
                         "_capability": _cap_meta["_capability"],
@@ -445,6 +491,33 @@ async def dispatch_tool_call(
         _pre_hook_type = "mcp"
     else:
         _pre_hook_type = "local"
+
+    # Tool call row id — pre-allocated so the row exists in 'running' state
+    # before completion. Re-dispatch after approval reuses the existing row
+    # via ``existing_record_id``; first dispatch inserts a new one.
+    try:
+        _tc_args_pre: dict = json.loads(args or "{}") if args else {}
+        if not isinstance(_tc_args_pre, dict):
+            _tc_args_pre = {}
+    except Exception:
+        _tc_args_pre = {}
+    if existing_record_id is not None:
+        _tc_record_id = existing_record_id
+    else:
+        _tc_record_id = uuid.uuid4()
+        safe_create_task(_start_tool_call(
+            id=_tc_record_id,
+            session_id=session_id,
+            client_id=client_id,
+            bot_id=bot_id,
+            tool_name=name,
+            tool_type=_pre_hook_type,
+            server_name=None,
+            iteration=iteration,
+            arguments=_tc_args_pre,
+            correlation_id=correlation_id,
+            status="running",
+        ))
 
     # Fire before_tool_execution lifecycle hook (after auth/policy checks pass)
     from app.agent.hooks import fire_hook, HookContext
@@ -521,7 +594,7 @@ async def dispatch_tool_call(
     _tc_duration = int((time.monotonic() - t0) * 1000)
     result_obj.duration_ms = _tc_duration
 
-    # Record tool call
+    # Detect tool-reported errors so the row gets status='error' on UPDATE
     _tc_error: str | None = None
     try:
         _parsed_r = json.loads(result)
@@ -529,12 +602,6 @@ async def dispatch_tool_call(
             _tc_error = str(_parsed_r["error"])
     except Exception:
         pass
-    try:
-        _tc_args = json.loads(args or "{}")
-        if not isinstance(_tc_args, dict):
-            _tc_args = {}
-    except Exception:
-        _tc_args = {}
 
     # Redact known secrets from the raw result before storage
     from app.services.secret_registry import redact as _redact_secrets
@@ -662,33 +729,23 @@ async def dispatch_tool_call(
             except Exception:
                 logger.debug("poll-cache invalidation skipped", exc_info=True)
 
-    # Pre-generate tool call ID so we can reference it in the retrieval hint.
-    # Store full result for any result large enough to be pruned later, so the
-    # retrieval pointer in subsequent turns actually works.
+    # The row was inserted up-front in 'running' state (or reused from the
+    # awaiting-approval re-dispatch). Decide whether to keep the full result
+    # so retrieval pointers in subsequent turns work, then UPDATE.
     _store_full = (
         _will_summarize
         or _orig_len > settings.CONTEXT_PRUNING_MIN_LENGTH
         or result_obj.envelope.truncated
     )
-    _tc_record_id = uuid.uuid4() if _store_full else None
-    if result_obj.envelope.truncated and _tc_record_id is not None:
+    if result_obj.envelope.truncated:
         result_obj.envelope.record_id = _tc_record_id
 
-    # Record tool call (store full result so retrieval pointers work)
-    safe_create_task(_record_tool_call(
-        id=_tc_record_id,
-        session_id=session_id,
-        client_id=client_id,
-        bot_id=bot_id,
-        tool_name=name,
-        tool_type=_tc_type,
-        server_name=_tc_server,
-        iteration=iteration,
-        arguments=_tc_args,
+    safe_create_task(_complete_tool_call(
+        _tc_record_id,
         result=result_obj.result,  # use redacted result
         error=_tc_error,
         duration_ms=_tc_duration,
-        correlation_id=correlation_id,
+        status="error" if _tc_error else "done",
         store_full_result=_store_full,
     ))
 
@@ -803,6 +860,7 @@ async def _create_approval_record(
     reason: str | None,
     timeout: int,
     extra_metadata: dict | None = None,
+    tool_call_id: uuid.UUID | None = None,
 ) -> str:
     """Create a ToolApproval DB record and return its ID as string."""
     from app.db.engine import async_session
@@ -827,6 +885,8 @@ async def _create_approval_record(
         status="pending",
         dispatch_type=dispatch_type,
         dispatch_metadata=dispatch_config,
+        approval_metadata=extra_metadata or None,
+        tool_call_id=tool_call_id,
         timeout_seconds=timeout,
     )
     async with async_session() as db:

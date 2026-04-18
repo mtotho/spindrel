@@ -55,6 +55,8 @@ class TaskDetailOut(BaseModel):
     session_id: Optional[uuid.UUID] = None
     channel_id: Optional[uuid.UUID] = None
     parent_task_id: Optional[uuid.UUID] = None
+    run_isolation: str = "inline"
+    run_session_id: Optional[uuid.UUID] = None
     dispatch_config: Optional[dict] = None
     callback_config: Optional[dict] = None
     execution_config: Optional[dict] = None

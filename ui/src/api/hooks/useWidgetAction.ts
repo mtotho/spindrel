@@ -9,11 +9,12 @@ interface WidgetActionRequest {
   endpoint?: string;
   method?: string;
   body?: Record<string, unknown>;
-  // widget_config dispatch
+  // widget_config dispatch — channel pin by id, dashboard pin by dashboard_pin_id.
   pin_id?: string;
+  dashboard_pin_id?: string;
   config?: Record<string, unknown>;
-  channel_id: string;
-  bot_id: string;
+  channel_id?: string;
+  bot_id?: string;
   source_record_id?: string;
   /** When the dispatching widget has a state_poll, include display_label so the
    * backend can fetch fresh polled state after the action and return it. */
@@ -38,15 +39,21 @@ export function useWidgetAction(
   channelId?: string,
   botId?: string,
   displayLabel?: string | null,
-  /** Pin ID of the enclosing PinnedToolWidget, if any — required for dispatch:"widget_config". */
+  /** Channel-pin ID of the enclosing PinnedToolWidget, if any — required for dispatch:"widget_config". */
   pinId?: string | null,
   /** Current widget config from the pin store, sent on tool/state_poll calls so
    *  {{config.*}} substitutes to live values. */
   widgetConfig?: Record<string, unknown> | null,
+  /** Dashboard-pin ID — routes widget_config dispatch to the dashboard table.
+   *  Mutually exclusive with `pinId`. */
+  dashboardPinId?: string | null,
 ) {
   const dispatchAction = useCallback(
     async (action: WidgetAction, value: unknown): Promise<WidgetActionResult> => {
-      if (!channelId || !botId) {
+      // Channel-scope requires channelId+botId; dashboard-scope can omit them
+      // for widget_config dispatch (refresh/tool calls still need a bot).
+      const isDashboardScope = !!dashboardPinId;
+      if (!isDashboardScope && (!channelId || !botId)) {
         throw new Error("Missing channelId or botId for widget action");
       }
 
@@ -58,9 +65,9 @@ export function useWidgetAction(
 
       const req: WidgetActionRequest = {
         dispatch: action.dispatch,
-        channel_id: channelId,
-        bot_id: botId,
       };
+      if (channelId) req.channel_id = channelId;
+      if (botId) req.bot_id = botId;
       if (displayLabel) req.display_label = displayLabel;
       if (widgetConfig) req.widget_config = widgetConfig;
 
@@ -68,10 +75,13 @@ export function useWidgetAction(
         req.tool = action.tool;
         req.args = args;
       } else if (action.dispatch === "widget_config") {
-        if (!pinId) {
+        if (dashboardPinId) {
+          req.dashboard_pin_id = dashboardPinId;
+        } else if (pinId) {
+          req.pin_id = pinId;
+        } else {
           throw new Error("widget_config dispatch requires an enclosing pinned widget");
         }
-        req.pin_id = pinId;
         req.config = action.config ?? {};
       } else {
         req.endpoint = action.endpoint;
@@ -97,7 +107,7 @@ export function useWidgetAction(
         apiResponse: resp.api_response ?? null,
       };
     },
-    [channelId, botId, displayLabel, pinId, widgetConfig],
+    [channelId, botId, displayLabel, pinId, widgetConfig, dashboardPinId],
   );
 
   return dispatchAction;

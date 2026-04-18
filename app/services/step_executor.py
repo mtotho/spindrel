@@ -26,6 +26,7 @@ from app.agent.context import current_bot_id
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Task
+from app.services.sub_sessions import emit_step_output_message
 
 logger = logging.getLogger(__name__)
 
@@ -1260,6 +1261,7 @@ async def _advance_pipeline(
             state["completed_at"] = datetime.now(timezone.utc).isoformat()
             _apply_fail_if_to_state(state, step_def, i, steps, step_states, task)
             await _persist_step_states(task.id, step_states)
+            await emit_step_output_message(task=task, step_def=step_def, step_index=i, state=state)
             logger.info("Pipeline %s step %d exec → %s%s", task.id, i + 1, state["status"], f" error={state['error']}" if state.get("error") else "")
 
             if state["status"] == "failed" and step_def.get("on_failure", "abort") == "abort":
@@ -1274,6 +1276,7 @@ async def _advance_pipeline(
             state["completed_at"] = datetime.now(timezone.utc).isoformat()
             _apply_fail_if_to_state(state, step_def, i, steps, step_states, task)
             await _persist_step_states(task.id, step_states)
+            await emit_step_output_message(task=task, step_def=step_def, step_index=i, state=state)
             logger.info("Pipeline %s step %d tool → %s%s", task.id, i + 1, state["status"], f" error={state['error']}" if state.get("error") else "")
 
             if state["status"] == "failed" and step_def.get("on_failure", "abort") == "abort":
@@ -1317,6 +1320,7 @@ async def _advance_pipeline(
             state["completed_at"] = datetime.now(timezone.utc).isoformat()
             _apply_fail_if_to_state(state, step_def, i, steps, step_states, task)
             await _persist_step_states(task.id, step_states)
+            await emit_step_output_message(task=task, step_def=step_def, step_index=i, state=state)
             logger.info("Pipeline %s step %d evaluate → %s%s", task.id, i + 1, state["status"], f" error={state['error']}" if state.get("error") else "")
             if state["status"] == "failed" and step_def.get("on_failure", "abort") == "abort":
                 await _finalize_pipeline(task, steps, step_states, failed=True)
@@ -1364,10 +1368,22 @@ async def _spawn_agent_step(
     if preamble_parts:
         ecfg["system_preamble"] = "\n\n".join(preamble_parts)
 
+    # For sub_session-isolated runs, route the child task's Messages into
+    # the parent's sub-session (run_session_id) and detach from the parent
+    # channel — outbox/renderers skip the run and only the anchor card in
+    # the parent channel stays visible. For inline runs, preserve today's
+    # behavior (child inherits parent's channel + session).
+    if parent_task.run_isolation == "sub_session":
+        child_session_id = parent_task.run_session_id
+        child_channel_id = None
+    else:
+        child_session_id = parent_task.session_id
+        child_channel_id = parent_task.channel_id
+
     child = Task(
         bot_id=parent_task.bot_id,
-        channel_id=parent_task.channel_id,
-        session_id=parent_task.session_id,
+        channel_id=child_channel_id,
+        session_id=child_session_id,
         prompt=rendered_prompt,
         status="pending",
         task_type="workflow",  # Uses workflow task type for session handling

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ToolApproval
+from app.db.models import ToolApproval, ToolCall
 from app.dependencies import get_db, require_scopes
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,8 @@ class ApprovalOut(BaseModel):
     decided_at: Optional[datetime] = None
     dispatch_type: Optional[str] = None
     dispatch_metadata: Optional[dict] = None
+    approval_metadata: Optional[dict] = None
+    tool_call_id: Optional[uuid.UUID] = None
     timeout_seconds: int
     created_at: datetime
     safety_tier: Optional[str] = None
@@ -168,6 +170,20 @@ async def decide_approval(
     row.status = verdict
     row.decided_by = body.decided_by
     row.decided_at = now
+
+    # Flip the linked ToolCall row's status so the chat UI can rehydrate
+    # the post-decision state on refresh. The row was inserted in
+    # 'awaiting_approval' by `_create_approval_record`; approve flips to
+    # 'running' (the re-dispatch in `app/agent/loop.py` will mark it
+    # 'done'/'error' on completion), deny terminates it as 'denied'.
+    if row.tool_call_id:
+        tc_row = await db.get(ToolCall, row.tool_call_id)
+        if tc_row and tc_row.status == "awaiting_approval":
+            if body.approved:
+                tc_row.status = "running"
+            else:
+                tc_row.status = "denied"
+                tc_row.completed_at = now
 
     # Optionally create an allow rule
     rule_id = None

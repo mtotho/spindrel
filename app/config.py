@@ -736,6 +736,17 @@ class Settings(BaseSettings):
     DOCKER_STACK_MAX_OUTPUT_BYTES: int = 65536  # 64 KB
     DOCKER_STACK_LOG_TAIL_MAX: int = 1000
 
+    # Instance identity for multi-instance deployments sharing one Docker daemon.
+    # Used to namespace integration-declared docker_compose stacks (project name,
+    # container network aliases) so prod + e2e can coexist on the same host.
+    # Default derives from the container hostname so a fresh deploy never has to
+    # set this manually; override via env to something short/friendly.
+    SPINDREL_INSTANCE_ID: str = ""
+    # Docker network the agent-server container lives on. Integration stacks
+    # connect to this network so the agent can reach them by alias. Defaults
+    # to {COMPOSE_PROJECT_NAME}_default at runtime when left blank.
+    AGENT_NETWORK_NAME: str = ""
+
     # RAG re-ranking (post-assembly cross-source relevance filtering)
     RAG_RERANK_ENABLED: bool = True
     RAG_RERANK_BACKEND: str = "cross-encoder"  # "cross-encoder" (fast ONNX, zero API cost) or "llm" (full LLM call)
@@ -978,4 +989,30 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
+def _default_instance_id() -> str:
+    """Slug of the container hostname — stable across restarts, differs per
+    compose project. Fallback: 'default'. Lowercase, alnum+hyphen, ≤20 chars."""
+    import socket
+    import re
+    raw = socket.gethostname() or "default"
+    slug = re.sub(r"[^a-z0-9-]+", "-", raw.lower()).strip("-")[:20]
+    return slug or "default"
+
+
+def _default_agent_network() -> str:
+    """Docker network the agent-server's api container lives on — used as the
+    bridge for integration sidecars. Derived from COMPOSE_PROJECT_NAME (set by
+    docker compose inside the container) or returns empty to let callers fall
+    back to introspection."""
+    import os
+    proj = os.environ.get("COMPOSE_PROJECT_NAME", "").strip()
+    if proj:
+        return f"{proj}_default"
+    return ""
+
+
 settings = Settings()
+if not settings.SPINDREL_INSTANCE_ID:
+    settings.SPINDREL_INSTANCE_ID = _default_instance_id()
+if not settings.AGENT_NETWORK_NAME:
+    settings.AGENT_NETWORK_NAME = _default_agent_network()

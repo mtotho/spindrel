@@ -430,6 +430,29 @@ export interface PinnedWidget {
   config?: Record<string, unknown>;
 }
 
+/** A widget pinned to the chat-less `/widgets` dashboard. Row shape mirrors
+ *  `channel.config.pinned_widgets[]` so the same renderer handles both. */
+export interface WidgetDashboardPin {
+  id: string;
+  dashboard_key: string;
+  position: number;
+  source_kind: "channel" | "adhoc";
+  source_channel_id: string | null;
+  source_bot_id: string | null;
+  tool_name: string;
+  tool_args: Record<string, unknown>;
+  widget_config: Record<string, unknown>;
+  envelope: ToolResultEnvelope;
+  display_label: string | null;
+  pinned_at: string | null;
+  updated_at: string | null;
+}
+
+/** Discriminator telling `PinnedToolWidget` which surface it lives on. */
+export type WidgetScope =
+  | { kind: "channel"; channelId: string }
+  | { kind: "dashboard" };
+
 // Full channel settings (matches server ChannelSettingsOut)
 export interface ChannelSettings {
   id: string;

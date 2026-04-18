@@ -134,6 +134,24 @@ class PreviewIn(BaseModel):
     python_code: Optional[str] = None
 
 
+class PreviewInlineIn(BaseModel):
+    """Package-less template preview. Used by the widget developer panel."""
+
+    yaml_template: str = Field(min_length=1)
+    python_code: Optional[str] = None
+    sample_payload: Optional[dict] = None
+    widget_config: Optional[dict] = None
+    tool_name: Optional[str] = None
+
+
+class PreviewForToolIn(BaseModel):
+    """Render the active widget template for a given tool against a payload."""
+
+    tool_name: str = Field(min_length=1)
+    sample_payload: Optional[dict] = None
+    widget_config: Optional[dict] = None
+
+
 class PreviewEnvelope(BaseModel):
     content_type: str
     body: str
@@ -479,6 +497,135 @@ async def validate_widget_package(
         errors=[_issue_out(e) for e in result.errors],
         warnings=[_issue_out(w) for w in result.warnings],
     )
+
+
+@router.post("/widget-packages/preview-for-tool", response_model=PreviewOut)
+async def preview_widget_for_tool(
+    body: PreviewForToolIn,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_scopes("admin")),
+):
+    """Render ``tool_name``'s active widget template against ``sample_payload``.
+
+    Resolves the active package via ``WidgetTemplatePackage.is_active`` and
+    falls back to the in-memory registry when no DB package is active (covers
+    integration-declared ``tool_widgets`` registered at startup).
+    """
+    # Prefer an active DB-backed package when present.
+    pkg = (
+        await db.execute(
+            select(WidgetTemplatePackage).where(
+                WidgetTemplatePackage.tool_name == body.tool_name,
+                WidgetTemplatePackage.is_active.is_(True),
+                WidgetTemplatePackage.is_orphaned.is_(False),
+                WidgetTemplatePackage.is_invalid.is_(False),
+            )
+        )
+    ).scalar_one_or_none()
+
+    widget_def: dict[str, Any] | None = None
+    preview_mod_name: str | None = None
+    try:
+        if pkg is not None:
+            result = validate_package(pkg.yaml_template, pkg.python_code)
+            if not result.ok:
+                return PreviewOut(
+                    ok=False,
+                    errors=[_issue_out(e) for e in result.errors],
+                )
+            widget_def = result.template or yaml.safe_load(pkg.yaml_template) or {}
+            if pkg.python_code and pkg.python_code.strip():
+                _, preview_mod_name = load_preview_module(pkg.python_code)
+            widget_def = rewrite_refs_for_preview(widget_def, preview_mod_name)
+        else:
+            # Fallback to in-memory registry (integration tool_widgets).
+            from app.services.widget_templates import _widget_templates
+
+            entry = _widget_templates.get(body.tool_name)
+            if entry is None:
+                # Also try the bare name (strip MCP server prefix).
+                bare = body.tool_name.split("-", 1)[1] if "-" in body.tool_name else None
+                if bare:
+                    entry = _widget_templates.get(bare)
+            if entry is None:
+                return PreviewOut(
+                    ok=False,
+                    errors=[
+                        ValidationIssueOut(
+                            phase="lookup",
+                            message=f"No active widget template for tool '{body.tool_name}'",
+                        )
+                    ],
+                )
+            widget_def = {
+                "content_type": entry.get("content_type"),
+                "display": entry.get("display", "inline"),
+                "display_label": entry.get("display_label"),
+                "template": entry.get("template"),
+                "default_config": entry.get("default_config"),
+                "transform": entry.get("transform"),
+                "state_poll": entry.get("state_poll"),
+            }
+
+        envelope = _render_preview(
+            widget_def,
+            tool_name=body.tool_name,
+            sample_payload=body.sample_payload or {},
+            widget_config=body.widget_config,
+        )
+    except Exception as exc:
+        logger.warning("preview-for-tool failed for %s: %s", body.tool_name, exc, exc_info=True)
+        return PreviewOut(
+            ok=False,
+            errors=[ValidationIssueOut(phase="python", message=str(exc))],
+        )
+    finally:
+        discard_preview_module(preview_mod_name)
+
+    return PreviewOut(ok=True, envelope=envelope)
+
+
+@router.post("/widget-packages/preview-inline", response_model=PreviewOut)
+async def preview_widget_inline(
+    body: PreviewInlineIn,
+    _auth: str = Depends(require_scopes("admin")),
+):
+    """Render a widget envelope from an ad-hoc YAML template + sample payload.
+
+    Unlike ``/widget-packages/{pkg_id}/preview`` this does not require a
+    saved package — used by the widget developer panel to preview tool
+    output against an arbitrary template (or the active template for a
+    given tool_name when no YAML is supplied by the caller).
+    """
+    result = validate_package(body.yaml_template, body.python_code)
+    if not result.ok:
+        return PreviewOut(
+            ok=False,
+            errors=[_issue_out(e) for e in result.errors],
+        )
+
+    widget_def = result.template or yaml.safe_load(body.yaml_template) or {}
+    preview_mod_name: str | None = None
+    try:
+        if body.python_code and body.python_code.strip():
+            _, preview_mod_name = load_preview_module(body.python_code)
+        rewritten = rewrite_refs_for_preview(widget_def, preview_mod_name)
+        envelope = _render_preview(
+            rewritten,
+            tool_name=body.tool_name or "",
+            sample_payload=body.sample_payload or {},
+            widget_config=body.widget_config,
+        )
+    except Exception as exc:
+        logger.warning("Inline preview render failed: %s", exc, exc_info=True)
+        return PreviewOut(
+            ok=False,
+            errors=[ValidationIssueOut(phase="python", message=str(exc))],
+        )
+    finally:
+        discard_preview_module(preview_mod_name)
+
+    return PreviewOut(ok=True, envelope=envelope)
 
 
 @router.post("/widget-packages/{pkg_id}/preview", response_model=PreviewOut)

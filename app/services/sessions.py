@@ -572,6 +572,7 @@ async def persist_turn(
         if hide_messages:
             meta = {**meta, "hidden": True, "pipeline_step": True}
         record = Message(
+            id=uuid.uuid4(),
             session_id=session_id,
             role=msg["role"],
             content=_content_for_db(msg),
@@ -682,7 +683,18 @@ async def persist_turn(
     # without waiting for the drainer. Attachments are eagerly loaded so
     # the payload is complete. Outbox delivery to integrations runs in
     # parallel via the drainer (rows enqueued above).
-    if channel_id and persisted_records:
+    #
+    # Sub-session runs (channel_id is None but the Session walks up to a
+    # parent channel) resolve the parent channel and publish there — this
+    # is how the run-view modal receives live events. The bus event's
+    # payload carries the sub-session's session_id so parent-channel UI
+    # subscribers can filter it out and the modal can filter it in.
+    _bus_channel = channel_id
+    if _bus_channel is None and persisted_records:
+        from app.services.sub_session_bus import resolve_bus_channel_id
+        _bus_channel = await resolve_bus_channel_id(db, session_id)
+
+    if _bus_channel and persisted_records:
         try:
             from app.domain.channel_events import ChannelEvent, ChannelEventKind
             from app.domain.message import Message as DomainMessage
@@ -698,21 +710,21 @@ async def persist_turn(
             )).scalars().all()
             for row in fresh_rows:
                 try:
-                    domain_msg = DomainMessage.from_orm(row, channel_id=channel_id)
+                    domain_msg = DomainMessage.from_orm(row, channel_id=_bus_channel)
                     event = ChannelEvent(
-                        channel_id=channel_id,
+                        channel_id=_bus_channel,
                         kind=ChannelEventKind.NEW_MESSAGE,
                         payload=MessagePayload(message=domain_msg),
                     )
-                    publish_to_bus(channel_id, event)
+                    publish_to_bus(_bus_channel, event)
                 except Exception:
                     logger.warning(
                         "Failed to publish persisted message %s for channel %s",
-                        row.id, channel_id, exc_info=True,
+                        row.id, _bus_channel, exc_info=True,
                     )
         except Exception:
             logger.exception(
-                "Failed publish loop for channel %s", channel_id,
+                "Failed publish loop for channel %s", _bus_channel,
             )
 
     return first_user_msg_id

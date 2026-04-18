@@ -304,6 +304,9 @@ class Session(Base):
     locked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     source_task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    session_type: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'channel'"),
+    )
 
     channel: Mapped["Channel | None"] = relationship(
         back_populates="sessions",
@@ -491,10 +494,19 @@ class ToolCall(Base):
         TIMESTAMP(timezone=True),
         server_default=text("now()"),
     )
+    # Lifecycle: 'running' on dispatch entry, 'awaiting_approval' if gated,
+    # then 'done' / 'error' / 'denied' / 'expired' on resolution.
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'running'")
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         Index("ix_tool_calls_correlation_id", "correlation_id"),
         Index("ix_tool_calls_bot_id_created_at", "bot_id", "created_at"),
+        Index("ix_tool_calls_bot_id_status", "bot_id", "status"),
     )
 
 
@@ -1088,6 +1100,14 @@ class Task(Base):
     steps: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     step_states: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'user'"))
+    run_isolation: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'inline'"),
+    )
+    run_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     __table_args__ = (
         Index("ix_tasks_status_run_at", "status", "run_at"),
@@ -1427,6 +1447,15 @@ class ToolApproval(Base):
     decided_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     dispatch_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     dispatch_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Display payload captured at approval-create (e.g. `_capability` for the
+    # capability-approval card). Distinct from `dispatch_metadata`, which is
+    # routing config for the dispatcher.
+    approval_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Links to the tool_calls row that's currently 'awaiting_approval' so the
+    # decide endpoint can flip its status without a fragile lookup.
+    tool_call_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tool_calls.id", ondelete="SET NULL"), nullable=True
+    )
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("300"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
@@ -1617,6 +1646,9 @@ class DockerStack(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'bot'"))
     integration_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     connect_networks: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    # Per-service network aliases for shared-daemon multi-instance deployments.
+    # Shape: {service_name: alias_hostname}. Applied via `docker network connect --alias`.
+    network_aliases: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     last_started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     last_stopped_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
@@ -1732,5 +1764,54 @@ class WidgetTemplatePackage(Base):
             unique=True,
             postgresql_where=text("source = 'seed'"),
             sqlite_where=text("source = 'seed'"),
+        ),
+    )
+
+
+class WidgetDashboardPin(Base):
+    """A widget pinned to the chat-less `/widgets` dashboard.
+
+    Row shape mirrors ``channel.config.pinned_widgets[]`` entries so the
+    scope-aware ``PinnedToolWidget`` renderer handles both surfaces through
+    one code path. ``dashboard_key`` defaults to ``'default'`` — one global
+    board for now; multi-dashboard arrives later without a schema change.
+    """
+    __tablename__ = "widget_dashboard_pins"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    dashboard_key: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'default'"),
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    source_channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    tool_args: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb"),
+    )
+    widget_config: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb"),
+    )
+    envelope: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    display_label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pinned_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_widget_dashboard_pins_key_pos",
+            "dashboard_key", "position",
         ),
     )

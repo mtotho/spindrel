@@ -10,7 +10,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Channel, ChannelBotMember, ChannelHeartbeat, ChannelIntegration, Message, Session, Task
+from app.db.models import (
+    Attachment, Channel, ChannelBotMember, ChannelHeartbeat, ChannelIntegration,
+    Message, Session, Skill, Task, ToolApproval, ToolCall, TraceEvent,
+)
 from app.dependencies import ApiKeyAuth, get_db, require_scopes
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
@@ -1037,6 +1040,272 @@ async def get_session_status(
     pending_tasks = pending_count_result.scalar() or 0
 
     return SessionStatusOut(processing=processing, pending_tasks=pending_tasks)
+
+
+# ---------------------------------------------------------------------------
+# Channel state snapshot — chat rehydration (Phase 3)
+# ---------------------------------------------------------------------------
+#
+# The SSE stream carries *deltas*. On mount, tab-wake, or reconnect the UI
+# calls this endpoint once to seed whatever in-flight state already exists
+# on the server: running/awaiting-approval tool calls, auto-injected skills,
+# and pending approvals. The snapshot + the SSE stream together produce the
+# same UI as a never-interrupted live session — regardless of whether the
+# 256-event replay buffer in channel_events.py still covers the gap.
+#
+# An "active turn" is a correlation_id with a ToolCall/TraceEvent in the
+# last 10 minutes AND no terminal assistant Message row. The turn_id the
+# UI keys on IS the correlation_id (see turn_worker.py:94).
+
+ACTIVE_TURN_WINDOW = timedelta(minutes=10)
+
+
+class ActiveTurnToolCallOut(BaseModel):
+    id: uuid.UUID
+    tool_name: str
+    arguments: dict
+    status: str  # running | awaiting_approval | done | error | denied | expired
+    is_error: bool = False
+    approval_id: Optional[uuid.UUID] = None
+    approval_reason: Optional[str] = None
+    capability: Optional[dict] = None
+
+
+class ActiveTurnSkillOut(BaseModel):
+    skill_id: str
+    skill_name: str
+    similarity: float
+    source: str
+
+
+class ActiveTurnOut(BaseModel):
+    turn_id: uuid.UUID
+    bot_id: str
+    is_primary: bool
+    tool_calls: list[ActiveTurnToolCallOut]
+    auto_injected_skills: list[ActiveTurnSkillOut]
+
+
+class ChannelStateOut(BaseModel):
+    active_turns: list[ActiveTurnOut]
+    pending_approvals: list[dict]
+
+
+@router.get("/{channel_id}/state", response_model=ChannelStateOut)
+async def get_channel_state(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:read")),
+):
+    """Snapshot of the chat's in-flight state.
+
+    Paired with the SSE stream: the UI calls this once on mount (and on
+    reconnect) to rehydrate turn cards, approval prompts, and auto-injected
+    skill chips. Together they replace the fragile 256-event replay buffer.
+    """
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    pending_approvals = await _snapshot_pending_approvals(db, channel_id)
+
+    session_id = channel.active_session_id
+    if not session_id:
+        return ChannelStateOut(active_turns=[], pending_approvals=pending_approvals)
+
+    cutoff = datetime.now(timezone.utc) - ACTIVE_TURN_WINDOW
+    active_turns = await _snapshot_active_turns(
+        db, session_id=session_id, channel_bot_id=channel.bot_id, cutoff=cutoff,
+    )
+    return ChannelStateOut(active_turns=active_turns, pending_approvals=pending_approvals)
+
+
+async def _snapshot_pending_approvals(db: AsyncSession, channel_id: uuid.UUID) -> list[dict]:
+    """Reuse the shape Phase 1 already returns for pending approvals.
+
+    Mirrors ``ApprovalOut`` in ``api_v1_approvals`` so the UI can feed both
+    through the same component without two schemas. Returned as dicts rather
+    than a cross-router import to keep this module's dependency surface tight.
+    """
+    from app.tools.registry import get_tool_safety_tier
+
+    stmt = (
+        select(ToolApproval)
+        .where(
+            ToolApproval.channel_id == channel_id,
+            ToolApproval.status == "pending",
+        )
+        .order_by(ToolApproval.created_at.desc())
+        .limit(50)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    result: list[dict] = []
+    for r in rows:
+        result.append({
+            "id": str(r.id),
+            "session_id": str(r.session_id) if r.session_id else None,
+            "channel_id": str(r.channel_id) if r.channel_id else None,
+            "bot_id": r.bot_id,
+            "client_id": r.client_id,
+            "correlation_id": str(r.correlation_id) if r.correlation_id else None,
+            "tool_name": r.tool_name,
+            "tool_type": r.tool_type,
+            "arguments": r.arguments or {},
+            "policy_rule_id": str(r.policy_rule_id) if r.policy_rule_id else None,
+            "reason": r.reason,
+            "status": r.status,
+            "decided_by": r.decided_by,
+            "decided_at": r.decided_at.isoformat() if r.decided_at else None,
+            "dispatch_type": r.dispatch_type,
+            "dispatch_metadata": r.dispatch_metadata,
+            "approval_metadata": r.approval_metadata,
+            "tool_call_id": str(r.tool_call_id) if r.tool_call_id else None,
+            "timeout_seconds": r.timeout_seconds,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "safety_tier": get_tool_safety_tier(r.tool_name),
+        })
+    return result
+
+
+async def _snapshot_active_turns(
+    db: AsyncSession,
+    *,
+    session_id: uuid.UUID,
+    channel_bot_id: str,
+    cutoff: datetime,
+) -> list[ActiveTurnOut]:
+    # Candidate correlation_ids — any ToolCall or skill_index TraceEvent in
+    # the window. Broader event_type filters can be added later if the UI
+    # needs them; today these two cover every UI-visible durable surface.
+    tc_rows = (await db.execute(
+        select(ToolCall).where(
+            ToolCall.session_id == session_id,
+            ToolCall.created_at >= cutoff,
+            ToolCall.correlation_id.is_not(None),
+        )
+    )).scalars().all()
+    te_rows = (await db.execute(
+        select(TraceEvent).where(
+            TraceEvent.session_id == session_id,
+            TraceEvent.created_at >= cutoff,
+            TraceEvent.event_type == "skill_index",
+            TraceEvent.correlation_id.is_not(None),
+        )
+    )).scalars().all()
+
+    by_corr: dict[uuid.UUID, dict] = {}
+    for r in tc_rows:
+        slot = by_corr.setdefault(r.correlation_id, {"bot_id": r.bot_id, "tool_calls": [], "skills": []})
+        slot["tool_calls"].append(r)
+        if not slot["bot_id"] and r.bot_id:
+            slot["bot_id"] = r.bot_id
+    for r in te_rows:
+        slot = by_corr.setdefault(r.correlation_id, {"bot_id": r.bot_id, "tool_calls": [], "skills": []})
+        slot["skills"].append(r)
+        if not slot["bot_id"] and r.bot_id:
+            slot["bot_id"] = r.bot_id
+
+    if not by_corr:
+        return []
+
+    # Drop correlation_ids whose turn already produced a terminal assistant
+    # Message — those are completed, not active.
+    done_rows = (await db.execute(
+        select(Message.correlation_id).where(
+            Message.correlation_id.in_(list(by_corr.keys())),
+            Message.role == "assistant",
+        )
+    )).scalars().all()
+    for corr_id in done_rows:
+        by_corr.pop(corr_id, None)
+
+    if not by_corr:
+        return []
+
+    # Resolve skill names once for every auto_injected id across all turns.
+    skill_ids: set[str] = set()
+    for slot in by_corr.values():
+        for te in slot["skills"]:
+            data = te.data or {}
+            for sid in data.get("auto_injected") or []:
+                if sid:
+                    skill_ids.add(str(sid))
+    skill_names: dict[str, str] = {}
+    if skill_ids:
+        rows = (await db.execute(
+            select(Skill.id, Skill.name).where(Skill.id.in_(list(skill_ids)))
+        )).all()
+        skill_names = {sid: name for sid, name in rows}
+
+    # Resolve approval_id / capability for every awaiting_approval ToolCall
+    # in one round trip, then fold in.
+    awaiting_ids = [
+        tc.id for slot in by_corr.values() for tc in slot["tool_calls"]
+        if tc.status == "awaiting_approval"
+    ]
+    approvals_by_tc: dict[uuid.UUID, ToolApproval] = {}
+    if awaiting_ids:
+        appr_rows = (await db.execute(
+            select(ToolApproval).where(ToolApproval.tool_call_id.in_(awaiting_ids))
+        )).scalars().all()
+        for a in appr_rows:
+            if a.tool_call_id:
+                approvals_by_tc[a.tool_call_id] = a
+
+    turns: list[ActiveTurnOut] = []
+    for corr_id, slot in by_corr.items():
+        bot_id = slot["bot_id"] or channel_bot_id
+        tc_outs: list[ActiveTurnToolCallOut] = []
+        for tc in sorted(slot["tool_calls"], key=lambda r: r.created_at):
+            appr = approvals_by_tc.get(tc.id)
+            capability = None
+            approval_reason = None
+            if appr is not None:
+                if appr.approval_metadata and isinstance(appr.approval_metadata, dict):
+                    capability = appr.approval_metadata.get("_capability")
+                approval_reason = appr.reason
+            tc_outs.append(ActiveTurnToolCallOut(
+                id=tc.id,
+                tool_name=tc.tool_name,
+                arguments=tc.arguments or {},
+                status=tc.status,
+                is_error=bool(tc.error),
+                approval_id=appr.id if appr else None,
+                approval_reason=approval_reason,
+                capability=capability,
+            ))
+        # Collapse multiple skill_index TraceEvents (one per iteration) into
+        # a single auto_injected set, keyed by skill_id so we don't double-render.
+        skill_outs: list[ActiveTurnSkillOut] = []
+        _seen_skills: set[str] = set()
+        for te in sorted(slot["skills"], key=lambda r: r.created_at):
+            data = te.data or {}
+            ranking = {
+                str(r.get("skill_id")): float(r.get("similarity") or 0.0)
+                for r in (data.get("ranking_scores") or [])
+                if isinstance(r, dict) and r.get("skill_id")
+            }
+            for sid in data.get("auto_injected") or []:
+                key = str(sid or "")
+                if not key or key in _seen_skills:
+                    continue
+                _seen_skills.add(key)
+                skill_outs.append(ActiveTurnSkillOut(
+                    skill_id=key,
+                    skill_name=skill_names.get(key, key),
+                    similarity=ranking.get(key, 0.0),
+                    source="auto_inject",
+                ))
+        turns.append(ActiveTurnOut(
+            turn_id=corr_id,
+            bot_id=bot_id,
+            is_primary=(bot_id == channel_bot_id),
+            tool_calls=tc_outs,
+            auto_injected_skills=skill_outs,
+        ))
+    # Primary first, then insertion order is dict iteration order (Python 3.7+).
+    turns.sort(key=lambda t: (0 if t.is_primary else 1))
+    return turns
 
 
 # ---------------------------------------------------------------------------

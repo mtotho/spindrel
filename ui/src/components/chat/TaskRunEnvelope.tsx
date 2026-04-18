@@ -63,6 +63,12 @@ interface TaskRunMeta {
   status?: "pending" | "running" | "complete" | "failed" | string;
   scheduled_at?: string | null;
   completed_at?: string | null;
+  // `inline` anchors embed a steps[] summary. `sub_session` anchors omit
+  // steps[] entirely and carry run_session_id + awaiting_count so the UI
+  // knows to open the run-view modal against the sub-session instead.
+  run_isolation?: "inline" | "sub_session";
+  run_session_id?: string | null;
+  awaiting_count?: number;
   steps?: StepInfo[];
   step_count?: number;
   context_mode?: "none" | "recent" | "full" | string;
@@ -271,6 +277,113 @@ function StepResultPanel({
 // ---------------------------------------------------------------------------
 
 export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapsedByDefault = false }: Props) {
+  const meta = (message.metadata ?? {}) as TaskRunMeta;
+
+  // Sub-session anchors render as a compact card; the full timeline lives
+  // in the PipelineRunLive modal mounted against `run_session_id`. Anchors
+  // without `run_isolation="sub_session"` carry their step list inline.
+  if (meta.run_isolation === "sub_session") {
+    return <SubSessionAnchor message={message} />;
+  }
+
+  return <InlineTaskRunEnvelope message={message} collapsedByDefault={collapsedByDefault} />;
+});
+
+// ---------------------------------------------------------------------------
+// Sub-session anchor — terse one-line card pointing at the run-view modal.
+// ---------------------------------------------------------------------------
+
+const SubSessionAnchor = memo(function SubSessionAnchor({ message }: { message: Message }) {
+  const navigate = useNavigate();
+  const meta = (message.metadata ?? {}) as TaskRunMeta;
+  const title = meta.title || "Run";
+  const status = (meta.status ?? "pending") as string;
+  const stepCount = meta.step_count ?? 0;
+  const awaitingCount = meta.awaiting_count ?? 0;
+  const taskId = meta.task_id;
+
+  // The channelId isn't on the anchor metadata, so derive it from the
+  // current route. TaskRunEnvelope always renders inside a channel view.
+  const chIdMatch = typeof window !== "undefined"
+    ? window.location.pathname.match(/\/channels\/([^/]+)/)
+    : null;
+  const channelId = chIdMatch?.[1];
+
+  // Extract the summary excerpt that _fallback_text enriches. It appears
+  // AFTER a newline when present, following the "[Title · status · N/M]"
+  // header line.
+  const content = typeof message.content === "string" ? message.content : "";
+  const lines = content.split("\n");
+  const summary = lines.length > 1 ? lines.slice(1).join("\n").trim() : "";
+  const isTerminal = status === "complete" || status === "failed";
+  const showSummary = isTerminal && summary.length > 0;
+
+  const handleOpen = () => {
+    if (!channelId || !taskId) return;
+    navigate(`/channels/${channelId}/runs/${taskId}`);
+  };
+
+  const statusIcon = awaitingCount > 0 ? (
+    <PauseCircle size={12} className="text-accent animate-pulse" />
+  ) : status === "running" ? (
+    <Loader2 size={12} className="text-accent animate-spin" />
+  ) : status === "complete" ? (
+    <CheckCircle2 size={12} className="text-green-500" />
+  ) : status === "failed" ? (
+    <XCircle size={12} className="text-red-500" />
+  ) : (
+    <Circle size={12} className="text-text-dim" />
+  );
+
+  const statusLabel = awaitingCount > 0 ? "Your review needed" : status;
+
+  return (
+    <div className="mx-5 my-1.5">
+      <button
+        onClick={handleOpen}
+        disabled={!channelId || !taskId}
+        className={cn(
+          "group w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg",
+          "bg-surface-raised border border-surface-border",
+          "hover:border-accent/40 hover:bg-surface-raised/80 transition-colors",
+          "text-left disabled:cursor-default disabled:hover:border-surface-border",
+        )}
+      >
+        <Workflow size={14} className="text-accent shrink-0" />
+        <span className="flex-1 min-w-0 flex items-center gap-2">
+          <span className="truncate text-xs font-semibold text-text">{title}</span>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 text-[11px] font-medium shrink-0",
+              awaitingCount > 0 && "text-accent",
+              awaitingCount === 0 && status === "running" && "text-accent",
+              awaitingCount === 0 && status === "complete" && "text-green-500",
+              awaitingCount === 0 && status === "failed" && "text-red-500",
+              awaitingCount === 0 && status === "pending" && "text-text-muted",
+            )}
+          >
+            {statusIcon}
+            <span>{statusLabel}</span>
+            {stepCount > 0 && awaitingCount === 0 && (
+              <span className="text-text-dim">· {stepCount} steps</span>
+            )}
+          </span>
+        </span>
+        <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-accent/80 group-hover:text-accent">
+          Open
+          <ChevronRight size={12} className="transition-transform group-hover:translate-x-0.5" />
+        </span>
+      </button>
+      {showSummary && (
+        <div className="mx-3.5 mt-1 text-[11px] text-text-dim leading-relaxed line-clamp-2">
+          {summary}
+        </div>
+      )}
+    </div>
+  );
+});
+
+const InlineTaskRunEnvelope = memo(function InlineTaskRunEnvelope({ message, collapsedByDefault = false }: Props) {
   const navigate = useNavigate();
   const meta = (message.metadata ?? {}) as TaskRunMeta;
   const steps: StepInfo[] = Array.isArray(meta.steps) ? meta.steps : [];

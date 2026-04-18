@@ -37,3 +37,19 @@ export function useTool(toolId: string | undefined) {
     enabled: !!toolId,
   });
 }
+
+export interface ToolExecuteResponse {
+  tool_name: string;
+  result: unknown;
+  error?: string | null;
+}
+
+export function executeTool(
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<ToolExecuteResponse> {
+  return apiFetch<ToolExecuteResponse>(
+    `/api/v1/admin/tools/${encodeURIComponent(toolName)}/execute`,
+    { method: "POST", body: JSON.stringify({ arguments: args }) },
+  );
+}

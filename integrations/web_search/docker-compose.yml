@@ -1,9 +1,8 @@
-name: "spindrel-web-search"
+name: "spindrel-${SPINDREL_INSTANCE_ID:-default}-web-search"
 
 services:
   searxng:
     image: searxng/searxng
-    container_name: spindrel-searxng
     ports:
       - "8080:8080"
     volumes:
@@ -14,7 +13,6 @@ services:
 
   playwright:
     image: ghcr.io/browserless/chromium
-    container_name: spindrel-playwright
     ports:
       - "3000:3000"
     environment:

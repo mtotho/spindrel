@@ -245,6 +245,25 @@ class StackService:
         stack_id = str(stack.id)
         self._materialize(stack_id, stack.compose_definition)
 
+        # Fail loud if another compose project already owns one of our
+        # declared service/container names on this daemon. Without this check,
+        # `docker compose up` would silently reuse the foreign container and
+        # every subsequent call would fight it. See plan §Layer 1.
+        collision = await self._detect_project_name_collision(stack)
+        if collision:
+            async with async_session() as db:
+                await db.execute(
+                    update(DockerStack)
+                    .where(DockerStack.id == stack.id)
+                    .values(
+                        status="error",
+                        error_message=collision[:2000],
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                )
+                await db.commit()
+            raise StackError(collision)
+
         async with async_session() as db:
             await db.execute(
                 update(DockerStack)
@@ -276,11 +295,17 @@ class StackService:
                 )
                 await db.commit()
 
-            # Bridge stack containers into additional networks (integration stacks)
+            # Bridge stack containers into additional networks (integration stacks).
+            # Per-service DNS aliases declared in `network_aliases` are applied
+            # via `docker network connect --alias` so the agent-server can reach
+            # each service at a stable, instance-scoped hostname regardless of
+            # the compose-generated container name.
+            aliases = stack.network_aliases or {}
             if stack.connect_networks and container_ids:
                 for net in stack.connect_networks:
-                    for cid in container_ids.values():
-                        await self._connect_network(net, cid)
+                    for service_name, cid in container_ids.items():
+                        alias = aliases.get(service_name)
+                        await self._connect_network(net, cid, alias=alias)
 
             return await self._get(stack.id)
 
@@ -537,10 +562,19 @@ class StackService:
                 select(DockerStack).where(DockerStack.status == "running")
             )).scalars().all()
 
+        # A container that is stuck in created/exited/dead/paused is NOT running
+        # for any useful purpose. Treat those as stopped so the startup stack-sync
+        # loop will retry `start()` on the next boot instead of believing the DB
+        # state and skipping.
+        _LIVE_STATES = {"running", "restarting"}
+
         for stack in stacks:
             try:
                 statuses = await self.get_status(stack)
-                if not statuses:
+                is_running = bool(statuses) and any(
+                    (s.state or "").lower() in _LIVE_STATES for s in statuses
+                )
+                if not is_running:
                     async with async_session() as db:
                         await db.execute(
                             update(DockerStack)
@@ -549,7 +583,11 @@ class StackService:
                         )
                         await db.commit()
                     fixed += 1
-                    logger.info("Reconciled stack %s (%s) → stopped", stack.name, stack.project_name)
+                    dead_states = ",".join(sorted({(s.state or "unknown") for s in statuses})) or "no-containers"
+                    logger.info(
+                        "Reconciled stack %s (%s) → stopped (observed: %s)",
+                        stack.name, stack.project_name, dead_states,
+                    )
             except Exception:
                 logger.warning("Failed to reconcile stack %s", stack.name, exc_info=True)
 
@@ -564,6 +602,7 @@ class StackService:
         description: str | None = None,
         connect_networks: list[str] | None = None,
         config_files: dict[str, str] | None = None,
+        network_aliases: dict[str, str] | None = None,
     ) -> DockerStack:
         """Upsert an integration-owned stack.
 
@@ -592,6 +631,7 @@ class StackService:
                     row.compose_definition = compose_definition
                     row.updated_at = datetime.now(timezone.utc)
                 row.connect_networks = connect_networks or []
+                row.network_aliases = network_aliases or {}
                 row.name = name
                 row.description = description
                 row.project_name = project_name
@@ -608,6 +648,7 @@ class StackService:
                     source="integration",
                     integration_id=integration_id,
                     connect_networks=connect_networks or [],
+                    network_aliases=network_aliases or {},
                 )
                 db.add(row)
                 await db.commit()
@@ -687,12 +728,21 @@ class StackService:
         ]
         effective_timeout = timeout or settings.DOCKER_STACK_COMPOSE_TIMEOUT
 
+        # Pass instance + network identity so compose-file interpolation
+        # (e.g. `name: "spindrel-${SPINDREL_INSTANCE_ID}-web-search"`) resolves.
+        subprocess_env = {
+            **os.environ,
+            "SPINDREL_INSTANCE_ID": settings.SPINDREL_INSTANCE_ID,
+            "AGENT_NETWORK_NAME": settings.AGENT_NETWORK_NAME,
+        }
+
         try:
             proc = await asyncio.wait_for(
                 asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    env=subprocess_env,
                 ),
                 timeout=effective_timeout + 5,  # slight buffer for subprocess creation
             )
@@ -763,17 +813,38 @@ class StackService:
 
         return container_ids, exposed_ports, network_name
 
-    async def _connect_network(self, network: str, container_id: str) -> None:
-        """Connect a container to an external Docker network."""
+    async def _connect_network(
+        self,
+        network: str,
+        container_id: str,
+        alias: str | None = None,
+    ) -> None:
+        """Connect a container to an external Docker network.
+
+        When ``alias`` is provided, the container is registered under that
+        DNS name on the target network so other containers can reach it by a
+        stable, instance-scoped hostname without relying on a global
+        ``container_name:``.
+        """
+        cmd = ["docker", "network", "connect"]
+        if alias:
+            cmd += ["--alias", alias]
+        cmd += [network, container_id]
         try:
             proc = await asyncio.create_subprocess_exec(
-                "docker", "network", "connect", network, container_id,
+                *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             _, stderr = await proc.communicate()
             if proc.returncode == 0:
-                logger.info("Connected container %s to network %s", container_id, network)
+                if alias:
+                    logger.info(
+                        "Connected container %s to network %s as alias %s",
+                        container_id, network, alias,
+                    )
+                else:
+                    logger.info("Connected container %s to network %s", container_id, network)
             elif b"already exists" in stderr:
                 pass  # Already connected
             else:
@@ -781,6 +852,53 @@ class StackService:
                                container_id, network, stderr.decode())
         except Exception:
             logger.warning("Error connecting container to network", exc_info=True)
+
+    async def _detect_project_name_collision(self, stack: DockerStack) -> str | None:
+        """Check whether any pre-existing container on the daemon would be
+        claimed by this compose project (via ``container_name:``) but is
+        actually labeled with a different compose project.
+
+        Returns an error message describing the collision, or None if clear.
+        """
+        # Parse service names from the compose definition
+        try:
+            parsed = yaml.safe_load(stack.compose_definition) or {}
+        except Exception:
+            return None
+        services = (parsed.get("services") or {}) if isinstance(parsed, dict) else {}
+        container_names = []
+        for svc_name, svc_def in services.items():
+            if isinstance(svc_def, dict) and isinstance(svc_def.get("container_name"), str):
+                container_names.append(svc_def["container_name"])
+        if not container_names:
+            return None  # Auto-named services cannot collide on the daemon
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "ps", "-a",
+                "--format", '{{.Names}}\t{{.Label "com.docker.compose.project"}}',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_bytes, _ = await proc.communicate()
+        except Exception:
+            return None
+        collisions: list[str] = []
+        for line in stdout_bytes.decode().splitlines():
+            parts = line.split("\t", 1)
+            if len(parts) != 2:
+                continue
+            name, project = parts[0].strip(), parts[1].strip()
+            if name in container_names and project and project != stack.project_name:
+                collisions.append(f"{name} (owned by project {project!r})")
+        if collisions:
+            return (
+                f"Container name collision — another compose project already owns: "
+                + ", ".join(collisions)
+                + f". Remove those containers or rename them before starting "
+                f"{stack.project_name!r}."
+            )
+        return None
 
 
 stack_service = StackService()

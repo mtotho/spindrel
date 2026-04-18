@@ -5,6 +5,7 @@ import {
   Brain,
   Bot,
   BookOpen,
+  LayoutDashboard,
   Plug,
   PanelLeftClose,
   PanelLeftOpen,
@@ -59,6 +60,7 @@ export function SidebarRail() {
   const upcomingCount = useTodayUpcomingCount();
 
   const isTasksActive = pathname.startsWith("/admin/tasks");
+  const isWidgetsActive = pathname.startsWith("/widgets");
   const isBotsActive = pathname.startsWith("/admin/bots");
   const isSkillsActive = pathname.startsWith("/admin/skills");
   const isIntegrationsActive = pathname.startsWith("/admin/integrations");
@@ -116,6 +118,10 @@ export function SidebarRail() {
           }
         >
           <Clock size={18} className={isTasksActive ? "text-accent" : "text-text-dim"} />
+        </RailLink>
+
+        <RailLink href="/widgets" active={isWidgetsActive} title="Widgets">
+          <LayoutDashboard size={18} className={isWidgetsActive ? "text-accent" : "text-text-dim"} />
         </RailLink>
 
         <RailLink href="/admin/bots" active={isBotsActive} title="Bots">

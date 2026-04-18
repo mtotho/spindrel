@@ -72,9 +72,13 @@ class WidgetActionRequest(BaseModel):
     # the refreshed envelope rendered with the merged config.
     pin_id: str | None = None
     config: dict | None = None
+    # Dashboard-scope pin id (mutually exclusive with a channel pin_id).
+    # When set, widget_config dispatch routes to the dashboard pin table and
+    # channel_id may be omitted.
+    dashboard_pin_id: uuid.UUID | None = None
     # Context
-    channel_id: uuid.UUID
-    bot_id: str
+    channel_id: uuid.UUID | None = None
+    bot_id: str | None = None
     source_record_id: uuid.UUID | None = None
     # When the dispatching widget has a state_poll, passing display_label lets
     # the backend fetch fresh state after the action and return that envelope
@@ -354,8 +358,11 @@ async def _do_state_poll(
 class WidgetRefreshRequest(BaseModel):
     tool_name: str
     display_label: str = ""
-    channel_id: uuid.UUID
-    bot_id: str
+    # Channel-scope refresh context. Optional when dashboard_pin_id is set.
+    channel_id: uuid.UUID | None = None
+    bot_id: str | None = None
+    # Dashboard-scope refresh — persists the fresh envelope back onto the pin.
+    dashboard_pin_id: uuid.UUID | None = None
     # Current pin config — exposed as {{config.*}} in state_poll args and in
     # the state_poll template. Optional; missing = empty dict (defaults only).
     widget_config: dict | None = None
@@ -386,41 +393,69 @@ async def refresh_widget_state(req: WidgetRefreshRequest):
     if envelope is None:
         return WidgetActionResponse(ok=False, error="State poll failed to produce an envelope")
 
+    env_dict = envelope.compact_dict()
+
+    # Persist dashboard-pin refreshes back to the table so reloads see fresh
+    # state. Channel pins already get written back through the OmniPanel's
+    # envelope-update store → POST /widget-pins flow; dashboard pins have no
+    # equivalent store-side persist, so do it here.
+    if req.dashboard_pin_id is not None:
+        from app.db.engine import async_session
+        from app.services.dashboard_pins import update_pin_envelope
+        try:
+            async with async_session() as db:
+                await update_pin_envelope(db, req.dashboard_pin_id, env_dict)
+        except Exception:
+            logger.warning(
+                "Dashboard pin envelope write-back failed: pin=%s",
+                req.dashboard_pin_id, exc_info=True,
+            )
+
     logger.info(
         "Widget refresh: tool=%s display_label=%s", req.tool_name, req.display_label,
     )
-    return WidgetActionResponse(ok=True, envelope=envelope.compact_dict())
+    return WidgetActionResponse(ok=True, envelope=env_dict)
 
 
 async def _dispatch_widget_config(req: WidgetActionRequest) -> WidgetActionResponse:
     """Patch a pinned widget's config and return a refreshed envelope.
 
-    Shallow-merges ``req.config`` into the pin's stored config (same semantics
-    as the PATCH /widget-pins/{id}/config endpoint), invalidates the
-    state_poll cache, and calls ``_do_state_poll`` with the merged config so
-    templated ``{{config.*}}`` in state_poll args picks up the new value.
+    Routes by scope:
+      * ``dashboard_pin_id`` set → ``apply_dashboard_pin_config_patch``
+      * else ``pin_id`` + ``channel_id`` → ``apply_widget_config_patch``
+
+    Invalidates the state_poll cache and calls ``_do_state_poll`` with the
+    merged config so templated ``{{config.*}}`` in state_poll args picks up
+    the new value.
     """
-    if not req.pin_id:
-        return WidgetActionResponse(ok=False, error="Missing 'pin_id' for widget_config dispatch")
     if req.config is None:
         return WidgetActionResponse(ok=False, error="Missing 'config' for widget_config dispatch")
+    if not req.dashboard_pin_id and not req.pin_id:
+        return WidgetActionResponse(ok=False, error="Missing 'pin_id' or 'dashboard_pin_id' for widget_config dispatch")
+    if req.dashboard_pin_id is None and req.channel_id is None:
+        return WidgetActionResponse(ok=False, error="Missing 'channel_id' for channel-scoped widget_config dispatch")
 
-    # Call the shared pin-patch helper directly — avoids a pointless HTTP
-    # roundtrip and the need for the router to know our own listen port.
-    from app.routers.api_v1_channels import apply_widget_config_patch
     from app.db.engine import async_session
 
     try:
         async with async_session() as db:
-            patched_pin = await apply_widget_config_patch(
-                db, req.channel_id, req.pin_id, req.config, merge=True,
-            )
+            if req.dashboard_pin_id is not None:
+                from app.services.dashboard_pins import apply_dashboard_pin_config_patch
+                patched_pin = await apply_dashboard_pin_config_patch(
+                    db, req.dashboard_pin_id, req.config, merge=True,
+                )
+            else:
+                from app.routers.api_v1_channels import apply_widget_config_patch
+                patched_pin = await apply_widget_config_patch(
+                    db, req.channel_id, req.pin_id, req.config, merge=True,
+                )
     except HTTPException as exc:
         return WidgetActionResponse(ok=False, error=f"Pin patch failed: {exc.detail}")
     except Exception as exc:
         return WidgetActionResponse(ok=False, error=f"Pin patch failed: {exc}")
 
-    merged_config = patched_pin.get("config") or {}
+    # Channel pins use `config`; dashboard pins use `widget_config`.
+    merged_config = patched_pin.get("widget_config") or patched_pin.get("config") or {}
     tool_name = patched_pin.get("tool_name", "")
     resolved = _resolve_tool_name(tool_name)
 

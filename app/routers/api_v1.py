@@ -22,6 +22,7 @@ from app.routers.api_v1_llm import router as llm_router
 from app.routers.api_v1_modals import router as modals_router
 from app.routers.api_v1_search import router as search_router
 from app.routers.api_v1_widget_actions import router as widget_actions_router
+from app.routers.api_v1_dashboard import router as dashboard_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(admin_router)
@@ -45,3 +46,4 @@ router.include_router(llm_router)
 router.include_router(modals_router)
 router.include_router(search_router)
 router.include_router(widget_actions_router)
+router.include_router(dashboard_router)

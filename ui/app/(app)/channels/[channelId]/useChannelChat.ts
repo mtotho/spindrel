@@ -5,6 +5,7 @@ import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
 import { useSubmitChat, useCancelChat, useSessionStatus } from "@/src/api/hooks/useChat";
 import { useChannelEvents } from "@/src/api/hooks/useChannelEvents";
+import { useChannelState } from "@/src/api/hooks/useChannelState";
 import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
 import { apiFetch } from "@/src/api/client";
 import { extractDisplayText } from "@/src/components/chat/MessageBubble";
@@ -69,6 +70,12 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
   const addMessage = useChatStore((s) => s.addMessage);
   const clearProcessing = useChatStore((s) => s.clearProcessing);
   const setError = useChatStore((s) => s.setError);
+
+  // Snapshot-seed the chat store with in-flight turns BEFORE the SSE stream
+  // starts delivering deltas. The snapshot + SSE together replace the 256-
+  // event replay buffer: refresh, mobile tab-wake, or background approvals
+  // all show up inline instead of dropping to the ApprovalToast fallback.
+  useChannelState(channelId, channel?.bot_id);
 
   // Subscribe to typed channel-events bus events. This is the SOLE source
   // of streaming UI state — POST /chat just acknowledges the turn.

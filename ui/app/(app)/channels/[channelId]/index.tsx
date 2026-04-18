@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useLocation, useMatch } from "react-router-dom";
+import { PipelineRunModal } from "./PipelineRunModal";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
@@ -854,6 +855,37 @@ export default function ChatScreen() {
   return (
     <div className="chat-fade-in" style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface, overflow: "hidden" }}>
       {outerChildren}
+      <ChannelModalMount />
     </div>
   );
+}
+
+/**
+ * Conditionally mounts the PipelineRunModal on top of the channel page
+ * when the URL is on one of the run-view sub-routes. Kept as a sibling
+ * component so the channel page's chat + SSE subscription don't tear
+ * down when opening the modal (the portal layers over the existing DOM).
+ */
+function ChannelModalMount() {
+  const preRun = useMatch("/channels/:channelId/pipelines/:pipelineId");
+  const live = useMatch("/channels/:channelId/runs/:taskId");
+  if (preRun?.params.channelId && preRun.params.pipelineId) {
+    return (
+      <PipelineRunModal
+        channelId={preRun.params.channelId as string}
+        pipelineId={preRun.params.pipelineId as string}
+        mode="prerun"
+      />
+    );
+  }
+  if (live?.params.channelId && live.params.taskId) {
+    return (
+      <PipelineRunModal
+        channelId={live.params.channelId as string}
+        taskId={live.params.taskId as string}
+        mode="live"
+      />
+    );
+  }
+  return null;
 }

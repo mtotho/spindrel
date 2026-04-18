@@ -25,13 +25,38 @@ def _is_pipeline_child(task: Task) -> bool:
     the step_executor callback — the channel's UI envelope renders the
     result from ``step_states``, not from a standalone assistant message.
     Every channel-visible emission (NEW_MESSAGE, TURN_STARTED, TURN_ENDED,
-    outbox enqueue) is suppressed when this is True.
+    outbox enqueue) is suppressed when this is True for inline pipelines.
+
+    Sub-session pipelines are different: their child-turn events DO publish,
+    but on the parent channel's bus, tagged with ``session_id=run_session_id``
+    so the parent-channel UI can filter them out and the run-view modal can
+    filter them in. See ``_resolve_sub_session_bus_channel``.
     """
     cb = task.callback_config or {}
     return bool(cb.get("pipeline_task_id"))
 
 
-def _publish_turn_ended(
+async def _resolve_sub_session_bus_channel(task: Task) -> uuid.UUID | None:
+    """For a sub-session pipeline child task, return the parent channel's id.
+
+    Used to route turn-lifecycle events onto the parent channel's bus so the
+    run-view modal (subscribed via the parent channel's SSE stream) receives
+    them. Returns None when the task's session doesn't resolve to a parent
+    channel (standalone eval, cross-channel variants, etc.).
+    """
+    sid = getattr(task, "session_id", None)
+    if sid is None:
+        return None
+    try:
+        from app.services.sub_session_bus import resolve_bus_channel_id
+        async with async_session() as db:
+            return await resolve_bus_channel_id(db, sid)
+    except Exception:
+        logger.debug("sub-session bus resolve failed for task %s", task.id, exc_info=True)
+        return None
+
+
+async def _publish_turn_ended(
     task: Task,
     *,
     turn_id: uuid.UUID,
@@ -51,12 +76,23 @@ def _publish_turn_ended(
     output flows into the pipeline envelope via step_states, not as a
     distinct turn on the channel.
     """
-    if _is_pipeline_child(task):
-        return
     channel_id = getattr(task, "channel_id", None)
+    is_pipeline_child = _is_pipeline_child(task)
+
+    # Sub-session pipeline children: publish on the parent channel's bus so
+    # the run-view modal receives the event. The event carries session_id
+    # via the Session load path downstream — the modal filters by it.
+    if is_pipeline_child and channel_id is None:
+        channel_id = await _resolve_sub_session_bus_channel(task)
+    # Inline pipeline children keep the old suppression (parent envelope
+    # renders step status from step_states, not from a standalone turn).
+    elif is_pipeline_child:
+        return
+
     if channel_id is None:
         logger.warning("task %s has no channel_id, dropping TURN_ENDED publish", task.id)
         return
+
     from app.domain.channel_events import ChannelEvent, ChannelEventKind
     from app.domain.payloads import TurnEndedPayload
     from app.services.channel_events import publish_typed
@@ -571,7 +607,7 @@ async def run_exec_task(task: Task) -> None:
             dispatch_type=output_dispatch_type,
             dispatch_config=output_dispatch_config,
         )
-        _publish_turn_ended(output_task, turn_id=_turn_id, result=result_text)
+        await _publish_turn_ended(output_task, turn_id=_turn_id, result=result_text)
 
         if cfg.get("notify_parent") and result_text:
             _parent_bot_id = cfg.get("parent_bot_id")
@@ -619,7 +655,7 @@ async def run_exec_task(task: Task) -> None:
                 id=task.id, bot_id=task.bot_id, channel_id=task.channel_id,
                 dispatch_type=output_dispatch_type, dispatch_config=output_dispatch_config,
             )
-            _publish_turn_ended(
+            await _publish_turn_ended(
                 output_task,
                 turn_id=_turn_id,
                 result=None,
@@ -842,16 +878,24 @@ async def run_task(task: Task) -> None:
     # pipeline agent-step children — the parent pipeline's envelope
     # shows the step's progress instead.
     _suppress_channel = _is_pipeline_child(task)
-    if task.channel_id is not None and not _suppress_channel:
+    # For sub-session pipeline children, route TURN_STARTED to the parent
+    # channel's bus so the run-view modal sees the event. Inline pipeline
+    # children stay suppressed (the parent envelope renders step status
+    # from step_states).
+    _publish_channel_id: uuid.UUID | None = task.channel_id
+    if _suppress_channel and task.channel_id is None:
+        _publish_channel_id = await _resolve_sub_session_bus_channel(task)
+        _suppress_channel = _publish_channel_id is None
+    if _publish_channel_id is not None and not _suppress_channel:
         try:
             from app.domain.channel_events import ChannelEvent, ChannelEventKind
             from app.domain.payloads import TurnStartedPayload
             from app.services.channel_events import publish_typed
 
             publish_typed(
-                task.channel_id,
+                _publish_channel_id,
                 ChannelEvent(
-                    channel_id=task.channel_id,
+                    channel_id=_publish_channel_id,
                     kind=ChannelEventKind.TURN_STARTED,
                     payload=TurnStartedPayload(
                         bot_id=task.bot_id,
@@ -1170,7 +1214,7 @@ async def run_task(task: Task) -> None:
         # that were already dispatched by the child delegation task.
         _dispatch_actions = None if task.task_type == "callback" else run_result.client_actions
 
-        _publish_turn_ended(
+        await _publish_turn_ended(
             task,
             turn_id=_turn_id,
             result=_dispatch_text,
@@ -1284,7 +1328,7 @@ async def run_task(task: Task) -> None:
         await _record_timeout_event(task, correlation_id, _timeout_err)
         await _fire_task_complete(task, "failed")
         try:
-            _publish_turn_ended(task, turn_id=_turn_id, result=None, error=_timeout_err)
+            await _publish_turn_ended(task, turn_id=_turn_id, result=None, error=_timeout_err)
         except Exception:
             logger.warning("Failed to publish timeout error for task %s", task.id)
 
@@ -1313,7 +1357,7 @@ async def run_task(task: Task) -> None:
                 logger.error("Task %s failed after %d rate limit retries", task.id, t.retry_count)
                 await _fire_task_complete(task, "failed")
                 try:
-                    _publish_turn_ended(task, turn_id=_turn_id, result=None, error="rate_limited")
+                    await _publish_turn_ended(task, turn_id=_turn_id, result=None, error="rate_limited")
                 except Exception:
                     logger.warning("Failed to publish rate limit error for task %s", task.id)
 
@@ -1328,7 +1372,7 @@ async def run_task(task: Task) -> None:
                 await db.commit()
         await _fire_task_complete(task, "failed")
         try:
-            _publish_turn_ended(task, turn_id=_turn_id, result=None, error=str(exc)[:500])
+            await _publish_turn_ended(task, turn_id=_turn_id, result=None, error=str(exc)[:500])
         except Exception:
             logger.warning("Failed to publish error for task %s", task.id)
     finally:

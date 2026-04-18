@@ -1935,6 +1935,35 @@ async def assemble_context(
     except Exception:
         logger.debug("pinned_widgets: injection failed", exc_info=True)
 
+    # --- tool refusal guard (counters history poisoning from prior "I can't" turns) ---
+    # Scans recent assistant turns for refusal phrases. If any are found, injects a
+    # corrective system message; if the refusal named a tool that IS now authorized,
+    # the message names it specifically. Same cache-safety band as temporal/widgets.
+    try:
+        if _authorized_names:
+            from app.services.tool_refusal_guard import (
+                build_tool_authority_block,
+                scan_assistant_refusals,
+            )
+            _assistant_contents = [
+                m.get("content") for m in messages
+                if isinstance(m, dict) and m.get("role") == "assistant"
+            ]
+            # Newest first — matches the 5-turn recent-window intent
+            _assistant_contents.reverse()
+            _refusal = scan_assistant_refusals(_assistant_contents, set(_authorized_names))
+            _guard_block = build_tool_authority_block(_refusal)
+            if _guard_block:
+                messages.append({"role": "system", "content": _guard_block})
+                _inject_chars["tool_refusal_guard"] = len(_guard_block)
+                if _refusal.stale_refused:
+                    logger.info(
+                        "tool_refusal_guard: correcting stale refusals for %s on channel %s",
+                        _refusal.stale_refused, channel_id,
+                    )
+    except Exception:
+        logger.debug("tool_refusal_guard: injection failed", exc_info=True)
+
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and _ch_row is not None:
         _ch_ws_path = getattr(_ch_row, "channel_prompt_workspace_file_path", None)

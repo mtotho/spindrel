@@ -208,6 +208,7 @@ async def _sync_docker_compose_stack(integration_id: str) -> None:
                 description=dc_info["description"],
                 connect_networks=dc_info["connect_networks"],
                 config_files=dc_info["config_files"],
+                network_aliases=dc_info.get("network_aliases", {}),
             )
             enabled = False
             enabled_callable = dc_info.get("enabled_callable")

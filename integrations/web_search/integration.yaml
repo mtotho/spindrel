@@ -22,9 +22,14 @@ settings:
 
 docker_compose:
   file: docker-compose.yml
-  project_name: spindrel-web-search
+  # Project / container / network names interpolate SPINDREL_INSTANCE_ID so multiple
+  # agent-server instances on one Docker daemon (e.g. prod + e2e) do not collide.
+  project_name: "spindrel-${SPINDREL_INSTANCE_ID}-web-search"
   enabled_setting: WEB_SEARCH_CONTAINERS
-  connect_networks: [agent-server_default]
+  connect_networks: ["${AGENT_NETWORK_NAME}"]
+  network_aliases:
+    searxng: "searxng-${SPINDREL_INSTANCE_ID}"
+    playwright: "playwright-${SPINDREL_INSTANCE_ID}"
   config_files: [config/searxng/settings.yml]
   description: "SearXNG + Playwright for private web search"
 

@@ -1,9 +1,8 @@
-name: "spindrel-wyoming"
+name: "spindrel-${SPINDREL_INSTANCE_ID:-default}-wyoming"
 
 services:
   whisper:
     image: rhasspy/wyoming-whisper
-    container_name: spindrel-wyoming-whisper
     ports:
       - "10300:10300"
     command: --model tiny-int8 --language en
@@ -11,7 +10,6 @@ services:
 
   piper:
     image: rhasspy/wyoming-piper
-    container_name: spindrel-wyoming-piper
     ports:
       - "10200:10200"
     command: --voice en_US-lessac-medium

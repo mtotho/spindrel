@@ -32,11 +32,32 @@ const INTERVAL_OPTIONS = [
   { label: "30 minutes", value: "30" },
   { label: "1 hour", value: "60" },
   { label: "2 hours", value: "120" },
+  { label: "3 hours", value: "180" },
   { label: "4 hours", value: "240" },
+  { label: "6 hours", value: "360" },
   { label: "8 hours", value: "480" },
   { label: "12 hours", value: "720" },
   { label: "24 hours", value: "1440" },
 ];
+
+function formatIntervalLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  if (minutes % 60 === 0) {
+    const h = minutes / 60;
+    return `${h} hour${h === 1 ? "" : "s"}`;
+  }
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h}h ${m}m`;
+}
+
+function buildIntervalOptions(current: number | null | undefined) {
+  const currentStr = current != null ? String(current) : null;
+  if (currentStr && !INTERVAL_OPTIONS.some((o) => o.value === currentStr)) {
+    return [...INTERVAL_OPTIONS, { label: formatIntervalLabel(current as number), value: currentStr }];
+  }
+  return INTERVAL_OPTIONS;
+}
 
 // ---------------------------------------------------------------------------
 // Heartbeat Tab
@@ -186,7 +207,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                 <SelectInput
                   value={hbForm.interval_minutes?.toString() ?? "60"}
                   onChange={(v) => setHbForm((f: any) => ({ ...f, interval_minutes: parseInt(v) }))}
-                  options={INTERVAL_OPTIONS}
+                  options={buildIntervalOptions(hbForm.interval_minutes)}
                 />
               </FormRow>
             </Col>

@@ -4,6 +4,8 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import update
+
 from app.db.engine import async_session
 from app.db.models import ToolCall, TraceEvent
 
@@ -113,16 +115,23 @@ async def _record_tool_call(
     duration_ms: int,
     correlation_id: uuid.UUID | None = None,
     store_full_result: bool = False,
+    status: str = "done",
 ) -> None:
-    """Fire-and-forget: write a ToolCall row to the DB.
+    """Fire-and-forget: write a complete ToolCall row in one shot.
 
-    If store_full_result is True, the result is stored without truncation
+    Used for terminal-state inserts where the call never reaches the regular
+    dispatch path — auth/policy denials and the deferred exec-completion
+    worker. Live dispatches use ``_start_tool_call`` + ``_complete_tool_call``
+    so the row exists in 'running' state before completion.
+
+    If ``store_full_result`` is True, the result is stored without truncation
     (used when summarization occurred so the full output is retrievable).
     """
     try:
         stored_result = result
         if stored_result and not store_full_result:
             stored_result = stored_result[:4000]
+        now = datetime.now(timezone.utc)
         kwargs: dict = dict(
             session_id=session_id,
             client_id=client_id,
@@ -136,7 +145,9 @@ async def _record_tool_call(
             error=error,
             duration_ms=duration_ms,
             correlation_id=correlation_id,
-            created_at=datetime.now(timezone.utc),
+            created_at=now,
+            status=status,
+            completed_at=now,
         )
         if id is not None:
             kwargs["id"] = id
@@ -145,6 +156,107 @@ async def _record_tool_call(
             await db.commit()
     except Exception:
         logger.exception("Failed to record tool call for %s", tool_name)
+
+
+async def _start_tool_call(
+    *,
+    id: uuid.UUID,
+    session_id: uuid.UUID | None,
+    client_id: str | None,
+    bot_id: str | None,
+    tool_name: str,
+    tool_type: str,
+    server_name: str | None,
+    iteration: int,
+    arguments: dict,
+    correlation_id: uuid.UUID | None = None,
+    status: str = "running",
+) -> None:
+    """Fire-and-forget: insert a ToolCall row at dispatch entry.
+
+    Status defaults to 'running' for normal dispatch, or 'awaiting_approval'
+    when the policy engine gates the call. ``_complete_tool_call`` updates
+    this same row id when the call resolves.
+    """
+    try:
+        async with async_session() as db:
+            db.add(ToolCall(
+                id=id,
+                session_id=session_id,
+                client_id=client_id,
+                bot_id=bot_id,
+                tool_name=tool_name,
+                tool_type=tool_type,
+                server_name=server_name,
+                iteration=iteration,
+                arguments=arguments,
+                result=None,
+                error=None,
+                duration_ms=None,
+                correlation_id=correlation_id,
+                created_at=datetime.now(timezone.utc),
+                status=status,
+                completed_at=None,
+            ))
+            await db.commit()
+    except Exception:
+        logger.exception("Failed to insert in-flight tool call for %s", tool_name)
+
+
+async def _complete_tool_call(
+    row_id: uuid.UUID,
+    *,
+    result: str | None,
+    error: str | None,
+    duration_ms: int,
+    status: str = "done",
+    store_full_result: bool = False,
+) -> None:
+    """Fire-and-forget: UPDATE an existing ToolCall row on completion.
+
+    Pairs with ``_start_tool_call`` — the row was inserted in 'running'
+    (or 'awaiting_approval') state at dispatch entry; this flips it to a
+    terminal state and stamps the result.
+    """
+    try:
+        stored_result = result
+        if stored_result and not store_full_result:
+            stored_result = stored_result[:4000]
+        async with async_session() as db:
+            await db.execute(
+                update(ToolCall)
+                .where(ToolCall.id == row_id)
+                .values(
+                    result=stored_result,
+                    error=error,
+                    duration_ms=duration_ms,
+                    status=status,
+                    completed_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+    except Exception:
+        logger.exception("Failed to complete tool call row %s", row_id)
+
+
+async def _set_tool_call_status(row_id: uuid.UUID, status: str) -> None:
+    """Fire-and-forget: flip a ToolCall row's status (e.g. on approve/deny).
+
+    Used by the approval decide endpoint to transition an
+    'awaiting_approval' row back to 'running' (approve) or to 'denied'
+    (deny). Doesn't touch result/duration — those are written by the next
+    ``_complete_tool_call`` call when dispatch actually finishes.
+    """
+    try:
+        async with async_session() as db:
+            await db.execute(
+                update(ToolCall)
+                .where(ToolCall.id == row_id)
+                .values(status=status)
+            )
+            await db.commit()
+    except Exception:
+        logger.exception("Failed to set tool call %s status to %s", row_id, status)
 
 
 async def _record_trace_event(

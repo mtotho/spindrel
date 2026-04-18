@@ -174,7 +174,7 @@ export function OmniPanel({
                       <PinnedToolWidget
                         key={widget.id}
                         widget={widget}
-                        channelId={channelId}
+                        scope={{ kind: "channel", channelId }}
                         onUnpin={handleUnpin}
                         onEnvelopeUpdate={handleEnvelopeUpdate}
                       />
@@ -268,7 +268,7 @@ export function OmniPanel({
                   <PinnedToolWidget
                     key={widget.id}
                     widget={widget}
-                    channelId={channelId}
+                    scope={{ kind: "channel", channelId }}
                     onUnpin={handleUnpin}
                     onEnvelopeUpdate={handleEnvelopeUpdate}
                   />

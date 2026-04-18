@@ -30,6 +30,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.engine import async_session
 from app.db.models import Channel, Message, Task
+from app.services.sub_sessions import spawn_sub_session
 
 logger = logging.getLogger(__name__)
 
@@ -94,20 +95,74 @@ def _duration_ms(state: dict) -> int | None:
         return None
 
 
+_SUMMARY_MAX_CHARS = 400
+
+
 def _fallback_text(task: Task, status: str, steps: list[dict]) -> str:
-    """Plain-text rendering for clients that can't render the envelope."""
+    """Plain-text rendering + summary line that appears in the parent session.
+
+    This text IS what the parent bot sees when it reads its conversation
+    history (the anchor Message sits in the parent channel's session). For
+    ``sub_session`` runs we append a condensed result excerpt so the parent
+    bot can reference what happened ("what did analyze find?") without us
+    needing to splice in sub-session Messages — those stay invisible to
+    the parent prompt.
+    """
     title = task.title or task.task_type or "Task"
     done = sum(1 for s in steps if s["status"] in ("done", "skipped"))
     total = len(steps)
     if total:
-        return f"[{title} · {status} · {done}/{total} steps]"
-    return f"[{title} · {status}]"
+        header = f"[{title} · {status} · {done}/{total} steps]"
+    else:
+        header = f"[{title} · {status}]"
+
+    if getattr(task, "run_isolation", "inline") != "sub_session":
+        return header
+
+    # Summary source (cheapest path first):
+    # 1. task.result if the pipeline finalized with one.
+    # 2. Otherwise the most-recent terminal step's result_preview or error.
+    summary: str | None = None
+    if task.result:
+        summary = task.result
+    elif task.error:
+        summary = f"error: {task.error}"
+    else:
+        for s in reversed(steps):
+            preview = s.get("result_preview") or s.get("error")
+            if preview:
+                summary = str(preview)
+                break
+
+    if not summary:
+        return header
+
+    snippet = summary.strip().replace("\n", " ")
+    if len(snippet) > _SUMMARY_MAX_CHARS:
+        snippet = snippet[:_SUMMARY_MAX_CHARS - 1] + "…"
+    return f"{header} {snippet}"
 
 
 def _build_metadata(task: Task) -> dict:
-    steps = _step_summary(task)
+    """Build the anchor Message's metadata_ blob.
+
+    Two shapes depending on ``task.run_isolation``:
+
+    - ``inline``: today's shape — embeds the full ``steps[]`` summary in
+      the anchor. The UI renders the step list directly from metadata.
+    - ``sub_session``: slim shape — carries ``run_session_id`` +
+      ``step_count`` + ``awaiting_count`` only. The UI opens the run-view
+      modal at the sub-session; it does NOT read steps[] from here.
+
+    Both shapes carry the status/result/error fields the envelope renders
+    regardless of isolation mode.
+    """
     ecfg = task.execution_config or {}
-    return {
+    # getattr fallbacks tolerate SimpleNamespace-based test mocks that were
+    # written before run_isolation/run_session_id existed on the ORM.
+    run_isolation = getattr(task, "run_isolation", "inline") or "inline"
+    run_session_id = getattr(task, "run_session_id", None)
+    base = {
         "kind": ANCHOR_KIND,
         "trigger": ANCHOR_KIND,  # also matched by SUPPORTED_TRIGGERS-style filters
         "task_id": str(task.id),
@@ -118,8 +173,6 @@ def _build_metadata(task: Task) -> dict:
         "status": task.status,
         "scheduled_at": task.scheduled_at.isoformat() if task.scheduled_at else None,
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-        "steps": steps,
-        "step_count": len(steps),
         "context_mode": ecfg.get("history_mode", "none"),
         "context_recent_count": ecfg.get("history_recent_count", 10),
         "post_final_to_channel": bool(ecfg.get("post_final_to_channel", False)),
@@ -127,7 +180,24 @@ def _build_metadata(task: Task) -> dict:
         "error": (task.error or "")[:1000] if task.error else None,
         # UI-only marker: outbox enqueue paths should skip rows with this flag.
         "ui_only": True,
+        "run_isolation": run_isolation,
     }
+
+    states = list(task.step_states or [])
+    if run_isolation == "sub_session":
+        awaiting = sum(
+            1 for s in states if isinstance(s, dict) and s.get("status") == "awaiting_user_input"
+        )
+        base["run_session_id"] = str(run_session_id) if run_session_id else None
+        base["step_count"] = len(states)
+        base["awaiting_count"] = awaiting
+        # No steps[] — the modal reads the sub-session's Messages directly.
+    else:
+        steps = _step_summary(task)
+        base["steps"] = steps
+        base["step_count"] = len(steps)
+
+    return base
 
 
 async def _resolve_session_id(db, task: Task) -> uuid.UUID | None:
@@ -219,8 +289,15 @@ async def ensure_anchor_message(task: Task) -> uuid.UUID | None:
                 await db.commit()
             return existing.id
 
+        # Spawn the sub-session BEFORE building metadata so the slim
+        # anchor can reference run_session_id on the very first write.
+        if t.run_isolation == "sub_session" and t.run_session_id is None:
+            await spawn_sub_session(db, task=t, parent_session_id=session_id)
+            # spawn_sub_session mutates t.run_session_id — no flag_modified
+            # needed since it's a regular column, not JSONB.
+
         metadata = _build_metadata(t)
-        fallback = _fallback_text(t, t.status or "pending", metadata["steps"])
+        fallback = _fallback_text(t, t.status or "pending", _step_summary(t))
         msg = Message(
             id=uuid.uuid4(),
             session_id=session_id,
@@ -272,7 +349,7 @@ async def update_anchor(task: Task) -> None:
         metadata = _build_metadata(t)
         existing.metadata_ = copy.deepcopy(metadata)
         existing.content = _fallback_text(
-            t, t.status or metadata["status"], metadata["steps"],
+            t, t.status or metadata["status"], _step_summary(t),
         )
         # ORM attribute name (underscore) — NOT the DB column name. SQLAlchemy
         # uses the Python attribute to locate the instrumented attribute;

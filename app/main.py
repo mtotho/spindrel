@@ -64,6 +64,78 @@ async def _cleanup_orphaned_tools(registered_tools: dict) -> None:
     await load_bots()
 
 
+_LEGACY_INTEGRATION_CONTAINER_NAMES = (
+    "spindrel-searxng",
+    "spindrel-playwright",
+    "spindrel-wyoming-whisper",
+    "spindrel-wyoming-piper",
+)
+_LEGACY_CLEANUP_SETTING_KEY = "legacy_integration_containers_cleaned"
+
+
+async def _legacy_integration_container_cleanup() -> None:
+    """Remove pre-multi-instance integration containers that squat on globally
+    unique names. One-shot, guarded by a ``server_settings`` flag so it only
+    runs on the first boot after this code ships.
+    """
+    import asyncio as _asyncio
+    from app.db.engine import async_session
+    from app.db.models import ServerSetting
+    from sqlalchemy import select
+
+    async with async_session() as db:
+        existing = (await db.execute(
+            select(ServerSetting).where(ServerSetting.key == _LEGACY_CLEANUP_SETTING_KEY)
+        )).scalar_one_or_none()
+        if existing and existing.value == "1":
+            return
+
+    removed: list[str] = []
+    for name in _LEGACY_INTEGRATION_CONTAINER_NAMES:
+        try:
+            proc = await _asyncio.create_subprocess_exec(
+                "docker", "inspect", "--format",
+                '{{index .Config.Labels "com.docker.stack-id"}}|{{.State.Status}}',
+                name,
+                stdout=_asyncio.subprocess.PIPE,
+                stderr=_asyncio.subprocess.PIPE,
+            )
+            out, _ = await proc.communicate()
+            if proc.returncode != 0:
+                continue  # No such container — nothing to do
+            label, _, _status = out.decode().strip().partition("|")
+            if label:
+                # Labeled by a stack — leave it to the stack service to manage
+                continue
+            rm = await _asyncio.create_subprocess_exec(
+                "docker", "rm", "-f", name,
+                stdout=_asyncio.subprocess.PIPE,
+                stderr=_asyncio.subprocess.PIPE,
+            )
+            rm_out, rm_err = await rm.communicate()
+            if rm.returncode == 0:
+                removed.append(name)
+            else:
+                logger.warning(
+                    "Legacy container cleanup: failed to rm %s: %s",
+                    name, rm_err.decode().strip(),
+                )
+        except Exception:
+            logger.warning("Legacy container cleanup: inspect failed for %s", name, exc_info=True)
+
+    async with async_session() as db:
+        row = ServerSetting(key=_LEGACY_CLEANUP_SETTING_KEY, value="1")
+        await db.merge(row)
+        await db.commit()
+
+    if removed:
+        logger.warning(
+            "Legacy integration cleanup: removed %d orphan container(s): %s. "
+            "Integration stacks will be recreated under instance-scoped names.",
+            len(removed), ", ".join(removed),
+        )
+
+
 async def _index_filesystems_and_start_watchers() -> None:
     """Index workspace and legacy filesystem directories, then start file watchers.
 
@@ -564,6 +636,18 @@ async def lifespan(application: FastAPI):
             except Exception:
                 logger.exception("Failed to reconcile docker stacks")
 
+            # One-shot legacy orphan sweep. Pre-multi-instance builds used
+            # hard-coded container_name values (`spindrel-searxng`,
+            # `spindrel-playwright`, `spindrel-wyoming-whisper/piper`) which
+            # are globally unique on the Docker daemon. Remove any such
+            # orphan containers (no ``com.docker.stack-id`` label, not owned
+            # by a currently-tracked integration stack) so compose can
+            # recreate them under instance-scoped names.
+            try:
+                await _legacy_integration_container_cleanup()
+            except Exception:
+                logger.exception("Legacy integration container cleanup failed")
+
         # Sync integration Docker Compose stacks
         try:
             from app.services.docker_stacks import stack_service
@@ -580,6 +664,7 @@ async def lifespan(application: FastAPI):
                         description=_dc_info["description"],
                         connect_networks=_dc_info["connect_networks"],
                         config_files=_dc_info["config_files"],
+                        network_aliases=_dc_info.get("network_aliases", {}),
                     )
                     _enabled = False
                     _enabled_callable = _dc_info.get("enabled_callable")
@@ -616,7 +701,12 @@ async def lifespan(application: FastAPI):
         stt_warm_up()
         _t = _tlog("STT warmup", _t)
     logger.info("[%.1fs] TOTAL startup (blocking)", time.monotonic() - _t_start)
-    logger.info("Agent server ready. (LOG_LEVEL=%s)", settings.LOG_LEVEL.upper())
+    logger.info(
+        "Agent server ready. (LOG_LEVEL=%s instance=%s network=%s)",
+        settings.LOG_LEVEL.upper(),
+        settings.SPINDREL_INSTANCE_ID,
+        settings.AGENT_NETWORK_NAME or "(none)",
+    )
     from app.agent.tasks import task_worker
     _workers.append(safe_create_task(task_worker(), name="task_worker"))
     from app.services.heartbeat import heartbeat_worker

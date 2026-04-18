@@ -321,6 +321,13 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
           widgetEnvelopes: { ...s.widgetEnvelopes, [key]: envelope },
         }));
 
+        // Cross-surface sync — notify the dashboard store so any dashboard
+        // pin for the same entity picks up the new envelope. Lazy import to
+        // keep the store modules free of import cycles.
+        import("./dashboardPins")
+          .then((m) => m.useDashboardPinsStore.getState().onChannelBroadcast(toolName, envelope))
+          .catch(() => { /* dashboard store not loaded */ });
+
         // 2. Update any matching pinned widgets + persist to server
         const widgets = get().byChannel[channelId];
         if (!widgets?.length) return;

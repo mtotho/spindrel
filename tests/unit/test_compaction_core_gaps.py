@@ -149,13 +149,18 @@ class TestRepairSectionPeriods:
         ch = _make_channel()
         sess = _make_session(ch.id)
         fixed_ts = datetime(2025, 6, 1, tzinfo=timezone.utc)
+        # section_done owns messages 0-1 (message_count=2, period_start set → skipped by repair)
         section_done = _make_section(ch.id, sess.id, 0, 2, period_start=fixed_ts)
+        # section_broken owns messages 2-3 (message_count=2, period_start=None → needs repair)
         section_broken = _make_section(ch.id, sess.id, 1, 2)
 
         base = datetime(2026, 2, 1, 10, 0, tzinfo=timezone.utc)
+        # 4 messages total: first 2 belong to section_done's range, next 2 to section_broken's range
         m1 = _make_message(sess.id, "user", base)
-        m2 = _make_message(sess.id, "assistant", base + timedelta(minutes=10))
-        db_session.add_all([ch, sess, section_done, section_broken, m1, m2])
+        m2 = _make_message(sess.id, "assistant", base + timedelta(minutes=5))
+        m3 = _make_message(sess.id, "user", base + timedelta(minutes=10))
+        m4 = _make_message(sess.id, "assistant", base + timedelta(minutes=15))
+        db_session.add_all([ch, sess, section_done, section_broken, m1, m2, m3, m4])
         await db_session.commit()
 
         repaired = await repair_section_periods()

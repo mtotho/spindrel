@@ -15,15 +15,12 @@ import {
   PauseCircle,
   Circle,
 } from "lucide-react";
-import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { apiFetch } from "@/src/api/client";
 import { useRunTaskNow, useTaskChildren } from "@/src/api/hooks/useTasks";
 import type { StepState } from "@/src/api/hooks/useTasks";
-import { useBots } from "@/src/api/hooks/useBots";
 import { useChannelPipelines, type ChannelPipelineSubscription } from "@/src/api/hooks/useChannelPipelines";
 import { useFindings } from "./FindingsPanel";
-import { BotPicker } from "@/src/components/shared/BotPicker";
 import type { TasksResponse, TaskItem } from "@/src/components/shared/TaskConstants";
 import { cn } from "@/src/lib/cn";
 
@@ -77,23 +74,6 @@ interface ParamDef {
   description?: string;
 }
 
-// Turn `bot_id` / `channel_id` / raw snake_case into human-readable labels.
-// Explicit overrides beat generic title-casing for terms where the snake-case
-// identifier would otherwise read awkwardly.
-const PARAM_LABEL_OVERRIDES: Record<string, string> = {
-  bot_id: "Bot",
-  channel_id: "Channel",
-  user_id: "User",
-  task_id: "Task",
-};
-
-function humanizeParam(name: string): string {
-  if (PARAM_LABEL_OVERRIDES[name]) return PARAM_LABEL_OVERRIDES[name];
-  return name
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
 function getParamsSchema(task: TaskItem): ParamDef[] | null {
   const schema = (task as any).execution_config?.params_schema;
   if (Array.isArray(schema) && schema.length > 0) return schema as ParamDef[];
@@ -122,125 +102,6 @@ function relTime(iso: string | null | undefined): string {
   if (hr < 48) return `${hr}h ago`;
   const day = Math.floor(hr / 24);
   return `${day}d ago`;
-}
-
-// ---------------------------------------------------------------------------
-// Param-picker modal (pipelines declaring params_schema)
-// ---------------------------------------------------------------------------
-
-function TaskRunModal({
-  pipeline,
-  onClose,
-  onLaunch,
-  running,
-}: {
-  pipeline: TaskItem;
-  onClose: () => void;
-  onLaunch: (params: Record<string, any>) => void;
-  running: boolean;
-}) {
-  const schema = getParamsSchema(pipeline) ?? [];
-  const [values, setValues] = useState<Record<string, any>>({});
-  const { data: bots = [] } = useBots();
-
-  const canLaunch = useMemo(() => {
-    return schema.every((p) => {
-      if (!p.required) return true;
-      const v = values[p.name];
-      return v !== undefined && v !== null && v !== "";
-    });
-  }, [schema, values]);
-
-  if (typeof document === "undefined") return null;
-
-  return createPortal(
-    <>
-      <div
-        onClick={running ? undefined : onClose}
-        className="fixed inset-0 bg-black/45 z-[10020]"
-      />
-      <div
-        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
-                   w-[440px] max-w-[92vw] z-[10021]
-                   bg-surface-raised border border-surface-border rounded-xl
-                   shadow-[0_16px_48px_rgba(0,0,0,0.3)] p-5"
-      >
-        <div className="flex flex-row items-center justify-between mb-3">
-          <div className="flex flex-row items-center gap-2 min-w-0">
-            <Cog size={14} className="text-accent shrink-0" />
-            <span className="text-sm font-semibold text-text truncate">{pipeline.title}</span>
-          </div>
-          {!running && (
-            <button onClick={onClose} className="p-1 text-text-dim hover:text-text">
-              <X size={16} />
-            </button>
-          )}
-        </div>
-
-        {getDescription(pipeline) && (
-          <p className="text-xs text-text-dim leading-relaxed mb-4">
-            {getDescription(pipeline)}
-          </p>
-        )}
-
-        <div className="flex flex-col gap-3 mb-5">
-          {schema.map((param) => (
-            <div key={param.name} className="flex flex-col gap-1">
-              <label className="text-[12px] font-semibold text-text">
-                {humanizeParam(param.name)}
-                {param.required && <span className="text-accent ml-1">*</span>}
-              </label>
-              {param.name === "bot_id" ? (
-                <BotPicker
-                  value={values[param.name] ?? ""}
-                  onChange={(v) => setValues({ ...values, [param.name]: v })}
-                  bots={bots}
-                  placeholder="Select a bot..."
-                  disabled={running}
-                />
-              ) : (
-                <input
-                  type="text"
-                  value={values[param.name] ?? ""}
-                  onChange={(e) => setValues({ ...values, [param.name]: e.target.value })}
-                  disabled={running}
-                  placeholder={param.description}
-                  className="px-2.5 py-1.5 text-sm bg-surface border border-surface-border
-                             rounded-md focus:outline-none focus:border-accent/50
-                             text-text placeholder:text-text-dim"
-                />
-              )}
-              {param.description && (
-                <span className="text-[10px] text-text-dim">{param.description}</span>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div className="flex flex-row justify-end gap-2">
-          <button
-            onClick={onClose}
-            disabled={running}
-            className="px-3 py-1.5 text-xs rounded-md border border-surface-border
-                       text-text-dim hover:text-text disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onLaunch(values)}
-            disabled={!canLaunch || running}
-            className="px-3 py-1.5 text-xs rounded-md bg-accent text-white font-semibold
-                       hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed
-                       flex flex-row items-center gap-1.5"
-          >
-            {running ? <Loader2 size={12} className="animate-spin" /> : null}
-            {running ? "Launching..." : "Launch"}
-          </button>
-        </div>
-      </div>
-    </>,
-    document.body,
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -414,8 +275,8 @@ export function OrchestratorLaunchpad({
   onOpenFindings: () => void;
 }) {
   const runNowMut = useRunTaskNow();
+  const navigate = useNavigate();
   const { count: findingsCount } = useFindings(channelId);
-  const [paramModalPipeline, setParamModalPipeline] = useState<TaskItem | null>(null);
   // When the user has no explicit preference, follow activity: collapsed by
   // default, auto-expanded when findings are pending. We seed from findingsCount
   // only; running-state comes from per-tile polls and would cause thrash if we
@@ -507,51 +368,11 @@ export function OrchestratorLaunchpad({
     });
   };
 
+  // Every launch path now routes to the pre-run modal — description +
+  // optional params + Start. Pipelines without params still show the
+  // description moment. Actual mutation runs from inside the modal.
   const handleLaunch = (pipeline: TaskItem) => {
-    const schema = getParamsSchema(pipeline);
-    if (schema && schema.length > 0) {
-      setParamModalPipeline(pipeline);
-      return;
-    }
-    setLaunchError(null);
-    setLaunchingId(pipeline.id);
-    runNowMut.mutate(
-      { taskId: pipeline.id, channel_id: channelId },
-      {
-        onSuccess: () => setLaunchingId(null),
-        onError: (err) => {
-          setLaunchingId(null);
-          setLaunchError(
-            err instanceof Error
-              ? `${pipeline.title || pipeline.id}: ${err.message}`
-              : `Failed to launch ${pipeline.title || pipeline.id}`,
-          );
-        },
-      },
-    );
-  };
-
-  const handleModalLaunch = (params: Record<string, any>) => {
-    if (!paramModalPipeline) return;
-    setLaunchError(null);
-    setLaunchingId(paramModalPipeline.id);
-    runNowMut.mutate(
-      { taskId: paramModalPipeline.id, params, channel_id: channelId },
-      {
-        onSuccess: () => {
-          setLaunchingId(null);
-          setParamModalPipeline(null);
-        },
-        onError: (err) => {
-          setLaunchingId(null);
-          setLaunchError(
-            err instanceof Error
-              ? `${paramModalPipeline.title || paramModalPipeline.id}: ${err.message}`
-              : `Failed to launch ${paramModalPipeline.title || paramModalPipeline.id}`,
-          );
-        },
-      },
-    );
+    navigate(`/channels/${channelId}/pipelines/${pipeline.id}`);
   };
 
   // Hide entirely if there aren't any system pipelines to show (fresh install
@@ -809,14 +630,6 @@ export function OrchestratorLaunchpad({
         </div>
       )}
 
-      {paramModalPipeline && (
-        <TaskRunModal
-          pipeline={paramModalPipeline}
-          onClose={() => setParamModalPipeline(null)}
-          onLaunch={handleModalLaunch}
-          running={runNowMut.isPending}
-        />
-      )}
     </div>
   );
 }

@@ -18,6 +18,8 @@ export interface ToolApproval {
   decided_at: string | null;
   dispatch_type: string | null;
   dispatch_metadata: Record<string, any> | null;
+  approval_metadata: Record<string, any> | null;
+  tool_call_id: string | null;
   timeout_seconds: number;
   created_at: string;
 }

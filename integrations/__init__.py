@@ -1212,9 +1212,29 @@ def discover_docker_compose_stacks() -> list[dict]:
 
     Returns list of dicts:
         {integration_id, project_name, compose_definition, config_files,
-         enabled_setting, connect_networks, description}
+         enabled_setting, connect_networks, network_aliases, description}
     for integrations that declare a ``docker_compose`` key in SETUP.
+
+    ``project_name``, ``connect_networks``, and ``network_aliases`` support
+    ``${SPINDREL_INSTANCE_ID}`` / ``${AGENT_NETWORK_NAME}`` interpolation so
+    multiple agent-server instances sharing one Docker daemon get
+    non-colliding project/network identities. Interpolation happens here in
+    Python (compose itself never parses these fields). The compose YAML is
+    passed through unchanged — the compose CLI does its own env
+    interpolation of ``${VAR}`` inside the file at run time.
     """
+    # Import locally to avoid a hard cycle: integrations is imported very
+    # early during startup, before all of app is initialized.
+    from app.config import settings as _settings
+
+    def _interp(s):
+        if not isinstance(s, str):
+            return s
+        return (
+            s.replace("${SPINDREL_INSTANCE_ID}", _settings.SPINDREL_INSTANCE_ID or "default")
+             .replace("${AGENT_NETWORK_NAME}", _settings.AGENT_NETWORK_NAME or "")
+        )
+
     results: list[dict] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
@@ -1262,15 +1282,21 @@ def discover_docker_compose_stacks() -> list[dict]:
 
         enabled_callable = None
 
+        project_name = _interp(dc.get("project_name", f"spindrel-{integration_id}"))
+        connect_networks = [_interp(n) for n in dc.get("connect_networks", []) if _interp(n)]
+        raw_aliases = dc.get("network_aliases", {}) or {}
+        network_aliases = {svc: _interp(alias) for svc, alias in raw_aliases.items() if isinstance(alias, str)}
+
         results.append({
             "integration_id": integration_id,
-            "project_name": dc.get("project_name", f"spindrel-{integration_id}"),
+            "project_name": project_name,
             "compose_definition": compose_definition,
             "config_files": config_files,
             "enabled_setting": enabled_setting,
             "enabled_default": enabled_default,
             "enabled_callable": enabled_callable,
-            "connect_networks": dc.get("connect_networks", []),
+            "connect_networks": connect_networks,
+            "network_aliases": network_aliases,
             "description": dc.get("description", ""),
         })
 

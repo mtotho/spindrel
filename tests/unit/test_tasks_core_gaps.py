@@ -267,6 +267,7 @@ class TestFireEventTriggers:
 # #3 — run_task delegation child session linkage (real DB)
 # ===========================================================================
 
+
 class TestRunTaskDelegationChildSession:
     @pytest.mark.asyncio
     async def test_when_cross_bot_task_then_child_session_created_with_correct_depth(
@@ -274,9 +275,10 @@ class TestRunTaskDelegationChildSession:
     ):
         """Cross-bot task creates a child session with depth = parent.depth + 1."""
         from app.agent.tasks import run_task
+        from app.agent.bots import BotConfig
 
-        parent_bot = bot_registry.register("parent-bot")
-        child_bot = bot_registry.register("child-bot")
+        bot_registry.register("parent-bot")
+        child_cfg = bot_registry.register("child-bot")
 
         parent_session = Session(
             id=uuid.uuid4(),
@@ -296,16 +298,20 @@ class TestRunTaskDelegationChildSession:
         db_session.add(task)
         await db_session.commit()
 
-        with patch("app.agent.loop.run", new_callable=AsyncMock), \
+        from app.agent.loop import RunResult
+        mock_run_result = RunResult(response="", transcript="", client_actions=[])
+
+        with patch("app.agent.tasks.get_bot", return_value=child_cfg), \
+             patch("app.agent.tasks.session_locks") as mock_locks, \
+             patch("app.agent.loop.run", new_callable=AsyncMock, return_value=mock_run_result), \
              patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value=None), \
-             patch("app.services.sessions._effective_system_prompt", return_value="sys"), \
+             patch("app.services.sessions._effective_system_prompt", return_value="sp"), \
+             patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
+             patch("app.agent.tasks._publish_turn_ended"), \
              patch("app.agent.tasks._fire_task_complete", new_callable=AsyncMock), \
-             patch("app.agent.tasks._record_trace_event", new_callable=AsyncMock), \
-             patch("app.services.heartbeat._trim_history_for_task", return_value=[]), \
-             patch("app.agent.loop.run", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = MagicMock(
-                text="", client_actions=[], tool_calls=[]
-            )
+             patch("app.services.prompt_resolution.resolve_prompt",
+                   new_callable=AsyncMock, return_value="p"):
+            mock_locks.acquire.return_value = True
             await run_task(task)
 
         # A child session should have been created for the child bot
@@ -329,7 +335,7 @@ class TestRunTaskDelegationChildSession:
 
         root_id = uuid.uuid4()
         bot_registry.register("parent-bot")
-        bot_registry.register("child-bot")
+        child_cfg = bot_registry.register("child-bot")
 
         parent_session = Session(
             id=uuid.uuid4(),
@@ -349,13 +355,20 @@ class TestRunTaskDelegationChildSession:
         db_session.add(task)
         await db_session.commit()
 
-        with patch("app.agent.loop.run", new_callable=AsyncMock) as mock_run, \
+        from app.agent.loop import RunResult
+        mock_run_result = RunResult(response="", transcript="", client_actions=[])
+
+        with patch("app.agent.tasks.get_bot", return_value=child_cfg), \
+             patch("app.agent.tasks.session_locks") as mock_locks, \
+             patch("app.agent.loop.run", new_callable=AsyncMock, return_value=mock_run_result), \
              patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value=None), \
              patch("app.services.sessions._effective_system_prompt", return_value=""), \
+             patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
+             patch("app.agent.tasks._publish_turn_ended"), \
              patch("app.agent.tasks._fire_task_complete", new_callable=AsyncMock), \
-             patch("app.agent.tasks._record_trace_event", new_callable=AsyncMock), \
-             patch("app.services.heartbeat._trim_history_for_task", return_value=[]):
-            mock_run.return_value = MagicMock(text="", client_actions=[], tool_calls=[])
+             patch("app.services.prompt_resolution.resolve_prompt",
+                   new_callable=AsyncMock, return_value="p"):
+            mock_locks.acquire.return_value = True
             await run_task(task)
 
         result = await db_session.execute(
@@ -424,17 +437,19 @@ class TestRecoverStalledWorkflowRuns:
                 "started_at": self._stale_started_at(),
             }],
         )
+        run_id = run.id
         db_session.add(run)
         await db_session.commit()
 
         with patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_adv:
             await recover_stalled_workflow_runs()
 
-        mock_adv.assert_awaited_once_with(run.id)
+        mock_adv.assert_awaited_once_with(run_id)
 
-        # Fresh fetch to bypass identity map
-        result = await db_session.execute(select(WorkflowRun).where(WorkflowRun.id == run.id))
-        fresh = result.scalars().first()
+        # Use a fresh session to bypass identity map (recover_stalled_workflow_runs
+        # committed the update via its own session; db_session still caches the old value)
+        async with patched_async_sessions() as fresh_db:
+            fresh = await fresh_db.get(WorkflowRun, run_id)
         assert fresh.step_states[0]["status"] == "failed"
         assert "never created" in fresh.step_states[0]["error"]
 
@@ -514,27 +529,22 @@ class TestRecoverStalledWorkflowRuns:
         mock_adv.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_scenario1_advance_exception_swallowed(
+    async def test_scenario3_advance_exception_swallowed(
         self, db_session, patched_async_sessions
     ):
-        """advance_workflow failure in scenario 1 is caught and logged — no crash."""
-        task = build_task(status="failed")
-        db_session.add(task)
-        await db_session.commit()
-
+        """advance_workflow failure in scenario 3 is caught and logged — no crash."""
+        stale_created = datetime.now(timezone.utc) - timedelta(minutes=10)
         run = build_workflow_run(
-            step_states=[{
-                "status": "running",
-                "task_id": str(task.id),
-                "started_at": self._stale_started_at(),
-            }],
+            status="running",
+            created_at=stale_created,
+            step_states=[{"status": "pending"}],
         )
         db_session.add(run)
         await db_session.commit()
 
         with patch(
-            "app.services.workflow_executor.on_step_task_completed",
+            "app.services.workflow_executor.advance_workflow",
             new_callable=AsyncMock,
-            side_effect=RuntimeError("hook failed"),
+            side_effect=RuntimeError("advance failed"),
         ):
             await recover_stalled_workflow_runs()  # must not raise

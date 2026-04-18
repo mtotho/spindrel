@@ -70,6 +70,10 @@ const AdminToolPolicyDetail = lazy(() => import("@/app/(app)/admin/tool-policies
 const AdminToolsIndex = lazy(() => import("@/app/(app)/admin/tools/index"));
 const AdminToolDetail = lazy(() => import("@/app/(app)/admin/tools/[toolId]/index"));
 const AdminWidgetPackageEditor = lazy(() => import("@/app/(app)/admin/widget-packages/[packageId]/index"));
+
+// Widgets (dashboard + developer panel)
+const WidgetsDashboard = lazy(() => import("@/app/(app)/widgets/index"));
+const WidgetsDevPanel = lazy(() => import("@/app/(app)/widgets/dev/index"));
 const AdminUsage = lazy(() => import("@/app/(app)/admin/usage/index"));
 const AdminUsers = lazy(() => import("@/app/(app)/admin/users"));
 const AdminWebhooksIndex = lazy(() => import("@/app/(app)/admin/webhooks/index"));
@@ -109,6 +113,12 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <ChannelPage /> },
               { path: "settings", element: <ChannelSettings /> },
+              // Sub-routes for the pipeline run-view modal. The ChannelPage
+              // detects these via useMatch and layers the modal on top —
+              // the URL is the source of truth, but the chat subscription
+              // stays mounted so closing the modal is instant.
+              { path: "pipelines/:pipelineId", element: <ChannelPage /> },
+              { path: "runs/:taskId", element: <ChannelPage /> },
             ],
           },
 
@@ -169,6 +179,7 @@ export const router = createBrowserRouter([
               { path: "tools", element: <AdminToolsIndex /> },
               { path: "tools/:toolId", element: <AdminToolDetail /> },
               { path: "widget-packages/:packageId", element: <AdminWidgetPackageEditor /> },
+              { path: "widget-packages", element: <Navigate to="/admin/tools?tab=library" replace /> },
               { path: "upcoming", element: <Navigate to="/admin/tasks?view=list" replace /> },
               { path: "usage", element: <AdminUsage /> },
               { path: "users", element: <AdminUsers /> },

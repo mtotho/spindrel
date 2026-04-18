@@ -76,6 +76,22 @@ interface ChatState {
     botName: string,
     isPrimary: boolean,
   ) => void;
+  /** Seed a turn from the server-side snapshot.
+   *
+   * Used by useChannelState on mount / SSE reconnect to rehydrate in-flight
+   * turns whose SSE events predate the current subscription. Idempotent: if
+   * the store already has live-SSE state for this turn (non-empty toolCalls
+   * or autoInjectedSkills), the existing state wins so we don't clobber
+   * fresher deltas with a staler snapshot. */
+  rehydrateTurn: (
+    channelId: string,
+    turnId: string,
+    botId: string,
+    botName: string,
+    isPrimary: boolean,
+    toolCalls: ToolCall[],
+    autoInjectedSkills: AutoInjectedSkill[],
+  ) => void;
   /** Apply an event to the matching turn slot. */
   handleTurnEvent: (channelId: string, turnId: string, event: SSEEvent) => void;
   /** Finalize a turn — materialize as a synthetic message and remove the slot. */
@@ -159,6 +175,41 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             isProcessing: false,
             queuedTaskId: null,
             error: null,
+          },
+        },
+      };
+    }),
+
+  rehydrateTurn: (channelId, turnId, botId, botName, isPrimary, toolCalls, autoInjectedSkills) =>
+    set((s) => {
+      const ch = s.channels[channelId] ?? emptyChannel;
+      const existing = ch.turns[turnId];
+      // Live SSE state wins — a stale snapshot must not overwrite fresher
+      // deltas. Only seed if the slot is absent or has no tool/skill state yet.
+      if (existing && (existing.toolCalls.length > 0 || existing.autoInjectedSkills.length > 0)) {
+        return s;
+      }
+      return {
+        channels: {
+          ...s.channels,
+          [channelId]: {
+            ...ch,
+            turns: {
+              ...ch.turns,
+              [turnId]: {
+                botId,
+                botName,
+                isPrimary,
+                streamingContent: existing?.streamingContent ?? "",
+                thinkingContent: existing?.thinkingContent ?? "",
+                toolCalls,
+                autoInjectedSkills,
+                correlationId: turnId,
+                llmStatus: existing?.llmStatus ?? null,
+              },
+            },
+            isProcessing: false,
+            queuedTaskId: null,
           },
         },
       };

@@ -1037,11 +1037,16 @@ async def run_agent_tool_loop(
                             verdict = "expired"
                             try:
                                 from app.db.engine import async_session as _ap_session
-                                from app.db.models import ToolApproval as _TA
+                                from app.db.models import ToolApproval as _TA, ToolCall as _TC
                                 async with _ap_session() as _ap_db:
                                     _ap_row = await _ap_db.get(_TA, uuid.UUID(tc_result.approval_id))
                                     if _ap_row and _ap_row.status == "pending":
                                         _ap_row.status = "expired"
+                                        if _ap_row.tool_call_id:
+                                            _tc_row = await _ap_db.get(_TC, _ap_row.tool_call_id)
+                                            if _tc_row and _tc_row.status == "awaiting_approval":
+                                                _tc_row.status = "expired"
+                                                _tc_row.completed_at = datetime.now(timezone.utc)
                                         await _ap_db.commit()
                             except Exception:
                                 logger.warning("Failed to mark approval %s as expired", tc_result.approval_id)
@@ -1066,6 +1071,7 @@ async def run_agent_tool_loop(
                                 compaction=compaction,
                                 skip_policy=True,
                                 allowed_tool_names=_effective_allowed,
+                                existing_record_id=tc_result.record_id,
                             )
                         else:
                             tc_result.result_for_llm = json.dumps({"error": f"Tool call {verdict} by admin"})
@@ -1185,14 +1191,19 @@ async def run_agent_tool_loop(
                             verdict = await asyncio.wait_for(future, timeout=tc_result.approval_timeout)
                         except asyncio.TimeoutError:
                             verdict = "expired"
-                            # Mark DB record as expired
+                            # Mark DB records as expired
                             try:
                                 from app.db.engine import async_session as _ap_session
-                                from app.db.models import ToolApproval as _TA
+                                from app.db.models import ToolApproval as _TA, ToolCall as _TC
                                 async with _ap_session() as _ap_db:
                                     _ap_row = await _ap_db.get(_TA, uuid.UUID(tc_result.approval_id))
                                     if _ap_row and _ap_row.status == "pending":
                                         _ap_row.status = "expired"
+                                        if _ap_row.tool_call_id:
+                                            _tc_row = await _ap_db.get(_TC, _ap_row.tool_call_id)
+                                            if _tc_row and _tc_row.status == "awaiting_approval":
+                                                _tc_row.status = "expired"
+                                                _tc_row.completed_at = datetime.now(timezone.utc)
                                         await _ap_db.commit()
                             except Exception:
                                 logger.warning("Failed to mark approval %s as expired", tc_result.approval_id)
@@ -1217,6 +1228,7 @@ async def run_agent_tool_loop(
                                 compaction=compaction,
                                 skip_policy=True,
                                 allowed_tool_names=_effective_allowed,
+                                existing_record_id=tc_result.record_id,
                             )
                         else:
                             tc_result.result_for_llm = json.dumps({"error": f"Tool call {verdict} by admin"})

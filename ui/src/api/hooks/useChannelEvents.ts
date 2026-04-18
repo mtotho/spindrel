@@ -20,7 +20,29 @@ const OBSERVER_TURN_TIMEOUT = 60_000;
  * (the last seq we saw). On `replay_lapsed` we drop everything in flight
  * for the channel and refetch from REST.
  */
-export function useChannelEvents(channelId: string | undefined, primaryBotId?: string) {
+export interface UseChannelEventsOptions {
+  /** When set, drop events whose `payload.session_id` does not match. Used
+   *  by the run-view modal to subscribe to the parent channel's SSE stream
+   *  but dispatch only the sub-session's turns/messages into the store. */
+  sessionFilter?: string;
+  /** When set, dispatch chat-store mutations under this key instead of
+   *  ``channelId``. The modal passes ``runSessionId`` so its turns/messages
+   *  land in a separate store namespace from the parent channel's. */
+  dispatchChannelId?: string;
+}
+
+export function useChannelEvents(
+  channelId: string | undefined,
+  primaryBotId?: string,
+  options?: UseChannelEventsOptions,
+) {
+  const sessionFilter = options?.sessionFilter;
+  const dispatchChannelId = options?.dispatchChannelId;
+  // Keep latest values in refs so reconnect doesn't churn.
+  const sessionFilterRef = useRef(sessionFilter);
+  sessionFilterRef.current = sessionFilter;
+  const dispatchChannelIdRef = useRef(dispatchChannelId);
+  dispatchChannelIdRef.current = dispatchChannelId;
   const queryClient = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
   const { data: bots } = useBots();
@@ -51,18 +73,19 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
       rafRef.current = 0;
       const store = useChatStore.getState();
       const pending = pendingDeltasRef.current;
+      const storeKey = dispatchChannelIdRef.current ?? chId;
       for (const [turnId, deltas] of Object.entries(pending)) {
         if (!deltas.text && !deltas.think) continue;
-        const ch = store.channels[chId];
+        const ch = store.channels[storeKey];
         if (!ch?.turns[turnId]) continue;
         if (deltas.text) {
-          store.handleTurnEvent(chId, turnId, {
+          store.handleTurnEvent(storeKey, turnId, {
             event: "text_delta",
             data: { delta: deltas.text },
           });
         }
         if (deltas.think) {
-          store.handleTurnEvent(chId, turnId, {
+          store.handleTurnEvent(storeKey, turnId, {
             event: "thinking",
             data: { delta: deltas.think },
           });
@@ -100,6 +123,7 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
 
     function startObserverTimeout(chId: string, turnId: string) {
       clearObserverTimeout(turnId);
+      const storeKey = dispatchChannelIdRef.current ?? chId;
       observerTimeoutsRef.current[turnId] = setTimeout(() => {
         delete observerTimeoutsRef.current[turnId];
         // Flush pending deltas for this turn before finishing.
@@ -108,9 +132,9 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
           cancelAnimationFrame(rafRef.current);
           flushDeltas(chId);
         }
-        const ch = useChatStore.getState().getChannel(chId);
+        const ch = useChatStore.getState().getChannel(storeKey);
         if (ch.turns[turnId]) {
-          useChatStore.getState().finishTurn(chId, turnId);
+          useChatStore.getState().finishTurn(storeKey, turnId);
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         }
       }, OBSERVER_TURN_TIMEOUT);
@@ -132,11 +156,12 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
       // can produce duplicate messages. Same logic as `replay_lapsed`.
       if (lastSeqRef.current == null && channelId) {
         const store = useChatStore.getState();
-        const ch = store.getChannel(channelId);
+        const storeKey = dispatchChannelIdRef.current ?? channelId;
+        const ch = store.getChannel(storeKey);
         const staleTurnIds = Object.keys(ch.turns);
         if (staleTurnIds.length > 0) {
           for (const turnId of staleTurnIds) {
-            store.finishTurn(channelId, turnId);
+            store.finishTurn(storeKey, turnId);
           }
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         }
@@ -199,11 +224,27 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
         lastSeqRef.current = wire.seq;
       }
       if (!kind) return;
+      // Session filter: drop events whose payload doesn't match the target
+      // session. Used by the run-view modal so only the sub-session's
+      // turns/messages dispatch into the store — the parent channel's
+      // events (outside the sub-session) are ignored by this subscription.
+      const filter = sessionFilterRef.current;
+      if (filter) {
+        const msgSid = payload?.message?.session_id;
+        const payloadSid = payload?.session_id;
+        const eventSid = msgSid ?? payloadSid;
+        if (eventSid !== undefined && eventSid !== filter) return;
+        // Events without any session_id (replay_lapsed, shutdown,
+        // delivery_failed) pass through — they're connection-scoped.
+      }
       const store = useChatStore.getState();
+      // Dispatch key — the modal uses the sub-session's id so its state
+      // doesn't collide with the parent channel's chat-store slot.
+      const storeKey = dispatchChannelIdRef.current ?? chId;
 
       switch (kind) {
         case "new_message": {
-          const ch = store.getChannel(chId);
+          const ch = store.getChannel(storeKey);
           const turnActive = Object.keys(ch.turns).length > 0 || ch.isProcessing;
           const msg = payload?.message;
 
@@ -230,7 +271,7 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
             );
             if (withoutOptimistic.length < existing.length) {
               // Had an optimistic message — replace it with the server version
-              store.setMessages(chId, [...withoutOptimistic, {
+              store.setMessages(storeKey, [...withoutOptimistic, {
                 id: msg.id,
                 session_id: msg.session_id,
                 role: msg.role,
@@ -240,7 +281,7 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
                 attachments: msg.attachments,
               }]);
             } else if (!isDuplicate) {
-              store.addMessage(chId, {
+              store.addMessage(storeKey, {
                 id: msg.id,
                 session_id: msg.session_id,
                 role: msg.role,
@@ -280,11 +321,11 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
           // as a message). Without this, the synthetic appears alongside
           // the fresh streaming indicator — a visible duplicate.
           const syntheticId = `turn-${turnId}`;
-          const ch = store.getChannel(chId);
+          const ch = store.getChannel(storeKey);
           if (ch.messages.some((m) => m.id === syntheticId)) {
-            store.setMessages(chId, ch.messages.filter((m) => m.id !== syntheticId));
+            store.setMessages(storeKey, ch.messages.filter((m) => m.id !== syntheticId));
           }
-          store.startTurn(chId, turnId, botId, botName, isPrimary);
+          store.startTurn(storeKey, turnId, botId, botName, isPrimary);
           startObserverTimeout(chId, turnId);
           return;
         }
@@ -292,7 +333,7 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
         case "turn_stream_token": {
           const turnId = payload?.turn_id as string | undefined;
           if (!turnId) return;
-          if (!store.getChannel(chId).turns[turnId]) return;
+          if (!store.getChannel(storeKey).turns[turnId]) return;
           if (!pendingDeltasRef.current[turnId]) {
             pendingDeltasRef.current[turnId] = { text: "", think: "" };
           }
@@ -312,12 +353,12 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
             cancelAnimationFrame(rafRef.current);
             flushDeltas(chId);
           }
-          if (!store.getChannel(chId).turns[turnId]) return;
+          if (!store.getChannel(storeKey).turns[turnId]) return;
           const argsStr =
             payload?.arguments && Object.keys(payload.arguments).length > 0
               ? JSON.stringify(payload.arguments)
               : undefined;
-          store.handleTurnEvent(chId, turnId, {
+          store.handleTurnEvent(storeKey, turnId, {
             event: "tool_start",
             data: { tool: payload?.tool_name ?? "unknown", args: argsStr },
           });
@@ -332,8 +373,8 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
             cancelAnimationFrame(rafRef.current);
             flushDeltas(chId);
           }
-          if (!store.getChannel(chId).turns[turnId]) return;
-          store.handleTurnEvent(chId, turnId, {
+          if (!store.getChannel(storeKey).turns[turnId]) return;
+          store.handleTurnEvent(storeKey, turnId, {
             event: "tool_result",
             data: {
               tool: payload?.tool_name,
@@ -355,7 +396,7 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
           // routing, a member-bot turn requesting approval while the
           // primary turn is still active would land in the primary's
           // slot and never resolve.
-          const ch = store.getChannel(chId);
+          const ch = store.getChannel(storeKey);
           const turnIds = Object.keys(ch.turns);
           const explicitTurnId = payload?.turn_id as string | undefined;
           const targetTurnId =
@@ -368,7 +409,7 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
             cancelAnimationFrame(rafRef.current);
             flushDeltas(chId);
           }
-          store.handleTurnEvent(chId, targetTurnId, {
+          store.handleTurnEvent(storeKey, targetTurnId, {
             event: "approval_request",
             data: {
               approval_id: payload?.approval_id,
@@ -385,11 +426,11 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
         }
 
         case "approval_resolved": {
-          const ch = store.getChannel(chId);
+          const ch = store.getChannel(storeKey);
           // Find the turn that has the matching approval id and dispatch.
           for (const [turnId, turn] of Object.entries(ch.turns)) {
             if (turn.toolCalls.some((tc) => tc.approvalId === payload?.approval_id)) {
-              store.handleTurnEvent(chId, turnId, {
+              store.handleTurnEvent(storeKey, turnId, {
                 event: "approval_resolved",
                 data: {
                   approval_id: payload?.approval_id,
@@ -407,8 +448,8 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
         case "skill_auto_inject": {
           const turnId = payload?.turn_id as string | undefined;
           if (!turnId) return;
-          if (!store.getChannel(chId).turns[turnId]) return;
-          store.handleTurnEvent(chId, turnId, {
+          if (!store.getChannel(storeKey).turns[turnId]) return;
+          store.handleTurnEvent(storeKey, turnId, {
             event: "skill_auto_inject",
             data: {
               skill_id: payload?.skill_id,
@@ -423,12 +464,12 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
         case "llm_status": {
           const turnId = payload?.turn_id as string | undefined;
           if (!turnId) return;
-          if (!store.getChannel(chId).turns[turnId]) return;
+          if (!store.getChannel(storeKey).turns[turnId]) return;
           // Reset the observer timeout — the server is still working
           // (retrying / falling back). Prevents the 60s timeout from
           // killing the turn during long rate-limit waits.
           startObserverTimeout(chId, turnId);
-          store.handleTurnEvent(chId, turnId, {
+          store.handleTurnEvent(storeKey, turnId, {
             event: "llm_status",
             data: {
               status: payload?.status,
@@ -455,11 +496,11 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
           }
           delete pendingDeltasRef.current[turnId];
           // Finalize the turn (materialize content as a synthetic message).
-          if (store.getChannel(chId).turns[turnId]) {
+          if (store.getChannel(storeKey).turns[turnId]) {
             if (payload?.error) {
-              store.setError(chId, String(payload.error));
+              store.setError(storeKey, String(payload.error));
             }
-            store.finishTurn(chId, turnId);
+            store.finishTurn(storeKey, turnId);
             // Pull the canonical DB row in (replaces the synthetic message).
             queryClient.invalidateQueries({ queryKey: ["session-messages"] });
           }
@@ -469,7 +510,7 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
         case "delivery_failed": {
           // Surface as a channel-level error so the UI can render a chip.
           if (payload?.last_error) {
-            store.setError(chId, `Delivery failed: ${payload.last_error}`);
+            store.setError(storeKey, `Delivery failed: ${payload.last_error}`);
           }
           return;
         }
@@ -483,11 +524,16 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
           }
           pendingDeltasRef.current = {};
           rafRef.current = 0;
-          const ch = store.getChannel(chId);
+          const ch = store.getChannel(storeKey);
           for (const turnId of Object.keys(ch.turns)) {
-            store.finishTurn(chId, turnId);
+            store.finishTurn(storeKey, turnId);
           }
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+          // Refetch the channel-state snapshot so in-flight turns (tool
+          // calls, awaiting-approval cards, auto-injected skills) rehydrate
+          // instead of waiting for the next SSE event. Phase 3: together
+          // with the mount-seed this deprecates the 256-event replay buffer.
+          queryClient.invalidateQueries({ queryKey: ["channel-state", chId] });
           // Reset the cursor so the next connect resumes from current head.
           lastSeqRef.current = null;
           return;
@@ -531,11 +577,12 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
       // let the query refetch canonical rows on next mount.
       if (channelId) {
         const store = useChatStore.getState();
-        const ch = store.getChannel(channelId);
+        const storeKey = dispatchChannelIdRef.current ?? channelId;
+        const ch = store.getChannel(storeKey);
         const turnIds = Object.keys(ch.turns);
         if (turnIds.length > 0) {
           for (const turnId of turnIds) {
-            store.finishTurn(channelId, turnId);
+            store.finishTurn(storeKey, turnId);
           }
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         }

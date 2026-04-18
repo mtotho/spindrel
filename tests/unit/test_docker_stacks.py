@@ -742,29 +742,32 @@ class TestSyncIntegrationStack:
 
 
 class TestStartNetworkConnect:
-    """Test that start() calls _connect_network for connect_networks."""
+    """Test that start() calls _connect_network for connect_networks with per-service aliases."""
 
     @pytest.mark.asyncio
-    async def test_start_connects_extra_networks(self):
+    async def test_start_connects_extra_networks_with_aliases(self):
         service = StackService()
         mock_stack = MagicMock()
         mock_stack.id = uuid.uuid4()
-        mock_stack.project_name = "spindrel-web-search"
+        mock_stack.project_name = "spindrel-test-web-search"
         mock_stack.compose_definition = "services:\n  s:\n    image: x\n"
         mock_stack.status = "stopped"
         mock_stack.created_by_bot = "_integration"
         mock_stack.connect_networks = ["agent-server_default"]
+        mock_stack.network_aliases = {"searxng": "searxng-test", "playwright": "playwright-test"}
         mock_stack.network_name = None
 
         with patch.object(service, "_compose_cmd") as mock_cmd, \
              patch.object(service, "_inspect_stack") as mock_inspect, \
              patch.object(service, "_materialize"), \
-             patch.object(service, "_connect_workspace"), \
              patch.object(service, "_connect_network") as mock_cn, \
+             patch.object(service, "_detect_project_name_collision", AsyncMock(return_value=None)), \
              patch.object(service, "_get") as mock_get, \
              patch("app.services.docker_stacks.async_session") as mock_session_ctx:
             mock_cmd.return_value = MagicMock(exit_code=0)
-            mock_inspect.return_value = ({"searxng": "abc123", "playwright": "def456"}, {}, "spindrel-web-search_default")
+            mock_inspect.return_value = (
+                {"searxng": "abc123", "playwright": "def456"}, {}, "spindrel-test-web-search_default",
+            )
             mock_get.return_value = mock_stack
 
             mock_db = AsyncMock()
@@ -773,28 +776,233 @@ class TestStartNetworkConnect:
 
             await service.start(mock_stack)
 
-            # Should connect each container to each connect_network
             assert mock_cn.call_count == 2
-            calls = [c.args for c in mock_cn.call_args_list]
-            assert ("agent-server_default", "abc123") in calls
-            assert ("agent-server_default", "def456") in calls
+            # Alias should match the service name key
+            call_map = {c.args[1]: c.kwargs.get("alias") for c in mock_cn.call_args_list}
+            assert call_map["abc123"] == "searxng-test"
+            assert call_map["def456"] == "playwright-test"
+
+
+class TestReconcileRunning:
+    """reconcile_running must treat non-live states as stopped so a subsequent
+    startup sync retries start(). Before the fix, a Created/Exited container
+    could keep the DB row stuck on status=running forever."""
+
+    @pytest.mark.asyncio
+    async def test_reconcile_flips_created_state_to_stopped(self):
+        from app.services.docker_stacks import ServiceStatus
+        service = StackService()
+        stack = MagicMock()
+        stack.id = uuid.uuid4()
+        stack.name = "ws"
+        stack.project_name = "spindrel-test-web-search"
+        stack.status = "running"
+
+        with patch.object(service, "get_status", AsyncMock(
+                return_value=[ServiceStatus(name="searxng", state="created", health=None, ports=[])]
+             )), \
+             patch("app.services.docker_stacks.async_session") as mock_session_ctx:
+            mock_db = AsyncMock()
+            # Return the stack from the first query (all running stacks)
+            running_result = MagicMock()
+            running_result.scalars.return_value.all.return_value = [stack]
+            mock_db.execute = AsyncMock(return_value=running_result)
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            fixed = await service.reconcile_running()
+            assert fixed == 1
+
+    @pytest.mark.asyncio
+    async def test_reconcile_leaves_running_alone(self):
+        from app.services.docker_stacks import ServiceStatus
+        service = StackService()
+        stack = MagicMock()
+        stack.id = uuid.uuid4()
+        stack.name = "ws"
+        stack.project_name = "spindrel-test-web-search"
+        stack.status = "running"
+
+        with patch.object(service, "get_status", AsyncMock(
+                return_value=[ServiceStatus(name="searxng", state="running", health=None, ports=[])]
+             )), \
+             patch("app.services.docker_stacks.async_session") as mock_session_ctx:
+            mock_db = AsyncMock()
+            running_result = MagicMock()
+            running_result.scalars.return_value.all.return_value = [stack]
+            mock_db.execute = AsyncMock(return_value=running_result)
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            fixed = await service.reconcile_running()
+            assert fixed == 0
+
+
+class TestProjectNameCollisionDetection:
+    """_detect_project_name_collision must fail loud when another compose
+    project already owns one of our declared container_name values."""
+
+    @pytest.mark.asyncio
+    async def test_collision_detected(self):
+        service = StackService()
+        stack = MagicMock()
+        stack.project_name = "spindrel-prod-web-search"
+        stack.compose_definition = (
+            "services:\n"
+            "  searxng:\n"
+            "    image: searxng/searxng\n"
+            "    container_name: spindrel-searxng\n"
+        )
+        ps_output = b"spindrel-searxng\tspindrel-e2e-web-search\n"
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            mock_proc = AsyncMock()
+            mock_proc.communicate.return_value = (ps_output, b"")
+            mock_proc.returncode = 0
+            mock_exec.return_value = mock_proc
+            msg = await service._detect_project_name_collision(stack)
+            assert msg is not None
+            assert "spindrel-searxng" in msg
+            assert "spindrel-e2e-web-search" in msg
+
+    @pytest.mark.asyncio
+    async def test_same_project_is_not_a_collision(self):
+        service = StackService()
+        stack = MagicMock()
+        stack.project_name = "spindrel-prod-web-search"
+        stack.compose_definition = (
+            "services:\n"
+            "  searxng:\n"
+            "    image: searxng/searxng\n"
+            "    container_name: spindrel-searxng\n"
+        )
+        ps_output = b"spindrel-searxng\tspindrel-prod-web-search\n"
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            mock_proc = AsyncMock()
+            mock_proc.communicate.return_value = (ps_output, b"")
+            mock_proc.returncode = 0
+            mock_exec.return_value = mock_proc
+            assert await service._detect_project_name_collision(stack) is None
+
+    @pytest.mark.asyncio
+    async def test_auto_named_services_cannot_collide(self):
+        service = StackService()
+        stack = MagicMock()
+        stack.project_name = "spindrel-prod-web-search"
+        # No container_name declared — compose will auto-name, no daemon-global claim.
+        stack.compose_definition = "services:\n  searxng:\n    image: searxng/searxng\n"
+        assert await service._detect_project_name_collision(stack) is None
+
+
+class TestComposeCmdEnvPropagation:
+    """_compose_cmd must inject SPINDREL_INSTANCE_ID and AGENT_NETWORK_NAME
+    into the compose subprocess so YAML interpolation resolves to the
+    per-instance identity."""
+
+    @pytest.mark.asyncio
+    async def test_compose_cmd_passes_instance_identity(self):
+        from app.config import settings as app_settings
+        service = StackService()
+        stack = MagicMock()
+        stack.id = uuid.uuid4()
+        stack.project_name = f"{PROJECT_PREFIX}test"
+        stack.compose_definition = "services:\n  s:\n    image: x\n"
+
+        captured_env = {}
+
+        async def _fake_exec(*cmd, **kwargs):
+            captured_env.update(kwargs.get("env") or {})
+            proc = AsyncMock()
+            proc.communicate.return_value = (b"", b"")
+            proc.returncode = 0
+            return proc
+
+        original_id = app_settings.SPINDREL_INSTANCE_ID
+        original_net = app_settings.AGENT_NETWORK_NAME
+        app_settings.SPINDREL_INSTANCE_ID = "unit-test"
+        app_settings.AGENT_NETWORK_NAME = "unit-net"
+        try:
+            with patch("asyncio.create_subprocess_exec", side_effect=_fake_exec), \
+                 patch("app.services.docker_stacks.local_to_host", side_effect=lambda p: p):
+                await service._compose_cmd(stack, ["ps"])
+            assert captured_env.get("SPINDREL_INSTANCE_ID") == "unit-test"
+            assert captured_env.get("AGENT_NETWORK_NAME") == "unit-net"
+        finally:
+            app_settings.SPINDREL_INSTANCE_ID = original_id
+            app_settings.AGENT_NETWORK_NAME = original_net
+
+
+class TestConnectNetworkAlias:
+    """_connect_network(--alias) — per-service DNS aliasing on the shared network."""
+
+    @pytest.mark.asyncio
+    async def test_connect_network_forwards_alias_to_docker_cli(self):
+        service = StackService()
+        captured_cmd = {}
+
+        async def _fake_exec(*cmd, **kwargs):
+            captured_cmd["argv"] = cmd
+            proc = AsyncMock()
+            proc.communicate.return_value = (b"", b"")
+            proc.returncode = 0
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=_fake_exec):
+            await service._connect_network("agent-net", "cid123", alias="searxng-test")
+        argv = captured_cmd["argv"]
+        assert "--alias" in argv
+        assert "searxng-test" in argv
+        assert argv.index("--alias") < argv.index("searxng-test")
 
 
 class TestDiscoverDockerComposeStacks:
     """Tests for discover_docker_compose_stacks integration discovery."""
 
-    def test_discovers_web_search(self):
+    def test_discovers_web_search(self, monkeypatch):
         from integrations import discover_docker_compose_stacks
+        from app.config import settings as app_settings
+        monkeypatch.setattr(app_settings, "SPINDREL_INSTANCE_ID", "testinst")
+        monkeypatch.setattr(app_settings, "AGENT_NETWORK_NAME", "agent-net")
         results = discover_docker_compose_stacks()
-        # web_search declares a docker_compose block
         web_search = [r for r in results if r["integration_id"] == "web_search"]
         assert len(web_search) == 1
         info = web_search[0]
-        assert info["project_name"] == "spindrel-web-search"
+        # Project name is interpolated per-instance so multiple instances on
+        # the same Docker daemon don't collide.
+        assert info["project_name"] == "spindrel-testinst-web-search"
         assert info["enabled_setting"] == "WEB_SEARCH_CONTAINERS"
-        assert "agent-server_default" in info["connect_networks"]
+        assert "agent-net" in info["connect_networks"]
+        assert info["network_aliases"] == {
+            "searxng": "searxng-testinst",
+            "playwright": "playwright-testinst",
+        }
         assert "config/searxng/settings.yml" in info["config_files"]
         assert info["compose_definition"]  # non-empty
+
+    def test_network_aliases_interpolated_for_wyoming(self, monkeypatch):
+        from integrations import discover_docker_compose_stacks
+        from app.config import settings as app_settings
+        monkeypatch.setattr(app_settings, "SPINDREL_INSTANCE_ID", "e2e")
+        monkeypatch.setattr(app_settings, "AGENT_NETWORK_NAME", "agent-net")
+        results = discover_docker_compose_stacks()
+        wyoming = [r for r in results if r["integration_id"] == "wyoming"]
+        assert len(wyoming) == 1
+        info = wyoming[0]
+        assert info["project_name"] == "spindrel-e2e-wyoming"
+        assert info["network_aliases"] == {
+            "whisper": "whisper-e2e",
+            "piper": "piper-e2e",
+        }
+
+    def test_empty_agent_network_is_dropped(self, monkeypatch):
+        # When AGENT_NETWORK_NAME is unset, the interpolated entry is empty
+        # and should be filtered out rather than appearing as "".
+        from integrations import discover_docker_compose_stacks
+        from app.config import settings as app_settings
+        monkeypatch.setattr(app_settings, "SPINDREL_INSTANCE_ID", "x")
+        monkeypatch.setattr(app_settings, "AGENT_NETWORK_NAME", "")
+        results = discover_docker_compose_stacks()
+        web_search = next(r for r in results if r["integration_id"] == "web_search")
+        assert web_search["connect_networks"] == []
 
     def test_config_files_loaded(self):
         from integrations import discover_docker_compose_stacks

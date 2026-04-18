@@ -15,6 +15,18 @@ def _in_docker() -> bool:
     return os.path.exists("/.dockerenv")
 
 
+def _instance_id() -> str:
+    # Prefer the app-level setting when available (populated at startup with a
+    # hostname-slug default). Fall back to the raw env var and then "default".
+    try:
+        from app.config import settings as _s
+        if _s.SPINDREL_INSTANCE_ID:
+            return _s.SPINDREL_INSTANCE_ID
+    except Exception:
+        pass
+    return os.environ.get("SPINDREL_INSTANCE_ID", "").strip() or "default"
+
+
 class _Settings(_Base):
     @property
     def WEB_SEARCH_CONTAINERS(self) -> bool:
@@ -27,7 +39,7 @@ class _Settings(_Base):
         if val:
             return val
         if _in_docker():
-            return "http://spindrel-searxng:8080"
+            return f"http://searxng-{_instance_id()}:8080"
         return "http://localhost:8080"
 
     @property
@@ -36,7 +48,7 @@ class _Settings(_Base):
         if val:
             return val
         if _in_docker():
-            return "ws://spindrel-playwright:3000"
+            return f"ws://playwright-{_instance_id()}:3000"
         return "ws://localhost:3000"
 
 

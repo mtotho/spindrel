@@ -75,6 +75,8 @@ export interface TaskDetail {
   session_id?: string | null;
   channel_id?: string | null;
   parent_task_id?: string | null;
+  run_isolation?: "inline" | "sub_session";
+  run_session_id?: string | null;
   dispatch_config?: Record<string, any> | null;
   callback_config?: Record<string, any> | null;
   execution_config?: Record<string, any> | null;

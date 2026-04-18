@@ -49,7 +49,7 @@ function OrphanApprovalCard({
   const decide = useDecideApproval();
   const isCap = approval.tool_name === "activate_capability";
   const capability =
-    (approval.dispatch_metadata as Record<string, any> | null)?._capability ?? null;
+    (approval.approval_metadata as Record<string, any> | null)?._capability ?? null;
 
   const handle = (approved: boolean, pinCapability?: string) => {
     decide.mutate({

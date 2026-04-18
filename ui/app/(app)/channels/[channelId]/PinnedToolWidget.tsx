@@ -12,8 +12,9 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { useWidgetAction } from "@/src/api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "@/src/api/hooks/useWidgetAction";
 import { ComponentRenderer, WidgetActionContext } from "@/src/components/chat/renderers/ComponentRenderer";
-import type { PinnedWidget, ToolResultEnvelope } from "@/src/types/api";
+import type { PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/api";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
+import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { apiFetch } from "@/src/api/client";
 import { formatRelativeTime } from "@/src/utils/format";
 
@@ -34,26 +35,35 @@ function resolveDisplayName(widget: PinnedWidget): string {
 
 interface PinnedToolWidgetProps {
   widget: PinnedWidget;
-  channelId: string;
+  scope: WidgetScope;
   onUnpin: (widgetId: string) => void;
   onEnvelopeUpdate: (widgetId: string, envelope: ToolResultEnvelope) => void;
 }
 
 export function PinnedToolWidget({
   widget,
-  channelId,
+  scope,
   onUnpin,
   onEnvelopeUpdate,
 }: PinnedToolWidgetProps) {
+  const isDashboard = scope.kind === "dashboard";
+  const channelId = scope.kind === "channel" ? scope.channelId : null;
+
   const t = useThemeTokens();
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);
-  const broadcastEnvelope = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
-  const patchWidgetConfig = usePinnedWidgetsStore((s) => s.patchWidgetConfig);
-  // Current pin config — live-read so widget_config on refresh reflects
-  // whatever the user just toggled.
-  const widgetConfig = usePinnedWidgetsStore(
-    (s) => s.byChannel[channelId]?.find((w) => w.id === widget.id)?.config,
+  // Both stores are accessed unconditionally (React hooks rule) — we pick
+  // which one the callbacks actually touch based on scope.
+  const channelBroadcast = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
+  const channelPatchConfig = usePinnedWidgetsStore((s) => s.patchWidgetConfig);
+  const channelWidgetConfig = usePinnedWidgetsStore(
+    (s) => (channelId ? s.byChannel[channelId]?.find((w) => w.id === widget.id)?.config : undefined),
   );
+  const dashboardBroadcast = useDashboardPinsStore((s) => s.broadcastEnvelope);
+  const dashboardPatchConfig = useDashboardPinsStore((s) => s.patchWidgetConfig);
+  const dashboardWidgetConfig = useDashboardPinsStore(
+    (s) => (isDashboard ? s.pins.find((p) => p.id === widget.id)?.widget_config : undefined),
+  );
+  const widgetConfig = isDashboard ? dashboardWidgetConfig : channelWidgetConfig;
   const widgetConfigRef = useRef(widgetConfig);
   widgetConfigRef.current = widgetConfig;
 
@@ -92,11 +102,19 @@ export function PinnedToolWidget({
   // Key by the ORIGINAL envelope (from initial paint); if we re-keyed on every
   // currentEnvelope change, an incoming broadcast (e.g., chat message) and
   // our own state_poll output could drift to different keys and miss updates.
-  const envelopeKey = useMemo(
-    () => `${channelId}::${envelopeIdentityKey(widget.tool_name, widget.envelope)}`,
-    [channelId, widget.tool_name, widget.envelope],
+  const identity = useMemo(
+    () => envelopeIdentityKey(widget.tool_name, widget.envelope),
+    [widget.tool_name, widget.envelope],
   );
-  const sharedEnvelope = usePinnedWidgetsStore((s) => s.widgetEnvelopes[envelopeKey]);
+  const channelEnvelopeKey = useMemo(
+    () => (channelId ? `${channelId}::${identity}` : null),
+    [channelId, identity],
+  );
+  const channelShared = usePinnedWidgetsStore(
+    (s) => (channelEnvelopeKey ? s.widgetEnvelopes[channelEnvelopeKey] : undefined),
+  );
+  const dashboardShared = useDashboardPinsStore((s) => s.widgetEnvelopes[identity]);
+  const sharedEnvelope = isDashboard ? dashboardShared : channelShared;
   const envelopeRef = useRef(currentEnvelope);
   envelopeRef.current = currentEnvelope;
 
@@ -110,18 +128,23 @@ export function PinnedToolWidget({
     const displayLabel = resolveDisplayLabel(envelopeRef.current);
     setRefreshing(true);
     try {
+      const body: Record<string, unknown> = {
+        tool_name: widget.tool_name,
+        display_label: displayLabel,
+        widget_config: widgetConfigRef.current ?? {},
+      };
+      if (isDashboard) {
+        body.dashboard_pin_id = widget.id;
+      } else if (channelId) {
+        body.channel_id = channelId;
+        body.bot_id = widget.bot_id;
+      }
       const resp = await apiFetch<{ ok: boolean; envelope?: Record<string, unknown> | null; error?: string }>(
         "/api/v1/widget-actions/refresh",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            tool_name: widget.tool_name,
-            display_label: displayLabel,
-            channel_id: channelId,
-            bot_id: widget.bot_id,
-            widget_config: widgetConfigRef.current ?? {},
-          }),
+          body: JSON.stringify(body),
         },
       );
       // Skip if user dispatched an action while poll was in-flight — the action's
@@ -132,7 +155,11 @@ export function PinnedToolWidget({
         selfBroadcastRef.current = fresh;
         setCurrentEnvelope(fresh);
         onEnvelopeUpdate(widget.id, fresh);
-        broadcastEnvelope(channelId, widget.tool_name, fresh);
+        if (isDashboard) {
+          dashboardBroadcast(widget.tool_name, fresh);
+        } else if (channelId) {
+          channelBroadcast(channelId, widget.tool_name, fresh);
+        }
         setLastRefreshedAt(new Date().toISOString());
       }
     } catch {
@@ -140,7 +167,7 @@ export function PinnedToolWidget({
     } finally {
       setRefreshing(false);
     }
-  }, [widget.id, widget.tool_name, widget.bot_id, channelId, onEnvelopeUpdate, broadcastEnvelope, resolveDisplayLabel]);
+  }, [widget.id, widget.tool_name, widget.bot_id, channelId, isDashboard, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, resolveDisplayLabel]);
 
   // Initial refresh on mount / re-pin.
   const refreshedForRef = useRef<string | null>(null);
@@ -199,11 +226,12 @@ export function PinnedToolWidget({
   // patch the enclosing pin and let tool args reference {{config.*}}.
   const currentDisplayLabel = resolveDisplayLabel(currentEnvelope);
   const rawDispatch = useWidgetAction(
-    channelId,
-    widget.bot_id,
+    channelId ?? undefined,
+    isDashboard ? undefined : widget.bot_id,
     currentDisplayLabel,
-    widget.id,
+    isDashboard ? null : widget.id,
     widgetConfig ?? null,
+    isDashboard ? widget.id : null,
   );
 
   // Intercepting dispatcher: captures the (polled) response envelope, updates
@@ -214,7 +242,11 @@ export function PinnedToolWidget({
       // Optimistic config merge before the server responds — lets subtle
       // toggle buttons flip their visible state immediately.
       if (action.dispatch === "widget_config" && action.config) {
-        patchWidgetConfig(channelId, widget.id, action.config);
+        if (isDashboard) {
+          dashboardPatchConfig(widget.id, action.config);
+        } else if (channelId) {
+          channelPatchConfig(channelId, widget.id, action.config);
+        }
       }
       try {
         const result = await rawDispatch(action, value);
@@ -226,7 +258,11 @@ export function PinnedToolWidget({
           selfBroadcastRef.current = result.envelope;
           setCurrentEnvelope(result.envelope);
           onEnvelopeUpdate(widget.id, result.envelope);
-          broadcastEnvelope(channelId, widget.tool_name, result.envelope);
+          if (isDashboard) {
+            dashboardBroadcast(widget.tool_name, result.envelope);
+          } else if (channelId) {
+            channelBroadcast(channelId, widget.tool_name, result.envelope);
+          }
           setLastRefreshedAt(new Date().toISOString());
         }
         // Follow-up refresh — slow devices (e.g. Shelly relays through HA)
@@ -239,7 +275,7 @@ export function PinnedToolWidget({
         actionInFlightRef.current = false;
       }
     },
-    [rawDispatch, widget.id, channelId, widget.tool_name, onEnvelopeUpdate, broadcastEnvelope, patchWidgetConfig, refreshState],
+    [rawDispatch, widget.id, channelId, isDashboard, widget.tool_name, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, channelPatchConfig, dashboardPatchConfig, refreshState],
   );
 
   const actionCtx = useMemo(
