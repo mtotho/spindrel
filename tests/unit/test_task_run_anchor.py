@@ -4,9 +4,10 @@ Focus: when a step is `awaiting_user_input`, the anchor payload must carry
 the step's `widget_envelope`, `response_schema`, and step `title` so the web
 client can render the approval UI inline in chat without a second fetch.
 """
+import uuid
 from types import SimpleNamespace
 
-from app.services.task_run_anchor import _step_summary
+from app.services.task_run_anchor import _build_metadata, _step_summary
 
 
 def _make_task(steps, step_states):
@@ -70,6 +71,49 @@ def test_step_summary_awaiting_without_envelope_degrades_gracefully():
     assert "widget_envelope" not in out[0]
     assert "response_schema" not in out[0]
     assert "title" not in out[0]
+
+
+def test_build_metadata_surfaces_parent_task_id_for_runs():
+    """Runs are children of definitions — UI uses parent_task_id to offer
+    a 'View runs' link back to the definition's Runs tab."""
+    parent_id = uuid.uuid4()
+    task = SimpleNamespace(
+        id=uuid.uuid4(),
+        parent_task_id=parent_id,
+        task_type="pipeline",
+        bot_id="orchestrator",
+        title="Analyze Discovery",
+        status="running",
+        scheduled_at=None,
+        completed_at=None,
+        steps=[],
+        step_states=[],
+        execution_config={},
+        result=None,
+        error=None,
+    )
+    meta = _build_metadata(task)
+    assert meta["parent_task_id"] == str(parent_id)
+
+
+def test_build_metadata_parent_task_id_null_for_definitions():
+    task = SimpleNamespace(
+        id=uuid.uuid4(),
+        parent_task_id=None,
+        task_type="pipeline",
+        bot_id="orchestrator",
+        title="Definition",
+        status="pending",
+        scheduled_at=None,
+        completed_at=None,
+        steps=[],
+        step_states=[],
+        execution_config={},
+        result=None,
+        error=None,
+    )
+    meta = _build_metadata(task)
+    assert meta["parent_task_id"] is None
 
 
 def test_step_summary_envelope_not_leaked_when_status_is_done():

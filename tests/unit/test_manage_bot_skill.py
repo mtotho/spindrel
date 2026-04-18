@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.db.models import Skill
 from app.tools.local.bot_skills import (
     BOT_SKILL_COUNT_WARNING,
     CONTENT_MIN_LENGTH,
@@ -28,31 +29,15 @@ from app.tools.local.bot_skills import (
     _validate_name,
     manage_bot_skill,
 )
+from tests.factories import build_bot, build_bot_skill
+
+pytestmark = pytest.mark.usefixtures("bot_skill_cache_reset")
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers (Group B off-target classes still use these — TestCacheInvalidation,
+# TestRepeatedLookupDetection. See Phase 1d scope decision.)
 # ---------------------------------------------------------------------------
-
-def _make_skill_row(skill_id: str, name: str = "Test", content: str = "body",
-                    source_type: str = "tool", **kw):
-    row = MagicMock()
-    row.id = skill_id
-    row.name = name
-    row.content = content
-    row.content_hash = hashlib.sha256(content.encode()).hexdigest()
-    row.source_type = source_type
-    row.source_path = kw.get("source_path")
-    row.created_at = kw.get("created_at", datetime.now(timezone.utc))
-    row.updated_at = kw.get("updated_at", datetime.now(timezone.utc))
-    row.last_surfaced_at = kw.get("last_surfaced_at", None)
-    row.surface_count = kw.get("surface_count", 0)
-    row.archived_at = kw.get("archived_at", None)
-    return row
-
-
-def _parse(result: str) -> dict:
-    return json.loads(result)
 
 
 def _mock_session(db_mock):
@@ -71,37 +56,35 @@ def _mock_session(db_mock):
 
 class TestBotSkillHelpers:
 
-    def test_bot_skill_id_basic(self):
+    def test_when_simple_slug_then_id_is_bots_bot_name(self):
         assert _bot_skill_id("mybot", "my-skill") == "bots/mybot/my-skill"
 
-    def test_bot_skill_id_spaces(self):
+    def test_when_name_has_spaces_then_id_uses_hyphens(self):
         assert _bot_skill_id("mybot", "My Skill Name") == "bots/mybot/my-skill-name"
 
-    def test_bot_skill_id_uppercase(self):
+    def test_when_name_has_uppercase_then_id_is_lowercased(self):
         assert _bot_skill_id("mybot", "MySkill") == "bots/mybot/myskill"
 
-    def test_bot_skill_id_strips_prefix(self):
-        """Bot accidentally passes full ID as name — prefix should be stripped."""
+    def test_when_name_is_already_full_id_for_this_bot_then_prefix_stripped(self):
         assert _bot_skill_id("baking-bot", "bots/baking-bot/ermine-frosting") == "bots/baking-bot/ermine-frosting"
 
-    def test_bot_skill_id_strips_prefix_other_bot_ignored(self):
-        """Only strips prefix matching the current bot, not other bots."""
+    def test_when_name_has_other_bots_prefix_then_slashes_stripped_as_special_chars(self):
         assert _bot_skill_id("mybot", "bots/other-bot/skill") == "bots/mybot/botsother-botskill"
 
-    def test_bot_skill_id_rejects_empty(self):
+    def test_when_name_has_only_special_chars_then_raises_valueerror(self):
         with pytest.raises(ValueError):
             _bot_skill_id("mybot", "!!!!")
 
-    def test_slugify_strips_special_chars(self):
+    def test_when_slugify_receives_special_chars_then_strips_them(self):
         assert _slugify("../../escape") == "escape"
         assert _slugify("hello world!") == "hello-world"
         assert _slugify("  My--Skill  ") == "my-skill"
 
-    def test_slugify_empty_returns_empty(self):
+    def test_when_slugify_receives_empty_or_all_special_then_returns_empty(self):
         assert _slugify("") == ""
         assert _slugify("!!!") == ""
 
-    def test_build_content_full(self):
+    def test_when_build_content_has_all_fields_then_all_included(self):
         result = _build_content("My Title", "The body", triggers="error, crash", category="troubleshooting")
         assert "---" in result
         assert "name: My Title" in result
@@ -109,28 +92,28 @@ class TestBotSkillHelpers:
         assert "category: troubleshooting" in result
         assert "The body" in result
 
-    def test_build_content_minimal(self):
+    def test_when_build_content_has_only_title_and_body_then_no_optional_fields(self):
         result = _build_content("Title", "Body only")
         assert "name: Title" in result
         assert "triggers:" not in result
         assert "category:" not in result
         assert "Body only" in result
 
-    def test_extract_body(self):
+    def test_when_extract_body_has_frontmatter_then_returns_body_only(self):
         content = "---\nname: Test\ntriggers: foo\n---\n\nThe body here"
         assert _extract_body(content) == "The body here"
 
-    def test_extract_body_no_frontmatter(self):
+    def test_when_extract_body_has_no_frontmatter_then_returns_input(self):
         assert _extract_body("Just content") == "Just content"
 
-    def test_extract_frontmatter(self):
+    def test_when_extract_frontmatter_has_fields_then_returns_dict(self):
         content = "---\nname: Test\ntriggers: foo, bar\ncategory: debug\n---\n\nBody"
         fm = _extract_frontmatter(content)
         assert fm["name"] == "Test"
         assert fm["triggers"] == "foo, bar"
         assert fm["category"] == "debug"
 
-    def test_extract_frontmatter_no_frontmatter(self):
+    def test_when_extract_frontmatter_has_no_frontmatter_then_returns_empty_dict(self):
         assert _extract_frontmatter("No frontmatter") == {}
 
 
@@ -141,600 +124,522 @@ class TestBotSkillHelpers:
 class TestCreate:
 
     @pytest.mark.asyncio
-    async def test_no_bot_context(self):
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = None
-            result = _parse(await manage_bot_skill(action="create"))
-            assert "No bot context" in result["error"]
+    async def test_when_no_bot_context_then_error_returned(self, agent_context):
+        agent_context(bot_id=None)
+
+        result = json.loads(await manage_bot_skill(action="create"))
+
+        assert "No bot context" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_missing_fields(self):
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            # Missing title and content
-            result = _parse(await manage_bot_skill(action="create", name="foo"))
-            assert "required" in result["error"]
+    async def test_when_required_fields_missing_then_error_returned(self, agent_context):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(action="create", name="foo"))
+
+        assert "required" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_success(self):
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
-        db.add = MagicMock()
-        db.commit = AsyncMock()
+    async def test_when_valid_create_then_row_persisted_with_all_fields(
+        self, db_session, patched_async_sessions, agent_context,
+        embed_skill_patch, dedup_patch,
+    ):
+        agent_context(bot_id="testbot")
+        body = "# Docker Networking\n\nHow to configure bridge networks. " + "x" * 50
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
-            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock, return_value=None),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="create", name="my-skill", title="My Skill",
-                content="# How to fix X\n\nDo Y. " + "x" * 50,
-                triggers="fix, error", category="troubleshooting",
-            ))
-            assert result["ok"] is True
-            assert result["id"] == "bots/testbot/my-skill"
-            assert result["embedded"] is True
-            db.add.assert_called_once()
+        result = json.loads(await manage_bot_skill(
+            action="create", name="docker-net", title="Docker Networking",
+            content=body,
+            triggers="docker, networking, bridge", category="infrastructure",
+        ))
 
-    @pytest.mark.asyncio
-    async def test_create_populates_description_triggers_category(self):
-        """Bug fix: create must set description, triggers, category DB columns."""
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
-        db.add = MagicMock()
-        db.commit = AsyncMock()
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
-            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock, return_value=None),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-        ):
-            ctx.get.return_value = "testbot"
-            body = "# Docker Networking\n\nHow to configure bridge networks. " + "x" * 50
-            result = _parse(await manage_bot_skill(
-                action="create", name="docker-net", title="Docker Networking",
-                content=body,
-                triggers="docker, networking, bridge", category="infrastructure",
-            ))
-            assert result["ok"] is True
-            row = db.add.call_args[0][0]
-            assert row.description is not None
-            assert len(row.description) > 0
-            assert row.triggers == ["docker", "networking", "bridge"]
-            assert row.category == "infrastructure"
+        assert result["ok"] is True
+        assert result["id"] == "bots/testbot/docker-net"
+        assert result["embedded"] is True
+        row = await db_session.get(Skill, "bots/testbot/docker-net")
+        assert row is not None
+        assert row.name == "Docker Networking"
+        assert row.triggers == ["docker", "networking", "bridge"]
+        assert row.category == "infrastructure"
+        assert row.source_type == "tool"
+        assert row.description and len(row.description) > 0
 
     @pytest.mark.asyncio
-    async def test_create_without_triggers_sets_empty_list(self):
-        """Create without triggers should set empty list, not None."""
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
-        db.add = MagicMock()
-        db.commit = AsyncMock()
+    async def test_when_create_without_triggers_then_triggers_empty_category_null(
+        self, db_session, patched_async_sessions, agent_context,
+        embed_skill_patch, dedup_patch,
+    ):
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
-            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock, return_value=None),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="create", name="plain", title="Plain Skill",
-                content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert result["ok"] is True
-            row = db.add.call_args[0][0]
-            assert row.triggers == []
-            assert row.category is None
+        result = json.loads(await manage_bot_skill(
+            action="create", name="plain", title="Plain Skill",
+            content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert result["ok"] is True
+        row = await db_session.get(Skill, "bots/testbot/plain")
+        assert row.triggers == []
+        assert row.category is None
 
     @pytest.mark.asyncio
-    async def test_duplicate_rejected(self):
-        existing = _make_skill_row("bots/testbot/my-skill")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=existing)
+    async def test_when_create_targets_existing_id_then_rejected(
+        self, db_session, patched_async_sessions, agent_context,
+        embed_skill_patch, dedup_patch,
+    ):
+        existing = build_bot_skill(bot_id="testbot", name="my-skill")
+        db_session.add(existing)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="create", name="my-skill", title="My Skill",
-                content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert "already exists" in result["error"]
+        result = json.loads(await manage_bot_skill(
+            action="create", name="my-skill", title="My Skill",
+            content="x" * CONTENT_MIN_LENGTH,
+        ))
 
-    @pytest.mark.asyncio
-    async def test_invalid_name_rejected(self):
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="create", name="!!!!", title="Bad",
-                content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert "Invalid skill name" in result["error"]
+        assert "already exists" in result["error"]
+        # Extra mile: row untouched
+        untouched = await db_session.get(Skill, existing.id)
+        assert untouched.content == existing.content
 
     @pytest.mark.asyncio
-    async def test_count_warning_included(self):
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
-        db.add = MagicMock()
-        db.commit = AsyncMock()
+    async def test_when_name_is_all_special_chars_then_rejected(self, agent_context):
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
-            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock,
-                  return_value="Warning: You now have 55 self-authored skills."),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="create", name="s", title="T",
-                content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert result["ok"] is True
-            assert "55" in result["message"]
+        result = json.loads(await manage_bot_skill(
+            action="create", name="!!!!", title="Bad",
+            content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert "Invalid skill name" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_when_dedup_finds_similar_skill_then_create_rejected(
+        self, db_session, patched_async_sessions, agent_context,
+        embed_skill_patch, dedup_patch,
+    ):
+        dedup_patch.return_value = json.dumps({
+            "warning": "similar_skill_exists",
+            "similar_skill_id": "bots/testbot/other",
+            "similarity": 0.91,
+            "message": "similar skill exists",
+        })
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="create", name="dup", title="Dup",
+            content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert result == {
+            "warning": "similar_skill_exists",
+            "similar_skill_id": "bots/testbot/other",
+            "similarity": 0.91,
+            "message": "similar skill exists",
+        }
+        assert await db_session.get(Skill, "bots/testbot/dup") is None
+
+    @pytest.mark.asyncio
+    async def test_when_force_true_then_dedup_bypassed(
+        self, db_session, patched_async_sessions, agent_context,
+        embed_skill_patch, dedup_patch,
+    ):
+        dedup_patch.return_value = json.dumps({"warning": "similar_skill_exists"})
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="create", name="forced", title="Forced", force=True,
+            content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert result["ok"] is True
+        dedup_patch.assert_not_called()
+        assert await db_session.get(Skill, "bots/testbot/forced") is not None
 
 
 class TestList:
 
     @pytest.mark.asyncio
-    async def test_empty(self):
-        db = AsyncMock()
-        # First call: count query → scalar_one returns 0
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 0
-        # Second call: rows query → scalars().all() returns []
-        rows_result = MagicMock()
-        rows_result.scalars.return_value.all.return_value = []
-        db.execute = AsyncMock(side_effect=[count_result, rows_result])
+    async def test_when_no_skills_authored_then_list_returns_empty(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list"))
-            assert result["skills"] == []
-            assert result["total"] == 0
+        result = json.loads(await manage_bot_skill(action="list"))
+
+        assert result == {"skills": [], "total": 0, "message": "No self-authored skills yet."}
 
     @pytest.mark.asyncio
-    async def test_with_results(self):
+    async def test_when_skills_exist_then_list_returns_them_with_previews(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
         content_a = "---\nname: Skill A\ncategory: debug\n---\n\nSome body content here"
         content_b = "---\nname: Skill B\n---\n\nAnother body"
-        rows = [
-            _make_skill_row("bots/testbot/skill-a", name="Skill A", content=content_a),
-            _make_skill_row("bots/testbot/skill-b", name="Skill B", content=content_b),
-        ]
-        db = AsyncMock()
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 2
-        rows_result = MagicMock()
-        rows_result.scalars.return_value.all.return_value = rows
-        db.execute = AsyncMock(side_effect=[count_result, rows_result])
+        skill_a = build_bot_skill(bot_id="testbot", name="skill-a", content=content_a)
+        skill_b = build_bot_skill(bot_id="testbot", name="skill-b", content=content_b)
+        skill_a.updated_at = datetime.now(timezone.utc)
+        skill_b.updated_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db_session.add_all([skill_a, skill_b])
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list"))
-            assert result["total"] == 2
-            assert result["skills"][0]["id"] == "bots/testbot/skill-a"
-            assert result["skills"][0]["category"] == "debug"
-            assert result["skills"][0]["preview"] == "Some body content here"
-            assert result["skills"][1]["category"] == ""
+        result = json.loads(await manage_bot_skill(action="list"))
+
+        assert result["total"] == 2
+        assert [s["id"] for s in result["skills"]] == [skill_a.id, skill_b.id]
+        assert result["skills"][0]["category"] == "debug"
+        assert result["skills"][0]["preview"] == "Some body content here"
+
+    @pytest.mark.asyncio
+    async def test_when_other_bots_own_skills_then_list_filters_by_bot_id(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        mine = build_bot_skill(bot_id="me", name="mine", content="x" * 100)
+        theirs = build_bot_skill(bot_id="other", name="theirs", content="y" * 100)
+        db_session.add_all([mine, theirs])
+        await db_session.commit()
+        agent_context(bot_id="me")
+
+        result = json.loads(await manage_bot_skill(action="list"))
+
+        assert [s["id"] for s in result["skills"]] == [mine.id]
+        assert result["total"] == 1
 
 
 class TestGet:
 
     @pytest.mark.asyncio
-    async def test_missing_name(self):
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="get"))
-            assert "error" in result
+    async def test_when_name_missing_then_error_returned(self, agent_context):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(action="get"))
+
+        assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_not_found(self):
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
+    async def test_when_skill_not_found_then_error_returned(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="get", name="missing"))
-            assert "not found" in result["error"]
+        result = json.loads(await manage_bot_skill(action="get", name="missing"))
+
+        assert "not found" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_success(self):
-        row = _make_skill_row("bots/testbot/my-skill", name="My Skill", content="the content")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+    async def test_when_skill_exists_then_returns_id_and_content(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        skill = build_bot_skill(bot_id="testbot", name="my-skill", content="the content " * 10)
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="get", name="my-skill"))
-            assert result["id"] == "bots/testbot/my-skill"
-            assert result["content"] == "the content"
+        result = json.loads(await manage_bot_skill(action="get", name="my-skill"))
+
+        assert result["id"] == skill.id
+        assert result["content"] == skill.content
 
 
 class TestUpdate:
 
     @pytest.mark.asyncio
-    async def test_not_found(self):
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
+    async def test_when_skill_not_found_then_error_returned(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="update", name="missing"))
-            assert "not found" in result["error"]
+        result = json.loads(await manage_bot_skill(action="update", name="missing"))
+
+        assert "not found" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_file_managed_rejected(self):
-        row = _make_skill_row("bots/testbot/my-skill", source_type="file")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+    async def test_when_skill_is_file_managed_then_update_rejected(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        file_skill = build_bot_skill(bot_id="testbot", name="my-skill", source_type="file")
+        db_session.add(file_skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="update", name="my-skill", content="new",
-            ))
-            assert "file-managed" in result["error"]
+        result = json.loads(await manage_bot_skill(
+            action="update", name="my-skill", content="new " + "x" * 100,
+        ))
 
-    @pytest.mark.asyncio
-    async def test_cross_bot_rejected(self):
-        """A skill belonging to another bot should not be updatable."""
-        row = _make_skill_row("bots/otherbot/skill", source_type="tool")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            # _bot_skill_id("testbot", "skill") = "bots/testbot/skill"
-            # but db returns row with id "bots/otherbot/skill"
-            # The prefix check catches this.
-            result = _parse(await manage_bot_skill(
-                action="update", name="skill", content="new",
-            ))
-            assert "error" in result
+        assert "file-managed" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_success(self):
-        row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
-        db.commit = AsyncMock()
+    async def test_when_content_updated_then_row_content_and_hash_refreshed(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        skill = build_bot_skill(bot_id="testbot", name="my-skill")
+        original_hash = skill.content_hash
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-            patch("asyncio.create_task"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="update", name="my-skill", content="updated body " + "x" * 50,
-            ))
-            assert result["ok"] is True
+        result = json.loads(await manage_bot_skill(
+            action="update", name="my-skill", content="updated body " + "x" * 60,
+        ))
 
-    @pytest.mark.asyncio
-    async def test_update_preserves_existing_frontmatter(self):
-        """Updating triggers should not drop existing category."""
-        existing = "---\nname: My Skill\ntriggers: old-trigger\ncategory: debug\n---\n\nOriginal body"
-        row = _make_skill_row("bots/testbot/my-skill", content=existing, source_type="tool")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
-        db.commit = AsyncMock()
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-            patch("asyncio.create_task"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="update", name="my-skill", triggers="new-trigger",
-            ))
-            assert result["ok"] is True
-            # Verify category was preserved
-            assert "category: debug" in row.content
-            assert "triggers: new-trigger" in row.content
-            assert "Original body" in row.content
+        assert result["ok"] is True
+        await db_session.refresh(skill)
+        assert "updated body" in skill.content
+        assert skill.content_hash != original_hash
 
     @pytest.mark.asyncio
-    async def test_update_syncs_db_columns(self):
-        """Bug fix: update must sync description, triggers, category DB columns."""
-        existing = "---\nname: My Skill\ntriggers: old\ncategory: debug\n---\n\nOriginal body"
-        row = _make_skill_row("bots/testbot/my-skill", content=existing, source_type="tool")
-        # MagicMock allows setting any attribute
-        row.triggers = []
-        row.category = None
-        row.description = None
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
-        db.commit = AsyncMock()
+    async def test_when_only_triggers_updated_then_existing_category_preserved(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        content = "---\nname: My Skill\ntriggers: old-trigger\ncategory: debug\n---\n\nOriginal body"
+        skill = build_bot_skill(bot_id="testbot", name="my-skill", content=content)
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-            patch("asyncio.create_task"),
-        ):
-            ctx.get.return_value = "testbot"
-            new_body = "Updated content about docker networking. " + "x" * 50
-            result = _parse(await manage_bot_skill(
-                action="update", name="my-skill",
-                content=new_body,
-                triggers="docker, networking",
-                category="infrastructure",
-            ))
-            assert result["ok"] is True
-            # DB columns should be synced
-            assert row.triggers == ["docker", "networking"]
-            assert row.category == "infrastructure"
-            assert row.description is not None
-            assert len(row.description) > 0
+        result = json.loads(await manage_bot_skill(
+            action="update", name="my-skill", triggers="new-trigger",
+        ))
+
+        assert result["ok"] is True
+        await db_session.refresh(skill)
+        assert "category: debug" in skill.content
+        assert "triggers: new-trigger" in skill.content
+        assert "Original body" in skill.content
 
     @pytest.mark.asyncio
-    async def test_update_no_changes_rejected(self):
-        row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+    async def test_when_update_sets_category_and_triggers_then_db_columns_synced(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        skill = build_bot_skill(bot_id="testbot", name="my-skill")
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="update", name="my-skill"))
-            assert "error" in result
-            assert "at least one" in result["error"]
+        new_body = "Updated content about docker networking. " + "x" * 50
+        result = json.loads(await manage_bot_skill(
+            action="update", name="my-skill",
+            content=new_body, triggers="docker, networking", category="infrastructure",
+        ))
+
+        assert result["ok"] is True
+        await db_session.refresh(skill)
+        assert skill.triggers == ["docker", "networking"]
+        assert skill.category == "infrastructure"
+        assert skill.description and len(skill.description) > 0
+
+    @pytest.mark.asyncio
+    async def test_when_update_provides_no_fields_then_rejected(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        skill = build_bot_skill(bot_id="testbot", name="my-skill")
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(action="update", name="my-skill"))
+
+        assert "at least one" in result["error"]
 
 
 class TestDelete:
 
     @pytest.mark.asyncio
-    async def test_not_found(self):
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
+    async def test_when_skill_not_found_then_error_returned(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="delete", name="missing"))
-            assert "not found" in result["error"]
+        result = json.loads(await manage_bot_skill(action="delete", name="missing"))
+
+        assert "not found" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_file_rejected(self):
-        row = _make_skill_row("bots/testbot/my-skill", source_type="file")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+    async def test_when_skill_is_file_managed_then_delete_rejected(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        file_skill = build_bot_skill(bot_id="testbot", name="my-skill", source_type="file")
+        db_session.add(file_skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="delete", name="my-skill"))
-            assert "file-managed" in result["error"]
+        result = json.loads(await manage_bot_skill(action="delete", name="my-skill"))
 
-    @pytest.mark.asyncio
-    async def test_success_archives(self):
-        row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
-        row.archived_at = None
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
-        db.commit = AsyncMock()
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="delete", name="my-skill"))
-            assert result["ok"] is True
-            assert "archived" in result["message"].lower()
-            assert row.archived_at is not None
+        assert "file-managed" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_already_archived(self):
-        row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
-        row.archived_at = datetime.now(timezone.utc)
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+    async def test_when_delete_tool_skill_then_archived_at_set_and_siblings_untouched(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        target = build_bot_skill(bot_id="testbot", name="target")
+        sibling_a = build_bot_skill(bot_id="testbot", name="sibling-a")
+        sibling_b = build_bot_skill(bot_id="testbot", name="sibling-b")
+        db_session.add_all([target, sibling_a, sibling_b])
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="delete", name="my-skill"))
-            assert "already archived" in result["error"]
+        result = json.loads(await manage_bot_skill(action="delete", name="target"))
 
-    @pytest.mark.asyncio
-    async def test_restore_success(self):
-        row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
-        row.archived_at = datetime.now(timezone.utc)
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
-        db.commit = AsyncMock()
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="restore", name="my-skill"))
-            assert result["ok"] is True
-            assert row.archived_at is None
+        assert result["ok"] is True
+        await db_session.refresh(target)
+        await db_session.refresh(sibling_a)
+        await db_session.refresh(sibling_b)
+        assert target.archived_at is not None
+        assert sibling_a.archived_at is None
+        assert sibling_b.archived_at is None
 
     @pytest.mark.asyncio
-    async def test_restore_not_archived(self):
-        row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
-        row.archived_at = None
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+    async def test_when_deleting_already_archived_then_error_returned(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        archived = build_bot_skill(
+            bot_id="testbot", name="my-skill",
+            archived_at=datetime.now(timezone.utc),
+        )
+        db_session.add(archived)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="restore", name="my-skill"))
-            assert "not archived" in result["error"]
+        result = json.loads(await manage_bot_skill(action="delete", name="my-skill"))
+
+        assert "already archived" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_when_restore_archived_skill_then_archived_at_cleared(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        archived = build_bot_skill(
+            bot_id="testbot", name="my-skill",
+            archived_at=datetime.now(timezone.utc),
+        )
+        db_session.add(archived)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(action="restore", name="my-skill"))
+
+        assert result["ok"] is True
+        await db_session.refresh(archived)
+        assert archived.archived_at is None
+
+    @pytest.mark.asyncio
+    async def test_when_restoring_not_archived_skill_then_error_returned(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        live = build_bot_skill(bot_id="testbot", name="my-skill")
+        db_session.add(live)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(action="restore", name="my-skill"))
+
+        assert "not archived" in result["error"]
 
 
 class TestPatch:
 
     @pytest.mark.asyncio
-    async def test_missing_texts(self):
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="patch", name="x", old_text="", new_text="y",
-            ))
-            assert "required" in result["error"]
+    async def test_when_old_or_new_text_missing_then_error_returned(self, agent_context):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="patch", name="x", old_text="", new_text="y",
+        ))
+
+        assert "required" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_old_text_not_found(self):
-        row = _make_skill_row("bots/testbot/my-skill", content="original content", source_type="tool")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+    async def test_when_old_text_not_in_content_then_error_returned(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        skill = build_bot_skill(bot_id="testbot", name="my-skill", content="original content " + "x" * 100)
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="patch", name="my-skill",
-                old_text="not here", new_text="replacement",
-            ))
-            assert "not found" in result["error"]
+        result = json.loads(await manage_bot_skill(
+            action="patch", name="my-skill", old_text="not here", new_text="replacement",
+        ))
+
+        assert "not found" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_success(self):
+    async def test_when_patch_applies_then_content_and_hash_updated(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
         body = "original content that is long enough to pass validation " + "x" * 50
         full_content = f"---\nname: Test\n---\n\n{body}"
-        row = _make_skill_row("bots/testbot/my-skill", content=full_content, source_type="tool")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
-        db.commit = AsyncMock()
+        skill = build_bot_skill(bot_id="testbot", name="my-skill", content=full_content)
+        original_hash = skill.content_hash
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-            patch("asyncio.create_task"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="patch", name="my-skill",
-                old_text="original", new_text="updated",
-            ))
-            assert result["ok"] is True
-            assert "updated content" in row.content
+        result = json.loads(await manage_bot_skill(
+            action="patch", name="my-skill", old_text="original", new_text="updated",
+        ))
+
+        assert result["ok"] is True
+        await db_session.refresh(skill)
+        assert "updated content" in skill.content
+        assert skill.content_hash != original_hash
 
     @pytest.mark.asyncio
-    async def test_patch_syncs_db_columns(self):
-        """Patching content should update description, triggers, category DB columns."""
+    async def test_when_patch_changes_triggers_then_db_triggers_synced(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
         body = "original content that is long enough to pass validation " + "x" * 50
-        full_content = "---\ntitle: Old Title\ntriggers: alpha, beta\ncategory: general\n---\n\n" + body
-        row = _make_skill_row("bots/testbot/my-skill", name="Old Title", content=full_content, source_type="tool")
-        row.triggers = ["alpha", "beta"]
-        row.category = "general"
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
-        db.commit = AsyncMock()
+        full_content = "---\ntitle: Old\ntriggers: alpha, beta\ncategory: general\n---\n\n" + body
+        skill = build_bot_skill(
+            bot_id="testbot", name="my-skill", content=full_content,
+            triggers=["alpha", "beta"], category="general",
+        )
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-            patch("asyncio.create_task"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="patch", name="my-skill",
-                old_text="triggers: alpha, beta", new_text="triggers: alpha, beta, gamma",
-            ))
-            assert result["ok"] is True
-            # DB columns should be synced from patched frontmatter
-            assert row.triggers == ["alpha", "beta", "gamma"]
+        result = json.loads(await manage_bot_skill(
+            action="patch", name="my-skill",
+            old_text="triggers: alpha, beta", new_text="triggers: alpha, beta, gamma",
+        ))
+
+        assert result["ok"] is True
+        await db_session.refresh(skill)
+        assert skill.triggers == ["alpha", "beta", "gamma"]
 
     @pytest.mark.asyncio
-    async def test_patch_syncs_description_from_body(self):
-        """Patching body content should update the description DB column."""
+    async def test_when_patch_changes_body_then_description_synced(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
         body = "original content that is long enough to pass validation " + "x" * 50
-        full_content = "---\ntitle: My Skill\ntriggers: a\ncategory: dev\n---\n\n" + body
-        row = _make_skill_row("bots/testbot/my-skill", name="My Skill", content=full_content, source_type="tool")
-        row.triggers = ["a"]
-        row.category = "dev"
-        row.description = body[:200].strip()
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
-        db.commit = AsyncMock()
+        full_content = "---\ntitle: My\ntriggers: a\ncategory: dev\n---\n\n" + body
+        skill = build_bot_skill(
+            bot_id="testbot", name="my-skill", content=full_content,
+            triggers=["a"], category="dev",
+        )
+        skill.description = body[:200].strip()
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-            patch("asyncio.create_task"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="patch", name="my-skill",
-                old_text="original content", new_text="patched content",
-            ))
-            assert result["ok"] is True
-            assert "patched content" in row.description
+        result = json.loads(await manage_bot_skill(
+            action="patch", name="my-skill",
+            old_text="original content", new_text="patched content",
+        ))
+
+        assert result["ok"] is True
+        await db_session.refresh(skill)
+        assert "patched content" in skill.description
 
 
 class TestUnknownAction:
 
     @pytest.mark.asyncio
-    async def test_unknown(self):
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="nope"))
-            assert "Unknown action" in result["error"]
+    async def test_when_action_is_unknown_then_error_returned(self, agent_context):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(action="nope"))
+
+        assert "Unknown action" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -743,10 +648,10 @@ class TestUnknownAction:
 
 class TestSecurity:
 
-    def test_skill_id_scoped_to_bot(self):
+    def test_when_building_id_for_bot_then_id_is_scoped_to_that_bot(self):
         assert _bot_skill_id("alice", "hack") == "bots/alice/hack"
 
-    def test_skill_id_slug_normalization(self):
+    def test_when_building_id_with_mixed_case_then_slug_is_normalized(self):
         assert _bot_skill_id("bot", "My Great Skill") == "bots/bot/my-great-skill"
 
 
@@ -757,31 +662,49 @@ class TestSecurity:
 class TestCountWarning:
 
     @pytest.mark.asyncio
-    async def test_no_warning_under_limit(self):
+    async def test_when_skill_count_below_threshold_then_no_warning(
+        self, db_session, patched_async_sessions,
+    ):
         from app.tools.local.bot_skills import _check_count_warning
+        for i in range(10):
+            db_session.add(build_bot_skill(bot_id="testbot", name=f"skill-{i}"))
+        await db_session.commit()
 
-        db = AsyncMock()
-        exec_result = MagicMock()
-        exec_result.scalar_one.return_value = 10
-        db.execute = AsyncMock(return_value=exec_result)
+        result = await _check_count_warning("testbot", "bots/testbot/")
 
-        with patch("app.db.engine.async_session", _mock_session(db)):
-            result = await _check_count_warning("testbot", "bots/testbot/")
-            assert result is None
+        assert result is None
 
     @pytest.mark.asyncio
-    async def test_warning_at_limit(self):
+    async def test_when_skill_count_at_or_above_threshold_then_warning_returned(
+        self, db_session, patched_async_sessions,
+    ):
         from app.tools.local.bot_skills import _check_count_warning
+        for i in range(BOT_SKILL_COUNT_WARNING):
+            db_session.add(build_bot_skill(bot_id="testbot", name=f"skill-{i}"))
+        await db_session.commit()
 
-        db = AsyncMock()
-        exec_result = MagicMock()
-        exec_result.scalar_one.return_value = BOT_SKILL_COUNT_WARNING
-        db.execute = AsyncMock(return_value=exec_result)
+        result = await _check_count_warning("testbot", "bots/testbot/")
 
-        with patch("app.db.engine.async_session", _mock_session(db)):
-            result = await _check_count_warning("testbot", "bots/testbot/")
-            assert result is not None
-            assert "50" in result
+        assert result is not None
+        assert str(BOT_SKILL_COUNT_WARNING) in result
+
+    @pytest.mark.asyncio
+    async def test_when_create_pushes_count_over_threshold_then_create_message_includes_warning(
+        self, db_session, patched_async_sessions, agent_context,
+        embed_skill_patch, dedup_patch,
+    ):
+        for i in range(BOT_SKILL_COUNT_WARNING - 1):
+            db_session.add(build_bot_skill(bot_id="testbot", name=f"pre-{i}"))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="create", name="final", title="Final",
+            content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert result["ok"] is True
+        assert str(BOT_SKILL_COUNT_WARNING) in result["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -791,43 +714,43 @@ class TestCountWarning:
 class TestGetSkillAccess:
 
     @pytest.mark.asyncio
-    async def test_bot_prefix_check_logic(self):
-        """Verify the bot-prefix access check recognizes own skills."""
-        # This tests the logic directly rather than through the full
-        # get_skill function (which needs a real DB session).
+    async def test_when_skill_id_starts_with_current_bot_prefix_then_owned(self):
         bot_id = "testbot"
-        skill_id = f"bots/{bot_id}/my-skill"
-        assert skill_id.startswith(f"bots/{bot_id}/")
-
+        own_skill = f"bots/{bot_id}/my-skill"
         other_skill = "bots/otherbot/secret"
+
+        assert own_skill.startswith(f"bots/{bot_id}/")
         assert not other_skill.startswith(f"bots/{bot_id}/")
 
     @pytest.mark.asyncio
-    async def test_bot_can_access_own_skill_via_get_skill(self):
-        """Bot should access its own self-authored skills via get_skill."""
+    async def test_when_get_skill_called_for_own_skill_then_returns_content(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
         from app.tools.local.skills import get_skill
+        bot = build_bot(id="testbot")
+        skill = build_bot_skill(bot_id="testbot", name="my-skill", content="x" * 100)
+        db_session.add_all([bot, skill])
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        row = _make_skill_row("bots/testbot/my-skill", name="My Skill", content="body")
+        result = await get_skill(skill_id=skill.id)
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+        assert "not configured" not in result
+        assert skill.name in result
 
-        mock_bot = MagicMock()
-        mock_bot.skills = []
-        mock_bot.skill_ids = set()
-        mock_bot.api_permissions = None
+    @pytest.mark.asyncio
+    async def test_when_get_skill_called_for_other_bots_skill_then_access_denied(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        from app.tools.local.skills import get_skill
+        others = build_bot_skill(bot_id="other", name="secret", content="x" * 100)
+        db_session.add(others)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        # get_skill imports async_session from app.db.engine inside its body
-        with (
-            patch("app.tools.local.skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.skills.async_session", _mock_session(db)),
-            patch("app.agent.bots.get_bot", return_value=mock_bot),
-        ):
-            ctx.get.return_value = "testbot"
-            result = await get_skill(skill_id="bots/testbot/my-skill")
-            assert "not configured" not in result
-            assert "My Skill" in result
+        result = await get_skill(skill_id=others.id)
+
+        assert "not configured" in result
 
 
 # ---------------------------------------------------------------------------
@@ -836,58 +759,62 @@ class TestGetSkillAccess:
 
 class TestValidation:
 
-    def test_validate_content_too_short(self):
-        assert _validate_content("short") is not None
-        assert "too short" in _validate_content("short").lower()
+    def test_when_content_too_short_then_validate_returns_error(self):
+        result = _validate_content("short")
+        assert result is not None
+        assert "too short" in result.lower()
 
-    def test_validate_content_ok(self):
+    def test_when_content_meets_min_then_validate_returns_none(self):
         assert _validate_content("x" * CONTENT_MIN_LENGTH) is None
 
-    def test_validate_content_too_large(self):
-        assert _validate_content("x" * (CONTENT_MAX_LENGTH + 1)) is not None
-        assert "too large" in _validate_content("x" * (CONTENT_MAX_LENGTH + 1)).lower()
+    def test_when_content_exceeds_max_then_validate_returns_error(self):
+        result = _validate_content("x" * (CONTENT_MAX_LENGTH + 1))
+        assert result is not None
+        assert "too large" in result.lower()
 
-    def test_validate_name_ok(self):
+    def test_when_name_within_limit_then_validate_returns_none(self):
         assert _validate_name("my-skill") is None
 
-    def test_validate_name_too_long(self):
-        assert _validate_name("x" * (NAME_MAX_LENGTH + 1)) is not None
-        assert "too long" in _validate_name("x" * (NAME_MAX_LENGTH + 1)).lower()
+    def test_when_name_too_long_then_validate_returns_error(self):
+        result = _validate_name("x" * (NAME_MAX_LENGTH + 1))
+        assert result is not None
+        assert "too long" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_create_rejects_short_content(self):
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="create", name="foo", title="Foo", content="tiny",
-            ))
-            assert "too short" in result["error"].lower()
+    async def test_when_create_content_too_short_then_error_returned(self, agent_context):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="create", name="foo", title="Foo", content="tiny",
+        ))
+
+        assert "too short" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_create_rejects_long_name(self):
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="create", name="x" * (NAME_MAX_LENGTH + 1), title="Foo",
-                content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert "too long" in result["error"].lower()
+    async def test_when_create_name_too_long_then_error_returned(self, agent_context):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="create", name="x" * (NAME_MAX_LENGTH + 1), title="Foo",
+            content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert "too long" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_update_rejects_short_content(self):
-        row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+    async def test_when_update_content_too_short_then_error_returned(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        skill = build_bot_skill(bot_id="testbot", name="my-skill")
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="update", name="my-skill", content="tiny",
-            ))
-            assert "too short" in result["error"].lower()
+        result = json.loads(await manage_bot_skill(
+            action="update", name="my-skill", content="tiny",
+        ))
+
+        assert "too short" in result["error"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -897,49 +824,43 @@ class TestValidation:
 class TestEmbeddingStatus:
 
     @pytest.mark.asyncio
-    async def test_create_reports_embedding_success(self):
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
-        db.add = MagicMock()
-        db.commit = AsyncMock()
+    async def test_when_embedding_succeeds_then_result_embedded_true(
+        self, db_session, patched_async_sessions, agent_context,
+        embed_skill_patch, dedup_patch,
+    ):
+        embed_skill_patch.return_value = None  # re_embed_skill returns None on success
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
-            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock, return_value=None),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="create", name="ok-skill", title="OK",
-                content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert result["embedded"] is True
-            assert "embedding failed" not in result["message"]
+        result = json.loads(await manage_bot_skill(
+            action="create", name="ok-skill", title="OK",
+            content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert result["embedded"] is True
+        assert "embedding failed" not in result["message"]
 
     @pytest.mark.asyncio
-    async def test_create_reports_embedding_failure(self):
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
-        db.add = MagicMock()
-        db.commit = AsyncMock()
+    async def test_when_embedding_fails_then_skill_saved_with_warning(
+        self, db_session, patched_async_sessions, agent_context,
+        embed_skill_patch, dedup_patch,
+    ):
+        embed_skill_patch.side_effect = RuntimeError("provider down")
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=False),
-            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock, return_value=None),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="create", name="fail-skill", title="Fail",
-                content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert result["ok"] is True  # skill still saved
-            assert result["embedded"] is False
-            assert "embedding failed" in result["message"]
+        result = json.loads(await manage_bot_skill(
+            action="create", name="fail-skill", title="Fail",
+            content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert result == {
+            "ok": True,
+            "id": "bots/testbot/fail-skill",
+            "embedded": False,
+            "message": (
+                "Skill 'bots/testbot/fail-skill' created."
+                " Warning: embedding failed — skill saved but won't appear in RAG until re-embedded."
+            ),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -949,66 +870,51 @@ class TestEmbeddingStatus:
 class TestListPagination:
 
     @pytest.mark.asyncio
-    async def test_list_with_limit_and_offset(self):
-        rows = [_make_skill_row("bots/testbot/skill-c", name="Skill C")]
-        db = AsyncMock()
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 5
-        rows_result = MagicMock()
-        rows_result.scalars.return_value.all.return_value = rows
-        db.execute = AsyncMock(side_effect=[count_result, rows_result])
+    async def test_when_limit_and_offset_provided_then_result_page_reflects_them(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        base = datetime.now(timezone.utc)
+        for i in range(5):
+            skill = build_bot_skill(bot_id="testbot", name=f"skill-{i}")
+            skill.updated_at = base - timedelta(seconds=i)  # descending order by updated_at
+            db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list", limit=1, offset=2))
-            assert result["total"] == 5
-            assert result["limit"] == 1
-            assert result["offset"] == 2
-            assert len(result["skills"]) == 1
+        result = json.loads(await manage_bot_skill(action="list", limit=1, offset=2))
+
+        assert result["total"] == 5
+        assert result["limit"] == 1
+        assert result["offset"] == 2
+        assert [s["id"] for s in result["skills"]] == ["bots/testbot/skill-2"]
 
     @pytest.mark.asyncio
-    async def test_list_clamps_limit(self):
-        """Limit should be clamped to 100 max."""
-        rows = [_make_skill_row("bots/testbot/s1", name="S1")]
-        db = AsyncMock()
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 1
-        rows_result = MagicMock()
-        rows_result.scalars.return_value.all.return_value = rows
-        db.execute = AsyncMock(side_effect=[count_result, rows_result])
+    async def test_when_limit_exceeds_max_then_clamped_to_100(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        db_session.add(build_bot_skill(bot_id="testbot", name="only"))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list", limit=999))
-            assert result["limit"] == 100  # clamped
+        result = json.loads(await manage_bot_skill(action="list", limit=999))
+
+        assert result["limit"] == 100
 
     @pytest.mark.asyncio
-    async def test_list_content_preview_truncated(self):
+    async def test_when_content_long_then_preview_truncated_to_120(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
         long_body = "A" * 200
         content = f"---\nname: Test\ncategory: guide\n---\n\n{long_body}"
-        rows = [_make_skill_row("bots/testbot/long", name="Long", content=content)]
-        db = AsyncMock()
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 1
-        rows_result = MagicMock()
-        rows_result.scalars.return_value.all.return_value = rows
-        db.execute = AsyncMock(side_effect=[count_result, rows_result])
+        db_session.add(build_bot_skill(bot_id="testbot", name="long", content=content))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list"))
-            skill = result["skills"][0]
-            assert len(skill["preview"]) <= 120
-            assert skill["category"] == "guide"
+        result = json.loads(await manage_bot_skill(action="list"))
+
+        skill = result["skills"][0]
+        assert len(skill["preview"]) <= 120
+        assert skill["category"] == "guide"
 
 
 # ---------------------------------------------------------------------------
@@ -1094,19 +1000,19 @@ class TestCacheInvalidation:
 
 class TestFrontmatterSanitization:
 
-    def test_sanitize_strips_newlines(self):
+    def test_when_value_has_newlines_then_sanitize_replaces_with_spaces(self):
         assert _sanitize_frontmatter_value("line1\nline2") == "line1 line2"
         assert _sanitize_frontmatter_value("line1\r\nline2") == "line1  line2"
 
-    def test_sanitize_strips_whitespace(self):
+    def test_when_value_has_leading_trailing_space_then_sanitize_strips(self):
         assert _sanitize_frontmatter_value("  hello  ") == "hello"
 
-    def test_build_content_sanitizes_title_with_newline(self):
+    def test_when_title_has_newline_then_build_content_sanitizes_it(self):
         result = _build_content("Bad\nTitle", "body content")
         assert "\nTitle" not in result
         assert "name: Bad Title" in result
 
-    def test_build_content_sanitizes_triggers(self):
+    def test_when_triggers_have_newline_then_build_content_sanitizes_them(self):
         result = _build_content("T", "body", triggers="a\nb")
         assert "triggers: a b" in result
 
@@ -1137,143 +1043,103 @@ class TestEmbedSkillSafe:
 class TestEdgeCases:
 
     @pytest.mark.asyncio
-    async def test_list_offset_past_end(self):
-        """Offset beyond total returns empty list but correct total."""
-        db = AsyncMock()
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 3
-        rows_result = MagicMock()
-        rows_result.scalars.return_value.all.return_value = []
-        db.execute = AsyncMock(side_effect=[count_result, rows_result])
+    async def test_when_list_offset_past_end_then_empty_skills_but_total_correct(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        for i in range(3):
+            db_session.add(build_bot_skill(bot_id="testbot", name=f"s-{i}"))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list", offset=100))
-            assert result["total"] == 3
-            assert result["skills"] == []
-            assert result["offset"] == 100
+        result = json.loads(await manage_bot_skill(action="list", offset=100))
+
+        assert result["total"] == 3
+        assert result["skills"] == []
+        assert result["offset"] == 100
 
     @pytest.mark.asyncio
-    async def test_list_negative_offset_clamped(self):
-        db = AsyncMock()
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 1
-        rows_result = MagicMock()
-        rows_result.scalars.return_value.all.return_value = [_make_skill_row("bots/testbot/s")]
-        db.execute = AsyncMock(side_effect=[count_result, rows_result])
+    async def test_when_list_offset_negative_then_clamped_to_zero(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        db_session.add(build_bot_skill(bot_id="testbot", name="only"))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list", offset=-5))
-            assert result["offset"] == 0
+        result = json.loads(await manage_bot_skill(action="list", offset=-5))
+
+        assert result["offset"] == 0
 
     @pytest.mark.asyncio
-    async def test_list_zero_limit_clamped_to_one(self):
-        db = AsyncMock()
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 1
-        rows_result = MagicMock()
-        rows_result.scalars.return_value.all.return_value = [_make_skill_row("bots/testbot/s")]
-        db.execute = AsyncMock(side_effect=[count_result, rows_result])
+    async def test_when_list_limit_zero_then_clamped_to_one(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        db_session.add(build_bot_skill(bot_id="testbot", name="only"))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list", limit=0))
-            assert result["limit"] == 1
+        result = json.loads(await manage_bot_skill(action="list", limit=0))
+
+        assert result["limit"] == 1
 
     @pytest.mark.asyncio
-    async def test_patch_validates_result_too_short(self):
-        """Patch that shrinks content below minimum should be rejected."""
-        # Content with frontmatter + just-enough body
+    async def test_when_patch_shrinks_content_below_min_then_rejected(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
         body = "x" * CONTENT_MIN_LENGTH
         full_content = f"---\nname: Test\n---\n\n{body}"
-        row = _make_skill_row("bots/testbot/my-skill", content=full_content, source_type="tool")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+        db_session.add(build_bot_skill(bot_id="testbot", name="my-skill", content=full_content))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            # Replace most of the body with nothing
-            result = _parse(await manage_bot_skill(
-                action="patch", name="my-skill",
-                old_text=body, new_text="tiny",
-            ))
-            assert "error" in result
-            assert "too short" in result["error"].lower()
+        result = json.loads(await manage_bot_skill(
+            action="patch", name="my-skill", old_text=body, new_text="tiny",
+        ))
+
+        assert "too short" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_patch_validates_result_too_large(self):
-        """Patch that expands content above maximum should be rejected."""
+    async def test_when_patch_grows_content_above_max_then_rejected(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
         body = "x" * 100
         full_content = f"---\nname: Test\n---\n\n{body}"
-        row = _make_skill_row("bots/testbot/my-skill", content=full_content, source_type="tool")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+        db_session.add(build_bot_skill(bot_id="testbot", name="my-skill", content=full_content))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="patch", name="my-skill",
-                old_text="x" * 50, new_text="y" * (CONTENT_MAX_LENGTH + 1),
-            ))
-            assert "error" in result
-            assert "too large" in result["error"].lower()
+        result = json.loads(await manage_bot_skill(
+            action="patch", name="my-skill",
+            old_text="x" * 50, new_text="y" * (CONTENT_MAX_LENGTH + 1),
+        ))
+
+        assert "too large" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_patch_rejects_file_managed(self):
-        row = _make_skill_row("bots/testbot/my-skill", content="body", source_type="file")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+    async def test_when_patch_target_is_file_managed_then_rejected(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        db_session.add(build_bot_skill(
+            bot_id="testbot", name="my-skill",
+            content="body " * 50, source_type="file",
+        ))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="patch", name="my-skill", old_text="body", new_text="new",
-            ))
-            assert "file-managed" in result["error"]
+        result = json.loads(await manage_bot_skill(
+            action="patch", name="my-skill", old_text="body", new_text="new",
+        ))
 
-    @pytest.mark.asyncio
-    async def test_patch_empty_new_text_rejected(self):
-        """new_text='' is falsy and should be rejected."""
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="patch", name="x", old_text="something", new_text="",
-            ))
-            assert "required" in result["error"]
+        assert "file-managed" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_delete_rejects_cross_bot(self):
-        """Ensure delete rejects a skill owned by another bot."""
-        row = _make_skill_row("bots/otherbot/stolen", source_type="tool")
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=row)
+    async def test_when_patch_new_text_empty_then_rejected(self, agent_context):
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="delete", name="stolen"))
-            assert "error" in result
+        result = json.loads(await manage_bot_skill(
+            action="patch", name="x", old_text="something", new_text="",
+        ))
+
+        assert "required" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -1331,97 +1197,10 @@ class TestSkillNudge:
         assert 'manage_bot_skill(action="create"' in DEFAULT_MEMORY_SCHEME_PROMPT
 
 
-# ---------------------------------------------------------------------------
-# Dedup / similarity check tests
-# ---------------------------------------------------------------------------
-
-class TestSkillDedup:
-
-    @pytest.mark.asyncio
-    async def test_create_dedup_warning(self):
-        """Similar skill exists (>0.85) → warning returned, no creation."""
-        # Mock the dedup check to return a warning
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as mock_bot_id,
-            patch("app.tools.local.bot_skills._check_skill_dedup") as mock_dedup,
-        ):
-            mock_bot_id.get.return_value = "testbot"
-            mock_dedup.return_value = json.dumps({
-                "warning": "similar_skill_exists",
-                "similar_skill_id": "bots/testbot/existing-skill",
-                "similarity": 0.92,
-                "message": "Similar skill exists.",
-            })
-
-            result = await manage_bot_skill(
-                action="create",
-                name="new-skill",
-                title="New Skill",
-                content="x" * CONTENT_MIN_LENGTH,
-            )
-
-        data = _parse(result)
-        assert data["warning"] == "similar_skill_exists"
-        assert data["similarity"] == 0.92
-
-    @pytest.mark.asyncio
-    async def test_create_dedup_force_bypasses(self):
-        """force=True should skip the dedup check entirely."""
-        db_mock = AsyncMock()
-        db_mock.get = AsyncMock(return_value=None)  # no existing skill
-        db_mock.add = MagicMock()
-        db_mock.commit = AsyncMock()
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as mock_bot_id,
-            patch("app.db.engine.async_session", _mock_session(db_mock)),
-            patch("app.tools.local.bot_skills._check_skill_dedup") as mock_dedup,
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock, return_value=None),
-        ):
-            mock_bot_id.get.return_value = "testbot"
-
-            result = await manage_bot_skill(
-                action="create",
-                name="new-skill",
-                title="New Skill",
-                content="x" * CONTENT_MIN_LENGTH,
-                force=True,
-            )
-
-        # Dedup check should NOT have been called
-        mock_dedup.assert_not_called()
-        data = _parse(result)
-        assert data["ok"] is True
-
-    @pytest.mark.asyncio
-    async def test_create_dedup_no_false_positive(self):
-        """Dissimilar skill → no warning, creation proceeds."""
-        db_mock = AsyncMock()
-        db_mock.get = AsyncMock(return_value=None)
-        db_mock.add = MagicMock()
-        db_mock.commit = AsyncMock()
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as mock_bot_id,
-            patch("app.db.engine.async_session", _mock_session(db_mock)),
-            patch("app.tools.local.bot_skills._check_skill_dedup", new_callable=AsyncMock, return_value=None),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock, return_value=None),
-        ):
-            mock_bot_id.get.return_value = "testbot"
-
-            result = await manage_bot_skill(
-                action="create",
-                name="unique-skill",
-                title="Unique Skill",
-                content="x" * CONTENT_MIN_LENGTH,
-            )
-
-        data = _parse(result)
-        assert data["ok"] is True
+# NOTE: Dedup tests live in TestCreate
+# (test_when_dedup_finds_similar_skill_then_create_rejected and
+# test_when_force_true_then_dedup_bypassed) — the dedup path is a branch of the
+# create action, not its own surface.
 
 
 # ---------------------------------------------------------------------------
@@ -1431,38 +1210,24 @@ class TestSkillDedup:
 class TestSurfacingStats:
 
     @pytest.mark.asyncio
-    async def test_list_includes_surfacing_stats(self):
-        """list action should include last_surfaced_at and surface_count."""
-        from sqlalchemy import func, select
+    async def test_when_skill_has_surfacing_stats_then_list_includes_them(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        surfaced_at = datetime.now(timezone.utc) - timedelta(days=3)
+        skill = build_bot_skill(
+            bot_id="testbot", name="my-skill",
+            content="---\nname: My Skill\n---\nSome content here",
+            last_surfaced_at=surfaced_at, surface_count=42,
+        )
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        now = datetime.now(timezone.utc)
-        row = _make_skill_row("bots/testbot/my-skill", name="My Skill",
-                              content="---\nname: My Skill\n---\nSome content here")
-        row.last_surfaced_at = now
-        row.surface_count = 42
+        result = json.loads(await manage_bot_skill(action="list"))
 
-        # Mock the count query and the rows query
-        mock_count_result = MagicMock()
-        mock_count_result.scalar_one.return_value = 1
-
-        mock_rows_result = MagicMock()
-        mock_rows_result.scalars.return_value.all.return_value = [row]
-
-        db_mock = AsyncMock()
-        db_mock.execute = AsyncMock(side_effect=[mock_count_result, mock_rows_result])
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as mock_bot_id,
-            patch("app.db.engine.async_session", _mock_session(db_mock)),
-        ):
-            mock_bot_id.get.return_value = "testbot"
-            result = await manage_bot_skill(action="list")
-
-        data = _parse(result)
-        assert len(data["skills"]) == 1
-        skill = data["skills"][0]
-        assert skill["last_surfaced_at"] == now.isoformat()
-        assert skill["surface_count"] == 42
+        assert len(result["skills"]) == 1
+        assert result["skills"][0]["last_surfaced_at"] == surfaced_at.isoformat()
+        assert result["skills"][0]["surface_count"] == 42
 
 
 # ---------------------------------------------------------------------------
@@ -1541,246 +1306,182 @@ class TestCorrectionNudge:
 class TestMergeAction:
 
     @pytest.mark.asyncio
-    async def test_merge_requires_at_least_two_names(self):
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="merge", names=["only-one"],
-                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert "at least 2" in result["error"]
+    async def test_when_merge_given_one_name_then_error_returned(self, agent_context):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="merge", names=["only-one"],
+            name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert "at least 2" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_merge_requires_names(self):
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="merge",
-                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert "at least 2" in result["error"]
+    async def test_when_merge_given_no_names_then_error_returned(self, agent_context):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="merge", name="merged", title="Merged",
+            content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert "at least 2" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_merge_requires_target_fields(self):
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            # Missing name
-            result = _parse(await manage_bot_skill(
-                action="merge", names=["a", "b"],
-                title="Merged", content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert "required" in result["error"]
+    async def test_when_merge_missing_target_name_then_error_returned(self, agent_context):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="merge", names=["a", "b"],
+            title="Merged", content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert "required" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_merge_succeeds(self):
-        """Merging 2 skills into 1 should delete sources and create target."""
-        skill_a = _make_skill_row("bots/testbot/skill-a", name="Skill A", source_type="tool")
-        skill_b = _make_skill_row("bots/testbot/skill-b", name="Skill B", source_type="tool")
+    async def test_when_merge_two_skills_then_target_persisted_sources_deleted(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        skill_a = build_bot_skill(bot_id="testbot", name="skill-a")
+        skill_b = build_bot_skill(bot_id="testbot", name="skill-b")
+        db_session.add_all([skill_a, skill_b])
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        # Map skill IDs to mock rows for db.get
-        skill_map = {
-            "bots/testbot/skill-a": skill_a,
-            "bots/testbot/skill-b": skill_b,
-            "bots/testbot/merged": None,  # target doesn't exist yet
-        }
+        result = json.loads(await manage_bot_skill(
+            action="merge", names=["skill-a", "skill-b"],
+            name="merged", title="Merged Skill", content="x" * CONTENT_MIN_LENGTH,
+        ))
 
-        db = AsyncMock()
-        db.get = AsyncMock(side_effect=lambda model, key: skill_map.get(key))
-        db.delete = AsyncMock()
-        db.execute = AsyncMock()
-        db.add = MagicMock()
-        db.commit = AsyncMock()
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="merge",
-                names=["skill-a", "skill-b"],
-                name="merged",
-                title="Merged Skill",
-                content="x" * CONTENT_MIN_LENGTH,
-            ))
-
+        from sqlalchemy import select
+        remaining_ids = (await db_session.execute(
+            select(Skill.id).where(Skill.id.like("bots/testbot/%"))
+        )).scalars().all()
         assert result["ok"] is True
         assert result["id"] == "bots/testbot/merged"
-        assert len(result["deleted"]) == 2
-        assert "bots/testbot/skill-a" in result["deleted"]
-        assert "bots/testbot/skill-b" in result["deleted"]
-        # Should have called delete for both source skills
-        assert db.delete.call_count == 2
-        # Should have added the merged skill
-        db.add.assert_called_once()
+        assert set(result["deleted"]) == {skill_a.id, skill_b.id}
+        assert set(remaining_ids) == {"bots/testbot/merged"}
 
     @pytest.mark.asyncio
-    async def test_merge_populates_db_columns(self):
-        """Bug fix: merge must set description, triggers, category on the merged row."""
-        skill_a = _make_skill_row("bots/testbot/skill-a", name="Skill A", source_type="tool")
-        skill_b = _make_skill_row("bots/testbot/skill-b", name="Skill B", source_type="tool")
+    async def test_when_merge_supplies_triggers_and_category_then_merged_row_has_them(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        db_session.add_all([
+            build_bot_skill(bot_id="testbot", name="skill-a"),
+            build_bot_skill(bot_id="testbot", name="skill-b"),
+        ])
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        skill_map = {
-            "bots/testbot/skill-a": skill_a,
-            "bots/testbot/skill-b": skill_b,
-            "bots/testbot/merged": None,
-        }
-
-        db = AsyncMock()
-        db.get = AsyncMock(side_effect=lambda model, key: skill_map.get(key))
-        db.delete = AsyncMock()
-        db.execute = AsyncMock()
-        db.add = MagicMock()
-        db.commit = AsyncMock()
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="merge",
-                names=["skill-a", "skill-b"],
-                name="merged",
-                title="Merged Skill",
-                content="Combined knowledge about networking. " + "x" * 50,
-                triggers="network, bridge",
-                category="infrastructure",
-            ))
+        result = json.loads(await manage_bot_skill(
+            action="merge", names=["skill-a", "skill-b"],
+            name="merged", title="Merged Skill",
+            content="Combined knowledge about networking. " + "x" * 50,
+            triggers="network, bridge", category="infrastructure",
+        ))
 
         assert result["ok"] is True
-        merged_row = db.add.call_args[0][0]
-        assert merged_row.triggers == ["network", "bridge"]
-        assert merged_row.category == "infrastructure"
-        assert merged_row.description is not None
-        assert "networking" in merged_row.description.lower()
+        merged = await db_session.get(Skill, "bots/testbot/merged")
+        assert merged.triggers == ["network", "bridge"]
+        assert merged.category == "infrastructure"
+        assert "networking" in merged.description.lower()
 
     @pytest.mark.asyncio
-    async def test_merge_rejects_file_managed_source(self):
-        """Cannot merge a file-managed skill."""
-        skill_a = _make_skill_row("bots/testbot/skill-a", source_type="file")
-        skill_b = _make_skill_row("bots/testbot/skill-b", source_type="tool")
+    async def test_when_merge_source_is_file_managed_then_rejected(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        db_session.add_all([
+            build_bot_skill(bot_id="testbot", name="skill-a", source_type="file"),
+            build_bot_skill(bot_id="testbot", name="skill-b"),
+        ])
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        db = AsyncMock()
-        db.get = AsyncMock(side_effect=lambda model, key: {
-            "bots/testbot/skill-a": skill_a,
-            "bots/testbot/skill-b": skill_b,
-        }.get(key))
+        result = json.loads(await manage_bot_skill(
+            action="merge", names=["skill-a", "skill-b"],
+            name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
+        ))
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="merge", names=["skill-a", "skill-b"],
-                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert "file-managed" in result["error"]
+        assert "file-managed" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_merge_rejects_missing_source(self):
-        """Cannot merge a skill that doesn't exist."""
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
+    async def test_when_merge_source_missing_then_error_returned(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        agent_context(bot_id="testbot")
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="merge", names=["missing-a", "missing-b"],
-                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert "not found" in result["error"]
+        result = json.loads(await manage_bot_skill(
+            action="merge", names=["missing-a", "missing-b"],
+            name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert "not found" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_merge_target_already_exists_and_not_source(self):
-        """Target skill exists but isn't one of the sources → error."""
-        skill_a = _make_skill_row("bots/testbot/skill-a", source_type="tool")
-        skill_b = _make_skill_row("bots/testbot/skill-b", source_type="tool")
-        existing_target = _make_skill_row("bots/testbot/merged", source_type="tool")
+    async def test_when_merge_target_exists_and_not_among_sources_then_rejected(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        db_session.add_all([
+            build_bot_skill(bot_id="testbot", name="skill-a"),
+            build_bot_skill(bot_id="testbot", name="skill-b"),
+            build_bot_skill(bot_id="testbot", name="merged"),
+        ])
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        db = AsyncMock()
-        db.get = AsyncMock(side_effect=lambda model, key: {
-            "bots/testbot/skill-a": skill_a,
-            "bots/testbot/skill-b": skill_b,
-            "bots/testbot/merged": existing_target,
-        }.get(key))
+        result = json.loads(await manage_bot_skill(
+            action="merge", names=["skill-a", "skill-b"],
+            name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
+        ))
 
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="merge", names=["skill-a", "skill-b"],
-                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert "already exists" in result["error"]
+        assert "already exists" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_merge_target_is_one_of_sources(self):
-        """Target skill = one of the sources → allowed (common rename-merge pattern)."""
-        skill_a = _make_skill_row("bots/testbot/skill-a", name="Skill A", source_type="tool")
-        skill_b = _make_skill_row("bots/testbot/skill-b", name="Skill B", source_type="tool")
+    async def test_when_merge_target_is_one_of_sources_then_allowed(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        db_session.add_all([
+            build_bot_skill(bot_id="testbot", name="skill-a"),
+            build_bot_skill(bot_id="testbot", name="skill-b"),
+        ])
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        # When target = skill-a, the first get for "skill-a" as target returns the row,
-        # but merged_id is in source_ids so it's allowed
-        call_count = {"n": 0}
-        def mock_get(model, key):
-            call_count["n"] += 1
-            return {
-                "bots/testbot/skill-a": skill_a,
-                "bots/testbot/skill-b": skill_b,
-            }.get(key)
+        result = json.loads(await manage_bot_skill(
+            action="merge", names=["skill-a", "skill-b"],
+            name="skill-a", title="Combined", content="x" * CONTENT_MIN_LENGTH,
+        ))
 
-        db = AsyncMock()
-        db.get = AsyncMock(side_effect=mock_get)
-        db.delete = AsyncMock()
-        db.execute = AsyncMock()
-        db.add = MagicMock()
-        db.commit = AsyncMock()
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
-            patch("app.tools.local.bot_skills._invalidate_cache"),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="merge", names=["skill-a", "skill-b"],
-                name="skill-a", title="Combined", content="x" * CONTENT_MIN_LENGTH,
-            ))
+        from sqlalchemy import select
+        remaining_ids = set((await db_session.execute(
+            select(Skill.id).where(Skill.id.like("bots/testbot/%"))
+        )).scalars().all())
         assert result["ok"] is True
+        assert remaining_ids == {"bots/testbot/skill-a"}
 
     @pytest.mark.asyncio
-    async def test_merge_validates_content(self):
-        """Merge should validate the merged content."""
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="merge", names=["a", "b"],
-                name="merged", title="Merged", content="tiny",
-            ))
-            assert "too short" in result["error"].lower()
+    async def test_when_merge_content_too_short_then_rejected(self, agent_context):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="merge", names=["a", "b"],
+            name="merged", title="Merged", content="tiny",
+        ))
+
+        assert "too short" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_merge_deduplicates_names(self):
-        """Duplicate names in the list should be collapsed, and rejected if < 2 distinct."""
-        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(
-                action="merge", names=["same", "same"],
-                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
-            ))
-            assert "at least 2 distinct" in result["error"]
+    async def test_when_merge_names_all_duplicates_then_rejected_as_not_distinct(
+        self, agent_context,
+    ):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="merge", names=["same", "same"],
+            name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
+        ))
+
+        assert "at least 2 distinct" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -1862,33 +1563,27 @@ class TestRepeatedLookupDetection:
 
 class TestIsStale:
 
-    def test_never_surfaced_and_old(self):
-        """surface_count=0 + created > 7 days ago → stale."""
+    def test_when_never_surfaced_and_older_than_7_days_then_stale(self):
         old = datetime.now(timezone.utc) - timedelta(days=STALE_NEVER_SURFACED_DAYS + 1)
         assert _is_stale(created_at=old, last_surfaced_at=None, surface_count=0) is True
 
-    def test_never_surfaced_but_recent(self):
-        """surface_count=0 + created < 7 days ago → not stale."""
+    def test_when_never_surfaced_and_newer_than_7_days_then_not_stale(self):
         recent = datetime.now(timezone.utc) - timedelta(days=STALE_NEVER_SURFACED_DAYS - 1)
         assert _is_stale(created_at=recent, last_surfaced_at=None, surface_count=0) is False
 
-    def test_surfaced_recently(self):
-        """Last surfaced < 30 days ago → not stale."""
+    def test_when_last_surfaced_within_30_days_then_not_stale(self):
         recent = datetime.now(timezone.utc) - timedelta(days=STALE_LAST_SURFACED_DAYS - 1)
         assert _is_stale(created_at=None, last_surfaced_at=recent, surface_count=5) is False
 
-    def test_surfaced_long_ago(self):
-        """Last surfaced > 30 days ago → stale."""
+    def test_when_last_surfaced_over_30_days_ago_then_stale(self):
         old = datetime.now(timezone.utc) - timedelta(days=STALE_LAST_SURFACED_DAYS + 1)
         assert _is_stale(created_at=None, last_surfaced_at=old, surface_count=5) is True
 
-    def test_none_created_at_and_never_surfaced(self):
-        """Edge case: no created_at + never surfaced → not stale (can't tell)."""
+    def test_when_created_at_is_none_and_never_surfaced_then_not_stale(self):
         assert _is_stale(created_at=None, last_surfaced_at=None, surface_count=0) is False
 
-    def test_data_inconsistency_count_but_no_timestamp(self):
-        """Edge case: surface_count > 0 but last_surfaced_at is None → not stale.
-        This is a data inconsistency; we err on the side of not marking stale."""
+    def test_when_surface_count_nonzero_but_timestamp_missing_then_not_stale(self):
+        # Data inconsistency: err on the side of not marking stale.
         old = datetime.now(timezone.utc) - timedelta(days=60)
         assert _is_stale(created_at=old, last_surfaced_at=None, surface_count=5) is False
 
@@ -1896,119 +1591,77 @@ class TestIsStale:
 class TestListStaleHints:
 
     @pytest.mark.asyncio
-    async def test_list_includes_stale_flag(self):
-        """List response should include 'stale' and 'created_at' per skill."""
+    async def test_when_skill_never_surfaced_and_old_then_stale_flag_set(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
         old = datetime.now(timezone.utc) - timedelta(days=60)
-        row = _make_skill_row(
-            "bots/testbot/old-skill", name="Old",
+        skill = build_bot_skill(
+            bot_id="testbot", name="old-skill",
             content="---\nname: Old\n---\nSome content",
             created_at=old, surface_count=0,
         )
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        mock_count_result = MagicMock()
-        mock_count_result.scalar_one.return_value = 1
-        mock_rows_result = MagicMock()
-        mock_rows_result.scalars.return_value.all.return_value = [row]
+        result = json.loads(await manage_bot_skill(action="list"))
 
-        db = AsyncMock()
-        db.execute = AsyncMock(side_effect=[mock_count_result, mock_rows_result])
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list"))
-
-        skill = result["skills"][0]
-        assert "stale" in skill
-        assert skill["stale"] is True
-        assert "created_at" in skill
+        assert result["skills"][0]["stale"] is True
+        assert result["skills"][0]["created_at"] == old.isoformat()
 
     @pytest.mark.asyncio
-    async def test_list_stale_hint_when_stale_exist(self):
-        """List should include a 'hint' when stale skills are present."""
+    async def test_when_one_stale_skill_exists_then_hint_uses_singular_grammar(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
         old = datetime.now(timezone.utc) - timedelta(days=60)
-        stale_row = _make_skill_row(
-            "bots/testbot/stale", name="Stale",
+        skill = build_bot_skill(
+            bot_id="testbot", name="stale",
             content="---\nname: Stale\n---\nSome content",
             created_at=old, surface_count=0,
         )
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        mock_count_result = MagicMock()
-        mock_count_result.scalar_one.return_value = 1
-        mock_rows_result = MagicMock()
-        mock_rows_result.scalars.return_value.all.return_value = [stale_row]
+        result = json.loads(await manage_bot_skill(action="list"))
 
-        db = AsyncMock()
-        db.execute = AsyncMock(side_effect=[mock_count_result, mock_rows_result])
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list"))
-
-        assert "hint" in result
         assert "1 skill has" in result["hint"]
-        assert "hasn't" in result["hint"]  # singular verb agreement
+        assert "hasn't" in result["hint"]
 
     @pytest.mark.asyncio
-    async def test_list_stale_hint_plural_grammar(self):
-        """Hint should use correct plural grammar for multiple stale skills."""
+    async def test_when_multiple_stale_skills_then_hint_uses_plural_grammar(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
         old = datetime.now(timezone.utc) - timedelta(days=60)
-        rows = [
-            _make_skill_row(
-                f"bots/testbot/stale-{i}", name=f"Stale {i}",
+        for i in range(2):
+            db_session.add(build_bot_skill(
+                bot_id="testbot", name=f"stale-{i}",
                 content=f"---\nname: Stale {i}\n---\nSome content",
                 created_at=old, surface_count=0,
-            )
-            for i in range(2)
-        ]
+            ))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        mock_count_result = MagicMock()
-        mock_count_result.scalar_one.return_value = 2
-        mock_rows_result = MagicMock()
-        mock_rows_result.scalars.return_value.all.return_value = rows
-
-        db = AsyncMock()
-        db.execute = AsyncMock(side_effect=[mock_count_result, mock_rows_result])
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list"))
+        result = json.loads(await manage_bot_skill(action="list"))
 
         assert "2 skills have" in result["hint"]
-        assert "haven't" in result["hint"]  # plural verb agreement
+        assert "haven't" in result["hint"]
 
     @pytest.mark.asyncio
-    async def test_list_no_hint_when_all_fresh(self):
-        """No 'hint' key when no stale skills."""
+    async def test_when_all_skills_fresh_then_no_hint_in_response(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
         now = datetime.now(timezone.utc)
-        fresh_row = _make_skill_row(
-            "bots/testbot/fresh", name="Fresh",
+        skill = build_bot_skill(
+            bot_id="testbot", name="fresh",
             content="---\nname: Fresh\n---\nSome content",
             created_at=now, last_surfaced_at=now, surface_count=5,
         )
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
 
-        mock_count_result = MagicMock()
-        mock_count_result.scalar_one.return_value = 1
-        mock_rows_result = MagicMock()
-        mock_rows_result.scalars.return_value.all.return_value = [fresh_row]
-
-        db = AsyncMock()
-        db.execute = AsyncMock(side_effect=[mock_count_result, mock_rows_result])
-
-        with (
-            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
-            patch("app.db.engine.async_session", _mock_session(db)),
-        ):
-            ctx.get.return_value = "testbot"
-            result = _parse(await manage_bot_skill(action="list"))
+        result = json.loads(await manage_bot_skill(action="list"))
 
         assert "hint" not in result
 

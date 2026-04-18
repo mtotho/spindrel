@@ -47,7 +47,12 @@ export default function TaskDetailScreen() {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<Tab>("overview");
+  // Honor ?tab=runs so in-chat "View runs" deeplinks open on the right tab.
+  const initialTab: Tab =
+    new URLSearchParams(window.location.search).get("tab") === "runs"
+      ? "runs"
+      : "overview";
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [savedFlash, setSavedFlash] = useState(false);
   const runNowMut = useRunTaskNow();
 

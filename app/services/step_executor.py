@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.agent.context import current_bot_id
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Task
@@ -705,7 +706,7 @@ async def _run_foreach_step(
                     for k, v in (rendered.get("tool_args") or {}).items()
                 }
                 status, result, error = await _call_tool_with_args(
-                    rendered.get("tool_name"), rendered_args, rendered
+                    rendered.get("tool_name"), rendered_args, rendered, task.bot_id
                 )
             else:
                 # v1: only `tool` sub-steps are supported inside foreach.
@@ -774,19 +775,33 @@ async def _call_tool_with_args(
     tool_name: str | None,
     rendered_args: dict,
     sub_def: dict,
+    bot_id: str | None = None,
 ) -> tuple[str, str | None, str | None]:
-    """Invoke a local tool by name with pre-rendered args."""
+    """Invoke a local tool by name with pre-rendered args.
+
+    ``bot_id`` seeds ``current_bot_id`` for the call so tools that depend on
+    the ContextVar (call_api, list_api_endpoints) can resolve the task's
+    identity. Without it those tools return "No bot context available."
+    """
     if not tool_name:
         return ("failed", None, "foreach sub-step of type 'tool' requires 'tool_name'")
     from app.tools.registry import call_local_tool
+    bot_id_token = current_bot_id.set(bot_id)
     try:
         result = await call_local_tool(tool_name, json.dumps(rendered_args))
         max_chars = sub_def.get("result_max_chars", 2000)
         if result and len(result) > max_chars:
             result = result[:max_chars] + "... [truncated]"
+        # Mirror _run_tool_step's error-payload detection so foreach sub-steps
+        # that returned `{"error": ...}` surface as failed instead of green.
+        err = _detect_error_payload(result) if result else None
+        if err is not None:
+            return ("failed", result, err)
         return ("done", result, None)
     except Exception as e:
         return ("failed", None, str(e)[:2000])
+    finally:
+        current_bot_id.reset(bot_id_token)
 
 
 async def _run_user_prompt_step(
@@ -875,6 +890,12 @@ async def _run_tool_step(
         for k, v in raw_args.items()
     }
 
+    # Tool steps need the task's bot identity in the ContextVar so tools that
+    # read `current_bot_id.get()` (call_api, list_api_endpoints, etc.) can look
+    # up the bot's API key and permissions. Pipeline runners don't pass through
+    # `set_agent_context`, so without this the step fails with "No bot context
+    # available." Reset the token after the call so we don't leak into peers.
+    bot_id_token = current_bot_id.set(task.bot_id)
     try:
         result = await call_local_tool(tool_name, json.dumps(rendered_args))
         max_chars = step_def.get("result_max_chars", 2000)
@@ -887,6 +908,8 @@ async def _run_tool_step(
         return ("done", result, None)
     except Exception as e:
         return ("failed", None, str(e)[:2000])
+    finally:
+        current_bot_id.reset(bot_id_token)
 
 
 def _detect_error_payload(result: str) -> str | None:

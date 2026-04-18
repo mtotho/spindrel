@@ -12,7 +12,7 @@ DB simply don't request them.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -36,7 +36,9 @@ from app.agent import context as agent_context_mod
 
 _MODULE_LEVEL_ALIASES = (
     "app.tools.local.tasks.async_session",
+    "app.tools.local.skills.async_session",
     "app.services.workflow_executor.async_session",
+    "app.services.compaction.async_session",
     "app.db.engine.async_session",
 )
 
@@ -53,6 +55,8 @@ async def patched_async_sessions(engine):
     with patch.multiple(
         "app.db.engine", async_session=factory
     ), patch("app.tools.local.tasks.async_session", factory), patch(
+        "app.tools.local.skills.async_session", factory
+    ), patch(
         "app.services.workflow_executor.async_session", factory
     ), patch("app.services.compaction.async_session", factory):
         yield factory
@@ -167,3 +171,80 @@ def bot_registry():
 
     _bots_mod._registry.clear()
     _bots_mod._registry.update(original)
+
+
+# ---------------------------------------------------------------------------
+# Bot-skills fixtures (used by test_manage_bot_skill.py)
+# ---------------------------------------------------------------------------
+#
+# ``manage_bot_skill`` has three external/Postgres-only touchpoints that a
+# SQLite-in-memory test engine cannot exercise directly:
+#
+#   1. ``app.agent.skills.re_embed_skill`` — embedding provider call.
+#   2. ``app.tools.local.bot_skills._check_skill_dedup`` — pgvector query via
+#      ``halfvec_cosine_distance``.
+#   3. Three module-level caches that ``_invalidate_cache`` touches, which
+#      leak state across tests if not cleared.
+#
+# These fixtures centralize the patches so every create/update/merge test
+# doesn't reinvent them inline.
+
+
+@pytest.fixture
+def embed_skill_patch():
+    """Patch the embedding external call. Returns the AsyncMock for per-test tweaks.
+
+    Patches ``app.agent.skills.re_embed_skill`` (the underlying external) rather
+    than ``_embed_skill_safe`` (our wrapper) so the wrapper's try/except +
+    True/False return is real code under test.
+    """
+    with patch("app.agent.skills.re_embed_skill", new_callable=AsyncMock) as m:
+        m.return_value = None  # re_embed_skill returns None on success
+        yield m
+
+
+@pytest.fixture
+def dedup_patch():
+    """Patch ``_check_skill_dedup`` (pgvector — Postgres-only).
+
+    Default ``return_value = None`` means no duplicate detected. Tests that
+    exercise the duplicate-rejected path set ``m.return_value`` to the JSON
+    warning string that the real function would produce.
+    """
+    with patch(
+        "app.tools.local.bot_skills._check_skill_dedup",
+        new_callable=AsyncMock,
+    ) as m:
+        m.return_value = None
+        yield m
+
+
+@pytest.fixture
+def bot_skill_cache_reset():
+    """Clear the three module-level caches that ``_invalidate_cache`` touches.
+
+    Opt-in (not autouse) — request it on test_manage_bot_skill.py via a
+    file-level ``pytestmark = pytest.mark.usefixtures("bot_skill_cache_reset")``.
+    Teardown-only: the caches start empty in a fresh process; the hazard is
+    residue left by earlier mutations leaking into later tests.
+    """
+    yield
+    # Best-effort — each cache module may not be importable in all test contexts.
+    try:
+        from app.agent import context_assembly
+        if hasattr(context_assembly, "_bot_skill_cache"):
+            context_assembly._bot_skill_cache.clear()
+    except Exception:  # pragma: no cover
+        pass
+    try:
+        from app.agent import rag
+        if hasattr(rag, "invalidate_skill_index_cache"):
+            rag.invalidate_skill_index_cache()
+    except Exception:  # pragma: no cover
+        pass
+    try:
+        from app.agent import repeated_lookup_detection
+        if hasattr(repeated_lookup_detection, "_cache"):
+            repeated_lookup_detection._cache.clear()
+    except Exception:  # pragma: no cover
+        pass

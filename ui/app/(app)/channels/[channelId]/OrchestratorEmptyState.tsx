@@ -559,14 +559,16 @@ export function OrchestratorLaunchpad({
         )}
       </button>
 
-      {/* Awaiting reviews banner — the primary call-to-action when pipelines
-          are paused at a user_prompt step. Highest visual weight in the strip. */}
+      {/* Awaiting reviews banner — desktop only. Each tile already shows its
+          own per-pipeline "N awaiting review" CTA; on mobile that's enough and
+          a second global banner is redundant chrome. On desktop the banner
+          gives quick single-click access to the Findings rail. */}
       {findingsCount > 0 && !collapsed && (
         <button
           onClick={onOpenFindings}
-          className="mx-4 mt-2 px-3 py-2 rounded-md
+          className="hidden md:flex mx-4 mt-2 px-3 py-2 rounded-md
                      bg-accent/10 border border-accent/40
-                     flex flex-row items-center justify-between gap-2
+                     flex-row items-center justify-between gap-2
                      hover:bg-accent/15 transition-colors w-[calc(100%-2rem)]"
         >
           <div className="flex flex-row items-center gap-2 min-w-0">
@@ -714,16 +716,21 @@ export function OrchestratorLaunchpad({
                         key={pipeline.id}
                         onClick={() => !pipelineRunning && handleLaunch(pipeline)}
                         disabled={pipelineRunning}
+                        title={getDescription(pipeline) || undefined}
                         className="flex flex-row items-center justify-between gap-3 px-3 py-2
                                    hover:bg-surface-raised text-left disabled:opacity-60"
                       >
-                        <div className="flex flex-row items-center gap-2.5 min-w-0">
+                        <div className="flex flex-row items-center gap-2.5 min-w-0 flex-1">
                           <Icon size={13} className="text-text-dim shrink-0" />
                           <span className="text-xs font-medium text-text truncate">
                             {pipeline.title || pipeline.id}
                           </span>
+                          {/* Description hidden on mobile — it truncates the
+                              title to "Dee..." on narrow viewports. Available
+                              in the `title` tooltip on desktop, visible inline
+                              on md+ where there's room. */}
                           {getDescription(pipeline) && (
-                            <span className="text-[10px] text-text-dim truncate opacity-70">
+                            <span className="hidden md:inline text-[10px] text-text-dim truncate opacity-70">
                               · {getDescription(pipeline)}
                             </span>
                           )}

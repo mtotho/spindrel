@@ -6,6 +6,7 @@ inline with 10 kwargs, and instead of ``MagicMock()`` stand-ins.
 
 See ``~/.claude/skills/testing-python/SKILL.md`` sections C and G.
 """
+from tests.factories.bot_skills import build_bot_skill
 from tests.factories.bots import build_bot
 from tests.factories.channels import build_channel, build_channel_bot_member
 from tests.factories.prompt_templates import build_prompt_template
@@ -15,6 +16,7 @@ from tests.factories.workflows import build_workflow, build_workflow_run
 
 __all__ = [
     "build_bot",
+    "build_bot_skill",
     "build_bot_skill_enrollment",
     "build_channel",
     "build_channel_bot_member",

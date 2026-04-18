@@ -15,6 +15,8 @@ import { useNavigate } from "react-router-dom";
 import type { Message } from "../../types/api";
 import { formatTimeShort } from "../../utils/time";
 import { InlineApprovalReview } from "./InlineApprovalReview";
+import { useTask } from "@/src/api/hooks/useTasks";
+import type { StepState } from "@/src/api/hooks/useTasks";
 import { cn } from "@/src/lib/cn";
 
 // ---------------------------------------------------------------------------
@@ -50,6 +52,7 @@ interface StepInfo {
 interface TaskRunMeta {
   kind?: string;
   task_id?: string;
+  parent_task_id?: string | null;
   task_type?: string;
   bot_id?: string;
   title?: string | null;
@@ -131,6 +134,19 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props)
   const runningStep = steps.find((s) => s.status === "running");
   const activeStep = awaitingStep ?? runningStep;
 
+  // Anchor messages persisted before the widget-envelope surfacing change
+  // (2026-04-17 session 15) lack `widget_envelope` + `response_schema` on the
+  // awaiting step. Rather than forcing a server-side re-emit of every stale
+  // anchor, lazy-fetch the task detail — `step_states[i]` on the current task
+  // row always carries the live envelope, so this self-heals in one request.
+  const needsTaskFallback =
+    !!awaitingStep && !awaitingStep.widget_envelope && !!meta.task_id;
+  const { data: taskDetail } = useTask(needsTaskFallback ? meta.task_id : undefined);
+  const liveStepState: StepState | null =
+    awaitingStep && taskDetail?.step_states
+      ? ((taskDetail.step_states as StepState[])[awaitingStep.index] ?? null)
+      : null;
+
   // When any step awaits the user, the header pill wins over outerStatus —
   // "running" outer + "awaiting_user_input" inner is the paused state and we
   // want the user's attention on that, not the generic running chip.
@@ -206,15 +222,15 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props)
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-text-dim whitespace-nowrap">{timestamp}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="hidden sm:inline text-[10px] text-text-dim whitespace-nowrap">{timestamp}</span>
           <button
             onClick={() => setExpanded((v) => !v)}
             className="text-[10px] text-text-dim hover:text-text-muted uppercase tracking-wider flex items-center gap-0.5 bg-transparent border-none cursor-pointer"
             aria-label={expanded ? "Collapse" : "Expand"}
           >
             {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            {expanded ? "collapse" : "expand"}
+            <span className="hidden sm:inline">{expanded ? "collapse" : "expand"}</span>
           </button>
         </div>
       </div>
@@ -226,8 +242,18 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props)
             const isActive = isActiveStatus(s.status) && activeStep?.index === s.index;
             const isOpen = openStep === s.index;
             const canOpen = !!(s.result_preview || s.error);
+            // Fall back to live step_states from the task detail fetch when the
+            // anchor metadata was persisted before widget-envelope surfacing.
+            const envelope =
+              s.widget_envelope ??
+              (liveStepState && liveStepState.widget_envelope) ??
+              null;
+            const schema =
+              s.response_schema ??
+              (liveStepState && liveStepState.response_schema) ??
+              null;
             const showInlineReview =
-              s.status === "awaiting_user_input" && !!s.widget_envelope && !!taskId;
+              s.status === "awaiting_user_input" && !!envelope && !!taskId;
 
             return (
               <div
@@ -249,7 +275,7 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props)
                   <StepIcon status={s.status} />
                   <span
                     className={cn(
-                      "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider flex-shrink-0",
+                      "hidden sm:inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider flex-shrink-0",
                       isActive
                         ? "bg-accent/15 text-accent border border-accent/30"
                         : "bg-surface-overlay/40 text-text-dim border border-surface-border/60",
@@ -290,10 +316,29 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props)
                     <InlineApprovalReview
                       taskId={taskId!}
                       stepIndex={s.index}
-                      widgetEnvelope={s.widget_envelope}
-                      responseSchema={s.response_schema}
+                      widgetEnvelope={envelope}
+                      responseSchema={schema}
                       headline={s.title || undefined}
                     />
+                  </div>
+                )}
+
+                {/* Fallback prompt when we're awaiting but still loading the
+                    envelope (or the fallback fetch failed). Gives the user a
+                    path to admin so they're never stuck. */}
+                {s.status === "awaiting_user_input" && !showInlineReview && (
+                  <div className="px-3.5 pb-3 pt-1 flex flex-row items-center justify-between gap-2">
+                    <span className="text-[11px] text-text-dim italic">
+                      Loading review…
+                    </span>
+                    {taskId && (
+                      <button
+                        onClick={() => navigate(`/admin/tasks/${taskId}`)}
+                        className="text-[11px] text-accent hover:underline"
+                      >
+                        Open in admin
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -316,16 +361,29 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props)
           bot_id stays because it's the one piece of variable attribution. */}
       {(!isPipeline || meta.bot_id || taskId) && (
         <div className="flex items-center justify-between gap-3 border-t border-surface-border/40 px-3.5 py-1.5">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-text-dim min-w-0">
+          <div className="hidden sm:flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-text-dim min-w-0">
             {meta.bot_id && <span className="truncate">{meta.bot_id}</span>}
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+            {/* View runs — only shown on desktop where there's footer room.
+                Lands on the definition's Runs tab (full execution history).
+                On mobile the single "This run" link is the primary action —
+                users pivot to admin history from inside that screen if needed. */}
+            {meta.parent_task_id && (
+              <button
+                onClick={() => navigate(`/admin/tasks/${meta.parent_task_id}?tab=runs`)}
+                className="hidden sm:inline-flex text-[10.5px] text-accent/80 hover:text-accent bg-transparent border-none cursor-pointer items-center gap-1 px-1 py-0.5 rounded hover:bg-accent/5 transition-colors"
+              >
+                View runs
+                <ExternalLink size={10} />
+              </button>
+            )}
             {taskId && (
               <button
                 onClick={() => navigate(`/admin/tasks/${taskId}`)}
                 className="text-[10.5px] text-accent/80 hover:text-accent bg-transparent border-none cursor-pointer inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-accent/5 transition-colors"
               >
-                Open in admin
+                This run
                 <ExternalLink size={10} />
               </button>
             )}

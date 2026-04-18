@@ -111,6 +111,7 @@ def _build_metadata(task: Task) -> dict:
         "kind": ANCHOR_KIND,
         "trigger": ANCHOR_KIND,  # also matched by SUPPORTED_TRIGGERS-style filters
         "task_id": str(task.id),
+        "parent_task_id": str(task.parent_task_id) if task.parent_task_id else None,
         "task_type": task.task_type,
         "bot_id": task.bot_id,
         "title": task.title,
