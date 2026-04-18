@@ -90,6 +90,19 @@ export function useTrace(correlationId: string | undefined) {
     queryFn: () =>
       apiFetch<TraceDetailResponse>(`/api/v1/admin/traces/${correlationId}`),
     enabled: !!correlationId,
+    // Auto-poll while the trace is still growing. If the most recent event
+    // is < 5s old we keep polling every 2s — handles slow-running agent
+    // steps (e.g. analyze pipelines that take minutes) without the user
+    // needing to refresh. Quiescent traces stop polling automatically.
+    refetchInterval: (query) => {
+      const data = query.state.data as TraceDetailResponse | undefined;
+      if (!data || !data.events || data.events.length === 0) return false;
+      const last = data.events[data.events.length - 1];
+      const ts = last.created_at ? Date.parse(last.created_at) : NaN;
+      if (!Number.isFinite(ts)) return false;
+      const ageMs = Date.now() - ts;
+      return ageMs < 5000 ? 2000 : false;
+    },
   });
 }
 

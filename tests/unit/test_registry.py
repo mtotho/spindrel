@@ -44,6 +44,42 @@ class TestRegister:
         finally:
             registry._current_load_source_dir = old
 
+    def test_required_capabilities_stored(self):
+        from app.domain.capability import Capability
+
+        async def _f(**_):
+            return "ok"
+
+        registry.register(
+            {"type": "function", "function": {"name": "needs_ephem", "parameters": {}}},
+            required_capabilities=frozenset({Capability.EPHEMERAL}),
+        )(_f)
+        req_caps, req_ints = registry.get_tool_capability_requirements("needs_ephem")
+        assert req_caps == frozenset({Capability.EPHEMERAL})
+        assert req_ints is None
+
+    def test_required_integrations_stored(self):
+        async def _f(**_):
+            return "ok"
+
+        registry.register(
+            {"type": "function", "function": {"name": "slack_only", "parameters": {}}},
+            required_integrations=frozenset({"slack"}),
+        )(_f)
+        req_caps, req_ints = registry.get_tool_capability_requirements("slack_only")
+        assert req_caps is None
+        assert req_ints == frozenset({"slack"})
+
+    def test_default_requirements_are_none(self):
+        _register_dummy("unrestricted")
+        req_caps, req_ints = registry.get_tool_capability_requirements("unrestricted")
+        assert req_caps is None
+        assert req_ints is None
+
+    def test_unknown_tool_returns_none_tuple(self):
+        req_caps, req_ints = registry.get_tool_capability_requirements("does_not_exist")
+        assert (req_caps, req_ints) == (None, None)
+
 
 # ---------------------------------------------------------------------------
 # iter_registered_tools()

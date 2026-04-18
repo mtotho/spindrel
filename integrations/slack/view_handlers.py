@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 import httpx
 
@@ -22,21 +23,23 @@ from slack_settings import AGENT_BASE_URL, API_KEY
 
 logger = logging.getLogger(__name__)
 
-# Any view a ``spindrel_modal`` prefix identifies as ours — we prefix
-# all open_modal-driven views so we don't consume modals from other
-# Slack apps that happen to share our workspace.
+# Any view with a ``spindrel_modal:`` prefix identifies as ours — we
+# prefix all open_modal-driven views so we don't consume modals from
+# other Slack apps that happen to share our workspace. The Bolt
+# constraint MUST be a regex Pattern: a plain string (including "") is
+# matched with exact equality (``input == constraint``), not as a glob,
+# so any non-empty real callback_id would silently fail to dispatch.
 _CALLBACK_PREFIX = "spindrel_modal:"
+_CALLBACK_RE = re.compile(r"^spindrel_modal:")
 
 
 def register_view_handlers(app) -> None:
-    @app.view("")  # wildcard view — we filter by prefix below
+    @app.view(_CALLBACK_RE)
     async def on_view_submission(ack, body, view):
         cb = view.get("callback_id") or ""
-        if not cb.startswith(_CALLBACK_PREFIX):
-            await ack()
-            return
-
         await ack()
+        if not cb.startswith(_CALLBACK_PREFIX):
+            return
         callback_id = cb[len(_CALLBACK_PREFIX):]
         user_id = body.get("user", {}).get("id", "unknown")
         values = values_from_view(view)
@@ -63,7 +66,7 @@ def register_view_handlers(app) -> None:
             },
         )
 
-    @app.view_closed("")
+    @app.view_closed(_CALLBACK_RE)
     async def on_view_closed(ack, view):
         cb = view.get("callback_id") or ""
         await ack()

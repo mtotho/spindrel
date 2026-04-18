@@ -70,6 +70,13 @@ interface TaskRunMeta {
 
 interface Props {
   message: Message;
+  /**
+   * When true, render only the header row by default. Clicking the chevron
+   * expands the full body (steps + footer) in place. Used to de-clutter chat
+   * when multiple runs of the same pipeline definition exist — latest stays
+   * open, older ones collapse.
+   */
+  collapsedByDefault?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,11 +123,36 @@ function formatDuration(ms: number | null | undefined): string | null {
   return `${Math.floor(ms / 60000)}m${Math.floor((ms % 60000) / 1000)}s`;
 }
 
+// Per-agent-step Trace chip. Lazy-fetches the child task for its
+// correlation_id, then links to the trace page. Works for both running
+// and completed steps — once a Turn has started, correlation_id is set.
+// Rendered as a span (not <a>) because the enclosing row is a <button>;
+// nested interactive <a>/<button> is invalid HTML.
+function StepTraceChip({ childTaskId, status }: { childTaskId: string; status: StepStatus }) {
+  const navigate = useNavigate();
+  const enabled = status !== "pending" && status !== "skipped";
+  const { data: childTask } = useTask(enabled ? childTaskId : undefined);
+  const correlationId = childTask?.correlation_id;
+  if (!correlationId) return null;
+  return (
+    <span
+      role="link"
+      onClick={(e) => { e.stopPropagation(); navigate(`/admin/logs/${correlationId}`); }}
+      title="Open the LLM trace for this step"
+      className="inline-flex items-center gap-0.5 text-[10px] text-accent/80 hover:text-accent
+                 px-1.5 py-0.5 rounded hover:bg-accent/10 transition-colors flex-shrink-0 cursor-pointer"
+    >
+      Trace
+      <ExternalLink size={9} />
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
-export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props) {
+export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapsedByDefault = false }: Props) {
   const navigate = useNavigate();
   const meta = (message.metadata ?? {}) as TaskRunMeta;
   const steps: StepInfo[] = Array.isArray(meta.steps) ? meta.steps : [];
@@ -134,18 +166,38 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props)
   const runningStep = steps.find((s) => s.status === "running");
   const activeStep = awaitingStep ?? runningStep;
 
+  const [expanded, setExpanded] = useState(false);
+  const [openStep, setOpenStep] = useState<number | null>(null);
+  // When this anchor is a stale run (an older run of the same pipeline exists
+  // later in the channel), collapse by default to a one-line header. Chevron
+  // toggles the body. For fresh anchors (collapsedByDefault=false) this stays
+  // open and the chevron still toggles the raw-JSON debug view below.
+  const [bodyOpen, setBodyOpen] = useState(!collapsedByDefault);
+
   // Anchor messages persisted before the widget-envelope surfacing change
   // (2026-04-17 session 15) lack `widget_envelope` + `response_schema` on the
   // awaiting step. Rather than forcing a server-side re-emit of every stale
   // anchor, lazy-fetch the task detail — `step_states[i]` on the current task
   // row always carries the live envelope, so this self-heals in one request.
+  // We also need the child task ids (`step_states[i].task_id`) to render a
+  // per-step Trace link for agent steps — same fetch serves both. Gated on
+  // bodyOpen for the Trace case so collapsed stale anchors don't each fire
+  // a query on channel load.
+  const hasAgentStep = steps.some((s) => s.type === "agent");
   const needsTaskFallback =
     !!awaitingStep && !awaitingStep.widget_envelope && !!meta.task_id;
-  const { data: taskDetail } = useTask(needsTaskFallback ? meta.task_id : undefined);
+  const needsChildIds = hasAgentStep && !!meta.task_id && bodyOpen;
+  const { data: taskDetail } = useTask(
+    needsTaskFallback || needsChildIds ? meta.task_id : undefined,
+  );
   const liveStepState: StepState | null =
     awaitingStep && taskDetail?.step_states
       ? ((taskDetail.step_states as StepState[])[awaitingStep.index] ?? null)
       : null;
+  const childTaskIdFor = (index: number): string | undefined => {
+    const ss = taskDetail?.step_states?.[index] as StepState | undefined;
+    return ss?.task_id || undefined;
+  };
 
   // When any step awaits the user, the header pill wins over outerStatus —
   // "running" outer + "awaiting_user_input" inner is the paused state and we
@@ -165,9 +217,6 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props)
   ).length;
   const timestamp = formatTimeShort(message.created_at);
   const taskId = meta.task_id;
-
-  const [expanded, setExpanded] = useState(false);
-  const [openStep, setOpenStep] = useState<number | null>(null);
 
   return (
     <div
@@ -225,18 +274,24 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props)
         <div className="flex items-center gap-2 shrink-0">
           <span className="hidden sm:inline text-[10px] text-text-dim whitespace-nowrap">{timestamp}</span>
           <button
-            onClick={() => setExpanded((v) => !v)}
+            onClick={() => {
+              if (collapsedByDefault) {
+                setBodyOpen((v) => !v);
+              } else {
+                setExpanded((v) => !v);
+              }
+            }}
             className="text-[10px] text-text-dim hover:text-text-muted uppercase tracking-wider flex items-center gap-0.5 bg-transparent border-none cursor-pointer"
-            aria-label={expanded ? "Collapse" : "Expand"}
+            aria-label={(collapsedByDefault ? bodyOpen : expanded) ? "Collapse" : "Expand"}
           >
-            {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            <span className="hidden sm:inline">{expanded ? "collapse" : "expand"}</span>
+            {(collapsedByDefault ? bodyOpen : expanded) ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            <span className="hidden sm:inline">{(collapsedByDefault ? bodyOpen : expanded) ? "collapse" : "expand"}</span>
           </button>
         </div>
       </div>
 
       {/* ── Step list ──────────────────────────────────────────────── */}
-      {steps.length > 0 && (
+      {bodyOpen && steps.length > 0 && (
         <div className="border-t border-surface-border/40">
           {steps.map((s) => {
             const isActive = isActiveStatus(s.status) && activeStep?.index === s.index;
@@ -297,6 +352,12 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props)
                     <span className="text-[10px] font-mono text-text-dim flex-shrink-0">
                       {formatDuration(s.duration_ms)}
                     </span>
+                  )}
+                  {s.type === "agent" && childTaskIdFor(s.index) && (
+                    <StepTraceChip
+                      childTaskId={childTaskIdFor(s.index)!}
+                      status={s.status}
+                    />
                   )}
                   {canOpen && (
                     <ChevronRight
@@ -359,7 +420,7 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message }: Props)
           For pipeline runs we drop the boilerplate "No dispatch / Context:
           None" chips — they're noise when every pipeline shares them. The
           bot_id stays because it's the one piece of variable attribution. */}
-      {(!isPipeline || meta.bot_id || taskId) && (
+      {bodyOpen && (!isPipeline || meta.bot_id || taskId) && (
         <div className="flex items-center justify-between gap-3 border-t border-surface-border/40 px-3.5 py-1.5">
           <div className="hidden sm:flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-text-dim min-w-0">
             {meta.bot_id && <span className="truncate">{meta.bot_id}</span>}

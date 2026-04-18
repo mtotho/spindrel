@@ -411,6 +411,75 @@ function StepStatusIcon({ status }: { status: string }) {
   return <Icon size={12} className={color} />;
 }
 
+// Per-step row for the pipeline detail panel. Pulled out so each row can
+// lazy-fetch its child task and surface a real Trace link once the child
+// task's correlation_id lands — navigating to the actual trace page
+// (/admin/logs/{correlation_id}) instead of the child task detail.
+function PipelineStepRow({
+  ss,
+  stepDef,
+  index,
+}: {
+  ss: StepState;
+  stepDef: StepDef | undefined;
+  index: number;
+}) {
+  const navigate = useNavigate();
+  const childTaskId = ss.task_id;
+  const StepIcon = STEP_TYPE_ICON[stepDef?.type || "agent"] || Bot;
+  const label = stepDef?.label || stepDef?.id || `Step ${index + 1}`;
+  // Only fetch child detail for active/terminal agent steps. Skipping when
+  // pending/skipped saves queries on foreach-expanded pipelines.
+  const shouldFetchChild = !!childTaskId && ss.status !== "pending" && ss.status !== "skipped";
+  const { data: childTask } = useTask(shouldFetchChild ? childTaskId : undefined);
+  const correlationId = childTask?.correlation_id;
+
+  return (
+    <div className="flex flex-col gap-1 rounded-lg bg-surface-raised/40 px-3 py-2">
+      <div className="flex flex-row items-center gap-2">
+        <StepStatusIcon status={ss.status} />
+        <StepIcon size={11} className="text-text-dim" />
+        <span className="text-[11px] font-medium text-text">{label}</span>
+        <span className="text-[10px] text-text-dim ml-auto">
+          {ss.started_at && ss.completed_at ? durationStr(ss.started_at, ss.completed_at) : ss.status}
+        </span>
+        {correlationId && (
+          <button
+            onClick={(e) => { e.stopPropagation(); navigate(`/admin/logs/${correlationId}`); }}
+            title="Open the LLM trace for this step"
+            className="flex items-center gap-1 text-[10px] text-accent/80 hover:text-accent
+                       px-1.5 py-0.5 rounded hover:bg-accent/10 transition-colors"
+          >
+            Trace
+            <ExternalLink size={10} />
+          </button>
+        )}
+        {childTaskId && (
+          <button
+            onClick={(e) => { e.stopPropagation(); navigate(`/admin/tasks/${childTaskId}`); }}
+            title="Open the child run detail"
+            className="flex items-center gap-1 text-[10px] text-text-dim hover:text-text-muted
+                       px-1.5 py-0.5 rounded hover:bg-surface-overlay/50 transition-colors"
+          >
+            Run
+            <ExternalLink size={10} />
+          </button>
+        )}
+      </div>
+      {ss.result && (
+        <pre className="text-[10px] text-text-muted font-mono whitespace-pre-wrap bg-input/50 px-2 py-1.5 rounded border border-surface-border/50 max-h-40 overflow-auto m-0 ml-5">
+          {ss.result}
+        </pre>
+      )}
+      {ss.error && (
+        <pre className="text-[10px] text-danger font-mono whitespace-pre-wrap bg-danger/5 px-2 py-1.5 rounded border border-danger/20 max-h-32 overflow-auto m-0 ml-5">
+          {ss.error}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function RunRow({ run }: { run: TaskDetail }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
@@ -478,48 +547,9 @@ function RunRow({ run }: { run: TaskDetail }) {
             <div className="mb-3">
               <div className="text-[10px] font-semibold text-text-dim uppercase tracking-wider mb-2">Steps</div>
               <div className="flex flex-col gap-1.5">
-                {run.step_states!.map((ss, i) => {
-                  const stepDef = run.steps?.[i];
-                  const StepIcon = STEP_TYPE_ICON[stepDef?.type || "agent"] || Bot;
-                  const label = stepDef?.label || stepDef?.id || `Step ${i + 1}`;
-                  // Agent steps spawn a child task (stored as step_state.task_id).
-                  // Surface a direct link to that child run so users can jump to
-                  // the LLM trace for this step without hunting in /admin/traces.
-                  const childTaskId = ss.task_id;
-                  return (
-                    <div key={i} className="flex flex-col gap-1 rounded-lg bg-surface-raised/40 px-3 py-2">
-                      <div className="flex flex-row items-center gap-2">
-                        <StepStatusIcon status={ss.status} />
-                        <StepIcon size={11} className="text-text-dim" />
-                        <span className="text-[11px] font-medium text-text">{label}</span>
-                        <span className="text-[10px] text-text-dim ml-auto">
-                          {ss.started_at && ss.completed_at ? durationStr(ss.started_at, ss.completed_at) : ss.status}
-                        </span>
-                        {childTaskId && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); navigate(`/admin/tasks/${childTaskId}`); }}
-                            title="Open the child run (LLM trace)"
-                            className="flex items-center gap-1 text-[10px] text-accent/80 hover:text-accent
-                                       px-1.5 py-0.5 rounded hover:bg-accent/10 transition-colors"
-                          >
-                            Trace
-                            <ExternalLink size={10} />
-                          </button>
-                        )}
-                      </div>
-                      {ss.result && (
-                        <pre className="text-[10px] text-text-muted font-mono whitespace-pre-wrap bg-input/50 px-2 py-1.5 rounded border border-surface-border/50 max-h-40 overflow-auto m-0 ml-5">
-                          {ss.result}
-                        </pre>
-                      )}
-                      {ss.error && (
-                        <pre className="text-[10px] text-danger font-mono whitespace-pre-wrap bg-danger/5 px-2 py-1.5 rounded border border-danger/20 max-h-32 overflow-auto m-0 ml-5">
-                          {ss.error}
-                        </pre>
-                      )}
-                    </div>
-                  );
-                })}
+                {run.step_states!.map((ss, i) => (
+                  <PipelineStepRow key={i} ss={ss} stepDef={run.steps?.[i]} index={i} />
+                ))}
               </div>
             </div>
           )}

@@ -135,8 +135,8 @@ _REQUIRED_CAPS: dict[ChannelEventKind, frozenset[Capability]] = {
     ChannelEventKind.SKILL_AUTO_INJECT: frozenset(),
     ChannelEventKind.LLM_STATUS: frozenset({Capability.STREAMING_EDIT}),
     # EPHEMERAL_MESSAGE declares EPHEMERAL so renderers without the
-    # capability silently skip it in the drainer; the dispatcher
-    # downgrade (see ``app/services/ephemeral_downgrade.py``) rewrites
+    # capability silently skip it in the drainer; the publisher-side
+    # fallback (see ``app/services/ephemeral_dispatch.py``) rewrites
     # those into NEW_MESSAGE so the content still lands somewhere.
     ChannelEventKind.EPHEMERAL_MESSAGE: frozenset({Capability.EPHEMERAL}),
     # MODAL_SUBMITTED carries values back from a submitted form. It's

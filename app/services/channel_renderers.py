@@ -204,6 +204,16 @@ class IntegrationDispatcherTask:
         if not required.issubset(self.renderer.capabilities):
             return
 
+        # Per-binding target filter. Some payloads (EphemeralMessagePayload,
+        # ModalButtonPayload) scope themselves to exactly one integration
+        # so a multi-bound channel does not fan private content out to
+        # every surface. If the payload carries a ``target_integration_id``
+        # that isn't us, silently skip — the authoritative renderer will
+        # pick it up on its own dispatcher task.
+        target_iid = getattr(event.payload, "target_integration_id", None)
+        if target_iid is not None and target_iid != self.integration_id:
+            return
+
         # Resolve the target. None means "this channel is not bound to
         # this integration" — silently skip.
         target_or_aw = self._target_resolver(event.channel_id)

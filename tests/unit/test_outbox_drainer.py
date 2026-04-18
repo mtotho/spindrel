@@ -17,6 +17,7 @@ hide more bugs than it would simplify.
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
@@ -327,3 +328,116 @@ class TestClaimBatch:
         # A second claim should return zero — both rows are in_flight, not pending.
         rows2 = await outbox_drainer._claim_batch()
         assert rows2 == []
+
+
+def _cancel_after(n_calls: int):
+    """Build an ``asyncio.sleep`` replacement that cancels the worker on the Nth call.
+
+    The drainer's outer loop hits ``await asyncio.sleep(...)`` once per
+    iteration; raising ``CancelledError`` from there is the canonical way
+    to stop the worker (mirrors what ``task.cancel()`` does in production).
+    Returns immediately on earlier calls so the loop continues without any
+    real wall-clock delay. The ``side_effect`` patches ``asyncio.sleep``
+    process-wide, so this replacement must not recurse into ``asyncio.sleep``.
+    """
+    state = {"calls": 0}
+
+    async def _sleep(_seconds: float) -> None:
+        state["calls"] += 1
+        if state["calls"] >= n_calls:
+            raise asyncio.CancelledError
+
+    return _sleep, state
+
+
+class TestDrainerWorkerLoop:
+    @pytest.mark.asyncio
+    async def test_when_pending_rows_present_then_drains_and_marks_delivered(self, patched_engine):
+        _engine, factory = patched_engine
+        _ch1, row1_id = await _seed_row(factory)
+        _ch2, row2_id = await _seed_row(factory)
+        renderer = _OkRenderer()
+        sleep_fn, state = _cancel_after(2)
+
+        with patch("app.integrations.renderer_registry.get", return_value=renderer), \
+             patch("app.services.outbox_drainer.asyncio.sleep", side_effect=sleep_fn):
+            with pytest.raises(asyncio.CancelledError):
+                await outbox_drainer.outbox_drainer_worker()
+
+        assert renderer.calls == 2
+        final1 = await _get_row(factory, row1_id)
+        final2 = await _get_row(factory, row2_id)
+        assert final1.delivery_state == DeliveryState.DELIVERED.value
+        assert final2.delivery_state == DeliveryState.DELIVERED.value
+        # First sleep is the BUSY sleep (rows present); second sleep cancels.
+        assert state["calls"] == 2
+
+    @pytest.mark.asyncio
+    async def test_when_per_row_delivery_raises_then_loop_continues_for_other_rows(self, patched_engine):
+        _engine, factory = patched_engine
+        _, row1_id = await _seed_row(factory)
+        _, row2_id = await _seed_row(factory)
+        sleep_fn, _state = _cancel_after(2)
+
+        # Capture the original to call past the patch — we wrap _deliver_one so
+        # the FIRST invocation raises (simulating an unexpected drainer-side bug)
+        # and the SECOND invocation runs the real delivery path so we can verify
+        # the loop continued after the failure.
+        original_deliver_one = outbox_drainer._deliver_one
+        deliver_calls: list[uuid.UUID] = []
+        renderer = _OkRenderer()
+
+        async def _deliver(row: Outbox) -> None:
+            deliver_calls.append(row.id)
+            if len(deliver_calls) == 1:
+                raise RuntimeError("renderer blew up")
+            await original_deliver_one(row)
+
+        with patch("app.integrations.renderer_registry.get", return_value=renderer), \
+             patch("app.services.outbox_drainer._deliver_one", side_effect=_deliver), \
+             patch("app.services.outbox_drainer.asyncio.sleep", side_effect=sleep_fn):
+            with pytest.raises(asyncio.CancelledError):
+                await outbox_drainer.outbox_drainer_worker()
+
+        assert len(deliver_calls) == 2
+        # The first row is still IN_FLIGHT — the per-row exception was swallowed
+        # and never reached mark_failed; this is the documented "isolation"
+        # contract (loop keeps running) AND the reason ``reset_stale_in_flight``
+        # exists at startup.
+        first = await _get_row(factory, deliver_calls[0])
+        second = await _get_row(factory, deliver_calls[1])
+        assert first.delivery_state == DeliveryState.IN_FLIGHT.value
+        assert second.delivery_state == DeliveryState.DELIVERED.value
+
+    @pytest.mark.asyncio
+    async def test_when_no_pending_rows_then_loop_idles_and_exits_on_cancel(self, patched_engine):
+        _engine, _factory = patched_engine
+        sleep_fn, state = _cancel_after(1)
+
+        with patch("app.services.outbox_drainer.asyncio.sleep", side_effect=sleep_fn):
+            with pytest.raises(asyncio.CancelledError):
+                await outbox_drainer.outbox_drainer_worker()
+
+        # First (and only) sleep was the IDLE branch — cancelled before second batch.
+        assert state["calls"] == 1
+
+    @pytest.mark.asyncio
+    async def test_when_claim_batch_raises_then_loop_logs_and_keeps_running(self, patched_engine):
+        _engine, _factory = patched_engine
+        sleep_fn, state = _cancel_after(2)
+        claim_calls = {"n": 0}
+
+        async def _claim() -> list[Outbox]:
+            claim_calls["n"] += 1
+            if claim_calls["n"] == 1:
+                raise RuntimeError("transient db hiccup")
+            return []
+
+        with patch("app.services.outbox_drainer._claim_batch", side_effect=_claim), \
+             patch("app.services.outbox_drainer.asyncio.sleep", side_effect=sleep_fn):
+            with pytest.raises(asyncio.CancelledError):
+                await outbox_drainer.outbox_drainer_worker()
+
+        # First iteration raised → logged + slept; second iteration ran, then cancelled.
+        assert claim_calls["n"] == 2
+        assert state["calls"] == 2

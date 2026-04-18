@@ -52,7 +52,14 @@ def get_settings():
     return _get
 
 
-def register(schema: dict, *, source_dir: str | None = None, safety_tier: str = "readonly"):
+def register(
+    schema: dict,
+    *,
+    source_dir: str | None = None,
+    safety_tier: str = "readonly",
+    required_capabilities: "frozenset | None" = None,
+    required_integrations: "frozenset[str] | None" = None,
+):
     """Decorator that registers a local tool function with its OpenAI function schema.
 
     Args:
@@ -60,6 +67,19 @@ def register(schema: dict, *, source_dir: str | None = None, safety_tier: str = 
         source_dir: Override auto-detected source directory.
         safety_tier: One of 'readonly', 'mutating', 'exec_capable', 'control_plane'.
             Defaults to 'readonly' (safe by default).
+        required_capabilities: Renderer capabilities that must be
+            supported by at least one binding on a channel for this tool
+            to be exposed to the LLM. Used by ``app/agent/context_
+            assembly.py`` to filter the per-turn tool list — e.g.
+            ``respond_privately`` declares ``{Capability.EPHEMERAL}`` so
+            it never appears on a channel with no ephemeral-capable
+            binding. None = unrestricted.
+        required_integrations: Integration ids (e.g. ``"slack"``) that
+            must be bound on a channel for this tool to be exposed.
+            Slack-only surface tools (``slack_pin_message``,
+            ``slack_add_bookmark``, ``slack_schedule_message``) use this
+            to stay hidden on non-Slack channels rather than erroring at
+            invocation time. None = unrestricted.
     """
 
     def decorator(func: Callable):
@@ -73,11 +93,29 @@ def register(schema: dict, *, source_dir: str | None = None, safety_tier: str = 
             "source_integration": _current_source_integration,
             "source_file": source_file,
             "safety_tier": safety_tier,
+            "required_capabilities": required_capabilities,
+            "required_integrations": required_integrations,
         }
         logger.info("Registered local tool: %s (tier=%s)", name, safety_tier)
         return func
 
     return decorator
+
+
+def get_tool_capability_requirements(name: str) -> tuple["frozenset | None", "frozenset[str] | None"]:
+    """Return ``(required_capabilities, required_integrations)`` for a tool.
+
+    Either component is ``None`` when the tool has no gating along that
+    axis. Used by the context-assembly filter to drop tools the current
+    channel's bindings cannot honor.
+    """
+    entry = _tools.get(name)
+    if entry is None:
+        return (None, None)
+    return (
+        entry.get("required_capabilities"),
+        entry.get("required_integrations"),
+    )
 
 
 def get_tool_safety_tier(name: str) -> str:

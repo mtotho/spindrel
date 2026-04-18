@@ -361,14 +361,23 @@ class EphemeralMessagePayload:
 
     Wraps a domain ``Message`` plus a recipient identifier, interpreted by
     the consuming renderer in its integration-native form (Slack user id
-    like ``U0ALICE``, Discord snowflake, etc.). Renderers that lack the
-    ``EPHEMERAL`` capability trigger a dispatcher-side downgrade to
-    ``NEW_MESSAGE`` with a visibility marker prepended to the text; see
-    ``app/services/ephemeral_downgrade.py``.
+    like ``U0ALICE``, Discord snowflake, etc.).
+
+    ``target_integration_id`` scopes delivery to exactly one bound
+    integration on the channel. The dispatcher's per-binding filter in
+    ``IntegrationDispatcherTask._dispatch`` compares this against the
+    subscribing renderer's ``integration_id`` and silently drops the
+    event on every renderer except the target. ``respond_privately``
+    sets it based on which integration natively owns the recipient's
+    user id (``U...`` → ``slack``, etc.); see ``ephemeral_dispatch.
+    deliver_ephemeral``. Without a target binding, the tool returns
+    ``unsupported`` rather than falling back to a channel broadcast —
+    that fallback was a privacy violation hiding behind ergonomics.
     """
 
     message: Message
     recipient_user_id: str
+    target_integration_id: str | None = None
 
 
 @dataclass(frozen=True)

@@ -91,10 +91,12 @@ function ProposalRow({
   item,
   decision,
   onDecide,
+  isAdvisory,
 }: {
   item: ProposalItem;
   decision: Decision;
   onDecide: (d: "approve" | "reject") => void;
+  isAdvisory: boolean;
 }) {
   const [diffOpen, setDiffOpen] = useState(false);
   const { kind, targetId } = resolveScope(item);
@@ -129,6 +131,14 @@ function ProposalRow({
               </span>
             )}
             <span className="text-xs font-semibold text-text truncate">{label}</span>
+            {isAdvisory && (
+              <span
+                title="No writable description endpoint for this target. Suggestion is logged but cannot be applied."
+                className="inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-semibold uppercase tracking-wider shrink-0 bg-amber-500/10 text-amber-400 border-amber-500/30"
+              >
+                Advisory
+              </span>
+            )}
           </div>
           {item.target_path && (
             <span className="text-[10px] text-text-dim/80 font-mono truncate">
@@ -140,6 +150,11 @@ function ProposalRow({
               {summary}
             </p>
           )}
+          {isAdvisory && (
+            <p className="text-[10.5px] text-amber-400/80 leading-snug italic">
+              System/MCP tool — applying isn't wired up. Review the suggestion and reject to clear.
+            </p>
+          )}
         </div>
         <div className="flex flex-row gap-1 shrink-0">
           {/* Approve / Reject are explicit labels — the reject icon alone was
@@ -147,12 +162,15 @@ function ProposalRow({
               means "don't apply this patch"; to clear the whole review, use
               the card's overflow menu (Skip review / Delete run). */}
           <button
-            onClick={() => onDecide("approve")}
+            onClick={() => !isAdvisory && onDecide("approve")}
+            disabled={isAdvisory}
             aria-label="Approve"
-            title="Apply this patch on Submit"
+            title={isAdvisory ? "Advisory only — no writable endpoint for this target" : "Apply this patch on Submit"}
             className={cn(
               "inline-flex items-center justify-center gap-1 h-7 px-2 rounded text-[10px] font-semibold uppercase tracking-wider transition-colors",
-              decision === "approve"
+              isAdvisory
+                ? "bg-surface-raised text-text-dim/50 border border-surface-border/60 cursor-not-allowed"
+                : decision === "approve"
                 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
                 : "bg-surface-raised text-text-dim border border-surface-border hover:bg-emerald-500/10 hover:text-emerald-400",
             )}
@@ -184,7 +202,7 @@ function ProposalRow({
           {tracedEvidence.map((e, i) => (
             <Link
               key={`t-${i}`}
-              to={`/admin/traces/${e.correlation_id}`}
+              to={`/admin/logs/${e.correlation_id}`}
               title={e.signal || e.correlation_id}
               className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-overlay/60
                          border border-surface-border font-mono text-accent
@@ -289,7 +307,13 @@ export function InlineApprovalReview({
   const [binaryDecision, setBinaryDecision] = useState<Decision>(undefined);
   const resolveMut = useResolveStep();
 
+  const isItemAdvisory = (it: ProposalItem): boolean => {
+    const { kind } = resolveScope(it);
+    return kind === "tools";
+  };
+
   const approvedCount = Object.values(decisions).filter((d) => d === "approve").length;
+  const advisoryCount = items.filter(isItemAdvisory).length;
 
   const handleSubmit = () => {
     let response: Record<string, any>;
@@ -371,6 +395,7 @@ export function InlineApprovalReview({
               item={item}
               decision={decisions[item.id]}
               onDecide={(d) => setDecisions((s) => ({ ...s, [item.id]: d }))}
+              isAdvisory={isItemAdvisory(item)}
             />
           ))}
         </div>
@@ -394,7 +419,9 @@ export function InlineApprovalReview({
       >
         {resolveMut.isPending && <Loader2 size={12} className="animate-spin" />}
         {schemaType === "multi_item"
-          ? `Submit (${approvedCount} approved, ${items.length - approvedCount} rejected)`
+          ? advisoryCount > 0
+            ? `Submit (${approvedCount} approved, ${items.length - approvedCount} rejected, ${advisoryCount} advisory)`
+            : `Submit (${approvedCount} approved, ${items.length - approvedCount} rejected)`
           : "Submit"}
       </button>
     </div>

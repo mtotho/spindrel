@@ -165,7 +165,12 @@ async def load_manifests() -> None:
         rows = (await db.execute(select(IntegrationManifest))).scalars().all()
 
     for row in rows:
+        # Manifest blob (user-authored YAML) spreads first so trusted DB columns
+        # below override any colliding keys. Without this ordering, a YAML file
+        # containing `content_hash:` / `source:` / `is_enabled:` would corrupt
+        # drift detection and enablement state in the cache.
         _manifests[row.id] = {
+            **(row.manifest or {}),
             "id": row.id,
             "name": row.name,
             "description": row.description,
@@ -175,7 +180,6 @@ async def load_manifests() -> None:
             "source": row.source,
             "source_path": row.source_path,
             "content_hash": row.content_hash,
-            **(row.manifest or {}),
         }
 
     logger.info("Loaded %d integration manifest(s) from DB", len(_manifests))
@@ -242,8 +246,10 @@ async def update_manifest(integration_id: str, new_yaml: str) -> dict:
         row.yaml_content = new_yaml
         await db.commit()
 
-    # Update cache
+    # Update cache. YAML blob spreads first so trusted DB-captured fields below
+    # override user-pasted values for internal metadata.
     _manifests[integration_id] = {
+        **data,
         "id": integration_id,
         "name": data.get("name", integration_id),
         "description": data.get("description"),
@@ -253,7 +259,6 @@ async def update_manifest(integration_id: str, new_yaml: str) -> dict:
         "source": row_source,
         "source_path": row_source_path,
         "content_hash": row_content_hash,
-        **data,
     }
 
     return _manifests[integration_id]

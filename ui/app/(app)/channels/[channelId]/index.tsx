@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ChevronUp, ChevronDown } from "lucide-react";
@@ -208,6 +208,31 @@ export default function ChatScreen() {
     [channel?.bot_id],
   );
 
+  // Pipeline anchors dedupe visually: when multiple runs of the same
+  // definition (same parent_task_id) exist in the channel, only the latest
+  // stays fully expanded. Older ones collapse to a one-line header. We walk
+  // invertedData once — index 0 is the newest — and record the first message
+  // id seen per parent_task_id; those are the "latest" messages.
+  const latestAnchorByParent = useMemo(() => {
+    const latestMessageIds = new Set<string>();
+    const seenParents = new Set<string>();
+    for (const m of invertedData) {
+      const meta = (m.metadata ?? {}) as Record<string, any>;
+      if (meta.kind !== "task_run") continue;
+      const parent = meta.parent_task_id as string | null | undefined;
+      if (!parent) {
+        // Ad-hoc runs (no definition) — never collapse, always treat as latest.
+        latestMessageIds.add(m.id);
+        continue;
+      }
+      if (!seenParents.has(parent)) {
+        seenParents.add(parent);
+        latestMessageIds.add(m.id);
+      }
+    }
+    return latestMessageIds;
+  }, [invertedData]);
+
   const renderMessage = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
       const prevMsg = invertedData[index + 1];
@@ -216,7 +241,8 @@ export default function ChatScreen() {
       const dateSep = showDateSep ? <DateSeparator label={formatDateSeparator(item.created_at)} /> : null;
       const meta = (item.metadata ?? {}) as Record<string, any>;
       if (meta.kind === "task_run") {
-        return <>{dateSep}<TaskRunEnvelope message={item} /></>;
+        const collapsedByDefault = !latestAnchorByParent.has(item.id);
+        return <>{dateSep}<TaskRunEnvelope message={item} collapsedByDefault={collapsedByDefault} /></>;
       }
       if (item.role === "user" && meta.trigger && SUPPORTED_TRIGGERS.has(meta.trigger)) {
         const card = <TriggerCard message={item} botName={bot?.name} />;
@@ -233,7 +259,7 @@ export default function ChatScreen() {
       const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} isLatestBotMessage={isLatestBotMessage} />;
       return <>{dateSep}{bubble}</>;
     },
-    [invertedData, bot?.name, handleBotClick, channelId]
+    [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByParent]
   );
 
   // ---- Workspace / file explorer state ----

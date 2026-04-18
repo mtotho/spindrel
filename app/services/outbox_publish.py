@@ -118,6 +118,62 @@ async def enqueue_new_message_for_channel(
         )
 
 
+async def enqueue_new_message_for_target(
+    channel_id: uuid.UUID,
+    domain_msg: DomainMessage,
+    target_integration_id: str,
+) -> bool:
+    """Enqueue a NEW_MESSAGE scoped to exactly one bound integration.
+
+    Unlike ``enqueue_new_message_for_channel`` which fans out to every
+    binding on the channel, this variant filters ``resolve_targets`` to
+    the requested integration id and only enqueues that row. Used by
+    ``open_modal`` to post the "Open form" button to the binding that
+    originated the triggering message — no fan-out to surfaces that
+    can't action the button.
+
+    Returns True if a target matching ``target_integration_id`` was
+    found and enqueued, False otherwise (caller can decide whether to
+    surface an error).
+    """
+    try:
+        from app.db.engine import async_session
+        from app.db.models import Channel
+        from app.services.dispatch_resolution import resolve_targets
+
+        async with async_session() as db:
+            channel = await db.get(Channel, channel_id)
+            if channel is None:
+                logger.debug(
+                    "enqueue_new_message_for_target: channel %s not found",
+                    channel_id,
+                )
+                return False
+
+            targets = await resolve_targets(channel)
+            scoped = [(iid, t) for iid, t in targets if iid == target_integration_id]
+            if not scoped:
+                return False
+
+            event = ChannelEvent(
+                channel_id=channel_id,
+                kind=ChannelEventKind.NEW_MESSAGE,
+                payload=MessagePayload(message=domain_msg),
+            )
+            await enqueue_for_targets(db, channel_id, event, scoped)
+            await db.commit()
+            return True
+    except Exception:
+        logger.warning(
+            "enqueue_new_message_for_target failed for channel=%s integration=%s msg=%s",
+            channel_id,
+            target_integration_id,
+            getattr(domain_msg, "id", "?"),
+            exc_info=True,
+        )
+        return False
+
+
 def publish_to_bus(channel_id: uuid.UUID, event: ChannelEvent) -> int:
     """Synchronously publish a typed event to in-memory bus subscribers.
 

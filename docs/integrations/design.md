@@ -6,6 +6,39 @@ don't re-litigate these decisions or re-introduce the same slop.
 
 ---
 
+## Channel Binding Model
+
+**Channels are Spindrel's primary object. Integrations are clients of the channel — not owners.**
+
+Every channel may have zero, one, or many integration bindings. Bindings are stored as `ChannelIntegration` rows. The canonical resolver is:
+
+```python
+from app.services.dispatch_resolution import resolve_targets
+targets: list[tuple[str, DispatchTarget]] = await resolve_targets(channel)
+```
+
+The legacy `Channel.client_id` / `Channel.integration` fields are 1:1 holdovers from the pre-multi-binding era. **Never** branch capability decisions on a single integration id derived from those fields — on a multi-bound channel (`slack` + default web is the common shape) that shortcut will silently pick whichever legacy field happens to be set and produce random per-environment behavior.
+
+**Three hard rules** fall out of the binding model:
+
+1. **Capabilities live on the binding.** `renderer.capabilities` is a frozenset per registered renderer. "What can this channel do" = union of `renderer.capabilities` across `resolve_targets(channel)`. Never treat capability as a property of the channel.
+2. **Private / directed delivery is strict-scoped to one binding.** Events like `EPHEMERAL_MESSAGE` carry a `target_integration_id`; the dispatcher in `app/services/channel_renderers.py:IntegrationDispatcherTask._dispatch` silently drops the event on every other renderer. For durable delivery, `app/services/outbox_publish.py:enqueue_new_message_for_target` scopes a `NEW_MESSAGE` to one binding via the outbox row's `target_integration_id` column. If no binding can honor a directed tool call, the tool returns `unsupported` and the agent falls back to conversational Q&A. Do not broadcast as a fallback — that leaks content.
+3. **Tool exposure is declaratively capability/integration-gated.** Tools declare what they need:
+
+   ```python
+   @register({...}, required_capabilities=frozenset({Capability.EPHEMERAL}))
+   async def respond_privately(...): ...
+
+   @register({...}, required_integrations=frozenset({"slack"}))
+   async def slack_pin_message(...): ...
+   ```
+
+   `app/agent/capability_gate.py:build_view` assembles a `ChannelCapabilityView` from the bound renderers; `app/agent/context_assembly.py` filters the per-turn tool list so the LLM never sees tools the channel cannot honor. An unsupported tool cannot be called — the failure mode is "the tool isn't there", not "the tool errors at invocation time".
+
+**When building a new integration feature**, the wrong model sounds like "if the channel is a Slack channel, do X" (singular integration check). The right model is "for each binding with `Capability.X`, deliver Y" — or equivalently, "if `renderer_registry.get(integration_id).capabilities` supports X, publish with `target_integration_id = integration_id`". Grep for `Channel.client_id.split(":"` in any new code — that pattern is always the wrong answer for capability decisions.
+
+---
+
 ## Core Boundary
 
 **`/app` is core. `/integrations` (root-level) is extending code.**

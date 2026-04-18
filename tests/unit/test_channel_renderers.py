@@ -346,6 +346,68 @@ class TestTargetResolution:
             await task.stop()
 
 
+class TestPerBindingTargetFilter:
+    """``target_integration_id`` on a payload scopes an event to one
+    bound integration. Dispatchers for every other integration must
+    silently drop — otherwise a multi-bound channel fans private
+    content out to every surface (the Phase 3 ephemeral bug)."""
+
+    @pytest.mark.asyncio
+    async def test_mismatched_target_integration_id_is_skipped(self):
+        from app.domain.payloads import EphemeralMessagePayload
+
+        renderer = FakeRenderer(capabilities=frozenset({
+            Capability.TEXT, Capability.EPHEMERAL,
+        }))
+        # renderer.integration_id == "slack" (class attribute).
+        task = IntegrationDispatcherTask(renderer, lambda _ch: _slack_target())
+        task.start()
+        await asyncio.sleep(0.01)
+        try:
+            ch = _cid()
+            msg = _make_message(ch, "private")
+            # Event targeted at "web" — our slack dispatcher must ignore it.
+            publish_typed(ch, DomainChannelEvent(
+                channel_id=ch,
+                kind=ChannelEventKind.EPHEMERAL_MESSAGE,
+                payload=EphemeralMessagePayload(
+                    message=msg,
+                    recipient_user_id="UALICE",
+                    target_integration_id="web",
+                ),
+            ))
+            await asyncio.sleep(0.05)
+            assert renderer.rendered == []
+        finally:
+            await task.stop()
+
+    @pytest.mark.asyncio
+    async def test_matching_target_integration_id_delivered(self):
+        from app.domain.payloads import EphemeralMessagePayload
+
+        renderer = FakeRenderer(capabilities=frozenset({
+            Capability.TEXT, Capability.EPHEMERAL,
+        }))
+        task = IntegrationDispatcherTask(renderer, lambda _ch: _slack_target())
+        task.start()
+        await asyncio.sleep(0.01)
+        try:
+            ch = _cid()
+            msg = _make_message(ch, "private")
+            publish_typed(ch, DomainChannelEvent(
+                channel_id=ch,
+                kind=ChannelEventKind.EPHEMERAL_MESSAGE,
+                payload=EphemeralMessagePayload(
+                    message=msg,
+                    recipient_user_id="UALICE",
+                    target_integration_id="slack",
+                ),
+            ))
+            await _spin_until(lambda: len(renderer.rendered) == 1)
+        finally:
+            await task.stop()
+
+
 class TestRenderContextLifecycle:
     @pytest.mark.asyncio
     async def test_context_torn_down_on_turn_ended(self):

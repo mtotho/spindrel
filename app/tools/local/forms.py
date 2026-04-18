@@ -1,35 +1,54 @@
 """Agent tool — open_modal: collect structured input from the user.
 
-Flow (Slack; other integrations fall back to conversational Q&A):
+Flow (Slack; the only integration with the ``MODALS`` capability today):
 
-1. Tool generates a ``callback_id`` and registers a waiter in
+1. Tool resolves the channel's bindings via ``dispatch_resolution.
+   resolve_targets``. It picks the binding that natively owns the
+   triggering user's surface — the integration whose "source" matches
+   the last inbound user message on the channel (see
+   ``Message.metadata["source"]``). If no MODALS-capable binding
+   exists — or if the origin binding lacks MODALS — the tool returns
+   ``unsupported`` and the agent should fall back to asking the user
+   conversationally instead.
+
+2. Tool generates a ``callback_id`` and registers a waiter in
    ``app.services.modal_waiter``.
-2. Tool posts a channel message via the Slack renderer's button path —
-   the message holds an inline button whose ``value`` carries the JSON
-   schema. (Slack restricts modals to opens driven by a fresh
-   ``trigger_id``; the button click provides one.)
-3. User clicks the button; the Slack subprocess action handler at
-   ``integrations/slack/modal_action_handler.py`` calls ``views.open``.
-4. User submits; ``integrations/slack/view_handlers.py`` posts the
-   values to ``POST /api/v1/modals/{callback_id}/submit``.
-5. ``modal_waiter.wait`` returns; the tool returns the values to the
-   agent.
 
-On integrations without the ``MODALS`` capability, this tool
-short-circuits with an informative error — the calling agent should
-then ask the user conversationally instead. The expected fallback is
-covered by the integration depth playbook.
+3. Tool posts a channel message carrying an inline "Open form" button
+   **scoped to the target binding only** via
+   ``outbox_publish.enqueue_new_message_for_target``. Other bindings on
+   the same channel (web, etc.) never receive the button — they would
+   render a dead-end since the action handler is integration-native.
+
+4. User clicks the button. The Slack subprocess action handler at
+   ``integrations/slack/modal_action_handler.py`` calls ``views.open``.
+
+5. User submits. ``integrations/slack/view_handlers.py`` posts values
+   to ``POST /api/v1/modals/{callback_id}/submit`` which resolves the
+   waiter.
+
+Phase C's capability-gated tool exposure keeps this tool out of the
+LLM's tool list entirely on channels with no MODALS-capable binding,
+so the unsupported path is a last-line defense, not the common case.
 """
 from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 
-from app.agent.context import current_channel_id
+from sqlalchemy import select
+
+from app.agent.context import current_bot_id, current_channel_id, current_session_id
+from app.db.engine import async_session
+from app.db.models import Channel, Message as MessageRow
+from app.domain.actor import ActorRef
 from app.domain.capability import Capability
+from app.domain.message import Message as DomainMessage
 from app.integrations import renderer_registry
 from app.services import modal_waiter
-from app.services.ephemeral_dispatch import _resolve_integration_id
+from app.services.dispatch_resolution import resolve_targets
+from app.services.outbox_publish import enqueue_new_message_for_target
 from app.tools.registry import register
 
 # Max size of the inline button value — Slack enforces 2000 chars.
@@ -48,8 +67,8 @@ _MODAL_TIMEOUT_SECONDS = 15 * 60
             "to collect conversationally — e.g. filing a bug, booking a "
             "resource, multi-field configuration. Returns the submitted "
             "values as a JSON object keyed by field id, or an error if "
-            "the user dismisses the form or the integration does not "
-            "support modals."
+            "the user dismisses the form or no bound integration on this "
+            "channel supports modals."
         ),
         "parameters": {
             "type": "object",
@@ -81,7 +100,7 @@ _MODAL_TIMEOUT_SECONDS = 15 * 60
             "required": ["title", "schema"],
         },
     },
-}, safety_tier="readonly")
+}, safety_tier="readonly", required_capabilities=frozenset({Capability.MODALS}))
 async def open_modal(
     title: str,
     schema: dict,
@@ -92,19 +111,14 @@ async def open_modal(
     if channel_id is None:
         return json.dumps({"ok": False, "error": "no channel in current context"})
 
-    integration_id = await _resolve_integration_id(channel_id)
-    if integration_id is None:
-        return json.dumps({"ok": False, "error": "channel not bound to an integration"})
-
-    renderer = renderer_registry.get(integration_id)
-    supports_modals = bool(
-        renderer and Capability.MODALS in getattr(renderer, "capabilities", frozenset())
-    )
-    if not supports_modals:
+    target_integration_id = await _pick_modal_target(channel_id)
+    if target_integration_id is None:
         return json.dumps({
             "ok": False,
-            "error": f"integration '{integration_id}' does not support modals — "
-                     f"ask the user conversationally for these fields instead",
+            "error": (
+                "no bound integration on this channel supports modals — "
+                "ask the user conversationally for these fields instead"
+            ),
             "unsupported": True,
         })
 
@@ -130,16 +144,85 @@ async def open_modal(
             ),
         })
 
-    await _post_open_modal_button(
-        integration_id=integration_id,
-        channel_id=channel_id,
-        callback_id=callback_id,
-        button_value=button_value,
-        prompt=prompt or f"Click to open the form: *{title}*",
-    )
+    try:
+        await _post_open_modal_button(
+            integration_id=target_integration_id,
+            channel_id=channel_id,
+            callback_id=callback_id,
+            button_value=button_value,
+            prompt=prompt or f"Click to open the form: *{title}*",
+        )
+    except Exception as exc:
+        # Don't leave the waiter dangling — the user will never see a
+        # button to click, so blocking 15 min on the wait is just dead
+        # time before the agent gets to react to the failure.
+        modal_waiter.cancel(callback_id, reason=f"post_failed: {exc}")
+        await modal_waiter.wait(callback_id, timeout=0.1)
+        return json.dumps({"ok": False, "error": f"failed to post modal button: {exc}"})
 
     result = await modal_waiter.wait(callback_id, timeout=_MODAL_TIMEOUT_SECONDS)
     return json.dumps(result)
+
+
+async def _pick_modal_target(channel_id: uuid.UUID) -> str | None:
+    """Choose the binding to open the modal on, or None if impossible.
+
+    Preference order:
+      1. The binding whose ``integration_id`` matches the last inbound
+         user message's ``metadata["source"]`` on this channel — the
+         user is already on that surface; opening the modal there is
+         the only option Slack's ``trigger_id`` window accepts anyway.
+      2. Any other MODALS-capable binding on the channel.
+      3. None if no bound integration has ``Capability.MODALS``.
+    """
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if channel is None:
+            return None
+        origin = await _last_user_message_source(db, channel_id)
+
+    targets = await resolve_targets(channel)
+    modals_capable = [
+        integration_id for integration_id, _t in targets
+        if _renderer_has_modals(integration_id)
+    ]
+    if not modals_capable:
+        return None
+    if origin and origin in modals_capable:
+        return origin
+    return modals_capable[0]
+
+
+def _renderer_has_modals(integration_id: str) -> bool:
+    renderer = renderer_registry.get(integration_id)
+    if renderer is None:
+        return False
+    return Capability.MODALS in getattr(renderer, "capabilities", frozenset())
+
+
+async def _last_user_message_source(db, channel_id: uuid.UUID) -> str | None:
+    """Look up the last user-role message's ``metadata["source"]`` on this channel.
+
+    Walks the channel's active session first (hot path — same session as
+    the current turn) and only falls back to a channel-wide scan if the
+    session lookup yields no user message with a ``source`` set.
+    """
+    session_id = current_session_id.get()
+    if session_id is not None:
+        row = (
+            await db.execute(
+                select(MessageRow)
+                .where(MessageRow.session_id == session_id)
+                .where(MessageRow.role == "user")
+                .order_by(MessageRow.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if row is not None:
+            source = (row.metadata_ or {}).get("source")
+            if source:
+                return source
+    return None
 
 
 async def _post_open_modal_button(
@@ -150,33 +233,17 @@ async def _post_open_modal_button(
     button_value: str,
     prompt: str,
 ) -> None:
-    """Emit a NEW_MESSAGE carrying an Open-Form button.
+    """Post the Open-Form button as a NEW_MESSAGE scoped to ``integration_id``.
 
-    Slack is the only integration with the MODALS capability today; we
-    build the Block Kit block inline. Future integrations plug in by
-    implementing their own renderer branch for ``OpenModal`` actions —
-    a richer design could route through ``handle_outbound_action`` but
-    that requires wiring the agent loop's action-emission path. Phase 4
-    uses the simpler "post a message with a button" approach so the
-    existing NEW_MESSAGE delivery path handles delivery, persistence,
-    and Slack echo filtering for free.
+    We persist the prompt message for audit, but enqueue the outbox row
+    only for the target integration. Other bindings on the same channel
+    never see this message — they would render a dead-end button since
+    the action handler is integration-native.
     """
-    if integration_id != "slack":
-        # Other integrations: noop for now (MODALS capability is gated
-        # above, so we never reach here in practice).
-        return
-
-    from datetime import datetime, timezone
-    from app.agent.context import current_bot_id, current_session_id
-    from app.db.engine import async_session
-    from app.db.models import Message as MessageRow, Session as SessionRow
-    from app.domain.actor import ActorRef
-    from app.domain.channel_events import ChannelEvent, ChannelEventKind
-    from app.domain.message import Message as DomainMessage
-    from app.domain.payloads import MessagePayload
-    from app.services.channel_events import publish_typed
-    from app.services.outbox_publish import enqueue_new_message_for_channel
-    from sqlalchemy import select
+    if not _renderer_has_modals(integration_id):
+        # Defensive: caller already picked via _pick_modal_target, but
+        # guard in case the renderer registry shifts between calls.
+        raise RuntimeError(f"integration {integration_id!r} lacks MODALS capability")
 
     bot_id = current_bot_id.get() or ""
     session_uuid = current_session_id.get()
@@ -196,6 +263,7 @@ async def _post_open_modal_button(
 
     async with async_session() as db:
         if session_uuid is None:
+            from app.db.models import Session as SessionRow
             latest = (
                 await db.execute(
                     select(SessionRow)
@@ -215,6 +283,7 @@ async def _post_open_modal_button(
             metadata_={
                 "source": "open_modal",
                 "bot_id": bot_id,
+                "target_integration": integration_id,
                 "slack_blocks": blocks,
                 "slack_button_action": f"open_modal:{callback_id}",
             },
@@ -231,18 +300,11 @@ async def _post_open_modal_button(
             actor=ActorRef.bot(bot_id or "bot"),
             metadata={
                 "source": "open_modal",
+                "target_integration": integration_id,
                 "slack_blocks": blocks,
                 "slack_button_action": f"open_modal:{callback_id}",
             },
             channel_id=channel_id,
         )
 
-    await enqueue_new_message_for_channel(channel_id, domain_msg)
-    publish_typed(
-        channel_id,
-        ChannelEvent(
-            channel_id=channel_id,
-            kind=ChannelEventKind.NEW_MESSAGE,
-            payload=MessagePayload(message=domain_msg),
-        ),
-    )
+    await enqueue_new_message_for_target(channel_id, domain_msg, integration_id)

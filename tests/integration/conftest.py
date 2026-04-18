@@ -107,6 +107,9 @@ async def client(engine, db_session):
         patch("app.services.workflow_executor.async_session", _test_session_factory),
         patch("app.services.bot_hooks.async_session", _test_session_factory),
         patch("app.services.attachments.async_session", _test_session_factory),
+        patch("app.services.skill_enrollment.async_session", _test_session_factory),
+        patch("app.services.tool_enrollment.async_session", _test_session_factory),
+        patch("app.services.sandbox.async_session", _test_session_factory),
     ):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:

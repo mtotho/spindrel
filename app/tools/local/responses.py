@@ -1,16 +1,18 @@
 """Response-delivery tools — ways an agent can target its reply.
 
 Today: ``respond_privately`` — deliver a reply visible only to one user
-on integrations that support ephemeral messages (Slack, Discord
-interactions). On integrations without EPHEMERAL capability, the reply
-is broadcast to the channel with a leading visibility marker; better
-than a silent drop, and preserves the intent.
+on integrations that support ephemeral messages (Slack ``chat.post
+Ephemeral`` is the only implementation). Strict-deliver: the reply is
+routed to exactly one bound integration on the channel, or the tool
+returns ``unsupported`` and the agent should ask conversationally
+instead. There is no channel-broadcast fallback.
 """
 from __future__ import annotations
 
 import json
 
 from app.agent.context import current_bot_id, current_channel_id
+from app.domain.capability import Capability
 from app.services.ephemeral_dispatch import deliver_ephemeral
 from app.tools.registry import register
 
@@ -25,9 +27,9 @@ from app.tools.registry import register
             "info, long diagnostics meant for the asker only) and should not be "
             "visible to everyone. The recipient is specified by their integration-"
             "native user id (Slack 'U...' format, Discord snowflake, etc.). "
-            "On integrations that don't support ephemeral messages, the reply "
-            "is posted to the channel with a visibility marker ('Private reply "
-            "intended for <@user>') instead of being silently dropped."
+            "If no bound integration on this channel can deliver privately to "
+            "that user, this tool returns unsupported — you should then ask the "
+            "user conversationally instead."
         ),
         "parameters": {
             "type": "object",
@@ -48,7 +50,7 @@ from app.tools.registry import register
             "required": ["to_user", "text"],
         },
     },
-}, safety_tier="readonly")
+}, safety_tier="readonly", required_capabilities=frozenset({Capability.EPHEMERAL}))
 async def respond_privately(to_user: str, text: str) -> str:
     bot_id = current_bot_id.get() or ""
     channel_id = current_channel_id.get()
@@ -61,6 +63,9 @@ async def respond_privately(to_user: str, text: str) -> str:
         recipient_user_id=to_user,
         text=text,
     )
-    if result.get("mode") == "error":
-        return json.dumps({"ok": False, **result})
-    return json.dumps({"ok": True, **result})
+    mode = result.get("mode")
+    if mode == "ephemeral":
+        return json.dumps({"ok": True, **result})
+    # error / unsupported both surface as ok=False so the calling agent
+    # reads the error field and reframes — no silent success on degraded paths.
+    return json.dumps({"ok": False, **result})

@@ -142,3 +142,89 @@ tool_widgets:
         - type: properties
           layout: inline
           items: "{{data.success | map: {label: type, value: name}}}"
+
+  # Community ha-mcp: single entity lookup — e.g. a temperature sensor.
+  # The initial render uses the tool's own response directly; pinning the
+  # card re-calls ha_get_state with the same entity_id so the value stays
+  # live without hitting the much larger GetLiveContext.
+  ha_get_state:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "{{data.attributes.friendly_name | default: data.entity_id}}"
+    state_poll:
+      tool: ha_get_state
+      args:
+        entity_id: "{{data.entity_id}}"
+      transform: "integrations.homeassistant.widget_transforms:single_entity_state"
+      refresh_interval_seconds: 30
+      template:
+        v: 1
+        components:
+          - type: heading
+            text: "{{friendly_name}}"
+            level: 3
+          - type: status
+            text: "{{display_value}}"
+            color: accent
+          - type: properties
+            layout: inline
+            items:
+              - label: entity
+                value: "{{entity_id}}"
+              - label: updated
+                value: "{{last_changed}}"
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "{{data.attributes.friendly_name}}"
+          level: 3
+        - type: status
+          text: "{{data.state}}{{data.attributes.unit_of_measurement}}"
+          color: accent
+        - type: properties
+          layout: inline
+          items:
+            - label: entity
+              value: "{{data.entity_id}}"
+
+  # Community ha-mcp: search results list. The section is collapsed by
+  # default so the chat thread stays compact — clicking the section header
+  # expands the tile grid. Inline `map:` filter reshapes the result array,
+  # no Python transform needed.
+  ha_search_entities:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "{{data.query}} — {{data.total_matches}} matches"
+    template:
+      v: 1
+      components:
+        - type: status
+          text: "{{data.total_matches}} match(es) for \"{{data.query}}\""
+          color: info
+        - type: section
+          label: "Results ({{data.count}})"
+          collapsible: true
+          defaultOpen: false
+          children:
+            - type: tiles
+              min_width: 180
+              items: "{{data.results | map: {label: friendly_name, value: state, caption: entity_id}}}"
+
+  # Official HA MCP: full-home context dump. The raw result is a YAML
+  # blob inside the JSON wrapper's `result` field — no template dot-path
+  # can reach per-entity fields, so the Python transform rebuilds the
+  # component tree with total / per-domain counts and an "active now"
+  # section. The YAML template below is a minimal fallback used only if
+  # the transform can't parse the payload.
+  GetLiveContext:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "Home Assistant — Live State"
+    transform: "integrations.homeassistant.widget_transforms:live_context_summary"
+    template:
+      v: 1
+      components:
+        - type: status
+          text: "Home Assistant live state"
+          color: info

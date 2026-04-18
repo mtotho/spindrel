@@ -1763,6 +1763,55 @@ async def assemble_context(
     # Include dynamically injected tool names in the authorized set
     if _injected and _authorized_names is not None:
         _authorized_names.update(t["function"]["name"] for t in _injected)
+
+    # --- capability-gated tool exposure ---
+    # Drop tools whose required_capabilities / required_integrations the
+    # current channel's bindings can't satisfy. Keeps respond_privately,
+    # open_modal, and slack_* surface tools out of the LLM's tool list
+    # on channels that can't honor them — rather than letting the agent
+    # call the tool and hit a runtime "unsupported" error. Structural
+    # fix for the Phase 3/4 Slack-depth bug documented in vault/
+    # Architecture Decisions (Channel binding model).
+    if _ch_row is not None:
+        try:
+            from app.agent.capability_gate import build_view
+            from app.integrations import renderer_registry as _rreg
+            from app.services.dispatch_resolution import resolve_targets as _resolve_targets
+            from app.tools.registry import get_tool_capability_requirements
+
+            _targets = await _resolve_targets(_ch_row)
+            _bound_ids = [iid for iid, _t in _targets]
+            _caps_map = {
+                iid: getattr(_rreg.get(iid), "capabilities", frozenset())
+                for iid in _bound_ids
+                if _rreg.get(iid) is not None
+            }
+            _view = build_view(_bound_ids, _caps_map)
+
+            def _tool_is_exposable(_name: str) -> bool:
+                _req_caps, _req_ints = get_tool_capability_requirements(_name)
+                return _view.tool_is_exposable(_req_caps, _req_ints)
+
+            if _authorized_names is not None:
+                _dropped = {n for n in _authorized_names if not _tool_is_exposable(n)}
+                if _dropped:
+                    _authorized_names -= _dropped
+                    logger.debug(
+                        "capability_gate: dropped %d tools on channel=%s (bound=%s): %s",
+                        len(_dropped), channel_id,
+                        sorted(_view.bound_integrations), sorted(_dropped),
+                    )
+            if pre_selected_tools is not None:
+                pre_selected_tools = [
+                    _t for _t in pre_selected_tools
+                    if _tool_is_exposable(_t.get("function", {}).get("name", ""))
+                ]
+        except Exception:
+            logger.warning(
+                "capability_gate: filter failed for channel %s — continuing without gate",
+                channel_id, exc_info=True,
+            )
+
     result.pre_selected_tools = pre_selected_tools
     result.authorized_tool_names = _authorized_names
     result.effective_local_tools = list(bot.local_tools)
