@@ -132,6 +132,10 @@ export const router = createBrowserRouter([
             ],
           },
 
+          // Widgets — chat-less dashboard + developer panel
+          { path: "widgets", element: <WidgetsDashboard /> },
+          { path: "widgets/dev", element: <WidgetsDevPanel /> },
+
           // Admin
           {
             path: "admin",
