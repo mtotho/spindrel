@@ -41,6 +41,8 @@ _MODULE_LEVEL_ALIASES = (
     "app.services.compaction.async_session",
     "app.services.bot_hooks.async_session",
     "app.services.file_sync.async_session",
+    "app.services.attachments.async_session",
+    "app.services.workflows.async_session",
     "app.agent.tasks.async_session",
     "app.db.engine.async_session",
 )
@@ -67,6 +69,10 @@ async def patched_async_sessions(engine):
         "app.services.bot_hooks.async_session", factory
     ), patch(
         "app.services.file_sync.async_session", factory
+    ), patch(
+        "app.services.attachments.async_session", factory
+    ), patch(
+        "app.services.workflows.async_session", factory
     ), patch("app.agent.tasks.async_session", factory):
         yield factory
 

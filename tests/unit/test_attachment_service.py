@@ -469,3 +469,89 @@ class TestBotAttachmentConfig:
             from app.services.attachments import _get_bot_attachment_config
             config = await _get_bot_attachment_config("partial-bot")
             assert config == {"enabled": True, "vision_concurrency": 5}
+
+
+# ---------------------------------------------------------------------------
+# TestInferIntegrationFromMetadata (pure helper)
+# ---------------------------------------------------------------------------
+
+class TestInferIntegrationFromMetadata:
+    def setup_method(self):
+        from app.services.attachments import _infer_integration_from_metadata
+        self._fn = _infer_integration_from_metadata
+
+    def test_when_slack_file_id_in_meta_then_returns_slack(self):
+        assert self._fn({"slack_file_id": "F123"}, "web") == "slack"
+
+    def test_when_no_known_keys_and_source_not_web_then_uses_source_integration(self):
+        assert self._fn({"other_key": "x"}, "discord") == "discord"
+
+    def test_when_source_is_web_and_no_known_meta_keys_then_returns_none(self):
+        assert self._fn({"unrelated": "val"}, "web") is None
+
+
+# ---------------------------------------------------------------------------
+# TestDeleteAttachment (real-DB)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestDeleteAttachment:
+    async def test_when_attachment_not_found_then_returns_error_dict(self, db_session, patched_async_sessions):
+        missing_id = uuid.uuid4()
+
+        from app.services.attachments import delete_attachment
+        result = await delete_attachment(missing_id)
+
+        assert result == {"error": f"Attachment {missing_id} not found."}
+
+    async def test_when_attachment_exists_with_no_metadata_then_row_deleted(self, db_session, patched_async_sessions):
+        from sqlalchemy import select
+        from app.db.models import Attachment
+        from app.services.attachments import delete_attachment
+        from tests.factories import build_attachment
+        att = await db_session.merge(build_attachment(channel_id=None, metadata_={}))
+        await db_session.commit()
+
+        result = await delete_attachment(att.id)
+
+        assert result["deleted"] == str(att.id)
+        assert result["filename"] == att.filename
+        assert result["integration_deleted"] is False
+        gone = (await db_session.execute(select(Attachment).where(Attachment.id == att.id))).scalar_one_or_none()
+        assert gone is None
+
+    async def test_when_renderer_present_and_dispatch_succeeds_then_integration_deleted(self, db_session, patched_async_sessions):
+        from app.services.attachments import delete_attachment
+        from tests.factories import build_attachment
+        cid = uuid.uuid4()
+        att = await db_session.merge(build_attachment(channel_id=cid, metadata_={"slack_file_id": "F123"}, source_integration="web"))
+        await db_session.commit()
+        mock_renderer = AsyncMock()
+        mock_renderer.delete_attachment = AsyncMock(return_value=True)
+
+        with patch("app.services.attachments._resolve_dispatch_config", return_value={"type": "slack"}), \
+             patch("app.domain.dispatch_target.parse_dispatch_target", return_value=object()), \
+             patch("app.integrations.renderer_registry.get", return_value=mock_renderer):
+            result = await delete_attachment(att.id)
+
+        assert result["integration_deleted"] is True
+
+    async def test_when_renderer_raises_then_db_deleted_and_integration_deleted_false(self, db_session, patched_async_sessions):
+        from sqlalchemy import select
+        from app.db.models import Attachment
+        from app.services.attachments import delete_attachment
+        from tests.factories import build_attachment
+        cid = uuid.uuid4()
+        att = await db_session.merge(build_attachment(channel_id=cid, metadata_={"slack_file_id": "F123"}))
+        await db_session.commit()
+        mock_renderer = AsyncMock()
+        mock_renderer.delete_attachment = AsyncMock(side_effect=RuntimeError("network error"))
+
+        with patch("app.services.attachments._resolve_dispatch_config", return_value={"type": "slack"}), \
+             patch("app.domain.dispatch_target.parse_dispatch_target", return_value=object()), \
+             patch("app.integrations.renderer_registry.get", return_value=mock_renderer):
+            result = await delete_attachment(att.id)
+
+        assert result["integration_deleted"] is False
+        gone = (await db_session.execute(select(Attachment).where(Attachment.id == att.id))).scalar_one_or_none()
+        assert gone is None

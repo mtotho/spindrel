@@ -246,11 +246,12 @@ class TestApprovalFanoutE2E:
                  patch("app.tools.registry.call_local_tool", new=fake_tool):
                 await _advance_pipeline(task, task.steps, task.step_states, start_index=apply_idx)
 
-        # The current when-gate is step-level — it reads the review step's
-        # aggregate result. Since `approve` appears at least once, the gate
-        # passes uniformly for every iteration; call_api fires once per
-        # proposal. (Per-item gating would require a richer when-expression
-        # — captured as a follow-up in the plan.)
-        assert len(call_api_calls) == 2
+        # Per-item gating: the orchestrator YAML uses
+        #   when: { step: review, output_contains: '"{{item.id}}": "approve"' }
+        # which is rendered with iter_params before evaluation. Only the
+        # iteration where the rendered substring matches the review step's
+        # by-id verdict fires call_api. p_ok="approve" → fires; p_no="reject"
+        # → skipped.
+        assert len(call_api_calls) == 1
         paths = {c["path"] for c in call_api_calls}
-        assert paths == {"/api/v1/admin/bots/a", "/api/v1/admin/bots/b"}
+        assert paths == {"/api/v1/admin/bots/a"}

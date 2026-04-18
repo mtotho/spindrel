@@ -141,6 +141,46 @@ class TestRunSubagent:
     @pytest.mark.asyncio
     @patch("app.agent.loop.run_agent_tool_loop", side_effect=_mock_agent_loop("done"))
     @patch("app.tools.registry.get_local_tool_schemas", return_value=[])
+    async def test_preset_and_explicit_tools_merge(self, mock_schemas, mock_loop):
+        """Explicit tools augment preset tools rather than replacing them.
+
+        Regression: a parent picking `data-extractor` (preset =
+        ["file", "exec_command"]) and adding `github_get_commit` used to
+        get only `[github_get_commit]` because explicit tools fully
+        replaced the preset list. Now they merge.
+        """
+        with patch("app.agent.bots.get_bot", return_value=_mock_bot_config()):
+            result = await run_subagent(
+                "test",
+                preset="data-extractor",
+                tools=["github_get_commit"],
+                parent_bot_id="test-bot",
+            )
+        assert result.status == "ok"
+        called_tools = mock_schemas.call_args[0][0]
+        assert "file" in called_tools
+        assert "exec_command" in called_tools
+        assert "github_get_commit" in called_tools
+
+    @pytest.mark.asyncio
+    @patch("app.agent.loop.run_agent_tool_loop", side_effect=_mock_agent_loop("done"))
+    @patch("app.tools.registry.get_local_tool_schemas", return_value=[])
+    async def test_preset_tools_deduped_when_explicit_overlaps(self, mock_schemas, mock_loop):
+        """Tools listed in both preset and explicit appear once, preset order preserved."""
+        with patch("app.agent.bots.get_bot", return_value=_mock_bot_config()):
+            await run_subagent(
+                "test",
+                preset="data-extractor",
+                tools=["file", "github_get_commit"],
+                parent_bot_id="test-bot",
+            )
+        called_tools = mock_schemas.call_args[0][0]
+        # `file` appears once (preset position preserved), `github_get_commit` appended.
+        assert called_tools == ["file", "exec_command", "github_get_commit"]
+
+    @pytest.mark.asyncio
+    @patch("app.agent.loop.run_agent_tool_loop", side_effect=_mock_agent_loop("done"))
+    @patch("app.tools.registry.get_local_tool_schemas", return_value=[])
     async def test_explicit_model_overrides_tier(self, mock_schemas, mock_loop):
         """When model= is explicit, it should be used directly, not tier resolution."""
         with patch("app.agent.bots.get_bot", return_value=_mock_bot_config()):

@@ -679,6 +679,47 @@ def _resolve_path(path: str, data: Any) -> Any:
     return current
 
 
+def _format_date_relative(value: Any) -> str:
+    """Format an ISO 8601 timestamp as a compact relative string.
+
+    <60s      → "just now"
+    <60m      → "Nm ago"
+    <24h      → "Nh ago"
+    <7d       → "Nd ago"
+    otherwise → "Mon D" (month + day)
+
+    Returns the original value on parse failure so authors don't end up
+    with an empty string in the pinned card.
+    """
+    from datetime import datetime, timezone
+
+    if not isinstance(value, str) or not value.strip():
+        return str(value) if value is not None else ""
+    try:
+        # Python 3.11+ fromisoformat handles the `Z` suffix; older versions
+        # need the manual swap.
+        iso = value.strip().replace("Z", "+00:00")
+        ts = datetime.fromisoformat(iso)
+    except (ValueError, TypeError):
+        return value
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+
+    delta = datetime.now(timezone.utc) - ts
+    secs = int(delta.total_seconds())
+    if secs < 0:
+        return value  # future timestamp — echo raw
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        return f"{secs // 60}m ago"
+    if secs < 86400:
+        return f"{secs // 3600}h ago"
+    if secs < 7 * 86400:
+        return f"{secs // 86400}d ago"
+    return ts.strftime("%b %-d") if hasattr(ts, "strftime") else value
+
+
 def _apply_transform(value: Any, transform: str, data: dict) -> Any:
     """Apply a pipe transform to a value.
 
@@ -693,6 +734,7 @@ def _apply_transform(value: Any, transform: str, data: dict) -> Any:
       - not_empty                       → returns true if value is truthy
       - status_color                    → map status string to a color name
       - count                           → return length of a list
+      - date_relative                   → ISO 8601 timestamp → "5m ago" / "2h ago" / "Apr 18"
     """
     # Chained transforms: "pluck: name | join: , "
     # Split on " | " (with spaces) to preserve separators like ", " in join
@@ -722,6 +764,10 @@ def _apply_transform(value: Any, transform: str, data: dict) -> Any:
         if isinstance(value, str):
             return _STATUS_COLORS.get(value.lower(), "muted")
         return "muted"
+
+    # date_relative — ISO 8601 timestamp to compact relative string
+    if transform.strip() == "date_relative":
+        return _format_date_relative(value)
 
     # count — length of a list
     if transform.strip() == "count":

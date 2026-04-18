@@ -27,7 +27,7 @@ def _pipeline_with_user_prompt() -> list[dict]:
 
 
 class TestResolveEndpoint:
-    async def test_happy_path_fills_result_and_advances(self, client, db_session):
+    async def test_happy_path_fills_result_and_schedules_resume(self, client, db_session):
         task_id = uuid.uuid4()
         task = Task(
             id=task_id,
@@ -48,11 +48,24 @@ class TestResolveEndpoint:
         db_session.add(task)
         await db_session.commit()
 
-        # Patch the advance hook so we test the endpoint's state mutation in
-        # isolation (advance is covered by unit tests).
+        # The endpoint dispatches the resume via safe_create_task so the HTTP
+        # request returns immediately — long apply phases (foreach over many
+        # call_api sub-steps) used to block the connection synchronously.
+        # Patch safe_create_task to capture the scheduled coroutine without
+        # actually running it (no event loop drift, no fresh-session races).
+        scheduled = []
+
+        def _capture(coro, *, name=""):
+            scheduled.append((coro, name))
+            coro.close()  # don't leak a never-awaited coroutine warning
+
+            class _DummyTask:
+                def add_done_callback(self, _cb): pass
+            return _DummyTask()
+
         with patch(
-            "app.services.step_executor._advance_pipeline", new=AsyncMock()
-        ) as advance:
+            "app.routers.api_v1_admin.tasks.safe_create_task", side_effect=_capture
+        ):
             resp = await client.post(
                 f"/api/v1/admin/tasks/{task_id}/steps/0/resolve",
                 json={"response": {"decision": "approve"}},
@@ -67,7 +80,9 @@ class TestResolveEndpoint:
         # UI reads stepState.result with .slice() and crashes on raw dicts.
         # See app/routers/api_v1_admin/tasks.py:855-857.
         assert json.loads(step["result"]) == {"decision": "approve"}
-        advance.assert_called_once()
+        # Background resume scheduled exactly once with the right name.
+        assert len(scheduled) == 1
+        assert scheduled[0][1] == f"resolve-resume-{task_id}"
 
     async def test_404_on_unknown_task(self, client):
         resp = await client.post(

@@ -178,7 +178,7 @@ tool_widgets:
               - label: entity
                 value: "{{entity_id}}"
               - label: updated
-                value: "{{last_changed}}"
+                value: "{{last_changed | date_relative}}"
     template:
       v: 1
       components:
@@ -193,6 +193,8 @@ tool_widgets:
           items:
             - label: entity
               value: "{{data.entity_id}}"
+            - label: updated
+              value: "{{data.last_changed | date_relative}}"
 
   # Community ha-mcp: search results list. The section is collapsed by
   # default so the chat thread stays compact — clicking the section header

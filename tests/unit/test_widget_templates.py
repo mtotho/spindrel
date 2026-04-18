@@ -402,6 +402,41 @@ class TestNotTransform:
         assert _evaluate_expression("flag | not", {"flag": ""}) is True
 
 
+class TestDateRelativeTransform:
+    """`date_relative` formats an ISO 8601 timestamp as a compact relative
+    string. Used by pinned sensor widgets so 'updated: 2026-04-18T...' reads
+    as 'updated: 5m ago' instead."""
+
+    def _iso(self, seconds_ago: int) -> str:
+        from datetime import datetime, timezone, timedelta
+        return (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).isoformat()
+
+    def test_just_now(self):
+        assert _evaluate_expression("ts | date_relative", {"ts": self._iso(5)}) == "just now"
+
+    def test_minutes(self):
+        assert _evaluate_expression("ts | date_relative", {"ts": self._iso(180)}) == "3m ago"
+
+    def test_hours(self):
+        assert _evaluate_expression("ts | date_relative", {"ts": self._iso(7200)}) == "2h ago"
+
+    def test_days(self):
+        assert _evaluate_expression("ts | date_relative", {"ts": self._iso(259200)}) == "3d ago"
+
+    def test_bad_input_is_passthrough(self):
+        # Unparseable strings echo back — so a bad sensor timestamp renders as
+        # literal text rather than an empty gap in the card.
+        assert _evaluate_expression("ts | date_relative", {"ts": "not-a-date"}) == "not-a-date"
+        assert _evaluate_expression("ts | date_relative", {"ts": ""}) == ""
+
+    def test_future_timestamp_passthrough(self):
+        """Clock skew or bad sensor data can produce a future timestamp. Rather
+        than showing '-5m ago', echo the raw value so the oddity is visible."""
+        from datetime import datetime, timezone, timedelta
+        future = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+        assert _evaluate_expression("ts | date_relative", {"ts": future}) == future
+
+
 class TestWidgetConfigThreading:
     """`apply_widget_template(tool, raw, widget_config=...)` merges per-pin
     config over the template's default_config and exposes it as {{config.*}}."""

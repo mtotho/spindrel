@@ -1,10 +1,16 @@
 """Unit tests for workflow condition evaluator, prompt rendering, param validation,
-and chat message posting."""
+chat message posting, and the workflow service (create_workflow)."""
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from app.db.models import Workflow
+from app.services.workflows import create_workflow
+from app.services import workflows as _workflows_mod
 
 from app.services.workflow_executor import (
     evaluate_condition,
@@ -576,3 +582,53 @@ class TestTriggerWorkflowErrorHandling:
             # The run should have been marked as failed
             assert failed_run.status == "failed"
             assert "Initial advancement failed" in (failed_run.error or "")
+
+
+# ---------------------------------------------------------------------------
+# create_workflow (app/services/workflows.py)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def _clear_workflow_registry():
+    _workflows_mod._registry.clear()
+    yield
+    _workflows_mod._registry.clear()
+
+
+@pytest.mark.asyncio
+class TestCreateWorkflow:
+    pytestmark = pytest.mark.usefixtures("_clear_workflow_registry")
+
+    async def test_when_required_fields_provided_then_row_persisted(self, db_session, patched_async_sessions):
+        wf_id = f"wf-{uuid.uuid4().hex[:8]}"
+        data = {"id": wf_id, "name": "My Workflow", "steps": [{"type": "tool", "tool": "ping"}]}
+
+        await create_workflow(data)
+
+        row = (await db_session.execute(select(Workflow).where(Workflow.id == wf_id))).scalar_one_or_none()
+        assert row is not None
+        assert row.name == "My Workflow"
+
+    async def test_when_created_then_added_to_registry(self, db_session, patched_async_sessions):
+        wf_id = f"wf-{uuid.uuid4().hex[:8]}"
+
+        result = await create_workflow({"id": wf_id})
+
+        assert wf_id in _workflows_mod._registry
+        assert _workflows_mod._registry[wf_id].id == wf_id
+
+    async def test_when_optional_fields_omitted_then_defaults_applied(self, db_session, patched_async_sessions):
+        wf_id = f"wf-{uuid.uuid4().hex[:8]}"
+
+        result = await create_workflow({"id": wf_id})
+
+        assert result.session_mode == "isolated"
+        assert result.source_type == "manual"
+        assert result.params == {}
+
+    async def test_when_duplicate_id_then_integrity_error(self, db_session, patched_async_sessions):
+        wf_id = f"wf-{uuid.uuid4().hex[:8]}"
+        await create_workflow({"id": wf_id})
+
+        with pytest.raises(IntegrityError):
+            await create_workflow({"id": wf_id})

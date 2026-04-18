@@ -95,9 +95,12 @@ steps:
     do:
       - type: tool
         tool_name: call_api
+        # Per-item gate: only fire when the review step's by-id verdict
+        # for THIS proposal is "approve". {{item.id}} is rendered before
+        # the gate runs (see _run_foreach_step in step_executor.py).
         when:
           step: review
-          output_contains: "approve"
+          output_contains: '"{{item.id}}": "approve"'
         tool_args:
           method: "{{item.target_method}}"
           path: "{{item.target_path}}"

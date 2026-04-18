@@ -710,17 +710,22 @@ async def _run_foreach_step(
             sub_state = state["iterations"][iter_idx][sub_idx]
             sub_type = sub_def.get("type", "tool")
 
-            # when-gate on the sub-step (evaluated with item bound)
+            # Render the entire sub-step (including the `when:` clause) with
+            # iter-local params first so per-iteration template substitution
+            # like `{{item.id}}` works inside the gate. Without this, the
+            # when-clause sees the literal `{{item.id}}` string and gates
+            # uniformly across iterations.
+            rendered = _render_sub_step_def(sub_def, iter_params, step_states, steps)
+
+            # when-gate on the sub-step (evaluated with item bound + rendered)
             sub_ctx = build_condition_context(steps, step_states, iter_params)
-            if not evaluate_condition(sub_def.get("when"), sub_ctx):
+            if not evaluate_condition(rendered.get("when"), sub_ctx):
                 sub_state["status"] = "skipped"
                 await _persist_step_states(task.id, step_states)
                 continue
 
             sub_state["status"] = "running"
             await _persist_step_states(task.id, step_states)
-
-            rendered = _render_sub_step_def(sub_def, iter_params, step_states, steps)
 
             if sub_type == "tool":
                 rendered_args = {

@@ -62,8 +62,11 @@ _PRESET_SUMMARY = ", ".join(
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": (
-                                    "Explicit tool list (overrides preset). "
-                                    "Example: [\"file\", \"exec_command\", \"web_search\"]"
+                                    "Additional tools to make available to the sub-agent. "
+                                    "These ADD to the preset's tool list — you do NOT need to "
+                                    "restate the preset's tools. "
+                                    "Example: preset=\"data-extractor\" + tools=[\"github_get_commit\"] "
+                                    "gives the sub-agent file + exec_command + github_get_commit."
                                 ),
                             },
                             "system_prompt": {

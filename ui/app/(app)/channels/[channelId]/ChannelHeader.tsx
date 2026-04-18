@@ -252,7 +252,7 @@ export function ChannelHeader({
               <span
                 className="absolute top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full
                            bg-accent text-[9px] font-bold flex items-center justify-center
-                           leading-none"
+                           leading-none animate-pulse"
                 style={{ color: t.surface }}
               >
                 {findingsCount > 9 ? "9+" : findingsCount}

@@ -31,6 +31,10 @@ export function HomeGrid() {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [columns, setColumns] = useState(4);
+  // True only while the selection is being driven by the keyboard; hover-
+  // driven selection must not auto-scroll or the page feels like it's
+  // jumping on mouse movement.
+  const isKeyboardNav = useRef(false);
 
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const recordPageVisit = useUIStore((s) => s.recordPageVisit);
@@ -147,9 +151,13 @@ export function HomeGrid() {
     setSelectedIndex(query.trim() ? (flatTiles.length > 0 ? 0 : -1) : -1);
   }, [query, flatTiles.length]);
 
-  // Scroll the selected tile into view on keyboard nav.
+  // Scroll the selected tile into view on keyboard nav only. Hover updates
+  // selectedIndex too (for the highlight ring) but must not scroll, or the
+  // page shifts under the user as they move the mouse over partially-
+  // visible tiles near the viewport edge.
   useEffect(() => {
     if (selectedIndex < 0) return;
+    if (!isKeyboardNav.current) return;
     tileRefs.current[selectedIndex]?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
@@ -194,15 +202,19 @@ export function HomeGrid() {
     if (flatTiles.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
+      isKeyboardNav.current = true;
       setSelectedIndex((i) => moveVertical(i, 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      isKeyboardNav.current = true;
       setSelectedIndex((i) => moveVertical(i, -1));
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
+      isKeyboardNav.current = true;
       setSelectedIndex((i) => moveHorizontal(i, 1));
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
+      isKeyboardNav.current = true;
       setSelectedIndex((i) => moveHorizontal(i, -1));
     } else if (e.key === "Enter") {
       // Empty query + no keyboard selection = nothing to submit.
@@ -493,7 +505,10 @@ export function HomeGrid() {
                       }}
                       scored={scored}
                       selected={flatIdx === selectedIndex}
-                      onHover={() => setSelectedIndex(flatIdx)}
+                      onHover={() => {
+                        isKeyboardNav.current = false;
+                        setSelectedIndex(flatIdx);
+                      }}
                       onClick={() => {
                         recordPageVisit(scored.item.href);
                       }}

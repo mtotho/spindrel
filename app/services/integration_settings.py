@@ -81,12 +81,58 @@ async def load_from_db() -> None:
 # Read helpers
 # ---------------------------------------------------------------------------
 
+# Tracks (integration_id, key) pairs we've already warned about for bare-name
+# env-var fallback so the warning fires once per process, not once per webhook.
+_warned_bare_env_keys: set[tuple[str, str]] = set()
+
+
+def _namespaced_env_key(integration_id: str, key: str) -> str:
+    """Build the namespaced env-var name for an integration setting.
+
+    e.g. ``("github", "GITHUB_TOKEN") -> "INTEGRATION_GITHUB_TOKEN"``.
+    Strict format: integration id is uppercased; key is left as-is (already
+    upper-snake by convention).
+    """
+    return f"INTEGRATION_{integration_id.upper()}_{key}"
+
+
+def _resolve_env_value(integration_id: str, key: str, default: str = "") -> str:
+    """Look up an integration env var with namespacing.
+
+    Precedence:
+        1. ``INTEGRATION_<ID>_<KEY>``  (namespaced — preferred)
+        2. ``<KEY>``                    (bare — legacy, warns once)
+        3. default
+
+    The bare-name fallback exists because most existing deployments still
+    set bare names like ``GITHUB_TOKEN``. We log a one-shot warning so users
+    know to migrate to the namespaced form, which prevents collisions with
+    the user's own shell env (e.g. a developer's personal ``GITHUB_TOKEN``
+    shouldn't silently become the integration's token).
+    """
+    namespaced = os.environ.get(_namespaced_env_key(integration_id, key))
+    if namespaced:
+        return namespaced
+    bare = os.environ.get(key)
+    if bare:
+        warn_key = (integration_id, key)
+        if warn_key not in _warned_bare_env_keys:
+            _warned_bare_env_keys.add(warn_key)
+            logger.warning(
+                "Integration %r reading bare env var %r — set %r instead to avoid "
+                "collisions with the user's shell environment.",
+                integration_id, key, _namespaced_env_key(integration_id, key),
+            )
+        return bare
+    return default
+
+
 def get_value(integration_id: str, key: str, default: str = "") -> str:
     """Get a setting value. DB cache > env var > default."""
     cached = _cache.get((integration_id, key))
     if cached is not None:
         return cached
-    return os.environ.get(key, default)
+    return _resolve_env_value(integration_id, key, default)
 
 
 def get_all_for_integration(integration_id: str, setup_vars: list[dict]) -> list[dict[str, Any]]:
@@ -100,13 +146,19 @@ def get_all_for_integration(integration_id: str, setup_vars: list[dict]) -> list
         cache_key = (integration_id, key)
         is_secret = var.get("secret", False)
 
-        # Determine value and source
+        # Determine value and source. Env-var lookup mirrors `get_value`'s
+        # precedence: namespaced first, bare second.
         default_value = var.get("default", "")
+        namespaced_env = os.environ.get(_namespaced_env_key(integration_id, key))
+        bare_env = os.environ.get(key)
         if cache_key in _cache:
             raw_value = _cache[cache_key]
             source = "db"
-        elif os.environ.get(key):
-            raw_value = os.environ[key]
+        elif namespaced_env:
+            raw_value = namespaced_env
+            source = "env"
+        elif bare_env:
+            raw_value = bare_env
             source = "env"
         else:
             raw_value = default_value

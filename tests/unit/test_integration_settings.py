@@ -52,6 +52,53 @@ class TestGetValue:
         assert get_value("frigate", "FRIGATE_URL") == "http://db:5000"
 
 
+class TestNamespacedEnvLookup:
+    """Namespaced env vars (`INTEGRATION_<ID>_<KEY>`) take precedence over
+    bare names. Bare names still work but emit a one-shot warning so users
+    can migrate without their integration silently breaking."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_warned(self):
+        from app.services.integration_settings import _warned_bare_env_keys
+        _warned_bare_env_keys.clear()
+        yield
+        _warned_bare_env_keys.clear()
+
+    def test_when_namespaced_set_then_used_over_bare(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", "user-token")
+        monkeypatch.setenv("INTEGRATION_GITHUB_GITHUB_TOKEN", "integration-token")
+        assert get_value("github", "GITHUB_TOKEN") == "integration-token"
+
+    def test_when_only_namespaced_then_used(self, monkeypatch):
+        monkeypatch.setenv("INTEGRATION_GITHUB_GITHUB_TOKEN", "integration-token")
+        assert get_value("github", "GITHUB_TOKEN") == "integration-token"
+
+    def test_when_only_bare_then_used_with_warning(self, monkeypatch, caplog):
+        import logging
+        monkeypatch.setenv("GITHUB_TOKEN", "user-token")
+        with caplog.at_level(logging.WARNING, logger="app.services.integration_settings"):
+            assert get_value("github", "GITHUB_TOKEN") == "user-token"
+        assert any("INTEGRATION_GITHUB_GITHUB_TOKEN" in r.message for r in caplog.records)
+
+    def test_when_bare_used_repeatedly_then_warning_fires_once(self, monkeypatch, caplog):
+        import logging
+        monkeypatch.setenv("GITHUB_TOKEN", "user-token")
+        with caplog.at_level(logging.WARNING, logger="app.services.integration_settings"):
+            get_value("github", "GITHUB_TOKEN")
+            get_value("github", "GITHUB_TOKEN")
+            get_value("github", "GITHUB_TOKEN")
+        warns = [r for r in caplog.records if "INTEGRATION_GITHUB_GITHUB_TOKEN" in r.message]
+        assert len(warns) == 1
+
+    def test_when_neither_set_then_default(self):
+        assert get_value("github", "GITHUB_TOKEN", "fallback") == "fallback"
+
+    def test_db_still_wins_over_namespaced(self, monkeypatch):
+        monkeypatch.setenv("INTEGRATION_GITHUB_GITHUB_TOKEN", "from-env")
+        _cache[("github", "GITHUB_TOKEN")] = "from-db"
+        assert get_value("github", "GITHUB_TOKEN") == "from-db"
+
+
 class TestMaskValue:
     def test_short_value(self):
         assert _mask_value("abc") == "****"

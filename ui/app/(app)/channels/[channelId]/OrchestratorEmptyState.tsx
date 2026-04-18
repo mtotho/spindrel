@@ -358,6 +358,9 @@ function PipelineTile({
 // ---------------------------------------------------------------------------
 
 const COLLAPSED_STORAGE_KEY = "orchestrator-launchpad-collapsed";
+const ACTIVE_TAB_STORAGE_KEY = "orchestrator-launchpad-tab";
+
+type LaunchpadTab = "featured" | "runs" | "library";
 
 // Stored preference is tri-state:
 //   "1" → user explicitly collapsed (sticks even when activity returns)
@@ -385,6 +388,24 @@ function saveCollapsed(channelId: string, value: boolean) {
   }
 }
 
+function loadActiveTab(channelId: string): LaunchpadTab {
+  try {
+    const raw = localStorage.getItem(`${ACTIVE_TAB_STORAGE_KEY}:${channelId}`);
+    if (raw === "runs" || raw === "library" || raw === "featured") return raw;
+  } catch {
+    // ignore
+  }
+  return "featured";
+}
+
+function saveActiveTab(channelId: string, tab: LaunchpadTab) {
+  try {
+    localStorage.setItem(`${ACTIVE_TAB_STORAGE_KEY}:${channelId}`, tab);
+  } catch {
+    // ignore
+  }
+}
+
 export function OrchestratorLaunchpad({
   channelId,
   onOpenFindings,
@@ -395,7 +416,6 @@ export function OrchestratorLaunchpad({
   const runNowMut = useRunTaskNow();
   const { count: findingsCount } = useFindings(channelId);
   const [paramModalPipeline, setParamModalPipeline] = useState<TaskItem | null>(null);
-  const [libraryOpen, setLibraryOpen] = useState(false);
   // When the user has no explicit preference, follow activity: collapsed by
   // default, auto-expanded when findings are pending. We seed from findingsCount
   // only; running-state comes from per-tile polls and would cause thrash if we
@@ -405,6 +425,7 @@ export function OrchestratorLaunchpad({
     if (pref !== null) return pref;
     return findingsCount === 0;
   });
+  const [activeTab, setActiveTab] = useState<LaunchpadTab>(() => loadActiveTab(channelId));
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
 
@@ -415,6 +436,7 @@ export function OrchestratorLaunchpad({
     } else {
       setCollapsed(findingsCount === 0);
     }
+    setActiveTab(loadActiveTab(channelId));
     // Intentionally not watching findingsCount here — the initial seed follows
     // activity, but live changes shouldn't force-collapse/expand the strip while
     // the user is interacting with it.
@@ -538,17 +560,34 @@ export function OrchestratorLaunchpad({
 
   const totalPipelineCount = systemTasks.length;
 
+  const handleTabClick = (tab: LaunchpadTab, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActiveTab(tab);
+    saveActiveTab(channelId, tab);
+    if (collapsed) {
+      setCollapsed(false);
+      saveCollapsed(channelId, false);
+    }
+  };
+
+  const tabs: { id: LaunchpadTab; label: string; count?: number }[] = [
+    { id: "featured", label: "Featured", count: featured.length },
+    { id: "runs", label: "Runs", count: recentRuns.length },
+    { id: "library", label: "Library", count: libraryItems.length },
+  ];
+
   return (
-    <div className="mx-4 my-2 rounded-lg bg-surface-overlay border border-surface-border overflow-hidden">
-      {/* Header — always visible, clickable to collapse/expand.
-          The whole row is the target so the affordance is obvious at a glance. */}
-      <button
-        onClick={toggleCollapsed}
-        className="w-full flex flex-row items-center justify-between gap-2
-                   px-3.5 py-2.5 hover:bg-surface-overlay/40 transition-colors"
-        aria-expanded={!collapsed}
-      >
-        <div className="flex flex-row items-center gap-2 min-w-0">
+    <div className="bg-surface-overlay border-b border-surface-border">
+      {/* Header row — title chip on the left, tabs in the middle (when open),
+          awaiting badge on the right. Header is a div with separate clickable
+          regions so tab buttons and the awaiting CTA can coexist with the
+          collapse-toggle target. The chevron + title region toggles collapse. */}
+      <div className="flex flex-row items-center gap-3 px-3.5 py-2 min-h-[36px]">
+        <button
+          onClick={toggleCollapsed}
+          className="flex flex-row items-center gap-2 min-w-0 hover:opacity-80 transition-opacity"
+          aria-expanded={!collapsed}
+        >
           <Cog size={14} className="text-accent shrink-0" />
           <span className="text-xs font-semibold text-text">Pipelines</span>
           {totalPipelineCount > 0 && (
@@ -556,47 +595,64 @@ export function OrchestratorLaunchpad({
               {totalPipelineCount}
             </span>
           )}
-          {findingsCount > 0 && (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
-                             bg-accent/15 border border-accent/40 text-[10px]
-                             font-semibold text-accent">
-              <PauseCircle size={10} className="animate-pulse" />
-              {findingsCount} awaiting
-            </span>
-          )}
-        </div>
-        <ChevronRight
-          size={14}
-          className={cn(
-            "text-text-muted transition-transform shrink-0",
-            !collapsed && "rotate-90",
-          )}
-        />
-      </button>
-
-      {/* Awaiting reviews banner — desktop only. The header chip already
-          surfaces the count; this banner is the direct CTA into the Findings
-          rail. On mobile the header chip + per-tile link are enough. */}
-      {findingsCount > 0 && !collapsed && (
-        <button
-          onClick={onOpenFindings}
-          className="hidden md:flex w-full border-t border-surface-border
-                     px-3.5 py-2 bg-accent/5
-                     flex-row items-center justify-between gap-2
-                     hover:bg-accent/10 transition-colors"
-        >
-          <div className="flex flex-row items-center gap-2 min-w-0">
-            <PauseCircle size={14} className="text-accent animate-pulse shrink-0" />
-            <span className="text-[12px] font-semibold text-accent truncate">
-              {findingsCount} run{findingsCount === 1 ? "" : "s"} awaiting your review
-            </span>
-          </div>
-          <span className="text-[11px] text-accent/80 shrink-0 flex items-center gap-1">
-            Open Findings
-            <ArrowRight size={11} />
-          </span>
+          <ChevronRight
+            size={13}
+            className={cn(
+              "text-text-muted transition-transform shrink-0",
+              !collapsed && "rotate-90",
+            )}
+          />
         </button>
-      )}
+
+        {/* Tab selector — only rendered when expanded, segmented-control style.
+            Clicking a tab while collapsed expands AND switches; clicking the
+            active tab while expanded does nothing extra. */}
+        {!collapsed && (
+          <div className="flex flex-row items-center gap-0.5 ml-2">
+            {tabs.map((t) => {
+              const isActive = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={(e) => handleTabClick(t.id, e)}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors",
+                    isActive
+                      ? "bg-surface-raised text-text"
+                      : "text-text-dim hover:text-text hover:bg-surface-raised/40",
+                  )}
+                  aria-pressed={isActive}
+                >
+                  {t.label}
+                  {t.count != null && t.count > 0 && (
+                    <span
+                      className={cn(
+                        "tabular-nums text-[10px]",
+                        isActive ? "text-text-dim" : "text-text-dim/70",
+                      )}
+                    >
+                      {t.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {findingsCount > 0 && (
+          <button
+            onClick={onOpenFindings}
+            className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+                       bg-accent/15 border border-accent/40 text-[10px]
+                       font-semibold text-accent hover:bg-accent/25 transition-colors shrink-0"
+            title="Open Findings panel"
+          >
+            <PauseCircle size={10} className="animate-pulse" />
+            {findingsCount} awaiting
+          </button>
+        )}
+      </div>
 
       {/* Launch error banner */}
       {launchError && !collapsed && (
@@ -613,51 +669,47 @@ export function OrchestratorLaunchpad({
         </div>
       )}
 
-      {/* Body — tiles, recent runs, library. Sections separate with a top
-          border instead of outer gaps so everything reads as one card with
-          internal dividers (not a stack of independent boxes). */}
+      {/* Body — exactly ONE tab visible at a time. */}
       {!collapsed && (
-        <>
-          {/* Tiles */}
-          <div className="p-3 border-t border-surface-border">
-            {isLoading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {[0, 1].map((i) => (
-                  <div
-                    key={i}
-                    className="h-[52px] p-3.5 rounded-lg bg-surface-overlay/40 border border-surface-border
-                               animate-pulse opacity-60"
-                  />
-                ))}
-              </div>
-            ) : featured.length === 0 ? (
-              <div className="text-xs text-text-dim py-2 text-center">
-                No featured system pipelines.
+        <div className="border-t border-surface-border">
+          {activeTab === "featured" && (
+            <div className="p-2.5">
+              {isLoading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {[0, 1].map((i) => (
+                    <div
+                      key={i}
+                      className="h-[52px] p-3.5 rounded-lg bg-surface-overlay/40 border border-surface-border
+                                 animate-pulse opacity-60"
+                    />
+                  ))}
+                </div>
+              ) : featured.length === 0 ? (
+                <div className="text-xs text-text-dim py-2 text-center">
+                  No featured pipelines. Try the Library tab.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {featured.map((pipeline) => (
+                    <PipelineTile
+                      key={pipeline.id}
+                      pipeline={pipeline}
+                      onLaunch={handleLaunch}
+                      launchingId={launchingId}
+                      onOpenFindings={onOpenFindings}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "runs" && (
+            recentRuns.length === 0 ? (
+              <div className="text-xs text-text-dim py-4 text-center">
+                No runs yet. Launch a pipeline from the Featured tab.
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {featured.map((pipeline) => (
-                  <PipelineTile
-                    key={pipeline.id}
-                    pipeline={pipeline}
-                    onLaunch={handleLaunch}
-                    launchingId={launchingId}
-                    onOpenFindings={onOpenFindings}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Recent runs — desktop only, hidden during findings (CTA focus).
-              Rows live flush inside the card with internal dividers, no
-              nested card wrapper. */}
-          {recentRuns.length > 0 && findingsCount === 0 && (
-            <div className="hidden md:block border-t border-surface-border">
-              <div className="px-3.5 pt-2 pb-1 text-[10px] font-semibold uppercase
-                              tracking-wider text-text-dim">
-                Recent runs
-              </div>
               <div className="flex flex-col divide-y divide-surface-border/50">
                 {recentRuns.map((run) => {
                   const parent = systemTasks.find((t) => t.id === run.parent_task_id);
@@ -710,67 +762,51 @@ export function OrchestratorLaunchpad({
                   );
                 })}
               </div>
-            </div>
+            )
           )}
 
-          {/* Library — subtle footer row. Toggle lives inside the same card
-              as a thin ghost row, not a separate button-card-button stack. */}
-          {libraryItems.length > 0 && (
-            <div className="border-t border-surface-border">
-              <button
-                onClick={() => setLibraryOpen((v) => !v)}
-                className="w-full flex flex-row items-center justify-between gap-2
-                           px-3.5 py-2 text-[11px] text-text-dim hover:text-text
-                           hover:bg-surface-overlay/40 transition-colors"
-                aria-expanded={libraryOpen}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  More pipelines
-                  <span className="tabular-nums text-text-dim">({libraryItems.length})</span>
-                </span>
-                <ChevronRight
-                  size={12}
-                  className={cn("transition-transform", libraryOpen && "rotate-90")}
-                />
-              </button>
-              {libraryOpen && (
-                <div className="flex flex-col divide-y divide-surface-border/50 border-t border-surface-border/50">
-                  {libraryItems.map((pipeline) => {
-                    const Icon = iconFor(pipeline.id);
-                    const pipelineRunning = launchingId === pipeline.id;
-                    return (
-                      <button
-                        key={pipeline.id}
-                        onClick={() => !pipelineRunning && handleLaunch(pipeline)}
-                        disabled={pipelineRunning}
-                        title={getDescription(pipeline) || undefined}
-                        className="flex flex-row items-center justify-between gap-3 px-3.5 py-2
-                                   hover:bg-surface-overlay/40 text-left disabled:opacity-60"
-                      >
-                        <div className="flex flex-row items-center gap-2.5 min-w-0 flex-1">
-                          <Icon size={14} className="text-text-dim shrink-0" />
-                          <span className="text-xs font-medium text-text truncate">
-                            {pipeline.title || pipeline.id}
+          {activeTab === "library" && (
+            libraryItems.length === 0 ? (
+              <div className="text-xs text-text-dim py-4 text-center">
+                No additional pipelines available.
+              </div>
+            ) : (
+              <div className="flex flex-col divide-y divide-surface-border/50">
+                {libraryItems.map((pipeline) => {
+                  const Icon = iconFor(pipeline.id);
+                  const pipelineRunning = launchingId === pipeline.id;
+                  return (
+                    <button
+                      key={pipeline.id}
+                      onClick={() => !pipelineRunning && handleLaunch(pipeline)}
+                      disabled={pipelineRunning}
+                      title={getDescription(pipeline) || undefined}
+                      className="flex flex-row items-center justify-between gap-3 px-3.5 py-2
+                                 hover:bg-surface-overlay/40 text-left disabled:opacity-60"
+                    >
+                      <div className="flex flex-row items-center gap-2.5 min-w-0 flex-1">
+                        <Icon size={14} className="text-text-dim shrink-0" />
+                        <span className="text-xs font-medium text-text truncate">
+                          {pipeline.title || pipeline.id}
+                        </span>
+                        {getDescription(pipeline) && (
+                          <span className="hidden md:inline text-[10px] text-text-dim truncate opacity-70">
+                            · {getDescription(pipeline)}
                           </span>
-                          {getDescription(pipeline) && (
-                            <span className="hidden md:inline text-[10px] text-text-dim truncate opacity-70">
-                              · {getDescription(pipeline)}
-                            </span>
-                          )}
-                        </div>
-                        {pipelineRunning ? (
-                          <Loader2 size={12} className="text-accent animate-spin shrink-0" />
-                        ) : (
-                          <ArrowRight size={11} className="text-text-dim shrink-0 opacity-60" />
                         )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                      </div>
+                      {pipelineRunning ? (
+                        <Loader2 size={12} className="text-accent animate-spin shrink-0" />
+                      ) : (
+                        <ArrowRight size={11} className="text-text-dim shrink-0 opacity-60" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )
           )}
-        </>
+        </div>
       )}
 
       {paramModalPipeline && (

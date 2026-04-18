@@ -138,8 +138,22 @@ async def run_subagent(
             result=f"Unknown preset: {preset!r}. Available: {sorted(SUBAGENT_PRESETS.keys())}",
         )
 
-    # Resolve effective values
-    effective_tools = tools if tools is not None else (preset_config.get("tools", []) if preset_config else [])
+    # Resolve effective values.
+    # Tools merge: preset tools + explicit additions (deduped, preset order
+    # preserved). Previously explicit `tools` replaced the preset entirely,
+    # which trapped LLMs into restating the preset tool list whenever they
+    # wanted to add one tool. Concrete failure: a parent picked
+    # `data-extractor` (preset = ["file", "exec_command"]) and tried to add
+    # `github_get_commit` — explicit tools fully replaced, the sub-agent
+    # got only `[github_get_commit]` and couldn't read files.
+    preset_tools: list[str] = preset_config.get("tools", []) if preset_config else []
+    extra_tools: list[str] = list(tools) if tools else []
+    seen: set[str] = set()
+    effective_tools: list[str] = []
+    for t in preset_tools + extra_tools:
+        if t and t not in seen:
+            seen.add(t)
+            effective_tools.append(t)
     effective_system = system_prompt or (preset_config.get("system_prompt", "") if preset_config else "You are a helpful assistant. Be concise.")
     effective_tier = model_tier or (preset_config.get("default_tier") if preset_config else None)
 

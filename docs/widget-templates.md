@@ -78,6 +78,7 @@ the parsed tool result JSON plus any `config` overlay:
 | `{{error \| not_empty}}` | Truthy test → boolean. |
 | `{{error \| not}}` | Boolean inverse. |
 | `{{status \| status_color}}` | Map status strings to color names (`success`, `danger`, etc.). |
+| `{{ts \| date_relative}}` | ISO 8601 timestamp → compact relative string (`5m ago`, `Apr 18`). |
 
 Pipes chain left-to-right with `" | "` (with spaces): `{{items | pluck: name | join: , }}`.
 

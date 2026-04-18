@@ -205,9 +205,18 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapse
   // + spinner icon) rather than a saturated left-border stripe. The
   // stripe-on-tall-card look read as AI-slop chrome; with the shared card
   // surface it wasn't carrying its weight.
+  // Compact-stale-run mode: when this anchor is a stale repeat (collapsed by
+  // default per latestAnchorByGroup) AND the body hasn't been re-opened, render
+  // with tighter outer + header padding so back-to-back scheduled runs don't
+  // wall up the feed.
+  const compact = collapsedByDefault && !bodyOpen;
+
   return (
     <div
-      className="mx-5 my-1.5 group rounded-lg bg-surface-raised border border-surface-border transition-colors"
+      className={cn(
+        "mx-5 group rounded-lg bg-surface-raised border border-surface-border transition-colors",
+        compact ? "my-0.5" : "my-1.5",
+      )}
       data-task-id={taskId || undefined}
       data-awaiting-review={awaitingStep ? "true" : undefined}
     >
@@ -217,7 +226,8 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapse
           anchors the header is passive (body is already visible).         */}
       <div
         className={cn(
-          "flex items-center justify-between gap-2 px-3.5 py-2.5",
+          "flex items-center justify-between gap-2 px-3.5",
+          compact ? "py-1.5" : "py-2.5",
           collapsedByDefault && "cursor-pointer hover:bg-surface-overlay/30 transition-colors",
           collapsedByDefault && !bodyOpen && "rounded-lg",
         )}
