@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useMatch } from "react-router-dom";
 import { ShieldCheck } from "lucide-react";
 import { usePendingApprovalCount } from "../../api/hooks/useApprovals";
 import { useThemeTokens } from "../../theme/tokens";
 
 export function ApprovalToast() {
-  const { data: count = 0 } = usePendingApprovalCount();
+  // On a channel page, approvals for THIS channel render inline via
+  // ChannelPendingApprovals — suppress them from the global toast count
+  // so we don't double-signal.
+  const channelMatch = useMatch("/channels/:channelId");
+  const currentChannelId = channelMatch?.params.channelId;
+  const { data: count = 0 } = usePendingApprovalCount(currentChannelId);
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const t = useThemeTokens();

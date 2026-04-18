@@ -377,6 +377,10 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
               capability: payload?.capability,
             } as any,
           });
+          // Also refresh the orphan-approvals list so background/post-refresh
+          // approvals that don't map to a live turn still surface inline.
+          queryClient.invalidateQueries({ queryKey: ["approvals", "channel", chId] });
+          queryClient.invalidateQueries({ queryKey: ["approvals", undefined, "pending"] });
           return;
         }
 
@@ -392,9 +396,11 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
                   decision: payload?.decision,
                 } as any,
               });
-              return;
+              break;
             }
           }
+          queryClient.invalidateQueries({ queryKey: ["approvals", "channel", chId] });
+          queryClient.invalidateQueries({ queryKey: ["approvals", undefined, "pending"] });
           return;
         }
 

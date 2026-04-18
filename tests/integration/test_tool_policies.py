@@ -169,6 +169,45 @@ async def test_approvals_list_empty(client):
 
 
 @pytest.mark.asyncio
+async def test_approvals_list_filters_by_channel(client, db_session):
+    """?channel_id=... returns only approvals for that channel."""
+    from app.db.models import ToolApproval
+
+    ch_a = uuid.uuid4()
+    ch_b = uuid.uuid4()
+
+    for ch, tool in [(ch_a, "tool_a_1"), (ch_a, "tool_a_2"), (ch_b, "tool_b_1")]:
+        db_session.add(ToolApproval(
+            channel_id=ch,
+            bot_id="b",
+            tool_name=tool,
+            tool_type="local",
+            arguments={},
+            status="pending",
+            timeout_seconds=300,
+        ))
+    await db_session.commit()
+
+    r = await client.get(f"/api/v1/approvals?channel_id={ch_a}", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    tools = sorted(a["tool_name"] for a in r.json())
+    assert tools == ["tool_a_1", "tool_a_2"]
+
+    # Combines with status filter.
+    r = await client.get(
+        f"/api/v1/approvals?channel_id={ch_a}&status=pending",
+        headers=AUTH_HEADERS,
+    )
+    assert r.status_code == 200
+    assert len(r.json()) == 2
+
+    # Unrelated channel returns empty.
+    r = await client.get(f"/api/v1/approvals?channel_id={uuid.uuid4()}", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+@pytest.mark.asyncio
 async def test_approval_not_found(client):
     r = await client.get(f"/api/v1/approvals/{uuid.uuid4()}", headers=AUTH_HEADERS)
     assert r.status_code == 404

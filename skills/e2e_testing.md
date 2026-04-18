@@ -101,10 +101,10 @@ scenarios:
 
 ## LLM Provider Config
 
-Default: ollama + gemma3:1b. Override with env vars:
+`E2E_LLM_BASE_URL` is required — no in-stack model. Default model: `gemini-2.5-flash-lite`.
 
 ```bash
-E2E_LLM_PROVIDER=external E2E_LLM_BASE_URL=https://... E2E_LLM_API_KEY=sk-... E2E_DEFAULT_MODEL=model-name
+E2E_LLM_BASE_URL=https://... E2E_LLM_API_KEY=sk-... E2E_DEFAULT_MODEL=model-name
 ```
 
 ## Delegation Caveats

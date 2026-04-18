@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { StreamingIndicator, ProcessingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { Message } from "@/src/types/api";
 import type { TurnState } from "@/src/stores/chat";
+import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 
 function SkeletonBar({ width, height = 14 }: { width: string; height?: number }) {
   return <div className="rounded bg-skeleton/[0.04] animate-pulse" style={{ width, height }} />;
@@ -63,6 +64,7 @@ export interface ChatMessageAreaProps {
   chatState: { turns: Record<string, TurnState> };
   bot: { name?: string } | undefined;
   botId?: string;
+  channelId?: string;
   isLoading: boolean;
   isFetchingNextPage: boolean;
   hasNextPage?: boolean;
@@ -106,6 +108,7 @@ export function ChatMessageArea({
   renderMessage,
   chatState,
   botId,
+  channelId,
   isLoading,
   isFetchingNextPage,
   hasNextPage,
@@ -202,6 +205,18 @@ export function ChatMessageArea({
       <ProcessingIndicator />
     ) : null;
 
+  // Approval ids already represented by a live turn card — the orphan
+  // approvals section dedupes against these so we don't double-render.
+  const liveApprovalIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const turn of Object.values(chatState.turns)) {
+      for (const tc of turn.toolCalls) {
+        if (tc.approvalId) s.add(tc.approvalId);
+      }
+    }
+    return s;
+  }, [chatState.turns]);
+
   return (
     <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
       <div
@@ -221,6 +236,12 @@ export function ChatMessageArea({
             bottom is stable — removing it causes the browser to lose its
             layout anchor and scroll position jumps unpredictably. */}
         <div>
+          {channelId && (
+            <ChannelPendingApprovals
+              channelId={channelId}
+              liveApprovalIds={liveApprovalIds}
+            />
+          )}
           {turnIndicators}
           {processingIndicator}
         </div>

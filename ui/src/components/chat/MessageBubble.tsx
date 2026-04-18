@@ -7,7 +7,7 @@ import { AttachmentImages } from "./AttachmentDisplay";
 import { ToolBadges } from "./ToolBadges";
 import { WidgetCard } from "./WidgetCard";
 import { SkillOrb, type ActiveSkillLike } from "./SkillOrb";
-import { MessageActions, Avatar } from "./MessageActions";
+import { MessageActions, TimestampActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
 import { RichToolResult } from "./RichToolResult";
 import { extractDisplayText, parseSlackPrefix, stripBBPrefix, resolveDisplay, avatarColor } from "./messageUtils";
@@ -311,9 +311,14 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           >
             {displayName}
           </span>
-          <span style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase" as const, letterSpacing: 0.5 }}>
-            {timestamp}
-          </span>
+          <TimestampActions
+            timestamp={timestamp}
+            text={displayContent}
+            fullTurnText={fullTurnText}
+            correlationId={message.correlation_id}
+            onBotClick={handleBotClick}
+            t={t}
+          />
           {(activeSkills.length > 0 || autoInjectedSkills.length > 0) && (
             <SkillOrb active={activeSkills} autoInjected={autoInjectedSkills} t={t} />
           )}

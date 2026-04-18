@@ -141,3 +141,81 @@ async def prune_enrolled_tools(tool_names: list[str]) -> str:
     if removed == 0:
         return f"No matching enrollments to remove ({len(tool_names)} requested)."
     return f"Pruned {removed} tool enrollment(s) from your working set."
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "search_tools",
+        "description": (
+            "Semantically search the full tool pool by a natural-language query. "
+            "Use this when you think a tool should exist for the user's request but "
+            "don't see it in your currently-loaded tools. Returns a ranked list of "
+            "candidate tool names + one-line descriptions; call get_tool_info(tool_name=...) "
+            "to load the full schema of any match."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Describe the capability you want (e.g. 'search the web', 'read a PDF').",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max candidates to return (default 10).",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+})
+async def search_tools(query: str, limit: int = 10) -> str:
+    """Semantic search across the full tool pool.
+
+    Delegates to retrieve_tools(discover_all=True) with a low threshold so weak-model
+    queries still surface candidates. Does NOT activate tools — the LLM must follow
+    up with get_tool_info on a chosen name.
+    """
+    from app.agent.tools import retrieve_tools
+
+    if not query or not query.strip():
+        return json.dumps({"error": "query is required"}, ensure_ascii=False)
+    try:
+        n = max(1, min(int(limit or 10), 25))
+    except (TypeError, ValueError):
+        n = 10
+
+    try:
+        tools, _best_sim, candidates = await retrieve_tools(
+            query.strip(),
+            [], [],  # no declared — search the whole pool via discover_all
+            top_k=n,
+            threshold=0.2,  # loose: weak-model queries often score low
+            discover_all=True,
+        )
+    except Exception as exc:
+        logger.exception("search_tools failed for query=%r", query[:80])
+        return json.dumps({"error": f"Search failed: {exc}"}, ensure_ascii=False)
+
+    sim_by_name = {c["name"]: c["sim"] for c in candidates if isinstance(c, dict)}
+    matches: list[dict] = []
+    for t in tools[:n]:
+        fn = t.get("function") or {}
+        name = fn.get("name")
+        if not name:
+            continue
+        matches.append({
+            "name": name,
+            "description": (fn.get("description") or "").strip().split("\n", 1)[0][:200],
+            "similarity": round(sim_by_name.get(name, 0.0), 4),
+        })
+
+    return json.dumps({
+        "query": query,
+        "matches": matches,
+        "hint": (
+            "Call get_tool_info(tool_name=<name>) to load a match's full schema; "
+            "it will become callable on the next turn."
+        ) if matches else "No tools matched above the loose similarity floor (0.2).",
+    }, ensure_ascii=False, indent=2)

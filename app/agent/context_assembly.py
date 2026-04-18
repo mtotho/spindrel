@@ -1613,11 +1613,19 @@ async def assemble_context(
     pre_selected_tools: list[dict[str, Any]] | None = None
     _authorized_names: set[str] | None = None
     if bot.tool_retrieval:
-        by_name = await _all_tool_schemas_by_name(bot) if (bot.local_tools or bot.mcp_servers or bot.client_tools) else {}
-        # Always include get_tool_info when tool retrieval is on (allows LLM to inspect discovered tools)
+        by_name = await _all_tool_schemas_by_name(bot) if (
+            bot.local_tools or bot.mcp_servers or bot.client_tools or bot.pinned_tools
+        ) else {}
+        # Always include get_tool_info when tool retrieval is on (inspect named tools).
         if "get_tool_info" not in by_name:
             for _gti in get_local_tool_schemas(["get_tool_info"]):
                 by_name[_gti["function"]["name"]] = _gti
+        # search_tools only makes sense when auto-discovery is on — it searches the
+        # FULL pool, not just declared tools. Without discovery, all of the bot's
+        # tools are already known; adding search_tools is noise.
+        if bot.tool_discovery and "search_tools" not in by_name:
+            for _st in get_local_tool_schemas(["search_tools"]):
+                by_name[_st["function"]["name"]] = _st
         # Auto-inject get_skill + get_skill_list — skills are shared documents any bot can access
         for _sk_name in ("get_skill", "get_skill_list"):
             if _sk_name not in by_name:
@@ -1686,6 +1694,8 @@ async def assemble_context(
 
         if by_name:
             _effective_pinned = list(bot.pinned_tools or []) + _tagged_tool_names + ["get_tool_info"]
+            if bot.tool_discovery:
+                _effective_pinned.append("search_tools")
             if _enrolled_tool_names:
                 _effective_pinned += _enrolled_tool_names
             if bot.skills:
@@ -1710,21 +1720,30 @@ async def assemble_context(
             _unretrieved = [
                 (n, s["function"])
                 for n, s in by_name.items()
-                if n not in _retrieved_names and n != "get_tool_info"
+                if n not in _retrieved_names and n not in ("get_tool_info", "search_tools")
             ]
             if _unretrieved:
                 _index_lines = "\n".join(
                     f"  • {_compact_tool_usage(n, fn)}" for n, fn in _unretrieved
                 )
-                _tool_idx_content = (
+                _header = (
                     "You have MORE tools available than what's currently loaded. "
                     "BEFORE producing a best-effort answer — or saying you don't have a tool — "
                     "call get_tool_info(tool_name=\"<name>\") for any entry below that could "
                     "plausibly apply. These lines are an index; the full schema is only accessible "
-                    "via get_tool_info. Acting without fetching the schema when a relevant tool "
-                    "exists is the primary source of wrong/missing actions.\n"
-                    + _index_lines
+                    "via get_tool_info."
                 )
+                if bot.tool_discovery:
+                    _header += (
+                        " If the right tool isn't in this list, call "
+                        "search_tools(query=\"...\") to semantically search the full pool "
+                        "BEFORE giving up."
+                    )
+                _header += (
+                    " Acting without fetching the schema when a relevant tool exists "
+                    "is the primary source of wrong/missing actions.\n"
+                )
+                _tool_idx_content = _header + _index_lines
                 # P4: expendable — skip if budget is tight
                 if _budget_can_afford(_tool_idx_content):
                     messages.append({"role": "system", "content": _tool_idx_content})
@@ -1740,7 +1759,7 @@ async def assemble_context(
                 "threshold": th,
                 "pool_total": len(by_name),
                 "pinned": list(bot.pinned_tools or []),
-                "included": list(bot.local_tools or []),
+                "included": sorted(by_name.keys()),
                 "enrolled_working_set": list(_enrolled_tool_names),
                 "retrieved": [t["function"]["name"] for t in retrieved],
                 "retrieved_count": len(retrieved),

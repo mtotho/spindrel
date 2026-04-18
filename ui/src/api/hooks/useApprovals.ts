@@ -116,12 +116,27 @@ export function useApprovalSuggestions(approvalId: string | undefined) {
   });
 }
 
-export function usePendingApprovalCount() {
+export function usePendingApprovalCount(excludeChannelId?: string) {
   return useQuery({
     queryKey: ["approvals", undefined, "pending"],
     queryFn: () =>
       apiFetch<ToolApproval[]>("/api/v1/approvals?status=pending&limit=50"),
     refetchInterval: 30_000,
-    select: (data) => data.length,
+    select: (data) =>
+      excludeChannelId
+        ? data.filter((a) => a.channel_id !== excludeChannelId).length
+        : data.length,
+  });
+}
+
+export function useChannelPendingApprovals(channelId: string | undefined) {
+  return useQuery({
+    queryKey: ["approvals", "channel", channelId],
+    queryFn: () =>
+      apiFetch<ToolApproval[]>(
+        `/api/v1/approvals?status=pending&channel_id=${channelId}&limit=50`,
+      ),
+    enabled: !!channelId,
+    refetchInterval: 15_000,
   });
 }

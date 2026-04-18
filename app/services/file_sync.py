@@ -683,7 +683,7 @@ async def sync_changed_file(path: Path) -> None:
             rows5 = list((await session.execute(stmt5)).scalars().all())
             for row in rows5:
                 await session.delete(row)
-            if rows or rows2 or rows3 or rows4 or rows5:
+            if rows or rows3 or rows4 or rows5:
                 await session.commit()
                 logger.info("file_sync: removed DB rows for deleted file %s", path)
             if rows5:

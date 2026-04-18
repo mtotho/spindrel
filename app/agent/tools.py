@@ -591,7 +591,12 @@ async def warm_mcp_tool_index_for_all_bots() -> None:
 
 
 async def validate_pinned_tools() -> None:
-    """Log a warning if a bot lists a pinned tool that is not in its allowed tool set."""
+    """Log pins that aren't also declared in local/client/MCP.
+
+    Runtime honors pins regardless (see message_utils._all_tool_schemas_by_name),
+    so this is informational — it highlights bots whose DB state drifted from
+    the "pin ⊆ declared" invariant, not a functional problem.
+    """
     from app.agent.bots import list_bots
     from app.tools.mcp import fetch_mcp_tools
 
@@ -603,8 +608,9 @@ async def validate_pinned_tools() -> None:
         allowed = set(bot.local_tools) | set(bot.client_tools) | mcp_names
         for pin in bot.pinned_tools:
             if pin not in allowed:
-                logger.warning(
-                    "Bot %r: pinned_tools %r is not in local_tools, client_tools, or MCP tools for this bot",
+                logger.info(
+                    "Bot %r: pinned_tools entry %r not in declared local/client/MCP; "
+                    "runtime will load it from the pin directly.",
                     bot.id,
                     pin,
                 )

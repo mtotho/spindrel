@@ -301,6 +301,11 @@ function FullToolList({
   if (draft.tool_retrieval !== false) {
     autoInjectedTools.add("get_tool_info");
   }
+  // Auto-discovery: search_tools is injected so the LLM can semantically search
+  // the full pool when it doesn't see what it needs.
+  if (draft.tool_retrieval !== false && draft.tool_discovery !== false) {
+    autoInjectedTools.add("search_tools");
+  }
   // Skill discovery: auto-injected when bot has skills
   if (editorData.all_skills.length > 0) {
     autoInjectedTools.add("get_skill");
@@ -322,10 +327,13 @@ function FullToolList({
   };
 
   const togglePin = (name: string) => {
-    const next = pinnedTools.includes(name)
-      ? pinnedTools.filter((n) => n !== name)
-      : [...pinnedTools, name];
-    update({ pinned_tools: next });
+    const isPinned = pinnedTools.includes(name);
+    if (isPinned) {
+      update({ pinned_tools: pinnedTools.filter((n) => n !== name) });
+    } else {
+      const nextLocal = localTools.includes(name) ? localTools : [...localTools, name];
+      update({ pinned_tools: [...pinnedTools, name], local_tools: nextLocal });
+    }
   };
 
   const toggleNoSum = (name: string) => {

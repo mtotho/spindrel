@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export type PaneId = "left" | "right";
 
@@ -78,7 +79,9 @@ function updatePaneFile(
   };
 }
 
-export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
+export const useFileBrowserStore = create<FileBrowserState>()(
+  persist(
+    (set, get) => ({
   splitMode: false,
   splitRatio: 0.5,
   leftPane: { ...emptyPane },
@@ -217,4 +220,16 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
       channelExplorerWidth: 300,
       channelExplorerPaths: {},
     }),
-}));
+    }),
+    {
+      name: "spindrel-file-browser",
+      partialize: (s) => ({
+        channelExplorerWidth: s.channelExplorerWidth,
+        splitMode: s.splitMode,
+        splitRatio: s.splitRatio,
+        treeWidth: s.treeWidth,
+        treeVisible: s.treeVisible,
+      }),
+    },
+  ),
+);

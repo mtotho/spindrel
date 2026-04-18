@@ -20,7 +20,7 @@ COMPOSE_PROJECT = "spindrel-e2e"
 
 
 class E2EEnvironment:
-    """Manages the E2E Docker Compose stack (postgres + agent-server + optional ollama)."""
+    """Manages the E2E Docker Compose stack (postgres + searxng + agent-server)."""
 
     def __init__(self, config: E2EConfig) -> None:
         self.config = config
@@ -35,8 +35,6 @@ class E2EEnvironment:
             return
         self._ensure_image()
         self._compose_up()
-        if self.config.use_ollama:
-            self._pull_ollama_model()
         await self._wait_for_healthy()
         self._started = True
 
@@ -101,9 +99,7 @@ class E2EEnvironment:
     def _compose_up(self) -> None:
         """Start the compose stack."""
         env = self._compose_env()
-        profiles = ["--profile", "ollama"] if self.config.use_ollama else []
-
-        cmd = self._compose_cmd("up", "-d", *profiles)
+        cmd = self._compose_cmd("up", "-d")
         logger.info("Starting E2E stack: %s", " ".join(cmd))
         result = subprocess.run(
             cmd,
@@ -145,28 +141,6 @@ class E2EEnvironment:
             "E2E_BOT_CONFIG": str(self.config.bot_config_file),
         })
         return env
-
-    # -- Model management --
-
-    def _pull_ollama_model(self) -> None:
-        """Pull the configured model into the ollama container."""
-        logger.info("Pulling model %s in ollama container...", self.config.default_model)
-        env = self._compose_env()
-        result = subprocess.run(
-            self._compose_cmd(
-                "exec", "-T", "ollama",
-                "ollama", "pull", self.config.default_model,
-            ),
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=self.config.model_pull_timeout,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Failed to pull model {self.config.default_model}:\n{result.stderr[-2000:]}"
-            )
-        logger.info("Model %s ready", self.config.default_model)
 
     # -- Health polling --
 

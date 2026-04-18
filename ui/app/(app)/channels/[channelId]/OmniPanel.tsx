@@ -31,12 +31,10 @@ import type { PinnedWidget } from "@/src/types/api";
 
 interface OmniPanelProps {
   channelId: string;
-  botId: string | undefined;
   workspaceId: string | undefined;
-  channelDisplayName?: string | null;
-  channelWorkspaceEnabled: boolean;
   activeFile: string | null;
   onSelectFile: (path: string) => void;
+  onBrowseFiles: () => void;
   onClose: () => void;
   width?: number;
   fullWidth?: boolean;
@@ -46,12 +44,10 @@ interface OmniPanelProps {
 
 export function OmniPanel({
   channelId,
-  botId,
   workspaceId,
-  channelDisplayName,
-  channelWorkspaceEnabled,
   activeFile,
   onSelectFile,
+  onBrowseFiles,
   onClose,
   width = 260,
   fullWidth = false,
@@ -163,14 +159,9 @@ export function OmniPanel({
           <div className="flex-1 min-h-0 overflow-hidden">
             <ChannelFileExplorer
               channelId={channelId}
-              botId={botId}
-              workspaceId={workspaceId}
-              channelDisplayName={channelDisplayName}
-              channelWorkspaceEnabled={channelWorkspaceEnabled}
               activeFile={activeFile}
               onSelectFile={onSelectFile}
-              onClose={onClose}
-              fullWidth
+              onBrowseFiles={onBrowseFiles}
             />
           </div>
         ) : (
@@ -223,15 +214,10 @@ export function OmniPanel({
             <div className="flex-1 min-h-0 overflow-hidden">
               <ChannelFileExplorer
                 channelId={channelId}
-                botId={botId}
-                workspaceId={workspaceId}
-                channelDisplayName={channelDisplayName}
-                channelWorkspaceEnabled={channelWorkspaceEnabled}
                 activeFile={activeFile}
                 onSelectFile={onSelectFile}
-                onClose={onClose}
+                onBrowseFiles={onBrowseFiles}
                 onCollapseFiles={toggleFilesCollapsed}
-                fullWidth
               />
             </div>
           ) : (

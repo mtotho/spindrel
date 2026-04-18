@@ -3,7 +3,7 @@
  * Extracted to keep the main file under the 1000-line split rule.
  */
 import { useState, useEffect, useMemo } from "react";
-import { Plus, Trash2, Archive, ChevronRight, ChevronDown, Folder } from "lucide-react";
+import { Plus, Trash2, Archive, ChevronRight, Folder } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -53,7 +53,6 @@ export function InContextCard({
   onDelete: (file: ChannelWorkspaceFile) => void;
 }) {
   const t = useThemeTokens();
-  const [expanded, setExpanded] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const writeMutation = useWriteChannelWorkspaceFile(channelId);
@@ -108,112 +107,100 @@ export function InContextCard({
 
   return (
     <div style={{ flexShrink: 0 }}>
-      {/* Collapsible header — no background, no colored borders */}
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        style={{
-          display: "flex", flexDirection: "row", alignItems: "center",
-          width: "100%", height: 22, paddingLeft: 4, paddingRight: 8, gap: 4,
-          background: "none", border: "none", cursor: "pointer",
-        }}
+      {/* Section header with token gauge */}
+      <div
+        className="flex items-center gap-1 pl-2 pr-2"
+        style={{ height: 22 }}
       >
-        {expanded
-          ? <ChevronDown size={10} color={t.textDim} />
-          : <ChevronRight size={10} color={t.textDim} />}
-        <span style={{
-          flex: 1, color: t.textMuted, fontSize: 11, fontWeight: 600,
-          textTransform: "uppercase", letterSpacing: 0.5, textAlign: "left",
-        }}>
+        <span
+          className="flex-1 uppercase tracking-wider text-left"
+          style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}
+        >
           In Context
         </span>
         {/* Token gauge — fill behind the text like a battery indicator */}
-        <span style={{
-          position: "relative",
-          overflow: "hidden",
-          padding: "1px 6px",
-          borderRadius: 3,
-          fontSize: 10,
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-          color: tokenColor,
-          backgroundColor: `${t.text}06`,
-          flexShrink: 0,
-        }}>
-          {/* Fill bar behind text */}
-          <span style={{
-            position: "absolute",
-            left: 0, top: 0, bottom: 0,
-            width: `${Math.round(tokenPct * 100)}%`,
-            backgroundColor: tokenColor,
-            opacity: 0.12,
-            transition: "width 0.3s ease, background-color 0.3s ease",
-            borderRadius: 3,
-          }} />
-          <span style={{ position: "relative" }}>~{tokenStr} tok</span>
+        <span
+          className="relative overflow-hidden rounded"
+          style={{
+            padding: "1px 6px",
+            fontSize: 10,
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            color: tokenColor,
+            backgroundColor: `${t.text}06`,
+            flexShrink: 0,
+          }}
+        >
+          <span
+            className="absolute left-0 top-0 bottom-0 rounded"
+            style={{
+              width: `${Math.round(tokenPct * 100)}%`,
+              backgroundColor: tokenColor,
+              opacity: 0.12,
+              transition: "width 0.3s ease, background-color 0.3s ease",
+            }}
+          />
+          <span className="relative">~{tokenStr} tok</span>
         </span>
-      </button>
+      </div>
 
-      {expanded && (
-        <div>
-          {activeFiles.length === 0 && !creating && (
-            <span style={{
-              display: "block", color: t.textDim, fontSize: 11,
-              fontStyle: "italic", padding: "4px 12px",
-            }}>
-              {isLoading ? "Loading\u2026" : "No active files yet"}
-            </span>
-          )}
-          {activeFiles.map((f) => (
-            <ActiveFileRow
-              key={f.path}
-              file={f}
-              selected={activeFile === channelPathFor(f)}
-              onSelect={() => onSelectFile(channelPathFor(f))}
-              onArchive={() => onArchive(f)}
-              onDelete={() => onDelete(f)}
-            />
-          ))}
-          {creating ? (
-            <div style={{ padding: "2px 12px" }}>
-              <input
-                autoFocus
-                value={newName}
-                onChange={(e: any) => setNewName(e.target.value)}
-                onKeyDown={(e: any) => {
-                  if (e.key === "Enter") handleCreate();
-                  if (e.key === "Escape") { setCreating(false); setNewName(""); }
-                }}
-                onBlur={() => {
-                  if (!newName.trim()) { setCreating(false); setNewName(""); }
-                }}
-                placeholder="filename.md"
-                style={{
-                  width: "100%", background: t.surfaceOverlay,
-                  border: `1px solid ${t.surfaceBorder}`, borderRadius: 2,
-                  padding: "1px 6px", fontSize: 11, color: t.text,
-                  outline: "none", height: 20, fontFamily: "inherit",
-                }}
-              />
-            </div>
-          ) : (
-            <button type="button"
-              onClick={() => setCreating(true)}
-              style={{
-                display: "flex", flexDirection: "row", alignItems: "center",
-                gap: 4, padding: "3px 12px", opacity: 0.4,
-                cursor: "pointer", background: "none", border: "none",
+      <div>
+        {activeFiles.length === 0 && !creating && (
+          <span
+            className="block italic"
+            style={{ color: t.textDim, fontSize: 11, padding: "4px 12px" }}
+          >
+            {isLoading ? "Loading\u2026" : "No active files yet"}
+          </span>
+        )}
+        {activeFiles.map((f) => (
+          <ActiveFileRow
+            key={f.path}
+            file={f}
+            selected={activeFile === channelPathFor(f)}
+            onSelect={() => onSelectFile(channelPathFor(f))}
+            onArchive={() => onArchive(f)}
+            onDelete={() => onDelete(f)}
+          />
+        ))}
+        {creating ? (
+          <div style={{ padding: "2px 12px" }}>
+            <input
+              autoFocus
+              value={newName}
+              onChange={(e: any) => setNewName(e.target.value)}
+              onKeyDown={(e: any) => {
+                if (e.key === "Enter") handleCreate();
+                if (e.key === "Escape") { setCreating(false); setNewName(""); }
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.8"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.4"; }}
-            >
-              <Plus size={10} color={t.textMuted} />
-              <span style={{ color: t.textMuted, fontSize: 10 }}>Add active file</span>
-            </button>
-          )}
-        </div>
-      )}
-
-      <div style={{ height: 1, backgroundColor: t.surfaceBorder }} />
+              onBlur={() => {
+                if (!newName.trim()) { setCreating(false); setNewName(""); }
+              }}
+              placeholder="filename.md"
+              className="w-full rounded"
+              style={{
+                background: t.surfaceOverlay,
+                border: `1px solid ${t.surfaceBorder}`,
+                padding: "1px 6px",
+                fontSize: 11,
+                color: t.text,
+                outline: "none",
+                height: 20,
+                fontFamily: "inherit",
+              }}
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="flex items-center gap-1 opacity-40 hover:opacity-80 cursor-pointer bg-transparent border-0"
+            style={{ padding: "3px 12px" }}
+          >
+            <Plus size={10} color={t.textMuted} />
+            <span style={{ color: t.textMuted, fontSize: 10 }}>Add active file</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }

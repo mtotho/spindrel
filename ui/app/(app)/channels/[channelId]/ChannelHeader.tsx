@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Settings, Menu, ArrowLeft, Hash, FolderOpen, Code, PanelLeft, Columns2, Users, Wrench, Cog, PanelRight } from "lucide-react";
+import { Settings, Menu, ArrowLeft, Hash, FolderOpen, PanelLeft, Columns2, Users, Wrench, Cog, PanelRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
 import { useUIStore } from "@/src/stores/ui";
@@ -20,7 +20,6 @@ export interface ChannelHeaderProps {
   explorerOpen: boolean;
   toggleExplorer: () => void;
   onBrowseWorkspace: () => void;
-  onOpenEditor: () => void;
   isMobile: boolean;
   /** Multi-bot channel support */
   memberBotCount?: number;
@@ -58,7 +57,6 @@ export function ChannelHeader({
   explorerOpen,
   toggleExplorer,
   onBrowseWorkspace,
-  onOpenEditor,
   isMobile,
   memberBotCount = 0,
   participantsPanelOpen,
@@ -213,28 +211,18 @@ export function ChannelHeader({
             <Columns2 size={16} color={splitMode ? t.accent : t.textDim} />
           </button>
         )}
-        {/* Browse workspace + VS Code editor: still gated on channel workspace
-            being enabled (those open the live editor session, which only makes
-            sense when the channel actually owns workspace files). */}
+        {/* Browse files — opens the BrowseFilesModal with scope strip + tree.
+            Gated on channel workspace being enabled (no tree to browse
+            otherwise). */}
         {workspaceEnabled && workspaceId && !isMobile && (
-          <>
-            <button
-              className="header-icon-btn"
-              style={{ width: 36, height: 36 }}
-              onClick={() => { onBrowseWorkspace(); navigate(`/admin/workspaces/${workspaceId}/files`); }}
-              title="Browse workspace"
-            >
-              <FolderOpen size={16} color={t.textDim} />
-            </button>
-            <button
-              className="header-icon-btn"
-              style={{ width: 36, height: 36 }}
-              onClick={onOpenEditor}
-              title="Open in VS Code"
-            >
-              <Code size={16} color={t.textDim} />
-            </button>
-          </>
+          <button
+            className="header-icon-btn"
+            style={{ width: 36, height: 36 }}
+            onClick={onBrowseWorkspace}
+            title="Browse files (⌘⇧O)"
+          >
+            <FolderOpen size={16} color={t.textDim} />
+          </button>
         )}
         {toggleFindingsPanel && (
           <button

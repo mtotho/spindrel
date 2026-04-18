@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
-import { ChannelFileExplorer } from "./ChannelFileExplorer";
 import { OmniPanel } from "./OmniPanel";
 import { MobileOmniSheet } from "./MobileOmniSheet";
 import { ChannelFileViewer } from "./ChannelFileViewer";
+import { BrowseFilesModal } from "./BrowseFilesModal";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
 import { MessageInput } from "@/src/components/chat/MessageInput";
@@ -20,6 +20,8 @@ import { useBot } from "@/src/api/hooks/useBots";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { useAuthStore } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
+import { usePaletteActions, type PaletteAction } from "@/src/stores/paletteActions";
+import { FolderOpen, Cog, Settings as SettingsIcon, Users as UsersIcon, PanelRight as PanelRightIcon } from "lucide-react";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
@@ -141,6 +143,12 @@ export default function ChatScreen() {
   useEffect(() => {
     if (channelId) markRead(channelId);
   }, [channelId]);
+
+  const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
+  const loc = useLocation();
+  useEffect(() => {
+    if (channel?.name) enrichRecentPage(loc.pathname, channel.name);
+  }, [channel?.name, loc.pathname, enrichRecentPage]);
 
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [participantsPanelOpen, setParticipantsPanelOpen] = useState(false);
@@ -264,7 +272,6 @@ export default function ChatScreen() {
   // ---- Workspace / file explorer state ----
   const workspaceEnabled = channel?.channel_workspace_enabled;
   const workspaceId = channel?.resolved_workspace_id;
-  const expandDir = useFileBrowserStore((s) => s.expandDir);
   const explorerWidth = useFileBrowserStore((s) => s.channelExplorerWidth);
   const setExplorerWidth = useFileBrowserStore((s) => s.setChannelExplorerWidth);
 
@@ -275,19 +282,34 @@ export default function ChatScreen() {
   const toggleSplit = useUIStore((s) => s.toggleFileExplorerSplit);
   const fileDirtyRef = useRef(false);
 
-  // Keyboard shortcuts for explorer/split/file viewer
+  // Browse-files modal state (full tree lives here, not in the rail)
+  const [browseModalOpen, setBrowseModalOpen] = useState(false);
+  const openBrowseModal = useCallback(() => setBrowseModalOpen(true), []);
+  const closeBrowseModal = useCallback(() => setBrowseModalOpen(false), []);
+
+  // Keyboard shortcuts for explorer/split/file viewer/browse
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key === "b") {
+      // Cmd+Shift+B → Browse files modal. Sibling of Cmd+B (toggle rail) — the
+      // rail shows IN CONTEXT, the shifted version opens the full file browser.
+      // Check before the plain Cmd+B branch since `e.key` is just "b" either way.
+      if (mod && e.shiftKey && (e.key === "b" || e.key === "B")) {
+        e.preventDefault();
+        setBrowseModalOpen((v) => !v);
+        return;
+      }
+      if (mod && !e.shiftKey && e.key === "b") {
         e.preventDefault();
         toggleExplorer();
+        return;
       }
       if (mod && e.key === "\\") {
         e.preventDefault();
         toggleSplit();
+        return;
       }
-      if (e.key === "Escape" && activeFile) {
+      if (e.key === "Escape" && activeFile && !browseModalOpen) {
         const tag = (e.target as HTMLElement)?.tagName;
         if (tag !== "INPUT" && tag !== "TEXTAREA") {
           setActiveFile(null);
@@ -296,7 +318,7 @@ export default function ChatScreen() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [toggleExplorer, toggleSplit, activeFile]);
+  }, [toggleExplorer, toggleSplit, activeFile, browseModalOpen]);
 
   // Reset file selection when switching channels
   useEffect(() => {
@@ -369,18 +391,84 @@ export default function ChatScreen() {
     }
   }, [activeFile, setExplorerOpen]);
 
-  const handleBrowseWorkspace = useCallback(() => {
-    if (!workspaceId || !channelId) return;
-    const segments = ["channels", `channels/${channelId}`, `channels/${channelId}/workspace`];
-    for (const seg of segments) expandDir(seg);
-  }, [workspaceId, channelId, expandDir]);
-
-  const handleOpenEditor = useCallback(async () => {
-    // Editor was removed in the workspace container collapse.
-    // This callback is kept as a no-op for components that reference it.
-  }, []);
-
   const displayName = (channel as any)?.display_name || channel?.name || channel?.client_id || "Chat";
+
+  // ---- Command-palette actions scoped to this channel ---------------------
+  // Registered via a runtime store so the global CommandPalette can surface
+  // channel-contextual commands (Browse files, View bot context, etc.) under
+  // a dedicated "This Channel" section without any navigation detour.
+  const registerPaletteActions = usePaletteActions((s) => s.register);
+  useEffect(() => {
+    if (!channelId) return;
+    const channelLabel = displayName ? `#${displayName}` : undefined;
+    const actions: PaletteAction[] = [];
+
+    if (workspaceEnabled && workspaceId && !isSystemChannel) {
+      actions.push({
+        id: `channel:${channelId}:browse-files`,
+        label: "Browse files in this channel",
+        hint: channelLabel,
+        icon: FolderOpen,
+        category: "This Channel",
+        onSelect: () => setBrowseModalOpen(true),
+      });
+    }
+
+    if (!isSystemChannel) {
+      actions.push({
+        id: `channel:${channelId}:bot-context`,
+        label: "View bot context",
+        hint: channelLabel,
+        icon: Cog,
+        category: "This Channel",
+        onSelect: () => setBotInfoBotId(channel?.bot_id || null),
+      });
+    }
+
+    actions.push({
+      id: `channel:${channelId}:settings`,
+      label: "Channel settings",
+      hint: channelLabel,
+      icon: SettingsIcon,
+      category: "This Channel",
+      onSelect: () => navigate(`/channels/${channelId}/settings`),
+    });
+
+    if (memberBotCount > 0 && !isSystemChannel) {
+      actions.push({
+        id: `channel:${channelId}:participants`,
+        label: "Participants",
+        hint: channelLabel,
+        icon: UsersIcon,
+        category: "This Channel",
+        onSelect: () => setParticipantsPanelOpen((p) => !p),
+      });
+    }
+
+    if (isSystemChannel) {
+      actions.push({
+        id: `channel:${channelId}:findings`,
+        label: "Findings",
+        hint: findingsCount > 0 ? `${findingsCount} pending` : channelLabel,
+        icon: PanelRightIcon,
+        category: "This Channel",
+        onSelect: () => setFindingsPanelOpen((p) => !p),
+      });
+    }
+
+    return registerPaletteActions(`channel:${channelId}`, actions);
+  }, [
+    channelId,
+    displayName,
+    workspaceEnabled,
+    workspaceId,
+    isSystemChannel,
+    memberBotCount,
+    findingsCount,
+    channel?.bot_id,
+    navigate,
+    registerPaletteActions,
+  ]);
 
   // ---- Shared message input props ----
   const messageInputProps = {
@@ -411,6 +499,7 @@ export default function ChatScreen() {
     chatState,
     bot,
     botId: channel?.bot_id,
+    channelId: channelId ?? undefined,
     isLoading,
     isFetchingNextPage,
     hasNextPage,
@@ -442,8 +531,7 @@ export default function ChatScreen() {
           workspaceId={workspaceId}
           explorerOpen={explorerOpen}
           toggleExplorer={toggleExplorer}
-          onBrowseWorkspace={handleBrowseWorkspace}
-          onOpenEditor={handleOpenEditor}
+          onBrowseWorkspace={openBrowseModal}
           isMobile={isMobile}
           activeFile={activeFile}
           splitMode={splitMode}
@@ -537,12 +625,10 @@ export default function ChatScreen() {
                 open={showExplorer}
                 onClose={handleCloseExplorer}
                 channelId={channelId}
-                botId={channel?.bot_id}
                 workspaceId={workspaceId ?? undefined}
-                channelDisplayName={channel?.display_name || channel?.name}
-                channelWorkspaceEnabled={!!workspaceEnabled}
                 activeFile={activeFile}
                 onSelectFile={handleSelectFile}
+                onBrowseFiles={openBrowseModal}
               />
             )}
           </div>
@@ -564,12 +650,10 @@ export default function ChatScreen() {
             >
               <OmniPanel
                 channelId={channelId}
-                botId={channel?.bot_id}
                 workspaceId={workspaceId ?? undefined}
-                channelDisplayName={channel?.display_name || channel?.name}
-                channelWorkspaceEnabled={!!workspaceEnabled}
                 activeFile={activeFile}
                 onSelectFile={handleSelectFile}
+                onBrowseFiles={openBrowseModal}
                 onClose={handleCloseExplorer}
                 width={explorerWidth}
               />
@@ -744,6 +828,18 @@ export default function ChatScreen() {
               total: savedBudget.total_tokens ?? 0,
             } : null
           )}
+        />
+      )}
+      {channelId && !isSystemChannel && (
+        <BrowseFilesModal
+          open={browseModalOpen}
+          channelId={channelId}
+          botId={channel?.bot_id}
+          workspaceId={workspaceId ?? undefined}
+          channelDisplayName={channel?.display_name || channel?.name}
+          channelWorkspaceEnabled={!!workspaceEnabled}
+          onSelectFile={handleSelectFile}
+          onClose={closeBrowseModal}
         />
       )}
     </>

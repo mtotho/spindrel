@@ -48,6 +48,7 @@ import { useSidebarSections, useIntegrations } from "../../api/hooks/useIntegrat
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useThemeTokens } from "../../theme/tokens";
 import { useUIStore, type RecentPage } from "../../stores/ui";
+import { usePaletteActions } from "../../stores/paletteActions";
 import { SpindrelLogo } from "./SpindrelLogo";
 
 // ---------------------------------------------------------------------------
@@ -101,9 +102,12 @@ interface PaletteItem {
   id: string;
   label: string;
   hint?: string;
-  href: string;
+  /** Navigation target. Omit (along with providing onSelect) for action items. */
+  href?: string;
   icon: React.ComponentType<{ size: number; color: string }>;
   category: string;
+  /** Optional action handler — takes precedence over `href` when present. */
+  onSelect?: () => void;
 }
 
 interface ScoredItem {
@@ -303,6 +307,7 @@ export function useCommandPaletteShortcut() {
 // Category ordering for the empty-state browse view.
 const CATEGORY_ORDER = [
   "Recent",
+  "This Channel",
   "Channels",
   "Bots",
   "Configure",
@@ -359,10 +364,24 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const { data: bots } = useBots();
   const { data: sidebarData } = useSidebarSections();
   const { data: integrationsData } = useIntegrations();
+  const registeredActions = usePaletteActions((s) => s.actions);
 
   // Build flat item list
   const allItems = useMemo<PaletteItem[]>(() => {
     const items: PaletteItem[] = [];
+
+    // Context-scoped actions (registered by the active view) come first so
+    // they land at the top of their category bucket.
+    for (const a of registeredActions) {
+      items.push({
+        id: a.id,
+        label: a.label,
+        hint: a.hint,
+        icon: a.icon,
+        category: a.category,
+        onSelect: a.onSelect,
+      });
+    }
 
     // Channel-management entry points. Listed first so they appear at the
     // top of the Channels section — the mobile palette is the only way to
@@ -443,7 +462,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     }
 
     return items;
-  }, [channels, bots, sidebarData, integrationsData]);
+  }, [channels, bots, sidebarData, integrationsData, registeredActions]);
 
   // Recent pages from persisted store
   const recentPages = useUIStore((s) => s.recentPages);
@@ -506,13 +525,15 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       // Empty-state browse: show every top-level nav target, skipping
       // recents (already at top) and sub-page items (surface only when typing).
       const rest = allItems
-        .filter((it) => !recentHrefSet.has(it.href) && !isSubPage(it))
+        .filter((it) => (it.href == null || !recentHrefSet.has(it.href)) && !isSubPage(it))
         .map((item) => ({ item, score: 1, matchIndices: [] as number[] }));
       return [...recentItems, ...rest];
     }
 
     // Build synthetic items from recents that aren't already in allItems
-    const allItemsByHref = new Set(allItems.map((it) => it.href));
+    const allItemsByHref = new Set(
+      allItems.map((it) => it.href).filter((h): h is string => typeof h === "string"),
+    );
     const syntheticRecents: PaletteItem[] = [];
     for (const rp of recentPages) {
       if (allItemsByHref.has(rp.href)) continue;
@@ -537,7 +558,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         const [hintScore] = item.hint ? fuzzyMatch(query, item.hint) : [0, []];
         const [catScore] = fuzzyMatch(query, item.category);
         const bestScore = Math.max(labelScore, hintScore * 0.5, catScore * 0.3);
-        const bonus = recencyBonus.get(item.href) ?? 0;
+        const bonus = item.href ? recencyBonus.get(item.href) ?? 0 : 0;
         return {
           item,
           score: bestScore + bonus,
@@ -647,6 +668,20 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     [onClose, closeMobileSidebar, navigate, recordPageVisit],
   );
 
+  // Dispatch selection: fire onSelect for action items, otherwise navigate.
+  const selectItem = useCallback(
+    (item: PaletteItem) => {
+      if (item.onSelect) {
+        onClose();
+        closeMobileSidebar();
+        item.onSelect();
+        return;
+      }
+      if (item.href) go(item.href);
+    },
+    [go, onClose, closeMobileSidebar],
+  );
+
   const totalCount = groupedResults.totalCount;
 
   const onKeyDown = useCallback(
@@ -669,10 +704,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           return;
         }
         const entry = groupedResults.flat[selectedIndex];
-        if (entry) go(entry.item.href);
+        if (entry) selectItem(entry.item);
       }
     },
-    [onClose, groupedResults, selectedIndex, go, totalCount],
+    [onClose, groupedResults, selectedIndex, selectItem, totalCount],
   );
 
   if (!mounted || typeof document === "undefined") return null;
@@ -867,7 +902,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                   <div
                     key={item.id}
                     data-idx={flatIndex}
-                    onClick={() => go(item.href)}
+                    onClick={() => selectItem(item)}
                     onMouseMove={() => {
                       isKeyboardNav.current = false;
                       setSelectedIndex(flatIndex);

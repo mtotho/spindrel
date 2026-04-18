@@ -669,7 +669,7 @@ class Settings(BaseSettings):
     WIPE_MEMORY_ON_SESSION_DELETE: bool = False
 
     # Tool policies
-    TOOL_POLICY_DEFAULT_ACTION: str = "deny"  # "allow", "deny", or "require_approval" — what happens when no rule matches
+    TOOL_POLICY_DEFAULT_ACTION: str = "require_approval"  # "allow", "deny", or "require_approval" — what happens when no rule matches
     TOOL_POLICY_ENABLED: bool = True  # master switch for the policy engine
     TOOL_POLICY_TIER_GATING: bool = True  # use safety_tier to set default actions for dangerous tools
 

@@ -13,12 +13,10 @@ interface MobileOmniSheetProps {
   open: boolean;
   onClose: () => void;
   channelId: string;
-  botId: string | undefined;
   workspaceId: string | undefined;
-  channelDisplayName?: string | null;
-  channelWorkspaceEnabled: boolean;
   activeFile: string | null;
   onSelectFile: (path: string) => void;
+  onBrowseFiles: () => void;
 }
 
 const SNAP_HALF = 0.5;   // 50% of viewport
@@ -30,12 +28,10 @@ export function MobileOmniSheet({
   open,
   onClose,
   channelId,
-  botId,
   workspaceId,
-  channelDisplayName,
-  channelWorkspaceEnabled,
   activeFile,
   onSelectFile,
+  onBrowseFiles,
 }: MobileOmniSheetProps) {
   const t = useThemeTokens();
   const [snapPoint, setSnapPoint] = useState(SNAP_HALF);
@@ -152,12 +148,10 @@ export function MobileOmniSheet({
         <div className="flex-1 overflow-y-auto min-h-0">
           <OmniPanel
             channelId={channelId}
-            botId={botId}
             workspaceId={workspaceId}
-            channelDisplayName={channelDisplayName}
-            channelWorkspaceEnabled={channelWorkspaceEnabled}
             activeFile={activeFile}
             onSelectFile={onSelectFile}
+            onBrowseFiles={onBrowseFiles}
             onClose={onClose}
             fullWidth
             mobileTabs

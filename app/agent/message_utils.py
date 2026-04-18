@@ -5,7 +5,7 @@ from typing import Any
 
 from app.agent.bots import BotConfig
 from app.tools.client_tools import get_client_tool_schemas
-from app.tools.mcp import fetch_mcp_tools
+from app.tools.mcp import fetch_mcp_tools, get_mcp_server_for_tool
 from app.tools.registry import get_local_tool_schemas
 
 _TRANSCRIPT_RE = re.compile(r"\[transcript\](.*?)\[/transcript\]", re.DOTALL)
@@ -125,10 +125,18 @@ def _merge_tool_schemas(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 async def _all_tool_schemas_by_name(bot: BotConfig) -> dict[str, dict[str, Any]]:
     by_name: dict[str, dict[str, Any]] = {}
-    for t in get_local_tool_schemas(list(bot.local_tools)):
+    pins = list(bot.pinned_tools or [])
+    local_names = set(bot.local_tools) | set(pins)
+    for t in get_local_tool_schemas(list(local_names)):
         by_name[t["function"]["name"]] = t
-    for t in await fetch_mcp_tools(bot.mcp_servers):
+    mcp_servers = list(bot.mcp_servers or [])
+    for pin in pins:
+        server = get_mcp_server_for_tool(pin)
+        if server and server not in mcp_servers:
+            mcp_servers.append(server)
+    for t in await fetch_mcp_tools(mcp_servers):
         by_name[t["function"]["name"]] = t
-    for t in get_client_tool_schemas(bot.client_tools):
+    client_names = set(bot.client_tools) | set(pins)
+    for t in get_client_tool_schemas(list(client_names)):
         by_name[t["function"]["name"]] = t
     return by_name

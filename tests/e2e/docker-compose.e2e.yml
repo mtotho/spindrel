@@ -42,9 +42,9 @@ services:
       # Database
       DATABASE_URL: postgresql+asyncpg://agent:agent@postgres:5432/agentdb
       # LLM provider (reads LLM_BASE_URL with LITELLM_BASE_URL alias)
-      LITELLM_BASE_URL: ${E2E_LLM_BASE_URL:-http://ollama:11434/v1}
+      LITELLM_BASE_URL: ${E2E_LLM_BASE_URL:?set E2E_LLM_BASE_URL to your LLM endpoint}
       LITELLM_API_KEY: ${E2E_LLM_API_KEY:-}
-      DEFAULT_MODEL: ${E2E_DEFAULT_MODEL:-gemma3:1b}
+      DEFAULT_MODEL: ${E2E_DEFAULT_MODEL:-gemini-2.5-flash-lite}
       # Disable features that need Docker socket or external services
       DOCKER_SANDBOX_ENABLED: "false"
       DOCKER_STACKS_ENABLED: "false"
@@ -77,11 +77,3 @@ services:
       timeout: 5s
       retries: 20
 
-  ollama:
-    image: ollama/ollama
-    profiles: [ollama]
-    volumes:
-      - ollama-models:/root/.ollama
-
-volumes:
-  ollama-models:
