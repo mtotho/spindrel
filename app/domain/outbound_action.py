@@ -55,4 +55,31 @@ class RequestApproval:
     reason: str | None = None
 
 
-OutboundAction = UploadImage | UploadFile | DeleteMessage | AddReaction | RequestApproval
+@dataclass(frozen=True)
+class OpenModal:
+    """Ask the channel's renderer to open a form UI for structured input.
+
+    ``callback_id`` is the token that ties the modal open to the agent-side
+    waiter in ``app.services.modal_waiter``. When the user submits, the
+    renderer's integration-side view handler posts the values to
+    ``POST /api/v1/modals/{callback_id}/submit``; the waiter resolves and
+    the originating agent tool call returns with ``values``.
+
+    ``schema`` is a platform-agnostic form description — a dict keyed by
+    field id where each value carries ``type``, ``label``, ``required``,
+    ``choices``, and ``placeholder``. Renderers translate to native form
+    primitives (see ``integrations/slack/modal_views.py`` for the Block
+    Kit mapping).
+    """
+
+    type: Literal["open_modal"] = "open_modal"
+    callback_id: str = ""
+    title: str = ""
+    schema: dict = field(default_factory=dict)
+    submit_label: str = "Submit"
+    metadata: dict = field(default_factory=dict)
+
+
+OutboundAction = (
+    UploadImage | UploadFile | DeleteMessage | AddReaction | RequestApproval | OpenModal
+)

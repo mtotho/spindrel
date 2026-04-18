@@ -19,6 +19,7 @@ from app.routers.api_v1_bot_hooks import router as bot_hooks_router
 from app.routers.api_v1_approvals import router as approvals_router
 from app.routers.api_v1_carapaces import router as carapaces_router
 from app.routers.api_v1_llm import router as llm_router
+from app.routers.api_v1_modals import router as modals_router
 from app.routers.api_v1_search import router as search_router
 from app.routers.api_v1_widget_actions import router as widget_actions_router
 
@@ -41,5 +42,6 @@ router.include_router(users_router)
 router.include_router(workspaces_router)
 router.include_router(channel_workspace_router)
 router.include_router(llm_router)
+router.include_router(modals_router)
 router.include_router(search_router)
 router.include_router(widget_actions_router)

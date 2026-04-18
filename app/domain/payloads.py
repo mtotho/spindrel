@@ -355,6 +355,39 @@ class PinnedFileUpdatedPayload:
     content_type: str
 
 
+@dataclass(frozen=True)
+class EphemeralMessagePayload:
+    """Payload for ``ephemeral_message`` events — visible only to one recipient.
+
+    Wraps a domain ``Message`` plus a recipient identifier, interpreted by
+    the consuming renderer in its integration-native form (Slack user id
+    like ``U0ALICE``, Discord snowflake, etc.). Renderers that lack the
+    ``EPHEMERAL`` capability trigger a dispatcher-side downgrade to
+    ``NEW_MESSAGE`` with a visibility marker prepended to the text; see
+    ``app/services/ephemeral_downgrade.py``.
+    """
+
+    message: Message
+    recipient_user_id: str
+
+
+@dataclass(frozen=True)
+class ModalSubmittedPayload:
+    """Payload for ``modal_submitted`` events — the user filled out a form.
+
+    ``callback_id`` correlates this submission with the waiter created by
+    the ``open_modal`` tool. ``values`` is the flat dict of field-id →
+    submitted-value pairs. ``submitted_by`` carries the integration-
+    native user id so downstream audit trails can attribute the action;
+    ``metadata`` relays opaque bookkeeping the tool set on ``OpenModal``.
+    """
+
+    callback_id: str
+    submitted_by: str
+    values: dict
+    metadata: dict = field(default_factory=dict)
+
+
 # Discriminated union of all known payloads.
 ChannelEventPayload = (
     MessagePayload
@@ -377,4 +410,6 @@ ChannelEventPayload = (
     | MemorySchemeBootstrapPayload
     | PinnedFileUpdatedPayload
     | LlmStatusPayload
+    | EphemeralMessagePayload
+    | ModalSubmittedPayload
 )

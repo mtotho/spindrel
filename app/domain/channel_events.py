@@ -28,11 +28,13 @@ from app.domain.payloads import (
     ChannelEventPayload,
     ContextBudgetPayload,
     DeliveryFailedPayload,
+    EphemeralMessagePayload,
     HeartbeatTickPayload,
     LlmStatusPayload,
     MemorySchemeBootstrapPayload,
     MessagePayload,
     MessageUpdatedPayload,
+    ModalSubmittedPayload,
     PinnedFileUpdatedPayload,
     ReplayLapsedPayload,
     ShutdownPayload,
@@ -69,6 +71,8 @@ class ChannelEventKind(StrEnum):
     PINNED_FILE_UPDATED = "pinned_file_updated"
     SKILL_AUTO_INJECT = "skill_auto_inject"
     LLM_STATUS = "llm_status"
+    EPHEMERAL_MESSAGE = "ephemeral_message"
+    MODAL_SUBMITTED = "modal_submitted"
 
     def required_capabilities(self) -> frozenset[Capability]:
         """The capability set a renderer must declare to receive this kind.
@@ -130,6 +134,15 @@ _REQUIRED_CAPS: dict[ChannelEventKind, frozenset[Capability]] = {
     ChannelEventKind.PINNED_FILE_UPDATED: frozenset({Capability.TEXT}),
     ChannelEventKind.SKILL_AUTO_INJECT: frozenset(),
     ChannelEventKind.LLM_STATUS: frozenset({Capability.STREAMING_EDIT}),
+    # EPHEMERAL_MESSAGE declares EPHEMERAL so renderers without the
+    # capability silently skip it in the drainer; the dispatcher
+    # downgrade (see ``app/services/ephemeral_downgrade.py``) rewrites
+    # those into NEW_MESSAGE so the content still lands somewhere.
+    ChannelEventKind.EPHEMERAL_MESSAGE: frozenset({Capability.EPHEMERAL}),
+    # MODAL_SUBMITTED carries values back from a submitted form. It's
+    # ingested by the agent-side waiter, not rendered to the user, so
+    # no capability gate is needed on the dispatcher path.
+    ChannelEventKind.MODAL_SUBMITTED: frozenset(),
 }
 
 
@@ -164,6 +177,8 @@ _KIND_PAYLOAD: dict[ChannelEventKind, type] = {
     ChannelEventKind.PINNED_FILE_UPDATED: PinnedFileUpdatedPayload,
     ChannelEventKind.SKILL_AUTO_INJECT: SkillAutoInjectPayload,
     ChannelEventKind.LLM_STATUS: LlmStatusPayload,
+    ChannelEventKind.EPHEMERAL_MESSAGE: EphemeralMessagePayload,
+    ChannelEventKind.MODAL_SUBMITTED: ModalSubmittedPayload,
 }
 
 

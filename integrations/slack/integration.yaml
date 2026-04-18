@@ -35,8 +35,9 @@ settings:
 
 events:
   - { type: message_received, label: Message received, description: "New message in a bound channel", category: message }
-  - { type: reaction_added, label: Reaction added, description: "Emoji reaction added to a message", category: message }
+  - { type: reaction_added, label: Reaction added, description: "Emoji reaction added to a message (👍 approves pending approvals)", category: message }
   - { type: app_mention, label: App mentioned, description: "Bot was @mentioned in a channel", category: message }
+  - { type: app_home_opened, label: App Home opened, description: "User opened the bot's App Home tab", category: ui }
 
 api_permissions: slack_integration
 
@@ -70,6 +71,8 @@ capabilities:
   - approval_buttons
   - display_names
   - mentions
+  - ephemeral
+  - modals
 
 provides:
   - target

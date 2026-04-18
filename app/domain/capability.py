@@ -63,3 +63,17 @@ class Capability(StrEnum):
 
     CANCELLATION = "cancellation"
     """The renderer surfaces a Cancel/STOP affordance to the user."""
+
+    EPHEMERAL = "ephemeral"
+    """The renderer can deliver a message visible only to one recipient
+    (Slack chat.postEphemeral, Discord interaction flag=64). Integrations
+    without this capability receive an ``EPHEMERAL_MESSAGE`` event as a
+    regular ``NEW_MESSAGE`` with a leading visibility marker."""
+
+    MODALS = "modals"
+    """The renderer can open a modal/form UI and deliver the user's
+    structured submission back to the agent via ``MODAL_SUBMITTED``.
+    Slack: ``views.open`` + Block Kit modal; Discord: modal with inputs
+    (requires originating interaction). Integrations without this
+    capability fall back to a conversational Q&A loop in the
+    ``open_modal`` tool."""

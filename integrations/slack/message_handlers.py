@@ -40,6 +40,60 @@ async def _resolve_slack_display_name(client, user_id: str) -> str:
     _user_name_cache[user_id] = user_id
     return user_id
 
+
+# Max parent-thread messages to fetch and prepend when the bot is replying
+# into an existing thread. Keeps context cost bounded; the user's triggering
+# message is already included separately via ``dispatch``.
+_THREAD_PARENT_LIMIT = 15
+
+
+async def _fetch_thread_parent_summary(
+    client, channel: str, thread_ts: str, current_ts: str | None
+) -> str:
+    """Summarize the parent thread so the agent has conversation context.
+
+    Returns an empty string when no fetch is warranted (thread root equals
+    the current message, API failure, or empty thread). Otherwise returns a
+    compact text block: one line per prior message with sender + truncated
+    text.
+    """
+    if not thread_ts or thread_ts == current_ts:
+        return ""
+    try:
+        resp = await client.conversations_replies(
+            channel=channel, ts=thread_ts, limit=_THREAD_PARENT_LIMIT,
+        )
+    except Exception:
+        logger.debug(
+            "conversations_replies failed for channel=%s ts=%s",
+            channel, thread_ts, exc_info=True,
+        )
+        return ""
+    if not resp or not resp.get("ok"):
+        return ""
+
+    lines: list[str] = []
+    for msg in (resp.get("messages") or []):
+        ts = msg.get("ts")
+        if ts and current_ts and ts == current_ts:
+            continue
+        sender_id = msg.get("user") or msg.get("bot_id") or "unknown"
+        text = (msg.get("text") or "").strip()
+        if not text:
+            continue
+        if len(text) > 400:
+            text = text[:400].rstrip() + "…"
+        if sender_id.startswith("B") or msg.get("bot_id"):
+            sender_label = f"bot:{sender_id}"
+        else:
+            name = await _resolve_slack_display_name(client, sender_id)
+            sender_label = f"{name} (<@{sender_id}>)"
+        lines.append(f"- {sender_label}: {text}")
+
+    if not lines:
+        return ""
+    return "[Thread context — prior messages in this thread, newest last]\n" + "\n".join(lines)
+
 TEXT_MIMES = {
     "text/plain",
     "text/markdown",
@@ -232,7 +286,25 @@ async def dispatch(
         "recipient_id": f"bot:{bot_id}" if mentioned else None,
     }
 
-    full_message = f"[Slack channel:{channel} user:{_slack_display_name}] {text}{appended}"
+    # Show the user's Slack ID in native <@...> syntax so the agent can tag
+    # them back by copying the token verbatim.
+    if is_bot_sender:
+        sender_mention = _slack_display_name
+    else:
+        sender_mention = f"{_slack_display_name} (<@{user}>)"
+
+    thread_summary = ""
+    if thread_ts:
+        thread_summary = await _fetch_thread_parent_summary(
+            client, channel, thread_ts, message_ts,
+        )
+    thread_prefix = f"{thread_summary}\n\n" if thread_summary else ""
+
+    full_message = (
+        f"{thread_prefix}"
+        f"[Slack channel:{channel} user:{sender_mention}] "
+        f"{text}{appended}"
+    )
 
     if is_passive:
         # Store message without running agent

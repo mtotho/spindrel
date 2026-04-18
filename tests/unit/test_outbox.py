@@ -447,6 +447,83 @@ class TestDeferNoRenderer:
         assert "slack" in row.dead_letter_reason  # surfaces the integration_id
 
 
+class TestResetStaleInFlight:
+    @pytest.mark.asyncio
+    async def test_when_no_in_flight_rows_then_returns_zero(self, db: AsyncSession):
+        channel = Channel(id=uuid.uuid4(), name="c", bot_id="b")
+        db.add(channel)
+        await db.commit()
+        await outbox.enqueue(db, channel.id, _make_message_event(channel.id), [("none", NoneTarget())])
+        await db.commit()
+
+        recovered = await outbox.reset_stale_in_flight(db)
+
+        assert recovered == 0
+
+    @pytest.mark.asyncio
+    async def test_when_in_flight_rows_present_then_resets_to_pending(self, db: AsyncSession):
+        channel = Channel(id=uuid.uuid4(), name="c", bot_id="b")
+        db.add(channel)
+        await db.commit()
+        rows = await outbox.enqueue(
+            db, channel.id, _make_message_event(channel.id),
+            [("slack", NoneTarget()), ("webhook", WebhookTarget(url="https://x.test/h"))],
+        )
+        await db.commit()
+        # Mark BOTH as in-flight, simulate a crashed prior process.
+        for row in rows:
+            await outbox.mark_in_flight(db, row)
+        await db.commit()
+        # Bump attempts on one so we can verify the recovery does NOT reset it.
+        rows[0].attempts = 3
+        await db.commit()
+        before = datetime.now(timezone.utc)
+
+        recovered = await outbox.reset_stale_in_flight(db)
+
+        # New session — committed by reset_stale_in_flight itself.
+        from sqlalchemy import select
+        refreshed = (await db.execute(select(Outbox).order_by(Outbox.target_integration_id))).scalars().all()
+        assert recovered == 2
+        assert {r.delivery_state for r in refreshed} == {DeliveryState.PENDING.value}
+        assert all(r.last_error == "recovered from stale in_flight on startup" for r in refreshed)
+        # attempts NOT incremented — the prior in-flight attempt never reached a renderer.
+        assert refreshed[0].attempts == 3
+        # available_at == now-ish (≤ 2s) so the next batch picks them up immediately.
+        for r in refreshed:
+            avail = r.available_at if r.available_at.tzinfo else r.available_at.replace(tzinfo=timezone.utc)
+            assert abs((avail - before).total_seconds()) < 2
+
+    @pytest.mark.asyncio
+    async def test_when_mixed_states_then_only_in_flight_recovered(self, db: AsyncSession):
+        channel = Channel(id=uuid.uuid4(), name="c", bot_id="b")
+        db.add(channel)
+        await db.commit()
+        rows = await outbox.enqueue(
+            db, channel.id, _make_message_event(channel.id),
+            [("a", NoneTarget()), ("b", NoneTarget()), ("c", NoneTarget())],
+        )
+        await db.commit()
+        # a → in_flight (recoverable), b → pending (untouched), c → delivered (untouched).
+        await outbox.mark_in_flight(db, rows[0])
+        await outbox.mark_delivered(db, rows[2])
+        await db.commit()
+
+        recovered = await outbox.reset_stale_in_flight(db)
+
+        from sqlalchemy import select
+        by_target = {
+            r.target_integration_id: r
+            for r in (await db.execute(select(Outbox))).scalars().all()
+        }
+        assert recovered == 1
+        assert by_target["a"].delivery_state == DeliveryState.PENDING.value
+        assert by_target["a"].last_error == "recovered from stale in_flight on startup"
+        assert by_target["b"].delivery_state == DeliveryState.PENDING.value
+        assert by_target["b"].last_error is None  # untouched
+        assert by_target["c"].delivery_state == DeliveryState.DELIVERED.value
+
+
 class TestReconstitution:
     @pytest.mark.asyncio
     async def test_reconstitute_event_and_target(self, db: AsyncSession):

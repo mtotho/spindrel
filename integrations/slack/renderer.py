@@ -89,6 +89,8 @@ class SlackRenderer:
         Capability.APPROVAL_BUTTONS,
         Capability.DISPLAY_NAMES,
         Capability.MENTIONS,
+        Capability.EPHEMERAL,
+        Capability.MODALS,
     })
 
     async def render(
@@ -138,6 +140,8 @@ class SlackRenderer:
                 return await self._handle_message_updated(event, target)
             if kind == ChannelEventKind.APPROVAL_REQUESTED:
                 return await self._handle_approval_requested(event, target)
+            if kind == ChannelEventKind.EPHEMERAL_MESSAGE:
+                return await self._handle_ephemeral_message(event, target)
             if kind == ChannelEventKind.ATTACHMENT_DELETED:
                 return await self._handle_attachment_deleted(event, target)
         except Exception as exc:
@@ -414,13 +418,32 @@ class SlackRenderer:
         slack_text = markdown_to_slack_mrkdwn(text)
         chunks = split_for_slack(slack_text) or [slack_text]
 
+        # If the publishing tool stashed raw Slack blocks on the message
+        # (e.g. the ``open_modal`` tool emits an "Open form" button), post
+        # them as a single message with the blocks directly attached.
+        # We bypass the placeholder-update path because the message is
+        # carrying interactive UI, not assistant response text.
+        msg_metadata = getattr(msg, "metadata", None) or {}
+        prebuilt_blocks = msg_metadata.get("slack_blocks") or []
+        if isinstance(prebuilt_blocks, list) and prebuilt_blocks:
+            body: dict = {
+                "channel": target.channel_id,
+                "text": text,
+                "blocks": prebuilt_blocks[:50],
+                **attrs,
+            }
+            if target.thread_ts and target.reply_in_thread:
+                body["thread_ts"] = target.thread_ts
+            return (await self._call_slack(
+                "chat.postMessage", target.token, body
+            )).to_receipt()
+
         # Resolve tool-call rendering BEFORE posting the text so we can
         # attach the blocks to the same message (placeholder update or
         # last chunk) rather than a separate chat.postMessage — the
         # latter lands with a newer ts and Slack interleaves any user
         # messages sent in the meantime between the text and the tool
         # badge.
-        msg_metadata = getattr(msg, "metadata", None) or {}
         tool_results = msg_metadata.get("tool_results") or []
         tool_blocks: list[dict] = []
         if tool_results and role != "user":
@@ -562,6 +585,44 @@ class SlackRenderer:
 
         return (await self._call_slack(
             "chat.postMessage", target.token, body
+        )).to_receipt()
+
+    async def _handle_ephemeral_message(
+        self, event: ChannelEvent, target: SlackTarget
+    ) -> DeliveryReceipt:
+        """Deliver an ``EPHEMERAL_MESSAGE`` via ``chat.postEphemeral``.
+
+        Only the ``recipient_user_id`` on the payload sees the message
+        (Slack enforces; the bot's own message log shows nothing). No
+        placeholder update flow — ephemerals are one-shot, transient.
+        """
+        payload = event.payload
+        message = getattr(payload, "message", None)
+        recipient_user_id = getattr(payload, "recipient_user_id", "") or ""
+        if message is None or not recipient_user_id:
+            return DeliveryReceipt.skipped(
+                "ephemeral_message missing message or recipient_user_id"
+            )
+        text = (getattr(message, "content", "") or "").strip()
+        if not text:
+            return DeliveryReceipt.skipped("ephemeral_message empty text")
+
+        bot_id = ""
+        actor = getattr(message, "actor", None)
+        if actor is not None and getattr(actor, "kind", "") == "bot":
+            bot_id = getattr(actor, "id", "") or ""
+        attrs = bot_attribution(bot_id) if bot_id else {}
+
+        body: dict = {
+            "channel": target.channel_id,
+            "user": recipient_user_id,
+            "text": text,
+            **attrs,
+        }
+        if target.thread_ts and target.reply_in_thread:
+            body["thread_ts"] = target.thread_ts
+        return (await self._call_slack(
+            "chat.postEphemeral", target.token, body
         )).to_receipt()
 
     async def _handle_attachment_deleted(

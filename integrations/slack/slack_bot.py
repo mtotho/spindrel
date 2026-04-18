@@ -20,12 +20,22 @@ from message_handlers import register_message_handlers
 from slash_commands import register_slash_commands
 from approval_handlers import register_approval_handlers
 from channel_approval_handlers import register_channel_approval_handlers
+from reaction_handlers import register_reaction_handlers
+from app_home import register_app_home
+from shortcuts import register_shortcuts
+from view_handlers import register_view_handlers
+from modal_action_handler import register_modal_action_handler
 
 app = AsyncApp(token=BOT_TOKEN)
 register_message_handlers(app)
 register_slash_commands(app)
 register_approval_handlers(app)
 register_channel_approval_handlers(app)
+register_reaction_handlers(app)
+register_app_home(app)
+register_shortcuts(app)
+register_view_handlers(app)
+register_modal_action_handler(app)
 
 
 async def main():
