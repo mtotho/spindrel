@@ -82,24 +82,38 @@ GET_LIVE_CONTEXT_RESULT = {
         "- names: Office Desk LED Strip\n"
         "  domain: light\n"
         "  state: 'on'\n"
+        "  areas: Office\n"
         "  attributes:\n"
         "    brightness: '180'\n"
         "- names: Bedroom Lamp\n"
         "  domain: light\n"
         "  state: 'off'\n"
+        "  areas: Bedroom\n"
         "- names: Kitchen Temperature Temperature\n"
         "  domain: sensor\n"
         "  state: '71.69'\n"
+        "  areas: Kitchen\n"
         "  attributes:\n"
         "    unit_of_measurement: °F\n"
         "- names: Living Room TV\n"
         "  domain: media_player\n"
         "  state: playing\n"
+        "  areas: Living Room\n"
         "- names: Front Door\n"
         "  domain: binary_sensor\n"
         "  state: 'off'\n"
     ),
 }
+
+
+def _find(components, node_type, *, label=None):
+    for c in components:
+        if c.get("type") != node_type:
+            continue
+        if label is not None and c.get("label") != label:
+            continue
+        return c
+    return None
 
 
 def test_live_context_summary_shape():
@@ -135,6 +149,78 @@ def test_live_context_summary_active_section():
     assert "Living Room TV" in labels
 
 
+def test_live_context_summary_filter_section_buttons():
+    """Unfiltered view should expose one button per area + domain so the
+    user can click to filter once pinned.
+    """
+    out = live_context_summary(GET_LIVE_CONTEXT_RESULT, [])
+    filter_section = _find(out, "section", label="Filter")
+    assert filter_section is not None
+    labels = [c["label"] for c in filter_section["children"] if c.get("type") == "button"]
+    # Areas in fixture: Office, Bedroom, Kitchen, Living Room
+    assert "Kitchen" in labels
+    assert "Living Room" in labels
+    # Domains in fixture
+    assert "light" in labels
+    assert "sensor" in labels
+    # Every button dispatches widget_config with a filter config
+    for c in filter_section["children"]:
+        if c.get("type") == "button":
+            assert c["action"]["dispatch"] == "widget_config"
+            assert "filter" in c["action"]["config"]
+
+
+def test_live_context_summary_active_filter_by_area():
+    """When config.filter is set, only matching entities remain and a
+    Clear-filter button is rendered.
+    """
+    out = live_context_summary(
+        {**GET_LIVE_CONTEXT_RESULT, "config": {"filter": "kitchen"}},
+        [],
+    )
+    status = out[0]
+    assert status["type"] == "status"
+    assert "Filtered: kitchen" in status["text"]
+    assert "1/5" in status["text"]
+
+    clear = _find(out, "button")
+    assert clear is not None
+    assert clear["label"] == "Clear filter"
+    assert clear["action"]["config"] == {"filter": ""}
+
+    # Filter UI itself is hidden once a filter is active
+    assert _find(out, "section", label="Filter") is None
+
+
+def test_live_context_summary_filter_by_domain():
+    out = live_context_summary(
+        {**GET_LIVE_CONTEXT_RESULT, "config": {"filter": "light"}},
+        [],
+    )
+    assert "2/5" in out[0]["text"]  # two lights
+
+
+def test_live_context_summary_filter_case_insensitive():
+    out_upper = live_context_summary(
+        {**GET_LIVE_CONTEXT_RESULT, "config": {"filter": "KITCHEN"}}, [],
+    )
+    out_lower = live_context_summary(
+        {**GET_LIVE_CONTEXT_RESULT, "config": {"filter": "kitchen"}}, [],
+    )
+    # Both should match the same entity set (count is what matters)
+    assert "1/5" in out_upper[0]["text"]
+    assert "1/5" in out_lower[0]["text"]
+
+
+def test_live_context_summary_empty_filter_is_unfiltered():
+    out = live_context_summary(
+        {**GET_LIVE_CONTEXT_RESULT, "config": {"filter": ""}}, [],
+    )
+    # Same as no config at all
+    baseline = live_context_summary(GET_LIVE_CONTEXT_RESULT, [])
+    assert out[0]["text"] == baseline[0]["text"]
+
+
 def test_live_context_summary_no_active_entities():
     payload = {
         "success": True,
@@ -146,16 +232,19 @@ def test_live_context_summary_no_active_entities():
         ),
     }
     out = live_context_summary(payload, [])
-    # No section component when nothing is active
-    types = [c["type"] for c in out]
-    assert "section" not in types
+    assert _find(out, "section", label="Active now (0)") is None
+    # "Active now" not in any section's label
+    for c in out:
+        if c.get("type") == "section":
+            assert not c["label"].startswith("Active now")
 
 
 def test_live_context_summary_empty_result():
     out = live_context_summary({"result": ""}, [])
-    # Fallback: status + tiles (with empty domain_counts), no section
+    # Fallback: status only — no domains → no tiles, no active → no section,
+    # no areas/domains → no Filter section.
     assert out[0]["text"].startswith("0 entities")
-    assert out[1]["items"] == []
+    assert all(c.get("type") != "tiles" for c in out)
 
 
 @pytest.mark.parametrize("payload", [
@@ -167,3 +256,45 @@ def test_live_context_summary_bad_input_passthrough(payload):
     # components list unchanged so the YAML fallback renders.
     sentinel = [{"type": "status", "text": "fallback"}]
     assert live_context_summary(payload, sentinel) == sentinel
+
+
+# ── Regression: ha_get_state pin wiring ──
+
+def test_ha_get_state_widget_shape_matches_transform_contract():
+    """The ha_get_state widget must expose entity_id via display_label.
+
+    Regression guard for the pin bug: state_poll.args can only reference
+    {{display_label}} / {{tool_name}} / {{config.*}} (see
+    ``app/routers/api_v1_widget_actions.py:_do_state_poll``). If anyone
+    changes display_label to {{data.attributes.friendly_name}}, the pinned
+    widget will silently stop refreshing because HA's ha_get_state tool
+    cannot look up an entity by friendly name.
+    """
+    import yaml
+
+    with open("integrations/homeassistant/integration.yaml") as f:
+        doc = yaml.safe_load(f)
+
+    spec = doc["tool_widgets"]["ha_get_state"]
+    assert spec["display_label"] == "{{data.entity_id}}", (
+        "display_label must be entity_id — state_poll.args.entity_id "
+        "references {{display_label}} and entity_id can't be recovered "
+        "from friendly_name."
+    )
+    assert spec["state_poll"]["args"]["entity_id"] == "{{display_label}}"
+
+
+def test_single_entity_state_via_state_poll_contract():
+    """Smoke test: a state_poll refresh call should produce a fully
+    populated dict that the state_poll template can render without
+    leaving `{{entity_id}}` / `{{last_changed}}` blank.
+    """
+    out = single_entity_state(HA_GET_STATE_TEMPERATURE, {
+        "display_label": "sensor.kitchen_temperature_temperature",
+        "tool_name": "ha_get_state",
+        "config": {},
+    })
+    # Every field the state_poll template references must be non-empty
+    # for the rendered properties/status/heading to display.
+    for key in ("entity_id", "friendly_name", "display_value", "last_changed"):
+        assert out.get(key), f"{key} must be populated for state_poll render"

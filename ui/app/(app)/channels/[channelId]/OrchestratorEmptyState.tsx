@@ -284,8 +284,8 @@ function PipelineTile({
     <div
       className={cn(
         "group relative flex flex-row items-center gap-3 px-3.5 py-3 rounded-lg",
-        "bg-surface-raised/60 border border-surface-border",
-        "hover:border-accent/40 hover:bg-surface-raised",
+        "bg-surface-raised border border-surface-border",
+        "hover:border-accent/40",
         "transition-colors",
       )}
       title={description || undefined}
@@ -538,12 +538,12 @@ export function OrchestratorLaunchpad({
   if (!isLoading && systemTasks.length === 0) return null;
 
   return (
-    <div className={cn(!collapsed && "bg-surface-raised/40")}>
+    <div>
       {/* Header — always visible, clickable to collapse/expand */}
       <button
         onClick={toggleCollapsed}
         className="w-full flex flex-row items-center justify-between
-                   px-4 py-2 hover:bg-surface-raised/70 transition-colors"
+                   px-4 py-2 hover:bg-surface-raised/40 transition-colors"
         aria-expanded={!collapsed}
       >
         <div className="flex flex-row items-center gap-2">
@@ -630,16 +630,19 @@ export function OrchestratorLaunchpad({
           )}
 
           {/* Recent runs are hidden while reviews are pending — the launchpad's
-              purpose in that moment is the review CTA, not browsing history. */}
+              purpose in that moment is the review CTA, not browsing history.
+              Also hidden on mobile: chat anchors cover the same runs and the
+              launchpad already dominates a narrow viewport. Desktop keeps the
+              strip as a quick-scan surface. */}
           {recentRuns.length > 0 && findingsCount === 0 && (
-            <div className="flex flex-col gap-1.5">
+            <div className="hidden md:flex flex-col gap-1.5">
               <div className="flex flex-row items-center gap-2">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
                   Recent runs
                 </span>
               </div>
-              <div className="flex flex-col gap-1 border border-surface-border rounded-md
-                              bg-surface overflow-hidden">
+              <div className="flex flex-col border border-surface-border rounded-lg
+                              bg-surface-raised divide-y divide-surface-border/50 overflow-hidden">
                 {recentRuns.map((run) => {
                   const parent = systemTasks.find((t) => t.id === run.parent_task_id);
                   const pipelineTitle = parent?.title ?? run.parent_task_id ?? "pipeline";
@@ -671,12 +674,12 @@ export function OrchestratorLaunchpad({
                     <Link
                       to={`/admin/tasks/${run.id}`}
                       key={run.id}
-                      className="flex flex-row items-center justify-between gap-3 px-3 py-2
-                                 text-xs hover:bg-surface-raised transition-colors"
+                      className="flex flex-row items-center justify-between gap-3 px-3.5 py-2.5
+                                 text-xs hover:bg-surface-overlay/40 transition-colors"
                     >
                       <div className="flex flex-row items-center gap-2.5 min-w-0 flex-1">
                         <StatusIcon
-                          size={13}
+                          size={14}
                           className={cn(statusColor, "shrink-0", isSpinning && "animate-spin")}
                         />
                         <span className="font-medium text-text truncate">{pipelineTitle}</span>
@@ -684,8 +687,7 @@ export function OrchestratorLaunchpad({
                           · {statusLabel}
                         </span>
                       </div>
-                      <span className="text-[10px] text-text-dim shrink-0 flex items-center gap-1">
-                        <Clock size={9} />
+                      <span className="text-[10px] text-text-dim shrink-0 tabular-nums">
                         {relTime(run.created_at)}
                       </span>
                     </Link>
@@ -699,15 +701,15 @@ export function OrchestratorLaunchpad({
             <div className="flex flex-col gap-1.5">
               <button
                 onClick={() => setLibraryOpen((v) => !v)}
-                className="flex flex-row items-center gap-1.5 text-[11px] text-text-dim
-                           hover:text-text self-start"
+                className="flex flex-row items-center gap-1.5 text-[11px] font-semibold
+                           uppercase tracking-wider text-text-dim hover:text-text self-start"
               >
                 {libraryOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                 More pipelines ({libraryItems.length})
               </button>
               {libraryOpen && (
-                <div className="flex flex-col gap-1 border border-surface-border rounded-md
-                                bg-surface overflow-hidden">
+                <div className="flex flex-col border border-surface-border rounded-lg
+                                bg-surface-raised divide-y divide-surface-border/50 overflow-hidden">
                   {libraryItems.map((pipeline) => {
                     const Icon = iconFor(pipeline.id);
                     const pipelineRunning = launchingId === pipeline.id;
@@ -717,11 +719,11 @@ export function OrchestratorLaunchpad({
                         onClick={() => !pipelineRunning && handleLaunch(pipeline)}
                         disabled={pipelineRunning}
                         title={getDescription(pipeline) || undefined}
-                        className="flex flex-row items-center justify-between gap-3 px-3 py-2
-                                   hover:bg-surface-raised text-left disabled:opacity-60"
+                        className="flex flex-row items-center justify-between gap-3 px-3.5 py-2.5
+                                   hover:bg-surface-overlay/40 text-left disabled:opacity-60"
                       >
                         <div className="flex flex-row items-center gap-2.5 min-w-0 flex-1">
-                          <Icon size={13} className="text-text-dim shrink-0" />
+                          <Icon size={14} className="text-text-dim shrink-0" />
                           <span className="text-xs font-medium text-text truncate">
                             {pipeline.title || pipeline.id}
                           </span>

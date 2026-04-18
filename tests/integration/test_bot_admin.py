@@ -381,11 +381,22 @@ class TestMemoryHygieneTrigger:
 # POST /api/v1/admin/bots/{bot_id}/memory-scheme
 # ---------------------------------------------------------------------------
 
+def _register_bot_in_test_registry(bot_id: str, **overrides):
+    """Pre-seed _TEST_REGISTRY with a minimal BotConfig so real get_bot() resolves after DB mutations."""
+    from app.agent.bots import BotConfig, MemoryConfig
+    _TEST_REGISTRY[bot_id] = BotConfig(
+        id=bot_id, name=overrides.get("name", "Test"), model="test/m",
+        system_prompt="", memory=MemoryConfig(enabled=False),
+        **{k: v for k, v in overrides.items() if k != "name"},
+    )
+
+
 class TestMemoryScheme:
     async def test_when_bot_exists_then_memory_scheme_set_to_workspace_files(self, client, db_session, tmp_path):
         from tests.factories import build_bot
         db_session.add(build_bot(id="ms-bot", memory_scheme=None))
         await db_session.commit()
+        _register_bot_in_test_registry("ms-bot")
 
         with (
             patch("app.services.workspace.workspace_service.get_workspace_root", return_value=str(tmp_path)),
@@ -395,11 +406,11 @@ class TestMemoryScheme:
             resp = await client.post("/api/v1/admin/bots/ms-bot/memory-scheme", headers=AUTH_HEADERS)
 
         from app.db.models import Bot as BotRow
-        await db_session.refresh(await db_session.get(BotRow, "ms-bot"))
         row = await db_session.get(BotRow, "ms-bot")
-        body = resp.json()
+        await db_session.refresh(row)
+        _TEST_REGISTRY.pop("ms-bot", None)
         assert resp.status_code == 200
-        assert body["memory_scheme"] == "workspace-files"
+        assert resp.json()["memory_scheme"] == "workspace-files"
         assert row.memory_scheme == "workspace-files"
 
     async def test_when_bot_missing_then_returns_404(self, client):
@@ -411,6 +422,7 @@ class TestMemoryScheme:
         from tests.factories import build_bot
         db_session.add(build_bot(id="idx-fail-bot", memory_scheme=None))
         await db_session.commit()
+        _register_bot_in_test_registry("idx-fail-bot")
 
         with (
             patch("app.services.workspace.workspace_service.get_workspace_root", return_value=str(tmp_path)),
@@ -423,6 +435,7 @@ class TestMemoryScheme:
         ):
             resp = await client.post("/api/v1/admin/bots/idx-fail-bot/memory-scheme", headers=AUTH_HEADERS)
 
+        _TEST_REGISTRY.pop("idx-fail-bot", None)
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 

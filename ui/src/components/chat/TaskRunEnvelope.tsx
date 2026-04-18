@@ -79,22 +79,6 @@ interface Props {
   collapsedByDefault?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Type-label hygiene: user_prompt → REVIEW, foreach → APPLY. Friendlier for
-// humans watching the run; admin UI still uses the technical type.
-// ---------------------------------------------------------------------------
-
-function stepTypeLabel(type: string): string {
-  switch (type) {
-    case "user_prompt":
-      return "REVIEW";
-    case "foreach":
-      return "APPLY";
-    default:
-      return type.toUpperCase();
-  }
-}
-
 function isActiveStatus(status: StepStatus): boolean {
   return status === "running" || status === "awaiting_user_input";
 }
@@ -166,12 +150,12 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapse
   const runningStep = steps.find((s) => s.status === "running");
   const activeStep = awaitingStep ?? runningStep;
 
-  const [expanded, setExpanded] = useState(false);
   const [openStep, setOpenStep] = useState<number | null>(null);
   // When this anchor is a stale run (an older run of the same pipeline exists
   // later in the channel), collapse by default to a one-line header. Chevron
-  // toggles the body. For fresh anchors (collapsedByDefault=false) this stays
-  // open and the chevron still toggles the raw-JSON debug view below.
+  // toggles the body in-place. Fresh anchors (collapsedByDefault=false) have
+  // no chevron at all — the body is already visible and a chevron pointing to
+  // a raw-JSON debug block was a noise affordance nobody used.
   const [bodyOpen, setBodyOpen] = useState(!collapsedByDefault);
 
   // Anchor messages persisted before the widget-envelope surfacing change
@@ -218,17 +202,20 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapse
   const timestamp = formatTimeShort(message.created_at);
   const taskId = meta.task_id;
 
+  // Active states get a left accent stripe — matches the Findings banner's
+  // visual weight so the eye knows which runs need attention. Done/failed
+  // anchors stay on the shared card surface; their status is already
+  // conveyed by the header icon + label.
+  const isActiveAnchor =
+    headerStatus === "awaiting_user_input" || headerStatus === "running";
+
   return (
     <div
       className={cn(
-        "mx-5 my-1.5 group rounded-r-md bg-surface-raised/40 border-l-2 transition-colors",
-        headerStatus === "awaiting_user_input"
-          ? "border-accent"
-          : headerStatus === "failed"
-            ? "border-red-500/60"
-            : headerStatus === "running"
-              ? "border-accent/60"
-              : "border-surface-border",
+        "mx-5 my-1.5 group rounded-lg bg-surface-raised border border-surface-border transition-colors",
+        isActiveAnchor && "border-l-2",
+        headerStatus === "awaiting_user_input" && "border-l-accent",
+        headerStatus === "running" && "border-l-accent/60",
       )}
       data-task-id={taskId || undefined}
       data-awaiting-review={awaitingStep ? "true" : undefined}
@@ -237,9 +224,6 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapse
       <div className="flex items-center justify-between gap-2 px-3.5 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
           <Workflow size={14} className="text-text-dim flex-shrink-0" />
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-text-dim shrink-0">
-            {isPipeline ? "pipeline" : taskType}
-          </span>
           <span className="truncate text-xs font-semibold text-text">{title}</span>
           {headerStatus === "awaiting_user_input" ? (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
@@ -273,20 +257,16 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapse
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="hidden sm:inline text-[10px] text-text-dim whitespace-nowrap">{timestamp}</span>
-          <button
-            onClick={() => {
-              if (collapsedByDefault) {
-                setBodyOpen((v) => !v);
-              } else {
-                setExpanded((v) => !v);
-              }
-            }}
-            className="text-[10px] text-text-dim hover:text-text-muted uppercase tracking-wider flex items-center gap-0.5 bg-transparent border-none cursor-pointer"
-            aria-label={(collapsedByDefault ? bodyOpen : expanded) ? "Collapse" : "Expand"}
-          >
-            {(collapsedByDefault ? bodyOpen : expanded) ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            <span className="hidden sm:inline">{(collapsedByDefault ? bodyOpen : expanded) ? "collapse" : "expand"}</span>
-          </button>
+          {collapsedByDefault && (
+            <button
+              onClick={() => setBodyOpen((v) => !v)}
+              className="text-[10px] text-text-dim hover:text-text-muted uppercase tracking-wider flex items-center gap-0.5 bg-transparent border-none cursor-pointer"
+              aria-label={bodyOpen ? "Collapse" : "Expand"}
+            >
+              {bodyOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              <span className="hidden sm:inline">{bodyOpen ? "collapse" : "expand"}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -324,20 +304,10 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapse
                     canOpen ? "cursor-pointer hover:bg-surface-overlay/30" : "cursor-default",
                   )}
                 >
-                  <span className="text-[10px] font-mono text-text-dim w-4 text-right flex-shrink-0">
+                  <span className="text-[10px] font-mono text-text-dim w-4 text-right flex-shrink-0 tabular-nums">
                     {s.index + 1}
                   </span>
                   <StepIcon status={s.status} />
-                  <span
-                    className={cn(
-                      "hidden sm:inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider flex-shrink-0",
-                      isActive
-                        ? "bg-accent/15 text-accent border border-accent/30"
-                        : "bg-surface-overlay/40 text-text-dim border border-surface-border/60",
-                    )}
-                  >
-                    {stepTypeLabel(s.type)}
-                  </span>
                   <span
                     className={cn(
                       "flex-1 min-w-0 truncate text-[12px]",
@@ -452,14 +422,6 @@ export const TaskRunEnvelope = memo(function TaskRunEnvelope({ message, collapse
         </div>
       )}
 
-      {/* ── Expanded raw metadata (debug / json view) ──────────────── */}
-      {expanded && (
-        <div className="border-t border-surface-border/40 px-3.5 py-2 bg-surface-overlay/40">
-          <pre className="m-0 font-mono text-[10px] text-text-dim whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-            {JSON.stringify(meta, null, 2)}
-          </pre>
-        </div>
-      )}
     </div>
   );
 });

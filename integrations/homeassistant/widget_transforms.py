@@ -158,8 +158,14 @@ def live_context_summary(data: dict, components: list[dict]) -> list[dict]:
 
     The raw result is a YAML blob nested inside the JSON wrapper's
     ``result`` string — no template dot-path can reach per-entity fields.
-    So we parse it here and rebuild the component tree with the computed
-    counts and active-entity tiles baked in.
+    So we parse it here and rebuild the component tree with computed
+    counts, an "active now" section, and a filter UI driven by
+    ``config.filter``.
+
+    Filter semantics: a case-insensitive substring match against entity
+    name / domain / area. Set via preset buttons (one per discovered
+    area + domain) that dispatch ``widget_config`` — only functional on
+    pinned cards, same constraint as other ``widget_config`` actions.
 
     Signature matches the top-level ``transform`` contract in
     ``app/services/widget_templates.py:_apply_code_transform``.
@@ -173,50 +179,144 @@ def live_context_summary(data: dict, components: list[dict]) -> list[dict]:
         if e.get("domain") and e.get("state")
     ]
 
+    cfg = data.get("config") if isinstance(data.get("config"), dict) else {}
+    raw_filter = str(cfg.get("filter", "") or "").strip()
+    filter_lc = raw_filter.lower()
+
+    # Derive the unique area + domain sets from the FULL entity list (not
+    # the filtered one) so filter buttons stay visible/stable as the user
+    # narrows.
+    all_areas = sorted({e.get("area") for e in entities if e.get("area")})
+    all_domains = sorted({e.get("domain") for e in entities if e.get("domain")})
+
+    if filter_lc:
+        matching = [
+            e for e in entities
+            if filter_lc in (e.get("name", "").lower())
+            or filter_lc in (e.get("domain", "").lower())
+            or filter_lc in (e.get("area", "").lower())
+        ]
+    else:
+        matching = entities
+
+    active = [
+        {
+            "label": e.get("name", ""),
+            "value": e.get("state", ""),
+            "caption": e.get("area") or e.get("domain", ""),
+        }
+        for e in matching
+        if str(e.get("state", "")).lower() in _ON_STATES
+    ]
+
     domain_tallies: dict[str, int] = {}
-    active: list[dict] = []
-    for entity in entities:
-        domain = entity.get("domain", "") or "unknown"
-        domain_tallies[domain] = domain_tallies.get(domain, 0) + 1
-
-        state = str(entity.get("state", "")).lower()
-        if state in _ON_STATES:
-            active.append({
-                "label": entity.get("name", ""),
-                "value": entity.get("state", ""),
-                "caption": domain,
-            })
-
+    for e in matching:
+        d = e.get("domain", "") or "unknown"
+        domain_tallies[d] = domain_tallies.get(d, 0) + 1
     domain_counts = [
-        {"label": domain, "value": str(count)}
-        for domain, count in sorted(domain_tallies.items(), key=lambda kv: -kv[1])
+        {"label": d, "value": str(count)}
+        for d, count in sorted(domain_tallies.items(), key=lambda kv: -kv[1])
     ]
 
     total = len(entities)
-    active_count = len(active)
+    shown = len(matching)
 
-    new_components: list[dict] = [
-        {
+    new_components: list[dict] = []
+
+    if filter_lc:
+        new_components.append({
             "type": "status",
-            "text": f"{total} entities · {active_count} active",
+            "text": f"Filtered: {raw_filter} · {shown}/{total} entities",
+            "color": "accent",
+        })
+        new_components.append({
+            "type": "button",
+            "label": "Clear filter",
+            "subtle": True,
+            "action": {
+                "dispatch": "widget_config",
+                "config": {"filter": ""},
+            },
+        })
+    else:
+        new_components.append({
+            "type": "status",
+            "text": f"{total} entities · {len(active)} active",
             "color": "info",
-        },
-        {
+        })
+
+    if domain_counts:
+        new_components.append({
             "type": "tiles",
             "min_width": 140,
             "items": domain_counts,
-        },
-    ]
+        })
+
     if active:
         new_components.append({
             "type": "section",
-            "label": f"Active now ({active_count})",
+            "label": f"Active now ({len(active)})",
             "collapsible": True,
             "defaultOpen": False,
             "children": [
                 {"type": "tiles", "min_width": 180, "items": active},
             ],
         })
+
+    # Filter presets — one button per area, one per domain. Invisible
+    # once the filter is set (user can pick a different one after
+    # clearing). Only functional on pinned cards, matching the
+    # widget_config dispatch contract.
+    if not filter_lc and (all_areas or all_domains):
+        area_buttons = [
+            {
+                "type": "button",
+                "label": area,
+                "subtle": True,
+                "action": {
+                    "dispatch": "widget_config",
+                    "config": {"filter": area},
+                },
+            }
+            for area in all_areas
+        ]
+        domain_buttons = [
+            {
+                "type": "button",
+                "label": domain,
+                "subtle": True,
+                "action": {
+                    "dispatch": "widget_config",
+                    "config": {"filter": domain},
+                },
+            }
+            for domain in all_domains
+        ]
+
+        filter_section_children: list[dict] = []
+        if area_buttons:
+            filter_section_children.append({
+                "type": "properties",
+                "layout": "inline",
+                "items": [{"label": "By area", "value": ""}],
+            })
+            filter_section_children.extend(area_buttons)
+        if domain_buttons:
+            filter_section_children.append({
+                "type": "properties",
+                "layout": "inline",
+                "items": [{"label": "By domain", "value": ""}],
+            })
+            filter_section_children.extend(domain_buttons)
+
+        new_components.append({
+            "type": "section",
+            "label": "Filter",
+            "collapsible": True,
+            "defaultOpen": False,
+            "children": filter_section_children,
+        })
+
     return new_components
 
 
@@ -266,6 +366,9 @@ def _parse_live_context(text: str) -> list[dict]:
                 in_attributes = False
             elif stripped.startswith("state:"):
                 entity["state"] = stripped.split(":", 1)[1].strip().strip("'\"")
+                in_attributes = False
+            elif stripped.startswith("areas:"):
+                entity["area"] = stripped.split(":", 1)[1].strip().strip("'\"")
                 in_attributes = False
             elif stripped.startswith("attributes:"):
                 in_attributes = True

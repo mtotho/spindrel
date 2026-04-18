@@ -12,6 +12,7 @@ from tests.factories.bots import build_bot
 from tests.factories.channels import build_channel, build_channel_bot_member
 from tests.factories.integration_manifests import build_integration_manifest
 from tests.factories.prompt_templates import build_prompt_template
+from tests.factories.providers import build_provider_config, build_provider_model
 from tests.factories.skills import build_bot_skill_enrollment, build_skill
 from tests.factories.tasks import build_task
 from tests.factories.workflows import build_workflow, build_workflow_run
@@ -25,6 +26,8 @@ __all__ = [
     "build_channel_bot_member",
     "build_integration_manifest",
     "build_prompt_template",
+    "build_provider_config",
+    "build_provider_model",
     "build_skill",
     "build_task",
     "build_workflow",

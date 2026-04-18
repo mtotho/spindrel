@@ -147,14 +147,20 @@ tool_widgets:
   # The initial render uses the tool's own response directly; pinning the
   # card re-calls ha_get_state with the same entity_id so the value stays
   # live without hitting the much larger GetLiveContext.
+  #
+  # display_label is the entity_id (not the friendly_name) because
+  # state_poll.args can only reference {{display_label}} / {{tool_name}} /
+  # {{config.*}} — no {{data.*}} — so the entity_id has to ride on the
+  # one variable the pin persists. The card body still shows the pretty
+  # friendly_name via the transform output.
   ha_get_state:
     content_type: application/vnd.spindrel.components+json
     display: inline
-    display_label: "{{data.attributes.friendly_name | default: data.entity_id}}"
+    display_label: "{{data.entity_id}}"
     state_poll:
       tool: ha_get_state
       args:
-        entity_id: "{{data.entity_id}}"
+        entity_id: "{{display_label}}"
       transform: "integrations.homeassistant.widget_transforms:single_entity_state"
       refresh_interval_seconds: 30
       template:
@@ -222,6 +228,8 @@ tool_widgets:
     display: inline
     display_label: "Home Assistant — Live State"
     transform: "integrations.homeassistant.widget_transforms:live_context_summary"
+    default_config:
+      filter: ""
     template:
       v: 1
       components:

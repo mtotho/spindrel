@@ -209,24 +209,23 @@ export default function ChatScreen() {
   );
 
   // Pipeline anchors dedupe visually: when multiple runs of the same
-  // definition (same parent_task_id) exist in the channel, only the latest
-  // stays fully expanded. Older ones collapse to a one-line header. We walk
-  // invertedData once — index 0 is the newest — and record the first message
-  // id seen per parent_task_id; those are the "latest" messages.
-  const latestAnchorByParent = useMemo(() => {
+  // definition exist in the channel, only the latest stays fully expanded.
+  // Older ones collapse to a one-line header. Grouping key is
+  // (parent_task_id || title) — definition-row churn (YAML reload → new
+  // Task id) would otherwise leave two parents showing as "latest" for
+  // the same human-facing pipeline. Title catches that.
+  const latestAnchorByGroup = useMemo(() => {
     const latestMessageIds = new Set<string>();
-    const seenParents = new Set<string>();
+    const seenGroups = new Set<string>();
     for (const m of invertedData) {
       const meta = (m.metadata ?? {}) as Record<string, any>;
       if (meta.kind !== "task_run") continue;
-      const parent = meta.parent_task_id as string | null | undefined;
-      if (!parent) {
-        // Ad-hoc runs (no definition) — never collapse, always treat as latest.
-        latestMessageIds.add(m.id);
-        continue;
-      }
-      if (!seenParents.has(parent)) {
-        seenParents.add(parent);
+      const groupKey =
+        (meta.parent_task_id as string | null | undefined) ||
+        (meta.title as string | null | undefined) ||
+        m.id; // fallback: self → always latest
+      if (!seenGroups.has(groupKey)) {
+        seenGroups.add(groupKey);
         latestMessageIds.add(m.id);
       }
     }
@@ -241,7 +240,7 @@ export default function ChatScreen() {
       const dateSep = showDateSep ? <DateSeparator label={formatDateSeparator(item.created_at)} /> : null;
       const meta = (item.metadata ?? {}) as Record<string, any>;
       if (meta.kind === "task_run") {
-        const collapsedByDefault = !latestAnchorByParent.has(item.id);
+        const collapsedByDefault = !latestAnchorByGroup.has(item.id);
         return <>{dateSep}<TaskRunEnvelope message={item} collapsedByDefault={collapsedByDefault} /></>;
       }
       if (item.role === "user" && meta.trigger && SUPPORTED_TRIGGERS.has(meta.trigger)) {
@@ -259,7 +258,7 @@ export default function ChatScreen() {
       const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} isLatestBotMessage={isLatestBotMessage} />;
       return <>{dateSep}{bubble}</>;
     },
-    [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByParent]
+    [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByGroup]
   );
 
   // ---- Workspace / file explorer state ----
