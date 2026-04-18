@@ -1,18 +1,21 @@
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { ToolsSandbox } from "./ToolsSandbox";
+import { TemplatesTab } from "./TemplatesTab";
+import { LibraryTab } from "./LibraryTab";
 
-type DevTab = "tools" | "templates" | "recent";
-const TABS: readonly DevTab[] = ["tools", "templates", "recent"] as const;
+type DevTab = "library" | "templates" | "tools" | "recent";
+const TABS: readonly DevTab[] = ["library", "templates", "tools", "recent"] as const;
 
 const LABELS: Record<DevTab, string> = {
-  tools: "Tools",
+  library: "Library",
   templates: "Templates",
-  recent: "Recent calls",
+  tools: "Tools",
+  recent: "Recent",
 };
 
 export default function WidgetDevPanelPage() {
-  const [tab, setTab] = useHashTab<DevTab>("tools", TABS);
+  const [tab, setTab] = useHashTab<DevTab>("library", TABS);
 
   return (
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
@@ -21,7 +24,7 @@ export default function WidgetDevPanelPage() {
         backTo="/widgets"
         parentLabel="Widgets"
         title="Developer panel"
-        subtitle="Run tools, test templates, inspect recent results"
+        subtitle="Browse the library, author templates, run tools, inspect recent results"
       />
 
       {/* Tab bar */}
@@ -43,22 +46,15 @@ export default function WidgetDevPanelPage() {
       </div>
 
       {/* Tab content */}
+      {tab === "library" && <LibraryTab />}
+      {tab === "templates" && <TemplatesTab />}
       {tab === "tools" && <ToolsSandbox />}
-
-      {tab === "templates" && (
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="rounded-lg border border-dashed border-surface-border p-10 text-center text-[12px] text-text-dim max-w-md">
-            <div className="font-semibold text-text mb-1">Template sandbox</div>
-            Paste a widget YAML template and context JSON to evaluate in isolation. Coming next.
-          </div>
-        </div>
-      )}
 
       {tab === "recent" && (
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="rounded-lg border border-dashed border-surface-border p-10 text-center text-[12px] text-text-dim max-w-md">
             <div className="font-semibold text-text mb-1">Recent calls</div>
-            Browse recent tool results and load them into the Tools or Templates sandbox. Coming next.
+            Browse recent tool results and load them into Templates. Coming next.
           </div>
         </div>
       )}

@@ -55,7 +55,7 @@ export function PackageCard({ pkg, variant = "default", seedFallbackName }: Prop
     setBusy("fork");
     try {
       const forked = await forkMut.mutateAsync({ id: pkg.id });
-      navigate(`/admin/widget-packages/${forked.id}`);
+      navigate(`/widgets/dev?id=${forked.id}#templates`);
     } finally {
       setBusy(null);
     }
@@ -80,7 +80,7 @@ export function PackageCard({ pkg, variant = "default", seedFallbackName }: Prop
     }
   };
 
-  const openEditor = () => navigate(`/admin/widget-packages/${pkg.id}`);
+  const openEditor = () => navigate(`/widgets/dev?id=${pkg.id}#templates`);
 
   const sourceChip = isSeed ? (
     <span className="inline-flex items-center rounded bg-surface-overlay text-[10px] font-semibold uppercase tracking-wide text-text-muted px-1.5 py-0.5">

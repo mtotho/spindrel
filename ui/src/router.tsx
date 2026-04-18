@@ -1,7 +1,15 @@
-import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet, useParams } from "react-router-dom";
 import { lazy } from "react";
 import { RootLayout } from "./layouts/RootLayout";
 import { AppShell } from "./components/layout/AppShell";
+
+/** Legacy redirect: `/admin/widget-packages/:packageId` → `/widgets/dev?id=...#templates`.
+ *  The editor now lives inside the Widget dev panel as the Templates tab. */
+function AdminWidgetPackageRedirect() {
+  const { packageId } = useParams<{ packageId: string }>();
+  if (!packageId) return <Navigate to="/widgets/dev#library" replace />;
+  return <Navigate to={`/widgets/dev?id=${packageId}#templates`} replace />;
+}
 
 // ---------------------------------------------------------------------------
 // Lazy-loaded pages — keeps initial bundle small
@@ -69,8 +77,6 @@ const AdminToolPolicies = lazy(() => import("@/app/(app)/admin/tool-policies/ind
 const AdminToolPolicyDetail = lazy(() => import("@/app/(app)/admin/tool-policies/[ruleId]/index"));
 const AdminToolsIndex = lazy(() => import("@/app/(app)/admin/tools/index"));
 const AdminToolDetail = lazy(() => import("@/app/(app)/admin/tools/[toolId]/index"));
-const AdminWidgetPackageEditor = lazy(() => import("@/app/(app)/admin/widget-packages/[packageId]/index"));
-
 // Widgets (dashboard + developer panel)
 const WidgetsDashboard = lazy(() => import("@/app/(app)/widgets/index"));
 const WidgetsDevPanel = lazy(() => import("@/app/(app)/widgets/dev/index"));
@@ -182,8 +188,8 @@ export const router = createBrowserRouter([
               { path: "tool-policies/:ruleId", element: <AdminToolPolicyDetail /> },
               { path: "tools", element: <AdminToolsIndex /> },
               { path: "tools/:toolId", element: <AdminToolDetail /> },
-              { path: "widget-packages/:packageId", element: <AdminWidgetPackageEditor /> },
-              { path: "widget-packages", element: <Navigate to="/admin/tools?tab=library" replace /> },
+              { path: "widget-packages/:packageId", element: <AdminWidgetPackageRedirect /> },
+              { path: "widget-packages", element: <Navigate to="/widgets/dev#library" replace /> },
               { path: "upcoming", element: <Navigate to="/admin/tasks?view=list" replace /> },
               { path: "usage", element: <AdminUsage /> },
               { path: "users", element: <AdminUsers /> },

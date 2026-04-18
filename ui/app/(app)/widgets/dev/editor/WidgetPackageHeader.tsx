@@ -60,7 +60,7 @@ export function WidgetPackageHeader({
     setBusy("fork");
     try {
       const forked = await forkMut.mutateAsync({ id: pkg.id });
-      navigate(`/admin/widget-packages/${forked.id}`);
+      navigate(`/widgets/dev?id=${forked.id}#templates`);
     } finally {
       setBusy(null);
     }
@@ -80,11 +80,13 @@ export function WidgetPackageHeader({
     setBusy("delete");
     try {
       await deleteMut.mutateAsync(pkg.id);
-      navigate("/admin/tools?tab=library");
+      navigate("/widgets/dev#library");
     } finally {
       setBusy(null);
     }
   };
+
+  const saveLabel = isNew ? "Save to library" : "Save";
 
   return (
     <>
@@ -107,6 +109,12 @@ export function WidgetPackageHeader({
               </span>
             )}
           </div>
+        )}
+
+        {dirty && !saving && (
+          <span className="hidden md:inline-flex items-center rounded bg-warning/15 text-warning text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5">
+            Unsaved
+          </span>
         )}
 
         {pkg && !isSeed && !isActive && (
@@ -139,7 +147,7 @@ export function WidgetPackageHeader({
             className="inline-flex items-center gap-1.5 rounded-md bg-accent text-white text-[12px] font-semibold px-3 py-1.5 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
           >
             {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-            {isNew ? "Create" : "Save"}
+            {saveLabel}
           </button>
         )}
 

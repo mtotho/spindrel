@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
 import {
@@ -7,11 +7,11 @@ import {
   useUpdateWidgetPackage,
   useWidgetPackage,
   validateWidgetPackage,
+  type PreviewEnvelope,
   type ValidationIssue,
   type WidgetPackage,
 } from "@/src/api/hooks/useWidgetPackages";
 import { useTools } from "@/src/api/hooks/useTools";
-import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
@@ -33,7 +33,31 @@ interface Draft {
   tool_name: string;
   yaml_template: string;
   python_code: string;
-  sample_text: string; // JSON text for the editor
+  sample_text: string;
+}
+
+interface PinPayload {
+  envelope: PreviewEnvelope;
+  draft: Draft;
+  samplePayload: Record<string, unknown>;
+}
+
+interface Props {
+  /** undefined → new draft mode. */
+  packageId?: string;
+  /** Prefill tool_name when creating a new draft (e.g. from ?tool=X). */
+  initialToolName?: string;
+  /**
+   * Optional pin callback wired into the PreviewPane toolbar. When provided,
+   * the rendered envelope + a snapshot of the draft are bubbled up so the
+   * caller can write to the dashboard pins store.
+   */
+  onPinEnvelope?: (payload: PinPayload) => Promise<void>;
+  /**
+   * Route base used after a successful create. Defaults to `/widgets/dev`
+   * (the Templates tab). Called as `${navigateBase}?id=${newId}#templates`.
+   */
+  navigateBase?: string;
 }
 
 function pkgToDraft(pkg: WidgetPackage): Draft {
@@ -58,22 +82,24 @@ function newDraft(toolName: string): Draft {
   };
 }
 
-export default function WidgetPackageEditor() {
-  const { packageId } = useParams<{ packageId: string }>();
+export function WidgetEditor({
+  packageId,
+  initialToolName = "",
+  onPinEnvelope,
+  navigateBase = "/widgets/dev",
+}: Props) {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const t = useThemeTokens();
   const { width } = useWindowSize();
   const isWide = width >= 1024;
   const [activeTab, setActiveTab] = useHashTab<EditorTab>("yaml", EDITOR_TABS as unknown as EditorTab[]);
 
-  const isNew = !packageId || packageId === "new";
-  const toolParam = searchParams.get("tool") ?? "";
+  const isNew = !packageId;
 
   const { data: pkg, isLoading } = useWidgetPackage(isNew ? undefined : packageId);
   const { data: tools } = useTools();
 
-  const [draft, setDraft] = useState<Draft | null>(isNew ? newDraft(toolParam) : null);
+  const [draft, setDraft] = useState<Draft | null>(isNew ? newDraft(initialToolName) : null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<ValidationIssue[]>([]);
@@ -82,14 +108,25 @@ export default function WidgetPackageEditor() {
   const createMut = useCreateWidgetPackage();
   const updateMut = useUpdateWidgetPackage(pkg?.id ?? "");
 
-  // Hydrate draft when package loads.
+  // Reset draft when switching between new / existing modes.
   useEffect(() => {
-    if (!isNew && pkg && draft === null) {
+    if (isNew) {
+      setDraft((prev) => prev ?? newDraft(initialToolName));
+    } else if (pkg) {
+      setDraft((prev) => (prev === null ? pkgToDraft(pkg) : prev));
+    }
+    // Only run when id transition or pkg load changes state shape.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNew, pkg?.id]);
+
+  // If packageId changes (e.g. after create redirect), reload draft from the new pkg.
+  useEffect(() => {
+    if (!isNew && pkg) {
       setDraft(pkgToDraft(pkg));
     }
-  }, [pkg, isNew, draft]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pkg?.id]);
 
-  // Dirty detection — compare draft to stored body.
   const dirty = useMemo(() => {
     if (!draft) return false;
     if (isNew) return true;
@@ -104,7 +141,6 @@ export default function WidgetPackageEditor() {
     );
   }, [draft, pkg, isNew]);
 
-  // beforeunload guard
   useEffect(() => {
     if (!dirty) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -115,7 +151,6 @@ export default function WidgetPackageEditor() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
 
-  // Debounced validation
   const debouncedYaml = useDebouncedValue(draft?.yaml_template ?? "", 400);
   const debouncedPython = useDebouncedValue(draft?.python_code ?? "", 400);
   useEffect(() => {
@@ -134,32 +169,35 @@ export default function WidgetPackageEditor() {
         setValidationErrors(res.errors);
         setValidationWarnings(res.warnings);
       })
-      .catch(() => {
-        // Network hiccup — don't block save UX.
-      });
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, [debouncedYaml, debouncedPython]);
 
-  const parsedSample = useMemo(() => {
+  const parsedSample = useMemo<Record<string, unknown> | null>(() => {
     if (!draft?.sample_text.trim()) return {};
     try {
-      return JSON.parse(draft.sample_text);
+      const v = JSON.parse(draft.sample_text);
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        return v as Record<string, unknown>;
+      }
+      // Preview supports any JSON; wrap non-objects so substitution still works.
+      return { value: v };
     } catch {
       return null;
     }
   }, [draft?.sample_text]);
 
-  const sampleJsonError = draft && draft.sample_text.trim() !== "" && parsedSample === null;
+  const sampleJsonError = !!draft && draft.sample_text.trim() !== "" && parsedSample === null;
 
   const canSave =
     dirty &&
     !saving &&
     validationErrors.length === 0 &&
     !sampleJsonError &&
-    draft?.name.trim() &&
-    draft?.tool_name.trim();
+    !!draft?.name.trim() &&
+    !!draft?.tool_name.trim();
 
   const handleSave = useCallback(async () => {
     if (!draft) return;
@@ -173,20 +211,16 @@ export default function WidgetPackageEditor() {
           description: draft.description || null,
           yaml_template: draft.yaml_template,
           python_code: draft.python_code || null,
-          sample_payload: parsedSample && typeof parsedSample === "object"
-            ? (parsedSample as Record<string, unknown>)
-            : null,
+          sample_payload: parsedSample ?? null,
         });
-        navigate(`/admin/widget-packages/${created.id}`, { replace: true });
+        navigate(`${navigateBase}?id=${created.id}#templates`, { replace: true });
       } else {
         await updateMut.mutateAsync({
           name: draft.name,
           description: draft.description || null,
           yaml_template: draft.yaml_template,
           python_code: draft.python_code || null,
-          sample_payload: parsedSample && typeof parsedSample === "object"
-            ? (parsedSample as Record<string, unknown>)
-            : null,
+          sample_payload: parsedSample ?? null,
         });
       }
     } catch (err: unknown) {
@@ -195,9 +229,8 @@ export default function WidgetPackageEditor() {
     } finally {
       setSaving(false);
     }
-  }, [draft, isNew, parsedSample, createMut, updateMut, navigate]);
+  }, [draft, isNew, parsedSample, createMut, updateMut, navigate, navigateBase]);
 
-  // Cmd+S
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
@@ -208,6 +241,22 @@ export default function WidgetPackageEditor() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [canSave, handleSave]);
+
+  const handlePin = useMemo(() => {
+    if (!onPinEnvelope) return undefined;
+    return async (envelope: PreviewEnvelope) => {
+      if (!draft) return;
+      await onPinEnvelope({
+        envelope,
+        draft,
+        samplePayload: parsedSample ?? {},
+      });
+    };
+  }, [onPinEnvelope, draft, parsedSample]);
+
+  const pinDisabledReason = !draft?.tool_name.trim()
+    ? "Set a tool name before pinning"
+    : null;
 
   if (!isNew && isLoading) {
     return (
@@ -230,53 +279,37 @@ export default function WidgetPackageEditor() {
     .filter((v, i, arr) => v && arr.indexOf(v) === i)
     .sort();
 
+  const readOnly = !isNew && !!pkg?.is_readonly;
+
   return (
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
-      <PageHeader
-        variant="detail"
-        backTo="/admin/tools?tab=library"
-        parentLabel="Widget Library"
-        title={isNew ? "New widget package" : draft.name || "Widget package"}
-        subtitle={pkg ? `for tool: ${pkg.tool_name}` : toolParam ? `for tool: ${toolParam}` : undefined}
-        right={
-          <WidgetPackageHeader
-            pkg={pkg}
-            draft={draft}
-            dirty={dirty}
-            saving={saving}
-            canSave={!!canSave}
-            onSave={handleSave}
-            isNew={isNew}
-          />
-        }
-      />
-
       {saveError && (
         <div className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">
           {saveError}
         </div>
       )}
 
-      {/* Metadata strip */}
-      <div className="flex flex-wrap gap-3 border-b border-surface-border px-4 py-3 bg-surface-raised">
-        <label className="flex flex-col gap-1 min-w-[200px] flex-1">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">Name</span>
+      {/* Metadata strip — title + tool + description + save cluster on one line. */}
+      <div className="flex flex-wrap items-end gap-3 border-b border-surface-border px-4 py-3 bg-surface-raised">
+        <label className="flex flex-col gap-1 min-w-[220px] flex-[2]">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">Name</span>
           <input
             value={draft.name}
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-            disabled={!isNew && pkg?.is_readonly}
-            className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent"
+            disabled={readOnly}
+            placeholder="e.g. Weather forecast card"
+            className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[14px] font-semibold text-text outline-none focus:border-accent disabled:opacity-70"
           />
         </label>
         <label className="flex flex-col gap-1 min-w-[160px]">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">Tool name</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">Tool</span>
           {isNew ? (
             <input
               value={draft.tool_name}
               list="known-tools"
               onChange={(e) => setDraft({ ...draft, tool_name: e.target.value })}
               className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[13px] font-mono text-text outline-none focus:border-accent"
-              placeholder="e.g. list_tasks"
+              placeholder="list_tasks"
             />
           ) : (
             <span className="rounded-md border border-transparent bg-surface-overlay/60 px-2.5 py-1.5 text-[13px] font-mono text-text-muted">
@@ -289,18 +322,30 @@ export default function WidgetPackageEditor() {
             ))}
           </datalist>
         </label>
-        <label className="flex flex-col gap-1 min-w-[260px] flex-[2]">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">Description</span>
+        <label className="flex flex-col gap-1 min-w-[260px] flex-[3]">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">Description</span>
           <input
             value={draft.description}
             onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-            disabled={!isNew && pkg?.is_readonly}
-            className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent"
+            disabled={readOnly}
+            placeholder="Shown in the library"
+            className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[13px] text-text-muted outline-none focus:border-accent disabled:opacity-70"
           />
         </label>
+        <div className="flex items-center gap-2 self-end">
+          <WidgetPackageHeader
+            pkg={pkg}
+            draft={draft}
+            dirty={dirty}
+            saving={saving}
+            canSave={!!canSave}
+            onSave={handleSave}
+            isNew={isNew}
+          />
+        </div>
       </div>
 
-      {/* Editor + preview */}
+      {/* Editor + preview split */}
       <div
         className={
           "flex flex-1 overflow-hidden " +
@@ -315,17 +360,24 @@ export default function WidgetPackageEditor() {
             setActiveTab={setActiveTab}
             validationErrors={validationErrors}
             validationWarnings={validationWarnings}
-            sampleJsonError={!!sampleJsonError}
-            readOnly={!isNew && !!pkg?.is_readonly}
+            sampleJsonError={sampleJsonError}
+            readOnly={readOnly}
           />
         </div>
         <div className="flex flex-col flex-1 min-h-0">
           <PreviewPane
             packageId={pkg?.id}
             isNew={isNew}
-            draft={draft}
+            draft={{
+              yaml_template: draft.yaml_template,
+              python_code: draft.python_code,
+              sample_text: draft.sample_text,
+              tool_name: draft.tool_name,
+            }}
             samplePayload={parsedSample ?? {}}
             validationErrors={validationErrors}
+            onPin={handlePin}
+            pinDisabledReason={pinDisabledReason}
           />
         </div>
       </div>

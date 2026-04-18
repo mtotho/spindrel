@@ -31,7 +31,7 @@ export function ToolWidgetSection({ toolName, bareToolName }: Props) {
             This tool will render with the default JSON tree view.
           </div>
           <button
-            onClick={() => navigate(`/admin/widget-packages/new?tool=${encodeURIComponent(bareToolName)}`)}
+            onClick={() => navigate(`/widgets/dev?tool=${encodeURIComponent(bareToolName)}#templates`)}
             className="inline-flex items-center gap-1.5 rounded-md bg-accent text-white text-[12px] font-semibold px-3 py-1.5 hover:opacity-90"
           >
             <Plus size={12} /> Create one
@@ -43,7 +43,7 @@ export function ToolWidgetSection({ toolName, bareToolName }: Props) {
             <>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  onClick={() => navigate(`/admin/widget-packages/${active.id}`)}
+                  onClick={() => navigate(`/widgets/dev?id=${active.id}#templates`)}
                   className="text-[13px] font-semibold text-text hover:underline"
                 >
                   {active.name}
@@ -72,7 +72,7 @@ export function ToolWidgetSection({ toolName, bareToolName }: Props) {
           <div className="mt-3 flex flex-wrap gap-2">
             {active && (
               <button
-                onClick={() => navigate(`/admin/widget-packages/${active.id}`)}
+                onClick={() => navigate(`/widgets/dev?id=${active.id}#templates`)}
                 className="inline-flex items-center gap-1.5 rounded-md border border-surface-border text-text text-[12px] font-medium px-2.5 py-1.5 hover:bg-surface-overlay transition-colors"
               >
                 <Edit3 size={12} /> Edit template
@@ -87,13 +87,13 @@ export function ToolWidgetSection({ toolName, bareToolName }: Props) {
               </button>
             )}
             <button
-              onClick={() => navigate(`/admin/widget-packages/new?tool=${encodeURIComponent(bareToolName)}`)}
+              onClick={() => navigate(`/widgets/dev?tool=${encodeURIComponent(bareToolName)}#templates`)}
               className="inline-flex items-center gap-1.5 rounded-md border border-surface-border text-text text-[12px] font-medium px-2.5 py-1.5 hover:bg-surface-overlay transition-colors"
             >
               <Plus size={12} /> New variant
             </button>
             <button
-              onClick={() => navigate(`/admin/tools?tab=library&tool=${encodeURIComponent(bareToolName)}`)}
+              onClick={() => navigate(`/widgets/dev?tool=${encodeURIComponent(bareToolName)}#library`)}
               className="ml-auto inline-flex items-center gap-1.5 text-[12px] text-accent hover:underline"
             >
               Browse library <ExternalLink size={11} />
@@ -191,7 +191,7 @@ function ChangeTemplateModal({
                   </button>
                 )}
                 <button
-                  onClick={() => navigate(`/admin/widget-packages/${pkg.id}`)}
+                  onClick={() => navigate(`/widgets/dev?id=${pkg.id}#templates`)}
                   className="rounded-md border border-surface-border text-text text-[12px] font-medium px-2.5 py-1 hover:bg-surface-overlay"
                 >
                   Open

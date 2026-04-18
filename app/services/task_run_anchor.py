@@ -293,8 +293,17 @@ async def ensure_anchor_message(task: Task) -> uuid.UUID | None:
         # anchor can reference run_session_id on the very first write.
         if t.run_isolation == "sub_session" and t.run_session_id is None:
             await spawn_sub_session(db, task=t, parent_session_id=session_id)
-            # spawn_sub_session mutates t.run_session_id — no flag_modified
-            # needed since it's a regular column, not JSONB.
+            # Mirror the new run_session_id onto the caller's in-memory
+            # Task object. ``ensure_anchor_message`` is called at the top
+            # of ``run_task_pipeline``, which then threads the SAME Task
+            # reference through ``_advance_pipeline`` → ``_spawn_agent_step``
+            # and ``emit_step_output_message``. Without this mirror, those
+            # downstream readers see a stale ``run_session_id=None``, spawn
+            # child agent tasks with ``session_id=None`` (which creates an
+            # orphan throwaway session via ``load_or_create``), and the
+            # run-view modal renders empty because every Message landed on
+            # a different session than the one linked on ``task.run_session_id``.
+            task.run_session_id = t.run_session_id
 
         metadata = _build_metadata(t)
         fallback = _fallback_text(t, t.status or "pending", _step_summary(t))

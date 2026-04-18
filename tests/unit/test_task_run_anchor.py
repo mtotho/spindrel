@@ -11,7 +11,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.db.models import Message, Session
-from app.services.task_run_anchor import ANCHOR_MSG_KEY, _build_metadata, _step_summary, update_anchor
+from app.services.task_run_anchor import (
+    ANCHOR_MSG_KEY,
+    _build_metadata,
+    _step_summary,
+    ensure_anchor_message,
+    update_anchor,
+)
 from tests.factories import build_channel, build_task
 
 
@@ -209,3 +215,66 @@ class TestUpdateAnchor:
             await update_anchor(task)
 
         ensure_mock.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# ensure_anchor_message — sub-session spawn propagation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestEnsureAnchorMessageSubSession:
+    async def test_sub_session_spawn_mirrors_run_session_id_to_caller(
+        self, db_session, patched_async_sessions
+    ):
+        """Regression: ``run_task_pipeline`` passes its in-memory Task through
+        ``ensure_anchor_message`` and then hands the SAME object to
+        ``_advance_pipeline`` → ``_spawn_agent_step`` /
+        ``emit_step_output_message``. The sub-session spawn happens inside
+        its own db session on a refetched Task row, so without explicit
+        mirroring the caller's object kept ``run_session_id=None`` and
+        downstream agent-step children were spawned with ``session_id=None``,
+        creating an orphan throwaway session via ``load_or_create``. The
+        run-view modal then rendered empty because every Message landed on
+        a different session than the one linked on ``task.run_session_id``.
+        """
+        parent_session_id = uuid.uuid4()
+        channel_id = uuid.uuid4()
+        channel = build_channel(id=channel_id, active_session_id=parent_session_id)
+        parent_session = Session(
+            id=parent_session_id,
+            client_id="web",
+            bot_id="user-bot",
+            channel_id=channel_id,
+            depth=0,
+            session_type="channel",
+        )
+        task = build_task(
+            channel_id=channel_id,
+            session_id=parent_session_id,
+            task_type="pipeline",
+            run_isolation="sub_session",
+            run_session_id=None,
+            status="running",
+            steps=[{"type": "agent", "name": "analyze"}],
+            step_states=[{"status": "pending"}],
+            execution_config={},
+        )
+        db_session.add_all([channel, parent_session, task])
+        await db_session.commit()
+
+        assert task.run_session_id is None  # precondition
+
+        with patch(
+            "app.services.task_run_anchor._publish_new_message",
+            new_callable=AsyncMock,
+        ):
+            await ensure_anchor_message(task)
+
+        # The caller's in-memory Task object must reflect the spawned
+        # sub-session id so _spawn_agent_step / emit_step_output_message
+        # thread it into child tasks and step-output Messages.
+        assert task.run_session_id is not None
+        # And the DB row agrees.
+        await db_session.refresh(task)
+        assert task.run_session_id is not None

@@ -46,7 +46,7 @@ export function ToolGroup({ toolName, packages, defaultOpen = false }: Props) {
         <button
           onClick={(e) => {
             e.stopPropagation();
-            navigate(`/admin/widget-packages/new?tool=${encodeURIComponent(toolName)}`);
+            navigate(`/widgets/dev?tool=${encodeURIComponent(toolName)}#templates`);
           }}
           className="ml-auto inline-flex items-center gap-1 rounded-md border border-surface-border bg-surface-raised text-text-muted text-[11px] font-medium px-2 py-1 hover:bg-surface-overlay transition-colors"
           type="button"
