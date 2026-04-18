@@ -1,7 +1,15 @@
 import { create } from "zustand";
-import type { WidgetDashboardPin, ToolResultEnvelope } from "../types/api";
+import type {
+  GridLayoutItem,
+  WidgetDashboardPin,
+  ToolResultEnvelope,
+} from "../types/api";
 import { envelopeIdentityKey } from "./pinnedWidgets";
 import { apiFetch } from "../api/client";
+
+interface LayoutUpdateItem extends GridLayoutItem {
+  id: string;
+}
 
 /** Matching key for a dashboard pin — `${prefix}::${identity}`. */
 function dashboardEnvelopeKey(toolName: string, envelope: ToolResultEnvelope): string {
@@ -38,6 +46,22 @@ interface DashboardPinsState {
 
   /** Shallow-merge a config patch into a pin (optimistic; server persisted via dispatch). */
   patchWidgetConfig: (pinId: string, patch: Record<string, unknown>) => void;
+
+  /**
+   * Replace a pin's widget_config outright. Persists to the server with
+   * merge:false. Used by the Edit Pin drawer where the intent is "what I
+   * see in the JSON editor is what lives in DB after Save".
+   */
+  replaceWidgetConfig: (pinId: string, config: Record<string, unknown>) => Promise<void>;
+
+  /** Rename a pin's display_label (or clear with null). */
+  renamePin: (pinId: string, displayLabel: string | null) => Promise<void>;
+
+  /**
+   * Commit a batch of {x, y, w, h} layout changes. Optimistic local write,
+   * single bulk POST to the server, rollback on failure.
+   */
+  applyLayout: (items: LayoutUpdateItem[]) => Promise<void>;
 
   /** Broadcast an envelope update — stores by identity key so matching pins re-render. */
   broadcastEnvelope: (toolName: string, envelope: ToolResultEnvelope) => void;
@@ -108,6 +132,69 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
           : p,
       ),
     }));
+  },
+
+  replaceWidgetConfig: async (pinId, config) => {
+    const prev = get().pins;
+    set({
+      pins: prev.map((p) =>
+        p.id === pinId ? { ...p, widget_config: { ...config } } : p,
+      ),
+    });
+    try {
+      await apiFetch(`/api/v1/widgets/dashboard/pins/${pinId}/config`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config, merge: false }),
+      });
+    } catch (err) {
+      set({ pins: prev });
+      throw err;
+    }
+  },
+
+  renamePin: async (pinId, displayLabel) => {
+    const prev = get().pins;
+    set({
+      pins: prev.map((p) =>
+        p.id === pinId ? { ...p, display_label: displayLabel } : p,
+      ),
+    });
+    try {
+      await apiFetch(`/api/v1/widgets/dashboard/pins/${pinId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_label: displayLabel }),
+      });
+    } catch (err) {
+      set({ pins: prev });
+      throw err;
+    }
+  },
+
+  applyLayout: async (items) => {
+    if (items.length === 0) return;
+    const prev = get().pins;
+    const byId = new Map(items.map((it) => [it.id, it]));
+    // Optimistic local write.
+    set({
+      pins: prev.map((p) => {
+        const update = byId.get(p.id);
+        if (!update) return p;
+        const { x, y, w, h } = update;
+        return { ...p, grid_layout: { x, y, w, h } };
+      }),
+    });
+    try {
+      await apiFetch(`/api/v1/widgets/dashboard/pins/layout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+    } catch (err) {
+      set({ pins: prev });
+      throw err;
+    }
   },
 
   broadcastEnvelope: (toolName, envelope) => {

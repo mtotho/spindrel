@@ -5,7 +5,7 @@
  * but adapted for side panel: drag handle, refresh, unpin controls.
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { X, GripVertical } from "lucide-react";
+import { Pencil, X, GripVertical } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -38,6 +38,11 @@ interface PinnedToolWidgetProps {
   scope: WidgetScope;
   onUnpin: (widgetId: string) => void;
   onEnvelopeUpdate: (widgetId: string, envelope: ToolResultEnvelope) => void;
+  /** Dashboard-scope only: when true, the drag handle and Edit button are
+   *  visible; when false, they stay hidden so viewing the dashboard is calm. */
+  editMode?: boolean;
+  /** Dashboard-scope only: opens the EditPinDrawer for this pin. */
+  onEdit?: (pinId: string) => void;
 }
 
 export function PinnedToolWidget({
@@ -45,6 +50,8 @@ export function PinnedToolWidget({
   scope,
   onUnpin,
   onEnvelopeUpdate,
+  editMode = false,
+  onEdit,
 }: PinnedToolWidgetProps) {
   const isDashboard = scope.kind === "dashboard";
   const channelId = scope.kind === "channel" ? scope.channelId : null;
@@ -334,27 +341,48 @@ export function PinnedToolWidget({
 
   const updatedLabel = lastRefreshedAt ? formatRelativeTime(lastRefreshedAt) : "";
 
+  // Dashboard cards live inside react-grid-layout tiles — fill height so the
+  // body expands to the resized dimensions rather than clipping at 350px.
+  const cardSizeClass = isDashboard
+    ? "h-full flex flex-col"
+    : "";
+
   return (
     <div
       ref={setNodeRef}
-      className="group rounded-lg border transition-colors duration-150 hover:bg-white/[0.02]"
+      className={`group rounded-lg border transition-colors duration-150 hover:bg-white/[0.02] ${cardSizeClass}`}
       style={sortableStyle}
       {...attributes}
     >
       {/* Header */}
       <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-0.5">
-        <GripVertical
-          size={12}
-          className="opacity-30 hover:opacity-70 cursor-grab transition-opacity duration-150 flex-shrink-0"
-          style={{ color: t.textMuted }}
-          {...listeners}
-        />
+        {/* In dashboard scope the handle is gated by editMode so view mode
+            stays calm; channel scope always shows it (the OmniPanel dnd-kit
+            reorder flow relies on it). */}
+        {(!isDashboard || editMode) && (
+          <GripVertical
+            size={12}
+            className="widget-drag-handle opacity-30 hover:opacity-70 cursor-grab transition-opacity duration-150 flex-shrink-0"
+            style={{ color: t.textMuted }}
+            {...listeners}
+          />
+        )}
         <span
           className="flex-1 text-[10px] font-medium uppercase tracking-wider truncate"
           style={{ color: t.textDim }}
         >
           {resolveDisplayName(widget)}
         </span>
+        {isDashboard && editMode && onEdit && (
+          <button
+            type="button"
+            onClick={() => onEdit(widget.id)}
+            className="p-0.5 rounded hover:bg-white/[0.06] transition-colors duration-150 flex-shrink-0"
+            title="Edit pin"
+          >
+            <Pencil size={12} style={{ color: t.textMuted, opacity: 0.6 }} />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => onUnpin(widget.id)}
@@ -365,8 +393,15 @@ export function PinnedToolWidget({
         </button>
       </div>
 
-      {/* Body: component content */}
-      <div className="px-2 pb-1 max-h-[350px] overflow-y-auto">
+      {/* Body: component content. Dashboard scope fills the tile; channel
+          scope retains the fixed cap so the OmniPanel column stays compact. */}
+      <div
+        className={
+          isDashboard
+            ? "px-2 pb-1 flex-1 min-h-0 overflow-y-auto"
+            : "px-2 pb-1 max-h-[350px] overflow-y-auto"
+        }
+      >
         <WidgetActionContext.Provider value={actionCtx}>
           <ComponentRenderer body={body} t={t} />
         </WidgetActionContext.Provider>

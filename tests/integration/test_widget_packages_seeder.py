@@ -152,6 +152,59 @@ async def test_user_active_survives_seed_refresh(sessionmaker_fixture):
 
 
 @pytest.mark.asyncio
+async def test_sample_payload_persists_and_strips_from_yaml(sessionmaker_fixture):
+    widget_def = {
+        "template": {"v": 1, "components": [{"type": "status", "text": "{{msg}}"}]},
+        "sample_payload": {"msg": "hello", "count": 2},
+    }
+    with patch.object(
+        widget_packages_seeder, "_collect_sources",
+        return_value=_make_sources([
+            {"tool_name": "t1", "widget_def": widget_def, "source_integration": "foo"},
+        ]),
+    ):
+        await widget_packages_seeder.seed_widget_packages()
+
+    async with sessionmaker_fixture() as db:
+        row = (await db.execute(select(WidgetTemplatePackage))).scalar_one()
+        assert row.sample_payload == {"msg": "hello", "count": 2}
+        # The YAML body should not carry the sample payload — it belongs on
+        # its own column so the Library editor loads it separately.
+        assert "sample_payload" not in row.yaml_template
+
+
+@pytest.mark.asyncio
+async def test_sample_payload_updates_on_reseed(sessionmaker_fixture):
+    wd1 = {
+        "template": {"v": 1, "components": []},
+        "sample_payload": {"msg": "v1"},
+    }
+    wd2 = {
+        "template": {"v": 1, "components": [{"type": "status", "text": "x"}]},
+        "sample_payload": {"msg": "v2"},
+    }
+    with patch.object(
+        widget_packages_seeder, "_collect_sources",
+        return_value=_make_sources([
+            {"tool_name": "t1", "widget_def": wd1, "source_integration": "foo"},
+        ]),
+    ):
+        await widget_packages_seeder.seed_widget_packages()
+    with patch.object(
+        widget_packages_seeder, "_collect_sources",
+        return_value=_make_sources([
+            {"tool_name": "t1", "widget_def": wd2, "source_integration": "foo"},
+        ]),
+    ):
+        await widget_packages_seeder.seed_widget_packages()
+
+    async with sessionmaker_fixture() as db:
+        row = (await db.execute(select(WidgetTemplatePackage))).scalar_one()
+        assert row.sample_payload == {"msg": "v2"}
+        assert row.version == 2
+
+
+@pytest.mark.asyncio
 async def test_orphan_flag_set_when_source_gone(sessionmaker_fixture):
     wd1 = {"template": {"v": 1, "components": []}}
     with patch.object(

@@ -1,14 +1,35 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { LayoutDashboard, Plus, Wrench } from "lucide-react";
-import { DndContext, closestCenter } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { Check, LayoutDashboard, Move, Plus, Wrench } from "lucide-react";
+// Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
+// match the API older examples/docs use and keep this file readable.
+import {
+  Responsive,
+  WidthProvider,
+  type Layout,
+  type LayoutItem,
+} from "react-grid-layout/legacy";
+import "react-grid-layout/css/styles.css";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { PinnedToolWidget } from "@/app/(app)/channels/[channelId]/PinnedToolWidget";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
-import type { PinnedWidget, ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
+import type {
+  GridLayoutItem,
+  PinnedWidget,
+  ToolResultEnvelope,
+  WidgetDashboardPin,
+} from "@/src/types/api";
 import AddFromChannelSheet from "./AddFromChannelSheet";
+import { EditPinDrawer } from "./EditPinDrawer";
+
+const ResponsiveGridLayout = WidthProvider(Responsive);
+
+/** Breakpoint → column count. Matches HA / Grafana conventions. */
+const COLS = { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 } as const;
+const BREAKPOINTS = { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 } as const;
+const ROW_HEIGHT = 30;
+const GRID_MARGIN: [number, number] = [12, 12];
 
 /** Adapt a WidgetDashboardPin row to the PinnedWidget shape the PinnedToolWidget
  *  renderer expects. Dashboard-scope calls use `widget_config` while channel-
@@ -26,11 +47,28 @@ function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
   };
 }
 
+/** Default tile size for a pin with no saved grid_layout. Auto-packs into
+ *  the first free 6×6 slot via react-grid-layout's compactType. */
+function defaultLayoutForIndex(index: number): GridLayoutItem {
+  return { x: (index % 2) * 6, y: (Math.floor(index / 2)) * 6, w: 6, h: 6 };
+}
+
+function hasLayout(pin: WidgetDashboardPin): pin is WidgetDashboardPin & {
+  grid_layout: GridLayoutItem;
+} {
+  const gl = pin.grid_layout;
+  return !!gl && typeof gl === "object" && "w" in gl && "h" in gl;
+}
+
 export default function WidgetsDashboardPage() {
   const { pins, isLoading, error } = useDashboardPins();
   const unpinWidget = useDashboardPinsStore((s) => s.unpinWidget);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
+  const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
+
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editingPinId, setEditingPinId] = useState<string | null>(null);
 
   const handleUnpin = async (pinId: string) => {
     try {
@@ -44,7 +82,41 @@ export default function WidgetsDashboardPage() {
     updateEnvelope(pinId, envelope);
   };
 
-  const widgetIds = useMemo(() => pins.map((p) => p.id), [pins]);
+  const layouts = useMemo(() => {
+    const lg: LayoutItem[] = pins.map((p, idx) => {
+      const base = hasLayout(p) ? p.grid_layout : defaultLayoutForIndex(idx);
+      return {
+        i: p.id,
+        x: base.x,
+        y: base.y,
+        w: base.w,
+        h: base.h,
+        minW: 2,
+        minH: 3,
+        maxW: 12,
+      };
+    });
+    return { lg };
+  }, [pins]);
+
+  // Debounce layout commits — drag/resize fires many `onLayoutChange` events.
+  const pendingTimer = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (pendingTimer.current) window.clearTimeout(pendingTimer.current);
+    };
+  }, []);
+
+  const scheduleCommit = (items: Layout) => {
+    if (pendingTimer.current) window.clearTimeout(pendingTimer.current);
+    pendingTimer.current = window.setTimeout(() => {
+      void applyLayout(
+        items.map((it) => ({ id: it.i, x: it.x, y: it.y, w: it.w, h: it.h })),
+      ).catch((err) => {
+        console.error("Failed to persist dashboard layout:", err);
+      });
+    }, 400);
+  };
 
   return (
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
@@ -54,6 +126,23 @@ export default function WidgetsDashboardPage() {
         subtitle="Pinned tool results, live"
         right={
           <div className="flex items-center gap-2">
+            {pins.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setEditMode((v) => !v)}
+                className={
+                  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors " +
+                  (editMode
+                    ? "border-accent/60 bg-accent/10 text-accent"
+                    : "border-surface-border text-text-muted hover:bg-surface-overlay")
+                }
+                aria-pressed={editMode}
+                title={editMode ? "Finish editing" : "Rearrange widgets"}
+              >
+                {editMode ? <Check size={13} /> : <Move size={13} />}
+                {editMode ? "Done" : "Edit layout"}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setSheetOpen(true)}
@@ -84,30 +173,43 @@ export default function WidgetsDashboardPage() {
           <EmptyState onAddClick={() => setSheetOpen(true)} />
         )}
         {!isLoading && !error && pins.length > 0 && (
-          <div
-            className="grid gap-3"
-            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}
+          <ResponsiveGridLayout
+            className={editMode ? "rgl-edit-mode" : ""}
+            layouts={layouts}
+            breakpoints={BREAKPOINTS}
+            cols={COLS}
+            rowHeight={ROW_HEIGHT}
+            margin={GRID_MARGIN}
+            isDraggable={editMode}
+            isResizable={editMode}
+            draggableHandle=".widget-drag-handle"
+            compactType="vertical"
+            preventCollision={false}
+            onLayoutChange={(current) => {
+              if (editMode) scheduleCommit(current);
+            }}
           >
-            {/* DnD wrapper lets the nested PinnedToolWidget's `useSortable`
-                hook resolve without exploding; actual reorder is P5. */}
-            <DndContext collisionDetection={closestCenter}>
-              <SortableContext items={widgetIds} strategy={verticalListSortingStrategy}>
-                {pins.map((p) => (
-                  <PinnedToolWidget
-                    key={p.id}
-                    widget={asPinnedWidget(p)}
-                    scope={{ kind: "dashboard" }}
-                    onUnpin={handleUnpin}
-                    onEnvelopeUpdate={handleEnvelopeUpdate}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-          </div>
+            {pins.map((p) => (
+              <div key={p.id} className="min-w-0">
+                <PinnedToolWidget
+                  widget={asPinnedWidget(p)}
+                  scope={{ kind: "dashboard" }}
+                  onUnpin={handleUnpin}
+                  onEnvelopeUpdate={handleEnvelopeUpdate}
+                  editMode={editMode}
+                  onEdit={() => setEditingPinId(p.id)}
+                />
+              </div>
+            ))}
+          </ResponsiveGridLayout>
         )}
       </div>
 
       <AddFromChannelSheet open={sheetOpen} onClose={() => setSheetOpen(false)} />
+      <EditPinDrawer
+        pinId={editingPinId}
+        onClose={() => setEditingPinId(null)}
+      />
     </div>
   );
 }

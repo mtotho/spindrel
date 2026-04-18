@@ -1802,6 +1802,9 @@ class WidgetDashboardPin(Base):
     )
     envelope: Mapped[dict] = mapped_column(JSONB, nullable=False)
     display_label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grid_layout: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict,
+    )
     pinned_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()"),
     )

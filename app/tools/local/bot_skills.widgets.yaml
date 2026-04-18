@@ -6,6 +6,18 @@
 manage_bot_skill:
   content_type: application/vnd.spindrel.components+json
   display: inline
+  sample_payload:
+    total: 3
+    skills:
+      - name: summarize_channel
+        category: comms
+        surface_count: 12
+      - name: search_vault
+        category: knowledge
+        surface_count: 7
+      - name: run_pipeline
+        category: automation
+        surface_count: 0
   template:
     v: 1
     components:

@@ -176,6 +176,133 @@ class TestConfigPatch:
         assert patched.json()["widget_config"] == {"c": 3}
 
 
+class TestMetadataPatch:
+    @pytest.mark.asyncio
+    async def test_rename_pin(self, client):
+        create = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "t",
+                "envelope": _make_envelope("Old Label"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        pin_id = create.json()["id"]
+
+        r = await client.patch(
+            f"/api/v1/widgets/dashboard/pins/{pin_id}",
+            json={"display_label": "New Label"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["display_label"] == "New Label"
+
+    @pytest.mark.asyncio
+    async def test_rename_empty_clears(self, client):
+        create = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "t",
+                "envelope": _make_envelope("Kept"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        pin_id = create.json()["id"]
+
+        r = await client.patch(
+            f"/api/v1/widgets/dashboard/pins/{pin_id}",
+            json={"display_label": "   "},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200
+        assert r.json()["display_label"] is None
+
+
+class TestLayoutBulk:
+    @pytest.mark.asyncio
+    async def test_layout_round_trip(self, client):
+        # Seed 3 pins.
+        ids = []
+        for i in range(3):
+            r = await client.post(
+                "/api/v1/widgets/dashboard/pins",
+                json={
+                    "source_kind": "adhoc",
+                    "tool_name": f"t{i}",
+                    "envelope": _make_envelope(f"p{i}"),
+                },
+                headers=AUTH_HEADERS,
+            )
+            ids.append(r.json()["id"])
+
+        items = [
+            {"id": ids[0], "x": 0, "y": 0, "w": 4, "h": 3},
+            {"id": ids[1], "x": 4, "y": 0, "w": 4, "h": 3},
+            {"id": ids[2], "x": 0, "y": 3, "w": 8, "h": 6},
+        ]
+        r = await client.post(
+            "/api/v1/widgets/dashboard/pins/layout",
+            json={"items": items},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == {"ok": True, "updated": 3}
+
+        listing = await client.get("/api/v1/widgets/dashboard", headers=AUTH_HEADERS)
+        pins_by_id = {p["id"]: p for p in listing.json()["pins"]}
+        for item in items:
+            layout = pins_by_id[item["id"]]["grid_layout"]
+            assert layout == {"x": item["x"], "y": item["y"], "w": item["w"], "h": item["h"]}
+
+    @pytest.mark.asyncio
+    async def test_layout_rejects_unknown_ids(self, client):
+        create = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "t",
+                "envelope": _make_envelope(),
+            },
+            headers=AUTH_HEADERS,
+        )
+        pin_id = create.json()["id"]
+
+        r = await client.post(
+            "/api/v1/widgets/dashboard/pins/layout",
+            json={
+                "items": [
+                    {"id": pin_id, "x": 0, "y": 0, "w": 4, "h": 4},
+                    {"id": str(uuid.uuid4()), "x": 4, "y": 0, "w": 4, "h": 4},
+                ],
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 400
+        assert "Unknown pin ids" in r.text
+
+        # Nothing was committed for the valid id either (atomic failure).
+        listing = await client.get("/api/v1/widgets/dashboard", headers=AUTH_HEADERS)
+        assert listing.json()["pins"][0]["grid_layout"] != {"x": 0, "y": 0, "w": 4, "h": 4}
+
+    @pytest.mark.asyncio
+    async def test_new_pin_has_default_layout(self, client):
+        r = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "t",
+                "envelope": _make_envelope(),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200
+        layout = r.json()["grid_layout"]
+        # First pin lands at origin with a 6x6 tile.
+        assert layout == {"x": 0, "y": 0, "w": 6, "h": 6}
+
+
 class TestRefresh:
     @pytest.mark.asyncio
     async def test_refresh_without_state_poll_400(self, client):

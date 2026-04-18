@@ -3,6 +3,28 @@
 get_system_status:
   content_type: application/vnd.spindrel.components+json
   display: inline
+  sample_payload:
+    is_fresh_install: false
+    bots:
+      - id: kai
+        name: Kai
+        model: claude-sonnet-4-6
+      - id: fox
+        name: Fox
+        model: claude-haiku-4-5
+    integrations:
+      - id: home-assistant
+        status: connected
+      - id: openweather
+        status: connected
+    channels:
+      - name: "#home"
+        bot_id: kai
+      - name: "#weather"
+        bot_id: fox
+    system_config:
+      timezone: America/New_York
+      embedding_model: text-embedding-3-small
   template:
     v: 1
     components:

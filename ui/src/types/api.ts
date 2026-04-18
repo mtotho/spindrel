@@ -444,8 +444,17 @@ export interface WidgetDashboardPin {
   widget_config: Record<string, unknown>;
   envelope: ToolResultEnvelope;
   display_label: string | null;
+  grid_layout: GridLayoutItem | Record<string, never>;
   pinned_at: string | null;
   updated_at: string | null;
+}
+
+/** {x, y, w, h} in the 12-column dashboard grid. Empty object when unset. */
+export interface GridLayoutItem {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 /** Discriminator telling `PinnedToolWidget` which surface it lives on. */

@@ -6,6 +6,22 @@
 list_tasks:
   content_type: application/vnd.spindrel.components+json
   display: inline
+  sample_payload:
+    count: 3
+    tasks:
+      - title: Nightly roadmap sync
+        status: pending
+        bot_id: kai
+        recurrence: "0 2 * * *"
+      - title: E2E smoke run
+        status: active
+        bot_id: fox
+        recurrence: null
+      - title: Weekly digest
+        status: completed
+        bot_id: kai
+        recurrence: "0 9 * * 1"
+    message: null
   template:
     v: 1
     components:
@@ -102,6 +118,16 @@ schedule_task:
   content_type: application/vnd.spindrel.components+json
   display: inline
   display_label: "{{id}}"
+  sample_payload:
+    id: task_01HZY3
+    title: Daily standup digest
+    status: pending
+    task_type: recurring
+    bot_id: kai
+    scheduled_at: "2026-04-19T09:00:00Z"
+    recurrence: "0 9 * * *"
+    step_count: 3
+    workspace_file_path: null
   fragments:
     cancel_task_button:
       type: button
@@ -207,6 +233,17 @@ schedule_task:
 get_task_result:
   content_type: application/vnd.spindrel.components+json
   display: inline
+  sample_payload:
+    title: Weekly digest
+    status: completed
+    task_type: recurring
+    bot_id: kai
+    run_count: 12
+    run_at: "2026-04-18T09:00:00Z"
+    completed_at: "2026-04-18T09:00:12Z"
+    child_task_count: 0
+    result: "Digest sent to #home with 6 new items."
+    error: null
   template:
     v: 1
     components:

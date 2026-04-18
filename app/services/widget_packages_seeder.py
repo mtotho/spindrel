@@ -39,6 +39,11 @@ def _collect_sources() -> list[tuple[str, dict, str | None, str | None]]:
     Matches the two sources the legacy loader walked:
       1. Integration manifests (``tool_widgets`` key)
       2. Core ``app/tools/local/*.widgets.yaml`` files
+
+    ``widget_def`` may carry a top-level ``sample_payload`` key. It is not
+    part of the template body — the caller pops it before the YAML is dumped
+    into ``yaml_template`` so it lands on the ``sample_payload`` DB column
+    instead.
     """
     from app.services.integration_manifests import get_all_manifests
 
@@ -79,6 +84,22 @@ def _collect_sources() -> list[tuple[str, dict, str | None, str | None]]:
     return out
 
 
+def _extract_sample_payload(widget_def: dict) -> tuple[dict, dict | None]:
+    """Split ``sample_payload`` off a widget_def. Returns (stripped_def, sample).
+
+    The sample lives beside the template in YAML for authoring convenience
+    but is persisted to its own column so the Library editor preview can
+    load it without re-parsing the template body.
+    """
+    if "sample_payload" not in widget_def:
+        return widget_def, None
+    stripped = {k: v for k, v in widget_def.items() if k != "sample_payload"}
+    sample = widget_def.get("sample_payload")
+    if not isinstance(sample, dict):
+        return stripped, None
+    return stripped, sample
+
+
 async def seed_widget_packages() -> None:
     """Upsert seed packages + handle orphans. Idempotent."""
     from app.db.engine import async_session
@@ -91,7 +112,8 @@ async def seed_widget_packages() -> None:
 
     async with async_session() as db:
         for tool_name, widget_def, source_file, source_integration in sources:
-            yaml_body = _dump_yaml(widget_def)
+            stripped_def, sample_payload = _extract_sample_payload(widget_def)
+            yaml_body = _dump_yaml(stripped_def)
             content_hash = _hash_yaml(yaml_body)
             key = (tool_name, source_file, source_integration)
             seen_keys.add(key)
@@ -120,6 +142,7 @@ async def seed_widget_packages() -> None:
                     description=_default_description(source_integration, source_file),
                     yaml_template=yaml_body,
                     python_code=None,
+                    sample_payload=sample_payload,
                     source="seed",
                     is_readonly=True,
                     is_active=any_active is None,
@@ -134,6 +157,10 @@ async def seed_widget_packages() -> None:
             else:
                 if existing.is_orphaned:
                     existing.is_orphaned = False
+                # Keep the sample_payload in sync with the YAML source when the
+                # author hasn't edited it out from under us.
+                if existing.sample_payload != sample_payload and sample_payload is not None:
+                    existing.sample_payload = sample_payload
                 if existing.content_hash != content_hash:
                     existing.yaml_template = yaml_body
                     existing.content_hash = content_hash

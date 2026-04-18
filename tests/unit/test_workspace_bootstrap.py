@@ -339,3 +339,178 @@ class TestLoadBotsAutoEnrollment:
         )
         row = result.scalar_one()
         assert row.role == "orchestrator"
+
+
+class TestEnsureAllBotsEnrolledDrift:
+    """F.4 — drift-seam pins for ensure_all_bots_enrolled.
+
+    Seam class: multi-row sync + silent-UPDATE adjacent (on_conflict_do_nothing).
+
+    Key invariant: SharedWorkspaceBot.bot_id has unique=True as a standalone
+    column constraint (not just as part of the composite PK). The
+    on_conflict_do_nothing(index_elements=["bot_id"]) targets this constraint,
+    so each bot can belong to at most ONE workspace. Conflicts are swallowed
+    silently — the bot stays wherever it was first enrolled.
+    """
+
+    @pytest.mark.asyncio
+    async def test_bot_enrolled_in_another_workspace_silently_skipped(self, db):
+        """DRIFT PIN — cross-workspace conflict: bot enrolled in workspace A is
+        silently skipped when ensure_all_bots_enrolled is called for workspace B.
+
+        bot_id's standalone UNIQUE constraint fires before the composite PK is
+        evaluated, so DO NOTHING triggers even though (workspace_B, bot_id) is
+        a new composite-PK tuple.  The bot stays in workspace A; added == 0.
+        """
+        ws_a = SharedWorkspace(name="Workspace A")
+        ws_b = SharedWorkspace(name="Workspace B")
+        db.add_all([ws_a, ws_b])
+        await db.flush()
+
+        db.add(_make_bot_row("bot-1"))
+        await db.flush()
+
+        db.add(SharedWorkspaceBot(workspace_id=ws_a.id, bot_id="bot-1", role="member"))
+        await db.flush()
+        await db.commit()
+
+        added = await ensure_all_bots_enrolled(db, ws_b.id)
+
+        assert added == 0, "bot-1 conflict on bot_id unique constraint → DO NOTHING"
+
+        # Bot-1 is still in workspace A, not workspace B.
+        result = await db.execute(
+            select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == "bot-1")
+        )
+        row = result.scalar_one()
+        assert str(row.workspace_id) == str(ws_a.id)
+
+        # Confirm no row landed in workspace B.
+        result = await db.execute(
+            select(SharedWorkspaceBot).where(
+                SharedWorkspaceBot.workspace_id == ws_b.id,
+            )
+        )
+        assert result.scalars().all() == []
+
+    @pytest.mark.asyncio
+    async def test_mixed_batch_rowcount_reflects_only_inserted_rows(self, db):
+        """DRIFT PIN — rowcount after on_conflict_do_nothing is the count of
+        actually-inserted rows, not the total batch size.
+
+        3 bots seeded; 2 pre-enrolled; 1 new.  added must be 1 so callers
+        (main.py logging, load_bots counter) can trust it as newly-inserted.
+        """
+        ws = SharedWorkspace(name="Test WS")
+        db.add(ws)
+        await db.flush()
+
+        for bid in ["bot-a", "bot-b", "bot-c"]:
+            db.add(_make_bot_row(bid))
+        await db.flush()
+
+        db.add(SharedWorkspaceBot(workspace_id=ws.id, bot_id="bot-a", role="member"))
+        db.add(SharedWorkspaceBot(workspace_id=ws.id, bot_id="bot-b", role="member"))
+        await db.flush()
+        await db.commit()
+
+        added = await ensure_all_bots_enrolled(db, ws.id)
+
+        assert added == 1, "only bot-c was inserted; bot-a and bot-b conflicts were skipped"
+
+        result = await db.execute(select(SharedWorkspaceBot))
+        enrolled = {r.bot_id for r in result.scalars().all()}
+        assert enrolled == {"bot-a", "bot-b", "bot-c"}
+
+    @pytest.mark.asyncio
+    async def test_cwd_override_preserved_on_conflict(self, db):
+        """DO NOTHING means zero UPDATE — ALL existing columns survive unchanged.
+
+        A bot enrolled with cwd_override="/custom" retains it after
+        ensure_all_bots_enrolled; the INSERT attempt fires DO NOTHING with no
+        column touched. Extends test_preserves_existing_roles to cover
+        cwd_override (the other non-default column that admins customise).
+        """
+        ws = SharedWorkspace(name="Test WS")
+        db.add(ws)
+        await db.flush()
+
+        db.add(_make_bot_row("bot-1"))
+        await db.flush()
+
+        db.add(SharedWorkspaceBot(
+            workspace_id=ws.id,
+            bot_id="bot-1",
+            role="orchestrator",
+            cwd_override="/custom-path",
+        ))
+        await db.flush()
+        await db.commit()
+
+        await ensure_all_bots_enrolled(db, ws.id)
+
+        result = await db.execute(
+            select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == "bot-1")
+        )
+        row = result.scalar_one()
+        assert row.cwd_override == "/custom-path"
+        assert row.role == "orchestrator"
+
+    @pytest.mark.asyncio
+    async def test_fresh_enrollment_write_access_defaults_to_empty_list(self, db):
+        """Newly enrolled bots get write_access=[] from the column server_default.
+
+        The INSERT only specifies workspace_id, bot_id, role — write_access is
+        left to the DB default.  Pins that bootstrap never grants write access.
+        """
+        ws = SharedWorkspace(name="Test WS")
+        db.add(ws)
+        await db.flush()
+
+        db.add(_make_bot_row("bot-1"))
+        await db.flush()
+        await db.commit()
+
+        await ensure_all_bots_enrolled(db, ws.id)
+
+        result = await db.execute(
+            select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == "bot-1")
+        )
+        row = result.scalar_one()
+        assert row.write_access == []
+
+    @pytest.mark.asyncio
+    async def test_incremental_enrollment_adds_only_new_bot(self, db):
+        """Simulates the runtime pattern: bot added after first startup.
+
+        First call enrolls bot-existing (orchestrator).  A second bot is added
+        to the DB.  Second call enrolls only bot-new; added == 1; orchestrator
+        role on bot-existing is untouched.
+        """
+        ws = SharedWorkspace(name="Test WS")
+        db.add(ws)
+        await db.flush()
+
+        db.add(_make_bot_row("bot-existing"))
+        await db.flush()
+        db.add(SharedWorkspaceBot(workspace_id=ws.id, bot_id="bot-existing", role="orchestrator"))
+        await db.flush()
+        await db.commit()
+
+        # Second bot added to the DB after first enrollment.
+        db.add(_make_bot_row("bot-new"))
+        await db.flush()
+        await db.commit()
+
+        added = await ensure_all_bots_enrolled(db, ws.id)
+        assert added == 1
+
+        result = await db.execute(
+            select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == "bot-existing")
+        )
+        assert result.scalar_one().role == "orchestrator"
+
+        result = await db.execute(
+            select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == "bot-new")
+        )
+        assert result.scalar_one().role == "member"

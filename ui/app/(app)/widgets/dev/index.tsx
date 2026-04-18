@@ -3,6 +3,7 @@ import { useHashTab } from "@/src/hooks/useHashTab";
 import { ToolsSandbox } from "./ToolsSandbox";
 import { TemplatesTab } from "./TemplatesTab";
 import { LibraryTab } from "./LibraryTab";
+import { RecentTab } from "./RecentTab";
 
 type DevTab = "library" | "templates" | "tools" | "recent";
 const TABS: readonly DevTab[] = ["library", "templates", "tools", "recent"] as const;
@@ -50,14 +51,7 @@ export default function WidgetDevPanelPage() {
       {tab === "templates" && <TemplatesTab />}
       {tab === "tools" && <ToolsSandbox />}
 
-      {tab === "recent" && (
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="rounded-lg border border-dashed border-surface-border p-10 text-center text-[12px] text-text-dim max-w-md">
-            <div className="font-semibold text-text mb-1">Recent calls</div>
-            Browse recent tool results and load them into Templates. Coming next.
-          </div>
-        </div>
-      )}
+      {tab === "recent" && <RecentTab />}
     </div>
   );
 }

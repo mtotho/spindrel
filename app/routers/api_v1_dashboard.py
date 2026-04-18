@@ -17,10 +17,12 @@ from app.dependencies import get_db, require_scopes
 from app.services.dashboard_pins import (
     DEFAULT_DASHBOARD_KEY,
     apply_dashboard_pin_config_patch,
+    apply_layout_bulk,
     create_pin,
     delete_pin,
     get_pin,
     list_pins,
+    rename_pin,
     serialize_pin,
     update_pin_envelope,
 )
@@ -44,6 +46,22 @@ class CreatePinRequest(BaseModel):
 class WidgetConfigPatch(BaseModel):
     config: dict
     merge: bool = True
+
+
+class LayoutItem(BaseModel):
+    id: uuid.UUID
+    x: int
+    y: int
+    w: int
+    h: int
+
+
+class LayoutBulkRequest(BaseModel):
+    items: list[LayoutItem]
+
+
+class PinMetadataPatch(BaseModel):
+    display_label: str | None = None
 
 
 @router.get(
@@ -107,6 +125,40 @@ async def patch_dashboard_pin_config(
     return await apply_dashboard_pin_config_patch(
         db, pin_id, body.config, merge=body.merge,
     )
+
+
+@router.patch(
+    "/pins/{pin_id}",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def patch_dashboard_pin_metadata(
+    pin_id: uuid.UUID,
+    body: PinMetadataPatch,
+    db: AsyncSession = Depends(get_db),
+):
+    """Narrow metadata patch — currently just ``display_label``.
+
+    Separate from ``/config`` because the label is a first-class column, not
+    part of the widget-scoped JSONB.
+    """
+    return await rename_pin(db, pin_id, body.display_label)
+
+
+@router.post(
+    "/pins/layout",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def patch_dashboard_pin_layout(
+    body: LayoutBulkRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk-commit grid coordinates after a drag/resize session.
+
+    All ids must belong to the default dashboard. Returns ``{ok: true,
+    updated: N}``; no serialized pins (the client already has the layout).
+    """
+    items = [item.model_dump(mode="json") for item in body.items]
+    return await apply_layout_bulk(db, items, dashboard_key=DEFAULT_DASHBOARD_KEY)
 
 
 @router.post(

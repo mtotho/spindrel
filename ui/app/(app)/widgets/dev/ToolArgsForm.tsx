@@ -83,7 +83,7 @@ export function ToolArgsForm({ schema, values, onChange }: Props) {
                 onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                   update(key, e.target.value === "" ? undefined : e.target.value)
                 }
-                className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent"
+                className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent"
               >
                 <option value="">—</option>
                 {spec.enum.map((v: string) => (
@@ -133,7 +133,7 @@ export function ToolArgsForm({ schema, values, onChange }: Props) {
                 onChange={(e) => update(key, coerce(type, e.target.value))}
                 rows={3}
                 placeholder={type === "array" ? "[]" : "{}"}
-                className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[12px] font-mono text-text outline-none focus:border-accent"
+                className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[12px] font-mono text-text outline-none focus:border-accent"
               />
               {spec.description && (
                 <span className="text-[11px] text-text-dim">{spec.description}</span>
@@ -150,7 +150,7 @@ export function ToolArgsForm({ schema, values, onChange }: Props) {
               value={current == null ? "" : String(current)}
               onChange={(e) => update(key, coerce(type, e.target.value))}
               placeholder={spec.default != null ? String(spec.default) : ""}
-              className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent"
+              className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent"
             />
             {spec.description && (
               <span className="text-[11px] text-text-dim">{spec.description}</span>

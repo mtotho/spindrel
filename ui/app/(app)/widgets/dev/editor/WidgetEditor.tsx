@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { Loader2, Play, Sparkles } from "lucide-react";
 
 import {
   useCreateWidgetPackage,
@@ -11,16 +11,19 @@ import {
   type ValidationIssue,
   type WidgetPackage,
 } from "@/src/api/hooks/useWidgetPackages";
-import { useTools } from "@/src/api/hooks/useTools";
+import { useTools, executeTool, type ToolItem } from "@/src/api/hooks/useTools";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { useDebouncedValue } from "@/src/hooks/useDebouncedValue";
+import { ToolSelector, shortToolName } from "@/src/components/shared/ToolSelector";
+import { useWidgetImportStore } from "@/src/stores/widgetImport";
 
 import { WidgetPackageHeader } from "./WidgetPackageHeader";
 import { EditorPane, type EditorTab } from "./EditorPane";
 import { PreviewPane } from "./PreviewPane";
+import { ToolArgsForm } from "../ToolArgsForm";
 
 const EDITOR_TABS: readonly EditorTab[] = ["yaml", "python", "sample"] as const;
 
@@ -43,20 +46,9 @@ interface PinPayload {
 }
 
 interface Props {
-  /** undefined → new draft mode. */
   packageId?: string;
-  /** Prefill tool_name when creating a new draft (e.g. from ?tool=X). */
   initialToolName?: string;
-  /**
-   * Optional pin callback wired into the PreviewPane toolbar. When provided,
-   * the rendered envelope + a snapshot of the draft are bubbled up so the
-   * caller can write to the dashboard pins store.
-   */
   onPinEnvelope?: (payload: PinPayload) => Promise<void>;
-  /**
-   * Route base used after a successful create. Defaults to `/widgets/dev`
-   * (the Templates tab). Called as `${navigateBase}?id=${newId}#templates`.
-   */
   navigateBase?: string;
 }
 
@@ -73,13 +65,20 @@ function pkgToDraft(pkg: WidgetPackage): Draft {
 
 function newDraft(toolName: string): Draft {
   return {
-    name: toolName ? `${toolName} template` : "Untitled template",
+    name: toolName ? `${toolName} template` : "",
     description: "",
     tool_name: toolName,
     yaml_template: BLANK_YAML,
     python_code: "",
     sample_text: BLANK_SAMPLE,
   };
+}
+
+function hasMeaningfulSample(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (trimmed === "{}" || trimmed === "{}\n") return false;
+  return true;
 }
 
 export function WidgetEditor({
@@ -108,18 +107,34 @@ export function WidgetEditor({
   const createMut = useCreateWidgetPackage();
   const updateMut = useUpdateWidgetPackage(pkg?.id ?? "");
 
-  // Reset draft when switching between new / existing modes.
+  // Accept a pending handoff from the Recent tab ("Import into Templates").
+  // Runs once on mount so a subsequent refresh of this tab doesn't re-apply.
+  const consumeImport = useWidgetImportStore((s) => s.consume);
+  useEffect(() => {
+    if (!isNew) return;
+    const pending = consumeImport();
+    if (!pending) return;
+    const prettySample =
+      pending.samplePayload == null
+        ? "{}\n"
+        : JSON.stringify(pending.samplePayload, null, 2);
+    setDraft((prev) => ({
+      ...(prev ?? newDraft(pending.toolName)),
+      tool_name: pending.toolName,
+      sample_text: prettySample,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (isNew) {
       setDraft((prev) => prev ?? newDraft(initialToolName));
     } else if (pkg) {
       setDraft((prev) => (prev === null ? pkgToDraft(pkg) : prev));
     }
-    // Only run when id transition or pkg load changes state shape.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew, pkg?.id]);
 
-  // If packageId changes (e.g. after create redirect), reload draft from the new pkg.
   useEffect(() => {
     if (!isNew && pkg) {
       setDraft(pkgToDraft(pkg));
@@ -129,7 +144,7 @@ export function WidgetEditor({
 
   const dirty = useMemo(() => {
     if (!draft) return false;
-    if (isNew) return true;
+    if (isNew) return !!draft.tool_name.trim();
     if (!pkg) return false;
     const fromPkg = pkgToDraft(pkg);
     return (
@@ -182,7 +197,6 @@ export function WidgetEditor({
       if (v && typeof v === "object" && !Array.isArray(v)) {
         return v as Record<string, unknown>;
       }
-      // Preview supports any JSON; wrap non-objects so substitution still works.
       return { value: v };
     } catch {
       return null;
@@ -258,6 +272,40 @@ export function WidgetEditor({
     ? "Set a tool name before pinning"
     : null;
 
+  // --- Sample capture flow ------------------------------------------------
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  const [captureArgs, setCaptureArgs] = useState<Record<string, unknown>>({});
+
+  const selectedTool = useMemo<ToolItem | null>(() => {
+    if (!draft?.tool_name) return null;
+    return (tools ?? []).find((tool) => shortToolName(tool) === draft.tool_name) ?? null;
+  }, [tools, draft?.tool_name]);
+
+  const runCapture = async () => {
+    if (!selectedTool || !draft) return;
+    setCapturing(true);
+    setCaptureError(null);
+    try {
+      const result = await executeTool(selectedTool.tool_name, captureArgs);
+      if (result.error) {
+        setCaptureError(result.error);
+        return;
+      }
+      const pretty = typeof result.result === "string"
+        ? result.result
+        : JSON.stringify(result.result, null, 2);
+      setDraft({ ...draft, sample_text: pretty });
+      setActiveTab("sample");
+      setCaptureOpen(false);
+    } catch (err) {
+      setCaptureError(err instanceof Error ? err.message : "Capture failed");
+    } finally {
+      setCapturing(false);
+    }
+  };
+
   if (!isNew && isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-surface">
@@ -274,13 +322,62 @@ export function WidgetEditor({
     );
   }
 
-  const toolOptions = (tools ?? [])
-    .map((tool) => (tool.tool_name.includes("-") ? tool.tool_name.split("-").slice(1).join("-") : tool.tool_name))
-    .filter((v, i, arr) => v && arr.indexOf(v) === i)
-    .sort();
-
   const readOnly = !isNew && !!pkg?.is_readonly;
+  const hasTool = !!draft.tool_name.trim();
+  const sampleReady = hasMeaningfulSample(draft.sample_text);
 
+  // ---------------------------------------------------------------------
+  // Stage 1: pick a tool. Shown only on brand-new drafts with no tool set.
+  // ---------------------------------------------------------------------
+  if (isNew && !hasTool) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-surface overflow-auto p-6">
+        <div className="w-full max-w-lg rounded-xl border border-surface-border bg-surface-raised p-8">
+          <div className="flex items-center gap-2 text-accent mb-2">
+            <Sparkles size={16} />
+            <span className="text-[11px] font-semibold uppercase tracking-wider">New template</span>
+          </div>
+          <h2 className="text-[18px] font-semibold text-text mb-2">
+            Pick a tool to template
+          </h2>
+          <p className="text-[13px] text-text-muted leading-relaxed mb-5">
+            A widget template styles the output of one tool. Next you'll run the
+            tool to capture a live sample, then write a YAML template that maps
+            fields from that sample into an interactive widget.
+          </p>
+          <div className="space-y-1 mb-3">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">Tool</span>
+            <ToolSelector
+              value={draft.tool_name || null}
+              tools={tools ?? []}
+              onChange={(v) =>
+                setDraft({
+                  ...draft,
+                  tool_name: v,
+                  name: draft.name.trim() || `${v} template`,
+                })
+              }
+              resolveValue={shortToolName}
+              size="md"
+              placeholder="Search local tools, integrations, MCP servers…"
+            />
+          </div>
+          <p className="text-[11px] text-text-dim">
+            Or <button
+              type="button"
+              onClick={() => navigate("/widgets/dev#library")}
+              className="text-accent hover:underline bg-transparent border-none cursor-pointer p-0"
+            >browse the library</button> to fork an existing template.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Stage 2+: full editor with metadata strip, guided sample capture row,
+  // and the editor/preview split.
+  // ---------------------------------------------------------------------
   return (
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
       {saveError && (
@@ -289,7 +386,7 @@ export function WidgetEditor({
         </div>
       )}
 
-      {/* Metadata strip — title + tool + description + save cluster on one line. */}
+      {/* Metadata strip */}
       <div className="flex flex-wrap items-end gap-3 border-b border-surface-border px-4 py-3 bg-surface-raised">
         <label className="flex flex-col gap-1 min-w-[220px] flex-[2]">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">Name</span>
@@ -298,38 +395,33 @@ export function WidgetEditor({
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
             disabled={readOnly}
             placeholder="e.g. Weather forecast card"
-            className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[14px] font-semibold text-text outline-none focus:border-accent disabled:opacity-70"
+            className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[14px] font-semibold text-text outline-none focus:border-accent disabled:opacity-70"
           />
         </label>
-        <label className="flex flex-col gap-1 min-w-[160px]">
+        <div className="flex flex-col gap-1 min-w-[220px] flex-1">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">Tool</span>
           {isNew ? (
-            <input
-              value={draft.tool_name}
-              list="known-tools"
-              onChange={(e) => setDraft({ ...draft, tool_name: e.target.value })}
-              className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[13px] font-mono text-text outline-none focus:border-accent"
-              placeholder="list_tasks"
+            <ToolSelector
+              value={draft.tool_name || null}
+              tools={tools ?? []}
+              onChange={(v) => setDraft({ ...draft, tool_name: v })}
+              resolveValue={shortToolName}
+              size="md"
             />
           ) : (
             <span className="rounded-md border border-transparent bg-surface-overlay/60 px-2.5 py-1.5 text-[13px] font-mono text-text-muted">
               {draft.tool_name}
             </span>
           )}
-          <datalist id="known-tools">
-            {toolOptions.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-        </label>
-        <label className="flex flex-col gap-1 min-w-[260px] flex-[3]">
+        </div>
+        <label className="flex flex-col gap-1 min-w-[260px] flex-[2]">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">Description</span>
           <input
             value={draft.description}
             onChange={(e) => setDraft({ ...draft, description: e.target.value })}
             disabled={readOnly}
             placeholder="Shown in the library"
-            className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[13px] text-text-muted outline-none focus:border-accent disabled:opacity-70"
+            className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent disabled:opacity-70"
           />
         </label>
         <div className="flex items-center gap-2 self-end">
@@ -345,13 +437,48 @@ export function WidgetEditor({
         </div>
       </div>
 
+      {/* Stage-2 guide: no sample yet. */}
+      {!sampleReady && hasTool && (
+        <div className="border-b border-surface-border bg-accent/[0.05]">
+          <div className="px-4 py-3 flex flex-wrap items-center gap-3">
+            <Sparkles size={14} className="text-accent shrink-0" />
+            <div className="flex-1 min-w-[240px]">
+              <div className="text-[12px] font-semibold text-text">
+                Capture a sample to template against
+              </div>
+              <div className="text-[11px] text-text-muted">
+                Run <span className="font-mono text-text">{draft.tool_name}</span> to see its actual output, then write YAML that targets those fields.
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  setCaptureArgs({});
+                  setCaptureError(null);
+                  setCaptureOpen(true);
+                }}
+                disabled={!selectedTool}
+                title={selectedTool ? "" : "Tool not found in the live index — paste a sample on the Sample tab."}
+                className="inline-flex items-center gap-1.5 rounded-md bg-accent text-white text-[12px] font-semibold px-3 py-1.5 hover:opacity-90 disabled:opacity-50 transition-opacity"
+              >
+                <Play size={12} />
+                Run tool to capture
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("sample")}
+                className="inline-flex items-center gap-1.5 rounded-md border border-surface-border text-text text-[12px] font-medium px-3 py-1.5 hover:bg-surface-overlay transition-colors"
+              >
+                Paste sample JSON
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Editor + preview split */}
-      <div
-        className={
-          "flex flex-1 overflow-hidden " +
-          (isWide ? "flex-row" : "flex-col")
-        }
-      >
+      <div className={"flex flex-1 overflow-hidden " + (isWide ? "flex-row" : "flex-col")}>
         <div className="flex flex-col flex-1 min-h-0 border-b border-surface-border md:border-b-0 md:border-r">
           <EditorPane
             draft={draft}
@@ -388,6 +515,88 @@ export function WidgetEditor({
           Saving…
         </div>
       )}
+
+      {captureOpen && selectedTool && (
+        <CaptureSampleModal
+          tool={selectedTool}
+          args={captureArgs}
+          onArgsChange={setCaptureArgs}
+          running={capturing}
+          error={captureError}
+          onCancel={() => setCaptureOpen(false)}
+          onRun={runCapture}
+        />
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Capture modal — wraps ToolArgsForm + executeTool for the "Run tool to
+// capture sample" flow. Result lands in draft.sample_text.
+// ---------------------------------------------------------------------------
+
+function CaptureSampleModal({
+  tool, args, onArgsChange, running, error, onCancel, onRun,
+}: {
+  tool: ToolItem;
+  args: Record<string, unknown>;
+  onArgsChange: (next: Record<string, unknown>) => void;
+  running: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onRun: () => void;
+}) {
+  return (
+    <>
+      <div onClick={onCancel} className="fixed inset-0 bg-black/50 z-[1000]" />
+      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[1001] w-[520px] max-w-[92vw] max-h-[80vh] bg-surface-raised border border-surface-border rounded-xl shadow-2xl flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between border-b border-surface-border p-4">
+          <div>
+            <div className="text-[14px] font-semibold text-text">Capture sample</div>
+            <div className="text-[11px] text-text-dim font-mono mt-0.5">{tool.tool_name}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={running}
+            className="text-text-dim hover:text-text text-[13px] bg-transparent border-none cursor-pointer disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          <ToolArgsForm
+            schema={tool.parameters}
+            values={args}
+            onChange={onArgsChange}
+          />
+          {error && (
+            <div className="mt-3 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-[12px] text-danger">
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="border-t border-surface-border p-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={running}
+            className="inline-flex items-center gap-1.5 rounded-md border border-surface-border text-text text-[12px] font-medium px-3 py-1.5 hover:bg-surface-overlay disabled:opacity-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onRun}
+            disabled={running}
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent text-white text-[12px] font-semibold px-3 py-1.5 hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+            {running ? "Running…" : "Run tool"}
+          </button>
+        </div>
+      </div>
+    </>
   );
 }

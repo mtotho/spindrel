@@ -21,6 +21,24 @@ from app.db.models import WidgetDashboardPin
 DEFAULT_DASHBOARD_KEY = "default"
 
 
+_VALID_LAYOUT_KEYS = {"x", "y", "w", "h"}
+
+
+def _default_grid_layout(position: int) -> dict[str, int]:
+    """Compute a day-0 layout slot for a pin at the given position.
+
+    Mirrors the backfill formula in migration 211 so newly-created pins
+    (which bypass that migration) land on the grid consistently with existing
+    rows.
+    """
+    return {
+        "x": (position % 2) * 6,
+        "y": (position // 2) * 6,
+        "w": 6,
+        "h": 6,
+    }
+
+
 def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
     """Serialize a pin row to a JSON-safe dict for API responses."""
     return {
@@ -35,6 +53,7 @@ def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
         "widget_config": pin.widget_config or {},
         "envelope": pin.envelope or {},
         "display_label": pin.display_label,
+        "grid_layout": pin.grid_layout or {},
         "pinned_at": pin.pinned_at.isoformat() if pin.pinned_at else None,
         "updated_at": pin.updated_at.isoformat() if pin.updated_at else None,
     }
@@ -93,6 +112,7 @@ async def create_pin(
         widget_config=widget_config or {},
         envelope=envelope,
         display_label=display_label or envelope.get("display_label"),
+        grid_layout=_default_grid_layout(position),
     )
     db.add(pin)
     await db.flush()
@@ -152,3 +172,82 @@ async def update_pin_envelope(
     await db.commit()
     await db.refresh(pin)
     return pin
+
+
+async def rename_pin(
+    db: AsyncSession,
+    pin_id: uuid.UUID,
+    display_label: str | None,
+) -> dict[str, Any]:
+    """Update just the pin's ``display_label`` (a table column, not JSONB).
+
+    ``display_label`` is stored on the row so the dashboard header can show a
+    user-chosen name without touching ``widget_config`` (which is widget-
+    semantic). Pass ``None`` / empty string to clear it.
+    """
+    pin = await get_pin(db, pin_id)
+    cleaned = (display_label or "").strip() or None
+    pin.display_label = cleaned
+    await db.commit()
+    await db.refresh(pin)
+    return serialize_pin(pin)
+
+
+def _validate_layout_item(item: Any) -> tuple[uuid.UUID, dict[str, int]]:
+    if not isinstance(item, dict):
+        raise HTTPException(400, "layout item must be an object")
+    raw_id = item.get("id")
+    if not raw_id:
+        raise HTTPException(400, "layout item missing 'id'")
+    try:
+        pin_id = uuid.UUID(str(raw_id))
+    except ValueError as exc:
+        raise HTTPException(400, f"Invalid pin id: {raw_id}") from exc
+    coords: dict[str, int] = {}
+    for key in _VALID_LAYOUT_KEYS:
+        value = item.get(key)
+        if not isinstance(value, int) or value < 0:
+            raise HTTPException(
+                400, f"layout item '{key}' must be a non-negative integer",
+            )
+        coords[key] = value
+    return pin_id, coords
+
+
+async def apply_layout_bulk(
+    db: AsyncSession,
+    items: list[dict[str, Any]],
+    *,
+    dashboard_key: str = DEFAULT_DASHBOARD_KEY,
+) -> dict[str, Any]:
+    """Persist ``{x, y, w, h}`` for a batch of pins in one transaction.
+
+    All ids must belong to ``dashboard_key``; otherwise the whole call fails
+    with 400 so we never commit a partial layout.
+    """
+    if not isinstance(items, list):
+        raise HTTPException(400, "items must be a list")
+    parsed = [_validate_layout_item(it) for it in items]
+    if not parsed:
+        return {"ok": True, "updated": 0}
+
+    pin_ids = [pid for pid, _ in parsed]
+    rows = (
+        await db.execute(
+            select(WidgetDashboardPin).where(
+                WidgetDashboardPin.id.in_(pin_ids),
+                WidgetDashboardPin.dashboard_key == dashboard_key,
+            )
+        )
+    ).scalars().all()
+    by_id = {row.id: row for row in rows}
+    missing = [str(pid) for pid in pin_ids if pid not in by_id]
+    if missing:
+        raise HTTPException(400, f"Unknown pin ids: {missing}")
+
+    for pin_id, coords in parsed:
+        row = by_id[pin_id]
+        row.grid_layout = coords
+        flag_modified(row, "grid_layout")
+    await db.commit()
+    return {"ok": True, "updated": len(parsed)}

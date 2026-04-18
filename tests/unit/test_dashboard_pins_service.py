@@ -8,10 +8,12 @@ from fastapi import HTTPException
 
 from app.services.dashboard_pins import (
     apply_dashboard_pin_config_patch,
+    apply_layout_bulk,
     create_pin,
     delete_pin,
     get_pin,
     list_pins,
+    rename_pin,
     serialize_pin,
     update_pin_envelope,
 )
@@ -128,8 +130,67 @@ async def test_serialize_pin_shape(db_session):
     assert set(data.keys()) >= {
         "id", "dashboard_key", "position", "source_kind", "source_channel_id",
         "source_bot_id", "tool_name", "tool_args", "widget_config", "envelope",
-        "display_label", "pinned_at", "updated_at",
+        "display_label", "grid_layout", "pinned_at", "updated_at",
     }
     assert data["tool_args"] == {"id": "abc"}
     assert data["widget_config"] == {"x": 1}
     assert data["display_label"] == "L"
+    assert data["grid_layout"] == {"x": 0, "y": 0, "w": 6, "h": 6}
+
+
+@pytest.mark.asyncio
+async def test_rename_pin_updates_label(db_session):
+    pin = await create_pin(
+        db_session, source_kind="adhoc", tool_name="t", envelope=_env("Before"),
+    )
+    out = await rename_pin(db_session, pin.id, "After")
+    assert out["display_label"] == "After"
+
+
+@pytest.mark.asyncio
+async def test_rename_pin_trims_and_clears(db_session):
+    pin = await create_pin(
+        db_session, source_kind="adhoc", tool_name="t", envelope=_env("Before"),
+    )
+    out = await rename_pin(db_session, pin.id, "   ")
+    assert out["display_label"] is None
+
+
+@pytest.mark.asyncio
+async def test_apply_layout_bulk_atomic(db_session):
+    pins = [
+        await create_pin(
+            db_session, source_kind="adhoc", tool_name=f"t{i}", envelope=_env(f"p{i}"),
+        )
+        for i in range(2)
+    ]
+    items = [
+        {"id": str(pins[0].id), "x": 0, "y": 0, "w": 4, "h": 3},
+        {"id": str(uuid.uuid4()), "x": 4, "y": 0, "w": 4, "h": 3},  # unknown
+    ]
+    with pytest.raises(HTTPException):
+        await apply_layout_bulk(db_session, items)
+    # The valid id's layout must not have been committed.
+    rows = await list_pins(db_session)
+    for row in rows:
+        if row.id == pins[0].id:
+            assert row.grid_layout != {"x": 0, "y": 0, "w": 4, "h": 3}
+
+
+@pytest.mark.asyncio
+async def test_apply_layout_bulk_persists(db_session):
+    pins = [
+        await create_pin(
+            db_session, source_kind="adhoc", tool_name=f"t{i}", envelope=_env(f"p{i}"),
+        )
+        for i in range(2)
+    ]
+    items = [
+        {"id": str(pins[0].id), "x": 0, "y": 0, "w": 4, "h": 3},
+        {"id": str(pins[1].id), "x": 4, "y": 0, "w": 4, "h": 3},
+    ]
+    result = await apply_layout_bulk(db_session, items)
+    assert result == {"ok": True, "updated": 2}
+    rows = {r.id: r for r in await list_pins(db_session)}
+    assert rows[pins[0].id].grid_layout == {"x": 0, "y": 0, "w": 4, "h": 3}
+    assert rows[pins[1].id].grid_layout == {"x": 4, "y": 0, "w": 4, "h": 3}

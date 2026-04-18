@@ -80,7 +80,7 @@ function PinActionBar({
           }}
           placeholder={toolDisplayName(selected)}
           disabled={disabled}
-          className="flex-1 min-w-0 rounded-md border border-surface-border bg-input-bg px-2 py-1.5 text-[12px] text-text outline-none focus:border-accent disabled:opacity-50"
+          className="flex-1 min-w-0 rounded-md border border-surface-border bg-input px-2 py-1.5 text-[12px] text-text outline-none focus:border-accent disabled:opacity-50"
         />
         <button
           type="button"
@@ -235,7 +235,7 @@ export function ToolsSandbox() {
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Search tools…"
-              className="w-full rounded-md border border-surface-border bg-input-bg pl-7 pr-2 py-1.5 text-[12px] text-text outline-none focus:border-accent"
+              className="w-full rounded-md border border-surface-border bg-input pl-7 pr-2 py-1.5 text-[12px] text-text outline-none focus:border-accent"
             />
           </div>
         </div>
