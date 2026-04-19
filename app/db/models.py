@@ -1774,17 +1774,15 @@ class WidgetDashboard(Base):
     Slug is the primary key — the user chooses it at create time and it
     appears in the URL (``/widgets/<slug>``). The ``default`` row is
     bootstrapped by migration; every other dashboard is user-created.
-    ``pin_to_rail`` + ``icon`` drive the optional sidebar rail entry.
+    Sidebar-rail membership lives on the ``dashboard_rail_pins`` junction
+    table so the same dashboard can be rail-pinned for everyone (``user_id
+    IS NULL``) and individual users independently.
     """
     __tablename__ = "widget_dashboards"
 
     slug: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     icon: Mapped[str | None] = mapped_column(Text, nullable=True)
-    pin_to_rail: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("false"),
-    )
-    rail_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Layout preset + type. NULL = `standard` preset (legacy + default).
     # Shape: {"layout_type": "grid", "preset": "standard" | "fine"}
     grid_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -1850,6 +1848,56 @@ class WidgetDashboardPin(Base):
             "ix_widget_dashboard_pins_key_pos",
             "dashboard_key", "position",
         ),
+    )
+
+
+class DashboardRailPin(Base):
+    """Per-user or "everyone" rail pinning for widget dashboards.
+
+    ``user_id IS NULL`` means the dashboard appears in the sidebar rail for
+    every user who can see it (admin-only to set). A non-null ``user_id``
+    means "pinned just for this user" — visible in their rail, invisible
+    to everyone else.
+
+    Real uniqueness lives in the partial unique indexes declared via
+    ``postgresql_where`` below. SQLite in-memory tests skip partial-index
+    enforcement; the service layer (``app/services/dashboard_rail.py``)
+    does an idempotent upsert so tests still pass without DB-level locking.
+    """
+    __tablename__ = "dashboard_rail_pins"
+
+    dashboard_slug: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey(
+            "widget_dashboards.slug",
+            ondelete="CASCADE", onupdate="CASCADE",
+        ),
+        primary_key=True, nullable=False,
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True, nullable=True,
+    )
+    rail_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_drp_everyone", "dashboard_slug",
+            unique=True,
+            postgresql_where=text("user_id IS NULL"),
+            sqlite_where=text("user_id IS NULL"),
+        ),
+        Index(
+            "ix_drp_user", "dashboard_slug", "user_id",
+            unique=True,
+            postgresql_where=text("user_id IS NOT NULL"),
+            sqlite_where=text("user_id IS NOT NULL"),
+        ),
+        Index("ix_drp_user_id", "user_id"),
     )
 
 

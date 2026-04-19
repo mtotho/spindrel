@@ -147,7 +147,9 @@ If you're switching from native to Docker, update these:
 # Database — use Docker service name, not localhost
 DATABASE_URL=postgresql+asyncpg://agent:agent@postgres:5432/agentdb
 
-# Workspace paths — required for sibling container pattern
+# Workspace — one root directory for the whole instance. Files are organized by
+# bot and channel underneath (`{root}/bot/{bot_id}/channels/{channel_id}/`).
+# Required for the sibling container pattern.
 WORKSPACE_HOST_DIR=/Users/yourname/.spindrel-workspaces   # real host path
 WORKSPACE_LOCAL_DIR=/workspace-data                         # mount path inside container
 

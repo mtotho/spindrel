@@ -13,6 +13,12 @@ Thanks for your interest in contributing! Spindrel is early-access software unde
 
 For non-trivial changes (new features, architectural changes, new integrations), please **open an issue first** to discuss the approach. This avoids wasted effort if the change doesn't align with the project direction.
 
+## Project State & Architecture
+
+High-level project state — current roadmap, architectural decisions, active work tracks, and test-quality audits — lives in [`project-notes/`](project-notes/). Read those before proposing a non-trivial change so your PR aligns with what's already in flight.
+
+`project-notes/` is a one-way mirror of the maintainer's internal Obsidian vault. To suggest an edit, open an issue or PR against the file; the maintainer reconciles changes back into the vault. Direct edits to `project-notes/` will be overwritten on the next sync.
+
 ## Development Setup
 
 ```bash

@@ -32,13 +32,15 @@ async def test_list_includes_default(client):
 async def test_create_and_fetch(client):
     r = await client.post(
         "/api/v1/widgets/dashboards",
-        json={"slug": "home", "name": "Home", "icon": "Home", "pin_to_rail": True},
+        json={"slug": "home", "name": "Home", "icon": "Home"},
         headers=AUTH_HEADERS,
     )
     assert r.status_code == 200, r.text
     created = r.json()
     assert created["slug"] == "home"
-    assert created["pin_to_rail"] is True
+    # Rail state starts unpinned — caller uses PUT /rail to set it.
+    assert created["rail"]["me_pinned"] is False
+    assert created["rail"]["everyone_pinned"] is False
 
     g = await client.get("/api/v1/widgets/dashboards/home", headers=AUTH_HEADERS)
     assert g.status_code == 200
@@ -64,13 +66,14 @@ async def test_update_metadata(client):
     )
     r = await client.patch(
         "/api/v1/widgets/dashboards/home",
-        json={"name": "Home Office", "pin_to_rail": True},
+        json={"name": "Home Office"},
         headers=AUTH_HEADERS,
     )
     assert r.status_code == 200
     body = r.json()
     assert body["name"] == "Home Office"
-    assert body["pin_to_rail"] is True
+    # Rail block is populated on PATCH responses too.
+    assert "rail" in body
 
 
 @pytest.mark.asyncio

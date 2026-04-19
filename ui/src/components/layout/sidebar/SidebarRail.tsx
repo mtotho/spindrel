@@ -77,10 +77,10 @@ export function SidebarRail() {
     return m;
   }, [channels]);
   const railDashboards = allDashboards
-    .filter((d) => d.pin_to_rail)
+    .filter((d) => d.rail.me_pinned || d.rail.everyone_pinned)
     .sort((a, b) => {
-      const ap = a.rail_position ?? Number.MAX_SAFE_INTEGER;
-      const bp = b.rail_position ?? Number.MAX_SAFE_INTEGER;
+      const ap = a.rail.effective_position ?? Number.MAX_SAFE_INTEGER;
+      const bp = b.rail.effective_position ?? Number.MAX_SAFE_INTEGER;
       if (ap !== bp) return ap - bp;
       return a.name.localeCompare(b.name);
     });

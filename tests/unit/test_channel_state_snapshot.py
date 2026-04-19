@@ -376,3 +376,77 @@ class TestEmptyStateCases:
                 channel_id=uuid.uuid4(), db=db_session, _auth=None,
             )
         assert exc.value.status_code == 404
+
+
+class TestTextOnlyTurnLifecycle:
+    """Regression: text-only turns (no tools, no auto-injected skills) must
+    surface in the snapshot. Without the ``turn_started`` TraceEvent signal
+    the snapshot was blind to them and the UI's ghost reconciler wiped the
+    live turn on every window-focus refetch, making pure text replies
+    vanish mid-stream. See `app/services/turn_worker.py`."""
+
+    async def test_turn_started_trace_event_surfaces_turn(self, db_session):
+        channel_id, session_id = await _seed_channel(db_session)
+        correlation_id = uuid.uuid4()
+        db_session.add(TraceEvent(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id="test-bot",
+            event_type="turn_started",
+            data={"bot_id": "test-bot"},
+        ))
+        await db_session.commit()
+
+        out = await get_channel_state(channel_id=channel_id, db=db_session, _auth=None)
+
+        assert len(out.active_turns) == 1
+        turn = out.active_turns[0]
+        assert turn.turn_id == correlation_id
+        assert turn.bot_id == "test-bot"
+        assert turn.is_primary is True
+        assert turn.tool_calls == []
+        assert turn.auto_injected_skills == []
+
+    async def test_turn_started_excluded_after_assistant_message(self, db_session):
+        """Once the turn produces a terminal assistant Message the snapshot
+        must drop it — otherwise a finished text reply would keep surfacing
+        as active until the 10-minute window expires."""
+        channel_id, session_id = await _seed_channel(db_session)
+        correlation_id = uuid.uuid4()
+        db_session.add(TraceEvent(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id="test-bot",
+            event_type="turn_started",
+            data={"bot_id": "test-bot"},
+        ))
+        db_session.add(Message(
+            id=uuid.uuid4(),
+            session_id=session_id,
+            role="assistant",
+            content="all done",
+            correlation_id=correlation_id,
+        ))
+        await db_session.commit()
+
+        out = await get_channel_state(channel_id=channel_id, db=db_session, _auth=None)
+        assert out.active_turns == []
+
+    async def test_turn_started_does_not_populate_skills_list(self, db_session):
+        """turn_started is a lifecycle marker only — it must not leak into
+        the auto_injected_skills payload (which is sourced exclusively from
+        skill_index events)."""
+        channel_id, session_id = await _seed_channel(db_session)
+        correlation_id = uuid.uuid4()
+        db_session.add(TraceEvent(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id="test-bot",
+            event_type="turn_started",
+            data={"bot_id": "test-bot", "auto_injected": ["phantom-skill"]},
+        ))
+        await db_session.commit()
+
+        out = await get_channel_state(channel_id=channel_id, db=db_session, _auth=None)
+        assert len(out.active_turns) == 1
+        assert out.active_turns[0].auto_injected_skills == []

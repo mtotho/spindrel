@@ -69,9 +69,12 @@ Spindrel defines **51 scopes** across **22 groups**:
 | **Operations** | `operations:read`, `operations:write` | Backups, git pull, restart |
 | **Usage** | `usage:read` | Cost analytics and usage limits |
 | **Capabilities** | `carapaces:read`, `carapaces:write` | Skill+tool bundle management |
-| **Workflows** | `workflows:read`, `workflows:write` | Workflow definitions and run management |
+| **Workflows** | `workflows:read`, `workflows:write` | Deprecated workflow routes (see [Pipelines](pipelines.md)). Scope retained for historical API compatibility. |
 | **LLM** | `llm:completions` | Direct LLM calls through the server's provider system |
 | **Mission Control** | `mission_control:read`, `mission_control:write` | Dashboard data (kanban, journal, etc.) |
+
+!!! note "Pipelines use `tasks:*` scopes"
+    Task pipelines are stored as `Task` rows, so pipeline CRUD and run management are authorized by `tasks:read` / `tasks:write`. The `workflows:*` scope guards the legacy workflows router only.
 
 **Hierarchy rules**: `channels:write` implies all `channels.*:write` sub-scopes. `admin` implies everything.
 
@@ -266,6 +269,46 @@ curl -X POST http://localhost:8000/api/v1/llm/completions \
 - The model is resolved through the server's provider system — the caller doesn't need to know which provider or API key to use.
 - All calls are recorded as TraceEvents with caller identity, model, token counts, duration, and cost (when available from LiteLLM).
 - Used by the ingestion pipeline's safety classifier and available to any integration with a scoped API key.
+
+## Channel State, Widgets, and Dashboards
+
+These endpoints support the chat rehydration flow, interactive widget actions, and widget dashboards — the user-facing surfaces documented in the [Chat History](chat-history.md), [Widget Dashboards](widget-dashboards.md), and [HTML Widgets](html-widgets.md) guides.
+
+### Channel State Snapshot
+
+`GET /api/v1/channels/{channel_id}/state`
+
+Returns a point-in-time snapshot used to rehydrate the chat UI on reconnect: `{active_turns, pending_approvals}`. Active turns include any turn that started within the last 10 minutes and hasn't emitted a terminal `Message`. Pending approvals are the channel-scoped rows from `tool_approvals` that are still `awaiting_approval`, with any orphaned rows (no matching ToolCall) filtered out. Scope: `channels.messages:read`.
+
+### Widget Actions
+
+`POST /api/v1/widget-actions`
+
+Dispatches an action emitted by an interactive widget (HTML or component). The body carries a `dispatch` field (`tool` | `api` | `widget_config`) and the payload each mode requires. Authorization is delegated to the dispatched target — tool calls go through the tool policy + approval pipeline, API proxying through the proxied endpoint's own `require_scopes`, and `widget_config` patches require ownership of the pin. See `app/routers/api_v1_widget_actions.py` for the exact schema.
+
+`POST /api/v1/widget-actions/refresh`
+
+Re-runs a pin's declared `state_poll` and returns the refreshed envelope. Same authorization shape as `/widget-actions`.
+
+### Widget Dashboards
+
+`GET /api/v1/widgets/dashboard?slug=<slug>`
+
+Returns a dashboard (implicit channel dashboards use the slug shape `channel:<uuid>`). Response includes the dashboard row + its `widget_dashboard_pins` rows with `grid_layout` coordinates.
+
+Additional endpoints under `/api/v1/widgets/dashboard` (see `app/routers/api_v1_dashboard.py`) cover: create/rename dashboards, CRUD pins, bulk `POST /pins/layout` to persist grid coordinates on drag-end, `PATCH /pins/{id}` for per-pin fields (display_label, widget_config, source_bot_id), and `DELETE /pins/{id}`.
+
+### Widget Auth (bot-scoped tokens)
+
+`POST /api/v1/widget-auth/mint`
+
+Described above in [Widget Tokens](#widget-tokens-short-lived-bot-scoped). Reserved for the widget renderer — clients don't normally call this directly.
+
+### Favicon Proxy
+
+`GET /api/v1/favicon?domain=<host>`
+
+Thin server-side proxy that fetches a favicon for the given host. Used by widgets that render link cards (web_search, custom HTML dashboards) so cross-origin icon loads stay inside the CSP.
 
 ## Common Patterns
 

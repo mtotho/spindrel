@@ -9,6 +9,7 @@ export interface AuthUser {
   integration_config: Record<string, any>;
   is_admin: boolean;
   auth_method: string;
+  scopes: string[];
 }
 
 interface AuthState {

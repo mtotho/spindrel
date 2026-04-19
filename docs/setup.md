@@ -221,11 +221,13 @@ Supported provider types:
 
 | Type | Description |
 |------|-------------|
-| `openai` | Direct OpenAI API |
-| `openai-compatible` | Any OpenAI-compatible endpoint (Gemini, Ollama, vLLM, etc.) |
+| `openai` | Direct OpenAI API (API key) |
+| `openai-subscription` | ChatGPT subscription via OAuth (no API key, plan billing — see below) |
+| `openai-compatible` | Any OpenAI-compatible endpoint (Gemini, vLLM, OpenRouter, etc.) |
 | `anthropic` | Direct Anthropic API (native support, no proxy needed) |
 | `anthropic-compatible` | Anthropic-compatible proxies (Bedrock, etc.) |
-| `litellm` | LiteLLM proxy instance |
+| `ollama` | Ollama (local model runner) |
+| `litellm` | LiteLLM proxy (100+ providers via a unified API) |
 
 Assign providers to individual bots via the `model_provider_id` field. Bots without a
 provider ID fall back to the `.env` default.
@@ -234,6 +236,47 @@ provider ID fall back to the `.env` default.
 setup, or add a dedicated Anthropic provider in Admin UI > Providers for direct API access.
 
 For cost tracking, budget limits, and spend forecasting, see the [Usage & Billing guide](guides/usage-and-billing.md).
+
+### ChatGPT Subscription (OAuth, no API key)
+
+The `openai-subscription` provider authenticates against OpenAI's Codex Responses API
+using your existing ChatGPT paid-subscription login — no API key, no per-call billing.
+Requests are metered against your ChatGPT plan quota instead. Useful when you already pay
+for ChatGPT and want the same quota available to Spindrel bots.
+
+**Model allowlist.** The OAuth flow only authorizes a subset of OpenAI's public catalog:
+`gpt-5-codex`, `gpt-5`, `gpt-5-mini`, `o4-mini`. These are auto-seeded into the provider's
+model list on boot.
+
+**Connecting:**
+
+1. **Admin UI > Providers > New provider**, pick type `openai-subscription`.
+2. The provider edit page shows a **Connect ChatGPT** panel with a device-code flow.
+3. Click **Start** — a short user code plus a verification URL appears.
+4. Open the verification URL in a browser, sign in with your ChatGPT account, and paste
+   the user code. The panel polls until approval lands.
+5. On success, the panel shows the connected email + plan. Tokens are stored encrypted on
+   the provider row and refreshed automatically with a 10-minute leeway.
+
+**Billing config.** When you create an `openai-subscription` provider, `billing_type=plan`
+and `plan_cost=20` / `plan_period=monthly` are pre-filled so the plan-billing path reports
+`$0` per call (the cost is your flat monthly subscription, not per-token). Override in the
+UI if your plan pricing differs.
+
+**Caveats.**
+
+- This is a user-authenticated path — OpenAI's terms of service for ChatGPT subscriptions
+  apply to requests made through it. The Connect panel surfaces this in an amber
+  disclaimer. Use at your discretion.
+- Codex Responses API only. Tokens obtained this way do **not** work against
+  `/v1/chat/completions`; an `OpenAIResponsesAdapter` translates `chat.completions` ↔
+  `/responses` so the rest of the agent loop is unaware.
+- Client ID is the public Codex CLI app ID. There is no third-party OAuth app program
+  here; everyone reuses the same client_id (stored as a module constant for easy audit).
+
+**Disconnecting.** The same provider page has a **Disconnect** action — this clears the
+OAuth token block; the provider row itself is kept so you can reconnect without recreating
+it.
 
 ## MCP Servers
 

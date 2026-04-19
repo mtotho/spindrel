@@ -165,3 +165,97 @@ class TestChangePassword:
         )
         assert resp.status_code == 400
         assert "local auth" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# GET /auth/me — scope hydration (Track - User Management Phase 2)
+# ---------------------------------------------------------------------------
+
+class TestAuthMeScopes:
+    async def test_member_user_returns_member_scopes(self, auth_client, db_session):
+        from app.services.auth import create_local_user
+        client, app = auth_client
+
+        user = await create_local_user(
+            db_session, "member-me@test.com", "Member", "pw12345678"
+        )
+        app.dependency_overrides[verify_user] = lambda: user
+
+        resp = await client.get("/auth/me", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["is_admin"] is False
+        # member_user preset scopes are attached
+        assert "chat" in data["scopes"]
+        assert "channels:write" in data["scopes"]
+        # admin scope absent
+        assert "admin" not in data["scopes"]
+
+    async def test_admin_user_returns_admin_scope(self, auth_client, db_session):
+        from app.services.auth import create_local_user
+        client, app = auth_client
+
+        user = await create_local_user(
+            db_session, "admin-me@test.com", "Admin", "pw12345678", is_admin=True
+        )
+        app.dependency_overrides[verify_user] = lambda: user
+
+        resp = await client.get("/auth/me", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["is_admin"] is True
+        assert data["scopes"] == ["admin"]
+
+    async def test_user_without_api_key_non_admin_gets_empty_scopes(
+        self, auth_client, db_session
+    ):
+        """A user whose provisioning silently failed lands here. UI hydrates
+        empty scopes → renders no admin surface. Backend 403s on any scoped
+        endpoint (see TestRequireScopesEnforcement). UI and backend agree."""
+        client, app = auth_client
+        orphan = User(
+            id=uuid.uuid4(),
+            email="orphan-me@test.com",
+            display_name="Orphan",
+            auth_method="local",
+            password_hash="x",
+            is_admin=False,
+            integration_config={},
+            api_key_id=None,
+        )
+        db_session.add(orphan)
+        await db_session.commit()
+        await db_session.refresh(orphan)
+
+        app.dependency_overrides[verify_user] = lambda: orphan
+
+        resp = await client.get("/auth/me", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        assert resp.json()["scopes"] == []
+
+    async def test_admin_without_api_key_still_gets_admin_scope(
+        self, auth_client, db_session
+    ):
+        """Admin recovery — if provisioning failed for the sole admin, they
+        still see the admin surface via is_admin. Matches the require_scopes
+        is_admin bypass."""
+        client, app = auth_client
+        orphan_admin = User(
+            id=uuid.uuid4(),
+            email="orphan-admin@test.com",
+            display_name="Orphan Admin",
+            auth_method="local",
+            password_hash="x",
+            is_admin=True,
+            integration_config={},
+            api_key_id=None,
+        )
+        db_session.add(orphan_admin)
+        await db_session.commit()
+        await db_session.refresh(orphan_admin)
+
+        app.dependency_overrides[verify_user] = lambda: orphan_admin
+
+        resp = await client.get("/auth/me", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        assert resp.json()["scopes"] == ["admin"]

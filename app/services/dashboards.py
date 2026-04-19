@@ -141,13 +141,27 @@ def _validate_name(name: str) -> str:
     return name
 
 
-def serialize_dashboard(row: WidgetDashboard) -> dict[str, Any]:
+def serialize_dashboard(
+    row: WidgetDashboard,
+    *,
+    rail: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Serialize a dashboard row.
+
+    ``rail`` is the caller-resolved ``{me_pinned, everyone_pinned,
+    effective_position}`` block for the current viewer — routers pass it in
+    so the sidebar doesn't need a second round-trip. Service-level callers
+    that don't care about rail state (seeding, tests) can omit it.
+    """
     return {
         "slug": row.slug,
         "name": row.name,
         "icon": row.icon,
-        "pin_to_rail": bool(row.pin_to_rail),
-        "rail_position": row.rail_position,
+        "rail": rail or {
+            "me_pinned": False,
+            "everyone_pinned": False,
+            "effective_position": None,
+        },
         "grid_config": row.grid_config,
         "last_viewed_at": row.last_viewed_at.isoformat() if row.last_viewed_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -172,11 +186,10 @@ async def list_dashboards(
         stmt = stmt.where(~WidgetDashboard.slug.like(f"{CHANNEL_SLUG_PREFIX}%"))
     elif scope == "channel":
         stmt = stmt.where(WidgetDashboard.slug.like(f"{CHANNEL_SLUG_PREFIX}%"))
-    stmt = stmt.order_by(
-        WidgetDashboard.pin_to_rail.desc(),
-        WidgetDashboard.rail_position.asc().nulls_last(),
-        WidgetDashboard.name.asc(),
-    )
+    # Rail ordering is per-viewer and lives on ``dashboard_rail_pins`` —
+    # see ``app/services/dashboard_rail.py``. Here we sort alphabetically so
+    # the non-rail tab bar stays stable regardless of who's viewing.
+    stmt = stmt.order_by(WidgetDashboard.name.asc())
     rows = (await db.execute(stmt)).scalars().all()
     return list(rows)
 
@@ -196,8 +209,6 @@ async def create_dashboard(
     slug: str,
     name: str,
     icon: str | None = None,
-    pin_to_rail: bool = False,
-    rail_position: int | None = None,
     grid_config: dict[str, Any] | None = None,
 ) -> WidgetDashboard:
     slug = _validate_slug(slug)
@@ -223,8 +234,6 @@ async def create_dashboard(
         slug=slug,
         name=name,
         icon=(icon or None),
-        pin_to_rail=bool(pin_to_rail),
-        rail_position=rail_position,
         grid_config=grid_config,
     )
     db.add(row)
@@ -246,13 +255,6 @@ async def update_dashboard(
         if icon is not None and not isinstance(icon, str):
             raise HTTPException(400, "icon must be a string or null")
         row.icon = (icon or None)
-    if "pin_to_rail" in patch and patch["pin_to_rail"] is not None:
-        row.pin_to_rail = bool(patch["pin_to_rail"])
-    if "rail_position" in patch:
-        pos = patch["rail_position"]
-        if pos is not None and (not isinstance(pos, int) or pos < 0):
-            raise HTTPException(400, "rail_position must be a non-negative integer or null")
-        row.rail_position = pos
     if "grid_config" in patch:
         new_cfg = patch["grid_config"]
         if new_cfg is not None and not isinstance(new_cfg, dict):
@@ -287,10 +289,13 @@ async def delete_dashboard(db: AsyncSession, slug: str) -> None:
     row = await get_dashboard(db, slug)
     # Explicitly delete child pins for parity between SQLite tests (no FK
     # enforcement) and Postgres (ON DELETE CASCADE).
-    from app.db.models import WidgetDashboardPin
+    from app.db.models import DashboardRailPin, WidgetDashboardPin
     from sqlalchemy import delete as sa_delete
     await db.execute(
         sa_delete(WidgetDashboardPin).where(WidgetDashboardPin.dashboard_key == slug)
+    )
+    await db.execute(
+        sa_delete(DashboardRailPin).where(DashboardRailPin.dashboard_slug == slug)
     )
     await db.delete(row)
     await db.commit()
@@ -355,7 +360,6 @@ async def ensure_channel_dashboard(
         slug=slug,
         name=ch.name or f"Channel {str(channel_id)[:8]}",
         icon=None,  # channels don't carry icons today; inherit via breadcrumb
-        pin_to_rail=False,
     )
     db.add(row)
     await db.commit()
@@ -380,6 +384,5 @@ async def ensure_default_exists(db: AsyncSession) -> None:
         slug=DEFAULT_DASHBOARD_KEY,
         name="Default",
         icon="LayoutDashboard",
-        pin_to_rail=False,
     ))
     await db.commit()

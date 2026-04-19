@@ -49,6 +49,19 @@ A flat rolling summary. Each compaction replaces the previous summary with a new
 
 Best for straightforward conversations where historical detail isn't important.
 
+## Rehydration on Reconnect
+
+Chat state survives reconnects, page reloads, and mobile tab wakes. On channel mount, the UI calls `GET /api/v1/channels/{id}/state` — a snapshot of `{active_turns, pending_approvals}`:
+
+- **Active turns** — any turn that started within the last 10 minutes and hasn't emitted a terminal `Message`. Rehydrated into the chat store so a refresh picks up a streaming assistant response mid-stream.
+- **Pending approvals** — channel-scoped rows from `tool_approvals` still `awaiting_approval`. Rendered as inline approval cards in chat (and also in the channel-scoped Approvals view). Orphan rows (a `ToolCall` with no matching approval) are filtered out so the UI never surfaces undecidable cards.
+
+Live SSE events always win over snapshot values, so rehydration is idempotent — a live turn that's already in the store isn't overwritten.
+
+See the [Developer API](api.md) reference for the endpoint shape.
+
+---
+
 ## Starting Fresh
 
 The `/clear` command in chat starts a fresh conversation. The old conversation is preserved — its sections remain in the index and are searchable. The bot picks up where it left off because the section index is scoped to the channel, not the individual conversation.

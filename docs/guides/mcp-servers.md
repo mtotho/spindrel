@@ -113,6 +113,9 @@ See the [Custom Tools & Extensions](custom-tools.md) guide for the full walkthro
 
 This walks through connecting Home Assistant to Spindrel with full smart home management.
 
+!!! tip "In-tree Home Assistant integration"
+    Spindrel also ships a native `homeassistant` integration (`integrations/homeassistant/`) that bundles its own MCP connection, tools, and interactive widgets (toggle + brightness slider for `HassLightSet`, toggle for `HassTurnOn`/`HassTurnOff`). If you just want smart-home control without wiring up your own MCP server config, activate that integration on a channel and skip this walkthrough. The MCP-server route below is the right choice if you want to combine ha-mcp's full 92-tool surface with Spindrel's capability, or wire multiple HA instances.
+
 ### Two MCP Server Options
 
 There are two ways to connect Home Assistant via MCP — you can use either or both:

@@ -542,9 +542,16 @@ export function useChannelEvents(
               store.setError(storeKey, String(payload.error));
             }
             store.finishTurn(storeKey, turnId);
-            // Pull the canonical DB row in (replaces the synthetic message).
-            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+          } else if (payload?.error) {
+            // Slot may have been reaped early (e.g. snapshot ghost-kill)
+            // but the error still needs to surface.
+            store.setError(storeKey, String(payload.error));
           }
+          // Always pull the canonical DB row in. Even when the slot is
+          // already gone, the assistant Message has just landed — without
+          // this invalidate, a prematurely-reaped turn stays visible only
+          // as its partial synthetic until the user navigates away.
+          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
           return;
         }
 

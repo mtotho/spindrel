@@ -2,18 +2,20 @@
 
 Endpoints live under ``/api/v1/widgets``:
 - ``/api/v1/widgets/dashboards`` — list/create/update/delete named dashboards
+- ``/api/v1/widgets/dashboards/{slug}/rail`` — per-user + everyone rail pins
 - ``/api/v1/widgets/dashboard`` — pin CRUD scoped by ``?slug=``
 """
 from __future__ import annotations
 
 import logging
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, require_scopes
+from app.dependencies import ApiKeyAuth, get_db, require_scopes
 from app.services.dashboard_pins import (
     DEFAULT_DASHBOARD_KEY,
     apply_dashboard_pin_config_patch,
@@ -25,6 +27,12 @@ from app.services.dashboard_pins import (
     rename_pin,
     serialize_pin,
     update_pin_envelope,
+)
+from app.services.dashboard_rail import (
+    resolved_rail_state,
+    resolved_rail_state_bulk,
+    set_rail_pin,
+    unset_rail_pin,
 )
 from app.services.dashboards import (
     CHANNEL_SLUG_PREFIX,
@@ -40,6 +48,23 @@ from app.services.dashboards import (
     update_dashboard,
 )
 
+
+def _auth_identity(auth) -> tuple[uuid.UUID | None, bool]:
+    """Extract ``(user_id, is_admin)`` from a ``require_scopes`` return value.
+
+    - ``ApiKeyAuth`` has no user identity (``user_id=None``). ``is_admin`` is
+      true only when the key carries the ``admin`` scope — a non-admin
+      scoped key with ``channels:write`` can still pass the route guard but
+      must not be allowed to pin dashboards "for everyone".
+    - ``User`` → ``(user.id, user.is_admin)``.
+    """
+    from app.db.models import User
+    if isinstance(auth, ApiKeyAuth):
+        return (None, "admin" in auth.scopes)
+    if isinstance(auth, User):
+        return (auth.id, bool(auth.is_admin))
+    return (None, False)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/widgets", tags=["widget-dashboard"])
@@ -52,22 +77,22 @@ class CreateDashboardRequest(BaseModel):
     slug: str
     name: str
     icon: str | None = None
-    pin_to_rail: bool = False
-    rail_position: int | None = None
     grid_config: dict | None = None
 
 
 class UpdateDashboardRequest(BaseModel):
     name: str | None = None
     icon: str | None = None
-    pin_to_rail: bool | None = None
-    rail_position: int | None = None
     grid_config: dict | None = None
+
+
+class SetRailPinRequest(BaseModel):
+    scope: Literal["everyone", "me"]
+    rail_position: int | None = None
 
 
 @router.get(
     "/dashboards",
-    dependencies=[Depends(require_scopes("channels:read"))],
 )
 async def list_all_dashboards(
     scope: str = Query(
@@ -75,12 +100,22 @@ async def list_all_dashboards(
         description="One of 'user' | 'channel' | 'all'. "
                     "Defaults to 'user' (tab-bar friendly).",
     ),
+    auth=Depends(require_scopes("channels:read")),
     db: AsyncSession = Depends(get_db),
 ):
     if scope not in ("user", "channel", "all"):
         raise HTTPException(400, "scope must be one of 'user', 'channel', 'all'")
     rows = await list_dashboards(db, scope=scope)  # type: ignore[arg-type]
-    return {"dashboards": [serialize_dashboard(r) for r in rows]}
+    user_id, _is_admin = _auth_identity(auth)
+    rail_by_slug = await resolved_rail_state_bulk(
+        db, [r.slug for r in rows], user_id,
+    )
+    return {
+        "dashboards": [
+            serialize_dashboard(r, rail=rail_by_slug.get(r.slug))
+            for r in rows
+        ],
+    }
 
 
 @router.get(
@@ -152,9 +187,12 @@ async def list_channel_dashboard_pins(db: AsyncSession = Depends(get_db)):
 
 @router.get(
     "/dashboards/{slug}",
-    dependencies=[Depends(require_scopes("channels:read"))],
 )
-async def get_single_dashboard(slug: str, db: AsyncSession = Depends(get_db)):
+async def get_single_dashboard(
+    slug: str,
+    auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
     # Channel dashboards lazy-create on read so the channel UI can ask for
     # metadata (name, icon) without having to seed the row first.
     if is_channel_slug(slug):
@@ -166,15 +204,17 @@ async def get_single_dashboard(slug: str, db: AsyncSession = Depends(get_db)):
             raise HTTPException(400, f"Invalid channel slug: {slug}")
         await ensure_channel_dashboard(db, ch_id)
     row = await get_dashboard(db, slug)
-    return serialize_dashboard(row)
+    user_id, _ = _auth_identity(auth)
+    rail = await resolved_rail_state(db, row.slug, user_id)
+    return serialize_dashboard(row, rail=rail)
 
 
 @router.post(
     "/dashboards",
-    dependencies=[Depends(require_scopes("channels:write"))],
 )
 async def create_new_dashboard(
     body: CreateDashboardRequest,
+    auth=Depends(require_scopes("channels:write")),
     db: AsyncSession = Depends(get_db),
 ):
     row = await create_dashboard(
@@ -182,25 +222,85 @@ async def create_new_dashboard(
         slug=body.slug,
         name=body.name,
         icon=body.icon,
-        pin_to_rail=body.pin_to_rail,
-        rail_position=body.rail_position,
         grid_config=body.grid_config,
     )
     logger.info("Widget dashboard created: slug=%s name=%s", row.slug, row.name)
-    return serialize_dashboard(row)
+    user_id, _ = _auth_identity(auth)
+    rail = await resolved_rail_state(db, row.slug, user_id)
+    return serialize_dashboard(row, rail=rail)
 
 
 @router.patch(
     "/dashboards/{slug}",
-    dependencies=[Depends(require_scopes("channels:write"))],
 )
 async def patch_dashboard(
     slug: str,
     body: UpdateDashboardRequest,
+    auth=Depends(require_scopes("channels:write")),
     db: AsyncSession = Depends(get_db),
 ):
     row = await update_dashboard(db, slug, body.model_dump(exclude_unset=True))
-    return serialize_dashboard(row)
+    user_id, _ = _auth_identity(auth)
+    rail = await resolved_rail_state(db, row.slug, user_id)
+    return serialize_dashboard(row, rail=rail)
+
+
+@router.put(
+    "/dashboards/{slug}/rail",
+)
+async def put_rail_pin(
+    slug: str,
+    body: SetRailPinRequest,
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pin a dashboard to the sidebar rail.
+
+    ``scope='everyone'`` is admin-only and shows the dashboard in every
+    user's rail. ``scope='me'`` adds it to the current user's rail only.
+    """
+    # Lazy-create channel dashboards so the UI can pin a channel dashboard
+    # before a pin ever lands on it.
+    if is_channel_slug(slug):
+        ch_id = slug[len(CHANNEL_SLUG_PREFIX):]
+        try:
+            uuid.UUID(ch_id)
+        except ValueError:
+            raise HTTPException(400, f"Invalid channel slug: {slug}")
+        await ensure_channel_dashboard(db, ch_id)
+    # Touches get_dashboard to raise 404 if the slug doesn't exist.
+    await get_dashboard(db, slug)
+
+    user_id, is_admin = _auth_identity(auth)
+    await set_rail_pin(
+        db, slug,
+        scope=body.scope,
+        user_id=user_id,
+        is_admin=is_admin,
+        rail_position=body.rail_position,
+    )
+    rail = await resolved_rail_state(db, slug, user_id)
+    return {"slug": slug, "rail": rail}
+
+
+@router.delete(
+    "/dashboards/{slug}/rail",
+)
+async def delete_rail_pin(
+    slug: str,
+    scope: Literal["everyone", "me"] = Query(...),
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    user_id, is_admin = _auth_identity(auth)
+    await unset_rail_pin(
+        db, slug,
+        scope=scope,
+        user_id=user_id,
+        is_admin=is_admin,
+    )
+    rail = await resolved_rail_state(db, slug, user_id)
+    return {"slug": slug, "rail": rail}
 
 
 @router.delete(

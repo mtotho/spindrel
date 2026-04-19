@@ -31,6 +31,7 @@ from app.agent.context import (
     set_agent_context,
 )
 from app.agent.loop import run_stream
+from app.agent.recording import _record_trace_event
 from app.db.engine import async_session
 from app.db.models import Message as MessageModel
 from app.domain.actor import ActorRef
@@ -57,6 +58,7 @@ from app.services.delegation import delegation_service as _ds
 from app.services.sessions import persist_turn
 from app.services.turn_event_emit import emit_run_stream_events
 from app.services.turns import TurnHandle
+from app.utils import safe_create_task
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +164,20 @@ async def run_turn(
                 ),
             ),
         )
+
+        # Persistent lifecycle signal for the /state snapshot. Without this,
+        # `_snapshot_active_turns` only sees turns that produce a ToolCall or
+        # skill_index TraceEvent — a text-only streaming reply is invisible,
+        # and any snapshot refetch mid-stream (window focus, reconnect) fires
+        # the UI ghost reconciler and kills the live turn slot.
+        safe_create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=req.client_id,
+            event_type="turn_started",
+            data={"bot_id": bot.id},
+        ))
 
         # 3. Detect parallel multi-bot @-mentions BEFORE the primary bot
         #    starts so the auto-invoked bots run lock-free in parallel.

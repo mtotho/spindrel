@@ -23,12 +23,25 @@ export function channelIdFromSlug(slug: string | undefined | null): string | nul
   return (slug as string).slice(CHANNEL_SLUG_PREFIX.length) || null;
 }
 
+/** Resolved rail-pinning state for the current viewer.
+ *
+ *  ``me_pinned`` — a personal ``dashboard_rail_pins`` row exists for the
+ *  current user. ``everyone_pinned`` — a NULL-user "for everyone" row
+ *  exists (admin-set). ``effective_position`` is the personal position
+ *  when pinned for me, else the everyone position, else null. */
+export interface DashboardRail {
+  me_pinned: boolean;
+  everyone_pinned: boolean;
+  effective_position: number | null;
+}
+
+export type RailScope = "everyone" | "me";
+
 export interface Dashboard {
   slug: string;
   name: string;
   icon: string | null;
-  pin_to_rail: boolean;
-  rail_position: number | null;
+  rail: DashboardRail;
   /** Per-dashboard layout config. NULL = `standard` preset (legacy + default).
    *  Shape: `{ layout_type: "grid", preset: "standard" | "fine" }`. */
   grid_config: { layout_type?: string; preset?: string } | null;
@@ -40,8 +53,6 @@ export interface Dashboard {
 export interface DashboardPatch {
   name?: string;
   icon?: string | null;
-  pin_to_rail?: boolean;
-  rail_position?: number | null;
   grid_config?: { layout_type: string; preset: string } | null;
 }
 
@@ -55,11 +66,14 @@ interface DashboardsState {
     slug: string;
     name: string;
     icon?: string | null;
-    pin_to_rail?: boolean;
     grid_config?: { layout_type: string; preset: string } | null;
   }) => Promise<Dashboard>;
   update: (slug: string, patch: DashboardPatch) => Promise<Dashboard>;
   remove: (slug: string) => Promise<void>;
+  setRailPin: (
+    slug: string, scope: RailScope, railPosition?: number | null,
+  ) => Promise<DashboardRail>;
+  unsetRailPin: (slug: string, scope: RailScope) => Promise<DashboardRail>;
 }
 
 export const useDashboardsStore = create<DashboardsState>()((set, get) => ({
@@ -121,6 +135,34 @@ export const useDashboardsStore = create<DashboardsState>()((set, get) => ({
       set({ list: prev });
       throw err;
     }
+  },
+
+  setRailPin: async (slug, scope, railPosition) => {
+    const body: { scope: RailScope; rail_position?: number | null } = { scope };
+    if (railPosition !== undefined) body.rail_position = railPosition;
+    const resp = await apiFetch<{ slug: string; rail: DashboardRail }>(
+      `/api/v1/widgets/dashboards/${encodeURIComponent(slug)}/rail`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    set((s) => ({
+      list: s.list.map((d) => (d.slug === slug ? { ...d, rail: resp.rail } : d)),
+    }));
+    return resp.rail;
+  },
+
+  unsetRailPin: async (slug, scope) => {
+    const resp = await apiFetch<{ slug: string; rail: DashboardRail }>(
+      `/api/v1/widgets/dashboards/${encodeURIComponent(slug)}/rail?scope=${scope}`,
+      { method: "DELETE" },
+    );
+    set((s) => ({
+      list: s.list.map((d) => (d.slug === slug ? { ...d, rail: resp.rail } : d)),
+    }));
+    return resp.rail;
   },
 }));
 

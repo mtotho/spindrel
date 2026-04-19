@@ -297,3 +297,46 @@ Updates and patches re-embed in the background (fire-and-forget) since the skill
 ## Auto-Discovery Cache
 
 Bot-authored skills are discovered via a DB query during context assembly. To avoid hitting the database on every message, results are cached per bot with a 30-second TTL. The cache is automatically invalidated when skills are created, updated, or deleted.
+
+## Ephemeral Skill Injection (Pipelines, Tasks, and `@`-tags)
+
+Beyond the auto-surfaced RAG pipeline, skills can be **injected ephemerally** for a single run without enrolling them on the bot. Two mechanisms:
+
+### `@`-tags — user-directed, one turn
+
+A user types `@skill-name` in a message. The tag resolver pulls that skill's chunks into the turn as `Tagged skill context (explicitly requested)`, bypassing the similarity threshold. Tags live only for the turn they appear in — the next message is back to normal RAG retrieval. Works for any skill ID the caller can see.
+
+### Task `skills:` — pipeline / scheduled-run scope
+
+A [Task Pipeline](pipelines.md) or scheduled Heartbeat run can declare an ephemeral skill bundle directly in its config:
+
+```yaml
+# task steps — pipeline YAML
+- type: bot_invoke
+  bot_id: researcher
+  prompt: "Summarize the week's incidents."
+  execution_config:
+    skills:
+      - bots/incident-reviewer/triage-playbook
+      - incident-grading-rubric
+    tools: [search_channel_archive, get_trace]
+```
+
+At dispatch time the task loop calls `set_ephemeral_skills(...)` on the context, and `context_assembly` injects those skills as `Webhook skill context` into the agent run — **without enrolling them on the bot**. The next manual chat turn on the same bot sees only its normal skill set.
+
+This is how pipelines customize a bot's knowledge per run: a generic "researcher" bot becomes an "incident triage" specialist for one pipeline and a "PR review" specialist for another, by swapping `execution_config.skills`. No per-bot config churn, no enrollment drift.
+
+### Sub-Session Scope
+
+Pipeline runs render as [Task Sub-Sessions](task-sub-sessions.md) — a dedicated Session under the parent channel. Ephemeral skills injected via `execution_config.skills` apply to the agent runs inside that sub-session only. The parent channel's own sessions are untouched.
+
+This matters for multi-step pipelines: every step in the pipeline's sub-session gets the declared skills, without leaking them into any other conversation on the channel.
+
+### When to use what
+
+| Mechanism | Scope | Who drives it | Use when |
+|---|---|---|---|
+| Enrolled bot skill | Forever on this bot | Bot (via `manage_bot_skill`) or admin | The skill is part of the bot's identity |
+| RAG auto-surface | Per-request, top-K | Similarity score | The skill should be available *when relevant* |
+| `@`-tag | One turn | User typing `@name` | User knows exactly which skill applies right now |
+| `execution_config.skills` | One task run / sub-session | Pipeline / task config | A scheduled job or pipeline needs a specialist toolkit without persistent enrollment |

@@ -106,19 +106,26 @@ export function useChannelState(channelId: string | undefined, primaryBotId?: st
       );
     }
 
-    // Reconcile ghosts: the server snapshot is authoritative for what's
-    // in-flight right now. Any local turn not in the snapshot is either a
-    // just-started turn whose trace-event rows haven't landed yet (keep),
-    // or a ghost left over from a lost `turn_ended` / SSE replay gap (kill).
-    // The 3s grace window catches the race where SSE's `turn_started` beats
-    // the first DB trace write; anything older has definitely been ignored
-    // by the snapshot on purpose.
+    // Reconcile ghosts. A local turn missing from the snapshot is either
+    //   (a) a just-started turn whose trace rows haven't landed yet (keep),
+    //   (b) a live turn still streaming whose SSE events are more
+    //       authoritative than a stale snapshot (keep), or
+    //   (c) a ghost from a lost `turn_ended` / replay gap (kill).
+    //
+    // SSE activity within SSE_QUIET_MS is proof of life — the server is
+    // publishing for this turn_id right now. Killing it would wipe an
+    // active streaming reply, which is the exact bug that made text-only
+    // and pre-tool thinking streams vanish on every window-focus refetch.
+    // Only turns whose last SSE event is older than SSE_QUIET_MS AND
+    // startedAt is older than the grace window count as real ghosts.
     const GHOST_GRACE_MS = 3000;
+    const SSE_QUIET_MS = 10_000;
     const now = Date.now();
     const ch = store.getChannel(channelId);
     for (const [turnId, turn] of Object.entries(ch.turns)) {
       if (snapshotTurnIds.has(turnId)) continue;
       if (now - turn.startedAt < GHOST_GRACE_MS) continue;
+      if (now - turn.lastEventAt < SSE_QUIET_MS) continue;
       store.finishTurn(channelId, turnId);
     }
   }, [channelId, query.data, bots, primaryBotId]);

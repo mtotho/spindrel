@@ -45,7 +45,7 @@ async def test_default_is_preseeded(db_session):
 
 @pytest.mark.asyncio
 async def test_create_and_list(db_session):
-    await create_dashboard(db_session, slug="home", name="Home", icon="Home", pin_to_rail=True)
+    await create_dashboard(db_session, slug="home", name="Home", icon="Home")
     rows = await list_dashboards(db_session)
     slugs = [r.slug for r in rows]
     assert "home" in slugs and "default" in slugs
@@ -80,11 +80,10 @@ async def test_update_changes_metadata(db_session):
     await create_dashboard(db_session, slug="home", name="Home")
     updated = await update_dashboard(
         db_session, "home",
-        {"name": "Home Office", "icon": "Briefcase", "pin_to_rail": True},
+        {"name": "Home Office", "icon": "Briefcase"},
     )
     assert updated.name == "Home Office"
     assert updated.icon == "Briefcase"
-    assert updated.pin_to_rail is True
 
 
 @pytest.mark.asyncio
@@ -172,7 +171,6 @@ async def test_ensure_channel_dashboard_is_idempotent(db_session):
     first = await ensure_channel_dashboard(db_session, ch.id)
     assert first.slug == channel_slug(ch.id)
     assert first.name == "quality-assurance"
-    assert first.pin_to_rail is False
 
     second = await ensure_channel_dashboard(db_session, ch.id)
     assert second.slug == first.slug

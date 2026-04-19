@@ -245,6 +245,21 @@ async def ensure_user_api_key(db: AsyncSession, user: User) -> None:
     await _provision_user_api_key(db, user)
 
 
+async def resolve_user_scopes(db: AsyncSession, user: User) -> list[str]:
+    """Return the user's effective scopes for /auth/me hydration.
+
+    Admins with a missing/inactive key get a synthetic ["admin"] so the UI
+    still renders the admin surface even if their provisioning broke —
+    matches the is_admin bypass in require_scopes().
+    """
+    if user.api_key_id:
+        from app.db.models import ApiKey
+        key = await db.get(ApiKey, user.api_key_id)
+        if key is not None and key.is_active:
+            return list(key.scopes or [])
+    return ["admin"] if user.is_admin else []
+
+
 async def _provision_user_api_key(db: AsyncSession, user: User) -> None:
     """Provision a scoped API key for a user based on their role."""
     try:

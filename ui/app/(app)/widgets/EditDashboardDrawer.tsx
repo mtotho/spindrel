@@ -13,6 +13,8 @@ import {
   resolvePreset,
   type GridPresetId,
 } from "@/src/lib/dashboardGrid";
+import { useIsAdmin } from "@/src/hooks/useScope";
+import { RailScopePicker, type RailChoice, resolveRailChoice } from "./RailScopePicker";
 
 interface Props {
   slug: string | null;
@@ -59,9 +61,13 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
     return fromList ?? fetchedChannel;
   }, [slug, list, fetchedChannel]);
 
+  const isAdmin = useIsAdmin();
+  const setRailPin = useDashboardsStore((s) => s.setRailPin);
+  const unsetRailPin = useDashboardsStore((s) => s.unsetRailPin);
+
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<string | null>(null);
-  const [pinToRail, setPinToRail] = useState(false);
+  const [railChoice, setRailChoice] = useState<RailChoice>("off");
   const [presetId, setPresetId] = useState<GridPresetId>("standard");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +78,7 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
     if (!dashboard) return;
     setName(dashboard.name);
     setIcon(dashboard.icon);
-    setPinToRail(dashboard.pin_to_rail);
+    setRailChoice(resolveRailChoice(dashboard.rail));
     setPresetId(resolvePreset(dashboard.grid_config ?? null).id);
     setError(null);
     setDeleteConfirm("");
@@ -109,21 +115,39 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   }
 
   const isDefault = dashboard.slug === "default";
+  const initialRailChoice = resolveRailChoice(dashboard.rail);
   // Channel dashboards: name is tied to the channel so it's readonly here,
-  // and delete isn't allowed (lifecycle is owned by the channel). pin_to_rail
-  // is supported for any scope — the sidebar rail shows channel entries with
-  // a `#`-icon distinct from user dashboards.
+  // and delete isn't allowed (lifecycle is owned by the channel). Rail
+  // scoping is supported for any dashboard — see RailScopePicker for the
+  // admin-gated "For everyone" option.
   const dirty = isChannel
     ? (icon ?? null) !== (dashboard.icon ?? null)
-      || pinToRail !== dashboard.pin_to_rail
+      || railChoice !== initialRailChoice
       || presetId !== currentPresetId
     : name.trim() !== dashboard.name
       || (icon ?? null) !== (dashboard.icon ?? null)
-      || pinToRail !== dashboard.pin_to_rail
+      || railChoice !== initialRailChoice
       || presetId !== currentPresetId;
   const canSave = (isChannel || !!name.trim()) && dirty && !saving;
   const canDelete =
     !isChannel && !isDefault && deleteConfirm === dashboard.slug && !deleting;
+
+  const persistRailChoice = async (next: RailChoice) => {
+    if (next === initialRailChoice) return;
+    // Transition from the previous choice to the next. Each scope owns its
+    // own row, so clearing one never touches the other.
+    if (initialRailChoice === "everyone" && next !== "everyone") {
+      await unsetRailPin(dashboard.slug, "everyone");
+    }
+    if (initialRailChoice === "me" && next !== "me") {
+      await unsetRailPin(dashboard.slug, "me");
+    }
+    if (next === "everyone") {
+      await setRailPin(dashboard.slug, "everyone");
+    } else if (next === "me") {
+      await setRailPin(dashboard.slug, "me");
+    }
+  };
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -133,7 +157,6 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
       const patch = isChannel
         ? {
             icon: icon ?? null,
-            pin_to_rail: pinToRail,
             grid_config:
               presetId === "standard"
                 ? null
@@ -142,13 +165,13 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
         : {
             name: name.trim(),
             icon: icon ?? null,
-            pin_to_rail: pinToRail,
             grid_config:
               presetId === "standard"
                 ? null
                 : { layout_type: "grid", preset: presetId },
           };
       const updated = await update(dashboard.slug, patch);
+      await persistRailChoice(railChoice);
       if (isChannel) setFetchedChannel(updated);
       onClose();
     } catch (err) {
@@ -226,15 +249,11 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
 
           <IconPicker value={icon} onChange={setIcon} label="Icon" />
 
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={pinToRail}
-              onChange={(e) => setPinToRail(e.target.checked)}
-              className="h-4 w-4 accent-current text-accent"
-            />
-            <span className="text-[12px] text-text">Show in sidebar rail</span>
-          </label>
+          <RailScopePicker
+            value={railChoice}
+            onChange={setRailChoice}
+            isAdmin={isAdmin}
+          />
 
           <div className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-text-muted">Grid layout</span>

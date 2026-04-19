@@ -18,6 +18,7 @@ from app.services.auth import (
     get_user_by_email,
     get_user_by_id,
     is_setup_required,
+    resolve_user_scopes,
     revoke_refresh_token,
     validate_refresh_token,
     verify_password,
@@ -108,6 +109,7 @@ class UserResponse(BaseModel):
     integration_config: dict
     is_admin: bool
     auth_method: str
+    scopes: list[str] = []
 
 
 class TokenResponse(BaseModel):
@@ -131,7 +133,7 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
-def _user_response(user) -> UserResponse:
+def _user_response(user, scopes: list[str] | None = None) -> UserResponse:
     return UserResponse(
         id=str(user.id),
         email=user.email,
@@ -140,16 +142,18 @@ def _user_response(user) -> UserResponse:
         integration_config=user.integration_config or {},
         is_admin=user.is_admin,
         auth_method=user.auth_method,
+        scopes=scopes or [],
     )
 
 
 async def _make_token_response(user, db: AsyncSession) -> TokenResponse:
     access = create_access_token(user)
     refresh = await create_refresh_token(user, db)
+    scopes = await resolve_user_scopes(db, user)
     return TokenResponse(
         access_token=access,
         refresh_token=refresh,
-        user=_user_response(user),
+        user=_user_response(user, scopes=scopes),
     )
 
 
@@ -264,8 +268,9 @@ async def auth_integrations():
 
 
 @router.get("/me", response_model=UserResponse)
-async def auth_me(user=Depends(verify_user)):
-    return _user_response(user)
+async def auth_me(db: AsyncSession = Depends(get_db), user=Depends(verify_user)):
+    scopes = await resolve_user_scopes(db, user)
+    return _user_response(user, scopes=scopes)
 
 
 @router.put("/me", response_model=UserResponse)
@@ -274,7 +279,6 @@ async def auth_update_me(
     db: AsyncSession = Depends(get_db),
     user=Depends(verify_user),
 ):
-    # Re-fetch mutable user within this db session
     user = await get_user_by_id(db, user.id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -286,7 +290,8 @@ async def auth_update_me(
         user.integration_config = req.integration_config
     await db.commit()
     await db.refresh(user)
-    return _user_response(user)
+    scopes = await resolve_user_scopes(db, user)
+    return _user_response(user, scopes=scopes)
 
 
 @router.post("/me/change-password")

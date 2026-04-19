@@ -180,9 +180,9 @@ async def engine():
         # Seed the 'default' widget dashboard so pin tests don't trip the FK
         # (production gets this from migration 212).
         await conn.execute(sa_text(
-            "INSERT INTO widget_dashboards (slug, name, icon, pin_to_rail, "
+            "INSERT INTO widget_dashboards (slug, name, icon, "
             "created_at, updated_at) VALUES "
-            "('default', 'Default', 'LayoutDashboard', 0, "
+            "('default', 'Default', 'LayoutDashboard', "
             "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
         ))
 

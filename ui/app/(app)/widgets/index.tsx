@@ -192,6 +192,25 @@ export default function WidgetsDashboardPage() {
     window.setTimeout(() => setHighlightPinId((cur) => (cur === pinId ? null : cur)), 1400);
   }, []);
 
+  // Stable identity for the ephemeral-session `context` prop. Without this,
+  // `pins.map(...)` and the object literal build a new tree on every render,
+  // which churns handleSend + downstream memos inside EphemeralSession.
+  const pinnedWidgetIds = useMemo(() => pins.map((p) => p.id), [pins]);
+  const ephemeralContext = useMemo(
+    () => ({
+      page_name: "widget_dashboard",
+      url: typeof window !== "undefined" ? window.location.pathname : undefined,
+      tags: ["widgets", "dashboard"],
+      payload: {
+        dashboard_slug: slug,
+        pinned_widget_ids: pinnedWidgetIds,
+      },
+      tool_hints: ["create_html_widget", "pin_widget", "list_widget_templates"],
+    }),
+    [slug, pinnedWidgetIds],
+  );
+  const ephemeralNoop = useCallback(() => {}, []);
+
   const handleUnpin = async (pinId: string) => {
     try {
       await unpinWidget(pinId);
@@ -464,20 +483,11 @@ export default function WidgetsDashboardPage() {
       <EphemeralSession
         shape="dock"
         open
-        onClose={() => {}}
+        onClose={ephemeralNoop}
         sessionStorageKey={`widgets:${slug}`}
         parentChannelId={channelScopedId ?? undefined}
         title="Dashboard assistant"
-        context={{
-          page_name: "widget_dashboard",
-          url: typeof window !== "undefined" ? window.location.pathname : undefined,
-          tags: ["widgets", "dashboard"],
-          payload: {
-            dashboard_slug: slug,
-            pinned_widget_ids: pins.map((p) => p.id),
-          },
-          tool_hints: ["create_html_widget", "pin_widget", "list_widget_templates"],
-        }}
+        context={ephemeralContext}
       />
     </div>
   );

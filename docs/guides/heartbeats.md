@@ -1,6 +1,6 @@
 # Heartbeats
 
-Heartbeats are periodic autonomous check-ins. Configure a heartbeat on a channel and the bot runs a prompt on a schedule — monitoring, summarizing, alerting, or triggering workflows without human intervention.
+Heartbeats are periodic autonomous check-ins. Configure a heartbeat on a channel and the bot runs a prompt on a schedule — monitoring, summarizing, alerting, or launching pipelines without human intervention.
 
 ![Heartbeat configuration UI showing interval, prompt, dispatch mode, and quiet hours settings](../images/channel-heartbeat.png)
 *Channel heartbeat settings — configure the interval, prompt, dispatch mode, and quiet hours.*
@@ -150,11 +150,9 @@ repetition_detection: true|false
 
 ---
 
-## Workflow Triggers
+## Workflow Triggers (deprecated)
 
-Instead of running a prompt, a heartbeat can trigger a workflow on schedule.
-
-Set `workflow_id` in the heartbeat config to switch from prompt mode to workflow-trigger mode:
+Heartbeats can trigger a **workflow** on schedule by setting `workflow_id` on the heartbeat config:
 
 ```
 workflow_id: daily-report
@@ -162,12 +160,26 @@ workflow_session_mode: isolated
 interval_minutes: 1440           # Once per day
 ```
 
-When configured:
-- The heartbeat triggers the workflow instead of running an inline LLM call
-- The workflow handles all steps, tools, and dispatch
-- Duplicate runs are prevented — if the workflow is already running, the trigger is skipped
+!!! warning "Deprecated"
+    Workflows are deprecated — see [Pipelines](pipelines.md). The `workflow_id` field is retained so legacy heartbeats keep working, but new automations should launch a pipeline from the heartbeat prompt instead (see below).
 
-See the [Workflows guide](workflows.md) for workflow configuration.
+## Launching Pipelines from Heartbeats
+
+To run a pipeline on schedule, keep the heartbeat in prompt mode and have the bot call `run_pipeline` from its prompt:
+
+```
+prompt: |
+  Run the `daily-report` pipeline for this channel.
+  Use run_pipeline(pipeline_id="daily-report", channel_id=<this channel>).
+```
+
+Benefits over the legacy `workflow_id` field:
+
+- Pipeline runs render as a **sub-session** transcript in the channel with a compact anchor card — every step's LLM thinking and tool widget is visible.
+- The heartbeat prompt can decide conditionally whether to launch the pipeline (e.g., only if a condition is met).
+- Multiple pipelines can be chained, since the bot is in control.
+
+See the [Pipelines guide](pipelines.md) for pipeline configuration and the `run_pipeline` tool.
 
 ---
 
@@ -209,8 +221,8 @@ This gives the bot situational awareness without consuming prompt space. The met
 | `max_run_seconds` | int | — | Execution timeout (overrides global) |
 | `previous_result_max_chars` | int | 500 | How much of last result to inject |
 | `repetition_detection` | bool | — | Override global repetition detection |
-| `workflow_id` | string | — | Trigger this workflow instead of prompt |
-| `workflow_session_mode` | string | — | `"shared"` or `"isolated"` |
+| `workflow_id` | string | — | Trigger a (deprecated) workflow instead of a prompt. For pipelines, use `prompt` + `run_pipeline`. |
+| `workflow_session_mode` | string | — | `"shared"` or `"isolated"` — applies when `workflow_id` is set. |
 
 ### Environment Variables (global)
 
@@ -294,17 +306,20 @@ prompt: |
   If everything looks fine, do nothing.
 ```
 
-### Daily Workflow Trigger
+### Daily Pipeline Launch
 
-Trigger a multi-step workflow once per day:
+Trigger a multi-step pipeline once per day — launched from the prompt, not via a dedicated field:
 
 ```
 enabled: true
 interval_minutes: 1440
-workflow_id: daily-report
-workflow_session_mode: isolated
 dispatch_results: true
+prompt: |
+  Launch the daily-report pipeline for this channel.
+  Call run_pipeline(pipeline_id="daily-report").
 ```
+
+The pipeline's output renders as a sub-session transcript on the channel.
 
 ### Business Hours Only
 

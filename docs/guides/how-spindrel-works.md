@@ -84,9 +84,17 @@ A capability bundles:
 
 ### Auto-Discovery
 
-Bots automatically discover available capabilities at runtime. On every request, the bot sees a compact index of capabilities it doesn't already have loaded. When a user's request matches one, the bot calls `activate_capability()` to load it for the session — no manual configuration needed.
+Bots automatically discover available capabilities at runtime. On every request, the bot sees a compact index of capabilities it doesn't already have loaded. When a user's request matches one, the bot calls `activate_capability()` to load it for the session — no manual configuration needed. The index rewards imperative framing: the tool- and skill-index headers explicitly instruct the model to fetch before answering, so bots that would otherwise guess based on the index reliably call `get_skill` / `get_tool_info` first.
 
 You can also **pin** capabilities to a bot (`carapaces: [qa, code-review]` in bot config — `carapaces` is the config key for capabilities) so they're always active, or **disable** specific ones per-channel.
+
+### Capability Gating
+
+Tools declare their required capabilities at registration time. The context-assembly pipeline filters tool schemas by the resolved capability set before they reach the model — so a tool gated on the `github` capability never appears to a bot that hasn't loaded it. This stops the model from hallucinating calls to tools it can't actually invoke, and keeps the tool catalog scoped to what the current channel is allowed to do.
+
+### Semantic Tool Fallback
+
+When the initial tool-retrieval pipeline misses the right tool, the bot can call `search_tools` — a semantic tool search across the full pool — and pin the match for the rest of the turn. The tool-index header points at `search_tools` as the explicit next step when the right tool isn't in the index.
 
 ### How the Bot Finds Skills
 
@@ -138,6 +146,30 @@ The result: the bot has exactly the right tools, knowledge, and context for this
 
 ---
 
+## Pipelines and Sub-Sessions
+
+Pipelines are reusable multi-step automations stored as `Task` rows. A pipeline has `steps:` — `exec` (subprocess), `tool` (call a tool), `agent` (run the LLM), `user_prompt` (pause for input), and `foreach` (loop) — with conditions, parameters, approval gates, and cross-bot delegation.
+
+When a pipeline runs inside a channel, it renders as a **chat-native sub-session**: a modal or docked transcript showing every step's LLM thinking, tool widgets, Markdown, and JSON as real messages on a dedicated session. The parent channel gets a compact anchor card pointing at the run. Pipelines can be scheduled per-channel via `channel_pipeline_subscriptions` or triggered from a heartbeat via `pipeline_id`.
+
+Pipelines replace the older workflows system, which is deprecated. See the [Pipelines guide](pipelines.md).
+
+---
+
+## Workspace
+
+Every Spindrel instance has one workspace directory, rooted at `WORKSPACE_HOST_DIR` (mounted into the container as `WORKSPACE_LOCAL_DIR`). Inside that root, files are organized by bot and channel — `{root}/bot/{bot_id}/` for bot-scoped state, `{root}/bot/{bot_id}/channels/{channel_id}/` for channel-scoped state. The `file` tool accepts both relative paths (rooted at the bot directory) and `/workspace/...` absolute paths.
+
+A single-workspace model replaces the earlier per-bot container runtime. Every bot is a permanent member of the workspace via a bootstrap loop (`app/services/workspace_bootstrap.py`); there is no "add/remove bot to workspace" operation — the workspace is the container environment, not a property of the bot.
+
+---
+
+## Chat State Rehydration
+
+Streaming turns and pending approvals survive reconnects. The `GET /api/v1/channels/{id}/state` snapshot returns `{active_turns, pending_approvals}` — used by `useChannelState` + `rehydrateTurn` on mount so a mobile tab-wake or a page reload picks up exactly where the live SSE stream left off. Live events always win over snapshot values, so the rehydration is idempotent.
+
+---
+
 ## Key Concepts Summary
 
 | Concept | What it is | Where it lives |
@@ -148,7 +180,9 @@ The result: the bot has exactly the right tools, knowledge, and context for this
 | **Activation** | Enabling an integration's full capabilities on a channel | Channel > Integrations tab |
 | **Capability** | Bundle of tools + skills + behavior | `carapaces/*.yaml` (directory name) or Admin > Capabilities |
 | **Skill** | Markdown knowledge document | `skills/*.md` or capability subdirectory |
-| **Workspace** | Per-channel file store | `~/.spindrel-workspaces/` on disk |
+| **Workspace** | Single rooted file store, organized by bot and channel | `WORKSPACE_HOST_DIR` on disk |
+| **Pipeline** | Multi-step automation stored as a Task row | Admin > Tasks |
+| **Sub-session** | Chat-native transcript for a running pipeline | Channel modal / dock |
 
 ---
 

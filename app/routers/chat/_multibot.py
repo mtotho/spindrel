@@ -312,6 +312,20 @@ async def _run_member_bot_reply(
             ),
         )
 
+        # Persistent signal so `/state` snapshot sees this turn even when
+        # it produces no ToolCall / skill_index rows. Mirrors the primary
+        # turn_worker path — see app/services/turn_worker.py.
+        from app.agent.recording import _record_trace_event as _rec_trace
+        from app.utils import safe_create_task as _safe_create
+        _safe_create(_rec_trace(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=member_bot_id,
+            client_id="member-mention",
+            event_type="turn_started",
+            data={"bot_id": member_bot_id},
+        ))
+
         _run_stream_iter = _loop_mod.run_stream(
             ctx.messages, member_bot, prompt,
             session_id=session_id,

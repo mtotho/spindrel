@@ -43,6 +43,10 @@ export interface TurnState {
    * from the server snapshot is a ghost (kill it) or just-started and
    * racing the snapshot fetch (keep it). */
   startedAt: number;
+  /** Epoch ms of the last SSE event applied to this turn. SSE activity is
+   * proof of life: the reconciler must not kill a turn that is actively
+   * streaming, even if the server snapshot hasn't caught up yet. */
+  lastEventAt: number;
   error?: string;
   llmStatus?: {
     status: string; // "retry" | "fallback" | "cooldown_skip"
@@ -173,6 +177,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 autoInjectedSkills: [],
                 correlationId: turnId,
                 startedAt: Date.now(),
+                lastEventAt: Date.now(),
                 llmStatus: null,
               },
             },
@@ -212,6 +217,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 autoInjectedSkills,
                 correlationId: turnId,
                 startedAt: existing?.startedAt ?? Date.now(),
+                lastEventAt: existing?.lastEventAt ?? Date.now(),
                 llmStatus: existing?.llmStatus ?? null,
               },
             },
@@ -403,12 +409,16 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           return s;
       }
 
+      // SSE activity is proof of life — stamp lastEventAt so the
+      // snapshot-reconcile pass in useChannelState won't kill a turn that
+      // is still receiving deltas.
+      const stamped: TurnState = { ...updated, lastEventAt: Date.now() };
       return {
         channels: {
           ...s.channels,
           [channelId]: {
             ...ch,
-            turns: { ...ch.turns, [turnId]: updated },
+            turns: { ...ch.turns, [turnId]: stamped },
           },
         },
       };

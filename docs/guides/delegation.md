@@ -186,6 +186,20 @@ Both tools can run a different bot. Prefer `delegate_to_agent`:
 
 `create_task` with `bot_id` is handled correctly (creates a proper child session with delegation linkage) but `delegate_to_agent` is the right tool for the job.
 
+## Delegation vs Sub-Agents vs Pipeline Sub-Sessions
+
+Three overlapping ways to hand off work — pick the right shape:
+
+| Pattern | Best for | Lifecycle | Visibility |
+|---|---|---|---|
+| **`delegate_to_agent`** | Cross-bot work where you need the delegate's response (immediate) or scheduled cross-bot automation (deferred) | Creates a child `Session` with parent/root lineage | Admin → Tasks, trace tree |
+| **Sub-agents** (`spawn_subagents`) | Parallel, short-lived work with a specialized preset (`research`, `quality`, `summarize`, `code`, `plan`). Depth and rate limits keep it safe. | Ephemeral subagents — no persistent session by default | Trace tree under the parent turn |
+| **Pipeline sub-session** | Multi-step structured automation (conditions, approvals, foreach). Renders as a chat-native transcript users can watch live. | A `Task` row with `pipeline_mode` + its own session | Chat anchor card in the parent channel + full modal transcript |
+
+Rule of thumb: if the work has *steps you'd want to see live*, reach for a pipeline. If the work is *one delegated task*, use `delegate_to_agent`. If you need *parallel fan-out with a preset*, use `spawn_subagents`.
+
+See the [Sub-Agents guide](subagents.md) and the [Pipelines guide](pipelines.md) for the other two patterns.
+
 ---
 
 ## Architecture

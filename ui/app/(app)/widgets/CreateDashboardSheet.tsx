@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Loader2, X } from "lucide-react";
 import { useDashboardsStore } from "@/src/stores/dashboards";
 import { IconPicker } from "@/src/components/IconPicker";
+import { useIsAdmin } from "@/src/hooks/useScope";
+import { RailScopePicker, type RailChoice } from "./RailScopePicker";
 
 interface Props {
   open: boolean;
@@ -25,11 +27,19 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
 export function CreateDashboardSheet({ open, onClose }: Props) {
   const navigate = useNavigate();
   const create = useDashboardsStore((s) => s.create);
+  const setRailPin = useDashboardsStore((s) => s.setRailPin);
+  const isAdmin = useIsAdmin();
+
+  // Global user-created dashboards default to "everyone" when an admin is
+  // creating them (shared surface by default), and "me" otherwise — so a
+  // non-admin creating a personal dashboard doesn't accidentally pin it into
+  // everyone's sidebar (they couldn't anyway; the server would 403).
+  const defaultRailChoice: RailChoice = isAdmin ? "everyone" : "me";
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [icon, setIcon] = useState<string | null>("LayoutDashboard");
-  const [pinToRail, setPinToRail] = useState(false);
+  const [railChoice, setRailChoice] = useState<RailChoice>(defaultRailChoice);
   const [slugTouched, setSlugTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,11 +49,11 @@ export function CreateDashboardSheet({ open, onClose }: Props) {
       setName("");
       setSlug("");
       setIcon("LayoutDashboard");
-      setPinToRail(false);
+      setRailChoice(defaultRailChoice);
       setSlugTouched(false);
       setError(null);
     }
-  }, [open]);
+  }, [open, defaultRailChoice]);
 
   useEffect(() => {
     if (!slugTouched) setSlug(slugify(name));
@@ -78,8 +88,10 @@ export function CreateDashboardSheet({ open, onClose }: Props) {
         slug,
         name: name.trim(),
         icon,
-        pin_to_rail: pinToRail,
       });
+      if (railChoice !== "off") {
+        await setRailPin(created.slug, railChoice);
+      }
       onClose();
       navigate(`/widgets/${encodeURIComponent(created.slug)}`);
     } catch (err) {
@@ -158,15 +170,11 @@ export function CreateDashboardSheet({ open, onClose }: Props) {
 
           <IconPicker value={icon} onChange={setIcon} label="Icon" />
 
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={pinToRail}
-              onChange={(e) => setPinToRail(e.target.checked)}
-              className="h-4 w-4 accent-current text-accent"
-            />
-            <span className="text-[12px] text-text">Show in sidebar rail</span>
-          </label>
+          <RailScopePicker
+            value={railChoice}
+            onChange={setRailChoice}
+            isAdmin={isAdmin}
+          />
 
           {error && (
             <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">

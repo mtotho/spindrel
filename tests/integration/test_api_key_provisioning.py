@@ -286,18 +286,58 @@ class TestRoleChangeSync:
 class TestRequireScopesEnforcement:
     """Test that require_scopes checks user API key scopes."""
 
-    def test_legacy_user_without_key_gets_full_access(self):
-        """Users without api_key_id (legacy) should bypass scope checks."""
+    async def test_user_without_resolved_scopes_fails_closed(self):
+        """Non-admin user with no resolved scopes gets 403 (fail-closed).
+
+        Previous behavior granted full access as backcompat. That silently
+        flipped a provisioning failure into admin-level privilege. The UI
+        hydrates scopes from /auth/me and renders "no permissions" for such
+        a user — the backend must match.
+        """
+        from fastapi import HTTPException
         from app.dependencies import require_scopes
-        from app.services.api_keys import has_scope
 
         user = MagicMock()
-        user._resolved_scopes = None  # no key provisioned
+        user._resolved_scopes = None
+        user.is_admin = False
 
-        # The check function should return the user without raising
-        # We test the logic directly
-        resolved = getattr(user, "_resolved_scopes", None)
-        assert resolved is None  # should take the backward compat path
+        check = require_scopes("channels:write")
+        with pytest.raises(HTTPException) as exc:
+            await check(auth=user)
+        assert exc.value.status_code == 403
+
+    async def test_admin_without_resolved_scopes_bypasses(self):
+        """Admin user with no resolved scopes bypasses via is_admin.
+
+        Guards against an admin being locked out when their own API key
+        provisioning silently fails — they can still recover.
+        """
+        from app.dependencies import require_scopes
+
+        user = MagicMock()
+        user._resolved_scopes = None
+        user.is_admin = True
+
+        check = require_scopes("users:write")
+        result = await check(auth=user)
+        assert result is user
+
+    async def test_user_with_scopes_enforced_normally(self):
+        """Users with resolved scopes go through normal scope matching."""
+        from fastapi import HTTPException
+        from app.dependencies import require_scopes
+
+        member = MagicMock()
+        member._resolved_scopes = SCOPE_PRESETS["member_user"]["scopes"]
+        member.is_admin = False
+
+        # chat passes
+        await require_scopes("chat")(auth=member)
+
+        # users:write fails
+        with pytest.raises(HTTPException) as exc:
+            await require_scopes("users:write")(auth=member)
+        assert exc.value.status_code == 403
 
     def test_user_with_admin_scopes_passes_all_checks(self):
         """Admin users should pass any scope check."""

@@ -1184,9 +1184,13 @@ async def _snapshot_active_turns(
     channel_bot_id: str,
     cutoff: datetime,
 ) -> list[ActiveTurnOut]:
-    # Candidate correlation_ids — any ToolCall or skill_index TraceEvent in
-    # the window. Broader event_type filters can be added later if the UI
-    # needs them; today these two cover every UI-visible durable surface.
+    # Candidate correlation_ids — any ToolCall, skill_index TraceEvent, or
+    # turn_started TraceEvent in the window. turn_started is the canonical
+    # lifecycle signal (written by app/services/turn_worker.py +
+    # app/routers/chat/_multibot.py on every turn) so a pure-text streaming
+    # reply with no tools and no skills still appears here; skipping this
+    # is the bug that lets the UI ghost reconciler kill live turns when the
+    # snapshot refetches on window focus.
     tc_rows = (await db.execute(
         select(ToolCall).where(
             ToolCall.session_id == session_id,
@@ -1198,7 +1202,7 @@ async def _snapshot_active_turns(
         select(TraceEvent).where(
             TraceEvent.session_id == session_id,
             TraceEvent.created_at >= cutoff,
-            TraceEvent.event_type == "skill_index",
+            TraceEvent.event_type.in_(("skill_index", "turn_started")),
             TraceEvent.correlation_id.is_not(None),
         )
     )).scalars().all()
@@ -1211,7 +1215,10 @@ async def _snapshot_active_turns(
             slot["bot_id"] = r.bot_id
     for r in te_rows:
         slot = by_corr.setdefault(r.correlation_id, {"bot_id": r.bot_id, "tool_calls": [], "skills": []})
-        slot["skills"].append(r)
+        # Only skill_index events feed the auto-injected skills list.
+        # turn_started is a lifecycle marker — presence is enough.
+        if r.event_type == "skill_index":
+            slot["skills"].append(r)
         if not slot["bot_id"] and r.bot_id:
             slot["bot_id"] = r.bot_id
 

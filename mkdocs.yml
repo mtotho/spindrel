@@ -33,36 +33,50 @@ nav:
   - Home: index.md
   - Getting Started:
     - Setup: setup.md
+    - LLM Providers: guides/providers.md
     - Docker Deployment: docker-deployment.md
     - Migration: migration.md
     - Backup & Restore: backup.md
   - Guides:
     - How Spindrel Works: guides/how-spindrel-works.md
     - Templates & Activation: guides/templates-and-activation.md
-    - Workflows: guides/workflows.md
+    - Pipelines: guides/pipelines.md
+    - Task Sub-Sessions: guides/task-sub-sessions.md
+    - Sub-Agents: guides/subagents.md
+    - Delegation: guides/delegation.md
     - Heartbeats: guides/heartbeats.md
+    - Self-Improving Agents: guides/bot-skills.md
     - Custom Tools & Extensions: guides/custom-tools.md
+    - MCP Servers: guides/mcp-servers.md
+    - Tool Policies: guides/tool-policies.md
+    - Command Execution: guides/command-execution.md
     - Widget Dashboards: guides/widget-dashboards.md
     - HTML Widgets: guides/html-widgets.md
-    - Slack Integration: guides/slack.md
-    - Discord Integration: guides/discord.md
-    - BlueBubbles (iMessage): guides/bluebubbles.md
-    - Gmail Integration: guides/gmail.md
+    - Widget Templates: widget-templates.md
+    - Developer Panel: guides/dev-panel.md
+    - Chat History: guides/chat-history.md
+    - Chat State Rehydration: guides/chat-state-rehydration.md
+    - PWA & Push Notifications: guides/pwa-push.md
+    - Secrets & Redaction: guides/secrets.md
+    - Content Ingestion: guides/ingestion.md
+    - Usage & Billing: guides/usage-and-billing.md
     - Developer API: guides/api.md
     - Lifecycle Webhooks: guides/webhooks.md
     - Agent Client: guides/clients.md
-    - Delegation: guides/delegation.md
-    - Sub-Agents: guides/subagents.md
-    - Secrets & Redaction: guides/secrets.md
-    - Content Ingestion: guides/ingestion.md
-    - Chat History: guides/chat-history.md
-    - Usage & Billing: guides/usage-and-billing.md
+    - E2E Testing: guides/e2e-testing.md
+    - Workflows (deprecated): guides/workflows.md
   - Integrations:
     - Creating an Integration: integrations/index.md
     - Example Integration: integrations/example.md
     - Activation & Templates: integrations/activation-and-templates.md
     - Message Ingest Contract: integrations/message-ingest-contract.md
     - Design Philosophy: integrations/design.md
+    - Slack: guides/slack.md
+    - Discord: guides/discord.md
+    - BlueBubbles (iMessage): guides/bluebubbles.md
+    - Gmail: guides/gmail.md
+    - Home Assistant: guides/homeassistant.md
+    - Excalidraw: guides/excalidraw.md
   - Reference:
     - Architecture: reference/architecture.md
     - RAG Pipeline: reference/rag-pipeline.md
