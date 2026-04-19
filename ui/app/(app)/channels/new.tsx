@@ -12,7 +12,10 @@ import {
 import { Section, TextInput, Toggle } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { BotPicker } from "@/src/components/shared/BotPicker";
+import { UserSelect } from "@/src/components/shared/UserSelect";
 import { IntegrationActivationList } from "@/src/components/channels/IntegrationActivationList";
+import { useIsAdmin } from "@/src/hooks/useScope";
+import { useAuthStore } from "@/src/stores/auth";
 
 type WizardStep = "basics" | "integrations";
 
@@ -25,6 +28,9 @@ export default function NewChannelScreen() {
   const { data: existingCategories } = useChannelCategories();
   const createChannel = useCreateChannel();
 
+  const isAdmin = useIsAdmin();
+  const currentUserId = useAuthStore((s) => s.user?.id);
+
   // Form state
   const [step, setStep] = useState<WizardStep>("basics");
   const [name, setName] = useState("");
@@ -35,6 +41,9 @@ export default function NewChannelScreen() {
   const [isPrivate, setIsPrivate] = useState(false);
   const [enabledIntegrations, setEnabledIntegrations] = useState<string[]>([]);
   const [memberBotIds, setMemberBotIds] = useState<string[]>([]);
+  // Admin can reassign owner at create time. Non-admins always own what they
+  // create (backend auto-populates user_id from the auth user when omitted).
+  const [ownerUserId, setOwnerUserId] = useState<string | null>(currentUserId ?? null);
 
   const botOptions = useMemo(
     () => (bots ?? []).map((b) => ({ label: b.name, value: b.id })),
@@ -75,6 +84,9 @@ export default function NewChannelScreen() {
     if (memberBotIds.length > 0) {
       body.member_bot_ids = memberBotIds;
     }
+    if (isAdmin && ownerUserId) {
+      body.user_id = ownerUserId;
+    }
     return body;
   };
 
@@ -92,13 +104,6 @@ export default function NewChannelScreen() {
     if (!name.trim() || createChannel.isPending) return;
     try {
       const body = buildBody();
-      // Auto-enable workspace if any activated integration requires it
-      const needsWorkspace = enabledIntegrations.some((intType) =>
-        activatableIntegrations?.find((i) => i.integration_type === intType)?.requires_workspace,
-      );
-      if (needsWorkspace) {
-        body.channel_workspace_enabled = true;
-      }
       if (enabledIntegrations.length > 0) {
         body.activate_integrations = enabledIntegrations;
       }
@@ -240,8 +245,17 @@ export default function NewChannelScreen() {
                   value={isPrivate}
                   onChange={setIsPrivate}
                   label="Private"
-                  description="Only visible to you"
+                  description="Only the owner and admins can see this channel"
                 />
+
+                {isAdmin && (
+                  <Section title="Owner" description="Admins can assign a different user as the owner.">
+                    <UserSelect
+                      value={ownerUserId}
+                      onChange={setOwnerUserId}
+                    />
+                  </Section>
+                )}
 
                 {/* Member bots (multi-bot channel) */}
                 {(bots ?? []).filter((b) => b.id !== (useBotMode ? botId : "default")).length > 0 && (
@@ -392,7 +406,6 @@ export default function NewChannelScreen() {
                   integrations={activatableIntegrations ?? []}
                   enabled={enabledIntegrations}
                   onToggle={handleToggleIntegration}
-                  workspaceEnabled
                 />
               </div>
             </div>

@@ -45,7 +45,25 @@ class WorkspaceService:
             shared_workspace_service.ensure_host_dirs(bot.shared_workspace_id)
         root = self.get_workspace_root(bot_id, bot)
         os.makedirs(root, exist_ok=True)
+        # Convention: every bot gets a knowledge-base/ folder that is auto-indexed
+        # and retrievable via auto-RAG + search_bot_knowledge.
+        os.makedirs(os.path.join(root, "knowledge-base"), exist_ok=True)
         return root
+
+    def get_bot_knowledge_base_root(self, bot: BotConfig) -> str:
+        """Returns the host path for this bot's knowledge-base/ folder."""
+        return os.path.join(self.get_workspace_root(bot.id, bot), "knowledge-base")
+
+    def get_bot_knowledge_base_index_prefix(self, bot: BotConfig) -> str:
+        """Returns the file_path prefix used by filesystem_chunks for bot KB content.
+
+        For shared-workspace bots files live under bots/{id}/knowledge-base/
+        (relative to the shared workspace root).  For standalone bots the root
+        is the bot's own workspace, so the prefix is just knowledge-base/.
+        """
+        if bot.shared_workspace_id:
+            return f"bots/{bot.id}/knowledge-base"
+        return "knowledge-base"
 
     async def exec(
         self,

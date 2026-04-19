@@ -301,7 +301,7 @@ function CollapsibleSection({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { channelId: string; botId?: string; workspaceEnabled?: boolean }) {
+export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botId?: string }) {
   const t = useThemeTokens();
   const { data: editorData, isLoading: editorLoading } = useBotEditorData(botId);
   const { data: settings } = useChannelSettings(channelId);
@@ -445,7 +445,7 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
       </div>
 
       {/* Integration activations */}
-      <ActivationsSection channelId={channelId} workspaceEnabled={!!workspaceEnabled} />
+      <ActivationsSection channelId={channelId} />
 
       {/* ================================================================= */}
       {/* RESOLVED VIEW — what the bot actually gets                        */}

@@ -145,6 +145,21 @@ export function IndexingSection({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Knowledge Base convention banner */}
+      <div
+        className="px-3 py-2 rounded-lg text-xs leading-5"
+        style={{
+          background: t.surfaceOverlay,
+          border: `1px solid ${t.surfaceBorder}`,
+          color: t.textMuted,
+        }}
+      >
+        <span style={{ color: t.text, fontWeight: 600 }}>Knowledge base convention.</span>{" "}
+        Every channel has an auto-indexed <code>knowledge-base/</code> folder and every bot has its own at{" "}
+        <code>bots/&lt;id&gt;/knowledge-base/</code>. Drop files there — the defaults below apply.
+        The custom-segments editor on each bot is for external repos or per-prefix embedding models.
+      </div>
+
       {/* Summary bar */}
       <div className="flex flex-row items-center flex-wrap gap-4 px-3 py-2.5 rounded-lg text-xs"
         style={{ background: t.inputBg, border: `1px solid ${t.surfaceOverlay}` }}>

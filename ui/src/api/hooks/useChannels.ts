@@ -43,11 +43,11 @@ export function useCreateChannel() {
       bot_id: string;
       private?: boolean;
       model_override?: string;
-      channel_workspace_enabled?: boolean;
       workspace_schema_template_id?: string;
       category?: string;
       activate_integrations?: string[];
       member_bot_ids?: string[];
+      user_id?: string;
     }) =>
       apiFetch<Channel>("/api/v1/channels", {
         method: "POST",

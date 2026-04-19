@@ -50,16 +50,6 @@ class TestChannelCreationWizard:
         assert status == 201
         assert data["category"] == "Work"
 
-    async def test_create_with_workspace_enabled(self, client):
-        """channel_workspace_enabled is set."""
-        status, data = await _create_channel(
-            client,
-            name="ws-channel",
-            channel_workspace_enabled=True,
-        )
-        assert status == 201
-        assert data["channel_workspace_enabled"] is True
-
     async def test_create_with_template(self, client, db_session):
         """workspace_schema_template_id validated and set."""
         from app.db.models import PromptTemplate
@@ -80,7 +70,6 @@ class TestChannelCreationWizard:
         status, data = await _create_channel(
             client,
             name="tpl-channel",
-            channel_workspace_enabled=True,
             workspace_schema_template_id=str(tpl.id),
         )
         assert status == 201
@@ -128,28 +117,6 @@ class TestChannelCreationWizard:
         assert len(rows) == 1
         assert rows[0].integration_type == "test_integration"
 
-    async def test_create_activation_requires_workspace_skipped(self, client):
-        """Activation with requires_workspace=True but no workspace → warning, not error."""
-        from unittest.mock import patch
-
-        fake_manifests = {
-            "ws_integration": {
-                "description": "Needs workspace",
-                "requires_workspace": True,
-                "carapaces": [],
-            }
-        }
-
-        with patch("integrations.get_activation_manifests", return_value=fake_manifests):
-            status, data = await _create_channel(
-                client,
-                name="skip-ws-channel",
-                activate_integrations=["ws_integration"],
-            )
-
-        # Channel still created — activation just skipped
-        assert status == 201
-
     async def test_create_all_wizard_fields(self, client, db_session):
         """All wizard fields together in one call."""
         from app.db.models import PromptTemplate
@@ -181,7 +148,6 @@ class TestChannelCreationWizard:
                 client,
                 name="full-wizard-channel",
                 model_override="openai/gpt-4o",
-                channel_workspace_enabled=True,
                 workspace_schema_template_id=str(tpl.id),
                 category="Projects",
                 activate_integrations=["full_integration"],
@@ -189,7 +155,6 @@ class TestChannelCreationWizard:
 
         assert status == 201
         assert data["model_override"] == "openai/gpt-4o"
-        assert data["channel_workspace_enabled"] is True
         assert data["category"] == "Projects"
 
 

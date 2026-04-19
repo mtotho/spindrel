@@ -70,7 +70,9 @@ class Channel(Base):
     carapaces_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     model_tier_overrides: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     workspace_base_prompt_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    channel_workspace_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    channel_workspace_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
     index_segments: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"), nullable=False)
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
     trigger_heartbeat_before_compaction: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

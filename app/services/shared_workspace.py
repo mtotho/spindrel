@@ -55,10 +55,15 @@ class SharedWorkspaceService:
         return root
 
     def ensure_bot_dir(self, workspace_id: str, bot_id: str) -> str:
-        """Ensure bots/<bot_id>/ exists inside the workspace."""
+        """Ensure bots/<bot_id>/ exists inside the workspace.
+
+        Also creates bots/<bot_id>/knowledge-base/ — the convention-based folder
+        every bot gets for auto-indexed, auto-retrievable knowledge.
+        """
         root = self.get_host_root(workspace_id)
         bot_dir = os.path.join(root, "bots", bot_id)
         os.makedirs(bot_dir, exist_ok=True)
+        os.makedirs(os.path.join(bot_dir, "knowledge-base"), exist_ok=True)
         return bot_dir
 
     def get_bot_cwd(

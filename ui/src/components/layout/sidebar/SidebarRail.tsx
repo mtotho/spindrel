@@ -17,6 +17,7 @@ import { useMemo, useRef, useState } from "react";
 import { SpindrelLogo } from "../SpindrelLogo";
 import { useUIStore } from "../../../stores/ui";
 import { useAuthStore } from "../../../stores/auth";
+import { useIsAdmin } from "../../../hooks/useScope";
 import { useThemeStore } from "../../../stores/theme";
 import { useVersion } from "../../../api/hooks/useVersion";
 import {
@@ -62,6 +63,7 @@ export function SidebarRail() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const user = useAuthStore((s) => s.user);
+  const isAdmin = useIsAdmin();
   const themeMode = useThemeStore((s) => s.mode);
   const toggleTheme = useThemeStore((s) => s.toggle);
   const { data: version } = useVersion();
@@ -136,20 +138,22 @@ export function SidebarRail() {
 
         <div className="h-px w-6 bg-surface-border/60 my-1" />
 
-        <RailLink
-          href="/admin/tasks?view=list"
-          active={isTasksActive}
-          title="Tasks"
-          badge={
-            upcomingCount > 0 && !isTasksActive ? (
-              <span className="absolute top-0.5 right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-accent text-[9px] font-bold text-white flex flex-row items-center justify-center tabular-nums">
-                {upcomingCount > 9 ? "9+" : upcomingCount}
-              </span>
-            ) : null
-          }
-        >
-          <Clock size={18} className={isTasksActive ? "text-accent" : "text-text-dim"} />
-        </RailLink>
+        {isAdmin && (
+          <RailLink
+            href="/admin/tasks?view=list"
+            active={isTasksActive}
+            title="Tasks"
+            badge={
+              upcomingCount > 0 && !isTasksActive ? (
+                <span className="absolute top-0.5 right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-accent text-[9px] font-bold text-white flex flex-row items-center justify-center tabular-nums">
+                  {upcomingCount > 9 ? "9+" : upcomingCount}
+                </span>
+              ) : null
+            }
+          >
+            <Clock size={18} className={isTasksActive ? "text-accent" : "text-text-dim"} />
+          </RailLink>
+        )}
 
         <RailLink href="/widgets" active={isWidgetsActive} title="Widgets">
           <LayoutDashboard size={18} className={isWidgetsActive ? "text-accent" : "text-text-dim"} />
@@ -187,25 +191,29 @@ export function SidebarRail() {
           );
         })}
 
-        <RailLink href="/admin/bots" active={isBotsActive} title="Bots">
-          <Bot size={18} className={isBotsActive ? "text-accent" : "text-text-dim"} />
-        </RailLink>
+        {isAdmin && (
+          <>
+            <RailLink href="/admin/bots" active={isBotsActive} title="Bots">
+              <Bot size={18} className={isBotsActive ? "text-accent" : "text-text-dim"} />
+            </RailLink>
 
-        <RailLink href="/admin/skills" active={isSkillsActive} title="Skills">
-          <BookOpen size={18} className={isSkillsActive ? "text-accent" : "text-text-dim"} />
-        </RailLink>
+            <RailLink href="/admin/skills" active={isSkillsActive} title="Skills">
+              <BookOpen size={18} className={isSkillsActive ? "text-accent" : "text-text-dim"} />
+            </RailLink>
 
-        <RailLink href="/admin/integrations" active={isIntegrationsActive} title="Integrations">
-          <Plug size={18} className={isIntegrationsActive ? "text-accent" : "text-text-dim"} />
-        </RailLink>
+            <RailLink href="/admin/integrations" active={isIntegrationsActive} title="Integrations">
+              <Plug size={18} className={isIntegrationsActive ? "text-accent" : "text-text-dim"} />
+            </RailLink>
 
-        <RailLink href="/admin/usage" active={isUsageActive} title="Activity">
-          <BarChart3 size={18} className={isUsageActive ? "text-accent" : "text-text-dim"} />
-        </RailLink>
+            <RailLink href="/admin/usage" active={isUsageActive} title="Activity">
+              <BarChart3 size={18} className={isUsageActive ? "text-accent" : "text-text-dim"} />
+            </RailLink>
 
-        <RailLink href="/admin/learning" active={isLearningActive} title="Learning">
-          <Brain size={18} className={isLearningActive ? "text-accent" : "text-text-dim"} />
-        </RailLink>
+            <RailLink href="/admin/learning" active={isLearningActive} title="Learning">
+              <Brain size={18} className={isLearningActive ? "text-accent" : "text-text-dim"} />
+            </RailLink>
+          </>
+        )}
       </div>
 
       <div className="flex-1" />

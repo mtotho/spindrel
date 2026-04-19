@@ -1,15 +1,19 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Settings, Menu, ArrowLeft, Hash, FolderOpen, LayoutDashboard,
+  Settings, Menu, ArrowLeft, Hash, Lock, FolderOpen, LayoutDashboard,
   PanelLeft, Columns2, Users, Wrench, Cog, PanelRight, Plug,
   MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle,
+  User as UserIcon,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
 import { useUIStore } from "@/src/stores/ui";
 import { useActivatableIntegrations, useChannel } from "@/src/api/hooks/useChannels";
 import { useIntegrationIcons } from "@/src/api/hooks/useIntegrations";
+import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
+import { useIsAdmin } from "@/src/hooks/useScope";
+import { useAuthStore } from "@/src/stores/auth";
 import { prettyIntegrationName } from "@/src/utils/format";
 import { ChannelHeaderOverflowMenu, type OverflowItem } from "./ChannelHeaderOverflowMenu";
 
@@ -24,8 +28,7 @@ export interface ChannelHeaderProps {
   channelModelOverride: string | undefined;
   columns: "single" | "double" | "triple";
   goBack: () => void;
-  /** Workspace feature flags */
-  workspaceEnabled: boolean | undefined;
+  /** Resolved workspace id from the channel (null when bot has no shared workspace). */
   workspaceId: string | null | undefined;
   explorerOpen: boolean;
   toggleExplorer: () => void;
@@ -57,7 +60,6 @@ export function ChannelHeader({
   bot,
   columns,
   goBack,
-  workspaceEnabled,
   workspaceId,
   explorerOpen,
   toggleExplorer,
@@ -85,6 +87,20 @@ export function ChannelHeader({
   const { data: activatable } = useActivatableIntegrations(channelId);
   const { data: iconsData } = useIntegrationIcons();
   const integrationIconNames = iconsData?.icons ?? {};
+
+  // Admin-only: resolve owner display name for the header chip. Non-admins
+  // don't see the chip at all (no cross-user visibility signal).
+  const isAdmin = useIsAdmin();
+  const currentUserId = useAuthStore((s) => s.user?.id);
+  const { data: adminUsers } = useAdminUsers(isAdmin);
+  const ownerUserId = channelData?.user_id ?? null;
+  const ownerName = ownerUserId
+    ? adminUsers?.find((u) => u.id === ownerUserId)?.display_name ?? null
+    : null;
+  const showOwnerChip =
+    isAdmin && !!ownerUserId && ownerUserId !== currentUserId && !isSystemChannel;
+
+  const isPrivate = !!channelData?.private;
 
   const activeIntegrations = (activatable ?? []).filter((ig) => ig.activated);
   const activeTypes = new Set(activeIntegrations.map((ig) => ig.integration_type));
@@ -128,7 +144,7 @@ export function ChannelHeader({
       icon: <FolderOpen size={14} />,
       label: "Browse files",
       onClick: onBrowseWorkspace,
-      hidden: !workspaceEnabled || !workspaceId || isMobile,
+      hidden: !workspaceId || isMobile,
     },
     {
       key: "dashboard",
@@ -184,6 +200,8 @@ export function ChannelHeader({
 
       {isSystemChannel ? (
         <Cog size={16} className="text-accent ml-0.5 shrink-0" />
+      ) : isPrivate ? (
+        <Lock size={16} color={t.textDim} style={{ marginLeft: 2, flexShrink: 0 }} />
       ) : (
         <Hash size={16} color={t.textDim} style={{ marginLeft: 2, flexShrink: 0 }} />
       )}
@@ -206,6 +224,17 @@ export function ChannelHeader({
             >
               <Cog size={10} />
               SYSTEM
+            </span>
+          )}
+          {showOwnerChip && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+                         bg-surface-overlay text-text-muted text-[10px]
+                         shrink-0"
+              title={`Owner: ${ownerName ?? ownerUserId}`}
+            >
+              <UserIcon size={10} />
+              {ownerName ?? "owner"}
             </span>
           )}
           {isMobile && !isSystemChannel && contextBudget && contextBudget.total > 0 && contextBudget.utilization > 0.5 && (

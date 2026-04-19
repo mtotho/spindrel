@@ -9,7 +9,8 @@ import { toast } from "@/src/stores/toast";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
-import type { ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
+import type { HtmlWidgetEntry, ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
+import { HtmlWidgetsTab, htmlWidgetPinIdentity } from "./HtmlWidgetsTab";
 
 /** Previews are read-only — widget `callTool` dispatches inside the sheet
  *  don't mutate anything. A no-op dispatcher makes that explicit. */
@@ -30,7 +31,7 @@ interface Props {
   scopeChannelId?: string | null;
 }
 
-type Tab = "channel" | "recent" | "build";
+type Tab = "channel" | "recent" | "html-widgets" | "build";
 
 interface RecentCall {
   id: string;
@@ -63,6 +64,10 @@ export default function AddFromChannelSheet({
   // redundant (you ARE that channel's board) so the tab hides, and Recent
   // calls becomes the natural landing.
   const showChannelTab = !scopeChannelId;
+  // "HTML widgets" scans the current channel's workspace — only meaningful
+  // when we have a channel scope. On the global dashboard there's no
+  // workspace to walk, so hide the tab until DX-5b ships a cross-channel root.
+  const showHtmlWidgetsTab = !!scopeChannelId;
   const [tab, setTab] = useState<Tab>(
     scopeChannelId ? "recent" : "channel",
   );
@@ -79,6 +84,10 @@ export default function AddFromChannelSheet({
   // Recent tool-call envelopes — filtered to scopeChannelId when provided.
   const [recent, setRecent] = useState<RecentCall[] | null>(null);
   const [recentError, setRecentError] = useState<string | null>(null);
+
+  // HTML widgets scanned from the current channel's workspace.
+  const [htmlWidgets, setHtmlWidgets] = useState<HtmlWidgetEntry[] | null>(null);
+  const [htmlError, setHtmlError] = useState<string | null>(null);
 
   // Close on Escape — standard modal UX.
   useEffect(() => {
@@ -126,10 +135,46 @@ export default function AddFromChannelSheet({
     return () => { cancelled = true; };
   }, [open, scopeChannelId]);
 
+  // Fetch workspace HTML widgets for the current channel. Only fires when
+  // the tab is visible; cheap enough to run on every sheet-open since the
+  // backend mtime-caches parsed frontmatter.
+  useEffect(() => {
+    if (!open || !showHtmlWidgetsTab || !scopeChannelId) return;
+    let cancelled = false;
+    setHtmlWidgets(null);
+    setHtmlError(null);
+    apiFetch<{ widgets: HtmlWidgetEntry[] }>(
+      `/api/v1/channels/${encodeURIComponent(scopeChannelId)}/workspace/html-widgets`,
+    )
+      .then((resp) => {
+        if (!cancelled) setHtmlWidgets(resp.widgets ?? []);
+      })
+      .catch((e) => {
+        if (!cancelled) setHtmlError(e instanceof Error ? e.message : String(e));
+      });
+    return () => { cancelled = true; };
+  }, [open, showHtmlWidgetsTab, scopeChannelId]);
+
   const existingIdentities = useMemo(
     () => new Set(pins.map((p) => envelopeIdentityKey(p.tool_name, p.envelope))),
     [pins],
   );
+
+  // Identity set for HTML-widget pins — keyed by (channel_id, source_path)
+  // since emit_html_widget path-mode envelopes share the same tool name.
+  const existingHtmlPaths = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of pins) {
+      if (
+        p.tool_name === "emit_html_widget"
+        && p.envelope?.source_path
+        && p.envelope?.source_channel_id
+      ) {
+        set.add(htmlWidgetPinIdentity(p.envelope.source_channel_id, p.envelope.source_path));
+      }
+    }
+    return set;
+  }, [pins]);
 
   const filteredSections = useMemo(() => {
     if (!loaded) return [];
@@ -187,19 +232,28 @@ export default function AddFromChannelSheet({
               From channel
             </TabButton>
           )}
+          {showHtmlWidgetsTab && (
+            <TabButton active={tab === "html-widgets"} onClick={() => setTab("html-widgets")}>
+              HTML widgets
+            </TabButton>
+          )}
           <TabButton active={tab === "build"} onClick={() => setTab("build")}>
             Build new
           </TabButton>
         </div>
 
-        {tab === "channel" && (
+        {(tab === "channel" || tab === "html-widgets") && (
           <div className="px-4 py-2.5">
             <label className="flex items-center gap-2 rounded-md border border-surface-border bg-surface px-2.5 py-1.5 focus-within:border-accent/60">
               <Search size={13} className="text-text-dim" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search channels or widgets"
+                placeholder={
+                  tab === "html-widgets"
+                    ? "Search HTML widgets"
+                    : "Search channels or widgets"
+                }
                 className="flex-1 bg-transparent text-[12px] text-text placeholder-text-dim outline-none"
               />
               {query && (
@@ -279,6 +333,41 @@ export default function AddFromChannelSheet({
                 toast({
                   kind: "success",
                   message: `Added ${label} to ${dashboardName ?? "dashboard"}`,
+                  action: onPinned
+                    ? {
+                        label: "View",
+                        onClick: () => {
+                          onPinned(created.id);
+                          onClose();
+                        },
+                      }
+                    : undefined,
+                });
+                onPinned?.(created.id);
+              }}
+            />
+          )}
+          {tab === "html-widgets" && showHtmlWidgetsTab && scopeChannelId && (
+            <HtmlWidgetsTab
+              loaded={htmlWidgets}
+              loadError={htmlError}
+              query={query}
+              channelId={scopeChannelId}
+              existingPaths={existingHtmlPaths}
+              onPin={async (entry, envelope) => {
+                const absPath = `/workspace/channels/${scopeChannelId}/${entry.path}`;
+                const created = await pinWidget({
+                  source_kind: "channel",
+                  source_channel_id: scopeChannelId,
+                  source_bot_id: null,
+                  tool_name: "emit_html_widget",
+                  tool_args: { path: absPath },
+                  envelope,
+                  display_label: entry.display_label,
+                });
+                toast({
+                  kind: "success",
+                  message: `Added ${entry.display_label} to ${dashboardName ?? "dashboard"}`,
                   action: onPinned
                     ? {
                         label: "View",

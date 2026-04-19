@@ -14,6 +14,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useAdminBots } from "@/src/api/hooks/useBots";
+import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
 import { useUsageSummary, type CostByDimension } from "@/src/api/hooks/useUsage";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -171,10 +172,12 @@ function SortHeader({
 function BotCard({
   bot,
   usage,
+  ownerName,
   onPress,
 }: {
   bot: BotConfig;
   usage: CostByDimension | null;
+  ownerName: string | null;
   onPress: () => void;
 }) {
   const t = useThemeTokens();
@@ -252,6 +255,13 @@ function BotCard({
           }}
         >
           {bot.system_prompt.length > 140 ? bot.system_prompt.slice(0, 140) + "..." : bot.system_prompt}
+        </div>
+      )}
+
+      {/* Owner (admin view) */}
+      {ownerName && (
+        <div style={{ fontSize: 11, color: t.textDim }}>
+          Owned by {ownerName}
         </div>
       )}
 
@@ -348,6 +358,12 @@ export default function BotsScreen() {
 
   // Usage data for the past 30 days
   const { data: usageData } = useUsageSummary({ after: "30d" });
+  const { data: users } = useAdminUsers();
+  const userNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    (users ?? []).forEach((u) => m.set(u.id, u.display_name));
+    return m;
+  }, [users]);
 
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -559,6 +575,7 @@ export default function BotsScreen() {
                 key={bot.id}
                 bot={bot}
                 usage={usage}
+                ownerName={bot.user_id ? (userNameById.get(bot.user_id) ?? null) : null}
                 onPress={() => navigate(`/admin/bots/${bot.id}`)}
               />
             ))}

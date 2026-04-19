@@ -301,7 +301,6 @@ export default function ChatScreen() {
   );
 
   // ---- Workspace / file explorer state ----
-  const workspaceEnabled = channel?.channel_workspace_enabled;
   const workspaceId = channel?.resolved_workspace_id;
   const explorerWidth = useFileBrowserStore((s) => s.channelExplorerWidth);
   const setExplorerWidth = useFileBrowserStore((s) => s.setChannelExplorerWidth);
@@ -435,7 +434,7 @@ export default function ChatScreen() {
     const channelLabel = displayName ? `#${displayName}` : undefined;
     const actions: PaletteAction[] = [];
 
-    if (workspaceEnabled && workspaceId && !isSystemChannel) {
+    if (workspaceId && !isSystemChannel) {
       actions.push({
         id: `channel:${channelId}:browse-files`,
         label: "Browse files in this channel",
@@ -500,7 +499,6 @@ export default function ChatScreen() {
   }, [
     channelId,
     displayName,
-    workspaceEnabled,
     workspaceId,
     isSystemChannel,
     memberBotCount,
@@ -594,7 +592,6 @@ export default function ChatScreen() {
           channelModelOverride={channel?.model_override ?? undefined}
           columns={columns}
           goBack={goBack}
-          workspaceEnabled={workspaceEnabled}
           workspaceId={workspaceId}
           explorerOpen={explorerOpen}
           toggleExplorer={toggleExplorer}
@@ -702,7 +699,6 @@ export default function ChatScreen() {
                 workspaceId={workspaceId ?? undefined}
                 botId={channel?.bot_id}
                 channelDisplayName={channel?.display_name || channel?.name}
-                channelWorkspaceEnabled={!!workspaceEnabled}
                 activeFile={activeFile}
                 onSelectFile={handleSelectFile}
               />
@@ -734,7 +730,6 @@ export default function ChatScreen() {
                 workspaceId={workspaceId ?? undefined}
                 botId={channel?.bot_id}
                 channelDisplayName={channel?.display_name || channel?.name}
-                channelWorkspaceEnabled={!!workspaceEnabled}
                 activeFile={activeFile}
                 onSelectFile={handleSelectFile}
                 onClose={handleCloseExplorer}

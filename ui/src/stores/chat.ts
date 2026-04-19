@@ -49,13 +49,14 @@ export interface TurnState {
   lastEventAt: number;
   error?: string;
   llmStatus?: {
-    status: string; // "retry" | "fallback" | "cooldown_skip"
+    status: string; // "retry" | "fallback" | "cooldown_skip" | "error"
     model?: string;
     reason?: string;
     attempt?: number;
     maxRetries?: number;
     waitSeconds?: number;
     fallbackModel?: string;
+    error?: string;
   } | null;
 }
 
@@ -385,6 +386,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             max_retries?: number;
             wait_seconds?: number;
             fallback_model?: string;
+            error?: string;
           };
           updated = {
             ...turn,
@@ -396,6 +398,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               maxRetries: data.max_retries,
               waitSeconds: data.wait_seconds,
               fallbackModel: data.fallback_model,
+              error: data.error,
             },
           };
           break;

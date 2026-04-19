@@ -111,7 +111,6 @@ class ChannelOut(BaseModel):
     member_bots: list[dict] = []
     heartbeat_enabled: bool = False
     heartbeat_in_quiet_hours: bool = False
-    channel_workspace_enabled: Optional[bool] = None
     workspace_id: Optional[uuid.UUID] = None
     resolved_workspace_id: Optional[str] = None
     category: Optional[str] = None
@@ -378,7 +377,6 @@ class ChannelSettingsOut(BaseModel):
     client_tools_disabled: Optional[list[str]] = None
     # Workspace overrides (null = inherit from workspace)
     workspace_base_prompt_enabled: Optional[bool] = None
-    channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None
     workspace_schema_content: Optional[str] = None
     index_segments: list[dict] = []
@@ -449,7 +447,6 @@ class ChannelSettingsUpdate(BaseModel):
     client_tools_disabled: Optional[list[str]] = None
     # Workspace overrides (null = inherit from workspace)
     workspace_base_prompt_enabled: Optional[bool] = None
-    channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None
     workspace_schema_content: Optional[str] = None
     index_segments: Optional[list[dict]] = None
@@ -701,17 +698,8 @@ async def admin_channel_settings_update(
         channel.compaction_workspace_id = None
         channel.compaction_prompt_template_id = None
 
-    # Eagerly create channel workspace directory when enabling
-    if updates.get("channel_workspace_enabled"):
-        try:
-            bot = get_bot(channel.bot_id)
-            from app.services.channel_workspace import ensure_channel_workspace
-            ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
-        except Exception:
-            pass  # non-fatal — will be created on next message
-
-    # Update .channel_info when name changes and workspace is active
-    if "name" in updates and channel.channel_workspace_enabled:
+    # Refresh .channel_info on rename so the workspace dir mirrors the channel name.
+    if "name" in updates:
         try:
             bot = get_bot(channel.bot_id)
             from app.services.channel_workspace import ensure_channel_workspace
@@ -1204,18 +1192,17 @@ async def admin_channel_heartbeat_infer(
         ))
         prompt_text = result.prompt
 
-        # Write to channel workspace data/heartbeat.md if workspace is available
+        # Write to channel workspace data/heartbeat.md
         ws_file_path = None
         ws_id = None
-        if channel.channel_workspace_enabled:
-            try:
-                from app.services.channel_workspace import ensure_channel_workspace, write_workspace_file
-                ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
-                write_workspace_file(str(channel_id), bot, "data/heartbeat.md", prompt_text)
-                ws_file_path = f"channels/{channel_id}/data/heartbeat.md"
-                ws_id = bot.shared_workspace_id
-            except Exception:
-                logger.warning("Failed to write heartbeat.md for channel %s", channel_id, exc_info=True)
+        try:
+            from app.services.channel_workspace import ensure_channel_workspace, write_workspace_file
+            ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
+            write_workspace_file(str(channel_id), bot, "data/heartbeat.md", prompt_text)
+            ws_file_path = f"channels/{channel_id}/data/heartbeat.md"
+            ws_id = bot.shared_workspace_id
+        except Exception:
+            logger.warning("Failed to write heartbeat.md for channel %s", channel_id, exc_info=True)
 
         return InferHeartbeatOut(
             prompt=prompt_text,
@@ -1244,8 +1231,6 @@ async def admin_channel_reindex_segments(
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    if not channel.channel_workspace_enabled:
-        raise HTTPException(status_code=400, detail="Channel workspace not enabled")
 
     segments = channel.index_segments or []
     if not segments:

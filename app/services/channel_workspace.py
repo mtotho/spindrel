@@ -91,6 +91,20 @@ def get_channel_archive_root(channel_id: str, bot: "BotConfig") -> str:
     return os.path.join(get_channel_workspace_root(channel_id, bot), "archive")
 
 
+def get_channel_knowledge_base_root(channel_id: str, bot: "BotConfig") -> str:
+    """Returns {ws_root}/channels/{channel_id}/knowledge-base/ — the convention-based KB folder.
+
+    Every file dropped into this folder is auto-indexed and semantically retrievable
+    via auto-RAG + the search_channel_knowledge tool. No configuration required.
+    """
+    return os.path.join(get_channel_workspace_root(channel_id, bot), "knowledge-base")
+
+
+def get_channel_knowledge_base_index_prefix(channel_id: str) -> str:
+    """Returns the file_path prefix used by filesystem_chunks for channel KB content."""
+    return f"channels/{channel_id}/knowledge-base"
+
+
 def ensure_channel_workspace(
     channel_id: str,
     bot: "BotConfig",
@@ -103,7 +117,7 @@ def ensure_channel_workspace(
     # Migrate old broken directory structures
     _migrate_old_layout(ws_path, channel_id)
 
-    for subdir in ("archive", "data"):
+    for subdir in ("archive", "data", "knowledge-base"):
         os.makedirs(os.path.join(ws_path, subdir), exist_ok=True)
 
     # Write/update .channel_info so humans can identify UUID folders.

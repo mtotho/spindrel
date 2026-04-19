@@ -24,28 +24,6 @@ def _patch_manifests():
 
 
 class TestActivateEndpoint:
-    async def test_activate_requires_workspace(self, client, db_session, _patch_manifests):
-        """Activating MC on a channel without workspace → 400."""
-        from app.db.models import Channel
-
-        ch = Channel(
-            id=uuid.uuid4(),
-            name="no-workspace",
-            bot_id="test-bot",
-            channel_workspace_enabled=False,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-        db_session.add(ch)
-        await db_session.commit()
-
-        resp = await client.post(
-            f"/api/v1/channels/{ch.id}/integrations/mission_control/activate",
-            headers=AUTH_HEADERS,
-        )
-        assert resp.status_code == 400
-        assert "requires workspace" in resp.json()["detail"]
-
     async def test_activate_success(self, client, db_session, _patch_manifests):
         """Activating MC on a workspace-enabled channel succeeds."""
         from app.db.models import Channel

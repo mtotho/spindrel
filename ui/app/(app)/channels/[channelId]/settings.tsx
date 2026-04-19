@@ -163,7 +163,6 @@ export default function ChannelSettingsScreen() {
         channel_prompt_workspace_file_path: settings.channel_prompt_workspace_file_path,
         channel_prompt_workspace_id: settings.channel_prompt_workspace_id,
         workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
-        channel_workspace_enabled: settings.channel_workspace_enabled,
         workspace_schema_template_id: settings.workspace_schema_template_id,
         workspace_schema_content: settings.workspace_schema_content,
         index_segments: settings.index_segments ?? [],
@@ -431,8 +430,8 @@ export default function ChannelSettingsScreen() {
         {tab === "history" && (
           <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} memoryScheme={currentBot?.memory_scheme} botHistoryMode={currentBot?.history_mode} />
         )}
-        {tab === "capabilities" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} workspaceEnabled={!!form.channel_workspace_enabled} />}
-        {tab === "integrations" && <IntegrationsTab channelId={channelId!} workspaceEnabled={!!form.channel_workspace_enabled} />}
+        {tab === "capabilities" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />}
+        {tab === "integrations" && <IntegrationsTab channelId={channelId!} />}
         {tab === "attachments" && <AttachmentsTab channelId={channelId!} />}
         {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "pipelines" && <PipelinesTab channelId={channelId!} />}

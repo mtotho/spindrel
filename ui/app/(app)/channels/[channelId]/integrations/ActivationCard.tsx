@@ -84,18 +84,16 @@ function InjectionDetails({ ig, t }: { ig: ActivatableIntegration; t: any }) {
 export function ActivationCard({
   ig,
   channelId,
-  workspaceEnabled,
   toggling,
   onToggle,
 }: {
   ig: ActivatableIntegration;
   channelId: string;
-  workspaceEnabled: boolean;
   toggling: boolean;
   onToggle: () => void;
 }) {
   const t = useThemeTokens();
-  const disabled = ig.requires_workspace && !workspaceEnabled && !ig.activated;
+  const disabled = false;
 
   return (
     <div
@@ -153,9 +151,6 @@ export function ActivationCard({
               }}>
                 + {ig.includes.map(i => prettyIntegrationName(i)).join(", ")}
               </span>
-            )}
-            {ig.requires_workspace && !workspaceEnabled && (
-              <StatusBadge label="Requires workspace" variant="warning" />
             )}
           </div>
           {ig.description && (

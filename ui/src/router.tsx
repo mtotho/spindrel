@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, Outlet, useParams } from "react-router-d
 import { lazy } from "react";
 import { RootLayout } from "./layouts/RootLayout";
 import { AppShell } from "./components/layout/AppShell";
+import { AdminRoute } from "./components/routing/AdminRoute";
 
 /** Legacy redirect: `/admin/widget-packages/:packageId` → `/widgets/dev?id=...#templates`.
  *  The editor now lives inside the Widget dev panel as the Templates tab. */
@@ -148,10 +149,12 @@ export const router = createBrowserRouter([
           { path: "widgets/channel/:channelId", element: <WidgetsDashboard /> },
           { path: "widgets/:slug", element: <WidgetsDashboard /> },
 
-          // Admin
+          // Admin — gated to is_admin users. Non-admins see UnauthorizedCard
+          // regardless of which sub-route they land on. Backend also 403s via
+          // `verify_admin_auth` on every `/api/v1/admin/*` endpoint.
           {
             path: "admin",
-            element: <Outlet />,
+            element: <AdminRoute><Outlet /></AdminRoute>,
             children: [
               { path: "api-docs", element: <AdminApiDocs /> },
               { path: "api-keys", element: <AdminApiKeysIndex /> },

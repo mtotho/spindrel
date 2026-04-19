@@ -49,12 +49,10 @@ async def _require_channel_workspace(
     channel_id: uuid.UUID,
     db: AsyncSession,
 ) -> tuple[Channel, object]:
-    """Load channel, verify workspace is enabled, return (channel, bot)."""
+    """Load channel, return (channel, bot). Workspace is always provisioned."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(404, "Channel not found")
-    if not channel.channel_workspace_enabled:
-        raise HTTPException(400, "Channel workspace is not enabled")
     bot = _get_bot(channel.bot_id)
     return channel, bot
 
@@ -73,6 +71,24 @@ async def list_workspace_files(
     from app.services.channel_workspace import list_workspace_files as _list
     files = _list(str(channel_id), bot, include_archive=include_archive, include_data=include_data, data_prefix=data_prefix)
     return {"files": files}
+
+
+@router.get("/html-widgets")
+async def list_html_widgets(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:read")),
+):
+    """List standalone HTML widgets found in the channel workspace.
+
+    Walks any ``.html`` under a ``widgets/`` directory plus any ``.html``
+    referencing ``window.spindrel.*``. Frontmatter (YAML inside a leading
+    HTML comment) drives the display name / description / tags.
+    """
+    channel, bot = await _require_channel_workspace(channel_id, db)
+    from app.services.html_widget_scanner import scan_channel
+    widgets = scan_channel(str(channel_id), bot)
+    return {"widgets": widgets}
 
 
 @router.get("/files/content")

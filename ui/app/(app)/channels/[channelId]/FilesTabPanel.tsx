@@ -65,15 +65,10 @@ function getMemoryPath(botId: string, sharedWorkspace: boolean): string {
 
 function pickInitialPath(opts: {
   channelId: string;
-  channelWorkspaceEnabled: boolean;
-  botId: string | undefined;
-  sharedWorkspace: boolean;
   remembered: string | undefined;
 }): string {
   if (opts.remembered) return opts.remembered;
-  if (opts.channelWorkspaceEnabled) return `/channels/${opts.channelId}`;
-  if (opts.botId) return getMemoryPath(opts.botId, opts.sharedWorkspace);
-  return "/";
+  return `/channels/${opts.channelId}`;
 }
 
 interface FilesTabPanelProps {
@@ -81,7 +76,6 @@ interface FilesTabPanelProps {
   botId: string | undefined;
   workspaceId: string | undefined;
   channelDisplayName?: string | null;
-  channelWorkspaceEnabled: boolean;
   onSelectFile: (workspaceRelativePath: string) => void;
   /** When true the search filter opens focused on mount — wired to the
    *  Cmd+Shift+B global shortcut so "browse files" lands on search-ready. */
@@ -93,7 +87,6 @@ export function FilesTabPanel({
   botId,
   workspaceId,
   channelDisplayName,
-  channelWorkspaceEnabled,
   onSelectFile,
   focusSearchOnMount = false,
 }: FilesTabPanelProps) {
@@ -121,15 +114,12 @@ export function FilesTabPanel({
   }, [allChannels]);
 
   const memoryTarget = botId ? getMemoryPath(botId, sharedWorkspace) : null;
-  const channelTarget = channelWorkspaceEnabled ? `/channels/${channelId}` : null;
+  const channelTarget = `/channels/${channelId}`;
 
   const setRemembered = useFileBrowserStore((s) => s.setChannelExplorerPath);
   const [currentPath, setCurrentPathRaw] = useState<string>(() =>
     pickInitialPath({
       channelId,
-      channelWorkspaceEnabled,
-      botId,
-      sharedWorkspace,
       remembered: useFileBrowserStore.getState().channelExplorerPaths[channelId],
     }),
   );
@@ -147,13 +137,10 @@ export function FilesTabPanel({
     setCurrentPathRaw(
       pickInitialPath({
         channelId,
-        channelWorkspaceEnabled,
-        botId,
-        sharedWorkspace,
         remembered: useFileBrowserStore.getState().channelExplorerPaths[channelId],
       }),
     );
-  }, [channelId, channelWorkspaceEnabled, botId, sharedWorkspace]);
+  }, [channelId]);
 
   const [showFilter, setShowFilter] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -437,7 +424,7 @@ export function FilesTabPanel({
         },
       ];
 
-      if (channelWorkspaceEnabled && stripped.startsWith(`channels/${channelId}/`)) {
+      if (stripped.startsWith(`channels/${channelId}/`)) {
         const channelRel = stripped.slice(`channels/${channelId}/`.length);
         const basename = channelRel.includes("/") ? channelRel.substring(channelRel.lastIndexOf("/") + 1) : channelRel;
         if (channelRel.startsWith("archive/") || channelRel.startsWith("data/")) {
@@ -504,7 +491,7 @@ export function FilesTabPanel({
 
       setContextMenu({ x: e.clientX, y: e.clientY, items });
     },
-    [channelWorkspaceEnabled, channelId, moveChannel, onSelectFile, deleteEntry, pinnedPaths, queryClient, confirm],
+    [channelId, moveChannel, onSelectFile, deleteEntry, pinnedPaths, queryClient, confirm],
   );
 
   const openFolderContextMenu = useCallback(

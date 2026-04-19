@@ -219,6 +219,74 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
 @register({
     "type": "function",
     "function": {
+        "name": "search_channel_knowledge",
+        "description": (
+            "Search THIS channel's knowledge-base/ folder — the convention-based folder "
+            "every channel has for curated, long-lived facts that stay scoped to the room. "
+            "Prefer this over search_channel_workspace when the user is asking 'what do you "
+            "know about X' rather than 'where did we do X'. Scope is narrow: only files under "
+            "channels/{channel_id}/knowledge-base/. Use search_bot_knowledge for facts that "
+            "should travel with the bot across channels."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language lookup query.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}, requires_bot_context=True, requires_channel_context=True)
+async def search_channel_knowledge(query: str) -> str:
+    """Search the current channel's knowledge-base/ folder."""
+    bot, ch_id, ws_root, embedding_model = await _get_bot_and_roots()
+    if not bot or not ch_id:
+        return "Channel knowledge search is not available (no channel workspace context)."
+
+    query = (query or "").strip()
+    if not query:
+        return "No search query provided."
+
+    from app.services.channel_workspace import get_channel_knowledge_base_index_prefix
+    from app.services.channel_workspace_indexing import _get_channel_index_bot_id
+    from app.services.memory_search import hybrid_memory_search
+
+    sentinel = _get_channel_index_bot_id(ch_id)
+    prefix = get_channel_knowledge_base_index_prefix(ch_id)
+
+    try:
+        results = await hybrid_memory_search(
+            query=query,
+            bot_id=sentinel,
+            roots=[ws_root],
+            memory_prefix=prefix,
+            embedding_model=embedding_model,
+            top_k=10,
+        )
+    except Exception as exc:
+        logger.error("search_channel_knowledge failed for channel %s: %s", ch_id, exc)
+        return f"Channel knowledge search ERROR: {exc}"
+
+    if not results:
+        return "No matching content in this channel's knowledge base."
+
+    lines = []
+    for r in results:
+        content = r.content
+        if content.startswith("# "):
+            first_nl = content.find("\n")
+            if first_nl > 0:
+                content = content[first_nl + 1:]
+        lines.append(f"**{r.file_path}** (score: {r.score:.3f})\n{content.strip()}")
+    return "\n\n---\n\n".join(lines)
+
+
+@register({
+    "type": "function",
+    "function": {
         "name": "list_channels",
         "description": (
             "List all channels this bot belongs to (primary and member). "
@@ -252,7 +320,7 @@ async def list_channels() -> str:
             stmt = (
                 select(
                     Channel.id, Channel.name, Channel.client_id,
-                    Channel.bot_id, Channel.channel_workspace_enabled,
+                    Channel.bot_id,
                     BotRow.name.label("bot_name"),
                 )
                 .join(BotRow, BotRow.id == Channel.bot_id)
@@ -263,7 +331,7 @@ async def list_channels() -> str:
             stmt = (
                 select(
                     Channel.id, Channel.name, Channel.client_id,
-                    Channel.bot_id, Channel.channel_workspace_enabled,
+                    Channel.bot_id,
                 )
                 .where(bot_channel_filter(bot_id))
                 .order_by(Channel.name)
@@ -280,8 +348,6 @@ async def list_channels() -> str:
         flags = []
         if ch_str == my_ch_id:
             flags.append("current")
-        if row.channel_workspace_enabled:
-            flags.append("workspace")
         if cross_access:
             bot_label = row.bot_name or str(row.bot_id)
             own = " (yours)" if str(row.bot_id) == bot_id else ""

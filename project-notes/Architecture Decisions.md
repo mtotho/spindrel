@@ -8,6 +8,40 @@
 
 ## Key Decisions
 
+### Knowledge-base convention replaces manual segment UI as the default
+**Decided 2026-04-19.** Users had ≥4 overlapping knobs to teach a bot about files (`bot.workspace.indexing.segments`, `channel.index_segments`, legacy `bot.filesystem_indexes`, and auto-injected channel workspace files). All routed to the same backend; the surface was the mess. Replaced the defaults with a single convention: every channel has `channels/<id>/knowledge-base/`, every bot has `knowledge-base/` (standalone) or `bots/<id>/knowledge-base/` (shared-workspace). Both are auto-created on provisioning, auto-indexed under the default `**/*.md` patterns, auto-retrieved by the existing `_inject_workspace_rag` + `_inject_channel_workspace` paths, and have a narrow search tool each (`search_bot_knowledge`, `search_channel_knowledge`) that scopes `hybrid_memory_search` to the KB prefix.
+
+**Why the distinction matters.** Our own principle — "if the user has to choose, we failed" — was being violated every time someone opened ChannelWorkspaceTab and saw a path-prefix / pattern / top-k / threshold editor for what should be "drop a file in this folder and the bot will know." The convention ships zero-config; the editor stays as an Advanced disclosure for real power cases (external repos, per-prefix embedding models).
+
+**Load-bearing implementation choices.**
+- **No new DB table, no new schema.** KB files flow through the existing `filesystem_chunks` table via the existing default patterns. The convention is a filesystem convention + a retrieval-side implicit segment in `_inject_channel_workspace`, not a new indexer.
+- **Channel KB needs an extra retrieval.** Channel workspace chunks live under the `channel:{id}` sentinel `bot_id`. The bot's regular workspace RAG filters on `bot_id == bot.id OR NULL`, so channel KB content won't show up there — context_assembly always fires a second retrieval targeted at `channels/{id}/knowledge-base/` via `retrieve_filesystem_context`, whether or not `channel.index_segments` is configured.
+- **Subfolders are organizational only.** `knowledge-base/recipes/pasta.md` is indexed the same as `knowledge-base/pasta.md`. No `scope:` parameter on the search tools — reintroducing that would bring back the "pick a bucket" problem we're trying to kill.
+- **Existing segment configuration is untouched.** Custom segments compose with the implicit KB segment; explicit `path_prefix: "knowledge-base"` is deduplicated against the implicit one.
+
+Bot-facing skill at `skills/knowledge_bases.md` teaches the two tools + the write-where heuristic (memory.md for short behavioral notes; knowledge-base/ for browsable reference).
+
+### Tool Renderers vs HTML Widgets: Two Kinds, Not One
+**Decided 2026-04-19** (P3-1 — HTML widget catalog). The product has two "widget" concepts that answer different questions, and UI wording must not conflate them.
+
+- **Tool renderers** — YAML packages in `app/tools/**/*.widgets.yaml` and `integrations/*/tool_widgets.yaml`, seeded into `widget_template_packages`. They render a specific tool's output. Always tool-bound. Pinned indirectly (the user runs the tool, its envelope carries the rendered widget, they pin from "Recent calls"). Authoring audience: integration / template developers.
+- **HTML widgets** — bot/user-authored `.html` files in `/workspace/channels/<id>/**/widgets/**/*.html`. Standalone dashboard control surfaces. Pinned directly from a file path — no tool call needed. Authoring audience: bots running `emit_html_widget`, or users editing via the workspace file browser.
+
+**Why the distinction matters.** Before this decision the word "templates" was used for both, and `/widgets/dev#library` listed only tool renderers under that label — which made end-users think "templates" meant "things I can add to my dashboard." They aren't. Tool renderers are format definitions; HTML widgets are instances. Mixing them in any end-user picker routes the user to confusing UIs (pinning a tool renderer requires a tool call; pinning an HTML widget needs a file path).
+
+**Rules going forward.**
+- **Tool renderers never appear in end-user "Add widget" flows** — only via "Recent calls" after the underlying tool has run. They're an authoring artifact, not a catalog item.
+- **HTML widgets get their own surface**: a dedicated "HTML widgets" tab in `AddFromChannelSheet` (channel-scoped) and a labeled section in `/widgets/dev#library`. Neither surface conflates the two kinds.
+- **The dev-panel Library banner** must explain the distinction in one paragraph. If a future redesign collapses the two, revisit this decision first.
+
+**Storage asymmetry.** Tool renderers earn DB rows (seeded from immutable repo files, carry user-forked copies and `is_active` flags). HTML widgets ship as registry-only (live scan of the workspace, parsed frontmatter, mtime cache). Adding DB persistence for HTML widgets is a separate decision that requires a feature driver (favorites, cross-channel search, version-bump-notify) — don't introduce it just to symmetrize.
+
+**Frontmatter convention** (HTML widgets): leading HTML comment with a YAML block (`name`, `description`, `version`, `author`, `tags`, `icon`). Only `name` is required. Source of truth: `app/services/html_widget_scanner.py` parser + `skills/html_widgets.md` authoring guide.
+
+**Signals this decision is load-bearing.** If you catch yourself writing a "Templates" filter that mixes both kinds, or adding "HTML widget" metadata to `widget_template_packages`, stop — you're collapsing the boundary that made the UX legible.
+
+---
+
 ### Widget Pin Identity: Write-Once at Create, Never Mutated by Refresh
 **Decided 2026-04-19** (session 13, after ~10 recurring shapes of the "dashboard widget mints 400" bug).
 

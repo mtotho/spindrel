@@ -545,6 +545,7 @@ interface Props {
     maxRetries?: number;
     waitSeconds?: number;
     fallbackModel?: string;
+    error?: string;
   } | null;
 }
 
@@ -553,7 +554,11 @@ function LlmStatusBadge({ status, t }: { status: NonNullable<Props["llmStatus"]>
   let icon: React.ReactNode;
   let label: string;
 
-  if (status.status === "fallback") {
+  if (status.status === "error") {
+    icon = <ImageOff size={11} color={t.danger} />;
+    const detail = status.error || status.reason || "LLM call failed";
+    label = `LLM error: ${detail.slice(0, 120)}`;
+  } else if (status.status === "fallback") {
     icon = <ArrowRightLeft size={11} color={t.warning} />;
     label = status.fallbackModel
       ? `Switching to ${status.fallbackModel}...`

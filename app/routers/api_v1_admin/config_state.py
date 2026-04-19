@@ -392,7 +392,6 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 "section_index_count": row.get("section_index_count"),
                 "section_index_verbosity": row.get("section_index_verbosity"),
                 "context_pruning": row.get("context_pruning"),
-                "channel_workspace_enabled": row.get("channel_workspace_enabled"),
             }
             stmt = pg_insert(Channel).values(id=row["id"], **vals)
             stmt = stmt.on_conflict_do_update(index_elements=["id"], set_=vals)

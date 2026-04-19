@@ -136,7 +136,7 @@ async def _gather_context(field_type: str, bot_id: str | None, channel_id: str |
             parts.append("\n".join(info))
 
     # Workspace file names
-    if spec.get("workspace_files") and channel and channel.channel_workspace_enabled and bot:
+    if spec.get("workspace_files") and channel and bot:
         try:
             from app.services.channel_workspace import list_workspace_files
             files = list_workspace_files(str(channel.id), bot)

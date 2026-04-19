@@ -313,6 +313,27 @@ async def emit_run_stream_events(
                 ),
             )
 
+        elif etype == "llm_error":
+            # Terminal failure from the fallback chain — all models tried,
+            # none succeeded. Publishing gets the error into the UI's live
+            # LLM-status chip alongside the trace record emitted by
+            # ``app/agent/loop.py``.
+            publish_typed(
+                channel_id,
+                ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.LLM_STATUS,
+                    payload=LlmStatusPayload(
+                        bot_id=bot_id,
+                        turn_id=turn_id,
+                        status="error",
+                        model=str(event.get("model", "")),
+                        reason=str(event.get("reason", "")),
+                        error=str(event.get("error", "")),
+                    ),
+                ),
+            )
+
         elif etype == "auto_inject":
             publish_typed(
                 channel_id,

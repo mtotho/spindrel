@@ -27,8 +27,6 @@ A single bot can have many channels (different users, different projects). When 
 call_api("GET", "/api/v1/channels")                              # List all channels
 call_api("POST", "/api/v1/channels",
          body='{"bot_id":"researcher","name":"Auth Research"}')  # Create a channel
-call_api("PATCH", "/api/v1/channels/{id}/config",
-         body='{"channel_workspace_enabled":true}')              # Enable channel workspace
 ```
 
 Channels are the primary unit of project context. When users mention "projects" or "conversations", they typically mean channels.

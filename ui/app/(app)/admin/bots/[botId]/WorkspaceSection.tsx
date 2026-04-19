@@ -323,6 +323,18 @@ export function WorkspaceSection({
             </div>
           )}
 
+          {/* Knowledge-base convention banner */}
+          <div style={{
+            padding: "10px 14px", background: t.accentSubtle,
+            border: `1px solid ${t.accentBorder}`, borderRadius: 8,
+            fontSize: 11, color: t.textMuted, lineHeight: 1.5,
+          }}>
+            <span style={{ fontWeight: 600, color: t.accent }}>Knowledge-base is automatic</span>
+            {" "}— this bot has a <span style={{ fontFamily: "monospace" }}>
+              {inSharedWorkspace ? `bots/${draft.id}/knowledge-base/` : "knowledge-base/"}
+            </span> folder that is auto-indexed and searchable via search_bot_knowledge. Drop curated facts in there; the settings below are only needed for external repos or per-prefix embedding models.
+          </div>
+
           {/* Indexing panel */}
           <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
             <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>

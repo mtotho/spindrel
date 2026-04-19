@@ -16,6 +16,7 @@ import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt
 import {
   TextInput, SelectInput, Toggle, FormRow, Row, Col,
 } from "@/src/components/shared/FormControls";
+import { UserSelect } from "@/src/components/shared/UserSelect";
 import type { BotConfig, BotEditorData } from "@/src/types/api";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
@@ -278,6 +279,12 @@ export default function BotEditorScreen() {
                 <FallbackModelList
                   value={draft.fallback_models ?? []}
                   onChange={(v) => update({ fallback_models: v })}
+                />
+              </FormRow>
+              <FormRow label="Owner" description="User who owns this bot. Admins can reassign.">
+                <UserSelect
+                  value={draft.user_id ?? null}
+                  onChange={(v) => update({ user_id: v })}
                 />
               </FormRow>
               {editorData.model_param_definitions?.length > 0 && (

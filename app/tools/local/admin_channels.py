@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
                     "description": (
                         "Channel configuration for configure. Keys: "
                         "workspace_schema_template_id, heartbeat_enabled, "
-                        "channel_workspace_enabled, context_compaction, "
+                        "context_compaction, "
                         "model_override, display_name, channel_prompt, "
                         "workspace_id (UUID string or null to assign/clear workspace), "
                         "carapaces_extra (list of carapace IDs to add), "
@@ -137,7 +137,7 @@ async def manage_channel(
             simple_fields = [
                 "display_name", "channel_prompt", "model_override",
                 "context_compaction", "compaction_interval", "compaction_keep_turns",
-                "channel_workspace_enabled", "require_mention",
+                "require_mention",
                 "workspace_schema_template_id",
                 "carapaces_extra", "carapaces_disabled",
             ]

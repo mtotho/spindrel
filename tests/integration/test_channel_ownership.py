@@ -241,6 +241,39 @@ class TestChannelOutSchema:
         assert body["private"] is False
         assert "user_id" in body
 
+    async def test_create_channel_honors_body_user_id_for_admin_key(self, client, db_session):
+        """Admin-scoped API key callers may pre-assign owner via body.user_id.
+        Phase 3 UI new-channel wizard uses this to let admins reassign on create.
+        """
+        user = await _create_user(db_session)
+        await db_session.commit()
+        resp = await client.post(
+            "/api/v1/channels",
+            json={
+                "bot_id": "test-bot",
+                "client_id": f"owner-assign-{uuid.uuid4().hex[:8]}",
+                "user_id": str(user.id),
+                "private": True,
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["user_id"] == str(user.id)
+        assert body["private"] is True
+
+    async def test_create_channel_rejects_invalid_user_id(self, client):
+        resp = await client.post(
+            "/api/v1/channels",
+            json={
+                "bot_id": "test-bot",
+                "client_id": f"owner-bad-{uuid.uuid4().hex[:8]}",
+                "user_id": "not-a-uuid",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 400
+
     async def test_list_channels_returns_private_field(self, client):
         await client.post(
             "/api/v1/channels",

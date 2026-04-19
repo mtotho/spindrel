@@ -46,6 +46,7 @@ import {
 import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
 import { useSidebarSections, useIntegrations } from "../../api/hooks/useIntegrations";
+import { useIsAdmin } from "../../hooks/useScope";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useThemeTokens } from "../../theme/tokens";
 import { useUIStore, type RecentPage } from "../../stores/ui";
@@ -392,6 +393,7 @@ export function CommandPaletteContent({
   const { data: sidebarData } = useSidebarSections();
   const { data: integrationsData } = useIntegrations();
   const registeredActions = usePaletteActions((s) => s.actions);
+  const isAdmin = useIsAdmin();
 
   // Build flat item list
   const allItems = useMemo<PaletteItem[]>(() => {
@@ -458,59 +460,64 @@ export function CommandPaletteContent({
           label: ch.name,
           hint: hintParts.length ? hintParts.join(" · ") : undefined,
           href: `/channels/${ch.id}`,
-          icon: Hash,
+          icon: ch.private ? Lock : Hash,
           category: "Channels",
         });
       }
     }
 
-    if (bots) {
-      for (const bot of bots) {
-        items.push({
-          id: `bot-${bot.id}`,
-          label: bot.name,
-          hint: "Edit bot",
-          href: `/admin/bots/${bot.id}`,
-          icon: Bot,
-          category: "Bots",
-        });
-      }
-    }
-
-    items.push(...ADMIN_ITEMS);
-
-    if (integrationsData?.integrations) {
-      for (const int of integrationsData.integrations) {
-        // Only surface integrations the user has adopted.
-        if (int.lifecycle_status === "available") continue;
-        items.push({
-          id: `integration-${int.id}`,
-          label: int.name,
-          hint: "Integration",
-          href: `/admin/integrations/${int.id}`,
-          icon: Plug,
-          category: "Integrations",
-        });
-      }
-    }
-
-    if (sidebarData?.sections) {
-      for (const section of sidebarData.sections) {
-        for (const item of section.items) {
+    // Admin-only surfaces: bot edit, ADMIN_ITEMS, integration admin pages,
+    // sidebar sections (which point into /admin/*). Skip for non-admins so
+    // they don't see chrome that 403s on click.
+    if (isAdmin) {
+      if (bots) {
+        for (const bot of bots) {
           items.push({
-            id: `int-${section.id}-${item.href}`,
-            label: item.label,
-            hint: section.title,
-            href: item.href,
-            icon: Plug,
-            category: section.title,
+            id: `bot-${bot.id}`,
+            label: bot.name,
+            hint: "Edit bot",
+            href: `/admin/bots/${bot.id}`,
+            icon: Bot,
+            category: "Bots",
           });
+        }
+      }
+
+      items.push(...ADMIN_ITEMS);
+
+      if (integrationsData?.integrations) {
+        for (const int of integrationsData.integrations) {
+          // Only surface integrations the user has adopted.
+          if (int.lifecycle_status === "available") continue;
+          items.push({
+            id: `integration-${int.id}`,
+            label: int.name,
+            hint: "Integration",
+            href: `/admin/integrations/${int.id}`,
+            icon: Plug,
+            category: "Integrations",
+          });
+        }
+      }
+
+      if (sidebarData?.sections) {
+        for (const section of sidebarData.sections) {
+          for (const item of section.items) {
+            items.push({
+              id: `int-${section.id}-${item.href}`,
+              label: item.label,
+              hint: section.title,
+              href: item.href,
+              icon: Plug,
+              category: section.title,
+            });
+          }
         }
       }
     }
 
     return items;
-  }, [channels, bots, sidebarData, integrationsData, registeredActions]);
+  }, [channels, bots, sidebarData, integrationsData, registeredActions, isAdmin]);
 
   // Recent pages from persisted store
   const recentPages = useUIStore((s) => s.recentPages);
@@ -564,6 +571,7 @@ export function CommandPaletteContent({
       for (const rp of recentPages) {
         if (recentItems.length >= recentLimit) break;
         if (rp.href === currentHref) continue;
+        if (!isAdmin && rp.href.startsWith("/admin/")) continue;
         const resolved = resolveRecent(rp);
         if (resolved) {
           recentItems.push({ item: { ...resolved, category: "Recent" }, score: 2, matchIndices: [] });
@@ -585,6 +593,7 @@ export function CommandPaletteContent({
     const syntheticRecents: PaletteItem[] = [];
     for (const rp of recentPages) {
       if (allItemsByHref.has(rp.href)) continue;
+      if (!isAdmin && rp.href.startsWith("/admin/")) continue;
       const resolved = resolveRecent(rp);
       if (resolved) syntheticRecents.push(resolved);
     }
@@ -616,7 +625,7 @@ export function CommandPaletteContent({
       .filter((r) => r.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 30);
-  }, [query, allItems, recentPages, currentHref, recentsExpanded, resolveRecent]);
+  }, [query, allItems, recentPages, currentHref, recentsExpanded, resolveRecent, isAdmin]);
 
   // Count how many valid recents exist (for show-more toggle)
   const totalRecents = useMemo(() => {

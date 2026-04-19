@@ -389,7 +389,6 @@ export interface Channel {
   member_bots?: ChannelBotMember[];
   heartbeat_enabled?: boolean;
   heartbeat_in_quiet_hours?: boolean;
-  channel_workspace_enabled?: boolean;
   workspace_id?: string | null;
   resolved_workspace_id?: string | null;
   config?: {
@@ -428,6 +427,34 @@ export interface PinnedWidget {
    *  and exposed as `{{config.*}}` in widget + state_poll templates. Flipped
    *  via `{dispatch: "widget_config"}` actions. */
   config?: Record<string, unknown>;
+}
+
+/** Scanner result for a standalone HTML widget discovered in a channel's
+ *  workspace. Surfaced in the Add-widget sheet's "HTML widgets" tab and the
+ *  dev panel Library. See `app/services/html_widget_scanner.py`. */
+export interface HtmlWidgetEntry {
+  /** Channel-workspace-relative path, e.g. `data/widgets/project-status/index.html`. */
+  path: string;
+  /** Display slug derived from the path (parent dir name for `index.html`, else file stem). */
+  slug: string;
+  /** Frontmatter `name` or slug fallback. */
+  name: string;
+  description: string;
+  /** Frontmatter `display_label` or `name`. */
+  display_label: string;
+  /** Semver string; defaults to `"0.0.0"` when missing. */
+  version: string;
+  author: string | null;
+  tags: string[];
+  /** Lucide-react icon name, or null for the default. */
+  icon: string | null;
+  /** True when the file lives under a directory named `widgets/`. */
+  is_bundle: boolean;
+  /** True when the file was matched only by the `window.spindrel.*` grep
+   *  rule — lives outside a `widgets/` folder. UI shows a "loose" badge. */
+  is_loose: boolean;
+  size: number;
+  modified_at: number;
 }
 
 /** A widget pinned to the chat-less `/widgets` dashboard. Row shape mirrors
@@ -514,8 +541,6 @@ export interface ChannelSettings {
   client_tools_disabled?: string[] | null;
   // Workspace overrides
   workspace_base_prompt_enabled?: boolean | null;
-  // Channel workspace
-  channel_workspace_enabled?: boolean | null;
   workspace_schema_template_id?: string | null;
   workspace_schema_content?: string | null;
   index_segments?: Array<{ path_prefix: string; patterns?: string[]; embedding_model?: string | null; similarity_threshold?: number; top_k?: number }>;

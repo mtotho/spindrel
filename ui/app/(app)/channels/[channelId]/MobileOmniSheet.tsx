@@ -24,7 +24,6 @@ interface MobileOmniSheetProps {
   workspaceId: string | undefined;
   botId: string | undefined;
   channelDisplayName?: string | null;
-  channelWorkspaceEnabled: boolean;
   activeFile: string | null;
   onSelectFile: (path: string) => void;
 }
@@ -43,7 +42,6 @@ export function MobileOmniSheet({
   workspaceId,
   botId,
   channelDisplayName,
-  channelWorkspaceEnabled,
   activeFile,
   onSelectFile,
 }: MobileOmniSheetProps) {
@@ -138,7 +136,6 @@ export function MobileOmniSheet({
             workspaceId={workspaceId}
             botId={botId}
             channelDisplayName={channelDisplayName}
-            channelWorkspaceEnabled={channelWorkspaceEnabled}
             activeFile={activeFile}
             onSelectFile={onSelectFile}
             onClose={onClose}

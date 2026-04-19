@@ -262,7 +262,6 @@ async def assemble_config_state(db) -> dict:
             "section_index_count": ch.section_index_count,
             "section_index_verbosity": ch.section_index_verbosity,
             "context_pruning": ch.context_pruning,
-            "channel_workspace_enabled": ch.channel_workspace_enabled,
         }
         for ch in channel_rows
     ]

@@ -51,8 +51,10 @@ class ChannelCreate(BaseModel):
     integration: Optional[str] = None
     dispatch_config: Optional[dict] = None
     private: bool = False
+    # Admin-only: assign a specific owner. Non-admin callers always become the
+    # owner regardless of this field (enforced below).
+    user_id: Optional[str] = None
     # Wizard fields (all optional for backwards compatibility)
-    channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[str] = None  # UUID string
     category: Optional[str] = None
     model_override: Optional[str] = None
@@ -100,7 +102,6 @@ class ChannelOut(BaseModel):
     model_provider_id_override: Optional[str] = None
     integrations: list[IntegrationBindingOut] = []
     member_bots: list[ChannelBotMemberOut] = []
-    channel_workspace_enabled: Optional[bool] = None
     workspace_id: Optional[uuid.UUID] = None
     resolved_workspace_id: Optional[str] = None
     config: dict = {}
@@ -205,7 +206,6 @@ class ChannelConfigOut(BaseModel):
     mcp_servers_disabled: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
     workspace_base_prompt_enabled: Optional[bool] = None
-    channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None
     workspace_schema_content: Optional[str] = None
     index_segments: list[dict] = []
@@ -267,7 +267,6 @@ class ChannelConfigUpdate(BaseModel):
     mcp_servers_disabled: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
     workspace_base_prompt_enabled: Optional[bool] = None
-    channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None
     workspace_schema_content: Optional[str] = None
     index_segments: Optional[list[dict]] = None
@@ -320,8 +319,7 @@ async def create_channel(
     """Create or retrieve a channel.
 
     Supports optional wizard fields for one-call channel setup:
-    model_override, channel_workspace_enabled, workspace_schema_template_id,
-    category, activate_integrations.
+    model_override, workspace_schema_template_id, category, activate_integrations.
     """
     from app.agent.bots import ensure_default_bot, get_bot
     from app.db.models import PromptTemplate, User
@@ -335,7 +333,21 @@ async def create_channel(
     except HTTPException:
         raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
 
-    user_id = auth_result.id if isinstance(auth_result, User) else None
+    # Non-admins always own what they create. Admins may reassign by passing
+    # body.user_id. Matches the Phase 3/4 invariant: scope governs API surface;
+    # ownership governs row access.
+    auth_user = auth_result if isinstance(auth_result, User) else None
+    if auth_user and not auth_user.is_admin:
+        user_id = auth_user.id
+    elif body.user_id:
+        try:
+            user_id = uuid.UUID(body.user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid user_id")
+    elif auth_user:
+        user_id = auth_user.id
+    else:
+        user_id = None
 
     channel = await get_or_create_channel(
         db,
@@ -353,15 +365,14 @@ async def create_channel(
     if body.model_override is not None:
         channel.model_override = body.model_override
 
-    if body.channel_workspace_enabled is not None:
-        channel.channel_workspace_enabled = body.channel_workspace_enabled
-        if body.channel_workspace_enabled:
-            try:
-                bot = get_bot(channel.bot_id)
-                from app.services.channel_workspace import ensure_channel_workspace
-                ensure_channel_workspace(str(channel.id), bot, display_name=channel.name)
-            except Exception:
-                pass  # non-fatal
+    # Workspace is on by every channel — provision the dir up-front so
+    # downstream features (file browser, MC, HTML widgets) just work.
+    try:
+        bot = get_bot(channel.bot_id)
+        from app.services.channel_workspace import ensure_channel_workspace
+        ensure_channel_workspace(str(channel.id), bot, display_name=channel.name)
+    except Exception:
+        pass  # non-fatal
 
     if body.workspace_schema_template_id is not None:
         try:
@@ -391,9 +402,6 @@ async def create_channel(
             manifest = manifests.get(int_type)
             if not manifest:
                 activation_warnings.append({"code": "unknown_integration", "message": f"No activation manifest for '{int_type}'"})
-                continue
-            if manifest.get("requires_workspace") and not channel.channel_workspace_enabled:
-                activation_warnings.append({"code": "requires_workspace", "message": f"Integration '{int_type}' requires workspace — skipped"})
                 continue
             # Check if already activated
             existing = (await db.execute(
@@ -698,7 +706,6 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "mcp_servers_disabled": channel.mcp_servers_disabled,
         "client_tools_disabled": channel.client_tools_disabled,
         "workspace_base_prompt_enabled": channel.workspace_base_prompt_enabled,
-        "channel_workspace_enabled": channel.channel_workspace_enabled,
         "workspace_schema_template_id": channel.workspace_schema_template_id,
         "workspace_schema_content": channel.workspace_schema_content,
         "index_segments": channel.index_segments or [],
@@ -1594,12 +1601,6 @@ async def activate_integration(
     manifest = manifests.get(integration_type)
     if not manifest:
         raise HTTPException(status_code=404, detail=f"No activation manifest for '{integration_type}'")
-
-    if manifest.get("requires_workspace") and not channel.channel_workspace_enabled:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Integration '{integration_type}' requires workspace to be enabled on this channel",
-        )
 
     # Find or create ChannelIntegration row
     existing = (await db.execute(

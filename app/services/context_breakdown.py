@@ -280,7 +280,7 @@ async def compute_context_breakdown(
         ))
 
     # Channel workspace active files (injected every turn as static context)
-    if getattr(channel, "channel_workspace_enabled", False):
+    if channel is not None:
         try:
             import os as _cw_os
             from app.services.channel_workspace import get_channel_workspace_root

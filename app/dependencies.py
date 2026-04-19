@@ -5,6 +5,8 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from uuid import UUID
 
+from typing import Optional
+
 from fastapi import Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,7 +70,7 @@ async def verify_user(
 
 
 async def verify_auth_or_user(
-    authorization: str = Header(...),
+    authorization: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Accept API key (static or scoped), or JWT.
@@ -78,6 +80,8 @@ async def verify_auth_or_user(
     - ApiKeyAuth: scoped API key
     - User: JWT-authenticated user
     """
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header required")
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     token = authorization.removeprefix("Bearer ")

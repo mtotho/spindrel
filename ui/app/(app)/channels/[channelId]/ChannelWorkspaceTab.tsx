@@ -1,13 +1,13 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useState } from "react";
 import {
-  ExternalLink, Plus, X, RefreshCw, FolderSearch,
+  ExternalLink, Plus, X, RefreshCw, FolderSearch, BookOpen,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
-  Section, Toggle, EmptyState, TextInput, FormRow, SelectInput,
+  Section, EmptyState, TextInput, FormRow, SelectInput,
 } from "@/src/components/shared/FormControls";
 import { AdvancedSection } from "@/src/components/shared/SettingsControls";
 import { WorkspaceSchemaEditor } from "@/src/components/shared/WorkspaceSchemaEditor";
@@ -92,6 +92,84 @@ function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; chann
 
 
 // ---------------------------------------------------------------------------
+// Knowledge Base — convention-based auto-indexed folder (primary surface)
+// ---------------------------------------------------------------------------
+function KnowledgeBaseSection({
+  workspaceId,
+  channelId,
+}: {
+  workspaceId?: string;
+  channelId: string;
+}) {
+  const t = useThemeTokens();
+  const expandDir = useFileBrowserStore((s) => s.expandDir);
+
+  const handleBrowse = () => {
+    const segments = [
+      "channels",
+      `channels/${channelId}`,
+      `channels/${channelId}/knowledge-base`,
+    ];
+    for (const seg of segments) {
+      expandDir(seg);
+    }
+  };
+
+  return (
+    <Section
+      title="Knowledge Base"
+      description={
+        "Drop files into this channel's knowledge-base/ folder. They are auto-indexed " +
+        "and surfaced to the bot via auto-retrieval and the search_channel_knowledge tool. " +
+        "No configuration required."
+      }
+    >
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          padding: 12,
+          borderRadius: 8,
+          backgroundColor: t.surfaceOverlay,
+        }}
+      >
+        <BookOpen size={18} color={t.accent} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ color: t.text, fontSize: 13, fontWeight: "600", fontFamily: "monospace" }}>
+            channels/{channelId}/knowledge-base/
+          </span>
+          <span style={{ color: t.textDim, fontSize: 11 }}>
+            Subfolders inside are organizational — everything is indexed recursively.
+          </span>
+        </div>
+        {workspaceId && (
+          <Link
+            to={`/admin/workspaces/${workspaceId}/files`}
+            onClick={handleBrowse}
+            style={{
+              display: "inline-flex",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: `1px solid ${t.surfaceBorder}`,
+              backgroundColor: t.surfaceRaised,
+              textDecoration: "none",
+            }}
+          >
+            <ExternalLink size={12} color={t.accent} />
+            <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>Browse</span>
+          </Link>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Helper: display value with inherited default
 // ---------------------------------------------------------------------------
 function DefaultHint({ value, defaultValue, label }: { value: string | undefined | null; defaultValue: string; label?: string }) {
@@ -170,8 +248,8 @@ function IndexedDirectoriesSection({
 
   return (
     <Section
-      title="Indexed Directories"
-      description="Additional folders to index for semantic search. Contents are automatically retrieved and injected into context when relevant to the conversation."
+      title="Custom Indexed Directories"
+      description="Advanced — for external repos or when you need a non-default embedding model per prefix. Most channels only need the Knowledge Base above; files you drop there are indexed automatically."
       action={
         <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
           <button type="button"
@@ -363,7 +441,6 @@ export function ChannelWorkspaceTab({
   workspaceId,
   indexSegmentDefaults,
   hasSharedWorkspace,
-  sharedWorkspaceId,
 }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
@@ -373,84 +450,70 @@ export function ChannelWorkspaceTab({
   hasSharedWorkspace?: boolean;
   sharedWorkspaceId?: string | null;
 }) {
-  const t = useThemeTokens();
-  const enabled = !!form.channel_workspace_enabled;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   return (
     <>
-      {/* Channel workspace — persistent working documents */}
-      <Section title="Channel Workspace" description="Persistent working documents for this channel. Auto-injected into every request when enabled.">
-        <Toggle
-          label="Enable channel workspace"
-          value={enabled}
-          onChange={(v) => patch("channel_workspace_enabled", v)}
-        />
-      </Section>
+      <KnowledgeBaseSection workspaceId={workspaceId} channelId={channelId} />
 
-      {enabled && (
-        <>
-          {workspaceId && (
-            <Section title="Workspace Access" description="Open the channel workspace folder in the file browser or VS Code editor.">
-              <WorkspaceLinks workspaceId={workspaceId} channelId={channelId} />
-            </Section>
-          )}
-
-          <ChannelFileBrowser
-            channelId={channelId}
-            selectedPath={selectedPath}
-            onSelect={setSelectedPath}
-          />
-
-          {selectedPath && (
-            <Section title="File Content">
-              <FileViewer channelId={channelId} path={selectedPath} />
-            </Section>
-          )}
-
-          <AdvancedSection title="Advanced Workspace Settings">
-            <Section
-              title="Organization Template"
-              description="Optional template defining how workspace files should be structured. Integrations with capabilities (e.g. Mission Control) teach file organization automatically."
-            >
-              <WorkspaceSchemaEditor
-                templateId={form.workspace_schema_template_id ?? null}
-                schemaContent={form.workspace_schema_content ?? null}
-                onTemplateChange={(id) => {
-                  patch("workspace_schema_template_id", id);
-                }}
-                onContentChange={(content) => {
-                  patch("workspace_schema_content", content);
-                }}
-              />
-            </Section>
-
-            <IndexedDirectoriesSection
-              segments={form.index_segments ?? []}
-              onChange={(segs) => patch("index_segments", segs)}
-              channelId={channelId}
-              defaults={indexSegmentDefaults}
-            />
-
-            {/* Shared workspace overrides — only when bot has a workspace */}
-            {hasSharedWorkspace && (
-              <Section title="Shared Workspace Overrides" description="Override workspace-level settings for this channel. These control features inherited from the bot's shared workspace.">
-                <FormRow label="Workspace base prompt" description="common/prompts/base.md from the workspace replaces the global base prompt. Per-bot additions concatenated after.">
-                  <SelectInput
-                    value={form.workspace_base_prompt_enabled === null || form.workspace_base_prompt_enabled === undefined ? "inherit" : form.workspace_base_prompt_enabled ? "on" : "off"}
-                    options={[
-                      { label: "Inherit from workspace", value: "inherit" },
-                      { label: "Enabled", value: "on" },
-                      { label: "Disabled", value: "off" },
-                    ]}
-                    onChange={(v) => patch("workspace_base_prompt_enabled" as any, v === "inherit" ? null : v === "on")}
-                  />
-                </FormRow>
-              </Section>
-            )}
-          </AdvancedSection>
-        </>
+      {workspaceId && (
+        <Section title="Workspace Access" description="Open the channel workspace folder in the file browser or VS Code editor.">
+          <WorkspaceLinks workspaceId={workspaceId} channelId={channelId} />
+        </Section>
       )}
+
+      <ChannelFileBrowser
+        channelId={channelId}
+        selectedPath={selectedPath}
+        onSelect={setSelectedPath}
+      />
+
+      {selectedPath && (
+        <Section title="File Content">
+          <FileViewer channelId={channelId} path={selectedPath} />
+        </Section>
+      )}
+
+      <AdvancedSection title="Advanced Workspace Settings">
+        <Section
+          title="Organization Template"
+          description="Optional template defining how workspace files should be structured. Integrations with capabilities (e.g. Mission Control) teach file organization automatically."
+        >
+          <WorkspaceSchemaEditor
+            templateId={form.workspace_schema_template_id ?? null}
+            schemaContent={form.workspace_schema_content ?? null}
+            onTemplateChange={(id) => {
+              patch("workspace_schema_template_id", id);
+            }}
+            onContentChange={(content) => {
+              patch("workspace_schema_content", content);
+            }}
+          />
+        </Section>
+
+        <IndexedDirectoriesSection
+          segments={form.index_segments ?? []}
+          onChange={(segs) => patch("index_segments", segs)}
+          channelId={channelId}
+          defaults={indexSegmentDefaults}
+        />
+
+        {hasSharedWorkspace && (
+          <Section title="Shared Workspace Overrides" description="Override workspace-level settings for this channel. These control features inherited from the bot's shared workspace.">
+            <FormRow label="Workspace base prompt" description="common/prompts/base.md from the workspace replaces the global base prompt. Per-bot additions concatenated after.">
+              <SelectInput
+                value={form.workspace_base_prompt_enabled === null || form.workspace_base_prompt_enabled === undefined ? "inherit" : form.workspace_base_prompt_enabled ? "on" : "off"}
+                options={[
+                  { label: "Inherit from workspace", value: "inherit" },
+                  { label: "Enabled", value: "on" },
+                  { label: "Disabled", value: "off" },
+                ]}
+                onChange={(v) => patch("workspace_base_prompt_enabled" as any, v === "inherit" ? null : v === "on")}
+              />
+            </FormRow>
+          </Section>
+        )}
+      </AdvancedSection>
     </>
   );
 }

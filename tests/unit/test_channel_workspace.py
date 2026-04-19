@@ -375,13 +375,30 @@ class TestChannelWorkspaceFileOps:
                     delete_workspace_file("ch-1", bot, "nonexistent.md")
 
     def test_ensure_channel_workspace_creates_data_dir(self):
-        """ensure_channel_workspace creates both archive/ and data/ subdirs."""
+        """ensure_channel_workspace creates archive/, data/, and knowledge-base/ subdirs."""
         from app.services.channel_workspace import ensure_channel_workspace
         bot = _make_bot()
         with tempfile.TemporaryDirectory() as tmp:
             with patch("app.services.channel_workspace._get_ws_root", return_value=tmp):
                 root = ensure_channel_workspace("ch-1", bot)
                 assert os.path.isdir(os.path.join(root, "data"))
+
+    def test_ensure_channel_workspace_creates_knowledge_base_dir(self):
+        """Every channel gets an auto-indexed knowledge-base/ folder by convention."""
+        from app.services.channel_workspace import (
+            ensure_channel_workspace,
+            get_channel_knowledge_base_root,
+            get_channel_knowledge_base_index_prefix,
+        )
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("app.services.channel_workspace._get_ws_root", return_value=tmp):
+                root = ensure_channel_workspace("ch-42", bot)
+                kb_root = os.path.join(root, "knowledge-base")
+                assert os.path.isdir(kb_root)
+                assert get_channel_knowledge_base_root("ch-42", bot) == kb_root
+        # Index prefix is relative, not host-absolute
+        assert get_channel_knowledge_base_index_prefix("ch-42") == "channels/ch-42/knowledge-base"
 
     def test_ensure_channel_workspace(self):
         from app.services.channel_workspace import ensure_channel_workspace
@@ -391,6 +408,7 @@ class TestChannelWorkspaceFileOps:
                 root = ensure_channel_workspace("ch-1", bot)
                 assert os.path.isdir(root)
                 assert os.path.isdir(os.path.join(root, "archive"))
+                assert os.path.isdir(os.path.join(root, "knowledge-base"))
                 # No workspace/ subdirectory should exist
                 assert not os.path.isdir(os.path.join(root, "workspace"))
 

@@ -10,13 +10,7 @@ import { InfoBanner } from "@/src/components/shared/SettingsControls";
 import type { ActivationResult } from "@/src/types/api";
 import { ActivationCard } from "./ActivationCard";
 
-export function ActivationsSection({
-  channelId,
-  workspaceEnabled,
-}: {
-  channelId: string;
-  workspaceEnabled: boolean;
-}) {
+export function ActivationsSection({ channelId }: { channelId: string }) {
   const { data: integrations, isLoading } = useActivatableIntegrations(channelId);
   const activateMut = useActivateIntegration(channelId);
   const deactivateMut = useDeactivateIntegration(channelId);
@@ -57,7 +51,6 @@ export function ActivationsSection({
             key={ig.integration_type}
             ig={ig}
             channelId={channelId}
-            workspaceEnabled={workspaceEnabled}
             toggling={togglingType === ig.integration_type}
             onToggle={() => handleToggle(ig.integration_type, ig.activated)}
           />

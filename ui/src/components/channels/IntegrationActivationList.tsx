@@ -1,4 +1,4 @@
-import { Plug, AlertTriangle } from "lucide-react";
+import { Plug } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import type { ActivatableIntegration } from "../../types/api";
 
@@ -6,14 +6,12 @@ interface IntegrationActivationListProps {
   integrations: ActivatableIntegration[];
   enabled: string[];
   onToggle: (integrationType: string) => void;
-  workspaceEnabled: boolean;
 }
 
 export function IntegrationActivationList({
   integrations,
   enabled,
   onToggle,
-  workspaceEnabled,
 }: IntegrationActivationListProps) {
   const t = useThemeTokens();
 
@@ -23,7 +21,6 @@ export function IntegrationActivationList({
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {integrations.map((integration) => {
         const isEnabled = enabled.includes(integration.integration_type);
-        const needsWorkspace = integration.requires_workspace && !workspaceEnabled;
 
         return (
           <div
@@ -36,7 +33,6 @@ export function IntegrationActivationList({
               display: "flex",
               flexDirection: "column",
               gap: 6,
-              opacity: needsWorkspace ? 0.5 : 1,
             }}
           >
             <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
@@ -65,17 +61,14 @@ export function IntegrationActivationList({
               </div>
               {/* Toggle switch */}
               <button
-                onClick={() => {
-                  if (!needsWorkspace) onToggle(integration.integration_type);
-                }}
-                disabled={needsWorkspace}
+                onClick={() => onToggle(integration.integration_type)}
                 style={{
                   width: 44,
                   height: 24,
                   borderRadius: 12,
                   backgroundColor: isEnabled ? t.accent : t.surfaceBorder,
                   border: "none",
-                  cursor: needsWorkspace ? "not-allowed" : "pointer",
+                  cursor: "pointer",
                   padding: 0,
                   position: "relative",
                   transition: "background-color 0.2s",
@@ -123,15 +116,6 @@ export function IntegrationActivationList({
                 </span>
               )}
             </div>
-
-            {needsWorkspace && (
-              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginLeft: 28 }}>
-                <AlertTriangle size={12} color={t.warning} />
-                <span style={{ fontSize: 11, color: t.warning }}>
-                  Requires workspace — enable workspace on this channel first
-                </span>
-              </div>
-            )}
           </div>
         );
       })}

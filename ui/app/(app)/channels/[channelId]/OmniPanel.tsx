@@ -56,8 +56,6 @@ interface OmniPanelProps {
   botId: string | undefined;
   /** Channel display name — fuels the Breadcrumb humanizer. */
   channelDisplayName?: string | null;
-  /** Whether this channel has a workspace directory (`/channels/:id/`). */
-  channelWorkspaceEnabled: boolean;
   activeFile: string | null;
   onSelectFile: (path: string) => void;
   onClose: () => void;
@@ -102,7 +100,6 @@ export function OmniPanel({
   workspaceId,
   botId,
   channelDisplayName,
-  channelWorkspaceEnabled,
   activeFile,
   onSelectFile,
   onClose: _onClose,
@@ -191,7 +188,6 @@ export function OmniPanel({
       botId={botId}
       workspaceId={workspaceId}
       channelDisplayName={channelDisplayName}
-      channelWorkspaceEnabled={channelWorkspaceEnabled}
       onSelectFile={onSelectFile}
       focusSearchOnMount={false}
     />

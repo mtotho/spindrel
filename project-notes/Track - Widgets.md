@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-19
+updated: 2026-04-19 (P3-1 HTML widget catalog + frontmatter shipped)
 ---
 # Track — Widget System DX + Robustness
 
@@ -27,6 +27,7 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
 | P2-4 | Registration-time test harness | Render every `sample_payload`; CI guardrail | deferred |
 | P2-5 | Hot-reload manifest widgets | Parity with DB-backed packages | deferred |
 | P2-6 | Admin playground | In-app widget preview + live validation | deferred |
+| P3-1 | HTML widget catalog + frontmatter | Workspace scanner for `**/widgets/**/*.html` + files referencing `window.spindrel.*`; YAML frontmatter convention in leading HTML comment; "HTML widgets" tab on `AddFromChannelSheet`; dev-panel Library restructured into Tool renderers vs HTML widgets sections | **done** (2026-04-19) |
 
 ## Follow-ups (extracted from P0-1 / P1-1 shipping)
 
@@ -45,6 +46,22 @@ Shipped [[Widget Authoring]] + this track file + Roadmap link. Covers: three pat
 - `app/services/widget_package_validation.py` — new `_validate_parsed_definition()` helper + `_validate_component_list()` runs the tree.
 - `app/services/widget_templates.py:_register_widgets` now calls the validator at boot; errors log + skip, warnings log + register.
 - Tests added to `tests/unit/test_widget_package_validation.py` including a "validate every shipped core widget" smoke test.
+
+### P3-1 — HTML widget catalog + frontmatter (done, 2026-04-19)
+
+Before this phase: HTML widgets were undiscoverable. The only way to pin one was to remember its absolute workspace path and emit it from a bot turn. `AddFromChannelSheet` had no Templates tab at all; `/widgets/dev#library` showed only tool-renderer packages but labeled them "templates," blurring two different concepts.
+
+Shipped:
+- **`app/services/html_widget_scanner.py`** — walks a channel workspace for `**/widgets/**/*.html` ∪ any `.html` whose body references `window.spindrel.`; parses a leading YAML frontmatter block inside an HTML comment; memoizes parsed metadata by `(channel_id, path, mtime)` with no TTL (mtime is authoritative). Negative results (non-widgets) also cached so re-scans don't re-read them.
+- **`GET /api/v1/channels/{id}/workspace/html-widgets`** — returns the scanner's entries. Same auth as the other channel-workspace endpoints.
+- **Frontmatter convention** — Jekyll/Hugo-style leading `<!-- --- ... --- -->` block with `name`, `description`, `display_label`, `version`, `author`, `tags`, `icon`. Only `name` is required; everything else has sensible defaults (e.g. slug fallback, `version: "0.0.0"`).
+- **"HTML widgets" tab on `AddFromChannelSheet`** — lists scanner output for the current channel. Loose-file entries get an amber "loose" badge. Pin synthesizes an `emit_html_widget` path-mode envelope so the existing renderer handles it — no new rendering code.
+- **Dev-panel Library restructure** — `/widgets/dev#library` now leads with an explainer banner ("two kinds of widgets, answering different questions"), renders the existing `WidgetLibraryTab` labeled "Tool renderers," then a new `HtmlWidgetsLibrarySection` with a channel picker + Copy path / Source actions.
+- **Skill docs** — `skills/html_widgets.md` gains a `Widget metadata — YAML frontmatter` section and a nudge in "Remember What You Built."
+
+Storage model deferred: this ships as **registry-only** (no DB rows for HTML widgets). Revisit if/when favorites, cross-channel search, or version-bump-notify become real needs.
+
+Tests: 25 new unit tests (`test_html_widget_scanner.py` + `test_widget_scanner_endpoint.py`). UI `tsc --noEmit` clean. Manual smoke pending e2e.
 
 ### P1-1 — Template fragments + state_poll default (done)
 - `app/services/widget_fragments.py` — resolver inlines `{type: fragment, ref: <name>}` nodes (list bodies spread, dict bodies replace 1:1) at registration time; cycle-detected.

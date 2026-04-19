@@ -435,7 +435,10 @@ async def _inject_memory_scheme(
         logger.warning("Failed to inject memory scheme files for bot %s", bot.id, exc_info=True)
 
 
-_CW_TOOLS = ["file", "search_channel_archive", "search_channel_workspace", "list_channels"]
+_CW_TOOLS = [
+    "file", "search_channel_archive", "search_channel_workspace",
+    "search_channel_knowledge", "search_bot_knowledge", "list_channels",
+]
 _CW_BUDGET = 50_000
 
 
@@ -530,36 +533,51 @@ async def _inject_channel_workspace(
         cw_segments = getattr(ch_row, "index_segments", None) or []
         asyncio.create_task(index_channel_workspace(ch_id, bot, channel_segments=cw_segments if cw_segments else None))
 
-        # Channel index segment RAG retrieval
-        if cw_segments:
-            try:
-                from app.agent.fs_indexer import retrieve_filesystem_context
-                from app.services.workspace_indexing import resolve_indexing
-                ws_res = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
-                seg_dicts = [{
-                    "path_prefix": f"channels/{ch_id}/{seg['path_prefix'].strip('/')}",
+        # Channel index segment RAG retrieval.
+        # Always include the implicit channels/{id}/knowledge-base/ segment so the
+        # convention-based KB folder is retrievable without any configuration.
+        try:
+            from app.agent.fs_indexer import retrieve_filesystem_context
+            from app.services.workspace_indexing import resolve_indexing
+            ws_res = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+
+            implicit_kb_prefix = f"channels/{ch_id}/knowledge-base"
+            seg_dicts: list[dict] = [{
+                "path_prefix": implicit_kb_prefix,
+                "embedding_model": ws_res["embedding_model"],
+            }]
+            for seg in cw_segments:
+                explicit_prefix = f"channels/{ch_id}/{seg['path_prefix'].strip('/')}"
+                if explicit_prefix.rstrip("/") == implicit_kb_prefix:
+                    continue  # user's explicit segment wins, don't double-register
+                seg_dicts.append({
+                    "path_prefix": explicit_prefix,
                     "embedding_model": seg.get("embedding_model") or ws_res["embedding_model"],
-                } for seg in cw_segments]
-                seg_top_k = max((seg.get("top_k", 8) for seg in cw_segments), default=8)
-                seg_threshold = min((seg.get("similarity_threshold", 0.35) for seg in cw_segments), default=0.35)
-                chunks, sim = await retrieve_filesystem_context(
-                    user_message, f"channel:{ch_row.id}",
-                    roots=[str(Path(cw_root).parent.parent)],
-                    embedding_model=ws_res["embedding_model"],
-                    segments=seg_dicts,
-                    top_k=seg_top_k,
-                    threshold=seg_threshold,
-                )
-                if chunks:
-                    seg_body = "\n\n".join(chunks)
-                    seg_header = "Relevant code/files from channel indexed directories:\n\n"
-                    if "search_workspace" in bot.local_tools:
-                        seg_header += "(Use search_workspace for targeted searches beyond these auto-retrieved excerpts.)\n\n"
-                    messages.append({"role": "system", "content": seg_header + seg_body})
-                    inject_chars["channel_index_segments"] = len(seg_body)
-                    yield {"type": "channel_index_segments", "count": len(chunks), "similarity": sim}
-            except Exception:
-                logger.warning("Failed to retrieve channel index segments for channel %s", ch_row.id, exc_info=True)
+                })
+
+            seg_top_k = max((seg.get("top_k", 8) for seg in cw_segments), default=8)
+            seg_threshold = min((seg.get("similarity_threshold", 0.35) for seg in cw_segments), default=0.35)
+            chunks, sim = await retrieve_filesystem_context(
+                user_message, f"channel:{ch_row.id}",
+                roots=[str(Path(cw_root).parent.parent)],
+                embedding_model=ws_res["embedding_model"],
+                segments=seg_dicts,
+                top_k=seg_top_k,
+                threshold=seg_threshold,
+            )
+            if chunks:
+                seg_body = "\n\n".join(chunks)
+                header_label = "channel knowledge base" if not cw_segments else "channel knowledge base and indexed directories"
+                seg_header = f"Relevant excerpts from the {header_label}:\n\n"
+                if "search_channel_knowledge" in bot.local_tools:
+                    seg_header += "(Call search_channel_knowledge for targeted lookups beyond these auto-retrieved excerpts.)\n\n"
+                elif "search_workspace" in bot.local_tools:
+                    seg_header += "(Use search_workspace for targeted searches beyond these auto-retrieved excerpts.)\n\n"
+                messages.append({"role": "system", "content": seg_header + seg_body})
+                inject_chars["channel_index_segments"] = len(seg_body)
+                yield {"type": "channel_index_segments", "count": len(chunks), "similarity": sim}
+        except Exception:
+            logger.warning("Failed to retrieve channel knowledge-base / index segments for channel %s", ch_row.id, exc_info=True)
 
     except Exception:
         logger.warning("Failed to inject channel workspace files for channel %s", ch_row.id, exc_info=True)
@@ -1081,7 +1099,7 @@ async def assemble_context(
             yield evt
 
     # --- channel workspace: file injection + tool injection ---
-    if _ch_row is not None and _ch_row.channel_workspace_enabled:
+    if _ch_row is not None:
         # Inject channel workspace tools into bot config
         cw_filtered = list(bot.local_tools)
         for cwt in _CW_TOOLS:

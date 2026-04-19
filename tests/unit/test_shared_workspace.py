@@ -57,6 +57,19 @@ class TestEnsureBotDir:
             bot_dir = os.path.join(tmpdir, "shared", "ws-123", "bots", "my-bot")
             assert os.path.isdir(bot_dir)
 
+    def test_creates_knowledge_base_subdir(self):
+        """Every shared-workspace bot gets bots/<id>/knowledge-base/ by convention."""
+        svc = SharedWorkspaceService()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("app.services.paths.settings") as mock_paths:
+                mock_paths.WORKSPACE_LOCAL_DIR = ""
+                mock_paths.WORKSPACE_BASE_DIR = tmpdir
+                svc.ensure_host_dirs("ws-123")
+                bot_dir = svc.ensure_bot_dir("ws-123", "my-bot")
+
+            kb_dir = os.path.join(bot_dir, "knowledge-base")
+            assert os.path.isdir(kb_dir)
+
 
 class TestTranslatePath:
     def test_translate_absolute_path(self):

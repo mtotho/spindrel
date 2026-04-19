@@ -440,6 +440,31 @@ function spindrelBootstrap(
       __assetRegistry.delete(url);
     }
   }
+  // Fetch an attachment and return a same-origin blob URL for use as
+  // <img src>, <video src>, or <a href download>. Attachment display can't
+  // use a static src= URL because the /file endpoint requires auth and
+  // <img> elements don't carry Authorization headers. This helper fetches
+  // the raw bytes with the bearer token and vends a same-origin object URL.
+  // The object URL lives for the widget's lifetime unless you call
+  // URL.revokeObjectURL(url) manually. Usage:
+  //   const url = await window.spindrel.loadAttachment(attachmentId);
+  //   document.querySelector('img').src = url;
+  const __attachmentRegistry = new Set();
+  async function loadAttachment(id) {
+    if (!id) throw new Error("loadAttachment: id is required");
+    const resp = await apiFetch("/api/v1/attachments/" + encodeURIComponent(id) + "/file");
+    if (!resp.ok) throw new Error("loadAttachment '" + id + "': HTTP " + resp.status);
+    const blob = await resp.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    __attachmentRegistry.add(objectUrl);
+    return objectUrl;
+  }
+  function revokeAttachment(url) {
+    if (__attachmentRegistry.has(url)) {
+      URL.revokeObjectURL(url);
+      __attachmentRegistry.delete(url);
+    }
+  }
   // Event subscription sugar — returns an unsubscribe function so widgets
   // don't have to hold a reference to the bound handler just to remove it.
   function subscribe(eventName, cb) {
@@ -561,6 +586,8 @@ function spindrelBootstrap(
     listWorkspaceFiles: listWorkspaceFiles,
     loadAsset: loadAsset,
     revokeAsset: revokeAsset,
+    loadAttachment: loadAttachment,
+    revokeAttachment: revokeAttachment,
     renderMarkdown: renderMarkdown,
     callTool: callTool,
     data: {

@@ -103,7 +103,6 @@ function ChannelItem({ channel, bot, isStreaming, integrationIcons }: ChannelIte
   // keeps the row single-line and avoids the overlay covering neighbors.
   const tooltipParts: string[] = [];
   if (bot) tooltipParts.push(bot.name);
-  if (channel.channel_workspace_enabled) tooltipParts.push("workspace");
   if (channel.integrations?.length) {
     tooltipParts.push(
       channel.integrations
@@ -149,9 +148,6 @@ function ChannelItem({ channel, bot, isStreaming, integrationIcons }: ChannelIte
             Only renders on hover of this row, so other rows stay uncluttered. */}
         {channel.integrations && channel.integrations.length > 0 && (
           <span className="hidden group-hover:flex flex-row items-center gap-1 shrink-0">
-            {channel.channel_workspace_enabled && (
-              <Container size={10} className="text-text-dim opacity-70" />
-            )}
             {channel.integrations.slice(0, 3).map((binding) => {
               const IIcon = resolveIcon(integrationIcons[binding.integration_type] || "Plug");
               return (

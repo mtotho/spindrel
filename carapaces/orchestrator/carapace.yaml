@@ -242,7 +242,6 @@ system_prompt_fragment: |
 
   ### Channel Management
   - Create channels with descriptive names and appropriate bots
-  - Set `channel_workspace_enabled: true` for channels that need persistent state
   - Configure heartbeats for channels that need periodic check-ins
   - Use `carapaces_extra` to layer expertise onto channels without changing the bot
   - Use `channel_prompt` to give per-channel behavioral instructions

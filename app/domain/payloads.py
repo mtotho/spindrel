@@ -368,13 +368,14 @@ class LlmStatusPayload:
 
     bot_id: str
     turn_id: uuid.UUID
-    status: str  # "retry" | "fallback" | "cooldown_skip"
+    status: str  # "retry" | "fallback" | "cooldown_skip" | "error"
     model: str = ""
     reason: str = ""
     attempt: int = 0
     max_retries: int = 0
     wait_seconds: float = 0.0
     fallback_model: str = ""
+    error: str = ""
 
 
 @dataclass(frozen=True)

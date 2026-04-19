@@ -1,6 +1,6 @@
 ---
 name: HTML Widgets
-description: How to build interactive HTML widgets and bot-authored dashboards with emit_html_widget — inline vs workspace-backed, bundle layout, state.json pattern, tool dispatch via /widget-actions, sd-* design vocabulary, when to pick this over component widgets
+description: How to build interactive HTML widgets and bot-authored dashboards with emit_html_widget — inline vs workspace-backed, bundle layout, YAML frontmatter for catalog discoverability, state.json pattern, tool dispatch via /widget-actions, sd-* design vocabulary, when to pick this over component widgets
 triggers: emit_html_widget, html widget, interactive widget, custom widget, build a widget, chart widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui, project status dashboard, status board, tool control panel
 category: core
 ---
@@ -45,6 +45,34 @@ A widget is a **folder**, not a single HTML file. Put everything the widget need
 ├── styles.css          ← extra styles beyond the sd-* vocabulary (optional)
 └── assets/             ← images, icons, sub-data files (optional)
 ```
+
+### Widget metadata — YAML frontmatter
+
+Every `index.html` should open with a YAML frontmatter block inside an HTML comment. The workspace scanner parses it and surfaces your widget in the "HTML widgets" tab of the Add-widget sheet with a proper name, description, and tags — without frontmatter, the card falls back to the bundle slug (`project-status` instead of `Project status`), which reads like an error.
+
+```html
+<!--
+---
+name: Project status              # shown as the card title
+description: Live phase tracker with RMW state.json
+display_label: Project status     # defaults to name — used on the pinned widget chrome
+version: 1.2.0                    # bump when you make a meaningful change
+author: crumb                     # bot or user who authored the widget
+tags: [dashboard, project]        # filters in the catalog
+icon: activity                    # lucide-react icon name (see https://lucide.dev)
+---
+-->
+<div class="sd-card">...</div>
+```
+
+Rules:
+
+- **Must be the very first thing in the file.** Leading whitespace is fine; any HTML or text before the comment block disqualifies it.
+- **Only `name` is required.** Everything else has sensible fallbacks (`display_label` → `name`, `version` → `"0.0.0"`, `tags` → `[]`, etc.). Still, description + tags dramatically improve discoverability — write one good sentence for `description` so the user recognizes what they're pinning.
+- **Bump `version` when you change the widget.** Semver — patch for bug fixes, minor for new features, major for incompatible state-shape changes. This is how you (or a future turn) know whether a pinned widget is running the latest code.
+- **Malformed YAML is silently ignored** — the scanner won't crash over a bad block, but your widget will show up with slug-fallback defaults. If the card looks wrong, check the frontmatter.
+
+The scanner walks any `.html` under a directory named `widgets/` plus any `.html` anywhere in the channel workspace that references `window.spindrel.*`. Files matched only by the second rule show a "loose" badge — move them into a `widgets/<slug>/` folder to clear it.
 
 ### Path grammar — use absolute `/workspace/channels/<channel_id>/...` for both tools
 
@@ -814,6 +842,8 @@ Always set `display_label` — it appears on the dashboard card header, in the "
 ## Remember What You Built
 
 Widgets disappear from your attention once they're pinned. A future turn might be the first time in a week you're aware of the dashboard — and without breadcrumbs, you'll rebuild things that already exist, or forget design decisions that will bite you.
+
+Frontmatter inside the `.html` is the first breadcrumb — it's what the catalog shows and what a future you sees when scanning `data/widgets/` listings. The reference file below is the second. Write both.
 
 **Required after every new widget you ship:**
 

@@ -1,42 +1,23 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { useNavigate } from "react-router-dom";
 import { Trash2, AlertTriangle, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDeleteChannel, useChannelCategories } from "@/src/api/hooks/useChannels";
+import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
+import { useIsAdmin } from "@/src/hooks/useScope";
+import { useAuthStore } from "@/src/stores/auth";
 import {
   Section, FormRow, TextInput, SelectInput, Toggle,
   Row, Col,
 } from "@/src/components/shared/FormControls";
+import { UserSelect } from "@/src/components/shared/UserSelect";
 import { AdvancedSection, InfoBanner } from "@/src/components/shared/SettingsControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
-import { apiFetch } from "@/src/api/client";
-import { useQuery } from "@tanstack/react-query";
 import type { ChannelSettings } from "@/src/types/api";
-
-// ---------------------------------------------------------------------------
-// Channel owner select (fetches users for dropdown)
-// ---------------------------------------------------------------------------
-function ChannelOwnerSelect({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
-  const { data: users } = useQuery({
-    queryKey: ["admin-users"],
-    queryFn: () => apiFetch<{ id: string; display_name: string; email: string }[]>("/api/v1/admin/users"),
-  });
-  const options = [
-    { label: "None", value: "" },
-    ...(users?.map((u) => ({ label: `${u.display_name} (${u.email})`, value: u.id })) ?? []),
-  ];
-  return (
-    <SelectInput
-      value={value ?? ""}
-      onChange={(v) => onChange(v || null)}
-      options={options}
-    />
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Tag editor — chip input for channel tags
@@ -185,21 +166,6 @@ function GeneralAdvancedSection({
         </Row>
       </Section>
 
-      <Section title="Privacy">
-        <Toggle
-          value={form.private ?? false}
-          onChange={(v) => patch("private", v)}
-          label="Private channel"
-          description="Private channels are only visible to the assigned user."
-        />
-        <FormRow label="Owner" description="User who owns this channel. Private channels require an owner.">
-          <ChannelOwnerSelect
-            value={form.user_id ?? null}
-            onChange={(v) => patch("user_id", v || undefined)}
-          />
-        </FormRow>
-      </Section>
-
       <Section title="Automation">
         <FormRow
           label="Pipeline mode"
@@ -245,6 +211,20 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
   const { data: existingCategories } = useChannelCategories();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+
+  const isAdmin = useIsAdmin();
+  const currentUserId = useAuthStore((s) => s.user?.id);
+  const isOwner = !!form.user_id && form.user_id === currentUserId;
+  // Write-gated fields (owner reassignment + delete) require admin-or-owner.
+  // Backend enforcement arrives in Phase 4; Phase 3 matches UI to the
+  // invariant so non-matching users stop seeing controls that would 403.
+  const canMutateOwnership = isAdmin || isOwner;
+  const { data: users } = useAdminUsers(isAdmin);
+  const ownerName = useMemo(() => {
+    if (!form.user_id) return null;
+    const u = users?.find((x) => x.id === form.user_id);
+    return u ? u.display_name : null;
+  }, [form.user_id, users]);
 
   const categoryValue = (form.category as string | undefined | null) ?? "";
   const categorySuggestions = (existingCategories ?? []).filter(
@@ -327,6 +307,29 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
         )}
       </Section>
 
+      <Section title="Privacy">
+        <Toggle
+          value={form.private ?? false}
+          onChange={(v) => patch("private", v)}
+          label="Private channel"
+          description="Only the owner and admins can see this channel."
+        />
+        {isAdmin ? (
+          <FormRow label="Owner" description="Set who owns this channel. Admins can reassign; non-admins own what they create.">
+            <UserSelect
+              value={form.user_id ?? null}
+              onChange={(v) => patch("user_id", v ?? undefined)}
+            />
+          </FormRow>
+        ) : form.user_id ? (
+          <FormRow label="Owner">
+            <div style={{ fontSize: 12, color: t.textMuted }}>
+              {ownerName ?? (isOwner ? "You" : form.user_id)}
+            </div>
+          </FormRow>
+        ) : null}
+      </Section>
+
       <Section title="Channel Prompt" description="A short prompt injected as a system message right before each user message. Useful for per-channel instructions or reminders.">
         <WorkspaceFilePrompt
           workspaceId={form.channel_prompt_workspace_id ?? workspaceId}
@@ -394,7 +397,8 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
       {/* Collapsible advanced section */}
       <GeneralAdvancedSection form={form} patch={patch} settings={settings} />
 
-      {/* Danger Zone */}
+      {/* Danger Zone — admin or owner only */}
+      {canMutateOwnership && (
       <div style={{
         marginTop: 32,
         border: `1px solid ${t.dangerBorder}`,
@@ -492,6 +496,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
           )}
         </div>
       </div>
+      )}
     </>
   );
 }
