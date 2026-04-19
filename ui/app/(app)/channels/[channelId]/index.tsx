@@ -542,9 +542,8 @@ export default function ChatScreen() {
     t,
   };
 
-  const outerChildren = (
+  const channelHeaderBlock = (
     <>
-      {/* Unified header block — glass bg + single bottom border */}
       <div style={{
         borderBottom: `1px solid ${t.surfaceBorder}`,
         flexShrink: 0,
@@ -589,7 +588,6 @@ export default function ChatScreen() {
         {channelId && <ActiveBadgeBar channelId={channelId} compact={isMobile} />}
       </div>
 
-      {/* HUD status strips — collapsible */}
       {statusStrips.length > 0 && (
         <HudStripBar
           statusStrips={statusStrips}
@@ -598,17 +596,21 @@ export default function ChatScreen() {
         />
       )}
 
-      {/* Pipeline launchpad — visible when the channel has active pipeline
-          subscriptions or pipeline_mode="on". Shares the same vertical-stack
-          extension zone as HudStripBar (channel-scoped chrome above chat). */}
       {launchpadVisible && channelId && (
         <OrchestratorLaunchpad
           channelId={channelId}
           onOpenFindings={() => setFindingsPanelOpen(true)}
         />
       )}
+    </>
+  );
 
-      {/* Content area -- explorer + chat/file viewer */}
+  const outerChildren = (
+    <>
+      {/* Mobile: header at top, then content stack. */}
+      {isMobile && channelHeaderBlock}
+
+      {/* Content area — mobile stack or desktop side-by-side */}
       {isMobile ? (
         /* ---- Mobile: chat + bottom sheet OmniPanel ---- */
         showFileViewer ? (
@@ -670,15 +672,20 @@ export default function ChatScreen() {
           </div>
         )
       ) : (
-        /* ---- Desktop/tablet: side-by-side layout ---- */
+        /* ---- Desktop/tablet: side-by-side layout ----
+           OmniPanel runs floor-to-ceiling (it owns its own header); the channel
+           header overlays ONLY the chat column so the panel feels like a
+           standalone card with its own top edge, per the Claude-style reference. */
         <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden" }}>
           {/* OmniPanel — always rendered, animated via width clip.
               Hidden on system channels (orchestrator has no workspace files
-              or channel-specific pinned widgets worth surfacing). */}
+              or channel-specific pinned widgets worth surfacing).
+              Outer padding (pl-1.5 py-1.5) creates the 6px floating-card gap. */}
           {channelId && !isSystemChannel && (
             <div
+              className="pl-1.5 py-1.5"
               style={{
-                width: showExplorer ? explorerWidth : 0,
+                width: showExplorer ? explorerWidth + 6 : 0,
                 overflow: "hidden",
                 transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
                 flexShrink: 0,
@@ -704,11 +711,19 @@ export default function ChatScreen() {
             />
           )}
 
-          {/* Chat column -- messages + input stacked vertically */}
+          {/* Chat column -- header + messages + input stacked vertically.
+              Header lives HERE (inside the column) on desktop so it doesn't
+              overlap the full-height OmniPanel. Messages and input cap at
+              820px centered for readability. */}
           {(!showFileViewer || splitMode) && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+              {channelHeaderBlock}
               <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-                <ChatMessageArea {...messageAreaProps} />
+                <div className="absolute inset-0 flex justify-center overflow-hidden">
+                  <div className="w-full max-w-[820px] h-full relative">
+                    <ChatMessageArea {...messageAreaProps} />
+                  </div>
+                </div>
                 {floatingActions.map((h) => (
                   <HudFloatingAction key={h.key} hud={h} />
                 ))}
@@ -728,7 +743,9 @@ export default function ChatScreen() {
               {inputBars.map((h) => (
                 <HudInputBar key={h.key} hud={h} />
               ))}
-              <MessageInput {...messageInputProps} />
+              <div className="w-full mx-auto max-w-[820px] px-4">
+                <MessageInput {...messageInputProps} />
+              </div>
             </div>
           )}
 

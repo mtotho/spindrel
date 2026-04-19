@@ -288,8 +288,12 @@ async def test_fallback_provider_id_used():
 
 
 @pytest.mark.asyncio
-async def test_fallback_inherits_provider_when_none():
-    """When a fallback entry has no provider_id, primary provider is used."""
+async def test_fallback_without_provider_id_auto_resolves():
+    """When a fallback entry has no provider_id, the fallback model's own
+    provider is auto-resolved via `resolve_provider_for_model`. Previously the
+    primary's provider was inherited — that's how a Gemini fallback ended up
+    dispatched to the Codex Responses endpoint.
+    """
     providers_seen = []
 
     async def mock_create(**kwargs):
@@ -303,8 +307,13 @@ async def test_fallback_inherits_provider_when_none():
         client.chat.completions.create = mock_create
         return client
 
+    def mock_resolve(model):
+        # Fallback model advertises its own provider.
+        return "fb-auto-prov" if model == "fb" else None
+
     with patch("app.agent.llm.settings") as mock_settings, \
          patch("app.services.providers.get_llm_client", side_effect=mock_get_client), \
+         patch("app.services.providers.resolve_provider_for_model", side_effect=mock_resolve), \
          patch("app.services.providers.record_usage"), \
          patch("app.services.server_config.get_global_fallback_models", return_value=[]):
         mock_settings.LLM_MAX_RETRIES = 0
@@ -318,7 +327,7 @@ async def test_fallback_inherits_provider_when_none():
             fallback_models=[{"model": "fb"}],  # no provider_id
         )
         assert providers_seen[0] == "my-prov"
-        assert providers_seen[1] == "my-prov"  # inherits primary
+        assert providers_seen[1] == "fb-auto-prov"  # auto-resolved, NOT inherited
 
 
 def test_resolution_channel_over_bot():

@@ -211,7 +211,10 @@ export function OmniPanel({
 
   return (
     <div
-      className="flex flex-col h-full overflow-hidden"
+      className={
+        "flex flex-col h-full overflow-hidden" +
+        (fullWidth ? "" : " rounded-lg border border-surface-border/50")
+      }
       style={{
         ...(fullWidth ? { flex: 1 } : { width, flexShrink: 0 }),
         backgroundColor: t.surfaceRaised,

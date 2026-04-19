@@ -639,7 +639,7 @@ async def run_agent_tool_loop(
                     # in the trace UI even though they're happening.
                     if isinstance(item, dict) and correlation_id is not None:
                         _ev_type = item.get("type")
-                        if _ev_type in ("llm_retry", "llm_fallback", "llm_cooldown_skip"):
+                        if _ev_type in ("llm_retry", "llm_fallback", "llm_cooldown_skip", "llm_error"):
                             safe_create_task(_record_trace_event(
                                 correlation_id=correlation_id,
                                 session_id=session_id,

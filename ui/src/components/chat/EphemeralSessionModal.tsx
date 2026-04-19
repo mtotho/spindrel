@@ -39,7 +39,7 @@ export function EphemeralSessionModal({ open, onClose, children, title }: Epheme
         className="fixed z-[10041] overflow-hidden
                    inset-0 md:inset-auto md:top-1/2 md:left-1/2
                    md:-translate-x-1/2 md:-translate-y-1/2
-                   md:w-[92vw] md:max-w-[920px] md:h-[85vh]
+                   md:w-[92vw] md:max-w-[820px] md:h-[85vh]
                    bg-surface-raised md:border md:border-surface-border
                    md:rounded-xl md:shadow-[0_16px_48px_rgba(0,0,0,0.35)]
                    flex flex-col"

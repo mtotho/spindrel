@@ -259,6 +259,27 @@ def _translate_content(content: Any) -> list[dict]:
     return blocks
 
 
+_CODEX_CALL_ID_MAX = 64
+# Codex Responses caps `call_id` at 64 chars. History frequently carries ids
+# from other providers (LiteLLM/Gemini emit long opaque ids, Anthropic uses
+# `toolu_...`, etc.); if we replay them verbatim the Codex endpoint rejects
+# the whole request with "string too long". Collapse any oversize id to a
+# deterministic short form so the function_call ↔ function_call_output pairing
+# still matches within the same request.
+
+def _normalize_call_id(raw: str) -> str:
+    if not raw or len(raw) <= _CODEX_CALL_ID_MAX:
+        return raw
+    import hashlib
+    digest = hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()[:24]
+    normalized = f"call_{digest}"
+    logger.warning(
+        "Truncating tool_call_id for Codex Responses API (was %d chars, >%d): %r → %r",
+        len(raw), _CODEX_CALL_ID_MAX, raw[:40] + "...", normalized,
+    )
+    return normalized
+
+
 def _translate_messages(messages: list[dict]) -> tuple[str, list[dict]]:
     """Convert chat.completions messages to (instructions, input[]).
 
@@ -312,7 +333,7 @@ def _translate_messages(messages: list[dict]) -> tuple[str, list[dict]]:
                         args_raw = json.dumps(args_raw)
                     items.append({
                         "type": "function_call",
-                        "call_id": tc.get("id", ""),
+                        "call_id": _normalize_call_id(tc.get("id", "")),
                         "name": func.get("name", ""),
                         "arguments": args_raw,
                     })
@@ -321,7 +342,7 @@ def _translate_messages(messages: list[dict]) -> tuple[str, list[dict]]:
         if role == "tool":
             items.append({
                 "type": "function_call_output",
-                "call_id": msg.get("tool_call_id", ""),
+                "call_id": _normalize_call_id(msg.get("tool_call_id", "")),
                 "output": str(content) if content is not None else "",
             })
             continue

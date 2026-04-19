@@ -46,19 +46,58 @@ A widget is a **folder**, not a single HTML file. Put everything the widget need
 └── assets/             ← images, icons, sub-data files (optional)
 ```
 
-Pick `<widget-root>` based on scope:
+### ⚠️ Path grammar — the `file` tool and `emit_html_widget` resolve paths differently
+
+This is the #1 gotcha. Read twice.
+
+- **`file` tool** — paths are rooted at your **bot workspace** (`{ws}/{bot_id}/`). Relative `data/widgets/foo/index.html` writes to `{ws}/{bot}/data/widgets/foo/index.html` — **not** the channel workspace. To write into the channel workspace you must include the `channels/<channel_id>/` segment, typically via the full `/workspace/channels/<channel_id>/...` form.
+- **`emit_html_widget`** — paths are rooted inside the **current channel's workspace** (`{ws}/{bot}/channels/<channel_id>/`). `data/widgets/foo/index.html` means `{ws}/{bot}/channels/<cid>/data/widgets/foo/index.html`. It does **not** accept `/workspace/...` absolute paths.
+
+The two tools must point at the **same file on disk**. Match them like this:
+
+```
+# 1. WRITE — use the absolute /workspace/channels/<channel_id>/... form so the file tool writes into the channel workspace
+file(create,
+     path="/workspace/channels/<CURRENT_CHANNEL_ID>/data/widgets/project-status/index.html",
+     content="<!doctype html>...")
+
+# 2. EMIT — use a channel-workspace-relative path (no leading slash, no channels/<id>/ prefix) so emit_html_widget finds the same file
+emit_html_widget(
+    path="data/widgets/project-status/index.html",
+    display_label="Project status")
+```
+
+If you see `Workspace file not found (or path escapes workspace)` from `emit_html_widget`, it almost always means you wrote the file via `file(path="data/widgets/...")` (which landed in the bot workspace) and then asked `emit_html_widget` to find it in the channel workspace. Re-write with the full `/workspace/channels/<channel_id>/...` path.
+
+Your **current channel ID** is in your system context (it's pinned-widget chrome and turn context). You can also discover it at runtime inside the widget via `window.spindrel.channelId`.
+
+### The bundle shape
+
+Each widget is a folder:
+
+```
+/workspace/channels/<channel_id>/data/widgets/<widget-slug>/
+├── index.html          ← the widget itself (emit_html_widget path target)
+├── state.json          ← mutable state the widget reads/writes (optional)
+├── data.json           ← static bundled data (optional)
+├── README.md           ← your own notes about what this widget does (optional)
+├── styles.css          ← extra styles beyond the sd-* vocabulary (optional)
+└── assets/             ← images, icons, sub-data files (optional)
+```
+
+Scope rules:
 
 | Scope | Root | Status |
 |---|---|---|
-| **Channel-specific** — tied to this channel's data or project | `data/widgets/<slug>/` (channel-workspace-relative) | **Default.** Works today. When emitted from a channel chat (or a widget-dashboard ephemeral session inheriting a parent channel), files live under that channel's workspace and `widgetPath` resolves correctly. |
-| **Non-channel-scoped** — reusable across channels | `/workspace/widgets/<slug>/` | **Queued (DX-5b).** Not yet resolvable; passing a `/workspace/...` path to `emit_html_widget` or the helpers currently fails with a clear error. Stick to channel-scoped for now. |
+| **Channel-specific** — tied to this channel's data or project | `/workspace/channels/<channel_id>/data/widgets/<slug>/` (file tool) → `data/widgets/<slug>/` (emit_html_widget) | **Default.** Works today. |
+| **Non-channel-scoped** — reusable across channels | `/workspace/widgets/<slug>/` | **Queued (DX-5b).** Not resolvable yet; passing a `/workspace/widgets/...` path currently fails. Stick to channel-scoped. |
 
 Conventions:
 
 - **Slug is kebab-case**: `project-status`, `sprint-burndown`, `sonarr-queue`, `home-control`.
-- **Always path-mode** for anything you want to iterate on — inline mode is for one-off snapshots. Path mode hot-reloads within ~3 s of a file edit, which is the entire iteration loop.
-- **Relative paths work** inside the bundle — `./state.json`, `../shared/config.json`, `./assets/logo.svg` resolve against the directory holding `index.html`. See "Relative paths" below.
-- **One folder per widget.** Don't dump loose files at the workspace root. A bundle can then be renamed/moved/deleted atomically.
+- **Always path-mode** for anything you want to iterate on — inline mode is for one-off snapshots. Path mode hot-reloads within ~3 s of a file edit.
+- **Relative paths work inside the bundle** — `./state.json`, `../shared/config.json`, `./assets/logo.svg` resolve against the widget's `index.html` directory inside the iframe. See "Relative paths" below.
+- **One folder per widget.** Keep the tree legible; a bundle can then be renamed/moved/deleted atomically.
 
 Discover the current channel id at runtime:
 
@@ -66,14 +105,14 @@ Discover the current channel id at runtime:
 window.spindrel.channelId   // the emitting channel's UUID, or null if unbound
 ```
 
-If you're building inside an ephemeral widget-dashboard session: you inherit the parent channel's workspace as well as channel context, so `data/widgets/<slug>/` under that channel is the working root. (Non-channel roots arrive with DX-5b.)
+If you're building inside an ephemeral widget-dashboard session: you inherit the parent channel's workspace and channel context, so use the parent channel's ID in `/workspace/channels/<parent_channel_id>/data/widgets/<slug>/` with the `file` tool. (Non-channel roots arrive with DX-5b.)
 
 ## The Two Modes
 
 | Mode | Signature | When | Auto-updates |
 |---|---|---|---|
 | **Inline** | `emit_html_widget(html=..., js?, css?, display_label?)` | One-off snapshot. You assemble the widget from data you already have. | No — static snapshot |
-| **Path** | `emit_html_widget(path="data/widgets/foo/index.html", display_label?)` | You wrote (or will iterate on) a workspace file. The widget re-renders when the file changes. | Yes — polls the file every 3 s |
+| **Path** | `emit_html_widget(path="data/widgets/foo/index.html", display_label?)` — channel-workspace-relative | You wrote (or will iterate on) a workspace file. The widget re-renders when the file changes. | Yes — polls the file every 3 s |
 
 Exactly one of `html` / `path` is required.
 
@@ -102,9 +141,11 @@ emit_html_widget(
 ### Path Example (the default for dashboards)
 
 ```
-1. file(create, path="data/widgets/project-status/index.html", content="<html>… full doc …</html>")
-2. file(create, path="data/widgets/project-status/state.json", content='{"phase":"Planning","progress":0}')
+1. file(create, path="/workspace/channels/<CURRENT_CHANNEL_ID>/data/widgets/project-status/index.html", content="<html>… full doc …</html>")
+2. file(create, path="/workspace/channels/<CURRENT_CHANNEL_ID>/data/widgets/project-status/state.json", content='{"phase":"Planning","progress":0}')
 3. emit_html_widget(path="data/widgets/project-status/index.html", display_label="Project status")
+
+Notice the asymmetry — the `file` tool needs `/workspace/channels/<channel_id>/...` to target the channel workspace; `emit_html_widget` drops the `/workspace/channels/<channel_id>/` prefix because it's already scoped to the current channel.
 ```
 
 After pinning, further edits to files in that bundle refresh the pinned widget within ~3 seconds. Iterate on the folder; no need to re-emit.
@@ -637,6 +678,63 @@ The iframe receives `<html class="dark">` when the app is in dark mode. CSS vari
 
 Always set `display_label` — it appears on the dashboard card header, in the "Updated Xm ago" chip, and in the pinned-widget context block you get on future turns. Without it the card shows generic text.
 
+## Remember What You Built
+
+Widgets disappear from your attention once they're pinned. A future turn might be the first time in a week you're aware of the dashboard — and without breadcrumbs, you'll rebuild things that already exist, or forget design decisions that will bite you.
+
+**Required after every new widget you ship:**
+
+### 1. Add an index entry to `memory/MEMORY.md`
+
+Under a `## Widgets I've built` section (create it if missing), add one line:
+
+```markdown
+## Widgets I've built
+- **Project status** — `/workspace/channels/<cid>/data/widgets/project-status/` — live phase tracker with RMW state.json. Notes: `memory/reference/project-status.md`.
+- **Home control** — `/workspace/channels/<cid>/data/widgets/home-control/` — one-click scenes + device toggles via `callTool("HassTurnOn", ...)`. Notes: `memory/reference/home-control.md`.
+```
+
+Format: `**<display_label>** — <absolute bundle path> — <one-line what it does>. Notes: <reference file>.`
+
+### 2. Create `memory/reference/<widget-slug>.md` with the widget's design memory
+
+Template:
+
+```markdown
+# <display_label>
+
+**Path**: `/workspace/channels/<cid>/data/widgets/<slug>/`
+**Pinned**: <yes/no + dashboard location>
+**Shipped**: <YYYY-MM-DD>
+
+## What it does
+One-paragraph summary.
+
+## Data sources
+- Tools it calls (via `spindrel.callTool`)
+- Endpoints it reads (via `spindrel.api`)
+- Files it reads/writes (`./state.json`, `./data.json`, etc.)
+
+## State shape
+If the widget uses `state.json`, paste the schema here with field semantics.
+
+## Design decisions
+- Why RMW over `state_poll`? (or vice versa)
+- Why this archetype and not another?
+- Chrome/density choices
+
+## Known rough edges / TODO
+- …
+```
+
+### Why this matters
+
+- The user's next turn may say *"the project-status widget is showing the wrong phase"* — without the index, you waste tool calls hunting for the file. With the index, you land on it in one step.
+- Design decisions ("I chose RMW because two copies of the widget can be open") evaporate between sessions if they're not written down. The `reference/` file is where they live.
+- When multiple widgets interact (control panel dispatches `run_backup`, which writes `state.json`, which project-status reads), the `reference/` files are the only place that mapping lives coherently.
+
+**Rule of thumb**: if you created the widget in this turn, you haven't finished shipping it until both files exist.
+
 ## Common Mistakes
 
 | Wrong | Right | Why |
@@ -651,6 +749,8 @@ Always set `display_label` — it appears on the dashboard card header, in the "
 | Hand-rolled `.card { border: 1px solid #e5e7eb; ... }` | `class="sd-card"` | The vocabulary already covers this. |
 | `html=...` + `path=...` together | Exactly one | Tool errors — pick inline OR path |
 | Path mode pointing at a non-existent file | Create the file first with `file(create, ...)` | Tool refuses if the path doesn't resolve |
+| `file(create, path="data/widgets/foo/index.html")` + `emit_html_widget(path="data/widgets/foo/index.html")` | Write with `/workspace/channels/<channel_id>/data/widgets/foo/index.html`, emit with `data/widgets/foo/index.html` | The two tools root paths differently — `file` is bot-workspace-relative, `emit_html_widget` is channel-workspace-relative. Writing to "data/..." via `file` lands in the bot workspace, which `emit_html_widget` never looks at. |
+| Shipping a widget without updating `memory/MEMORY.md` | Add index entry + `memory/reference/<slug>.md` same turn | Future turns lose the bundle. You'll rebuild or debug blind. |
 | Dumping loose `.html` at the workspace root | Put each widget in its own bundle folder | Bundles move/rename/delete atomically; the root stays legible |
 | Blind-overwriting `state.json` | Read-merge-write | Two open copies stay coherent; no silent data loss |
 | Skipping `display_label` | Always supply one | Blank headers on the dashboard are ugly + fail the pinned-widget context hint |
@@ -670,9 +770,10 @@ When the user says "build me a dashboard for X":
 1. **Discover** — `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had.
 2. **Pick a root** — channel-scoped `data/widgets/<slug>/` (the default, works today). Non-channel roots arrive with DX-5b.
 3. **Pick an archetype** — status (RMW `state.json`), feed (poll API), control panel (dispatch tools), KB reader (workspace files + markdown). Most real dashboards mix two.
-4. **One-shot the bundle** — `file(create, path="<root>/index.html", content=<full doc>)` plus any `state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `dispatch:"tool"` for triggering work.
-5. **Emit** — `emit_html_widget(path="<root>/index.html", display_label="<Slug>")`. User pins it to the dashboard.
-6. **Iterate** — user requests tweaks → `file(edit, path="<root>/index.html", find=..., replace=...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
+4. **One-shot the bundle** — `file(create, path="/workspace/channels/<CURRENT_CHANNEL_ID>/data/widgets/<slug>/index.html", content=<full doc>)` plus any `state.json` defaults (same `/workspace/channels/<id>/...` form). Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
+5. **Emit** — `emit_html_widget(path="data/widgets/<slug>/index.html", display_label="<Slug>")` — channel-workspace-relative, no `/workspace/channels/<id>/` prefix. User pins it to the dashboard.
+6. **Iterate** — tweaks via `file(edit, path="/workspace/channels/<CURRENT_CHANNEL_ID>/data/widgets/<slug>/index.html", find=..., replace=...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
+7. **Record it** — leave breadcrumbs in your memory (see "Remember what you built" below) so future-you knows the widget exists and where to find it.
 
 This is the highest-leverage pattern: path mode + a bundle folder + the `file` tool turns "build me a widget" into a live, iteratively-editable surface.
 

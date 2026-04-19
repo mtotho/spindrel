@@ -98,6 +98,58 @@ class TestTranslateMessages:
             {"type": "function_call_output", "call_id": "call_1", "output": "sunny"},
         ]
 
+    def test_oversize_tool_call_id_is_normalized_consistently(self):
+        # Regression: history carrying a tool_call_id from another provider
+        # (LiteLLM/Gemini emit long opaque ids) used to blow up the Codex
+        # endpoint with "string too long. Expected max length 64". Both the
+        # function_call and function_call_output legs must normalize to the
+        # same deterministic short form so the pair still matches.
+        oversize = "call_" + ("a" * 700)
+        _, items = _translate_messages(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": oversize,
+                            "type": "function",
+                            "function": {"name": "get_weather", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": oversize, "content": "sunny"},
+            ]
+        )
+        fn_call = next(it for it in items if it["type"] == "function_call")
+        fn_out = next(it for it in items if it["type"] == "function_call_output")
+        assert len(fn_call["call_id"]) <= 64
+        assert fn_call["call_id"] != oversize
+        assert fn_call["call_id"].startswith("call_")
+        assert fn_call["call_id"] == fn_out["call_id"]
+
+    def test_short_tool_call_id_is_passed_through_unchanged(self):
+        _, items = _translate_messages(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_abc123",
+                            "type": "function",
+                            "function": {"name": "get_weather", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call_abc123", "content": "sunny"},
+            ]
+        )
+        fn_call = next(it for it in items if it["type"] == "function_call")
+        fn_out = next(it for it in items if it["type"] == "function_call_output")
+        assert fn_call["call_id"] == "call_abc123"
+        assert fn_out["call_id"] == "call_abc123"
+
     def test_user_message_with_image_url(self):
         _, items = _translate_messages(
             [

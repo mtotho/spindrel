@@ -784,8 +784,11 @@ async def _run_with_fallback_chain(
     primary_exc = None
 
     if cooldown_fb is not None:
-        # Use the stored fallback provider; fall back to caller's provider_id
-        effective_cd_provider = cooldown_fb_provider or provider_id
+        # Use the stored fallback provider. Do NOT fall back to the caller's
+        # provider_id — the cooldown fallback is a different model that may
+        # belong to a different provider (cross-provider failover). Passing
+        # None lets `_prepare_call_params` auto-resolve via the model name.
+        effective_cd_provider = cooldown_fb_provider
         logger.info("Circuit breaker: skipping %s (in cooldown), using %s directly", model, cooldown_fb)
         if on_event:
             on_event({"type": "llm_cooldown_skip", "model": model, "using": cooldown_fb})
@@ -834,12 +837,18 @@ async def _run_with_fallback_chain(
         if not fb_model or fb_model in tried:
             continue
         tried.add(fb_model)
-        fb_provider = fb.get("provider_id") or provider_id
-        logger.warning("Model %s failed (%s: %s), attempting fallback %s",
-                       model, type(last_exc).__name__, last_exc, fb_model)
+        # Fallback entries carry their own provider. Never inherit the primary
+        # provider when the fallback omits one — that's how e.g. a Gemini model
+        # ended up being dispatched to the Codex Responses endpoint. Passing
+        # None lets `_prepare_call_params` resolve the correct provider from
+        # the model name via `resolve_provider_for_model`.
+        fb_provider = fb.get("provider_id")
+        logger.error("Model %s failed (%s: %s), attempting fallback %s",
+                     model, type(last_exc).__name__, last_exc, fb_model)
         if on_event:
             on_event({"type": "llm_fallback", "from_model": model, "to_model": fb_model,
-                       "reason": type(last_exc).__name__})
+                       "reason": type(last_exc).__name__,
+                       "error": str(last_exc)[:500]})
         try:
             _no_img = make_no_images_fn(fb_model, fb_provider, model_params) if make_no_images_fn else None
             result = await _retry_single_model(
@@ -859,6 +868,14 @@ async def _run_with_fallback_chain(
             last_exc = fb_exc
             continue
 
+    # Surface the final failure as a trace event so operators see the error
+    # body without having to dig through logs. Without this, an exhausted
+    # fallback chain reaches the caller as a plain exception with no
+    # structured record of which models were tried and why each one failed.
+    if on_event:
+        on_event({"type": "llm_error", "model": model,
+                   "reason": type(last_exc).__name__,
+                   "error": str(last_exc)[:500]})
     raise last_exc
 
 

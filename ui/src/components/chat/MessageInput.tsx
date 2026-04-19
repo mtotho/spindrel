@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
-import { Send, Square, Paperclip, X, Cpu, Mic, Check } from "lucide-react";
+import { Send, Square, X, Mic, Check } from "lucide-react";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
 import { RecordingOverlay } from "./RecordingOverlay";
@@ -8,7 +8,7 @@ import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import { TiptapChatInput, type TiptapChatInputHandle } from "./TiptapChatInput";
 import { createPortal } from "react-dom";
 import { LlmModelDropdown } from "../shared/LlmModelDropdown";
-import { ContextChip } from "./ContextChip";
+import { ComposerAddMenu } from "./ComposerAddMenu";
 
 export interface PendingFile {
   file: File;
@@ -105,7 +105,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     }
   }, [channelId, pendingFiles, setDraftFiles]);
   const [showModelPicker, setShowModelPicker] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapChatInputHandle>(null);
   const editorWrapperRef = useRef<HTMLDivElement>(null);
@@ -372,35 +371,20 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             display: "flex",
             flexDirection: "row",
             alignItems: "flex-end",
-            gap: isMobile ? 4 : 12,
-            padding: isMobile ? "6px 8px" : "12px 20px",
+            gap: isMobile ? 4 : 10,
+            padding: isMobile ? "6px 8px" : "14px 20px",
           }}
         >
-          {/* Attach button — 44×44 tap area on mobile per Apple HIG; glyph stays small. */}
-          <button
-            className="input-action-btn"
-            onClick={() => fileInputRef.current?.click()}
+          <ComposerAddMenu
+            channelId={channelId}
+            botId={currentBotId}
+            composerText={text}
+            onInsertSkillTag={(skillId) => {
+              editorRef.current?.insertMention(`skill:${skillId}`);
+            }}
+            onAttachFiles={(files) => handleFileSelect(files)}
             disabled={disabled || recorder.isRecording}
-            style={{
-              width: 44,
-              height: 44,
-              flexShrink: 0,
-              opacity: recorder.isRecording ? 0.3 : 1,
-            }}
-            title="Attach file"
-          >
-            <Paperclip size={isMobile ? 18 : 20} color={t.textDim} />
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept="image/*,.pdf,.txt,.csv,.json,.md,.yaml,.yml,.xml,.html,.log,.py,.js,.ts,.sh,.doc,.docx,.xlsx,.xls,.pptx"
-            style={{ display: "none" }}
-            onChange={(e) => {
-              handleFileSelect(e.target.files);
-              e.target.value = "";
-            }}
+            isMobile={isMobile}
           />
 
           {/* Editor wrapper */}
@@ -411,7 +395,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             style={{
               flex: 1,
               minWidth: 0,
-              minHeight: 44,
+              minHeight: isMobile ? 44 : 56,
               maxHeight: 280,
               background: t.surfaceRaised,
               borderRadius: 16,
@@ -445,91 +429,92 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             )}
           </div>
 
-          {/* Skills-in-context chip — composer placement for desktop only.
-              Mobile gets a view-only indicator in the channel header instead (no toolbar bloat). */}
-          {!isMobile && channelId && (
-            <ContextChip
-              channelId={channelId}
-              composerText={text}
-              botId={currentBotId}
-              onInsertSkillTag={(skillId) => {
-                editorRef.current?.insertMention(`skill:${skillId}`);
-              }}
-              size={36}
-            />
-          )}
-
-          {/* Per-turn model picker — hidden on mobile to save space */}
-          {onModelOverrideChange && !isMobile && (
-            <div ref={modelPickerRef} style={{ position: "relative", display: "flex", flexDirection: "row", alignItems: "center" }}>
-              {modelOverride ? (
-                <div
-                  style={{
-                    display: "flex", flexDirection: "row",
-                    alignItems: "center",
-                    gap: 4,
-                    background: t.purpleSubtle,
-                    border: `1px solid ${t.purpleBorder}`,
-                    borderRadius: 6,
-                    padding: "4px 8px",
-                    fontSize: 11,
-                    color: t.purple,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                    maxWidth: 180,
-                  }}
-                  onClick={() => setShowModelPicker(true)}
-                  title={`Per-turn override: ${modelOverride}`}
-                >
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {modelOverride.split("/").pop()}
-                  </span>
-                  <span style={{ fontSize: 9, opacity: 0.7 }}>1 msg</span>
-                  <span
-                    onClick={(e) => { e.stopPropagation(); onModelOverrideChange(undefined, null); }}
-                    style={{ marginLeft: 2, cursor: "pointer", fontSize: 12, lineHeight: 1 }}
+          {/* Inline model pill — desktop only. Always visible showing the current
+              effective model; clicking opens the LlmModelDropdown portal. Purple
+              accent only when a per-turn override is active. */}
+          {onModelOverrideChange && !isMobile && (() => {
+            const hasOverride = !!modelOverride;
+            const effectiveName = modelOverride
+              ? modelOverride.split("/").pop()
+              : defaultModel?.split("/").pop();
+            const canRenderPill = !!effectiveName;
+            return (
+              <div ref={modelPickerRef} style={{ position: "relative", display: "flex", flexDirection: "row", alignItems: "center" }}>
+                {canRenderPill ? (
+                  <div
+                    style={{
+                      display: "flex", flexDirection: "row",
+                      alignItems: "center",
+                      gap: 4,
+                      background: hasOverride ? t.purpleSubtle : "transparent",
+                      border: `1px solid ${hasOverride ? t.purpleBorder : t.overlayLight}`,
+                      borderRadius: 8,
+                      padding: "5px 10px",
+                      fontSize: 11,
+                      color: hasOverride ? t.purple : t.textMuted,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                      maxWidth: 200,
+                      height: 32,
+                    }}
+                    onClick={() => setShowModelPicker(true)}
+                    title={hasOverride ? `Per-turn override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName}`}
                   >
-                    ✕
-                  </span>
-                </div>
-              ) : (
-                <button
-                  className="input-action-btn"
-                  onClick={() => setShowModelPicker(true)}
-                  style={{ width: 44, height: 44, opacity: 0.6 }}
-                  title="Select model for this message"
-                >
-                  <Cpu size={16} color={t.textDim} />
-                </button>
-              )}
-              {showModelPicker && (() => {                const rect = modelPickerRef.current?.getBoundingClientRect();
-                const dropdownRight = rect ? window.innerWidth - rect.right : 16;
-                const dropdownBottom = rect ? window.innerHeight - rect.top + 8 : 80;
-                return createPortal(
-                  <>
-                    <div
-                      onClick={() => setShowModelPicker(false)}
-                      style={{ position: "fixed", inset: 0, zIndex: 50000 }}
-                    />
-                    <div style={{ position: "fixed", bottom: dropdownBottom, right: dropdownRight, zIndex: 50001, width: 320 }}>
-                      <LlmModelDropdown
-                        value={modelOverride ?? ""}
-                        selectedProviderId={modelProviderIdOverride}
-                        onChange={(m: string, pid?: string | null) => {
-                          onModelOverrideChange(m || undefined, pid);
-                          setShowModelPicker(false);
-                        }}
-                        placeholder={defaultModel ? `inherit (${defaultModel})` : "Select model..."}
-                        allowClear
-                        anchor="top"
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {effectiveName}
+                    </span>
+                    {hasOverride && (
+                      <>
+                        <span style={{ fontSize: 9, opacity: 0.7 }}>1 msg</span>
+                        <span
+                          onClick={(e) => { e.stopPropagation(); onModelOverrideChange(undefined, null); }}
+                          style={{ marginLeft: 2, cursor: "pointer", fontSize: 12, lineHeight: 1 }}
+                        >
+                          ✕
+                        </span>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    className="input-action-btn"
+                    onClick={() => setShowModelPicker(true)}
+                    style={{ width: 44, height: 44, opacity: 0.6 }}
+                    title="Select model for this message"
+                  >
+                    <span style={{ fontSize: 11, color: t.textDim }}>model</span>
+                  </button>
+                )}
+                {showModelPicker && (() => {
+                  const rect = modelPickerRef.current?.getBoundingClientRect();
+                  const dropdownRight = rect ? window.innerWidth - rect.right : 16;
+                  const dropdownBottom = rect ? window.innerHeight - rect.top + 8 : 80;
+                  return createPortal(
+                    <>
+                      <div
+                        onClick={() => setShowModelPicker(false)}
+                        style={{ position: "fixed", inset: 0, zIndex: 50000 }}
                       />
-                    </div>
-                  </>,
-                  document.body
-                );
-              })()}
-            </div>
-          )}
+                      <div style={{ position: "fixed", bottom: dropdownBottom, right: dropdownRight, zIndex: 50001, width: 320 }}>
+                        <LlmModelDropdown
+                          value={modelOverride ?? ""}
+                          selectedProviderId={modelProviderIdOverride}
+                          onChange={(m: string, pid?: string | null) => {
+                            onModelOverrideChange(m || undefined, pid);
+                            setShowModelPicker(false);
+                          }}
+                          placeholder={defaultModel ? `inherit (${defaultModel})` : "Select model..."}
+                          allowClear
+                          anchor="top"
+                        />
+                      </div>
+                    </>,
+                    document.body
+                  );
+                })()}
+              </div>
+            );
+          })()}
           {/* Config overhead indicator — desktop only, visible only when overhead is meaningful.
               Below 20% the bar was rendering as a phantom hairline between the model picker
               and mic, so the threshold matches the band where the color/opacity actually changes. */}

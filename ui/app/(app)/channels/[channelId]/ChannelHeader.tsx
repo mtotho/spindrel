@@ -1,10 +1,14 @@
 import React from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Settings, Menu, ArrowLeft, Hash, FolderOpen, LayoutDashboard, PanelLeft, Columns2, Users, Wrench, Cog, PanelRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import {
+  Settings, Menu, ArrowLeft, Hash, FolderOpen, LayoutDashboard,
+  PanelLeft, Columns2, Users, Wrench, Cog, PanelRight,
+} from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
 import { useUIStore } from "@/src/stores/ui";
 import { ContextChip } from "@/src/components/chat/ContextChip";
+import { ChannelHeaderOverflowMenu, type OverflowItem } from "./ChannelHeaderOverflowMenu";
 
 export interface ChannelHeaderProps {
   channelId: string;
@@ -34,11 +38,9 @@ export interface ChannelHeaderProps {
   contextBudget?: { utilization: number; consumed: number; total: number } | null;
   /** Called when user clicks the context budget indicator */
   onContextBudgetClick?: () => void;
-  /** Orchestrator / system-control channel — renders SYSTEM pill next to title
-      and a subtitle clarifying its role. Replaces the legacy yellow admin banner. */
+  /** Orchestrator / system-control channel — renders SYSTEM pill next to title. */
   isSystemChannel?: boolean;
-  /** Findings panel state (awaiting-user-input pipelines) — present on system
-      channels. When defined, renders a PanelRight toggle with a badge count. */
+  /** Findings panel state (awaiting-user-input pipelines). */
   findingsPanelOpen?: boolean;
   toggleFindingsPanel?: () => void;
   findingsCount?: number;
@@ -84,258 +86,212 @@ export function ChannelHeader({
   };
 
   const modelShort = (channelModelOverride || bot?.model || "").split("/").pop();
+
+  // Overflow items — driven off the same state the removed inline buttons used.
+  const overflowItems: OverflowItem[] = [
+    {
+      key: "compact",
+      icon: <Wrench size={14} />,
+      label: compact ? "Show full tool output" : "Compact tool results",
+      onClick: () => setCompact(!compact),
+      active: compact,
+      hidden: isMobile,
+    },
+    {
+      key: "split",
+      icon: <Columns2 size={14} />,
+      label: splitMode ? "Exit split view" : "Split view",
+      onClick: () => onToggleSplit?.(),
+      active: !!splitMode,
+      hidden: !activeFile || !onToggleSplit || isMobile,
+    },
+    {
+      key: "browse",
+      icon: <FolderOpen size={14} />,
+      label: "Browse files",
+      onClick: onBrowseWorkspace,
+      hidden: !workspaceEnabled || !workspaceId || isMobile,
+    },
+    {
+      key: "dashboard",
+      icon: <LayoutDashboard size={14} />,
+      label: "Channel dashboard",
+      onClick: () => navigate(`/widgets/channel/${channelId}`),
+      hidden: !!isSystemChannel,
+    },
+    {
+      key: "participants",
+      icon: <Users size={14} />,
+      label: "Participants",
+      onClick: () => toggleParticipantsPanel?.(),
+      active: !!participantsPanelOpen,
+      badge: memberBotCount > 0 ? 1 + memberBotCount : undefined,
+      hidden: !toggleParticipantsPanel || isMobile,
+    },
+    {
+      key: "findings",
+      icon: <PanelRight size={14} />,
+      label: "Findings",
+      onClick: () => toggleFindingsPanel?.(),
+      active: !!findingsPanelOpen,
+      badge: findingsCount > 0 ? findingsCount : undefined,
+      attention: findingsCount > 0,
+      hidden: !toggleFindingsPanel,
+    },
+  ];
+
   return (
-      <header
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: isMobile ? 4 : 12,
-          padding: isMobile ? "0 8px" : "0 16px",
-          backgroundColor: "transparent",
-          flexShrink: 0,
-          zIndex: 10,
-          minHeight: isMobile ? 48 : 52,
-        }}
+    <header
+      style={{
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: isMobile ? 4 : 8,
+        padding: isMobile ? "0 8px" : "0 12px",
+        backgroundColor: "transparent",
+        flexShrink: 0,
+        zIndex: 10,
+        minHeight: isMobile ? 48 : 44,
+      }}
+    >
+      {isMobile ? (
+        <button className="header-icon-btn" style={{ width: 44, height: 44 }} onClick={openPalette} title="Open menu">
+          <Menu size={18} color={t.textMuted} />
+        </button>
+      ) : columns === "single" ? (
+        <button className="header-icon-btn" style={{ width: 36, height: 36 }} onClick={goBack} title="Back">
+          <ArrowLeft size={18} color={t.textMuted} />
+        </button>
+      ) : showHamburger ? (
+        <button className="header-icon-btn" style={{ width: 36, height: 36 }} onClick={toggleSidebar} title="Toggle sidebar">
+          <Menu size={18} color={t.textMuted} />
+        </button>
+      ) : null}
+
+      {isSystemChannel ? (
+        <Cog size={16} className="text-accent ml-0.5 shrink-0" />
+      ) : (
+        <Hash size={16} color={t.textDim} style={{ marginLeft: 2, flexShrink: 0 }} />
+      )}
+
+      <div
+        style={{ flex: 1, minWidth: 0, padding: isMobile ? "6px 0" : "6px 0", cursor: isMobile && !isSystemChannel && bot ? "pointer" : undefined }}
+        onClick={isMobile && !isSystemChannel && bot ? onContextBudgetClick : undefined}
+        title={isMobile && !isSystemChannel && bot ? `${bot.name}${modelShort ? ` · ${modelShort}` : ""}` : undefined}
       >
-        {isMobile ? (
-          <button className="header-icon-btn" style={{ width: 44, height: 44 }} onClick={openPalette} title="Open menu">
-            <Menu size={18} color={t.textMuted} />
-          </button>
-        ) : columns === "single" ? (
-          <button className="header-icon-btn" style={{ width: 44, height: 44 }} onClick={goBack} title="Back">
-            <ArrowLeft size={20} color={t.textMuted} />
-          </button>
-        ) : showHamburger ? (
-          <button className="header-icon-btn" style={{ width: 44, height: 44 }} onClick={toggleSidebar} title="Toggle sidebar">
-            <Menu size={20} color={t.textMuted} />
-          </button>
-        ) : null}
-        {isSystemChannel ? (
-          <Cog size={18} className="text-accent ml-0.5 shrink-0" />
-        ) : (
-          <Hash size={18} color={t.textDim} style={{ marginLeft: 2, flexShrink: 0 }} />
-        )}
-        <div
-          style={{ flex: 1, minWidth: 0, padding: isMobile ? "6px 0" : "8px 0", cursor: isMobile && !isSystemChannel && bot ? "pointer" : undefined }}
-          onClick={isMobile && !isSystemChannel && bot ? onContextBudgetClick : undefined}
-          title={isMobile && !isSystemChannel && bot ? `${bot.name}${modelShort ? ` · ${modelShort}` : ""}` : undefined}
-        >
-          <div className="flex flex-row items-center gap-2 min-w-0">
-            <span style={{ fontSize: 16, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {displayName}
+        <div className="flex flex-row items-center gap-2 min-w-0">
+          <span style={{ fontSize: 15, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {displayName}
+          </span>
+          {isSystemChannel && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+                         bg-accent/10 text-accent text-[10px] uppercase tracking-wider
+                         border border-accent/30 shrink-0"
+              title="System configuration channel — pipelines here can modify bots, skills, and tasks."
+            >
+              <Cog size={10} />
+              SYSTEM
             </span>
-            {isSystemChannel && (
-              <span
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
-                           bg-accent/10 text-accent text-[10px] uppercase tracking-wider
-                           border border-accent/30 shrink-0"
-                title="System configuration channel — pipelines here can modify bots, skills, and tasks."
-              >
-                <Cog size={10} />
-                SYSTEM
-              </span>
-            )}
-            {/* Mobile-only: inline context budget pip when significant. The full
-                subtitle (bot name, model, budget numbers) is hidden on mobile —
-                tap the title to open BotInfoPanel for full detail. */}
-            {isMobile && !isSystemChannel && contextBudget && contextBudget.total > 0 && contextBudget.utilization > 0.5 && (
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  backgroundColor: contextBudget.utilization > 0.8 ? "#f87171" : "#fbbf24",
-                  flexShrink: 0,
-                }}
-                title={`Context: ${fmtTokens(contextBudget.consumed)} / ${fmtTokens(contextBudget.total)} (${Math.round(contextBudget.utilization * 100)}%)`}
-              />
-            )}
-          </div>
-          {isSystemChannel && !isMobile && (
-            <div className="text-[11px] text-text-dim mt-0.5 truncate">
-              System configuration channel
-            </div>
           )}
-          {!isSystemChannel && !isMobile && bot && (
-            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2, minWidth: 0 }}>
-              <a
-                className="header-bot-link"
-                onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}
-                href={`/admin/bots/${bot.id}`}
-                style={{ fontSize: 12, color: t.textMuted, textDecoration: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-              >
-                {bot.name}
-              </a>
-              {modelShort && (
-                <span style={{ fontSize: 11, color: t.textDim, flexShrink: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {modelShort}
-                </span>
-              )}
-              {contextBudget && contextBudget.total > 0 && (
-                <span
-                  onClick={onContextBudgetClick}
-                  style={{
-                    fontSize: 10,
-                    fontFamily: "monospace",
-                    color: contextBudget.utilization > 0.8 ? "#f87171" : contextBudget.utilization > 0.5 ? "#fbbf24" : t.textDim,
-                    flexShrink: 0,
-                    cursor: onContextBudgetClick ? "pointer" : undefined,
-                    borderBottom: onContextBudgetClick ? "1px dotted transparent" : undefined,
-                    transition: "border-color 0.15s",
-                  }}
-                  onMouseEnter={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = t.textDim; } : undefined}
-                  onMouseLeave={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
-                  title={`Context: ${fmtTokens(contextBudget.consumed)} / ${fmtTokens(contextBudget.total)} tokens (${Math.round(contextBudget.utilization * 100)}%)`}
-                >
-                  {fmtTokens(contextBudget.consumed)}/{fmtTokens(contextBudget.total)}
-                </span>
-              )}
-            </div>
+          {isMobile && !isSystemChannel && contextBudget && contextBudget.total > 0 && contextBudget.utilization > 0.5 && (
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                backgroundColor: contextBudget.utilization > 0.8 ? "#f87171" : "#fbbf24",
+                flexShrink: 0,
+              }}
+              title={`Context: ${fmtTokens(contextBudget.consumed)} / ${fmtTokens(contextBudget.total)} (${Math.round(contextBudget.utilization * 100)}%)`}
+            />
           )}
         </div>
-        {/* Compact tool results toggle: when ON, rich tool result envelopes
-            (markdown / diff / json / file-listing) collapse to badge mode and
-            require an explicit click to expand. Default OFF — file ops show
-            their rendered body inline so the user can see what the bot did. */}
-        {!isMobile && (
-          <button
-            className="header-icon-btn"
-            style={{ width: 36, height: 36, backgroundColor: compact ? t.surfaceOverlay : "transparent" }}
-            onClick={() => setCompact(!compact)}
-            title={compact ? "Show full tool output inline" : "Compact tool results to badges"}
-          >
-            <Wrench size={16} color={compact ? t.accent : t.textDim} />
-          </button>
+        {isSystemChannel && !isMobile && (
+          <div className="text-[11px] text-text-dim mt-0.5 truncate">
+            System configuration channel
+          </div>
         )}
-        {/* OmniPanel toggle: always available (pinned widgets work without a workspace).
-            Hidden on system channels — no workspace files or pinned tool widgets apply. */}
-        {!isSystemChannel && (
-          <button
-            className="header-icon-btn"
-            style={{ width: isMobile ? 44 : 36, height: isMobile ? 44 : 36, backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent" }}
-            onClick={toggleExplorer}
-            title={explorerOpen ? "Hide panel" : "Show panel"}
-          >
-            <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
-          </button>
-        )}
-        {/* Split view toggle — visible when a file is open */}
-        {activeFile && onToggleSplit && !isMobile && (
-          <button
-            className="header-icon-btn"
-            style={{ width: 36, height: 36, backgroundColor: splitMode ? t.surfaceOverlay : "transparent" }}
-            onClick={onToggleSplit}
-            title={splitMode ? "Exit split view (⌘\\)" : "Split view — chat + file (⌘\\)"}
-          >
-            <Columns2 size={16} color={splitMode ? t.accent : t.textDim} />
-          </button>
-        )}
-        {/* Browse files — opens the OmniPanel on the Files tab and focuses
-            its filter input. Gated on channel workspace being enabled (no
-            tree to browse otherwise). */}
-        {workspaceEnabled && workspaceId && !isMobile && (
-          <button
-            className="header-icon-btn"
-            style={{ width: 36, height: 36 }}
-            onClick={onBrowseWorkspace}
-            title="Browse files (⌘⇧B)"
-          >
-            <FolderOpen size={16} color={t.textDim} />
-          </button>
-        )}
-        {/* Channel dashboard — opens the full widget grid for this channel. */}
-        {!isSystemChannel && (
-          <Link
-            to={`/widgets/channel/${channelId}`}
-            className="header-icon-btn"
-            style={{ width: isMobile ? 44 : 36, height: isMobile ? 44 : 36, display: "flex", alignItems: "center", justifyContent: "center" }}
-            title="Channel dashboard"
-            aria-label="Channel dashboard"
-          >
-            <LayoutDashboard size={16} color={t.textDim} />
-          </Link>
-        )}
-        {toggleFindingsPanel && (
-          <button
-            className="header-icon-btn relative"
-            style={{
-              width: isMobile ? 44 : 36,
-              height: isMobile ? 44 : 36,
-              backgroundColor: findingsPanelOpen ? t.surfaceOverlay : "transparent",
-            }}
-            onClick={toggleFindingsPanel}
-            title={findingsPanelOpen ? "Hide findings" : `Findings${findingsCount ? ` (${findingsCount} pending)` : ""}`}
-          >
-            <PanelRight size={16} color={findingsPanelOpen ? t.accent : t.textDim} />
-            {findingsCount > 0 && (
+        {!isSystemChannel && !isMobile && bot && (
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1, minWidth: 0 }}>
+            <a
+              className="header-bot-link"
+              onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}
+              href={`/admin/bots/${bot.id}`}
+              style={{ fontSize: 11, color: t.textMuted, textDecoration: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
+              {bot.name}
+            </a>
+            {modelShort && (
+              <span style={{ fontSize: 11, color: t.textDim, flexShrink: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {modelShort}
+              </span>
+            )}
+            {contextBudget && contextBudget.total > 0 && (
               <span
-                className="absolute top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full
-                           bg-accent text-[9px] font-bold flex items-center justify-center
-                           leading-none animate-pulse"
-                style={{ color: t.surface }}
+                onClick={onContextBudgetClick}
+                style={{
+                  fontSize: 10,
+                  fontFamily: "monospace",
+                  color: contextBudget.utilization > 0.8 ? "#f87171" : contextBudget.utilization > 0.5 ? "#fbbf24" : t.textDim,
+                  flexShrink: 0,
+                  cursor: onContextBudgetClick ? "pointer" : undefined,
+                  borderBottom: onContextBudgetClick ? "1px dotted transparent" : undefined,
+                  transition: "border-color 0.15s",
+                }}
+                onMouseEnter={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = t.textDim; } : undefined}
+                onMouseLeave={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
+                title={`Context: ${fmtTokens(contextBudget.consumed)} / ${fmtTokens(contextBudget.total)} tokens (${Math.round(contextBudget.utilization * 100)}%)`}
               >
-                {findingsCount > 9 ? "9+" : findingsCount}
+                {fmtTokens(contextBudget.consumed)}/{fmtTokens(contextBudget.total)}
               </span>
             )}
-          </button>
+          </div>
         )}
-        {toggleParticipantsPanel && !isMobile && (
-          <button
-            className="header-icon-btn"
-            style={{
-              width: 36,
-              height: 36,
-              backgroundColor: participantsPanelOpen ? t.surfaceOverlay : "transparent",
-              position: "relative",
-            }}
-            onClick={toggleParticipantsPanel}
-            title={participantsPanelOpen ? "Hide participants" : "Manage participants"}
-          >
-            <Users size={16} color={participantsPanelOpen ? t.accent : t.textDim} />
-            {memberBotCount > 0 && (
-              <span style={{
-                position: "absolute",
-                top: 4,
-                right: 4,
-                fontSize: 9,
-                fontWeight: 700,
-                color: t.accent,
-                background: `${t.accent}20`,
-                borderRadius: 6,
-                padding: "0 3px",
-                minWidth: 12,
-                textAlign: "center",
-                lineHeight: "14px",
-              }}>
-                {1 + memberBotCount}
-              </span>
-            )}
-          </button>
-        )}
-        {/* Skills-in-context indicator — mobile only (desktop has it in the composer).
-            View-only: popover lists loaded skills with "msgs ago" subtext, no drop picker.
-            Hidden when nothing is loaded so it doesn't clutter the header. */}
-        {isMobile && channelId && (
-          <ContextChip
-            channelId={channelId}
-            botId={bot?.id}
-            size={44}
-            hideWhenEmpty
-            compact
-            placement="below"
-          />
-        )}
-        {channelId && (
-          <button
-            className="header-icon-btn"
-            style={{ width: 44, height: 44 }}
-            onClick={() => navigate(`/channels/${channelId}/settings`)}
-            title="Channel settings"
-          >
-            <Settings size={isMobile ? 16 : 18} color={t.textDim} />
-          </button>
-        )}
-      </header>
-    );
+      </div>
+
+      {/* OmniPanel toggle — stays visible as primary chrome. */}
+      {!isSystemChannel && (
+        <button
+          className="header-icon-btn"
+          style={{
+            width: isMobile ? 44 : 36,
+            height: isMobile ? 44 : 36,
+            backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent",
+          }}
+          onClick={toggleExplorer}
+          title={explorerOpen ? "Hide panel" : "Show panel"}
+        >
+          <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
+        </button>
+      )}
+
+      {/* Mobile skills indicator — view-only; desktop surfaces skills inside the + composer menu. */}
+      {isMobile && channelId && (
+        <ContextChip
+          channelId={channelId}
+          botId={bot?.id}
+          size={44}
+          hideWhenEmpty
+          compact
+          placement="below"
+        />
+      )}
+
+      {/* Overflow — secondary actions. */}
+      <ChannelHeaderOverflowMenu items={overflowItems} isMobile={isMobile} />
+
+      {/* Settings — primary chrome. */}
+      {channelId && (
+        <button
+          className="header-icon-btn"
+          style={{ width: isMobile ? 44 : 36, height: isMobile ? 44 : 36 }}
+          onClick={() => navigate(`/channels/${channelId}/settings`)}
+          title="Channel settings"
+        >
+          <Settings size={isMobile ? 16 : 16} color={t.textDim} />
+        </button>
+      )}
+    </header>
+  );
 }
