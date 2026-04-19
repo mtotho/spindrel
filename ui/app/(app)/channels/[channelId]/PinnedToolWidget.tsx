@@ -218,14 +218,14 @@ export function PinnedToolWidget({
     refreshState();
   }, [sharedEnvelope, refreshState]);
 
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: widget.id });
+  // dnd-kit powers channel-scope OmniPanel reorder. Dashboard scope defers to
+  // react-grid-layout for drag/resize, so we call the hook unconditionally
+  // (React hook order) but discard its outputs when isDashboard. Applying
+  // `transform` / `setNodeRef` / `attributes` outside a DndContext is
+  // harmless but can collide with react-grid-layout's own transforms.
+  const sortable = useSortable({ id: widget.id });
+  const { attributes, listeners, setNodeRef, transform, transition } = sortable;
+  const isDragging = isDashboard ? false : sortable.isDragging;
 
   // Pass the current display_label so the backend can fetch fresh polled state
   // after the action and return that envelope (instead of the action template's
@@ -332,12 +332,23 @@ export function PinnedToolWidget({
     return null;
   }
 
-  const sortableStyle = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    borderColor: `${t.surfaceBorder}80`,
-    opacity: isDragging ? 0.5 : refreshing ? 0.6 : 1,
-  };
+  const sortableStyle = isDashboard
+    ? {
+        borderColor: `${t.surfaceBorder}80`,
+        opacity: refreshing ? 0.6 : 1,
+      }
+    : {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        borderColor: `${t.surfaceBorder}80`,
+        opacity: isDragging ? 0.5 : refreshing ? 0.6 : 1,
+      };
+
+  // In dashboard scope react-grid-layout owns the DOM node via its own wrapper;
+  // skip dnd-kit's ref/attrs to avoid double-registering.
+  const rootRef = isDashboard ? undefined : setNodeRef;
+  const rootAttrs = isDashboard ? {} : attributes;
+  const handleListeners = isDashboard ? undefined : listeners;
 
   const updatedLabel = lastRefreshedAt ? formatRelativeTime(lastRefreshedAt) : "";
 
@@ -347,12 +358,19 @@ export function PinnedToolWidget({
     ? "h-full flex flex-col"
     : "";
 
+  // Dashboard-scope controls get roomier padding so the touch target is
+  // practical on tablet; channel scope stays compact in the OmniPanel.
+  const ctrlBtnClass = isDashboard
+    ? "p-1.5 rounded hover:bg-white/[0.06] transition-colors duration-150 flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+    : "p-0.5 rounded hover:bg-white/[0.06] transition-colors duration-150 flex-shrink-0";
+  const ctrlIconSize = isDashboard ? 14 : 12;
+
   return (
     <div
-      ref={setNodeRef}
+      ref={rootRef}
       className={`group rounded-lg border transition-colors duration-150 hover:bg-white/[0.02] ${cardSizeClass}`}
       style={sortableStyle}
-      {...attributes}
+      {...rootAttrs}
     >
       {/* Header */}
       <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-0.5">
@@ -361,10 +379,14 @@ export function PinnedToolWidget({
             reorder flow relies on it). */}
         {(!isDashboard || editMode) && (
           <GripVertical
-            size={12}
-            className="widget-drag-handle opacity-30 hover:opacity-70 cursor-grab transition-opacity duration-150 flex-shrink-0"
+            size={ctrlIconSize}
+            className={
+              "widget-drag-handle opacity-30 hover:opacity-70 cursor-grab transition-opacity duration-150 flex-shrink-0" +
+              (isDashboard ? " p-0.5 -m-0.5" : "")
+            }
             style={{ color: t.textMuted }}
-            {...listeners}
+            aria-label="Drag to reorder"
+            {...(handleListeners ?? {})}
           />
         )}
         <span
@@ -377,19 +399,21 @@ export function PinnedToolWidget({
           <button
             type="button"
             onClick={() => onEdit(widget.id)}
-            className="p-0.5 rounded hover:bg-white/[0.06] transition-colors duration-150 flex-shrink-0"
+            className={ctrlBtnClass}
+            aria-label="Edit pin"
             title="Edit pin"
           >
-            <Pencil size={12} style={{ color: t.textMuted, opacity: 0.6 }} />
+            <Pencil size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
           </button>
         )}
         <button
           type="button"
           onClick={() => onUnpin(widget.id)}
-          className="p-0.5 rounded hover:bg-white/[0.06] transition-colors duration-150 flex-shrink-0"
+          className={ctrlBtnClass}
+          aria-label="Unpin widget"
           title="Unpin"
         >
-          <X size={12} style={{ color: t.textMuted, opacity: 0.5 }} />
+          <X size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.5 }} />
         </button>
       </div>
 

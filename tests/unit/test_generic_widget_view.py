@@ -281,6 +281,43 @@ class TestNestedHomogeneousArrayPromotion:
                     assert not item["value"].startswith('[{')
 
 
+class TestDateFormatting:
+    """ISO 8601 datetimes should be reformatted as compact ``YYYY-MM-DD HH:MM``
+    so they fit in a column without wrapping into six vertical lines."""
+
+    def test_iso_utc_z_suffix_reformatted(self):
+        env = render_generic_view({"when": "2026-04-18T16:50:07.648Z"})
+        items = _first_of(_components(env), "properties")["items"]
+        assert items[0]["value"] == "2026-04-18 16:50"
+
+    def test_iso_offset_reformatted(self):
+        env = render_generic_view({"when": "2026-04-18T16:50:07+00:00"})
+        items = _first_of(_components(env), "properties")["items"]
+        assert items[0]["value"] == "2026-04-18 16:50"
+
+    def test_iso_no_fractional_seconds(self):
+        env = render_generic_view({"when": "2026-04-18T16:50:07Z"})
+        items = _first_of(_components(env), "properties")["items"]
+        assert items[0]["value"] == "2026-04-18 16:50"
+
+    def test_date_only_string_left_alone(self):
+        env = render_generic_view({"when": "2026-04-18"})
+        items = _first_of(_components(env), "properties")["items"]
+        assert items[0]["value"] == "2026-04-18"
+
+    def test_non_date_string_left_alone(self):
+        env = render_generic_view({"when": "not a date, just text"})
+        items = _first_of(_components(env), "properties")["items"]
+        assert items[0]["value"] == "not a date, just text"
+
+    def test_iso_values_inside_table_rows(self):
+        env = render_generic_view(
+            [{"date": "2026-04-18T16:50:07.648Z", "value": 1}]
+        )
+        tbl = _first_of(_components(env), "table")
+        assert tbl["rows"][0][0] == "2026-04-18 16:50"
+
+
 class TestEdgeCases:
     def test_null_result(self):
         env = render_generic_view(None)

@@ -36,6 +36,16 @@ export default function AddFromChannelSheet({ open, onClose }: Props) {
   const [loaded, setLoaded] = useState<ChannelWithPins[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Close on Escape — standard modal UX.
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
   useEffect(() => {
     if (!open || !channels?.length) return;
     let cancelled = false;

@@ -100,6 +100,12 @@ async def create_pin(
     if not isinstance(envelope, dict) or not envelope:
         raise HTTPException(400, "envelope must be a non-empty object")
 
+    # Validate dashboard exists so we get a clean 404 (not an FK violation).
+    # Imported lazily to avoid a module-level cycle with app.services.dashboards
+    # which depends on us for DEFAULT_DASHBOARD_KEY.
+    from app.services.dashboards import get_dashboard
+    await get_dashboard(db, dashboard_key)
+
     position = await _next_position(db, dashboard_key=dashboard_key)
     pin = WidgetDashboardPin(
         dashboard_key=dashboard_key,

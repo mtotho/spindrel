@@ -80,6 +80,7 @@ const AdminToolDetail = lazy(() => import("@/app/(app)/admin/tools/[toolId]/inde
 // Widgets (dashboard + developer panel)
 const WidgetsDashboard = lazy(() => import("@/app/(app)/widgets/index"));
 const WidgetsDevPanel = lazy(() => import("@/app/(app)/widgets/dev/index"));
+const WidgetsRedirect = lazy(() => import("@/app/(app)/widgets/WidgetsRedirect"));
 const AdminUsage = lazy(() => import("@/app/(app)/admin/usage/index"));
 const AdminUsers = lazy(() => import("@/app/(app)/admin/users"));
 const AdminWebhooksIndex = lazy(() => import("@/app/(app)/admin/webhooks/index"));
@@ -139,8 +140,9 @@ export const router = createBrowserRouter([
           },
 
           // Widgets — chat-less dashboard + developer panel
-          { path: "widgets", element: <WidgetsDashboard /> },
+          { path: "widgets", element: <WidgetsRedirect /> },
           { path: "widgets/dev", element: <WidgetsDevPanel /> },
+          { path: "widgets/:slug", element: <WidgetsDashboard /> },
 
           // Admin
           {

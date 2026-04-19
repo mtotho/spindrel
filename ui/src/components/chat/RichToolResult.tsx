@@ -4,14 +4,16 @@
  *
  * Driven by the `ToolResultEnvelope` carried on `Message.metadata.tool_results`
  * (persisted) and on the live `TurnState.toolCalls[i].envelope` (during
- * streaming). Picks one of six renderers off `content_type`:
+ * streaming). Picks one of the renderers off `content_type`:
  *
  *   text/plain                              → TextRenderer
  *   text/markdown                           → MarkdownContent (existing)
  *   application/json                        → JsonTreeRenderer
- *   text/html                               → SandboxedHtmlRenderer
+ *   text/html                               → SandboxedHtmlRenderer  (strict: no JS, no network)
+ *   application/vnd.spindrel.html+interactive → InteractiveHtmlRenderer (JS + same-origin fetch)
  *   application/vnd.spindrel.diff+text      → DiffRenderer
  *   application/vnd.spindrel.file-listing+json → FileListingRenderer
+ *   application/vnd.spindrel.components+json → ComponentRenderer
  *
  * Truncated envelopes (body=null, truncated=true, record_id set) render a
  * "Show full output" button. On click, the full body is fetched from the
@@ -28,6 +30,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { TextRenderer } from "./renderers/TextRenderer";
 import { JsonTreeRenderer } from "./renderers/JsonTreeRenderer";
 import { SandboxedHtmlRenderer } from "./renderers/SandboxedHtmlRenderer";
+import { InteractiveHtmlRenderer } from "./renderers/InteractiveHtmlRenderer";
 import { DiffRenderer } from "./renderers/DiffRenderer";
 import { FileListingRenderer } from "./renderers/FileListingRenderer";
 import { ComponentRenderer } from "./renderers/ComponentRenderer";
@@ -144,6 +147,9 @@ export function RichToolResult({ envelope, sessionId, channelId, botId, t }: Pro
         break;
       case "text/html":
         content = <SandboxedHtmlRenderer body={body} t={t} />;
+        break;
+      case "application/vnd.spindrel.html+interactive":
+        content = <InteractiveHtmlRenderer envelope={envelope} t={t} />;
         break;
       case "application/vnd.spindrel.diff+text":
         content = <DiffRenderer body={body} t={t} />;

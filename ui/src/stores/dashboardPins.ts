@@ -17,6 +17,8 @@ function dashboardEnvelopeKey(toolName: string, envelope: ToolResultEnvelope): s
 }
 
 interface DashboardPinsState {
+  /** Slug of the dashboard currently loaded. Drives all pin CRUD. */
+  currentSlug: string;
   pins: WidgetDashboardPin[];
   /** Keyed by envelope identity — mirrors the channel store's shared-envelope
    *  map so cross-surface sync works (toggling in chat updates dashboard). */
@@ -24,8 +26,8 @@ interface DashboardPinsState {
   hasHydrated: boolean;
   loadError: string | null;
 
-  /** Fetch current pins from the server. */
-  hydrate: () => Promise<void>;
+  /** Fetch pins for the given dashboard slug. */
+  hydrate: (slug?: string) => Promise<void>;
 
   /** Optimistic POST + server round-trip. Returns the server-created pin. */
   pinWidget: (body: {
@@ -72,29 +74,41 @@ interface DashboardPinsState {
 }
 
 export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => ({
+  currentSlug: "default",
   pins: [],
   widgetEnvelopes: {},
   hasHydrated: false,
   loadError: null,
 
-  hydrate: async () => {
+  hydrate: async (slug) => {
+    const target = slug ?? get().currentSlug;
     try {
       const resp = await apiFetch<{ pins: WidgetDashboardPin[] }>(
-        "/api/v1/widgets/dashboard",
+        `/api/v1/widgets/dashboard?slug=${encodeURIComponent(target)}`,
       );
-      set({ pins: resp.pins ?? [], hasHydrated: true, loadError: null });
+      set({
+        currentSlug: target,
+        pins: resp.pins ?? [],
+        hasHydrated: true,
+        loadError: null,
+      });
     } catch (err) {
-      set({ loadError: err instanceof Error ? err.message : String(err), hasHydrated: true });
+      set({
+        currentSlug: target,
+        loadError: err instanceof Error ? err.message : String(err),
+        hasHydrated: true,
+      });
     }
   },
 
   pinWidget: async (body) => {
+    const slug = get().currentSlug;
     const created = await apiFetch<WidgetDashboardPin>(
       "/api/v1/widgets/dashboard/pins",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, dashboard_key: slug }),
       },
     );
     set((s) => ({ pins: [...s.pins, created] }));
@@ -189,7 +203,7 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
       await apiFetch(`/api/v1/widgets/dashboard/pins/layout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items, dashboard_key: get().currentSlug }),
       });
     } catch (err) {
       set({ pins: prev });

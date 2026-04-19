@@ -485,14 +485,18 @@ function TableBlock({ node, t }: { node: TableNode; t: ThemeTokens }) {
       style={{
         border: `1px solid ${t.surfaceBorder}`,
         borderRadius: 6,
-        overflow: "hidden",
         maxHeight: 360,
-        overflowY: "auto",
+        overflow: "auto",
       }}
     >
       <table
         style={{
-          width: "100%",
+          // Intrinsic column sizing (narrow cells stay narrow, wide cells
+          // get room). ``minWidth: 100%`` keeps the table filling the
+          // container when content is short; horizontal scroll kicks in on
+          // the wrapper when the summed content width overflows.
+          width: "max-content",
+          minWidth: "100%",
           borderCollapse: "collapse",
           fontSize: node.compact ? 11 : 12,
           fontFamily: "'Menlo', monospace",
@@ -535,8 +539,17 @@ function TableBlock({ node, t }: { node: TableNode; t: ThemeTokens }) {
                   style={{
                     padding: node.compact ? "3px 8px" : "5px 10px",
                     color: t.contentText,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
+                    // Wrap at word boundaries only — no mid-word breaks that
+                    // shatter ISO dates / IDs into vertical column mess.
+                    whiteSpace: "normal",
+                    wordBreak: "normal",
+                    // Single unbreakable string longer than this will force
+                    // horizontal scroll rather than eating the column.
+                    overflowWrap: "break-word",
+                    // Cap runaway prose cells so one long ``notes`` field
+                    // can't stretch the whole table.
+                    maxWidth: 360,
+                    verticalAlign: "top",
                   }}
                 >
                   {cell}

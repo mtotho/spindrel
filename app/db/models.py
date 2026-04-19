@@ -1768,13 +1768,41 @@ class WidgetTemplatePackage(Base):
     )
 
 
+class WidgetDashboard(Base):
+    """A named dashboard that pins can live on.
+
+    Slug is the primary key — the user chooses it at create time and it
+    appears in the URL (``/widgets/<slug>``). The ``default`` row is
+    bootstrapped by migration; every other dashboard is user-created.
+    ``pin_to_rail`` + ``icon`` drive the optional sidebar rail entry.
+    """
+    __tablename__ = "widget_dashboards"
+
+    slug: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    icon: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pin_to_rail: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"),
+    )
+    rail_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_viewed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+
+
 class WidgetDashboardPin(Base):
-    """A widget pinned to the chat-less `/widgets` dashboard.
+    """A widget pinned to a named dashboard.
 
     Row shape mirrors ``channel.config.pinned_widgets[]`` entries so the
     scope-aware ``PinnedToolWidget`` renderer handles both surfaces through
-    one code path. ``dashboard_key`` defaults to ``'default'`` — one global
-    board for now; multi-dashboard arrives later without a schema change.
+    one code path. ``dashboard_key`` is a FK to ``widget_dashboards.slug``;
+    deleting a dashboard cascades its pins.
     """
     __tablename__ = "widget_dashboard_pins"
 
@@ -1783,7 +1811,9 @@ class WidgetDashboardPin(Base):
         default=uuid.uuid4, server_default=text("gen_random_uuid()"),
     )
     dashboard_key: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default=text("'default'"),
+        Text,
+        ForeignKey("widget_dashboards.slug", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False, server_default=text("'default'"),
     )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     source_kind: Mapped[str] = mapped_column(Text, nullable=False)

@@ -72,6 +72,11 @@ class ToolResultEnvelope:
     refreshable: bool = False
     refresh_interval_seconds: int | None = None
     tool_name: str = ""
+    # File-backed widgets: when set, the renderer fetches body content from
+    # ``/api/v1/channels/{source_channel_id}/workspace/files/content?path={source_path}``
+    # and re-polls so workspace edits propagate to the rendered widget.
+    source_path: str | None = None
+    source_channel_id: str | None = None
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -97,6 +102,10 @@ class ToolResultEnvelope:
             d["refresh_interval_seconds"] = self.refresh_interval_seconds
         if self.tool_name:
             d["tool_name"] = self.tool_name
+        if self.source_path:
+            d["source_path"] = self.source_path
+        if self.source_channel_id:
+            d["source_channel_id"] = self.source_channel_id
         return d
 
 
@@ -224,6 +233,12 @@ def _build_envelope_from_optin(envelope_data: dict, raw_text: str) -> ToolResult
         body_str = None
         truncated = True
 
+    source_path = envelope_data.get("source_path")
+    source_channel_id = envelope_data.get("source_channel_id")
+    display_label = envelope_data.get("display_label")
+    refreshable = bool(envelope_data.get("refreshable"))
+    refresh_interval_seconds = envelope_data.get("refresh_interval_seconds")
+
     return ToolResultEnvelope(
         content_type=content_type,
         body=body_str,
@@ -231,6 +246,11 @@ def _build_envelope_from_optin(envelope_data: dict, raw_text: str) -> ToolResult
         display=display,  # type: ignore[arg-type]
         truncated=truncated,
         byte_size=byte_size,
+        display_label=str(display_label) if display_label else None,
+        refreshable=refreshable,
+        refresh_interval_seconds=int(refresh_interval_seconds) if refresh_interval_seconds else None,
+        source_path=str(source_path) if source_path else None,
+        source_channel_id=str(source_channel_id) if source_channel_id else None,
     )
 
 

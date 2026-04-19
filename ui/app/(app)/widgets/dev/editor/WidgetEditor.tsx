@@ -108,8 +108,11 @@ export function WidgetEditor({
   const updateMut = useUpdateWidgetPackage(pkg?.id ?? "");
 
   // Accept a pending handoff from the Recent tab ("Import into Templates").
-  // Runs once on mount so a subsequent refresh of this tab doesn't re-apply.
+  // `consume()` self-clears, so a later refresh of this tab can't re-apply.
+  // We also skip if the editor is not in new-draft mode (i.e. we're editing
+  // a saved package) to avoid overwriting persisted state.
   const consumeImport = useWidgetImportStore((s) => s.consume);
+  const [importBanner, setImportBanner] = useState<string | null>(null);
   useEffect(() => {
     if (!isNew) return;
     const pending = consumeImport();
@@ -123,6 +126,9 @@ export function WidgetEditor({
       tool_name: pending.toolName,
       sample_text: prettySample,
     }));
+    setImportBanner(
+      `Sample loaded from a recent ${pending.toolName} call — edit the YAML to shape the widget.`,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -386,6 +392,22 @@ export function WidgetEditor({
         </div>
       )}
 
+      {importBanner && (
+        <div className="flex items-center justify-between gap-3 border-b border-accent/30 bg-accent/10 px-4 py-2 text-[12px] text-accent">
+          <span className="flex items-center gap-2">
+            <Sparkles size={12} />
+            {importBanner}
+          </span>
+          <button
+            type="button"
+            onClick={() => setImportBanner(null)}
+            className="rounded px-2 py-0.5 text-[11px] font-medium text-accent/80 hover:bg-accent/20"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Metadata strip */}
       <div className="flex flex-wrap items-end gap-3 border-b border-surface-border px-4 py-3 bg-surface-raised">
         <label className="flex flex-col gap-1 min-w-[220px] flex-[2]">
@@ -547,6 +569,13 @@ function CaptureSampleModal({
   onCancel: () => void;
   onRun: () => void;
 }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !running) onCancel();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel, running]);
   return (
     <>
       <div onClick={onCancel} className="fixed inset-0 bg-black/50 z-[1000]" />

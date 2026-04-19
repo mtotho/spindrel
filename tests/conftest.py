@@ -177,6 +177,14 @@ async def engine():
 
     async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Seed the 'default' widget dashboard so pin tests don't trip the FK
+        # (production gets this from migration 212).
+        await conn.execute(sa_text(
+            "INSERT INTO widget_dashboards (slug, name, icon, pin_to_rail, "
+            "created_at, updated_at) VALUES "
+            "('default', 'Default', 'LayoutDashboard', 0, "
+            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
 
     from sqlalchemy import inspect as sa_inspect
     from sqlalchemy.orm import Session as _SA_Session

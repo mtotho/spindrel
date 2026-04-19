@@ -7,7 +7,7 @@
  * parse-time validation. Save replaces the config outright (merge:false) —
  * action-dispatched button flips stay on merge:true semantics.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 
@@ -44,6 +44,30 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
     setError(null);
     setSavedFlash(false);
   }, [pin?.id]);
+
+  // Close on Escape — standard modal UX.
+  useEffect(() => {
+    if (!pinId) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [pinId, onClose]);
+
+  // Cmd/Ctrl + Enter saves while the drawer is open.
+  const kbdSaveRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (!pinId) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        kbdSaveRef.current();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [pinId]);
 
   const parsedConfig = useMemo<Record<string, unknown> | null>(() => {
     const trimmed = jsonText.trim();
@@ -97,6 +121,12 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
 
   const handleReset = () => {
     setJsonText("{}");
+  };
+
+  // Bind the keyboard shortcut to the latest save handler (closure capture
+  // would otherwise freeze the disabled/parsed-json state from first paint).
+  kbdSaveRef.current = () => {
+    if (canSave) void handleSave();
   };
 
   return (

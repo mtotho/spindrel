@@ -652,6 +652,11 @@ export interface ToolResultEnvelope {
   refreshable?: boolean;
   /** If set, pinned widgets should auto-refresh on this interval (seconds) */
   refresh_interval_seconds?: number | null;
+  /** For file-backed widgets (emit_html_widget path-mode): workspace-relative path
+   *  the renderer fetches content from. Paired with `source_channel_id`. */
+  source_path?: string | null;
+  /** Channel id scoping `source_path` to its channel workspace. */
+  source_channel_id?: string | null;
 }
 
 /** Action definition for interactive widget components (toggle, button, select, etc.) */

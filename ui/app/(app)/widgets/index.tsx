@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Check, LayoutDashboard, Move, Plus, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
@@ -22,6 +22,10 @@ import type {
 } from "@/src/types/api";
 import AddFromChannelSheet from "./AddFromChannelSheet";
 import { EditPinDrawer } from "./EditPinDrawer";
+import { DashboardTabs } from "./DashboardTabs";
+import { CreateDashboardSheet } from "./CreateDashboardSheet";
+import { EditDashboardDrawer } from "./EditDashboardDrawer";
+import { useDashboards } from "@/src/stores/dashboards";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -61,14 +65,21 @@ function hasLayout(pin: WidgetDashboardPin): pin is WidgetDashboardPin & {
 }
 
 export default function WidgetsDashboardPage() {
-  const { pins, isLoading, error } = useDashboardPins();
+  const { slug: slugParam } = useParams<{ slug: string }>();
+  const slug = slugParam || "default";
+  const { pins, isLoading, error } = useDashboardPins(slug);
   const unpinWidget = useDashboardPinsStore((s) => s.unpinWidget);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
+  const { list: dashboards } = useDashboards();
+  const currentDashboard = dashboards.find((d) => d.slug === slug);
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editingPinId, setEditingPinId] = useState<string | null>(null);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [manageSlug, setManageSlug] = useState<string | null>(null);
 
   const handleUnpin = async (pinId: string) => {
     try {
@@ -112,9 +123,14 @@ export default function WidgetsDashboardPage() {
     pendingTimer.current = window.setTimeout(() => {
       void applyLayout(
         items.map((it) => ({ id: it.i, x: it.x, y: it.y, w: it.w, h: it.h })),
-      ).catch((err) => {
-        console.error("Failed to persist dashboard layout:", err);
-      });
+      )
+        .then(() => setLayoutError(null))
+        .catch((err) => {
+          console.error("Failed to persist dashboard layout:", err);
+          setLayoutError(
+            err instanceof Error ? err.message : "Failed to save layout",
+          );
+        });
     }, 400);
   };
 
@@ -122,7 +138,7 @@ export default function WidgetsDashboardPage() {
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
       <PageHeader
         variant="list"
-        title="Widgets"
+        title={currentDashboard?.name ?? "Widgets"}
         subtitle="Pinned tool results, live"
         right={
           <div className="flex items-center gap-2">
@@ -162,7 +178,28 @@ export default function WidgetsDashboardPage() {
         }
       />
 
+      <DashboardTabs
+        activeSlug={slug}
+        onOpenCreate={() => setCreateOpen(true)}
+        onOpenManage={() => setManageSlug(slug)}
+      />
+
       <div className="flex-1 overflow-auto p-6">
+        {layoutError && (
+          <div
+            className="mx-auto mb-3 flex max-w-2xl items-center justify-between gap-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-[12px] text-red-400"
+            role="alert"
+          >
+            <span>Couldn't save layout — your changes reverted. {layoutError}</span>
+            <button
+              type="button"
+              onClick={() => setLayoutError(null)}
+              className="rounded px-2 py-0.5 text-[11px] font-medium text-red-300 hover:bg-red-500/20"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {isLoading && <DashboardSkeleton />}
         {!isLoading && error && (
           <div className="mx-auto max-w-2xl rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-center text-[13px] text-red-400">
@@ -209,6 +246,14 @@ export default function WidgetsDashboardPage() {
       <EditPinDrawer
         pinId={editingPinId}
         onClose={() => setEditingPinId(null)}
+      />
+      <CreateDashboardSheet
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+      />
+      <EditDashboardDrawer
+        slug={manageSlug}
+        onClose={() => setManageSlug(null)}
       />
     </div>
   );

@@ -25,9 +25,19 @@ Additional dispatch rules:
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime
 from typing import Any
 
 from app.agent.tool_dispatch import ToolResultEnvelope
+
+# ISO 8601 datetime pattern — lightweight prefilter before ``fromisoformat``.
+# Matches ``YYYY-MM-DDTHH:MM:SS`` with optional fractional seconds and
+# timezone suffix (``Z`` or ``±HH:MM``). Date-only strings (no ``T``) are
+# NOT matched — we leave them alone.
+_ISO_DATETIME_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$"
+)
 
 # Content type every templated widget envelope uses. Generic view rides the
 # same rendering path on the frontend (ComponentRenderer).
@@ -587,6 +597,9 @@ def _format_value(v: Any) -> str:
     if isinstance(v, (int, float)):
         return str(v)
     if isinstance(v, str):
+        formatted = _format_iso_datetime(v)
+        if formatted is not None:
+            return formatted
         if len(v) > _VALUE_DISPLAY_CAP:
             return v[:_VALUE_DISPLAY_CAP].rstrip() + "…"
         return v
@@ -599,6 +612,24 @@ def _format_value(v: Any) -> str:
             return compact[:_VALUE_DISPLAY_CAP].rstrip() + "…"
         return compact
     return str(v)[:_VALUE_DISPLAY_CAP]
+
+
+def _format_iso_datetime(s: str) -> str | None:
+    """Reformat an ISO 8601 datetime as ``YYYY-MM-DD HH:MM``.
+
+    Returns None when the string is not an ISO datetime so callers can fall
+    through to the default string handling. Drops seconds + timezone for
+    compactness — these rarely add signal in a dashboard card, and keeping
+    the value short prevents column blow-up.
+    """
+    if not _ISO_DATETIME_RE.match(s):
+        return None
+    try:
+        # ``fromisoformat`` accepts ``Z`` as of Python 3.11.
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    return dt.strftime("%Y-%m-%d %H:%M")
 
 
 def _humanize_key(key: str) -> str:

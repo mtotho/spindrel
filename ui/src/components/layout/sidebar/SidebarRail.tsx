@@ -18,6 +18,8 @@ import { useUIStore } from "../../../stores/ui";
 import { useAuthStore } from "../../../stores/auth";
 import { useThemeStore } from "../../../stores/theme";
 import { useVersion } from "../../../api/hooks/useVersion";
+import { useDashboards } from "../../../stores/dashboards";
+import { LucideIconByName } from "../../IconPicker";
 import { cn } from "../../../lib/cn";
 import { useTodayUpcomingCount } from "./UpcomingRailPopover";
 import { AvatarMenu } from "./AvatarMenu";
@@ -58,9 +60,23 @@ export function SidebarRail() {
   const toggleTheme = useThemeStore((s) => s.toggle);
   const { data: version } = useVersion();
   const upcomingCount = useTodayUpcomingCount();
+  const { list: dashboards } = useDashboards();
+  const railDashboards = dashboards
+    .filter((d) => d.pin_to_rail)
+    .sort((a, b) => {
+      const ap = a.rail_position ?? Number.MAX_SAFE_INTEGER;
+      const bp = b.rail_position ?? Number.MAX_SAFE_INTEGER;
+      if (ap !== bp) return ap - bp;
+      return a.name.localeCompare(b.name);
+    });
 
   const isTasksActive = pathname.startsWith("/admin/tasks");
-  const isWidgetsActive = pathname.startsWith("/widgets");
+  // "Widgets" rail entry lights up for /widgets (redirect) or /widgets/default;
+  // pinned-dashboard entries light up for their own exact slug.
+  const isWidgetsActive =
+    pathname === "/widgets" ||
+    pathname === "/widgets/default" ||
+    pathname.startsWith("/widgets/dev");
   const isBotsActive = pathname.startsWith("/admin/bots");
   const isSkillsActive = pathname.startsWith("/admin/skills");
   const isIntegrationsActive = pathname.startsWith("/admin/integrations");
@@ -123,6 +139,24 @@ export function SidebarRail() {
         <RailLink href="/widgets" active={isWidgetsActive} title="Widgets">
           <LayoutDashboard size={18} className={isWidgetsActive ? "text-accent" : "text-text-dim"} />
         </RailLink>
+
+        {railDashboards.map((d) => {
+          const active = pathname === `/widgets/${d.slug}`;
+          return (
+            <RailLink
+              key={d.slug}
+              href={`/widgets/${d.slug}`}
+              active={active}
+              title={d.name}
+            >
+              <LucideIconByName
+                name={d.icon}
+                size={18}
+                className={active ? "text-accent" : "text-text-dim"}
+              />
+            </RailLink>
+          );
+        })}
 
         <RailLink href="/admin/bots" active={isBotsActive} title="Bots">
           <Bot size={18} className={isBotsActive ? "text-accent" : "text-text-dim"} />
