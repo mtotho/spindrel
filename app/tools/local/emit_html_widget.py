@@ -147,6 +147,14 @@ async def emit_html_widget(
 
     label = display_label.strip() or None
 
+    # Channel context at emit time. Persisted on the envelope so the
+    # widget's JS can keep calling channel-scoped APIs after the pin is
+    # rendered on the dashboard (where the host page has no channel
+    # context of its own). Best-effort — inline-mode still works without
+    # it, the widget's `window.spindrel.channelId` just becomes null.
+    emit_channel = current_channel_id.get()
+    emit_channel_id = str(emit_channel) if emit_channel else None
+
     if html_set:
         body = _assemble_inline_body(html, js or "", css or "")
         envelope = {
@@ -157,6 +165,8 @@ async def emit_html_widget(
             ),
             "display": "inline",
         }
+        if emit_channel_id:
+            envelope["source_channel_id"] = emit_channel_id
         if label:
             envelope["display_label"] = label
         return json.dumps(
@@ -166,7 +176,7 @@ async def emit_html_widget(
 
     # Path mode — validate the file resolves + exists under the current
     # channel's workspace so the renderer won't 404.
-    channel_id = current_channel_id.get()
+    channel_id = emit_channel
     bot_id = current_bot_id.get()
     if not channel_id or not bot_id:
         return _error(
@@ -186,6 +196,10 @@ async def emit_html_widget(
             f"Workspace file not found (or path escapes workspace): {path}"
         )
 
+    # NOTE: deliberately do NOT set `refreshable: True`. That flag drives the
+    # WidgetCard state_poll machinery (tool re-invoke → new envelope). For
+    # HTML widgets, freshness is owned by the renderer's own useQuery poll
+    # against the workspace file — re-calling the emit tool wouldn't help.
     envelope = {
         "content_type": INTERACTIVE_HTML_CONTENT_TYPE,
         "body": "",
@@ -195,7 +209,6 @@ async def emit_html_widget(
             display_label=label, path=path, body_len=0
         ),
         "display": "inline",
-        "refreshable": True,
     }
     if label:
         envelope["display_label"] = label

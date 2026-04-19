@@ -149,7 +149,7 @@ export function RichToolResult({ envelope, sessionId, channelId, botId, t }: Pro
         content = <SandboxedHtmlRenderer body={body} t={t} />;
         break;
       case "application/vnd.spindrel.html+interactive":
-        content = <InteractiveHtmlRenderer envelope={envelope} t={t} />;
+        content = <InteractiveHtmlRenderer envelope={envelope} channelId={channelId} t={t} />;
         break;
       case "application/vnd.spindrel.diff+text":
         content = <DiffRenderer body={body} t={t} />;

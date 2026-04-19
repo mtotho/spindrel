@@ -133,13 +133,13 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40 bg-black/40"
+        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]"
         onClick={onClose}
         role="presentation"
       />
       {/* Drawer */}
       <div
-        className="fixed right-0 top-0 bottom-0 z-50 w-full sm:w-[420px] flex flex-col border-l border-surface-border bg-surface-raised shadow-2xl"
+        className="fixed right-0 top-0 bottom-0 z-50 w-full sm:w-[440px] flex flex-col border-l border-surface-border bg-surface-raised shadow-2xl"
         role="dialog"
         aria-label="Edit pin"
       >
@@ -155,10 +155,11 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded hover:bg-surface-overlay text-text-muted"
+            className="p-1.5 rounded-md text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
             title="Close"
+            aria-label="Close"
           >
-            <X size={14} />
+            <X size={16} />
           </button>
         </header>
 
@@ -171,7 +172,7 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder={pin?.envelope?.display_label ?? pin?.tool_name ?? ""}
-              className="rounded-md border border-surface-border bg-input-bg px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent"
+              className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent"
             />
             <span className="text-[11px] text-text-dim">
               Leave empty to fall back to the widget's own label.
@@ -196,7 +197,7 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
               onChange={(e) => setJsonText(e.target.value)}
               spellCheck={false}
               className={
-                "h-64 resize-none rounded-md border bg-input-bg px-2.5 py-2 font-mono text-[12px] leading-relaxed text-text outline-none focus:border-accent " +
+                "h-64 resize-none rounded-md border bg-input px-2.5 py-2 font-mono text-[12px] leading-relaxed text-text outline-none focus:border-accent " +
                 (jsonError ? "border-danger/60" : "border-surface-border")
               }
             />
@@ -220,7 +221,7 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
 
         <footer className="flex items-center justify-end gap-2 border-t border-surface-border px-4 py-3">
           {savedFlash && (
-            <span className="mr-auto text-[12px] text-emerald-400">
+            <span className="mr-auto text-[12px] text-success">
               Saved.
             </span>
           )}

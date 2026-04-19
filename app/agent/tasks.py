@@ -80,10 +80,14 @@ async def _publish_turn_ended(
     is_pipeline_child = _is_pipeline_child(task)
 
     # Sub-session pipeline children: publish on the parent channel's bus so
-    # the run-view modal receives the event. The event carries session_id
-    # via the Session load path downstream — the modal filters by it.
+    # the run-view modal receives the event. Tag the payload with the
+    # child's session_id so parent-channel UI subscribers can filter the
+    # event out — without this tag the child bot shows up as a phantom
+    # streaming indicator in the parent channel's chat store.
+    sub_session_id: uuid.UUID | None = None
     if is_pipeline_child and channel_id is None:
         channel_id = await _resolve_sub_session_bus_channel(task)
+        sub_session_id = getattr(task, "session_id", None)
     # Inline pipeline children keep the old suppression (parent envelope
     # renders step status from step_states, not from a standalone turn).
     elif is_pipeline_child:
@@ -111,6 +115,7 @@ async def _publish_turn_ended(
                 extra_metadata=dict(extra_metadata or {}),
                 task_id=str(task.id),
                 kind_hint=kind_hint,
+                session_id=sub_session_id,
             ),
         ),
     )
@@ -883,9 +888,16 @@ async def run_task(task: Task) -> None:
     # children stay suppressed (the parent envelope renders step status
     # from step_states).
     _publish_channel_id: uuid.UUID | None = task.channel_id
+    # When a sub-session pipeline child publishes on the parent channel's
+    # bus, tag the payload with the child's session_id so parent-channel
+    # UI subscribers can filter the event out (otherwise the child's bot
+    # would show up as a phantom streaming indicator in the parent channel).
+    _publish_session_id: uuid.UUID | None = None
     if _suppress_channel and task.channel_id is None:
         _publish_channel_id = await _resolve_sub_session_bus_channel(task)
         _suppress_channel = _publish_channel_id is None
+        if not _suppress_channel:
+            _publish_session_id = getattr(task, "session_id", None)
     if _publish_channel_id is not None and not _suppress_channel:
         try:
             from app.domain.channel_events import ChannelEvent, ChannelEventKind
@@ -902,6 +914,7 @@ async def run_task(task: Task) -> None:
                         turn_id=_turn_id,
                         task_id=str(task.id),
                         reason="queued_task_starting",
+                        session_id=_publish_session_id,
                     ),
                 ),
             )

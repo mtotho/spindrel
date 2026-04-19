@@ -578,8 +578,8 @@ function CaptureSampleModal({
   }, [onCancel, running]);
   return (
     <>
-      <div onClick={onCancel} className="fixed inset-0 bg-black/50 z-[1000]" />
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[1001] w-[520px] max-w-[92vw] max-h-[80vh] bg-surface-raised border border-surface-border rounded-xl shadow-2xl flex flex-col overflow-hidden">
+      <div onClick={onCancel} className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-50" />
+      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] w-[520px] max-w-[92vw] max-h-[85svh] bg-surface-raised border border-surface-border rounded-xl shadow-2xl flex flex-col overflow-hidden">
         <div className="flex items-center justify-between border-b border-surface-border p-4">
           <div>
             <div className="text-[14px] font-semibold text-text">Capture sample</div>

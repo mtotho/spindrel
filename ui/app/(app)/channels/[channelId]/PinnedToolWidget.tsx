@@ -381,10 +381,12 @@ export function PinnedToolWidget({
           <GripVertical
             size={ctrlIconSize}
             className={
-              "widget-drag-handle opacity-30 hover:opacity-70 cursor-grab transition-opacity duration-150 flex-shrink-0" +
+              "widget-drag-handle text-text-muted cursor-grab transition-opacity duration-150 flex-shrink-0 " +
+              (editMode
+                ? "opacity-80 hover:opacity-100"
+                : "opacity-50 group-hover:opacity-100") +
               (isDashboard ? " p-0.5 -m-0.5" : "")
             }
-            style={{ color: t.textMuted }}
             aria-label="Drag to reorder"
             {...(handleListeners ?? {})}
           />

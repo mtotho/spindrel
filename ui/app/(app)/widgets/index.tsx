@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Check, LayoutDashboard, Move, Plus, Wrench } from "lucide-react";
+import { Check, Info, LayoutDashboard, Move, Plus, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
 import {
@@ -80,6 +80,20 @@ export default function WidgetsDashboardPage() {
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [manageSlug, setManageSlug] = useState<string | null>(null);
+  // Track viewport width for mobile-only behavior — drag/resize on touch is
+  // unusable, so the grid is read-only below the `sm` breakpoint even when
+  // edit mode is toggled on (e.g. user hopped from desktop to phone).
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth < 768 : false,
+  );
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mql.matches);
+    update();
+    mql.addEventListener("change", update);
+    return () => mql.removeEventListener("change", update);
+  }, []);
+  const layoutEditable = editMode && !isMobile;
 
   const handleUnpin = async (pinId: string) => {
     try {
@@ -153,26 +167,33 @@ export default function WidgetsDashboardPage() {
                     : "border-surface-border text-text-muted hover:bg-surface-overlay")
                 }
                 aria-pressed={editMode}
+                aria-label={editMode ? "Finish editing layout" : "Rearrange widgets"}
                 title={editMode ? "Finish editing" : "Rearrange widgets"}
               >
                 {editMode ? <Check size={13} /> : <Move size={13} />}
-                {editMode ? "Done" : "Edit layout"}
+                <span className="hidden sm:inline">
+                  {editMode ? "Done" : "Edit layout"}
+                </span>
               </button>
             )}
             <button
               type="button"
               onClick={() => setSheetOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1.5 text-[12px] font-medium text-white hover:opacity-90 transition-opacity"
+              aria-label="Add widget"
+              title="Add widget"
             >
               <Plus size={13} />
-              Add widget
+              <span className="hidden sm:inline">Add widget</span>
             </button>
             <Link
               to="/widgets/dev"
               className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2.5 py-1.5 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
+              aria-label="Developer panel"
+              title="Developer panel"
             >
               <Wrench size={13} />
-              Developer panel
+              <span className="hidden sm:inline">Developer panel</span>
             </Link>
           </div>
         }
@@ -184,25 +205,34 @@ export default function WidgetsDashboardPage() {
         onOpenManage={() => setManageSlug(slug)}
       />
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4 md:p-6">
         {layoutError && (
           <div
-            className="mx-auto mb-3 flex max-w-2xl items-center justify-between gap-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-[12px] text-red-400"
+            className="mx-auto mb-3 flex max-w-2xl items-center justify-between gap-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 text-[12px] text-danger"
             role="alert"
           >
             <span>Couldn't save layout — your changes reverted. {layoutError}</span>
             <button
               type="button"
               onClick={() => setLayoutError(null)}
-              className="rounded px-2 py-0.5 text-[11px] font-medium text-red-300 hover:bg-red-500/20"
+              className="rounded px-2 py-0.5 text-[11px] font-medium text-danger hover:bg-danger/20"
             >
               Dismiss
             </button>
           </div>
         )}
+        {editMode && isMobile && pins.length > 0 && (
+          <div
+            className="mx-auto mb-3 flex max-w-2xl items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-4 py-2 text-[12px] text-text-muted"
+            role="status"
+          >
+            <Info size={13} className="shrink-0 text-text-dim" />
+            <span>Layout editing is desktop-only. View pins as configured.</span>
+          </div>
+        )}
         {isLoading && <DashboardSkeleton />}
         {!isLoading && error && (
-          <div className="mx-auto max-w-2xl rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-center text-[13px] text-red-400">
+          <div className="mx-auto max-w-2xl rounded-lg border border-danger/40 bg-danger/10 p-4 text-center text-[13px] text-danger">
             Failed to load dashboard: {error}
           </div>
         )}
@@ -210,35 +240,44 @@ export default function WidgetsDashboardPage() {
           <EmptyState onAddClick={() => setSheetOpen(true)} />
         )}
         {!isLoading && !error && pins.length > 0 && (
-          <ResponsiveGridLayout
-            className={editMode ? "rgl-edit-mode" : ""}
-            layouts={layouts}
-            breakpoints={BREAKPOINTS}
-            cols={COLS}
-            rowHeight={ROW_HEIGHT}
-            margin={GRID_MARGIN}
-            isDraggable={editMode}
-            isResizable={editMode}
-            draggableHandle=".widget-drag-handle"
-            compactType="vertical"
-            preventCollision={false}
-            onLayoutChange={(current) => {
-              if (editMode) scheduleCommit(current);
-            }}
+          <div
+            className={
+              "transition-colors " +
+              (layoutEditable
+                ? "rounded-lg border border-dashed border-accent/40 bg-accent/[0.03] p-2"
+                : "")
+            }
           >
-            {pins.map((p) => (
-              <div key={p.id} className="min-w-0">
-                <PinnedToolWidget
-                  widget={asPinnedWidget(p)}
-                  scope={{ kind: "dashboard" }}
-                  onUnpin={handleUnpin}
-                  onEnvelopeUpdate={handleEnvelopeUpdate}
-                  editMode={editMode}
-                  onEdit={() => setEditingPinId(p.id)}
-                />
-              </div>
-            ))}
-          </ResponsiveGridLayout>
+            <ResponsiveGridLayout
+              className={layoutEditable ? "rgl-edit-mode" : ""}
+              layouts={layouts}
+              breakpoints={BREAKPOINTS}
+              cols={COLS}
+              rowHeight={ROW_HEIGHT}
+              margin={GRID_MARGIN}
+              isDraggable={layoutEditable}
+              isResizable={layoutEditable}
+              draggableHandle=".widget-drag-handle"
+              compactType="vertical"
+              preventCollision={false}
+              onLayoutChange={(current) => {
+                if (layoutEditable) scheduleCommit(current);
+              }}
+            >
+              {pins.map((p) => (
+                <div key={p.id} className="min-w-0">
+                  <PinnedToolWidget
+                    widget={asPinnedWidget(p)}
+                    scope={{ kind: "dashboard" }}
+                    onUnpin={handleUnpin}
+                    onEnvelopeUpdate={handleEnvelopeUpdate}
+                    editMode={layoutEditable}
+                    onEdit={() => setEditingPinId(p.id)}
+                  />
+                </div>
+              ))}
+            </ResponsiveGridLayout>
+          </div>
         )}
       </div>
 
@@ -292,10 +331,7 @@ function EmptyState({ onAddClick }: { onAddClick: () => void }) {
 
 function DashboardSkeleton() {
   return (
-    <div
-      className="grid gap-3"
-      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}
-    >
+    <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(320px,1fr))]">
       {[0, 1, 2].map((i) => (
         <div
           key={i}

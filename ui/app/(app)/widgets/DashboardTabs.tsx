@@ -42,10 +42,10 @@ export function DashboardTabs({ activeSlug, onOpenCreate, onOpenManage }: Props)
               aria-selected={active}
               title={d.name}
               className={cn(
-                "group relative inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors",
+                "group relative inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
                 active
-                  ? "bg-accent/[0.12] text-accent"
-                  : "text-text-muted hover:bg-surface-overlay hover:text-text",
+                  ? "bg-accent/[0.12] text-accent font-semibold"
+                  : "text-text-muted font-medium hover:bg-surface-overlay hover:text-text",
               )}
             >
               {d.icon && (
@@ -72,7 +72,7 @@ export function DashboardTabs({ activeSlug, onOpenCreate, onOpenManage }: Props)
           onClick={onOpenCreate}
           title="New dashboard"
           aria-label="Create new dashboard"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay hover:text-text"
+          className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay hover:text-text transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 before:absolute before:inset-[-4px] before:content-['']"
         >
           <Plus size={14} />
         </button>
@@ -81,7 +81,7 @@ export function DashboardTabs({ activeSlug, onOpenCreate, onOpenManage }: Props)
           onClick={onOpenManage}
           title="Edit this dashboard"
           aria-label="Edit this dashboard"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay hover:text-text"
+          className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay hover:text-text transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 before:absolute before:inset-[-4px] before:content-['']"
         >
           <Settings size={14} />
         </button>

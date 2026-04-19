@@ -50,8 +50,8 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   if (!dashboard) {
     return (
       <>
-        <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
-        <div className="fixed right-0 top-0 bottom-0 z-50 flex w-full flex-col border-l border-surface-border bg-surface-raised shadow-2xl sm:w-[420px]">
+        <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
+        <div className="fixed right-0 top-0 bottom-0 z-50 flex w-full flex-col border-l border-surface-border bg-surface-raised shadow-2xl sm:w-[440px]">
           <div className="p-6 text-center text-[12px] text-text-muted">
             Dashboard not found.
           </div>
@@ -103,12 +103,12 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-black/40"
+        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]"
         onClick={onClose}
         role="presentation"
       />
       <div
-        className="fixed right-0 top-0 bottom-0 z-50 flex w-full flex-col border-l border-surface-border bg-surface-raised shadow-2xl sm:w-[420px]"
+        className="fixed right-0 top-0 bottom-0 z-50 flex w-full flex-col border-l border-surface-border bg-surface-raised shadow-2xl sm:w-[440px]"
         role="dialog"
         aria-label={`Edit dashboard ${dashboard.slug}`}
       >
@@ -124,8 +124,9 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-text-muted hover:bg-surface-overlay"
+            className="rounded-md p-1.5 text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
             title="Close"
+            aria-label="Close"
           >
             <X size={16} />
           </button>
@@ -155,14 +156,14 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
           </label>
 
           {error && (
-            <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
+            <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">
               {error}
             </div>
           )}
 
           {!isDefault && (
             <div className="mt-2 border-t border-surface-border pt-4">
-              <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-red-400">
+              <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-danger">
                 <Trash2 size={13} />
                 Delete dashboard
               </div>
@@ -176,13 +177,13 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
                   value={deleteConfirm}
                   onChange={(e) => setDeleteConfirm(e.target.value)}
                   placeholder={dashboard.slug}
-                  className="flex-1 rounded-md border border-surface-border bg-surface px-2.5 py-1.5 font-mono text-[12px] text-text outline-none focus:border-red-400/60"
+                  className="flex-1 rounded-md border border-surface-border bg-surface px-2.5 py-1.5 font-mono text-[12px] text-text outline-none focus:border-danger/60"
                 />
                 <button
                   type="button"
                   onClick={handleDelete}
                   disabled={!canDelete}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-red-500/90 px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {deleting && <Loader2 size={13} className="animate-spin" />}
                   Delete

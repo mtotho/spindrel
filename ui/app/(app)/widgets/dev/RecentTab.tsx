@@ -16,6 +16,7 @@ import {
   Pin,
   RefreshCw,
   Wand2,
+  X,
 } from "lucide-react";
 import {
   useToolCall,
@@ -24,6 +25,8 @@ import {
 } from "@/src/api/hooks/useToolCalls";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useTools } from "@/src/api/hooks/useTools";
+import { BotPicker } from "@/src/components/shared/BotPicker";
+import { ToolSelector, shortToolName } from "@/src/components/shared/ToolSelector";
 import {
   genericRenderWidget,
   previewWidgetForTool,
@@ -31,6 +34,7 @@ import {
 } from "@/src/api/hooks/useWidgetPackages";
 import { ComponentRenderer, WidgetActionContext, type WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
 import { JsonTreeRenderer } from "@/src/components/chat/renderers/JsonTreeRenderer";
+import { InteractiveHtmlRenderer } from "@/src/components/chat/renderers/InteractiveHtmlRenderer";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useWidgetImportStore } from "@/src/stores/widgetImport";
@@ -98,12 +102,10 @@ export function RecentTab() {
     }
   }, [calls, selectedId]);
 
-  const toolOptions = useMemo(() => {
-    const set = new Set<string>();
-    (tools ?? []).forEach((tool) => set.add(cleanToolName(tool.tool_name)));
-    (calls ?? []).forEach((c) => set.add(cleanToolName(c.tool_name)));
-    return Array.from(set).sort();
-  }, [tools, calls]);
+  // ToolSelector wants ToolItem[]; a freshly-appearing tool in the call log
+  // that isn't in the live index just won't surface in the picker, which is
+  // fine — users can still narrow via free-text match on the server side.
+  const toolItems = tools ?? [];
 
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -128,30 +130,36 @@ export function RecentTab() {
               </button>
             ))}
           </div>
-          <select
-            value={toolFilter}
-            onChange={(e) => setToolFilter(e.target.value)}
-            className="rounded-md border border-surface-border bg-input-bg px-2 py-1 text-[12px] text-text outline-none focus:border-accent"
-          >
-            <option value="">All tools</option>
-            {toolOptions.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-          <select
+          <div className="flex items-stretch gap-1">
+            <div className="flex-1 min-w-0">
+              <ToolSelector
+                value={toolFilter || null}
+                tools={toolItems}
+                onChange={(v) => setToolFilter(v)}
+                resolveValue={shortToolName}
+                placeholder="All tools"
+                size="sm"
+              />
+            </div>
+            {toolFilter && (
+              <button
+                type="button"
+                onClick={() => setToolFilter("")}
+                className="shrink-0 rounded-md border border-surface-border px-1.5 text-text-dim hover:bg-surface-overlay"
+                title="Clear tool filter"
+                aria-label="Clear tool filter"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+          <BotPicker
             value={botFilter}
-            onChange={(e) => setBotFilter(e.target.value)}
-            className="rounded-md border border-surface-border bg-input-bg px-2 py-1 text-[12px] text-text outline-none focus:border-accent"
-          >
-            <option value="">All bots</option>
-            {(bots ?? []).map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name ?? b.id}
-              </option>
-            ))}
-          </select>
+            onChange={setBotFilter}
+            bots={bots ?? []}
+            allowNone
+            placeholder="All bots"
+          />
           <div className="flex items-center justify-between">
             <label className="inline-flex items-center gap-1.5 text-[11px] text-text-muted">
               <input

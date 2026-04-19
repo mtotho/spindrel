@@ -16,6 +16,7 @@ import { useWidgetAction } from "../../api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "../../api/hooks/useWidgetAction";
 import { ComponentRenderer, WidgetActionContext } from "./renderers/ComponentRenderer";
 import { JsonTreeRenderer } from "./renderers/JsonTreeRenderer";
+import { InteractiveHtmlRenderer } from "./renderers/InteractiveHtmlRenderer";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedWidgets";
 import { apiFetch } from "../../api/client";
 
@@ -205,11 +206,17 @@ export function WidgetCard({
     [channelId, interceptingDispatch],
   );
 
-  // Normalize body to string
+  const isHtmlWidget =
+    currentEnvelope.content_type === "application/vnd.spindrel.html+interactive";
+
+  // Normalize body to string. HTML widgets in path mode ship with an empty
+  // body (renderer fetches the source file) — keep rendering in that case.
   const rawBody = currentEnvelope.body;
   const body = rawBody == null ? null : typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
 
-  if (body == null) return null;
+  if (body == null && !isHtmlWidget) return null;
+  const hasPathSource = !!(currentEnvelope.source_path && currentEnvelope.source_channel_id);
+  if (isHtmlWidget && !hasPathSource && !body) return null;
 
   const displayName = cleanToolName(toolName);
 
@@ -217,10 +224,12 @@ export function WidgetCard({
   const autoCollapsed = (isPinned && !isLatestBotMessage) || (defaultCollapsed ?? false);
   const isCollapsed = manualExpand !== null ? !manualExpand : autoCollapsed;
 
-  const content = showJson ? (
-    <JsonTreeRenderer body={body} t={t} />
+  const content = isHtmlWidget ? (
+    <InteractiveHtmlRenderer envelope={currentEnvelope} channelId={channelId} t={t} />
+  ) : showJson ? (
+    <JsonTreeRenderer body={body ?? ""} t={t} />
   ) : (
-    <ComponentRenderer body={body} t={t} />
+    <ComponentRenderer body={body ?? ""} t={t} />
   );
 
   const wrapped = actionCtx ? (
@@ -331,8 +340,16 @@ export function WidgetCard({
         )}
       </div>
 
-      {/* Body: component content */}
-      <div className="px-3 pb-2 max-h-[400px] overflow-y-auto">
+      {/* Body: component or HTML content. HTML widgets own their own scroll
+          inside the iframe (capped at 800px there), so we drop the outer
+          max-height / overflow clip that would otherwise fight with it. */}
+      <div
+        className={
+          isHtmlWidget
+            ? "px-3 pb-2"
+            : "px-3 pb-2 max-h-[400px] overflow-y-auto"
+        }
+      >
         {wrapped}
       </div>
 

@@ -54,6 +54,14 @@ class TurnStartedPayload:
 
     `turn_id` correlates every event from a single agent turn. Parallel
     multi-bot turns on the same channel are demultiplexed by it.
+
+    `session_id` is set when the event is bridged onto a different session's
+    bus than the one it logically belongs to — today this is sub-session
+    pipeline children whose turn lifecycle publishes on the PARENT channel's
+    bus (so the run-view modal, subscribed there, can receive it) but which
+    must NOT drive the parent channel's chat state. Parent-channel UI
+    subscribers filter by `session_id` to drop these bridged events; legacy
+    events with `session_id=None` pass through unchanged.
     """
 
     bot_id: str
@@ -61,6 +69,7 @@ class TurnStartedPayload:
     task_id: str | None = None
     reason: str = "user_message"
     """One of: 'user_message', 'queued_task_starting', 'heartbeat', 'workflow'."""
+    session_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -131,6 +140,9 @@ class TurnEndedPayload:
     kind_hint: str | None = None
     """Optional hint for the renderer to format differently — e.g. 'heartbeat'
     triggers the 💓 prefix in Slack."""
+    session_id: uuid.UUID | None = None
+    """See `TurnStartedPayload.session_id` — set when bridged from a
+    sub-session onto a parent channel's bus so UI subscribers can filter."""
 
 
 @dataclass(frozen=True)

@@ -122,7 +122,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       if (
         env &&
         env.display === "inline" &&
-        env.content_type === "application/vnd.spindrel.components+json"
+        (env.content_type === "application/vnd.spindrel.components+json" ||
+          env.content_type === "application/vnd.spindrel.html+interactive")
       ) {
         const call = calls[i];
         const name = call ? normalizeToolCall(call).name : names[i];

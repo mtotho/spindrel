@@ -92,12 +92,12 @@ export function CreateDashboardSheet({ open, onClose }: Props) {
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-black/40"
+        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]"
         onClick={onClose}
         role="presentation"
       />
       <div
-        className="fixed right-0 top-0 bottom-0 z-50 flex w-full flex-col border-l border-surface-border bg-surface-raised shadow-2xl sm:w-[420px]"
+        className="fixed right-0 top-0 bottom-0 z-50 flex w-full flex-col border-l border-surface-border bg-surface-raised shadow-2xl sm:w-[440px]"
         role="dialog"
         aria-label="Create dashboard"
       >
@@ -113,8 +113,9 @@ export function CreateDashboardSheet({ open, onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-text-muted hover:bg-surface-overlay"
+            className="rounded-md p-1.5 text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
             title="Close"
+            aria-label="Close"
           >
             <X size={16} />
           </button>
@@ -137,7 +138,7 @@ export function CreateDashboardSheet({ open, onClose }: Props) {
             <span className="flex items-center justify-between text-[12px] font-medium text-text-muted">
               <span>URL slug</span>
               {slugError && (
-                <span className="text-[11px] text-red-400">{slugError}</span>
+                <span className="text-[11px] text-danger">{slugError}</span>
               )}
             </span>
             <input
@@ -168,7 +169,7 @@ export function CreateDashboardSheet({ open, onClose }: Props) {
           </label>
 
           {error && (
-            <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
+            <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">
               {error}
             </div>
           )}

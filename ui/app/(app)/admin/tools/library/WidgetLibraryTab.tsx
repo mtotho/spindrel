@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { useWidgetPackages, type WidgetPackageListItem } from "@/src/api/hooks/useWidgetPackages";
 import { Spinner } from "@/src/components/shared/Spinner";
@@ -60,19 +61,23 @@ export function WidgetLibraryTab({ initialToolFilter = "" }: Props) {
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
         {toolNames.length === 0 && (
-          <div
-            className="rounded-lg border border-surface-border bg-surface-raised p-10 text-center"
-            style={{ color: t.textDim }}
-          >
-            <div className="text-[13px] mb-2" style={{ color: t.textMuted }}>
+          <div className="rounded-lg border border-surface-border bg-surface-raised p-10 text-center text-text-dim">
+            <div className="text-[13px] mb-2 text-text-muted">
               {packages && packages.length === 0
                 ? "No widget packages discovered yet"
                 : "No packages match your filters"}
             </div>
             <div className="text-[12px]">
-              {packages && packages.length === 0
-                ? "Widget packages are loaded from integration manifests on server start."
-                : "Try clearing filters or changing the source facet."}
+              {packages && packages.length === 0 ? (
+                <>
+                  Widget packages are loaded from integration manifests on server start, or{" "}
+                  <Link to="/widgets/dev#templates" className="text-accent hover:underline">
+                    create your first template →
+                  </Link>
+                </>
+              ) : (
+                "Try clearing filters or changing the source facet."
+              )}
             </div>
           </div>
         )}

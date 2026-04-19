@@ -102,7 +102,7 @@ export default function AddFromChannelSheet({ open, onClose }: Props) {
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
       />
       {/* Panel */}
-      <div className="relative z-10 flex h-full w-[440px] max-w-[92vw] flex-col border-l border-surface-border bg-surface-raised shadow-2xl">
+      <div className="relative z-10 flex h-full w-full sm:w-[440px] flex-col border-l border-surface-border bg-surface-raised shadow-2xl">
         <header className="flex items-center justify-between border-b border-surface-border px-5 py-4">
           <div>
             <h2 className="text-[14px] font-semibold text-text">Add widget</h2>
@@ -114,6 +114,8 @@ export default function AddFromChannelSheet({ open, onClose }: Props) {
             type="button"
             onClick={onClose}
             className="rounded-md p-1.5 text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
+            aria-label="Close"
+            title="Close"
           >
             <X size={16} />
           </button>
@@ -216,7 +218,7 @@ function ChannelPinsTab({
 }) {
   if (loadError) {
     return (
-      <p className="p-5 text-[12px] text-red-400">
+      <p className="p-5 text-[12px] text-danger">
         Failed to load channels: {loadError}
       </p>
     );
@@ -339,7 +341,7 @@ function PinRow({
           <span className="rounded bg-surface-overlay px-1 py-px uppercase tracking-wider">
             {integration}
           </span>
-          {error && <span className="text-red-400">{error}</span>}
+          {error && <span className="text-danger">{error}</span>}
         </div>
       </div>
       {already ? (

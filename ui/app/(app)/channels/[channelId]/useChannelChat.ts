@@ -79,7 +79,18 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
 
   // Subscribe to typed channel-events bus events. This is the SOLE source
   // of streaming UI state — POST /chat just acknowledges the turn.
-  useChannelEvents(channelId, channel?.bot_id);
+  //
+  // The parent-channel view filters events by ``active_session_id``: Phase 1's
+  // sub-session bus bridge republishes pipeline-child TURN_STARTED / TURN_ENDED
+  // (and step-output NEW_MESSAGE) on the parent channel's bus so the run-view
+  // modal can subscribe to the same SSE stream. Without this filter, those
+  // bridged events drive the parent channel's chat store and a phantom
+  // streaming indicator for the child bot (e.g. orchestrator running an audit
+  // pipeline) appears in the channel. Events with ``payload.session_id``
+  // undefined (legacy non-sub-session publishes) pass through unchanged.
+  useChannelEvents(channelId, channel?.bot_id, {
+    sessionFilter: channel?.active_session_id ?? undefined,
+  });
 
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
   const [turnProviderIdOverride, setTurnProviderIdOverride] = useState<string | null | undefined>();

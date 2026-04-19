@@ -37,6 +37,7 @@ def _envelope(result: str) -> dict:
 class TestInlineMode:
     @pytest.mark.asyncio
     async def test_html_only(self):
+        # No channel context set — channel_id stays out of the envelope.
         result = await emit_html_widget(html="<p>hello</p>")
         env = _envelope(result)
         assert env["content_type"] == INTERACTIVE_HTML_CONTENT_TYPE
@@ -46,7 +47,25 @@ class TestInlineMode:
         assert "display_label" not in env
         # No source_path in inline mode
         assert "source_path" not in env
+        # No channel context in this test → source_channel_id omitted
+        assert "source_channel_id" not in env
         assert env["plain_body"].startswith("HTML widget (")
+
+    @pytest.mark.asyncio
+    async def test_inline_mode_bakes_channel_id_for_dashboard_pins(self):
+        # When emitted inside a channel, the channel id MUST be persisted so
+        # that a pinned widget on the dashboard (no channel context) still
+        # knows its origin channel for window.spindrel.channelId.
+        channel_id = uuid.uuid4()
+        ctx = current_channel_id.set(channel_id)
+        try:
+            result = await emit_html_widget(html="<p>hi</p>", display_label="x")
+            env = _envelope(result)
+            assert env["source_channel_id"] == str(channel_id)
+            # source_path is NOT set in inline mode — only the channel origin.
+            assert "source_path" not in env
+        finally:
+            current_channel_id.reset(ctx)
 
     @pytest.mark.asyncio
     async def test_html_with_js_and_css(self):
@@ -131,7 +150,10 @@ class TestPathMode:
             assert env["body"] == ""
             assert env["source_path"] == "dashboards/cpu.html"
             assert env["source_channel_id"] == str(channel_id)
-            assert env["refreshable"] is True
+            # Freshness is owned by the renderer's useQuery poll, not the
+            # WidgetCard state_poll machinery — envelope deliberately omits
+            # `refreshable`. See emit_html_widget path-mode comment.
+            assert "refreshable" not in env
             assert env["display_label"] == "CPU"
             assert env["plain_body"] == "HTML widget: CPU"
         finally:
