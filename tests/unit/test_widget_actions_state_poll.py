@@ -3,6 +3,7 @@ widget-actions router. Exercises the behaviour the OpenWeather integration
 relies on: each pinned widget re-polls with its own location (carried via
 display_label) and cache entries don't collide across widgets."""
 import json
+import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -240,7 +241,7 @@ class TestDispatchWidgetConfig:
         )
         resp = await router_mod._dispatch_widget_config(req)
         assert resp.ok is False
-        assert "pin_id" in (resp.error or "")
+        assert "dashboard_pin_id" in (resp.error or "")
 
     @pytest.mark.asyncio
     async def test_missing_config_returns_error(self):
@@ -248,7 +249,7 @@ class TestDispatchWidgetConfig:
             dispatch="widget_config",
             channel_id="00000000-0000-0000-0000-000000000000",
             bot_id="b",
-            pin_id="pin1",
+            dashboard_pin_id=uuid.uuid4(),
         )
         resp = await router_mod._dispatch_widget_config(req)
         assert resp.ok is False
@@ -256,17 +257,18 @@ class TestDispatchWidgetConfig:
 
     @pytest.mark.asyncio
     async def test_patches_pin_invalidates_cache_and_returns_refreshed_envelope(self):
-        from app.routers import api_v1_channels as channels_mod
+        from app.services import dashboard_pins as pins_mod
         _register_weather_widget_with_config()
 
         # Pre-seed the cache so we can assert invalidation happens.
         stale_key = ("get_weather", '{"include_daily":false,"location":"Paris"}')
         router_mod._poll_cache[stale_key] = (0.0, "stale")
 
+        pin_id = uuid.uuid4()
         patched_pin = {
-            "id": "pin1",
+            "id": str(pin_id),
             "tool_name": "get_weather",
-            "config": {"show_forecast": True},
+            "widget_config": {"show_forecast": True},
             "envelope": {"display_label": "Paris, FR"},
         }
 
@@ -278,7 +280,7 @@ class TestDispatchWidgetConfig:
             async def __aenter__(self): return object()  # unused — helper is stubbed
             async def __aexit__(self, *a): return None
 
-        with patch.object(channels_mod, "apply_widget_config_patch", patch_stub), \
+        with patch.object(pins_mod, "apply_dashboard_pin_config_patch", patch_stub), \
              patch("app.db.engine.async_session", lambda: FakeAsyncSessionCtx()), \
              patch.object(router_mod, "is_local_tool", return_value=True), \
              patch.object(router_mod, "call_local_tool", tool_stub), \
@@ -287,7 +289,7 @@ class TestDispatchWidgetConfig:
                 dispatch="widget_config",
                 channel_id="00000000-0000-0000-0000-000000000000",
                 bot_id="b",
-                pin_id="pin1",
+                dashboard_pin_id=pin_id,
                 config={"show_forecast": True},
                 display_label="Paris, FR",
             )
@@ -296,12 +298,11 @@ class TestDispatchWidgetConfig:
         assert resp.ok is True
         assert resp.envelope is not None
         assert resp.api_response == patched_pin
-        # Pin patch was invoked with the expected merge semantics
+        # Pin patch was invoked with the expected merge semantics. Signature:
+        # (db, pin_id, patch, *, merge=True) — patch is positional arg 2.
         assert patch_stub.await_count == 1
-        _args, kwargs = patch_stub.await_args
-        # signature: (db, channel_id, pin_id, patch, merge=True) — patch is 4th positional
-        assert patch_stub.await_args.args[2] == "pin1"
-        assert patch_stub.await_args.args[3] == {"show_forecast": True}
+        assert patch_stub.await_args.args[1] == pin_id
+        assert patch_stub.await_args.args[2] == {"show_forecast": True}
         # Stale cache entry for get_weather was evicted by invalidate_poll_cache_for.
         assert stale_key not in router_mod._poll_cache
         # The poll tool was called with the patched config flag (include_daily=True).

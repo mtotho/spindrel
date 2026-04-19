@@ -103,7 +103,22 @@ async def create_pin(
     # Validate dashboard exists so we get a clean 404 (not an FK violation).
     # Imported lazily to avoid a module-level cycle with app.services.dashboards
     # which depends on us for DEFAULT_DASHBOARD_KEY.
-    from app.services.dashboards import get_dashboard
+    #
+    # Channel dashboards (``channel:<uuid>``) are lazy-created on first pin —
+    # users never "create" a channel dashboard; dropping the first widget on
+    # one auto-allocates the WidgetDashboard row.
+    from app.services.dashboards import (
+        ensure_channel_dashboard,
+        get_dashboard,
+        is_channel_slug,
+    )
+    if is_channel_slug(dashboard_key):
+        if source_channel_id is None:
+            raise HTTPException(
+                400,
+                "source_channel_id is required when pinning to a channel dashboard",
+            )
+        await ensure_channel_dashboard(db, source_channel_id)
     await get_dashboard(db, dashboard_key)
 
     position = await _next_position(db, dashboard_key=dashboard_key)

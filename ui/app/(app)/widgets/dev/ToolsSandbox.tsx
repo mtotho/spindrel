@@ -220,9 +220,9 @@ export function ToolsSandbox() {
   };
 
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <div className="flex flex-1 flex-col md:flex-row overflow-hidden min-h-0">
       {/* Left: tool list */}
-      <div className="w-64 shrink-0 border-r border-surface-border flex flex-col min-h-0">
+      <div className="w-full md:w-64 md:shrink-0 md:border-r md:border-surface-border flex flex-col md:min-h-0 max-h-[35vh] md:max-h-none">
         <div className="border-b border-surface-border px-3 py-2">
           <div className="relative">
             <Search
@@ -287,7 +287,7 @@ export function ToolsSandbox() {
       </div>
 
       {/* Middle: args + run */}
-      <div className="w-80 shrink-0 border-r border-surface-border flex flex-col min-h-0">
+      <div className="w-full md:w-80 md:shrink-0 md:border-r md:border-surface-border flex flex-col md:min-h-0">
         {selected ? (
           <>
             <div className="border-b border-surface-border px-4 py-3">
@@ -330,7 +330,7 @@ export function ToolsSandbox() {
       </div>
 
       {/* Right: output */}
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
         <div className="flex-1 overflow-auto p-4 space-y-4">
           {execError && (
             <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-[12px] text-danger">

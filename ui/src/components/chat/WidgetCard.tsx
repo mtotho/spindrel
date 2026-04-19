@@ -18,6 +18,7 @@ import { ComponentRenderer, WidgetActionContext } from "./renderers/ComponentRen
 import { JsonTreeRenderer } from "./renderers/JsonTreeRenderer";
 import { InteractiveHtmlRenderer } from "./renderers/InteractiveHtmlRenderer";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedWidgets";
+import { useDashboardPinsStore } from "../../stores/dashboardPins";
 import { apiFetch } from "../../api/client";
 
 /** Strip MCP server prefix: "homeassistant-HassTurnOn" → "HassTurnOn" */
@@ -64,18 +65,25 @@ export function WidgetCard({
   const [showJson, setShowJson] = useState(false);
   const [manualExpand, setManualExpand] = useState<boolean | null>(null);
 
-  // Check if this exact widget is already pinned.
-  // Identity: record_id when available, else body content (distinguishes same tool on different entities)
-  const isPinned = usePinnedWidgetsStore((s) => {
+  // Check if this exact widget is already pinned on the channel's implicit
+  // dashboard. Pins live in `widget_dashboard_pins` now; we read them from
+  // the dashboard-pins store when its currentSlug matches this channel.
+  // Identity: record_id when available, else body content (distinguishes
+  // same tool on different entities).
+  const isPinned = useDashboardPinsStore((s) => {
     if (!channelId) return false;
-    return (s.byChannel[channelId] ?? []).some((w) => {
+    if (s.currentSlug !== `channel:${channelId}`) return false;
+    return s.pins.some((w) => {
       if (w.tool_name !== toolName) return false;
-      if (w.envelope.record_id && envelope.record_id) {
+      if (w.envelope?.record_id && envelope.record_id) {
         return w.envelope.record_id === envelope.record_id;
       }
-      // Fallback: compare body content — different entities produce different bodies
-      const pinnedBody = typeof w.envelope.body === "string" ? w.envelope.body : JSON.stringify(w.envelope.body);
-      const thisBody = typeof envelope.body === "string" ? envelope.body : JSON.stringify(envelope.body);
+      const pinnedBody = typeof w.envelope?.body === "string"
+        ? w.envelope.body
+        : JSON.stringify(w.envelope?.body);
+      const thisBody = typeof envelope.body === "string"
+        ? envelope.body
+        : JSON.stringify(envelope.body);
       return pinnedBody === thisBody;
     });
   });

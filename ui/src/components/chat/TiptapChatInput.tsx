@@ -46,6 +46,8 @@ export interface TiptapChatInputHandle {
   focus: () => void;
   clear: () => void;
   getMarkdown: () => string;
+  /** Insert plain text at the current cursor position and move the cursor to the end of the inserted text. */
+  insertText: (text: string) => void;
 }
 
 export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInputProps>(
@@ -440,6 +442,10 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         initialTextRef.current = "";
       },
       getMarkdown: () => (editor?.storage as any)?.markdown?.getMarkdown() ?? "",
+      insertText: (text: string) => {
+        if (!editor) return;
+        editor.chain().focus().insertContent(text).run();
+      },
     }), [editor]);
 
     const cssVars = useMemo(() => ({

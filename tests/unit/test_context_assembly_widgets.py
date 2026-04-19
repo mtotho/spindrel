@@ -1,9 +1,10 @@
 """Integration-ish test: `assemble_context` injects pinned-widget state.
 
 Focuses solely on the hook wired after the temporal block in
-`app/agent/context_assembly.py`. Verifies that a channel carrying
-`config["pinned_widgets"]` produces a system message whose content comes
-from `build_widget_context_block`.
+`app/agent/context_assembly.py`. Verifies that a channel with pins on its
+implicit widget dashboard (``widget_dashboard_pins`` at
+``channel:<uuid>``) produces a system message whose content comes from
+``build_widget_context_block``.
 """
 from __future__ import annotations
 
@@ -52,11 +53,11 @@ class _FakeChannel:
         return None
 
 
-def _fake_channel(pins: list[dict]):
+def _fake_channel():
     return _FakeChannel(
         id=uuid.uuid4(),
         bot_id="bot-a",
-        config={"pinned_widgets": pins},
+        config={},
         local_tools_disabled=[],
         mcp_servers_disabled=[],
         client_tools_disabled=[],
@@ -118,7 +119,8 @@ def _fake_session_factory(channel_row):
 
 @pytest.mark.asyncio
 async def test_pinned_widgets_injected_as_system_message():
-    channel_row = _fake_channel([
+    channel_row = _fake_channel()
+    pins = [
         {
             "id": "p1",
             "tool_name": "get_weather",
@@ -132,14 +134,19 @@ async def test_pinned_widgets_injected_as_system_message():
             "pinned_at": "2026-04-17T12:00:00+00:00",
             "config": {},
         },
-    ])
+    ]
     bot = _minimal_bot()
     messages: list[dict] = []
     result = AssemblyResult()
 
+    fetch_stub = AsyncMock(return_value=pins)
+
     with patch(
         "app.db.engine.async_session",
         new=_fake_session_factory(channel_row),
+    ), patch(
+        "app.services.widget_context.fetch_channel_pin_dicts",
+        new=fetch_stub,
     ), patch(
         "app.agent.hooks.fire_hook", new_callable=AsyncMock,
     ), patch(
@@ -171,11 +178,13 @@ async def test_pinned_widgets_injected_as_system_message():
         f"among {[m.get('role') for m in messages]}"
     )
     assert "Seattle: 52F cloudy" in widget_system_msgs[0]["content"]
+    # The new source is fetched from the dashboard pins table, not JSONB.
+    assert fetch_stub.await_count == 1
 
 
 @pytest.mark.asyncio
 async def test_no_pins_no_widget_injection():
-    channel_row = _fake_channel([])
+    channel_row = _fake_channel()
     bot = _minimal_bot()
     messages: list[dict] = []
     result = AssemblyResult()
@@ -183,6 +192,9 @@ async def test_no_pins_no_widget_injection():
     with patch(
         "app.db.engine.async_session",
         new=_fake_session_factory(channel_row),
+    ), patch(
+        "app.services.widget_context.fetch_channel_pin_dicts",
+        new=AsyncMock(return_value=[]),
     ), patch(
         "app.agent.hooks.fire_hook", new_callable=AsyncMock,
     ), patch(

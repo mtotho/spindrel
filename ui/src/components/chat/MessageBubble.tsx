@@ -48,24 +48,38 @@ interface Props {
 export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage }: Props) {
   const t = useThemeTokens();
   const [compact] = useToolResultCompact(channelId ?? "");
-  const pinWidget = usePinnedWidgetsStore((s) => s.pinWidget);
   const setExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
 
+  // Pin the inline widget to the channel's implicit dashboard (slug
+  // `channel:<uuid>`). Hydrate the store to that slug first so the pin
+  // lands in the right scope — the store re-hydrates lazily on navigation,
+  // so from the chat view we may be looking at a different slug.
   const handlePinWidget = useCallback(
-    (info: { widgetId: string; envelope: ToolResultEnvelope; toolName: string; channelId: string; botId: string }) => {
+    async (info: { widgetId: string; envelope: ToolResultEnvelope; toolName: string; channelId: string; botId: string }) => {
       const toolShort = info.toolName.includes("-") ? info.toolName.slice(info.toolName.indexOf("-") + 1) : info.toolName;
-      // Prefer display_label from template engine, fall back to tool name
       const displayName = info.envelope.display_label || toolShort;
 
-      pinWidget(info.channelId, {
-        tool_name: info.toolName,
-        display_name: displayName,
-        bot_id: info.botId,
-        envelope: info.envelope,
-      });
+      const { useDashboardPinsStore } = await import("../../stores/dashboardPins");
+      const slug = `channel:${info.channelId}`;
+      const store = useDashboardPinsStore.getState();
+      if (store.currentSlug !== slug) {
+        await store.hydrate(slug);
+      }
+      try {
+        await useDashboardPinsStore.getState().pinWidget({
+          source_kind: "channel",
+          source_channel_id: info.channelId,
+          source_bot_id: info.botId,
+          tool_name: info.toolName,
+          envelope: info.envelope,
+          display_label: displayName,
+        });
+      } catch (err) {
+        console.error("Failed to pin widget from chat:", err);
+      }
       setExplorerOpen(true);
     },
-    [pinWidget, setExplorerOpen],
+    [setExplorerOpen],
   );
   const meta = message.metadata || {};
   // Extract text from content (handles JSON-array content blocks) then strip integration prefixes

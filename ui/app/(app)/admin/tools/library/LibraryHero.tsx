@@ -10,7 +10,7 @@ export function LibraryHero() {
 
   return (
     <>
-      <div className="border-b border-surface-border bg-surface-raised p-4 md:p-6">
+      <div className="bg-surface-raised p-4 md:p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="max-w-3xl space-y-1">
             <div className="text-[13px] text-text font-semibold">

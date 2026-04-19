@@ -4,12 +4,19 @@ Produces a single plain-text system message summarizing the current state of
 every widget pinned to the channel. Positioned right after the temporal block
 in `context_assembly.py` so it stays out of the cacheable prefix.
 
-The caller is responsible for sourcing the pins (from `channel.config`). This
-module has no I/O and no awareness of the DB.
+Pins now live in ``widget_dashboard_pins`` under the reserved slug
+``channel:<uuid>``. :func:`fetch_channel_pin_dicts` pulls them and shapes
+them into the dict form :func:`build_widget_context_block` consumes, so the
+renderer stays pure / I/O-free.
 """
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 _MAX_PINS = 12
@@ -55,6 +62,43 @@ def _relative_age(pinned_at: str | None, now: datetime) -> str | None:
     return f"~{days}d ago"
 
 
+async def fetch_channel_pin_dicts(
+    db: "AsyncSession",
+    channel_id: uuid.UUID | str,
+) -> list[dict]:
+    """Return channel pins as plain dicts sized for this module's renderer.
+
+    Reads from ``widget_dashboard_pins`` at slug ``channel:<channel_id>``
+    and shapes each row into the legacy ``channel.config.pinned_widgets``
+    entry shape — ``envelope``, ``display_name``, ``tool_name``,
+    ``bot_id``, ``pinned_at``, ``position``, ``config`` — so callers that
+    previously read from JSONB keep working with a single swap.
+    """
+    from sqlalchemy import select
+    from app.db.models import WidgetDashboardPin
+
+    slug = f"channel:{channel_id}"
+    rows = (await db.execute(
+        select(WidgetDashboardPin)
+        .where(WidgetDashboardPin.dashboard_key == slug)
+        .order_by(WidgetDashboardPin.position.asc())
+    )).scalars().all()
+
+    out: list[dict] = []
+    for r in rows:
+        out.append({
+            "id": str(r.id),
+            "tool_name": r.tool_name,
+            "display_name": r.display_label or r.tool_name,
+            "bot_id": r.source_bot_id or "",
+            "envelope": r.envelope or {},
+            "position": r.position,
+            "pinned_at": r.pinned_at.isoformat() if r.pinned_at else "",
+            "config": r.widget_config or {},
+        })
+    return out
+
+
 def build_widget_context_block(
     pins: list[dict] | None,
     *,
@@ -63,8 +107,9 @@ def build_widget_context_block(
 ) -> str | None:
     """Render pinned widgets as a plain-text system message.
 
-    `pins` is `channel.config["pinned_widgets"]` verbatim. Returns None when
-    there are no pins or none of them have usable `plain_body` state.
+    ``pins`` is the shape returned by :func:`fetch_channel_pin_dicts`.
+    Returns None when there are no pins or none of them have usable
+    ``plain_body`` state.
     """
     if not pins:
         return None

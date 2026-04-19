@@ -69,13 +69,11 @@ class WidgetActionRequest(BaseModel):
     method: str = "POST"
     body: dict | None = None
     # For widget_config dispatch — patch a pinned widget's config and return
-    # the refreshed envelope rendered with the merged config.
-    pin_id: str | None = None
-    config: dict | None = None
-    # Dashboard-scope pin id (mutually exclusive with a channel pin_id).
-    # When set, widget_config dispatch routes to the dashboard pin table and
-    # channel_id may be omitted.
+    # the refreshed envelope rendered with the merged config. All pins (both
+    # user dashboards and implicit channel dashboards) live in the dashboard
+    # pin table and are addressed via ``dashboard_pin_id``.
     dashboard_pin_id: uuid.UUID | None = None
+    config: dict | None = None
     # Context
     channel_id: uuid.UUID | None = None
     bot_id: str | None = None
@@ -420,9 +418,8 @@ async def refresh_widget_state(req: WidgetRefreshRequest):
 async def _dispatch_widget_config(req: WidgetActionRequest) -> WidgetActionResponse:
     """Patch a pinned widget's config and return a refreshed envelope.
 
-    Routes by scope:
-      * ``dashboard_pin_id`` set → ``apply_dashboard_pin_config_patch``
-      * else ``pin_id`` + ``channel_id`` → ``apply_widget_config_patch``
+    All pins (both user dashboards and implicit channel dashboards) live in
+    ``widget_dashboard_pins`` and are addressed via ``dashboard_pin_id``.
 
     Invalidates the state_poll cache and calls ``_do_state_poll`` with the
     merged config so templated ``{{config.*}}`` in state_poll args picks up
@@ -430,32 +427,23 @@ async def _dispatch_widget_config(req: WidgetActionRequest) -> WidgetActionRespo
     """
     if req.config is None:
         return WidgetActionResponse(ok=False, error="Missing 'config' for widget_config dispatch")
-    if not req.dashboard_pin_id and not req.pin_id:
-        return WidgetActionResponse(ok=False, error="Missing 'pin_id' or 'dashboard_pin_id' for widget_config dispatch")
-    if req.dashboard_pin_id is None and req.channel_id is None:
-        return WidgetActionResponse(ok=False, error="Missing 'channel_id' for channel-scoped widget_config dispatch")
+    if req.dashboard_pin_id is None:
+        return WidgetActionResponse(ok=False, error="Missing 'dashboard_pin_id' for widget_config dispatch")
 
     from app.db.engine import async_session
+    from app.services.dashboard_pins import apply_dashboard_pin_config_patch
 
     try:
         async with async_session() as db:
-            if req.dashboard_pin_id is not None:
-                from app.services.dashboard_pins import apply_dashboard_pin_config_patch
-                patched_pin = await apply_dashboard_pin_config_patch(
-                    db, req.dashboard_pin_id, req.config, merge=True,
-                )
-            else:
-                from app.routers.api_v1_channels import apply_widget_config_patch
-                patched_pin = await apply_widget_config_patch(
-                    db, req.channel_id, req.pin_id, req.config, merge=True,
-                )
+            patched_pin = await apply_dashboard_pin_config_patch(
+                db, req.dashboard_pin_id, req.config, merge=True,
+            )
     except HTTPException as exc:
         return WidgetActionResponse(ok=False, error=f"Pin patch failed: {exc.detail}")
     except Exception as exc:
         return WidgetActionResponse(ok=False, error=f"Pin patch failed: {exc}")
 
-    # Channel pins use `config`; dashboard pins use `widget_config`.
-    merged_config = patched_pin.get("widget_config") or patched_pin.get("config") or {}
+    merged_config = patched_pin.get("widget_config") or {}
     tool_name = patched_pin.get("tool_name", "")
     resolved = _resolve_tool_name(tool_name)
 
@@ -476,7 +464,7 @@ async def _dispatch_widget_config(req: WidgetActionRequest) -> WidgetActionRespo
         return WidgetActionResponse(ok=True, envelope=None, api_response=patched_pin)
 
     logger.info(
-        "widget_config dispatch: pin=%s tool=%s patch=%s merged=%s",
-        req.pin_id, resolved, req.config, merged_config,
+        "widget_config dispatch: dashboard_pin=%s tool=%s patch=%s merged=%s",
+        req.dashboard_pin_id, resolved, req.config, merged_config,
     )
     return WidgetActionResponse(ok=True, envelope=envelope.compact_dict(), api_response=patched_pin)

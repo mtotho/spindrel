@@ -743,6 +743,16 @@ async def delete_channel(
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
+    # Cascade the channel's implicit widget dashboard (if any). No FK wires
+    # this — ``channel:<uuid>`` slugs aren't backed by a foreign key, so we
+    # delete explicitly. Safe on channels that never opened their dashboard.
+    from app.services.dashboards import channel_slug, delete_dashboard
+    try:
+        await delete_dashboard(db, channel_slug(channel_id))
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+
     await db.delete(channel)
     await db.commit()
 
@@ -2145,192 +2155,7 @@ async def unpin_file(
     return {"ok": True}
 
 
-# ---------------------------------------------------------------------------
-# Pinned widget panels (tool result widgets pinned to side panel)
-# ---------------------------------------------------------------------------
-
-class PinWidgetRequest(BaseModel):
-    id: str
-    tool_name: str
-    display_name: str
-    bot_id: str
-    envelope: dict  # ToolResultEnvelope as dict
-    position: int
-    pinned_at: str
-    # Free-form per-pin user config — merged over the template's default_config
-    # at render time. Flipped via POST /widget-actions {dispatch:"widget_config"}.
-    config: dict = {}
-
-
-class WidgetReorderRequest(BaseModel):
-    ids: list[str]
-
-
-class WidgetConfigPatch(BaseModel):
-    config: dict
-    # Shallow-merge by default; full replace when merge=False.
-    merge: bool = True
-
-
-@router.post(
-    "/{channel_id}/widget-pins",
-    dependencies=[Depends(require_scopes("channels:write"))],
-)
-async def pin_widget(
-    channel_id: uuid.UUID,
-    body: PinWidgetRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """Pin a tool result widget to a channel's side panel."""
-    import copy
-    from sqlalchemy.orm.attributes import flag_modified
-
-    ch = (await db.execute(
-        select(Channel).where(Channel.id == channel_id)
-    )).scalar_one_or_none()
-    if not ch:
-        raise HTTPException(404, "Channel not found")
-
-    cfg = copy.deepcopy(ch.config or {})
-    widgets = cfg.setdefault("pinned_widgets", [])
-    # Deduplicate by id (replace existing)
-    widgets = [w for w in widgets if w["id"] != body.id]
-    entry = body.model_dump()
-    widgets.append(entry)
-    cfg["pinned_widgets"] = widgets
-    ch.config = cfg
-    flag_modified(ch, "config")
-
-    await db.commit()
-    return entry
-
-
-@router.delete(
-    "/{channel_id}/widget-pins",
-    dependencies=[Depends(require_scopes("channels:write"))],
-)
-async def unpin_widget(
-    channel_id: uuid.UUID,
-    id: str = Query(..., description="ID of the widget to unpin"),
-    db: AsyncSession = Depends(get_db),
-):
-    """Unpin a tool result widget from a channel's side panel."""
-    import copy
-    from sqlalchemy.orm.attributes import flag_modified
-
-    ch = (await db.execute(
-        select(Channel).where(Channel.id == channel_id)
-    )).scalar_one_or_none()
-    if not ch:
-        raise HTTPException(404, "Channel not found")
-
-    cfg = copy.deepcopy(ch.config or {})
-    widgets = cfg.get("pinned_widgets", [])
-    new_widgets = [w for w in widgets if w["id"] != id]
-    if len(new_widgets) == len(widgets):
-        raise HTTPException(404, "Widget is not pinned")
-    cfg["pinned_widgets"] = new_widgets
-    ch.config = cfg
-    flag_modified(ch, "config")
-
-    await db.commit()
-    return {"ok": True}
-
-
-@router.patch(
-    "/{channel_id}/widget-pins/reorder",
-    dependencies=[Depends(require_scopes("channels:write"))],
-)
-async def reorder_widgets(
-    channel_id: uuid.UUID,
-    body: WidgetReorderRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """Reorder pinned widgets by providing ordered list of IDs."""
-    import copy
-    from sqlalchemy.orm.attributes import flag_modified
-
-    ch = (await db.execute(
-        select(Channel).where(Channel.id == channel_id)
-    )).scalar_one_or_none()
-    if not ch:
-        raise HTTPException(404, "Channel not found")
-
-    cfg = copy.deepcopy(ch.config or {})
-    widgets = cfg.get("pinned_widgets", [])
-    by_id = {w["id"]: w for w in widgets}
-    reordered = []
-    for i, wid in enumerate(body.ids):
-        if wid in by_id:
-            by_id[wid]["position"] = i
-            reordered.append(by_id[wid])
-    # Keep any widgets not in the reorder list at the end
-    for w in widgets:
-        if w["id"] not in {r["id"] for r in reordered}:
-            w["position"] = len(reordered)
-            reordered.append(w)
-    cfg["pinned_widgets"] = reordered
-    ch.config = cfg
-    flag_modified(ch, "config")
-
-    await db.commit()
-    return {"ok": True, "widgets": reordered}
-
-
-async def apply_widget_config_patch(
-    db: AsyncSession,
-    channel_id: uuid.UUID,
-    widget_id: str,
-    patch: dict,
-    merge: bool = True,
-) -> dict:
-    """Shared helper: patch a pinned widget's config. Returns the patched pin.
-
-    Used by both the HTTP PATCH endpoint and the dispatch:"widget_config"
-    handler in the widget-actions router so they stay in sync.
-    """
-    import copy
-    from sqlalchemy.orm.attributes import flag_modified
-
-    ch = (await db.execute(
-        select(Channel).where(Channel.id == channel_id)
-    )).scalar_one_or_none()
-    if not ch:
-        raise HTTPException(404, "Channel not found")
-
-    cfg = copy.deepcopy(ch.config or {})
-    widgets = cfg.get("pinned_widgets", [])
-    target = next((w for w in widgets if w["id"] == widget_id), None)
-    if target is None:
-        raise HTTPException(404, "Widget is not pinned")
-
-    current = target.get("config") or {}
-    target["config"] = {**current, **patch} if merge else dict(patch)
-
-    cfg["pinned_widgets"] = widgets
-    ch.config = cfg
-    flag_modified(ch, "config")
-
-    await db.commit()
-    return target
-
-
-@router.patch(
-    "/{channel_id}/widget-pins/{widget_id}/config",
-    dependencies=[Depends(require_scopes("channels:write"))],
-)
-async def patch_widget_config(
-    channel_id: uuid.UUID,
-    widget_id: str,
-    body: WidgetConfigPatch,
-    db: AsyncSession = Depends(get_db),
-):
-    """Patch a pinned widget's user config.
-
-    Shallow-merges new keys into the pin's ``config`` dict by default so a
-    toggle can flip one flag without clobbering others. Returns the full
-    patched pin so the caller can refresh its envelope using the new config.
-    """
-    return await apply_widget_config_patch(
-        db, channel_id, widget_id, body.config, body.merge,
-    )
+# Channel-scoped widget pins now live on the implicit channel dashboard
+# (``widget_dashboards`` slug ``channel:<uuid>``). The frontend reads/writes
+# them directly through ``/api/v1/widgets/dashboard`` at that slug — there is
+# no channel-scoped pin CRUD endpoint anymore.

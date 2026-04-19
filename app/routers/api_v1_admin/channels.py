@@ -1857,12 +1857,15 @@ async def admin_channel_config_overhead(
     from dataclasses import asdict
     from app.agent.context_budget import get_model_context_window
     from app.services.context_estimate import estimate_bot_context
+    from app.services.widget_context import fetch_channel_pin_dicts
 
     channel = (await db.execute(
         select(Channel).where(Channel.id == channel_id)
     )).scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+
+    channel_pinned_widgets = await fetch_channel_pin_dicts(db, channel.id)
 
     bot = get_bot(channel.bot_id)
 
@@ -1906,7 +1909,7 @@ async def admin_channel_config_overhead(
         "context_pruning": bot.context_pruning,
         "audio_input": bot.audio_input or "transcribe",
         "base_prompt": bot.base_prompt if bot.base_prompt is not None else True,
-        "pinned_widgets": (channel.config or {}).get("pinned_widgets") or [],
+        "pinned_widgets": channel_pinned_widgets,
     }
 
     result = await estimate_bot_context(draft=draft, bot_id=bot.id)

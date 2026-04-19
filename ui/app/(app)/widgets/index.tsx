@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Check, Info, LayoutDashboard, Move, Plus, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
@@ -10,10 +10,10 @@ import {
   type LayoutItem,
 } from "react-grid-layout/legacy";
 import "react-grid-layout/css/styles.css";
-import { PageHeader } from "@/src/components/layout/PageHeader";
 import { PinnedToolWidget } from "@/app/(app)/channels/[channelId]/PinnedToolWidget";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
+import { useChannel } from "@/src/api/hooks/useChannels";
 import type {
   GridLayoutItem,
   PinnedWidget,
@@ -25,14 +25,35 @@ import { EditPinDrawer } from "./EditPinDrawer";
 import { DashboardTabs } from "./DashboardTabs";
 import { CreateDashboardSheet } from "./CreateDashboardSheet";
 import { EditDashboardDrawer } from "./EditDashboardDrawer";
-import { useDashboards } from "@/src/stores/dashboards";
+import { ChannelDashboardBreadcrumb } from "./ChannelDashboardBreadcrumb";
+import { SidebarRailOverlay } from "./SidebarRailOverlay";
+import {
+  channelIdFromSlug,
+  channelSlug,
+  isChannelSlug,
+  useDashboards,
+} from "@/src/stores/dashboards";
+import { resolvePreset, type GridPreset } from "@/src/lib/dashboardGrid";
+
+/** A pin lives in the sidebar rail when it's anchored at the leftmost column
+ *  (x === 0) and is narrow enough to fit. The width cutoff depends on the
+ *  active dashboard's grid preset (2 units in standard, 4 in fine). */
+export function isRailPin(pin: WidgetDashboardPin, railMaxWidth = 2): boolean {
+  const gl = pin.grid_layout as GridLayoutItem | undefined;
+  return (
+    !!gl
+    && typeof gl === "object"
+    && gl.x === 0
+    && typeof gl.w === "number"
+    && gl.w <= railMaxWidth
+  );
+}
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
-/** Breakpoint → column count. Matches HA / Grafana conventions. */
-const COLS = { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 } as const;
+/** Screen-width breakpoints are preset-agnostic; only column counts and row
+ *  heights change per preset (see `@/src/lib/dashboardGrid`). */
 const BREAKPOINTS = { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 } as const;
-const ROW_HEIGHT = 30;
 const GRID_MARGIN: [number, number] = [12, 12];
 
 /** Adapt a WidgetDashboardPin row to the PinnedWidget shape the PinnedToolWidget
@@ -52,9 +73,11 @@ function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
 }
 
 /** Default tile size for a pin with no saved grid_layout. Auto-packs into
- *  the first free 6×6 slot via react-grid-layout's compactType. */
-function defaultLayoutForIndex(index: number): GridLayoutItem {
-  return { x: (index % 2) * 6, y: (Math.floor(index / 2)) * 6, w: 6, h: 6 };
+ *  the first free slot via react-grid-layout's compactType, sized from the
+ *  active preset's default tile dimensions. */
+function defaultLayoutForIndex(index: number, preset: GridPreset): GridLayoutItem {
+  const { w, h } = preset.defaultTile;
+  return { x: (index % 2) * w, y: Math.floor(index / 2) * h, w, h };
 }
 
 function hasLayout(pin: WidgetDashboardPin): pin is WidgetDashboardPin & {
@@ -65,14 +88,46 @@ function hasLayout(pin: WidgetDashboardPin): pin is WidgetDashboardPin & {
 }
 
 export default function WidgetsDashboardPage() {
-  const { slug: slugParam } = useParams<{ slug: string }>();
-  const slug = slugParam || "default";
+  // Two parameterized routes feed this page:
+  //   /widgets/:slug                  — user dashboards (`default`, `home`, …)
+  //   /widgets/channel/:channelId     — friendly alias for `channel:<uuid>`
+  const { slug: slugParam, channelId: channelIdParam } = useParams<{
+    slug: string;
+    channelId: string;
+  }>();
+  const slug = channelIdParam
+    ? channelSlug(channelIdParam)
+    : slugParam || "default";
+  const channelScopedId = channelIdParam ?? channelIdFromSlug(slug);
+  const isChannelScoped = isChannelSlug(slug);
+
   const { pins, isLoading, error } = useDashboardPins(slug);
   const unpinWidget = useDashboardPinsStore((s) => s.unpinWidget);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
   const { list: dashboards } = useDashboards();
   const currentDashboard = dashboards.find((d) => d.slug === slug);
+  const preset = useMemo(
+    () => resolvePreset(currentDashboard?.grid_config ?? null),
+    [currentDashboard?.grid_config],
+  );
+  // Only fetched when we're on a channel dashboard — gives the breadcrumb the
+  // channel's real `name` without colliding with the main channel-chat route.
+  const { data: channelRow } = useChannel(channelScopedId ?? undefined);
+  const railCount = useMemo(
+    () => pins.filter((p) => isRailPin(p, preset.railMaxWidth)).length,
+    [pins, preset.railMaxWidth],
+  );
+  const gridRowCount = useMemo(() => {
+    let max = 0;
+    for (const p of pins) {
+      const gl = p.grid_layout as GridLayoutItem | undefined;
+      if (!gl) continue;
+      const bottom = (gl.y ?? 0) + (gl.h ?? 0);
+      if (bottom > max) max = bottom;
+    }
+    return max;
+  }, [pins]);
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -80,6 +135,9 @@ export default function WidgetsDashboardPage() {
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [manageSlug, setManageSlug] = useState<string | null>(null);
+  /** Last-added pin id — drives scroll-into-view + accent flash on the matching
+   *  grid tile, cleared after ~1.4s. Set via `highlightPin` from Add sheet. */
+  const [highlightPinId, setHighlightPinId] = useState<string | null>(null);
   // Track viewport width for mobile-only behavior — drag/resize on touch is
   // unusable, so the grid is read-only below the `sm` breakpoint even when
   // edit mode is toggled on (e.g. user hopped from desktop to phone).
@@ -95,6 +153,16 @@ export default function WidgetsDashboardPage() {
   }, []);
   const layoutEditable = editMode && !isMobile;
 
+  const highlightPin = useCallback((pinId: string) => {
+    setHighlightPinId(pinId);
+    // Scroll next frame so the new tile is in the DOM before we query for it.
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-pin-id="${pinId}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    window.setTimeout(() => setHighlightPinId((cur) => (cur === pinId ? null : cur)), 1400);
+  }, []);
+
   const handleUnpin = async (pinId: string) => {
     try {
       await unpinWidget(pinId);
@@ -109,20 +177,20 @@ export default function WidgetsDashboardPage() {
 
   const layouts = useMemo(() => {
     const lg: LayoutItem[] = pins.map((p, idx) => {
-      const base = hasLayout(p) ? p.grid_layout : defaultLayoutForIndex(idx);
+      const base = hasLayout(p) ? p.grid_layout : defaultLayoutForIndex(idx, preset);
       return {
         i: p.id,
         x: base.x,
         y: base.y,
         w: base.w,
         h: base.h,
-        minW: 2,
-        minH: 3,
-        maxW: 12,
+        minW: preset.minTile.w,
+        minH: preset.minTile.h,
+        maxW: preset.cols.lg,
       };
     });
     return { lg };
-  }, [pins]);
+  }, [pins, preset]);
 
   // Debounce layout commits — drag/resize fires many `onLayoutChange` events.
   const pendingTimer = useRef<number | null>(null);
@@ -148,64 +216,78 @@ export default function WidgetsDashboardPage() {
     }, 400);
   };
 
+  const actions = (
+    <>
+      {pins.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setEditMode((v) => !v)}
+          className={
+            "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-medium transition-colors " +
+            (editMode
+              ? "border-accent/60 bg-accent/10 text-accent"
+              : "border-surface-border text-text-muted hover:bg-surface-overlay")
+          }
+          aria-pressed={editMode}
+          aria-label={editMode ? "Finish editing layout" : "Rearrange widgets"}
+          title={editMode ? "Finish editing" : "Rearrange widgets"}
+        >
+          {editMode ? <Check size={13} /> : <Move size={13} />}
+          <span className="hidden md:inline">
+            {editMode ? "Done" : "Edit layout"}
+          </span>
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => setSheetOpen(true)}
+        className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-white hover:opacity-90 transition-opacity"
+        aria-label="Add widget"
+        title="Add widget"
+      >
+        <Plus size={13} />
+        <span className="hidden md:inline">Add widget</span>
+      </button>
+      <Link
+        to="/widgets/dev"
+        className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
+        aria-label="Developer panel"
+        title="Developer panel"
+      >
+        <Wrench size={13} />
+        <span className="hidden lg:inline">Developer panel</span>
+      </Link>
+    </>
+  );
+
   return (
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
-      <PageHeader
-        variant="list"
-        title={currentDashboard?.name ?? "Widgets"}
-        subtitle="Pinned tool results, live"
-        right={
-          <div className="flex items-center gap-2">
-            {pins.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setEditMode((v) => !v)}
-                className={
-                  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors " +
-                  (editMode
-                    ? "border-accent/60 bg-accent/10 text-accent"
-                    : "border-surface-border text-text-muted hover:bg-surface-overlay")
-                }
-                aria-pressed={editMode}
-                aria-label={editMode ? "Finish editing layout" : "Rearrange widgets"}
-                title={editMode ? "Finish editing" : "Rearrange widgets"}
-              >
-                {editMode ? <Check size={13} /> : <Move size={13} />}
-                <span className="hidden sm:inline">
-                  {editMode ? "Done" : "Edit layout"}
-                </span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setSheetOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1.5 text-[12px] font-medium text-white hover:opacity-90 transition-opacity"
-              aria-label="Add widget"
-              title="Add widget"
-            >
-              <Plus size={13} />
-              <span className="hidden sm:inline">Add widget</span>
-            </button>
-            <Link
-              to="/widgets/dev"
-              className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2.5 py-1.5 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
-              aria-label="Developer panel"
-              title="Developer panel"
-            >
-              <Wrench size={13} />
-              <span className="hidden sm:inline">Developer panel</span>
-            </Link>
+      {isChannelScoped && channelScopedId ? (
+        <>
+          <ChannelDashboardBreadcrumb
+            channelId={channelScopedId}
+            channelName={channelRow?.name}
+            railCount={railCount}
+            pinCount={pins.length}
+          />
+          <div
+            className="flex shrink-0 items-center justify-end gap-2 border-b border-surface-border bg-surface px-3 py-1.5"
+            role="toolbar"
+            aria-label="Dashboard actions"
+          >
+            {actions}
           </div>
-        }
-      />
+        </>
+      ) : (
+        <DashboardTabs
+          activeSlug={slug}
+          onOpenCreate={() => setCreateOpen(true)}
+          onOpenManage={() => setManageSlug(slug)}
+          right={actions}
+        />
+      )}
 
-      <DashboardTabs
-        activeSlug={slug}
-        onOpenCreate={() => setCreateOpen(true)}
-        onOpenManage={() => setManageSlug(slug)}
-      />
-
-      <div className="flex-1 overflow-auto p-2 sm:p-4 md:p-6">
+      <div className="relative flex-1 overflow-auto p-2 sm:p-4 md:p-6">
         {layoutError && (
           <div
             className="mx-auto mb-3 flex max-w-2xl items-center justify-between gap-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 text-[12px] text-danger"
@@ -240,39 +322,58 @@ export default function WidgetsDashboardPage() {
           <EmptyState onAddClick={() => setSheetOpen(true)} />
         )}
         {!isLoading && !error && pins.length > 0 && (
-          <ResponsiveGridLayout
-            className={layoutEditable ? "rgl-edit-mode" : ""}
-            layouts={layouts}
-            breakpoints={BREAKPOINTS}
-            cols={COLS}
-            rowHeight={ROW_HEIGHT}
-            margin={GRID_MARGIN}
-            isDraggable={layoutEditable}
-            isResizable={layoutEditable}
-            draggableHandle=".widget-drag-handle"
-            compactType="vertical"
-            preventCollision={false}
-            onLayoutChange={(current) => {
-              if (layoutEditable) scheduleCommit(current);
-            }}
-          >
-            {pins.map((p) => (
-              <div key={p.id} className="min-w-0">
-                <PinnedToolWidget
-                  widget={asPinnedWidget(p)}
-                  scope={{ kind: "dashboard" }}
-                  onUnpin={handleUnpin}
-                  onEnvelopeUpdate={handleEnvelopeUpdate}
-                  editMode={layoutEditable}
-                  onEdit={() => setEditingPinId(p.id)}
-                />
-              </div>
-            ))}
-          </ResponsiveGridLayout>
+          <div className="relative">
+            {isChannelScoped && layoutEditable && (
+              <SidebarRailOverlay
+                rowCount={Math.max(gridRowCount, 6)}
+                rowHeight={preset.rowHeight}
+                rowGap={GRID_MARGIN[1]}
+                railCount={railCount}
+              />
+            )}
+            <ResponsiveGridLayout
+              className={layoutEditable ? "rgl-edit-mode" : ""}
+              layouts={layouts}
+              breakpoints={BREAKPOINTS}
+              cols={preset.cols}
+              rowHeight={preset.rowHeight}
+              margin={GRID_MARGIN}
+              isDraggable={layoutEditable}
+              isResizable={layoutEditable}
+              draggableHandle=".widget-drag-handle"
+              compactType="vertical"
+              preventCollision={false}
+              onLayoutChange={(current) => {
+                if (layoutEditable) scheduleCommit(current);
+              }}
+            >
+              {pins.map((p) => (
+                <div
+                  key={p.id}
+                  data-pin-id={p.id}
+                  className={"min-w-0 " + (highlightPinId === p.id ? "pin-flash" : "")}
+                >
+                  <PinnedToolWidget
+                    widget={asPinnedWidget(p)}
+                    scope={{ kind: "dashboard" }}
+                    onUnpin={handleUnpin}
+                    onEnvelopeUpdate={handleEnvelopeUpdate}
+                    editMode={layoutEditable}
+                    onEdit={() => setEditingPinId(p.id)}
+                  />
+                </div>
+              ))}
+            </ResponsiveGridLayout>
+          </div>
         )}
       </div>
 
-      <AddFromChannelSheet open={sheetOpen} onClose={() => setSheetOpen(false)} />
+      <AddFromChannelSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        dashboardName={currentDashboard?.name ?? "dashboard"}
+        onPinned={highlightPin}
+      />
       <EditPinDrawer
         pinId={editingPinId}
         onClose={() => setEditingPinId(null)}

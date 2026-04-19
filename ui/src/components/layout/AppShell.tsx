@@ -5,6 +5,7 @@ import { DetailPanel } from "./DetailPanel";
 import { SystemPauseBanner } from "./SystemPauseBanner";
 import { StreamingToast } from "./StreamingToast";
 import { ApprovalToast } from "./ApprovalToast";
+import { ToastHost } from "./ToastHost";
 import { ActiveWorkflowsHud } from "./ActiveWorkflowsHud";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
@@ -64,6 +65,9 @@ export function AppShell() {
 
         {/* Global workflow HUD — shows when any workflow is actively running */}
         <ActiveWorkflowsHud />
+
+        {/* Generic toast host — success/info/error messages */}
+        <ToastHost />
       </div>
 
       {/* Global command palette (Cmd+K / Ctrl+K on desktop, hamburger on mobile) */}

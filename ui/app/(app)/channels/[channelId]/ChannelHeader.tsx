@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Settings, Menu, ArrowLeft, Hash, FolderOpen, PanelLeft, Columns2, Users, Wrench, Cog, PanelRight } from "lucide-react";
+import { Settings, Menu, ArrowLeft, Hash, FolderOpen, LayoutDashboard, PanelLeft, Columns2, Users, Wrench, Cog, PanelRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
 import { useUIStore } from "@/src/stores/ui";
@@ -223,6 +223,18 @@ export function ChannelHeader({
           >
             <FolderOpen size={16} color={t.textDim} />
           </button>
+        )}
+        {/* Channel dashboard — opens the full widget grid for this channel. */}
+        {!isSystemChannel && (
+          <Link
+            to={`/widgets/channel/${channelId}`}
+            className="header-icon-btn"
+            style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}
+            title="Channel dashboard"
+            aria-label="Channel dashboard"
+          >
+            <LayoutDashboard size={16} color={t.textDim} />
+          </Link>
         )}
         {toggleFindingsPanel && (
           <button

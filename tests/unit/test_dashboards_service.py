@@ -1,14 +1,21 @@
 """Unit tests for app/services/dashboards.py."""
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from fastapi import HTTPException
 
+from app.db.models import Channel
 from app.services.dashboard_pins import create_pin, list_pins
 from app.services.dashboards import (
+    CHANNEL_SLUG_PREFIX,
+    channel_slug,
     create_dashboard,
     delete_dashboard,
+    ensure_channel_dashboard,
     get_dashboard,
+    is_channel_slug,
     list_dashboards,
     redirect_target_slug,
     touch_last_viewed,
@@ -127,3 +134,221 @@ async def test_create_pin_rejects_unknown_dashboard(db_session):
             dashboard_key="nope",
         )
     assert exc.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Channel-scoped dashboards (reserved slug ``channel:<uuid>``)
+# ---------------------------------------------------------------------------
+
+
+def _make_channel(db_session, *, name: str = "ch") -> Channel:
+    ch = Channel(id=uuid.uuid4(), name=name, bot_id="bot-x")
+    db_session.add(ch)
+    return ch
+
+
+def test_channel_slug_helpers():
+    cid = uuid.uuid4()
+    assert channel_slug(cid) == f"{CHANNEL_SLUG_PREFIX}{cid}"
+    assert is_channel_slug(channel_slug(cid)) is True
+    assert is_channel_slug("default") is False
+    assert is_channel_slug("") is False
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_channel_prefix(db_session):
+    """User-facing create never lands on the reserved prefix — slug validator
+    rejects the colon first, but we want the clearer message anyway."""
+    with pytest.raises(HTTPException) as exc:
+        await create_dashboard(db_session, slug="channel:not-a-uuid", name="X")
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_ensure_channel_dashboard_is_idempotent(db_session):
+    ch = _make_channel(db_session, name="quality-assurance")
+    await db_session.commit()
+
+    first = await ensure_channel_dashboard(db_session, ch.id)
+    assert first.slug == channel_slug(ch.id)
+    assert first.name == "quality-assurance"
+    assert first.pin_to_rail is False
+
+    second = await ensure_channel_dashboard(db_session, ch.id)
+    assert second.slug == first.slug
+    # Second call is a no-op on existing rows.
+    rows = await list_dashboards(db_session, scope="channel")
+    assert len([r for r in rows if r.slug == first.slug]) == 1
+
+
+@pytest.mark.asyncio
+async def test_ensure_channel_dashboard_requires_channel(db_session):
+    ghost = uuid.uuid4()
+    with pytest.raises(HTTPException) as exc:
+        await ensure_channel_dashboard(db_session, ghost)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_dashboards_scope_filter(db_session):
+    ch = _make_channel(db_session)
+    await db_session.commit()
+    await ensure_channel_dashboard(db_session, ch.id)
+    await create_dashboard(db_session, slug="home", name="Home")
+
+    user_rows = await list_dashboards(db_session, scope="user")
+    user_slugs = {r.slug for r in user_rows}
+    assert "default" in user_slugs
+    assert "home" in user_slugs
+    assert all(not r.slug.startswith(CHANNEL_SLUG_PREFIX) for r in user_rows)
+
+    channel_rows = await list_dashboards(db_session, scope="channel")
+    channel_slugs = {r.slug for r in channel_rows}
+    assert channel_slug(ch.id) in channel_slugs
+    assert all(r.slug.startswith(CHANNEL_SLUG_PREFIX) for r in channel_rows)
+
+    all_rows = await list_dashboards(db_session, scope="all")
+    assert len(all_rows) >= len(user_rows) + len(channel_rows)
+
+
+@pytest.mark.asyncio
+async def test_redirect_target_skips_channel_dashboards(db_session):
+    ch = _make_channel(db_session)
+    await db_session.commit()
+    dash = await ensure_channel_dashboard(db_session, ch.id)
+    await touch_last_viewed(db_session, dash.slug)
+    # Generic redirect should still fall back to default, not to the channel.
+    assert await redirect_target_slug(db_session) == "default"
+
+
+@pytest.mark.asyncio
+async def test_channel_dashboard_pin_requires_source_channel_id(db_session):
+    """Pinning onto a channel dashboard needs the owning channel to seed FK."""
+    ch = _make_channel(db_session)
+    await db_session.commit()
+    slug = channel_slug(ch.id)
+
+    # Missing source_channel_id → 400.
+    with pytest.raises(HTTPException) as exc:
+        await create_pin(
+            db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
+            dashboard_key=slug,
+        )
+    assert exc.value.status_code == 400
+
+    # With it, lazy-create kicks in on the first pin and we land cleanly.
+    pin = await create_pin(
+        db_session, source_kind="channel", tool_name="t", envelope=_env(),
+        source_channel_id=ch.id, dashboard_key=slug,
+    )
+    assert pin.dashboard_key == slug
+    pins = await list_pins(db_session, dashboard_key=slug)
+    assert [p.id for p in pins] == [pin.id]
+
+
+@pytest.mark.asyncio
+async def test_channel_dashboard_delete_removes_pins(db_session):
+    ch = _make_channel(db_session)
+    await db_session.commit()
+    slug = channel_slug(ch.id)
+    await ensure_channel_dashboard(db_session, ch.id)
+    await create_pin(
+        db_session, source_kind="channel", tool_name="t", envelope=_env(),
+        source_channel_id=ch.id, dashboard_key=slug,
+    )
+    await delete_dashboard(db_session, slug)
+
+    pins = await list_pins(db_session, dashboard_key=slug)
+    assert pins == []
+    with pytest.raises(HTTPException):
+        await get_dashboard(db_session, slug)
+
+
+# --- Grid config: per-dashboard layout preset + atomic pin rescale ---
+
+@pytest.mark.asyncio
+async def test_grid_config_defaults_to_null(db_session):
+    row = await create_dashboard(db_session, slug="g1", name="G1")
+    assert row.grid_config is None
+
+
+@pytest.mark.asyncio
+async def test_update_preset_rescales_pin_coords_standard_to_fine(db_session):
+    """Flipping standard→fine (×2 ratio) doubles every pin's x/y/w/h."""
+    await create_dashboard(db_session, slug="rescale", name="Rescale")
+    pin = await create_pin(
+        db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
+        dashboard_key="rescale",
+    )
+    pin.grid_layout = {"x": 3, "y": 2, "w": 6, "h": 6}
+    await db_session.commit()
+
+    await update_dashboard(
+        db_session, "rescale",
+        {"grid_config": {"layout_type": "grid", "preset": "fine"}},
+    )
+    await db_session.refresh(pin)
+    assert pin.grid_layout == {"x": 6, "y": 4, "w": 12, "h": 12}
+
+
+@pytest.mark.asyncio
+async def test_update_preset_rescales_pin_coords_fine_to_standard(db_session):
+    """Flipping fine→standard (÷2) halves coords, minimum 1."""
+    await create_dashboard(
+        db_session, slug="halfit", name="Halfit",
+        grid_config={"layout_type": "grid", "preset": "fine"},
+    )
+    pin = await create_pin(
+        db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
+        dashboard_key="halfit",
+    )
+    pin.grid_layout = {"x": 8, "y": 6, "w": 10, "h": 10}
+    await db_session.commit()
+
+    await update_dashboard(db_session, "halfit", {"grid_config": None})
+    await db_session.refresh(pin)
+    assert pin.grid_layout == {"x": 4, "y": 3, "w": 5, "h": 5}
+
+
+@pytest.mark.asyncio
+async def test_update_preset_same_value_no_rescale(db_session):
+    """Re-submitting the current preset leaves pins untouched."""
+    await create_dashboard(
+        db_session, slug="idem", name="Idem",
+        grid_config={"layout_type": "grid", "preset": "fine"},
+    )
+    pin = await create_pin(
+        db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
+        dashboard_key="idem",
+    )
+    original = {"x": 4, "y": 4, "w": 8, "h": 8}
+    pin.grid_layout = dict(original)
+    await db_session.commit()
+
+    await update_dashboard(
+        db_session, "idem",
+        {"grid_config": {"layout_type": "grid", "preset": "fine"}},
+    )
+    await db_session.refresh(pin)
+    assert pin.grid_layout == original
+
+
+@pytest.mark.asyncio
+async def test_update_preset_unknown_value_treated_as_standard(db_session):
+    """An unknown `preset` string is treated as `standard` on read — no
+    rescale happens if the dashboard was already on standard. Permissive
+    behavior keeps frontend rollouts of new preset IDs non-breaking."""
+    await create_dashboard(db_session, slug="rolling", name="Rolling")
+    pin = await create_pin(
+        db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
+        dashboard_key="rolling",
+    )
+    pin.grid_layout = {"x": 1, "y": 1, "w": 6, "h": 6}
+    await db_session.commit()
+
+    await update_dashboard(
+        db_session, "rolling",
+        {"grid_config": {"layout_type": "grid", "preset": "future-preset"}},
+    )
+    await db_session.refresh(pin)
+    assert pin.grid_layout == {"x": 1, "y": 1, "w": 6, "h": 6}

@@ -105,11 +105,11 @@ export function RecentTab() {
   const toolItems = tools ?? [];
 
   return (
-    <div className="flex-1 flex min-h-0 overflow-hidden">
+    <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
       {/* Left column */}
-      <div className="flex flex-col w-[340px] border-r border-surface-border min-h-0">
+      <div className="flex flex-col w-full md:w-[340px] md:shrink-0 md:border-r md:border-surface-border md:min-h-0 max-h-[45vh] md:max-h-none">
         {/* Filters */}
-        <div className="flex flex-col gap-2 border-b border-surface-border px-3 py-2 bg-surface-raised">
+        <div className="flex flex-col gap-2 px-3 py-2 bg-surface-raised">
           <div className="flex gap-1">
             {SINCE_PRESETS.map((p) => (
               <button
@@ -211,13 +211,20 @@ export function RecentTab() {
                 `/widgets/dev?tool=${encodeURIComponent(toolName)}#templates`,
               );
             }}
-            onPinGeneric={async (toolName, toolArgs, rawResult, label) => {
-              const preview = await genericRenderWidget({
-                tool_name: toolName,
-                raw_result: rawResult,
-              });
-              if (!preview.ok || !preview.envelope) {
-                throw new Error("Generic render failed");
+            onPinGeneric={async (toolName, toolArgs, rawResult, label, resolvedEnvelope) => {
+              // Prefer the envelope currently rendered (tool-declared _envelope
+              // or widget template); only fall back to generic-render when the
+              // resolver produced nothing.
+              let envelope: ToolResultEnvelope | null = resolvedEnvelope;
+              if (!envelope) {
+                const preview = await genericRenderWidget({
+                  tool_name: toolName,
+                  raw_result: rawResult,
+                });
+                if (!preview.ok || !preview.envelope) {
+                  throw new Error("Generic render failed");
+                }
+                envelope = preview.envelope as unknown as ToolResultEnvelope;
               }
               await pinWidget({
                 source_kind: "adhoc",
@@ -229,7 +236,7 @@ export function RecentTab() {
                   generic_view: true,
                   imported_from_call: selectedId,
                 },
-                envelope: preview.envelope as unknown as ToolResultEnvelope,
+                envelope,
                 display_label: label,
               });
             }}
@@ -299,6 +306,7 @@ function CallDetail({
     toolArgs: Record<string, unknown>,
     rawResult: unknown,
     label: string | null,
+    resolvedEnvelope: ToolResultEnvelope | null,
   ) => Promise<void>;
 }) {
   const t = useThemeTokens();
@@ -344,7 +352,7 @@ function CallDetail({
     setPinState("pinning");
     setPinError(null);
     try {
-      await onPinGeneric(cleaned, detail.arguments, rawResult, null);
+      await onPinGeneric(cleaned, detail.arguments, rawResult, null, envelope);
       setPinState("success");
       window.setTimeout(() => setPinState("idle"), 2500);
     } catch (err) {
@@ -461,10 +469,10 @@ function CallDetail({
                   <Loader2 size={12} className="animate-spin" /> Rendering…
                 </span>
               )}
-              {!envLoading && envelope?.body && (
+              {!envLoading && envelope && (
                 <RichToolResult envelope={envelope} dispatcher={NOOP_DISPATCHER} t={t} />
               )}
-              {!envLoading && !envelope?.body && (
+              {!envLoading && !envelope && (
                 <span className="text-[12px] text-text-dim">
                   No widget available. Try Import into Templates to build one.
                 </span>

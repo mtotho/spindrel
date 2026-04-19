@@ -5,7 +5,7 @@
  * but adapted for side panel: drag handle, refresh, unpin controls.
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { Pencil, X, GripVertical } from "lucide-react";
+import { Pencil, X, GripVertical, RefreshCw } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -58,19 +58,17 @@ export function PinnedToolWidget({
 
   const t = useThemeTokens();
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);
-  // Both stores are accessed unconditionally (React hooks rule) — we pick
-  // which one the callbacks actually touch based on scope.
+  // Channel pins now live in the dashboard-pins store under the implicit
+  // slug `channel:<uuid>`. Both scope.kind values read/write the same
+  // store; the channel variant still fires the chat-side envelope
+  // broadcast so inline WidgetCards can pick up changes.
   const channelBroadcast = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
-  const channelPatchConfig = usePinnedWidgetsStore((s) => s.patchWidgetConfig);
-  const channelWidgetConfig = usePinnedWidgetsStore(
-    (s) => (channelId ? s.byChannel[channelId]?.find((w) => w.id === widget.id)?.config : undefined),
-  );
   const dashboardBroadcast = useDashboardPinsStore((s) => s.broadcastEnvelope);
   const dashboardPatchConfig = useDashboardPinsStore((s) => s.patchWidgetConfig);
   const dashboardWidgetConfig = useDashboardPinsStore(
-    (s) => (isDashboard ? s.pins.find((p) => p.id === widget.id)?.widget_config : undefined),
+    (s) => s.pins.find((p) => p.id === widget.id)?.widget_config,
   );
-  const widgetConfig = isDashboard ? dashboardWidgetConfig : channelWidgetConfig;
+  const widgetConfig = dashboardWidgetConfig;
   const widgetConfigRef = useRef(widgetConfig);
   widgetConfigRef.current = widgetConfig;
 
@@ -139,10 +137,10 @@ export function PinnedToolWidget({
         tool_name: widget.tool_name,
         display_label: displayLabel,
         widget_config: widgetConfigRef.current ?? {},
+        // All pins (dashboard-scope and channel-scope) are dashboard pins now.
+        dashboard_pin_id: widget.id,
       };
-      if (isDashboard) {
-        body.dashboard_pin_id = widget.id;
-      } else if (channelId) {
+      if (channelId) {
         body.channel_id = channelId;
         body.bot_id = widget.bot_id;
       }
@@ -162,9 +160,8 @@ export function PinnedToolWidget({
         selfBroadcastRef.current = fresh;
         setCurrentEnvelope(fresh);
         onEnvelopeUpdate(widget.id, fresh);
-        if (isDashboard) {
-          dashboardBroadcast(widget.tool_name, fresh);
-        } else if (channelId) {
+        dashboardBroadcast(widget.tool_name, fresh);
+        if (channelId) {
           channelBroadcast(channelId, widget.tool_name, fresh);
         }
         setLastRefreshedAt(new Date().toISOString());
@@ -174,7 +171,7 @@ export function PinnedToolWidget({
     } finally {
       setRefreshing(false);
     }
-  }, [widget.id, widget.tool_name, widget.bot_id, channelId, isDashboard, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, resolveDisplayLabel]);
+  }, [widget.id, widget.tool_name, widget.bot_id, channelId, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, resolveDisplayLabel]);
 
   // Initial refresh on mount / re-pin.
   const refreshedForRef = useRef<string | null>(null);
@@ -232,13 +229,16 @@ export function PinnedToolWidget({
   // often-stateless output). pin_id + widgetConfig let dispatch:"widget_config"
   // patch the enclosing pin and let tool args reference {{config.*}}.
   const currentDisplayLabel = resolveDisplayLabel(currentEnvelope);
+  // All pins (dashboard + channel) are dashboard pins server-side; pass the
+  // pin id as `dashboardPinId` in both scopes. `pinId` (the legacy channel
+  // branch in useWidgetAction) stays null.
   const rawDispatch = useWidgetAction(
     channelId ?? undefined,
-    isDashboard ? undefined : widget.bot_id,
+    widget.bot_id,
     currentDisplayLabel,
-    isDashboard ? null : widget.id,
+    null,
     widgetConfig ?? null,
-    isDashboard ? widget.id : null,
+    widget.id,
   );
 
   // Intercepting dispatcher: captures the (polled) response envelope, updates
@@ -247,13 +247,10 @@ export function PinnedToolWidget({
     async (action: import("@/src/types/api").WidgetAction, value: unknown): Promise<WidgetActionResult> => {
       actionInFlightRef.current = true;
       // Optimistic config merge before the server responds — lets subtle
-      // toggle buttons flip their visible state immediately.
+      // toggle buttons flip their visible state immediately. Both scopes
+      // now share the dashboard-pins store.
       if (action.dispatch === "widget_config" && action.config) {
-        if (isDashboard) {
-          dashboardPatchConfig(widget.id, action.config);
-        } else if (channelId) {
-          channelPatchConfig(channelId, widget.id, action.config);
-        }
+        dashboardPatchConfig(widget.id, action.config);
       }
       try {
         const result = await rawDispatch(action, value);
@@ -265,9 +262,8 @@ export function PinnedToolWidget({
           selfBroadcastRef.current = result.envelope;
           setCurrentEnvelope(result.envelope);
           onEnvelopeUpdate(widget.id, result.envelope);
-          if (isDashboard) {
-            dashboardBroadcast(widget.tool_name, result.envelope);
-          } else if (channelId) {
+          dashboardBroadcast(widget.tool_name, result.envelope);
+          if (channelId) {
             channelBroadcast(channelId, widget.tool_name, result.envelope);
           }
           setLastRefreshedAt(new Date().toISOString());
@@ -282,7 +278,7 @@ export function PinnedToolWidget({
         actionInFlightRef.current = false;
       }
     },
-    [rawDispatch, widget.id, channelId, isDashboard, widget.tool_name, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, channelPatchConfig, dashboardPatchConfig, refreshState],
+    [rawDispatch, widget.id, channelId, widget.tool_name, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, dashboardPatchConfig, refreshState],
   );
 
   const dispatcher = useMemo(
@@ -351,6 +347,9 @@ export function PinnedToolWidget({
   const handleListeners = isDashboard ? undefined : listeners;
 
   const updatedLabel = lastRefreshedAt ? formatRelativeTime(lastRefreshedAt) : "";
+  const refreshTooltip = lastRefreshedAt
+    ? `${updatedLabel === "now" ? "Updated just now" : `Updated ${updatedLabel} ago`} · ${new Date(lastRefreshedAt).toLocaleString()} · Click to refresh`
+    : "Refresh";
 
   // Dashboard cards live inside react-grid-layout tiles — fill height so the
   // body expands to the resized dimensions rather than clipping at 350px.
@@ -410,6 +409,20 @@ export function PinnedToolWidget({
         )}
         <button
           type="button"
+          onClick={() => { void refreshState(); }}
+          className={`${ctrlBtnClass} opacity-0 group-hover:opacity-100`}
+          aria-label="Refresh widget"
+          title={refreshTooltip}
+          disabled={refreshing}
+        >
+          <RefreshCw
+            size={ctrlIconSize}
+            className={refreshing ? "animate-spin" : ""}
+            style={{ color: t.textMuted, opacity: 0.6 }}
+          />
+        </button>
+        <button
+          type="button"
           onClick={() => onUnpin(widget.id)}
           className={ctrlBtnClass}
           aria-label="Unpin widget"
@@ -421,28 +434,17 @@ export function PinnedToolWidget({
 
       {/* Body: component content. Dashboard scope fills the tile; channel
           scope retains the fixed cap so the OmniPanel column stays compact.
-          `pb-3` gives range-slider thumbs (which render outside the input's
-          box) room to escape the overflow clip. */}
+          `pb-2` gives range-slider thumbs (which render outside the input's
+          box) a bit of room to escape the overflow clip. */}
       <div
         className={
           isDashboard
-            ? "px-2 pb-3 flex-1 min-h-0 overflow-y-auto"
-            : "px-2 pb-3 max-h-[350px] overflow-y-auto"
+            ? "px-2 pb-2 flex-1 min-h-0 overflow-y-auto"
+            : "px-2 pb-2 max-h-[350px] overflow-y-auto"
         }
       >
         <RichToolResult envelope={currentEnvelope} dispatcher={dispatcher} t={t} />
       </div>
-
-      {/* Footer: refresh timestamp — fades in on card hover */}
-      {updatedLabel && (
-        <div
-          className="px-2 pb-1.5 text-[9px] tracking-wide opacity-0 group-hover:opacity-60 transition-opacity duration-150 text-right"
-          style={{ color: t.textDim }}
-          title={`Last refreshed ${new Date(lastRefreshedAt!).toLocaleString()}`}
-        >
-          {updatedLabel === "now" ? "Updated just now" : `Updated ${updatedLabel} ago`}
-        </div>
-      )}
     </div>
   );
 }

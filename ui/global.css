@@ -381,3 +381,30 @@ textarea::placeholder {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(0.8); }
 }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-toast-in { animation: toast-in 200ms ease-out both; }
+
+@keyframes pin-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+  15%  { box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.55); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
+.pin-flash { animation: pin-flash 1200ms ease-out 1; border-radius: 0.5rem; }
+
+/* react-grid-layout drop-target placeholder. The library's default is
+ * `background: red; opacity: 0.2` — looks alarming and occasionally sticks in
+ * the DOM after drop. Override to use the accent color, and safety-net hide
+ * the placeholder anywhere outside our edit-mode parent class. */
+.react-grid-item.react-grid-placeholder {
+  background: rgba(99, 102, 241, 0.15) !important;
+  border: 1px dashed rgba(99, 102, 241, 0.45);
+  border-radius: 0.5rem;
+  opacity: 1 !important;
+}
+.react-grid-layout:not(.rgl-edit-mode) .react-grid-placeholder {
+  display: none !important;
+}

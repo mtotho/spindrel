@@ -14,7 +14,7 @@ interface Props {
 export function LibraryFilterBar({ filters, onChange }: Props) {
   return (
     <div
-      className="flex flex-wrap items-center gap-3 border-b border-surface-border px-4 py-2 md:px-6"
+      className="flex flex-wrap items-center gap-3 px-4 py-2 md:px-6"
     >
       <div className="flex flex-1 min-w-[220px] max-w-[360px] items-center gap-1.5 rounded-md border border-surface-border bg-input px-2.5 py-1.5">
         <Search size={13} className="text-text-dim" />

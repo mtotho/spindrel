@@ -139,9 +139,13 @@ export const router = createBrowserRouter([
             ],
           },
 
-          // Widgets — chat-less dashboard + developer panel
+          // Widgets — chat-less dashboard + developer panel.
+          // `widgets/channel/:channelId` is a friendly alias for the implicit
+          // channel dashboard (slug `channel:<channelId>`) — keeps the URL
+          // readable while the underlying row is the same.
           { path: "widgets", element: <WidgetsRedirect /> },
           { path: "widgets/dev", element: <WidgetsDevPanel /> },
+          { path: "widgets/channel/:channelId", element: <WidgetsDashboard /> },
           { path: "widgets/:slug", element: <WidgetsDashboard /> },
 
           // Admin

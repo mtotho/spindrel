@@ -27,9 +27,12 @@ from app.services.dashboard_pins import (
     update_pin_envelope,
 )
 from app.services.dashboards import (
+    CHANNEL_SLUG_PREFIX,
     create_dashboard,
     delete_dashboard,
+    ensure_channel_dashboard,
     get_dashboard,
+    is_channel_slug,
     list_dashboards,
     redirect_target_slug,
     serialize_dashboard,
@@ -51,6 +54,7 @@ class CreateDashboardRequest(BaseModel):
     icon: str | None = None
     pin_to_rail: bool = False
     rail_position: int | None = None
+    grid_config: dict | None = None
 
 
 class UpdateDashboardRequest(BaseModel):
@@ -58,14 +62,24 @@ class UpdateDashboardRequest(BaseModel):
     icon: str | None = None
     pin_to_rail: bool | None = None
     rail_position: int | None = None
+    grid_config: dict | None = None
 
 
 @router.get(
     "/dashboards",
     dependencies=[Depends(require_scopes("channels:read"))],
 )
-async def list_all_dashboards(db: AsyncSession = Depends(get_db)):
-    rows = await list_dashboards(db)
+async def list_all_dashboards(
+    scope: str = Query(
+        default="user",
+        description="One of 'user' | 'channel' | 'all'. "
+                    "Defaults to 'user' (tab-bar friendly).",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    if scope not in ("user", "channel", "all"):
+        raise HTTPException(400, "scope must be one of 'user', 'channel', 'all'")
+    rows = await list_dashboards(db, scope=scope)  # type: ignore[arg-type]
     return {"dashboards": [serialize_dashboard(r) for r in rows]}
 
 
@@ -82,6 +96,16 @@ async def get_redirect_target(db: AsyncSession = Depends(get_db)):
     dependencies=[Depends(require_scopes("channels:read"))],
 )
 async def get_single_dashboard(slug: str, db: AsyncSession = Depends(get_db)):
+    # Channel dashboards lazy-create on read so the channel UI can ask for
+    # metadata (name, icon) without having to seed the row first.
+    if is_channel_slug(slug):
+        ch_id = slug[len(CHANNEL_SLUG_PREFIX):]
+        try:
+            import uuid as _uuid
+            _uuid.UUID(ch_id)
+        except ValueError:
+            raise HTTPException(400, f"Invalid channel slug: {slug}")
+        await ensure_channel_dashboard(db, ch_id)
     row = await get_dashboard(db, slug)
     return serialize_dashboard(row)
 
@@ -101,6 +125,7 @@ async def create_new_dashboard(
         icon=body.icon,
         pin_to_rail=body.pin_to_rail,
         rail_position=body.rail_position,
+        grid_config=body.grid_config,
     )
     logger.info("Widget dashboard created: slug=%s name=%s", row.slug, row.name)
     return serialize_dashboard(row)
@@ -176,9 +201,21 @@ async def get_dashboard_pins(
     """Return pins for ``slug`` (defaults to ``'default'``).
 
     Also records ``last_viewed_at`` on the dashboard so the redirect-target
-    endpoint can send the user back to their most recent board.
+    endpoint can send the user back to their most recent board. Channel
+    dashboards (``channel:<uuid>``) are lazy-created on first read so a
+    just-opened channel's side-panel can always fetch cleanly.
     """
-    # 404s if the dashboard doesn't exist.
+    if is_channel_slug(slug):
+        ch_id = slug[len(CHANNEL_SLUG_PREFIX):]
+        # Raises 404 if the underlying channel doesn't exist.
+        try:
+            import uuid as _uuid
+            _uuid.UUID(ch_id)
+        except ValueError:
+            raise HTTPException(400, f"Invalid channel slug: {slug}")
+        await ensure_channel_dashboard(db, ch_id)
+
+    # 404s if the dashboard doesn't exist (and isn't a channel slug).
     await get_dashboard(db, slug)
     pins = await list_pins(db, dashboard_key=slug)
     await touch_last_viewed(db, slug)

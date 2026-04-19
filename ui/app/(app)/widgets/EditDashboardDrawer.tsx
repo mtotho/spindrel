@@ -3,6 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { Loader2, Trash2, X } from "lucide-react";
 import { useDashboardsStore, type Dashboard } from "@/src/stores/dashboards";
 import { IconPicker } from "@/src/components/IconPicker";
+import {
+  GRID_PRESETS,
+  resolvePreset,
+  type GridPresetId,
+} from "@/src/lib/dashboardGrid";
 
 interface Props {
   slug: string | null;
@@ -23,6 +28,7 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<string | null>(null);
   const [pinToRail, setPinToRail] = useState(false);
+  const [presetId, setPresetId] = useState<GridPresetId>("standard");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -33,9 +39,14 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
     setName(dashboard.name);
     setIcon(dashboard.icon);
     setPinToRail(dashboard.pin_to_rail);
+    setPresetId(resolvePreset(dashboard.grid_config ?? null).id);
     setError(null);
     setDeleteConfirm("");
   }, [dashboard?.slug]);
+
+  const currentPresetId = dashboard
+    ? resolvePreset(dashboard.grid_config ?? null).id
+    : "standard";
 
   useEffect(() => {
     if (!slug) return;
@@ -64,7 +75,8 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   const dirty =
     name.trim() !== dashboard.name ||
     (icon ?? null) !== (dashboard.icon ?? null) ||
-    pinToRail !== dashboard.pin_to_rail;
+    pinToRail !== dashboard.pin_to_rail ||
+    presetId !== currentPresetId;
   const canSave = !!name.trim() && dirty && !saving;
   const canDelete = !isDefault && deleteConfirm === dashboard.slug && !deleting;
 
@@ -77,6 +89,10 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
         name: name.trim(),
         icon: icon ?? null,
         pin_to_rail: pinToRail,
+        grid_config:
+          presetId === "standard"
+            ? null
+            : { layout_type: "grid", preset: presetId },
       });
       onClose();
     } catch (err) {
@@ -154,6 +170,48 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
             />
             <span className="text-[12px] text-text">Show in sidebar rail</span>
           </label>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[12px] font-medium text-text-muted">Grid layout</span>
+            <div className="flex flex-col gap-1.5">
+              {(Object.values(GRID_PRESETS)).map((p) => {
+                const checked = presetId === p.id;
+                return (
+                  <label
+                    key={p.id}
+                    className={
+                      "flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2 text-left transition-colors " +
+                      (checked
+                        ? "border-accent/60 bg-accent/[0.08]"
+                        : "border-surface-border hover:bg-surface-overlay")
+                    }
+                  >
+                    <input
+                      type="radio"
+                      name="grid-preset"
+                      checked={checked}
+                      onChange={() => setPresetId(p.id)}
+                      className="mt-0.5 h-3.5 w-3.5 accent-accent"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12.5px] font-medium text-text">
+                        {p.label}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-text-dim leading-snug">
+                        {p.description}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            {presetId !== currentPresetId && (
+              <p className="text-[11px] text-text-muted">
+                Changing the grid rescales every pin's position proportionally —
+                your arrangement carries over.
+              </p>
+            )}
+          </div>
 
           {error && (
             <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">

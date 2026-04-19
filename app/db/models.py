@@ -1785,6 +1785,9 @@ class WidgetDashboard(Base):
         Boolean, nullable=False, server_default=text("false"),
     )
     rail_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Layout preset + type. NULL = `standard` preset (legacy + default).
+    # Shape: {"layout_type": "grid", "preset": "standard" | "fine"}
+    grid_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     last_viewed_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True,
     )

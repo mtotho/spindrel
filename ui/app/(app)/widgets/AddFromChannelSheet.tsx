@@ -6,11 +6,17 @@ import { apiFetch } from "@/src/api/client";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
+import { toast } from "@/src/stores/toast";
 import type { Channel, PinnedWidget } from "@/src/types/api";
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** Name of the active dashboard — used in the success toast. */
+  dashboardName?: string;
+  /** Called with the new pin's id after a successful add. The dashboard page
+   *  uses this to scroll-into-view + accent-flash the new tile. */
+  onPinned?: (pinId: string) => void;
 }
 
 type Tab = "channel" | "build";
@@ -24,7 +30,7 @@ interface ChannelWithPins {
   pins: PinnedWidget[];
 }
 
-export default function AddFromChannelSheet({ open, onClose }: Props) {
+export default function AddFromChannelSheet({ open, onClose, dashboardName, onPinned }: Props) {
   const [tab, setTab] = useState<Tab>("channel");
   const [query, setQuery] = useState("");
   const { data: channels } = useChannels();
@@ -162,7 +168,7 @@ export default function AddFromChannelSheet({ open, onClose }: Props) {
               query={query}
               existingIdentities={existingIdentities}
               onPin={async (ch, pin) => {
-                await pinWidget({
+                const created = await pinWidget({
                   source_kind: "channel",
                   source_channel_id: ch.id,
                   source_bot_id: pin.bot_id,
@@ -172,6 +178,22 @@ export default function AddFromChannelSheet({ open, onClose }: Props) {
                   display_label:
                     pin.envelope?.display_label ?? pin.display_name ?? null,
                 });
+                const label =
+                  pin.envelope?.display_label ?? pin.display_name ?? pin.tool_name;
+                toast({
+                  kind: "success",
+                  message: `Added ${label} to ${dashboardName ?? "dashboard"}`,
+                  action: onPinned
+                    ? {
+                        label: "View",
+                        onClick: () => {
+                          onPinned(created.id);
+                          onClose();
+                        },
+                      }
+                    : undefined,
+                });
+                onPinned?.(created.id);
               }}
             />
           ) : (
@@ -323,20 +345,27 @@ function PinRow({
     }
   };
 
+  const disabled = busy || already;
   return (
     <button
       type="button"
-      disabled={busy}
+      disabled={disabled}
       onClick={handleClick}
+      aria-disabled={disabled}
+      title={already ? "Already on this dashboard" : undefined}
       className={[
         "group flex w-full items-center gap-2.5 rounded-md border border-transparent bg-surface px-3 py-2 text-left transition-colors",
-        busy
-          ? "opacity-60"
-          : "hover:border-accent/40 hover:bg-surface-overlay",
-      ].join(" ")}
+        busy && "opacity-60 cursor-wait",
+        already && "cursor-not-allowed bg-surface/40 opacity-70",
+        !disabled && "hover:border-accent/40 hover:bg-surface-overlay",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <div className="flex-1 min-w-0">
-        <div className="truncate text-[12px] font-medium text-text">{label}</div>
+        <div className={"truncate text-[12px] font-medium " + (already ? "text-text-muted" : "text-text")}>
+          {label}
+        </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-text-dim">
           <span className="rounded bg-surface-overlay px-1 py-px uppercase tracking-wider">
             {integration}
@@ -346,14 +375,13 @@ function PinRow({
       </div>
       {already ? (
         <span
-          className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent"
-          title="Already on dashboard"
+          className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent"
         >
           <CheckCircle2 size={10} /> Pinned
         </span>
       ) : (
-        <span className="text-[10px] text-text-dim opacity-0 transition-opacity group-hover:opacity-100">
-          Add
+        <span className="inline-flex items-center gap-1 rounded-full bg-accent/0 px-2 py-0.5 text-[10px] font-medium text-text-dim opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-accent">
+          <Pin size={10} /> Add
         </span>
       )}
     </button>

@@ -22,7 +22,7 @@ import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { useAuthStore } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { usePaletteActions, type PaletteAction } from "@/src/stores/paletteActions";
-import { FolderOpen, Cog, Settings as SettingsIcon, Users as UsersIcon, PanelRight as PanelRightIcon } from "lucide-react";
+import { FolderOpen, Cog, Settings as SettingsIcon, Users as UsersIcon, PanelRight as PanelRightIcon, LayoutDashboard as LayoutDashboardIcon } from "lucide-react";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
@@ -423,6 +423,14 @@ export default function ChatScreen() {
         icon: Cog,
         category: "This Channel",
         onSelect: () => setBotInfoBotId(channel?.bot_id || null),
+      });
+      actions.push({
+        id: `channel:${channelId}:dashboard`,
+        label: "Channel dashboard",
+        hint: channelLabel,
+        icon: LayoutDashboardIcon,
+        category: "This Channel",
+        onSelect: () => navigate(`/widgets/channel/${channelId}`),
       });
     }
 

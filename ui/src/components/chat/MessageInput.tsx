@@ -8,6 +8,7 @@ import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import { TiptapChatInput, type TiptapChatInputHandle } from "./TiptapChatInput";
 import { createPortal } from "react-dom";
 import { LlmModelDropdown } from "../shared/LlmModelDropdown";
+import { ContextChip } from "./ContextChip";
 
 export interface PendingFile {
   file: File;
@@ -436,6 +437,19 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             )}
           </div>
 
+          {/* Skills-in-context chip — hidden on mobile to save space */}
+          {!isMobile && channelId && (
+            <ContextChip
+              channelId={channelId}
+              composerText={text}
+              botId={currentBotId}
+              onInsertSkillTag={(skillId) => {
+                editorRef.current?.insertText(`@skill:${skillId} `);
+              }}
+              size={36}
+            />
+          )}
+
           {/* Per-turn model picker — hidden on mobile to save space */}
           {onModelOverrideChange && !isMobile && (
             <div ref={modelPickerRef} style={{ position: "relative", display: "flex", flexDirection: "row", alignItems: "center" }}>
@@ -507,20 +521,18 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               })()}
             </div>
           )}
-          {/* Config overhead indicator — desktop only, visible when overhead is notable */}
-          {!isMobile && configOverhead != null && configOverhead >= 0.05 && (
+          {/* Config overhead indicator — desktop only, visible only when overhead is meaningful.
+              Below 20% the bar was rendering as a phantom hairline between the model picker
+              and mic, so the threshold matches the band where the color/opacity actually changes. */}
+          {!isMobile && configOverhead != null && configOverhead >= 0.2 && (
             <button
               onClick={onConfigOverheadClick}
               title={`Config overhead: ${Math.round(configOverhead * 100)}% of context window used by tools, skills, and prompts`}
               style={{
                 width: 4, height: 24, flexShrink: 0, borderRadius: 2,
                 border: "none", padding: 0, cursor: "pointer",
-                backgroundColor: configOverhead > 0.4
-                  ? "#ef4444"
-                  : configOverhead > 0.2
-                    ? "#eab308"
-                    : t.textDim,
-                opacity: configOverhead > 0.2 ? 0.9 : 0.35,
+                backgroundColor: configOverhead > 0.4 ? "#ef4444" : "#eab308",
+                opacity: 0.9,
                 transition: "background-color 0.3s, opacity 0.3s",
               }}
             />

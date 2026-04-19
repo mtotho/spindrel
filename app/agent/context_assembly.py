@@ -1925,9 +1925,13 @@ async def assemble_context(
     # --- pinned widget state (stale-but-OK, same cache-safety band as temporal) ---
     try:
         if _ch_row is not None:
-            _pins = (getattr(_ch_row, "config", None) or {}).get("pinned_widgets") or []
+            from app.db.engine import async_session as _pw_session
+            from app.services.widget_context import (
+                build_widget_context_block, fetch_channel_pin_dicts,
+            )
+            async with _pw_session() as _pw_db:
+                _pins = await fetch_channel_pin_dicts(_pw_db, _ch_row.id)
             if _pins:
-                from app.services.widget_context import build_widget_context_block
                 _widget_block = build_widget_context_block(_pins, bot_id=bot.id)
                 if _widget_block:
                     messages.append({"role": "system", "content": _widget_block})
