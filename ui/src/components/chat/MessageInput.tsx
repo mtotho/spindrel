@@ -437,8 +437,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             )}
           </div>
 
-          {/* Skills-in-context chip — hidden on mobile to save space */}
-          {!isMobile && channelId && (
+          {/* Skills-in-context chip — on mobile, hides the button when empty to save toolbar space. */}
+          {channelId && (
             <ContextChip
               channelId={channelId}
               composerText={text}
@@ -446,7 +446,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               onInsertSkillTag={(skillId) => {
                 editorRef.current?.insertText(`@skill:${skillId} `);
               }}
-              size={36}
+              size={isMobile ? 32 : 36}
+              hideWhenEmpty={isMobile}
+              compact={isMobile}
             />
           )}
 

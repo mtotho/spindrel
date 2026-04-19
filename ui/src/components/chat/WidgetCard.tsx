@@ -68,24 +68,15 @@ export function WidgetCard({
   // Check if this exact widget is already pinned on the channel's implicit
   // dashboard. Pins live in `widget_dashboard_pins` now; we read them from
   // the dashboard-pins store when its currentSlug matches this channel.
-  // Identity: record_id when available, else body content (distinguishes
-  // same tool on different entities).
+  // Identity is delegated to `envelopeIdentityKey` so HTML widgets keyed by
+  // source_path don't collide with other emit_html_widget pins.
+  const thisKey = envelopeIdentityKey(toolName, envelope);
   const isPinned = useDashboardPinsStore((s) => {
     if (!channelId) return false;
     if (s.currentSlug !== `channel:${channelId}`) return false;
-    return s.pins.some((w) => {
-      if (w.tool_name !== toolName) return false;
-      if (w.envelope?.record_id && envelope.record_id) {
-        return w.envelope.record_id === envelope.record_id;
-      }
-      const pinnedBody = typeof w.envelope?.body === "string"
-        ? w.envelope.body
-        : JSON.stringify(w.envelope?.body);
-      const thisBody = typeof envelope.body === "string"
-        ? envelope.body
-        : JSON.stringify(envelope.body);
-      return pinnedBody === thisBody;
-    });
+    return s.pins.some(
+      (w) => envelopeIdentityKey(w.tool_name, w.envelope) === thisKey,
+    );
   });
 
   // Pass display_label so post-action polling can refetch state-bearing tools

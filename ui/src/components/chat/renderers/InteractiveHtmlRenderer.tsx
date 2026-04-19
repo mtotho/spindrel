@@ -132,6 +132,14 @@ function wrapHtml(body: string, channelId: string | null): string {
   img, video { max-width: 100%; height: auto; }
   table { border-collapse: collapse; }
   td, th { padding: 4px 8px; border: 1px solid #ddd; }
+  /* Match the host app's thin scrollbar — iframe is a separate document
+     so global.css doesn't reach in. Bot CSS can override. */
+  * { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,0.2) transparent; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.35); }
+  ::-webkit-scrollbar-corner { background: transparent; }
   /* Wrapper div is measured by the host for iframe auto-sizing. Keep
      it as a block so its scrollHeight reflects intrinsic content height
      even when bot CSS sets body{min-height:100vh} (which would otherwise

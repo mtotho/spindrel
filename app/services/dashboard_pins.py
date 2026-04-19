@@ -24,13 +24,19 @@ DEFAULT_DASHBOARD_KEY = "default"
 _VALID_LAYOUT_KEYS = {"x", "y", "w", "h"}
 
 
-def _default_grid_layout(position: int) -> dict[str, int]:
+def _default_grid_layout(position: int, *, rail: bool = False) -> dict[str, int]:
     """Compute a day-0 layout slot for a pin at the given position.
 
     Mirrors the backfill formula in migration 211 so newly-created pins
     (which bypass that migration) land on the grid consistently with existing
     rows.
+
+    When ``rail=True`` (channel dashboards: pinning from chat), the slot is
+    rail-docked (x=0, narrow width) so the OmniPanel's ``isRailPin`` filter
+    surfaces it immediately. The user can drag it out of the rail later.
     """
+    if rail:
+        return {"x": 0, "y": position * 6, "w": 2, "h": 6}
     return {
         "x": (position % 2) * 6,
         "y": (position // 2) * 6,
@@ -112,7 +118,8 @@ async def create_pin(
         get_dashboard,
         is_channel_slug,
     )
-    if is_channel_slug(dashboard_key):
+    is_channel = is_channel_slug(dashboard_key)
+    if is_channel:
         if source_channel_id is None:
             raise HTTPException(
                 400,
@@ -133,7 +140,7 @@ async def create_pin(
         widget_config=widget_config or {},
         envelope=envelope,
         display_label=display_label or envelope.get("display_label"),
-        grid_layout=_default_grid_layout(position),
+        grid_layout=_default_grid_layout(position, rail=is_channel),
     )
     db.add(pin)
     await db.flush()

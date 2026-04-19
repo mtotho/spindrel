@@ -24,6 +24,14 @@ import type { ToolResultEnvelope } from "../types/api";
  */
 export function envelopeIdentityKey(toolName: string, envelope: ToolResultEnvelope): string {
   const prefix = toolName.includes("-") ? toolName.split("-")[0] : toolName;
+  // HTML widgets loaded from a workspace file have an empty `body`; their
+  // identity is the path within the channel's workspace. Without this, two
+  // different emit_html_widget calls collapse to the same anon identity and
+  // pinning any one of them makes all of them appear "already pinned".
+  if (envelope.source_path) {
+    const ch = envelope.source_channel_id ?? "";
+    return `${prefix}::path:${ch}:${envelope.source_path}`;
+  }
   const entities = extractEntities(envelope.body);
   if (entities.size > 0) return `${prefix}::${[...entities].sort().join("|")}`;
   if (envelope.display_label) return `${prefix}::${envelope.display_label.toLowerCase()}`;

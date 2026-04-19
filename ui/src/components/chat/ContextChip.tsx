@@ -1,27 +1,43 @@
-// Composer-mounted "skills in context" chip + popover.
+// Composer-mounted "skills in context" chip + single popover.
 // Count = unique(latest assistant message's metadata.active_skills ∪ @skill: tags currently typed in composer).
-// Click opens a popover listing what's loaded + a "Drop a skill" picker that
-// inserts @skill:<id> into the composer at the cursor — same path as typing the tag manually.
+// Click opens ONE popover with: loaded skills + inline search + drop-a-skill list.
+// Outside click, Escape, and the × all dismiss.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
-import { Sparkles, Plus, X } from "lucide-react";
+import { Sparkles, X, Search } from "lucide-react";
 
 import { useThemeTokens } from "../../theme/tokens";
 import { useChatStore } from "../../stores/chat";
 import { parseSkillTags } from "../../lib/skillTags";
-import { SkillPicker } from "../shared/SkillPicker";
+import { useSkills, type SkillItem } from "../../api/hooks/useSkills";
+import { useEnrolledSkills } from "../../api/hooks/useEnrolledSkills";
+import { tokenize } from "../shared/ToolSelector";
+
+const SOURCE_BADGE: Record<string, { label: string; bg: string; fg: string }> = {
+  starter: { label: "starter", bg: "rgba(59,130,246,0.15)", fg: "#2563eb" },
+  fetched: { label: "fetched", bg: "rgba(16,185,129,0.15)", fg: "#059669" },
+  manual: { label: "manual", bg: "rgba(168,85,247,0.15)", fg: "#9333ea" },
+  authored: { label: "authored", bg: "rgba(249,115,22,0.15)", fg: "#ea580c" },
+  migration: { label: "migration", bg: "rgba(148,163,184,0.15)", fg: "#64748b" },
+  tool: { label: "tool", bg: "rgba(148,163,184,0.15)", fg: "#64748b" },
+  file: { label: "file", bg: "rgba(148,163,184,0.15)", fg: "#64748b" },
+};
 
 interface ContextChipProps {
   channelId?: string;
   /** Composer text — used to count not-yet-sent @skill: tags. */
   composerText: string;
-  /** Bot id — scopes the picker query to that bot's catalog. */
+  /** Current bot — enrolled skills sort first and get an "enrolled" marker. */
   botId?: string;
   /** Insert "@skill:<id> " at cursor in the composer. */
   onInsertSkillTag: (skillId: string) => void;
   /** Match the surrounding toolbar button height. */
   size?: number;
+  /** Don't render the chip at all when count is 0. Useful on mobile where toolbar space is tight. */
+  hideWhenEmpty?: boolean;
+  /** Mobile-friendly popover sizing — near-full-width and taller. */
+  compact?: boolean;
 }
 
 type LoadedEntry = {
@@ -40,34 +56,41 @@ export function ContextChip({
   botId,
   onInsertSkillTag,
   size = 36,
+  hideWhenEmpty = false,
+  compact = false,
 }: ContextChipProps) {
   const t = useThemeTokens();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const pickerAnchorRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [pos, setPos] = useState({ bottom: 0, left: 0 });
+  const [search, setSearch] = useState("");
 
   const messages = useChatStore((s) => (channelId ? s.getChannel(channelId).messages : []));
+  const { data: skills = [], isLoading } = useSkills({ sort: "recent" });
+  const { data: enrolledSkills = [] } = useEnrolledSkills(botId);
+  const enrolledSet = useMemo(
+    () => new Set(enrolledSkills.map((e) => e.skill_id)),
+    [enrolledSkills],
+  );
 
   const { entries, count } = useMemo(
     () => deriveEntries(messages, composerText),
     [messages, composerText],
   );
+  const loadedSet = useMemo(() => new Set(entries.map((e) => e.id)), [entries]);
 
-  // Close popover on outside click. Picker has its own outside-click.
+  // Close on outside click.
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
       const target = e.target as Node;
       if (
         triggerRef.current && !triggerRef.current.contains(target) &&
-        popoverRef.current && !popoverRef.current.contains(target) &&
-        // Don't close if click landed inside the picker portal.
-        !(target as HTMLElement).closest?.("[data-skill-picker]")
+        popoverRef.current && !popoverRef.current.contains(target)
       ) {
         setOpen(false);
+        setSearch("");
       }
     };
     document.addEventListener("mousedown", handler);
@@ -78,11 +101,14 @@ export function ContextChip({
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !pickerOpen) setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        setSearch("");
+      }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [open, pickerOpen]);
+  }, [open]);
 
   const togglePopover = () => {
     if (!triggerRef.current) {
@@ -90,15 +116,42 @@ export function ContextChip({
       return;
     }
     const rect = triggerRef.current.getBoundingClientRect();
+    const width = compact ? Math.min(window.innerWidth - 16, 420) : 360;
     setPos({
       bottom: window.innerHeight - rect.top + 8,
-      left: Math.max(12, Math.min(rect.left - 120, window.innerWidth - 320 - 12)),
+      left: compact
+        ? Math.max(8, (window.innerWidth - width) / 2)
+        : Math.max(12, Math.min(rect.left - width + rect.width, window.innerWidth - width - 12)),
     });
     setOpen((v) => !v);
   };
 
+  const filteredSkills = useMemo(() => {
+    if (!skills.length) return [];
+    let pool = skills;
+    if (search.trim()) {
+      const queryTokens = tokenize(search);
+      pool = pool.filter((s) => {
+        const haystack = [
+          ...tokenize(s.id),
+          ...tokenize(s.name),
+          ...tokenize(s.description ?? ""),
+          ...(s.triggers ?? []).flatMap((t) => tokenize(t)),
+        ].join(" ");
+        return queryTokens.every((qt) => haystack.includes(qt));
+      });
+    }
+    // Enrolled first, then the rest (stable within each partition).
+    const enrolled: SkillItem[] = [];
+    const other: SkillItem[] = [];
+    for (const s of pool) {
+      (enrolledSet.has(s.id) ? enrolled : other).push(s);
+    }
+    return [...enrolled, ...other].slice(0, 80);
+  }, [skills, search, enrolledSet]);
+
   const empty = count === 0;
-  const loadedIds = useMemo(() => entries.map((e) => e.id), [entries]);
+  if (empty && hideWhenEmpty) return null;
 
   return (
     <>
@@ -163,14 +216,15 @@ export function ContextChip({
             style={{
               bottom: pos.bottom,
               left: pos.left,
-              width: 320,
-              maxHeight: "min(420px, 70vh)",
+              width: compact ? Math.min(window.innerWidth - 16, 420) : 360,
+              maxHeight: compact ? "min(60vh, 520px)" : "min(480px, 75vh)",
               backgroundColor: t.surfaceRaised,
               borderColor: t.surfaceBorder,
             }}
           >
+            {/* Header */}
             <div
-              className="flex flex-row items-center justify-between px-3 py-2"
+              className="flex flex-row items-center justify-between px-3 py-2 shrink-0"
               style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}
             >
               <div className="flex flex-row items-center gap-1.5">
@@ -181,70 +235,78 @@ export function ContextChip({
                 <span style={{ fontSize: 10, color: t.textDim }}>{count}</span>
               </div>
               <button
-                onClick={() => setOpen(false)}
+                onClick={() => { setOpen(false); setSearch(""); }}
                 aria-label="Close"
-                className="bg-transparent border-none cursor-pointer p-1 rounded hover:bg-surface-overlay"
+                className="bg-transparent border-none cursor-pointer p-1 rounded"
+                style={{ display: "flex", alignItems: "center" }}
               >
                 <X size={12} color={t.textDim} />
               </button>
             </div>
 
+            {/* Loaded section */}
+            {entries.length > 0 && (
+              <div className="shrink-0" style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}>
+                {entries.map((e) => <EntryRow key={`${e.origin}:${e.id}`} entry={e} />)}
+              </div>
+            )}
+
+            {/* Search */}
+            <div
+              className="flex flex-row items-center gap-1.5 px-2 py-2 shrink-0"
+              style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}
+            >
+              <Search size={12} className="text-text-dim shrink-0 ml-1" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Drop a skill into context…"
+                autoFocus
+                className="flex-1 min-w-0 px-2 py-1 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
+              />
+            </div>
+
+            {/* Catalog status */}
+            <div
+              className="px-3 py-1 text-[10px] shrink-0"
+              style={{ color: t.textDim, borderBottom: `1px solid ${t.surfaceBorder}55` }}
+            >
+              {isLoading
+                ? "Loading skills…"
+                : `${filteredSkills.length} of ${skills.length} skill${skills.length === 1 ? "" : "s"}${
+                    search.trim() && filteredSkills.length === 80 ? " (showing first 80)" : ""
+                  }`}
+            </div>
+
+            {/* Catalog list */}
             <div className="overflow-y-auto" style={{ flex: 1 }}>
-              {entries.length === 0 ? (
+              {filteredSkills.length === 0 ? (
                 <div
                   className="px-3 py-4 text-center"
                   style={{ fontSize: 11, color: t.textDim }}
                 >
-                  Nothing loaded yet.
-                  <br />
-                  Drop a skill below to inject it on the next turn.
+                  {isLoading ? "" : "No skills match."}
                 </div>
               ) : (
-                entries.map((e) => <EntryRow key={`${e.origin}:${e.id}`} entry={e} />)
+                filteredSkills.map((skill) => (
+                  <CatalogRow
+                    key={skill.id}
+                    skill={skill}
+                    loaded={loadedSet.has(skill.id)}
+                    enrolled={enrolledSet.has(skill.id)}
+                    onSelect={() => {
+                      onInsertSkillTag(skill.id);
+                      setSearch("");
+                      // Keep the popover open so the user can see the queued state update.
+                    }}
+                  />
+                ))
               )}
-            </div>
-
-            <div
-              className="px-3 py-2 flex flex-row items-center"
-              style={{ borderTop: `1px solid ${t.surfaceBorder}` }}
-            >
-              <button
-                ref={pickerAnchorRef}
-                onClick={() => setPickerOpen(true)}
-                className="flex flex-row items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors hover:bg-surface-overlay"
-                style={{
-                  background: "transparent",
-                  border: `1px dashed ${t.surfaceBorder}`,
-                  fontSize: 11,
-                  color: t.text,
-                  width: "100%",
-                  justifyContent: "center",
-                }}
-              >
-                <Plus size={11} color={t.textDim} />
-                <span>Drop a skill</span>
-                <span style={{ fontSize: 9, color: t.textDim, fontFamily: "monospace" }}>
-                  @skill:
-                </span>
-              </button>
             </div>
           </div>,
           document.body,
         )}
-
-      <div data-skill-picker>
-        <SkillPicker
-          anchorRef={pickerAnchorRef}
-          open={pickerOpen}
-          onClose={() => setPickerOpen(false)}
-          onSelect={(id) => {
-            onInsertSkillTag(id);
-            // Keep the popover open so user can see the queued chip update.
-          }}
-          botId={botId}
-          alreadyLoaded={loadedIds}
-        />
-      </div>
     </>
   );
 }
@@ -253,8 +315,8 @@ function EntryRow({ entry }: { entry: LoadedEntry }) {
   const t = useThemeTokens();
   return (
     <div
-      className="flex flex-col px-3 py-2"
-      style={{ borderBottom: `1px solid ${t.surfaceBorder}33` }}
+      className="flex flex-col px-3 py-1.5"
+      style={{ backgroundColor: t.surface }}
     >
       <div className="flex flex-row items-center gap-1.5">
         <Sparkles
@@ -294,6 +356,68 @@ function EntryRow({ entry }: { entry: LoadedEntry }) {
   );
 }
 
+function CatalogRow({
+  skill,
+  loaded,
+  enrolled,
+  onSelect,
+}: {
+  skill: SkillItem;
+  loaded: boolean;
+  enrolled: boolean;
+  onSelect: () => void;
+}) {
+  const badge = SOURCE_BADGE[skill.source_type] ?? {
+    label: skill.source_type,
+    bg: "rgba(148,163,184,0.15)",
+    fg: "#64748b",
+  };
+  return (
+    <button
+      onClick={onSelect}
+      className="flex flex-col gap-0.5 w-full px-3 py-2 bg-transparent border-none cursor-pointer text-left transition-colors hover:bg-surface-raised"
+      style={{ opacity: loaded ? 0.5 : 1 }}
+    >
+      <div className="flex flex-row items-center gap-2">
+        <Sparkles
+          size={11}
+          className={enrolled ? "text-purple-400 shrink-0" : "text-text-dim shrink-0"}
+        />
+        <span className="text-xs font-medium text-text truncate">{skill.name}</span>
+        {loaded ? (
+          <span className="text-[9px] text-text-dim shrink-0">loaded</span>
+        ) : enrolled ? (
+          <span
+            className="text-[9px] font-semibold rounded shrink-0"
+            style={{
+              padding: "1px 5px",
+              background: "rgba(168,85,247,0.15)",
+              color: "#9333ea",
+            }}
+          >
+            enrolled
+          </span>
+        ) : null}
+        <span
+          className="text-[9px] font-semibold rounded ml-auto shrink-0"
+          style={{
+            padding: "1px 6px",
+            background: badge.bg,
+            color: badge.fg,
+          }}
+        >
+          {badge.label}
+        </span>
+      </div>
+      {skill.description && (
+        <span className="text-[10px] text-text-dim line-clamp-1 pl-[18px]">
+          {skill.description}
+        </span>
+      )}
+    </button>
+  );
+}
+
 type AnyMessage = {
   role?: string;
   metadata?: Record<string, unknown> | null;
@@ -304,10 +428,7 @@ function deriveEntries(
   messages: AnyMessage[],
   composerText: string,
 ): { entries: LoadedEntry[]; count: number } {
-  // 1. Pull active_skills (+ legacy auto_injected_skills) from the latest assistant
-  //    message that carries metadata. Same merge SkillOrb does.
   let active: Array<{ id: string; name: string }> = [];
-  let lastAssistantIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role !== "assistant" && m.role !== "bot") continue;
@@ -315,15 +436,12 @@ function deriveEntries(
     const a = (meta.active_skills as unknown[]) ?? [];
     const aux = (meta.auto_injected_skills as unknown[]) ?? [];
     const merged = [...a, ...aux];
-    if (merged.length > 0 || lastAssistantIdx === -1) {
-      lastAssistantIdx = i;
+    if (merged.length > 0) {
       active = normalize(merged);
-      if (merged.length > 0) break;
+      break;
     }
   }
 
-  // 2. Map skill_id → "msgs ago" by scanning history backwards from the end for
-  //    each skill's most recent get_skill tool_call. Cheap O(messages * skills).
   const msgsAgo = new Map<string, number>();
   for (const sk of active) {
     let dist = 0;
@@ -352,7 +470,6 @@ function deriveEntries(
     }
   }
 
-  // 3. Composer-typed @skill: tags → queued entries (dedup against loaded).
   const queuedIds = parseSkillTags(composerText);
   const loadedIds = new Set(active.map((s) => s.id));
 
