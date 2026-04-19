@@ -243,13 +243,14 @@ async def generate_image_tool(
 
     # Collect all returned images and persist as attachments
     from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
-    from app.services.attachments import create_attachment
+    from app.services.attachments import create_widget_backed_attachment
 
     channel_id = current_channel_id.get()
     bot_id = current_bot_id.get()
     source = current_dispatch_type.get() or "web"
 
     results: list[dict] = []
+    images: list[dict] = []
     for idx, item in enumerate(resp.data):
         # GPT Image family returns base64 directly in .b64_json or .b64
         # DALL-E returns .b64_json or .url
@@ -271,8 +272,8 @@ async def generate_image_tool(
             # Persist to attachments table so it's available for future edits/references
             gen_att_id = None
             try:
-                gen_att = await create_attachment(
-                    message_id=None,
+                gen_att = await create_widget_backed_attachment(
+                    tool_name="generate_image",
                     channel_id=channel_id,
                     filename=filename,
                     mime_type="image/png",
@@ -295,6 +296,7 @@ async def generate_image_tool(
             }
             if gen_att_id:
                 action_dict["attachment_id"] = gen_att_id
+                images.append({"attachment_id": gen_att_id, "filename": filename})
             results.append(action_dict)
 
     if not results:
@@ -309,5 +311,8 @@ async def generate_image_tool(
         )
     return json.dumps({
         "message": msg,
+        "prompt": prompt,
+        "model": effective_model,
+        "images": images,
         "client_action": results[0] if len(results) == 1 else results,
     }, ensure_ascii=False)

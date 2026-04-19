@@ -66,6 +66,11 @@ interface Props {
    *  parent dictates the available height and the user expects the tile to
    *  fill the space they resized it to — not collapse to content size. */
   fillHeight?: boolean;
+  /** Dashboard pin id when the widget is mounted as a pin. Exposed to the
+   *  iframe as ``window.spindrel.dashboardPinId`` so widget JS can dispatch
+   *  ``widget_config`` patches that persist against the pin (star-to-save,
+   *  toggle state). Undefined for inline chat widgets. */
+  dashboardPinId?: string;
   t: ThemeTokens;
 }
 
@@ -107,22 +112,38 @@ function spindrelBootstrap(
   widgetToken: string | null,
   initialToolResultJson: string | null,
   themeJson: string,
+  dashboardPinId: string | null,
 ): string {
   return `<script>
 (function () {
   const channelId = ${jsonForScript(channelId)};
   const botId = ${jsonForScript(botId)};
   const botName = ${jsonForScript(botName)};
+  const dashboardPinId = ${jsonForScript(dashboardPinId)};
   // Token mutated in-place by the host on re-mint — read fresh per call.
   const state = { token: ${jsonForScript(widgetToken)} };
   const initialToolResult = ${initialToolResultJson ?? "null"};
   const initialTheme = ${themeJson};
+  // Token-ready promise — resolves as soon as a non-null token lands in
+  // state.token (either baked into srcDoc or pushed later via __setToken).
+  // apiFetch awaits this when no token is present yet, so the widget's
+  // initial-paint fetches (fired synchronously from iframe load) don't go
+  // out unauthenticated and 422 before the mint query completes. React-
+  // query's mint is async; the iframe's srcDoc bootstraps first.
+  let __tokenReadyResolve = null;
+  const tokenReady = state.token
+    ? Promise.resolve()
+    : new Promise(function (r) { __tokenReadyResolve = r; });
   // Like fetch() but bearer-attached. Returns the raw Response so callers
   // can choose how to consume the body (.blob() for images, .json(), .text(),
   // streaming, whatever). Use this for anything non-JSON (image/video blobs,
   // file downloads). For JSON endpoints, api() below is the convenience
   // wrapper that throws on !ok and parses the body for you.
   async function apiFetch(path, options) {
+    // Wait for the bot's widget token before firing. Only blocks when
+    // the srcDoc hadn't baked a token in yet — once the first mint lands
+    // the promise is resolved forever and subsequent calls are sync.
+    if (!state.token) await tokenReady;
     const opts = options || {};
     const baseHeaders = opts.body !== undefined && !opts.headers
       ? { "Content-Type": "application/json" }
@@ -176,6 +197,7 @@ function spindrelBootstrap(
     channelId: channelId,
     botId: botId,
     botName: botName,
+    dashboardPinId: dashboardPinId,
     api: api,
     apiFetch: apiFetch,
     readWorkspaceFile: readWorkspaceFile,
@@ -183,7 +205,14 @@ function spindrelBootstrap(
     listWorkspaceFiles: listWorkspaceFiles,
     toolResult: initialToolResult,
     theme: initialTheme,
-    __setToken: function (t) { state.token = t || null; },
+    __setToken: function (t) {
+      state.token = t || null;
+      // Unblock any apiFetch calls queued while the mint was in flight.
+      if (state.token && __tokenReadyResolve) {
+        __tokenReadyResolve();
+        __tokenReadyResolve = null;
+      }
+    },
     __setToolResult: function (obj) {
       window.spindrel.toolResult = obj;
       try {
@@ -238,6 +267,7 @@ function wrapHtml(
   themeCss: string,
   themeJson: string,
   isDark: boolean,
+  dashboardPinId: string | null,
 ): string {
   return `<!doctype html>
 <html${isDark ? ' class="dark"' : ""}>
@@ -245,7 +275,7 @@ function wrapHtml(
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${CSP}" />
 <style id="__spindrel_theme">${themeCss}</style>
-${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson)}
+${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson, dashboardPinId)}
 </head>
 <body>
 <div id="__sd_root">
@@ -266,7 +296,7 @@ function formatRelative(ts: number | null): string {
   return `${hrs}h ago`;
 }
 
-export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, t }: Props) {
+export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashboardPinId, t }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
   const themeMode = useThemeStore((s) => s.mode);
@@ -599,6 +629,7 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, t }: 
           themeCss,
           themeJson,
           isDark,
+          dashboardPinId ?? null,
         )}
         sandbox="allow-scripts allow-same-origin"
         title={envelope.display_label || "Interactive HTML widget"}

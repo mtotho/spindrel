@@ -22,105 +22,84 @@ settings:
 provides:
   - tools
 
-# Shared component tree — reused for the initial tool call and for state_poll
-# refreshes. Both render the same raw get_weather JSON, so a single template
-# keeps them byte-identical.
-_weather_template: &weather_template
-  v: 1
-  components:
-    - type: heading
-      text: "{{location}}"
-      level: 3
-    # Error path
-    - type: status
-      when: "{{error | not_empty}}"
-      text: "{{error}}"
-      color: danger
-    # Current conditions — big temp + description
-    - type: heading
-      when: "{{current.temperature | not_empty}}"
-      text: "{{current.temperature}} · {{current.conditions}}"
-      level: 2
-    - type: properties
-      layout: inline
-      when: "{{current.temperature | not_empty}}"
-      items:
-        - label: Feels like
-          value: "{{current.feels_like}}"
-        - label: Humidity
-          value: "{{current.humidity}}"
-        - label: Wind
-          value: "{{current.wind_speed}}"
-        - label: Gust
-          value: "{{current.wind_gust}}"
-          when: "{{current.wind_gust | not_empty}}"
-        - label: UV
-          value: "{{current.uv_index}}"
-          when: "{{current.uv_index | not_empty}}"
-        - label: Clouds
-          value: "{{current.cloud_cover}}"
-          when: "{{current.cloud_cover | not_empty}}"
-    # Severe-weather alerts
-    - type: section
-      label: "Active alerts"
-      collapsible: true
-      defaultOpen: true
-      when: "{{alerts | not_empty}}"
-      children:
-        - type: table
-          columns: ["Event", "Sender", "Start", "End"]
-          compact: true
-          rows:
-            each: "{{alerts}}"
-            template: ["{{_.event}}", "{{_.sender}}", "{{_.start}}", "{{_.end}}"]
-    # Daily forecast — tiles that fit as many days per row as the panel allows.
-    # Gated on config.show_forecast so the state_poll args also include_daily
-    # match; when off, daily_forecast isn't in the API response and this hides.
-    - type: tiles
-      min_width: 84
-      gap: 6
-      when: "{{daily_forecast | not_empty}}"
-      items:
-        each: "{{daily_forecast}}"
-        template:
-          label: "{{_.date}}"
-          value: "{{_.temp_max}}"
-          caption: "{{_.conditions}}"
-    # Subtle config toggles — two buttons, one per state; `when` picks the right
-    # one. Invisible until the pinned widget card is hovered.
-    - type: button
-      label: "Show forecast"
-      subtle: true
-      when: "{{config.show_forecast | not}}"
-      action:
-        dispatch: widget_config
-        config:
-          show_forecast: true
-    - type: button
-      label: "Hide forecast"
-      subtle: true
-      when: "{{config.show_forecast | not_empty}}"
-      action:
-        dispatch: widget_config
-        config:
-          show_forecast: false
-
-# Rich widget for get_weather results. Pinned widgets re-poll by recalling
-# get_weather with the resolved location and config-driven flags.
+# Rich HTML widget for get_weather — SVG hourly chart, daily forecast tiles,
+# alerts banner. Pinned widgets re-poll hourly with the resolved location,
+# keeping `include_daily` / `include_hourly` on so the chart has full data.
 tool_widgets:
   get_weather:
-    content_type: application/vnd.spindrel.components+json
+    content_type: application/vnd.spindrel.html+interactive
     display: inline
     display_label: "{{location}}"
+    html_template:
+      path: widgets/get_weather.html
     default_config:
-      show_forecast: false
+      units: "imperial"
+      show_feels_like: false
     state_poll:
       tool: get_weather
-      # {{display_label}} resolves the location; {{config.show_forecast}}
-      # follows the user's toggled preference and is re-substituted on each poll.
       args:
         location: "{{display_label}}"
-        include_daily: "{{config.show_forecast}}"
+        units: "{{config.units}}"
+        include_daily: true
+        include_hourly: true
       refresh_interval_seconds: 3600
-      template: *weather_template
-    template: *weather_template
+    sample_payload:
+      location: "Lambertville, NJ, US"
+      units: "imperial"
+      timezone: "America/New_York"
+      current:
+        conditions: "partly cloudy"
+        icon: "03d"
+        temperature: "68°F"
+        feels_like: "66°F"
+        humidity: "58%"
+        wind_speed: "6 mph"
+        wind_gust: "9 mph"
+        uv_index: 4
+        cloud_cover: "40%"
+        visibility_m: 10000
+      daily_forecast:
+        - date: "Sat 04/19"
+          summary: "Clearing skies late"
+          conditions: "partly cloudy"
+          temp_min: "52°F"
+          temp_max: "71°F"
+          temp_range: "52–71°F"
+          precip_probability: "10%"
+          humidity: "55%"
+          wind_speed: 6.1
+          uv_index: 4
+        - date: "Sun 04/20"
+          summary: "Mostly sunny"
+          conditions: "sunny"
+          temp_min: "55°F"
+          temp_max: "74°F"
+          temp_range: "55–74°F"
+          precip_probability: "5%"
+          humidity: "48%"
+          wind_speed: 5.0
+          uv_index: 6
+        - date: "Mon 04/21"
+          summary: "Afternoon showers"
+          conditions: "light rain"
+          temp_min: "58°F"
+          temp_max: "70°F"
+          temp_range: "58–70°F"
+          precip_probability: "65%"
+          humidity: "78%"
+          wind_speed: 7.2
+          uv_index: 3
+      hourly_forecast:
+        - { time: "14:00", conditions: "partly cloudy", temperature: "68°F", feels_like: "66°F", precip_probability: "10%" }
+        - { time: "15:00", conditions: "partly cloudy", temperature: "69°F", feels_like: "67°F", precip_probability: "10%" }
+        - { time: "16:00", conditions: "sunny",         temperature: "70°F", feels_like: "68°F", precip_probability: "5%"  }
+        - { time: "17:00", conditions: "sunny",         temperature: "70°F", feels_like: "68°F", precip_probability: "5%"  }
+        - { time: "18:00", conditions: "partly cloudy", temperature: "68°F", feels_like: "66°F", precip_probability: "10%" }
+        - { time: "19:00", conditions: "partly cloudy", temperature: "65°F", feels_like: "63°F", precip_probability: "15%" }
+        - { time: "20:00", conditions: "light rain",    temperature: "62°F", feels_like: "60°F", precip_probability: "50%" }
+        - { time: "21:00", conditions: "light rain",    temperature: "60°F", feels_like: "58°F", precip_probability: "60%" }
+        - { time: "22:00", conditions: "light rain",    temperature: "59°F", feels_like: "57°F", precip_probability: "45%" }
+        - { time: "23:00", conditions: "cloudy",        temperature: "58°F", feels_like: "56°F", precip_probability: "20%" }
+        - { time: "00:00", conditions: "cloudy",        temperature: "57°F", feels_like: "55°F", precip_probability: "10%" }
+        - { time: "01:00", conditions: "cloudy",        temperature: "56°F", feels_like: "54°F", precip_probability: "10%" }
+      alerts: []

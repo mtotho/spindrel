@@ -25,3 +25,34 @@ dependencies:
 provides:
   - tools
   - skills
+
+# HTML widget for rendered diagrams. Both tools share one widget — the
+# output is identical (a rendered diagram image + filename) regardless of
+# whether the input was raw Excalidraw JSON or Mermaid. The widget fetches
+# the image by attachment_id and offers a download button + lightbox.
+tool_widgets:
+  create_excalidraw:
+    content_type: application/vnd.spindrel.html+interactive
+    display: inline
+    display_label: "{{filename}}"
+    html_template:
+      path: widgets/create_excalidraw.html
+    sample_payload:
+      message: "Created diagram.svg (12 KB)"
+      attachment_id: "00000000-0000-0000-0000-000000000001"
+      filename: "diagram.svg"
+      mime_type: "image/svg+xml"
+      size_bytes: 12480
+
+  mermaid_to_excalidraw:
+    content_type: application/vnd.spindrel.html+interactive
+    display: inline
+    display_label: "{{filename}}"
+    html_template:
+      path: widgets/create_excalidraw.html
+    sample_payload:
+      message: "Created flowchart.png (48 KB)"
+      attachment_id: "00000000-0000-0000-0000-000000000002"
+      filename: "flowchart.png"
+      mime_type: "image/png"
+      size_bytes: 48920

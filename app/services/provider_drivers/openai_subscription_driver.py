@@ -48,21 +48,95 @@ CODEX_OAUTH_SCOPES = (
     "api.connectors.read api.connectors.invoke"
 )
 
+# Short TTL cache for the live model list. list_models() is called from
+# the admin UI (Refresh button, type dropdown), not the hot request path,
+# so we keep this small — long enough to absorb rapid re-clicks, short
+# enough that a model OpenAI adds today is visible within the hour.
+_LIVE_MODELS_TTL_SECONDS = 15 * 60
+_live_models_cache: dict[str, tuple[float, list[str]]] = {}
 
-# Models exposed via the ChatGPT-subscription OAuth path. Maintained
-# manually — there is no ``/models`` endpoint on the Codex Responses base.
-# Update when OpenAI widens or narrows the set.
-# Per developers.openai.com/codex/models (checked 2026-04-19).
-# Codex rejects anything outside this exact set with
-# "The '<model>' model is not supported when using Codex with a ChatGPT
-# account." — no historic aliases, no gpt-5.x-pro, no chat-latest variants.
-OAUTH_MODELS: tuple[str, ...] = (
+
+async def _fetch_live_models(config: "ProviderConfigRow") -> list[str]:
+    """Return the account's Codex model catalog, or [] if unreachable.
+
+    Hits ``GET {base}/models`` with the provider's OAuth bearer. Any
+    failure (no tokens, network error, non-2xx, malformed response)
+    returns [] so callers can fall back cleanly.
+    """
+    import time
+
+    # Local imports to avoid a cycle (openai_oauth imports this module).
+    from app.services.openai_oauth import load_and_refresh_tokens
+    from app.services.openai_responses_adapter import DEFAULT_CODEX_BASE_URL
+
+    cache_key = config.id
+    hit = _live_models_cache.get(cache_key)
+    now = time.monotonic()
+    if hit and now - hit[0] < _LIVE_MODELS_TTL_SECONDS:
+        return list(hit[1])
+
+    try:
+        tokens = await load_and_refresh_tokens(config)
+    except Exception as exc:
+        logger.debug("Codex /models skipped — no OAuth tokens for %s: %s", config.id, exc)
+        return []
+
+    access_token = tokens.get("access_token") or ""
+    if not access_token:
+        return []
+
+    base_url = (config.base_url or DEFAULT_CODEX_BASE_URL).rstrip("/")
+    url = f"{base_url}/models"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+        "User-Agent": f"codex_cli_rs/0.45.0 (linux; x86_64) spindrel",
+        "originator": "codex_cli_rs",
+        "OpenAI-Beta": "responses=experimental",
+    }
+    account_id = tokens.get("account_id") or ""
+    if account_id:
+        headers["chatgpt-account-id"] = account_id
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as hc:
+            resp = await hc.get(url, headers=headers)
+        if not resp.is_success:
+            logger.info("Codex /models returned HTTP %s for %s", resp.status_code, config.id)
+            return []
+        data = resp.json()
+    except Exception as exc:
+        logger.info("Codex /models fetch failed for %s: %s", config.id, exc)
+        return []
+
+    # Response shape mirrors OpenAI: {"object":"list","data":[{"id": "..."}]}
+    items = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return []
+    ids = [it.get("id") for it in items if isinstance(it, dict) and it.get("id")]
+    ids = [mid for mid in ids if isinstance(mid, str)]
+    if ids:
+        _live_models_cache[cache_key] = (now, ids)
+    return ids
+
+
+# Fallback model list used when the live ``/models`` query can't run
+# (provider not yet OAuth-connected, transient network failure, etc.).
+# The Codex Responses base exposes a ``/models`` endpoint that returns
+# the authoritative catalog for a given account — we prefer that, and
+# only fall back to this list so the admin dropdown isn't empty before
+# a user completes the OAuth dance.
+OAUTH_MODELS_FALLBACK: tuple[str, ...] = (
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.3-codex",
     "gpt-5.3-codex-spark",
     "gpt-5.2",
 )
+
+# Legacy alias retained so other modules (``providers.py`` seed path)
+# keep working without a churn commit. Treat as "fallback", not truth.
+OAUTH_MODELS = OAUTH_MODELS_FALLBACK
 
 
 class OpenAISubscriptionDriver(ProviderDriver):
@@ -105,4 +179,16 @@ class OpenAISubscriptionDriver(ProviderDriver):
             return False, f"Cannot reach {issuer}: {str(exc)[:200]}"
 
     async def list_models(self, config: "ProviderConfigRow") -> list[str]:
-        return list(OAUTH_MODELS)
+        """Query the Codex ``/models`` endpoint for the account's catalog.
+
+        OpenAI rotates what's exposed over the OAuth path (naming shifts
+        across GPT-5 point releases, preview gates open and close per
+        account). Hitting the endpoint directly keeps us honest. Returns
+        the fallback list if the provider isn't OAuth-connected yet, or
+        if the fetch fails for any reason — callers layer a DB fallback
+        on top of that in ``list_models_for_provider``.
+        """
+        live = await _fetch_live_models(config)
+        if live:
+            return live
+        return list(OAUTH_MODELS_FALLBACK)

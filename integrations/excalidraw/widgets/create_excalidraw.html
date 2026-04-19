@@ -1,0 +1,129 @@
+<div class="sd-card" id="root">
+  <header class="sd-card-header sd-hstack-between">
+    <div class="sd-stack" style="gap: 0;">
+      <h3 class="sd-title" id="title">Diagram</h3>
+      <span class="sd-meta" id="meta"></span>
+    </div>
+    <div class="sd-hstack-sm">
+      <button class="sd-btn sd-btn-subtle" id="download-btn" type="button" title="Download">⬇ Download</button>
+    </div>
+  </header>
+  <div class="sd-card-body">
+    <div class="sd-error" id="err" hidden></div>
+    <div class="sd-frame" id="frame" style="min-height: 160px; cursor: zoom-in; background: var(--sd-surface-overlay);">
+      <div class="sd-frame-overlay" id="overlay">
+        <div class="sd-spinner"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var titleEl = document.getElementById("title");
+  var metaEl = document.getElementById("meta");
+  var frameEl = document.getElementById("frame");
+  var overlayEl = document.getElementById("overlay");
+  var errEl = document.getElementById("err");
+  var downloadBtn = document.getElementById("download-btn");
+
+  var currentBlobUrl = null;
+  var currentFilename = null;
+  var currentMime = null;
+
+  function setError(msg) {
+    if (!msg) { errEl.hidden = true; errEl.textContent = ""; return; }
+    errEl.hidden = false;
+    errEl.textContent = msg;
+  }
+
+  function humanSize(bytes) {
+    if (bytes == null) return "";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1048576).toFixed(2) + " MB";
+  }
+
+  function openLightbox(url, alt) {
+    var backdrop = document.createElement("div");
+    backdrop.style.cssText = [
+      "position: fixed", "inset: 0",
+      "background: rgba(0,0,0,0.9)", "z-index: 9999",
+      "display: flex", "align-items: center", "justify-content: center",
+      "padding: 24px", "cursor: zoom-out"
+    ].join(";");
+    var img = document.createElement("img");
+    img.src = url;
+    img.alt = alt || "";
+    img.style.cssText = "max-width: 100%; max-height: 100%; border-radius: var(--sd-radius-md); background: white;";
+    backdrop.appendChild(img);
+    backdrop.addEventListener("click", function () { backdrop.remove(); });
+    document.addEventListener("keydown", function onKey(ev) {
+      if (ev.key === "Escape") { backdrop.remove(); document.removeEventListener("keydown", onKey); }
+    });
+    document.body.appendChild(backdrop);
+  }
+
+  function render(data) {
+    if (!data) { setError("No diagram data"); return; }
+    if (data.error) { setError(data.error); return; }
+    setError("");
+
+    var attId = data.attachment_id;
+    if (!attId) {
+      overlayEl.innerHTML = '<div class="sd-empty" style="padding: 18px;">No attachment_id on result.</div>';
+      return;
+    }
+
+    currentFilename = data.filename || "diagram";
+    currentMime = data.mime_type || "image/png";
+
+    titleEl.textContent = currentFilename;
+    var bits = [];
+    if (data.size_bytes) bits.push(humanSize(data.size_bytes));
+    if (data.mime_type) bits.push(data.mime_type.replace("image/", "").toUpperCase());
+    metaEl.textContent = bits.join(" · ");
+
+    var nextUrl = "/api/v1/attachments/" + encodeURIComponent(attId);
+    // Guard against swap-in loops: only re-fetch when the attachment id changes.
+    if (frameEl.dataset.attId === attId) return;
+    frameEl.dataset.attId = attId;
+
+    window.spindrel
+      .apiFetch(nextUrl, { headers: { Accept: "image/*" } })
+      .then(function (r) {
+        if (!r || !r.ok) throw new Error("HTTP " + (r && r.status));
+        return r.blob();
+      })
+      .then(function (blob) {
+        if (currentBlobUrl) {
+          try { URL.revokeObjectURL(currentBlobUrl); } catch (_) {}
+        }
+        currentBlobUrl = URL.createObjectURL(blob);
+        var img = document.createElement("img");
+        img.src = currentBlobUrl;
+        img.alt = currentFilename;
+        img.style.cssText = "width: 100%; height: auto; display: block; background: white;";
+        img.addEventListener("click", function () { openLightbox(currentBlobUrl, currentFilename); });
+        frameEl.innerHTML = "";
+        frameEl.appendChild(img);
+      })
+      .catch(function (e) {
+        frameEl.innerHTML = '<div class="sd-empty" style="padding: 18px;">Image fetch failed</div>';
+        setError("Image fetch failed: " + (e && e.message));
+      });
+  }
+
+  downloadBtn.addEventListener("click", function () {
+    if (!currentBlobUrl || !currentFilename) return;
+    var a = document.createElement("a");
+    a.href = currentBlobUrl;
+    a.download = currentFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  });
+
+  window.addEventListener("spindrel:toolresult", function (ev) { render(ev.detail); });
+  render(window.spindrel && window.spindrel.toolResult);
+})();
+</script>

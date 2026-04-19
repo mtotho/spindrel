@@ -466,6 +466,7 @@ export function PinnedToolWidget({
           envelope={currentEnvelope}
           dispatcher={dispatcher}
           fillHeight={isDashboard}
+          dashboardPinId={widget.id}
           t={t}
         />
       </div>

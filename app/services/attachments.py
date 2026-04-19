@@ -73,6 +73,57 @@ async def _get_channel_for_retention(channel_id: uuid.UUID | None):
         return await db.get(Channel, channel_id)
 
 
+async def create_widget_backed_attachment(
+    *,
+    tool_name: str,
+    channel_id: uuid.UUID | None,
+    filename: str,
+    mime_type: str,
+    size_bytes: int,
+    posted_by: str | None,
+    source_integration: str,
+    file_data: bytes | None = None,
+    url: str | None = None,
+    attachment_type: str | None = None,
+    bot_id: str | None = None,
+) -> Attachment:
+    """Create an attachment whose display is owned by a widget, not orphan-linking.
+
+    Tools that render their binary output through an HTML widget (e.g.
+    ``frigate_snapshot``, ``generate_image``, ``create_excalidraw``) need the
+    attachment to exist — so the widget can fetch it by id — but must NOT be
+    orphan-linked into the assistant message. Otherwise the web UI shows the
+    image twice: once via the widget, once via the orphan-linked <img>.
+
+    When a widget template is registered for ``tool_name``, we pass
+    ``channel_id=None`` to :func:`create_attachment`. That opts the row out
+    of persist_turn's orphan-linking (which filters by channel_id), while
+    the attachment stays fetchable at ``/api/v1/attachments/{id}`` — the
+    widget's primary display mechanism. Slack/Discord renderers consume
+    ``client_action`` on a separate channel and are unaffected.
+
+    Without a widget template, behaves identically to ``create_attachment``
+    with ``channel_id`` passed through — legacy path for tools whose widget
+    hasn't shipped yet.
+    """
+    from app.services.widget_templates import get_widget_template
+
+    suppress_orphan_link = get_widget_template(tool_name) is not None
+    return await create_attachment(
+        message_id=None,
+        channel_id=None if suppress_orphan_link else channel_id,
+        filename=filename,
+        mime_type=mime_type,
+        size_bytes=size_bytes,
+        posted_by=posted_by,
+        source_integration=source_integration,
+        file_data=file_data,
+        url=url,
+        attachment_type=attachment_type,
+        bot_id=bot_id,
+    )
+
+
 async def create_attachment(
     message_id: uuid.UUID | None,
     channel_id: uuid.UUID | None,

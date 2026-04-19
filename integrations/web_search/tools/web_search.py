@@ -97,10 +97,24 @@ async def _web_search_ddgs(query: str, num_results: int = 5) -> str:
 
 
 def _search_result(query: str, items: list[dict]) -> str:
-    """Build a web search result with a component-vocabulary envelope."""
-    return json.dumps({
-        "llm": json.dumps(items, ensure_ascii=False),
-        "_envelope": {
+    """Build a web search result.
+
+    When a widget template is registered for ``web_search`` (the HTML
+    widget under ``integrations/web_search/widgets/web_search.html``), it
+    renders the structured payload directly — no ``_envelope`` opt-in is
+    needed. Without a template we fall back to a components-JSON
+    ``links`` envelope so non-widget consumers still get a decent render.
+    """
+    from app.services.widget_templates import get_widget_template
+
+    payload: dict = {
+        "query": query,
+        "results": items,
+        "count": len(items),
+    }
+    if get_widget_template("web_search") is None:
+        payload["llm"] = json.dumps(items, ensure_ascii=False)
+        payload["_envelope"] = {
             "content_type": "application/vnd.spindrel.components+json",
             "display": "inline",
             "plain_body": f"{len(items)} result(s) for: {query}",
@@ -122,8 +136,8 @@ def _search_result(query: str, items: list[dict]) -> str:
                     },
                 ],
             },
-        },
-    }, ensure_ascii=False)
+        }
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _sanitize_fetched_content(text: str, url: str, max_length: int = 4000) -> str:

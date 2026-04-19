@@ -403,6 +403,132 @@ class TestStreaming:
         assert json.loads("".join(args_parts)) == {"city": "SF"}
         assert finish == "tool_calls"
 
+    @pytest.mark.asyncio
+    async def test_tool_call_finalized_via_output_item_done_when_deltas_absent(self):
+        """Regression: gpt-5-codex fast-path emits function_call items whose
+        arguments arrive only in ``output_item.done``, not as ``.delta`` events.
+        Without finalization handling we'd emit an empty-args tool call and the
+        downstream loop would skip the tool invocation entirely — the exact
+        class of bug that caused sag-bot to narrate fake skill-review results.
+        """
+        lines: list[str] = []
+        lines += _event("response.created", {"type": "response.created", "response": {"id": "r1"}})
+        lines += _event(
+            "response.output_item.added",
+            {
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {"type": "function_call", "id": "fc", "call_id": "call_1", "name": "get_weather"},
+            },
+        )
+        # NO .delta events — the model emits the full args in output_item.done.
+        lines += _event(
+            "response.output_item.done",
+            {
+                "type": "response.output_item.done",
+                "output_index": 0,
+                "item": {
+                    "type": "function_call",
+                    "id": "fc",
+                    "call_id": "call_1",
+                    "name": "get_weather",
+                    "arguments": '{"city":"SF"}',
+                },
+            },
+        )
+        lines += _event(
+            "response.completed",
+            {"type": "response.completed", "response": {"id": "r1"}},
+        )
+        fake = _FakeStreamResponse(lines)
+        adapter = _ResponsesStreamAdapter(fake, model="gpt-5-codex")
+
+        args_parts: list[str] = []
+        seen_name: str = ""
+        finish: str | None = None
+        async for chunk in adapter:
+            if chunk.choices and chunk.choices[0].delta.tool_calls:
+                for tc in chunk.choices[0].delta.tool_calls:
+                    if tc.function.name:
+                        seen_name = tc.function.name
+                    if tc.function.arguments:
+                        args_parts.append(tc.function.arguments)
+            if chunk.choices and chunk.choices[0].finish_reason:
+                finish = chunk.choices[0].finish_reason
+        assert seen_name == "get_weather"
+        # The finalized args must survive the missing delta stream.
+        assert json.loads("".join(args_parts)) == {"city": "SF"}
+        assert finish == "tool_calls"
+
+    @pytest.mark.asyncio
+    async def test_output_item_done_skips_already_streamed_args(self):
+        """If the deltas already accumulated the full arg string, the done
+        event should be a no-op — emitting the tail again would double-count.
+        """
+        lines: list[str] = []
+        lines += _event("response.created", {"type": "response.created", "response": {"id": "r1"}})
+        lines += _event(
+            "response.output_item.added",
+            {
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {"type": "function_call", "id": "fc", "call_id": "c", "name": "f"},
+            },
+        )
+        lines += _event(
+            "response.function_call_arguments.delta",
+            {"type": "response.function_call_arguments.delta", "output_index": 0, "delta": '{"a":1}'},
+        )
+        lines += _event(
+            "response.output_item.done",
+            {
+                "type": "response.output_item.done",
+                "output_index": 0,
+                "item": {"type": "function_call", "call_id": "c", "name": "f", "arguments": '{"a":1}'},
+            },
+        )
+        lines += _event("response.completed", {"type": "response.completed", "response": {"id": "r1"}})
+        fake = _FakeStreamResponse(lines)
+        adapter = _ResponsesStreamAdapter(fake, model="gpt-5")
+
+        args_parts: list[str] = []
+        async for chunk in adapter:
+            if chunk.choices and chunk.choices[0].delta.tool_calls:
+                for tc in chunk.choices[0].delta.tool_calls:
+                    if tc.function.arguments:
+                        args_parts.append(tc.function.arguments)
+        assert "".join(args_parts) == '{"a":1}'
+
+    @pytest.mark.asyncio
+    async def test_response_incomplete_maps_to_length(self):
+        """response.incomplete with max_output_tokens must surface as
+        finish_reason='length' so llm.py's truncation handling fires."""
+        lines: list[str] = []
+        lines += _event("response.created", {"type": "response.created", "response": {"id": "r1"}})
+        lines += _event(
+            "response.output_text.delta",
+            {"type": "response.output_text.delta", "delta": "partial"},
+        )
+        lines += _event(
+            "response.incomplete",
+            {
+                "type": "response.incomplete",
+                "response": {
+                    "id": "r1",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+            },
+        )
+        fake = _FakeStreamResponse(lines)
+        adapter = _ResponsesStreamAdapter(fake, model="gpt-5")
+
+        finish: str | None = None
+        async for chunk in adapter:
+            if chunk.choices and chunk.choices[0].finish_reason:
+                finish = chunk.choices[0].finish_reason
+        assert finish == "length"
+
 
 # ---------------------------------------------------------------------------
 # Adapter header wiring

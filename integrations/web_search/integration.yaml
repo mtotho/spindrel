@@ -35,3 +35,29 @@ docker_compose:
 
 provides:
   - tools
+
+# Rich HTML widget for web_search — per-result cards with favicon, snippet,
+# domain chip, star-to-save (persists via widget_config.starred[]), Summarize
+# button that dispatches fetch_url and expands an inline panel.
+tool_widgets:
+  web_search:
+    content_type: application/vnd.spindrel.html+interactive
+    display: inline
+    display_label: "Web search"
+    html_template:
+      path: widgets/web_search.html
+    default_config:
+      starred: []
+    sample_payload:
+      query: "best espresso machine under 500"
+      count: 3
+      results:
+        - title: "The 5 Best Espresso Machines Under $500 (2026)"
+          url: "https://example.com/coffee/best-espresso-under-500"
+          content: "We tested a dozen sub-$500 espresso machines. The Breville Bambino Plus took the crown for its steam wand, followed by the Gaggia Classic Pro for manual enthusiasts. Rankings, pros and cons, and tasting notes inside."
+        - title: "Gaggia Classic Pro — long-term review"
+          url: "https://coffeeforum.example.org/gaggia-classic-pro-2-year-review"
+          content: "Two years with the Gaggia Classic Pro. Maintenance costs, mods that actually help, and whether it's still worth it compared to new entrants."
+        - title: "Breville Bambino Plus vs Infuser head-to-head"
+          url: "https://reviews.example.net/breville-bambino-plus-vs-infuser"
+          content: "The Bambino Plus and the Infuser are both popular mid-range picks. We compared espresso quality, steaming speed, and long-term reliability across 6 months."

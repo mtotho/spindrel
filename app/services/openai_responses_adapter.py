@@ -663,13 +663,42 @@ class _ResponsesStreamAdapter:
                 index=tool_idx,
             )]))]
 
-        if evt_type == "response.completed":
+        if evt_type == "response.output_item.done":
+            # Finalization event for an output item. For function_call items
+            # that never streamed any arguments (fast-path emit — gpt-5-codex
+            # does this for short args), we haven't filled `arguments` yet;
+            # backfill from the completed item so the tool call isn't empty.
+            item = payload.get("item") or {}
+            if item.get("type") != "function_call":
+                return []
+            output_index = payload.get("output_index", 0)
+            tool_idx = self._output_index_to_tool_index.get(output_index)
+            if tool_idx is None:
+                return []
+            final_args = item.get("arguments", "") or ""
+            accumulated = self._tool_calls[tool_idx].get("arguments", "")
+            if not final_args or final_args == accumulated:
+                return []
+            # Emit only the missing tail so the downstream accumulator sees
+            # every byte exactly once.
+            tail = final_args[len(accumulated):] if final_args.startswith(accumulated) else final_args
+            self._tool_calls[tool_idx]["arguments"] = final_args
+            return [self._make_chunk(delta=_ChoiceDelta(tool_calls=[_ToolCall(
+                id="",
+                type="function",
+                function=_Function(name="", arguments=tail),
+                index=tool_idx,
+            )]))]
+
+        if evt_type in ("response.completed", "response.incomplete"):
             resp = payload.get("response") or {}
             usage = _build_usage(resp.get("usage"))
-            # Derive finish_reason from whether we saw any tool calls.
+            # Derive finish_reason: tool_calls wins when we emitted any,
+            # else stop; response.incomplete with reason=max_output_tokens
+            # maps to "length" so llm.py treats it as a truncation event.
             finish = "tool_calls" if self._tool_calls else "stop"
             incomplete = (resp.get("incomplete_details") or {}).get("reason")
-            if incomplete == "max_output_tokens":
+            if incomplete == "max_output_tokens" or evt_type == "response.incomplete":
                 finish = "length"
             self._final_usage = usage
             self._finish_reason = finish

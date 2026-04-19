@@ -263,17 +263,24 @@ def _validate_scene(scene: dict) -> str | None:
     return None
 
 
-async def _deliver(data: bytes, filename: str, mime: str) -> str:
-    """Persist attachment and return client_action JSON."""
+async def _deliver(data: bytes, filename: str, mime: str, *, tool_name: str) -> str:
+    """Persist attachment → return attachment_id + client_action JSON.
+
+    ``tool_name`` routes through ``create_widget_backed_attachment`` so the
+    web UI renders via the registered HTML widget (fetching by id) instead
+    of through orphan-linking. ``client_action`` still carries the base64
+    payload for Slack/Discord renderers — those surfaces don't render the
+    widget and rely on ``client_action`` as their only display path.
+    """
     from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
-    from app.services.attachments import create_attachment
+    from app.services.attachments import create_widget_backed_attachment
 
     channel_id = current_channel_id.get()
     bot_id = current_bot_id.get()
     source = current_dispatch_type.get() or "web"
 
-    await create_attachment(
-        message_id=None,
+    att = await create_widget_backed_attachment(
+        tool_name=tool_name,
         channel_id=channel_id,
         filename=filename,
         mime_type=mime,
@@ -290,6 +297,10 @@ async def _deliver(data: bytes, filename: str, mime: str) -> str:
 
     return json.dumps({
         "message": f"Created {filename} ({size_kb:.0f} KB)",
+        "attachment_id": str(att.id),
+        "filename": filename,
+        "mime_type": mime,
+        "size_bytes": len(data),
         "client_action": {
             "type": "upload_file",
             "data": b64,
@@ -375,7 +386,7 @@ async def create_excalidraw(
             return json.dumps({"error": f"Export failed: {err}"}, ensure_ascii=False)
         data = output_path.read_bytes()
 
-    return await _deliver(data, display_name, mime)
+    return await _deliver(data, display_name, mime, tool_name="create_excalidraw")
 
 
 # ---------------------------------------------------------------------------
@@ -485,4 +496,4 @@ async def mermaid_to_excalidraw(
 
         data = output_path.read_bytes()
 
-    return await _deliver(data, display_name, mime)
+    return await _deliver(data, display_name, mime, tool_name="mermaid_to_excalidraw")

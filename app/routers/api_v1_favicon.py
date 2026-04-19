@@ -16,11 +16,17 @@ import re
 from collections import OrderedDict
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+
+from app.dependencies import require_scopes
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/favicon", tags=["favicon"])
+router = APIRouter(
+    prefix="/favicon",
+    tags=["favicon"],
+    dependencies=[Depends(require_scopes("chat"))],
+)
 
 _CACHE: "OrderedDict[str, tuple[bytes, str]]" = OrderedDict()
 _CACHE_MAX = 256

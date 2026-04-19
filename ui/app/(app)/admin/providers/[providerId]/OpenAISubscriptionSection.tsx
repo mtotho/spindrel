@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import { Section, FormRow } from "@/src/components/shared/FormControls";
 import {
   useOpenAIOAuthStatus,
@@ -32,7 +31,6 @@ type Phase =
  *     /poll on the interval returned by /start until success or error.
  */
 export function OpenAISubscriptionSection({ providerId }: Props) {
-  const t = useThemeTokens();
   const isNew = !providerId;
   const { data: status } = useOpenAIOAuthStatus(providerId);
   const startMut = useStartOpenAIOAuth();
@@ -122,23 +120,8 @@ export function OpenAISubscriptionSection({ providerId }: Props) {
       title="ChatGPT Account"
       description="Sign in with your ChatGPT plan to use gpt-5 / gpt-5-codex models against your subscription."
     >
-      {/* Gray-area disclaimer */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "flex-start",
-          gap: 8,
-          padding: "8px 10px",
-          marginBottom: 10,
-          borderRadius: 6,
-          background: t.warningSubtle,
-          color: t.warning,
-          fontSize: 11,
-          lineHeight: 1.4,
-        }}
-      >
-        <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+      <div className="mb-2.5 flex items-start gap-2 rounded-md bg-warning/[0.08] px-2.5 py-2 text-[11px] leading-snug text-warning">
+        <AlertTriangle size={14} className="mt-0.5 shrink-0" />
         <span>
           Uses OpenAI&apos;s Codex device-code OAuth flow. Intended for personal
           self-hosted use — OpenAI recommends API keys for programmatic access.
@@ -147,16 +130,7 @@ export function OpenAISubscriptionSection({ providerId }: Props) {
       </div>
 
       {isNew && (
-        <div
-          style={{
-            padding: "10px 12px",
-            borderRadius: 6,
-            background: t.surfaceRaised,
-            color: t.textMuted,
-            fontSize: 12,
-            lineHeight: 1.5,
-          }}
-        >
+        <div className="rounded-md bg-surface-raised px-3 py-2.5 text-[12px] leading-relaxed text-text-muted">
           Enter a Provider ID + Display Name above and hit <strong>Save</strong>.
           The <em>Connect ChatGPT Account</em> button will appear here once the
           provider exists — the OAuth flow needs a provider row to bind tokens to.
@@ -165,53 +139,25 @@ export function OpenAISubscriptionSection({ providerId }: Props) {
 
       {!isNew && connected && (
         <FormRow label="Signed in as">
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-            }}
-          >
-            <Check size={14} style={{ color: t.success }} />
-            <span style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>
+          <div className="flex items-center gap-2.5">
+            <Check size={14} className="text-success" />
+            <span className="text-[13px] font-semibold text-text">
               {status?.email || "(unknown email)"}
             </span>
             {status?.plan && (
-              <span
-                style={{
-                  padding: "2px 7px",
-                  borderRadius: 4,
-                  background: t.surfaceRaised,
-                  color: t.textMuted,
-                  fontSize: 10,
-                  fontWeight: 600,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                }}
-              >
+              <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
                 {status.plan}
               </span>
             )}
             {status?.expires_at && (
-              <span style={{ color: t.textDim, fontSize: 11 }}>
+              <span className="text-[11px] text-text-dim">
                 Token expires {new Date(status.expires_at).toLocaleString()}
               </span>
             )}
             <button
               onClick={handleDisconnect}
               disabled={disconnectMut.isPending}
-              style={{
-                marginLeft: "auto",
-                padding: "5px 12px",
-                fontSize: 12,
-                fontWeight: 600,
-                border: `1px solid ${t.dangerBorder}`,
-                borderRadius: 5,
-                background: "transparent",
-                color: t.danger,
-                cursor: "pointer",
-              }}
+              className="ml-auto rounded border border-danger/60 bg-transparent px-3 py-1 text-[12px] font-semibold text-danger hover:bg-danger/10 disabled:opacity-50"
             >
               {disconnectMut.isPending ? "Disconnecting..." : "Disconnect"}
             </button>
@@ -223,146 +169,55 @@ export function OpenAISubscriptionSection({ providerId }: Props) {
         <button
           onClick={handleConnect}
           disabled={startMut.isPending}
-          style={{
-            padding: "8px 18px",
-            fontSize: 13,
-            fontWeight: 600,
-            border: "none",
-            borderRadius: 6,
-            background: t.accent,
-            color: "#fff",
-            cursor: "pointer",
-          }}
+          className="rounded-md bg-accent px-[18px] py-2 text-[13px] font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
         >
           Connect ChatGPT Account
         </button>
       )}
 
       {!isNew && !connected && phase.kind === "starting" && (
-        <div style={{ color: t.textMuted, fontSize: 12 }}>Contacting OpenAI…</div>
+        <div className="text-[12px] text-text-muted">Contacting OpenAI…</div>
       )}
 
       {phase.kind === "awaiting" && (
-        <div
-          style={{
-            padding: 12,
-            borderRadius: 8,
-            background: t.surfaceRaised,
-            border: `1px solid ${t.surfaceBorder}`,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 11,
-              color: t.textMuted,
-              marginBottom: 6,
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: "0.5px",
-            }}
-          >
+        <div className="rounded-lg border border-surface-border bg-surface-raised p-3">
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
             Step 1: open the verification page
           </div>
           <a
             href={phase.start.verification_uri_complete}
             target="_blank"
             rel="noreferrer noopener"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              color: t.accent,
-              fontSize: 13,
-              fontWeight: 600,
-              textDecoration: "none",
-              marginBottom: 12,
-            }}
+            className="mb-3 inline-flex items-center gap-1.5 text-[13px] font-semibold text-accent no-underline hover:text-accent-hover"
           >
             {phase.start.verification_uri}
             <ExternalLink size={12} />
           </a>
 
-          <div
-            style={{
-              fontSize: 11,
-              color: t.textMuted,
-              marginBottom: 6,
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: "0.5px",
-            }}
-          >
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
             Step 2: enter this code
           </div>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: 12,
-            }}
-          >
-            <code
-              style={{
-                fontSize: 20,
-                fontWeight: 700,
-                letterSpacing: "0.18em",
-                padding: "6px 14px",
-                background: t.surface,
-                border: `1px solid ${t.surfaceBorder}`,
-                borderRadius: 6,
-                fontFamily: "monospace",
-                color: t.text,
-              }}
-            >
+          <div className="mb-3 flex items-center gap-2">
+            <code className="rounded-md border border-surface-border bg-surface px-3.5 py-1.5 font-mono text-[20px] font-bold tracking-[0.18em] text-text">
               {phase.start.user_code}
             </code>
             <button
               onClick={() => copyCode(phase.start.user_code)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-                padding: "5px 10px",
-                fontSize: 11,
-                border: `1px solid ${t.surfaceBorder}`,
-                borderRadius: 5,
-                background: "transparent",
-                color: t.textMuted,
-                cursor: "pointer",
-              }}
+              className="flex items-center gap-1 rounded border border-surface-border bg-transparent px-2.5 py-1 text-[11px] text-text-muted hover:bg-surface"
             >
               <Copy size={11} />
               {phase.copied ? "Copied" : "Copy"}
             </button>
           </div>
 
-          <div
-            style={{
-              fontSize: 11,
-              color: t.textDim,
-              marginBottom: 10,
-            }}
-          >
+          <div className="mb-2.5 text-[11px] text-text-dim">
             Waiting for approval… this page will update automatically.
             {pollMut.isPending && " Polling…"}
           </div>
 
           <button
             onClick={handleCancelFlow}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "5px 10px",
-              fontSize: 11,
-              border: `1px solid ${t.surfaceBorder}`,
-              borderRadius: 5,
-              background: "transparent",
-              color: t.textMuted,
-              cursor: "pointer",
-            }}
+            className="inline-flex items-center gap-1 rounded border border-surface-border bg-transparent px-2.5 py-1 text-[11px] text-text-muted hover:bg-surface"
           >
             <X size={11} />
             Cancel
@@ -371,33 +226,12 @@ export function OpenAISubscriptionSection({ providerId }: Props) {
       )}
 
       {phase.kind === "error" && (
-        <div
-          style={{
-            padding: 10,
-            borderRadius: 6,
-            background: t.dangerSubtle,
-            color: t.danger,
-            fontSize: 12,
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
+        <div className="flex items-center gap-2 rounded-md bg-danger/10 px-2.5 py-2 text-[12px] text-danger">
           <X size={14} />
-          <span style={{ flex: 1 }}>{phase.message}</span>
+          <span className="flex-1">{phase.message}</span>
           <button
             onClick={() => setPhase({ kind: "idle" })}
-            style={{
-              padding: "3px 10px",
-              fontSize: 11,
-              fontWeight: 600,
-              border: `1px solid ${t.danger}`,
-              borderRadius: 5,
-              background: "transparent",
-              color: t.danger,
-              cursor: "pointer",
-            }}
+            className="rounded border border-danger bg-transparent px-2.5 py-0.5 text-[11px] font-semibold text-danger hover:bg-danger/10"
           >
             Dismiss
           </button>

@@ -289,3 +289,85 @@ class TestLoadAndRefresh:
         provider.config = {}
         with pytest.raises(RuntimeError, match="has no OAuth token"):
             await oa.load_and_refresh_tokens(provider)
+
+    @pytest.mark.asyncio
+    async def test_refresh_body_matches_codex_cli(self):
+        """_refresh_access_token must send JSON body with no 'scope' field,
+        mirroring the codex CLI — OpenAI rejects refresh requests whose
+        scope doesn't exactly match the original grant.
+        """
+        captured: dict = {}
+
+        class _FakeClient:
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *a):
+                return False
+            async def post(self, url, json=None, data=None, **_):
+                captured["url"] = url
+                captured["json"] = json
+                captured["data"] = data
+                r = MagicMock()
+                r.is_success = True
+                r.status_code = 200
+                r.json.return_value = {"access_token": "at", "refresh_token": "rt", "expires_in": 3600}
+                return r
+
+        with patch("httpx.AsyncClient", return_value=_FakeClient()):
+            await oa._refresh_access_token("old_rt")
+
+        assert captured["data"] is None, "refresh must use JSON, not form-encoded"
+        body = captured["json"]
+        assert body == {
+            "grant_type": "refresh_token",
+            "refresh_token": "old_rt",
+            "client_id": oa.CODEX_OAUTH_CLIENT_ID,
+        }
+        assert "scope" not in body
+
+    @pytest.mark.asyncio
+    async def test_refresh_without_new_access_token_preserves_prior(self):
+        """If OpenAI's refresh response omits access_token, we must not
+        clobber the DB field with an empty string — carry the prior value
+        forward. Same for refresh_token (non-rotating refresh flows).
+        """
+        # Set up a provider row with prior OAuth state in the async_session
+        # that _persist_tokens opens. We mock async_session so the test
+        # doesn't need a real DB.
+        row = MagicMock()
+        # encrypt() is a passthrough when ENCRYPTION_KEY isn't set.
+        row.config = {
+            "oauth": {
+                "access_token": "prior_at",
+                "refresh_token": "prior_rt",
+                "account_id": "acct",
+                "account_email": "u@e.com",
+                "plan": "plus",
+                "expires_at": "2026-05-19T00:00:00+00:00",
+                "client_id": oa.CODEX_OAUTH_CLIENT_ID,
+            }
+        }
+
+        class _FakeDB:
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *a):
+                return False
+            async def get(self, _cls, _pid):
+                return row
+            async def commit(self):
+                return None
+
+        # Refresh payload is intentionally partial: only expires_in.
+        partial_payload = {"expires_in": 3600}
+
+        with patch("app.services.openai_oauth.async_session", return_value=_FakeDB()):
+            with patch("app.services.providers._registry", {}):
+                await oa._persist_tokens("p", partial_payload)
+
+        persisted = row.config["oauth"]
+        assert persisted["access_token"] == "prior_at"
+        assert persisted["refresh_token"] == "prior_rt"
+        assert persisted["account_id"] == "acct"
+        assert persisted["account_email"] == "u@e.com"
+        assert persisted["plan"] == "plus"

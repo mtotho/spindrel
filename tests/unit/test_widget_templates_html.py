@@ -153,20 +153,33 @@ class TestApplyWidgetTemplateHtmlMode:
         preamble = env.body.split("</script>")[0]
         json_text = preamble.split("window.spindrel.toolResult = ", 1)[1].rstrip(";")
         parsed = json.loads(json_text)
-        assert parsed == {"attachment_id": "abc", "filename": "x.jpg", "size_bytes": 123}
+        # Tool result fields ride into the iframe verbatim; ``config`` is
+        # added alongside (merged default_config + pin widget_config).
+        for key, value in {"attachment_id": "abc", "filename": "x.jpg", "size_bytes": 123}.items():
+            assert parsed[key] == value
+        assert "config" in parsed
 
-    def test_preamble_excludes_widget_config(self, tmp_path):
+    def test_preamble_includes_merged_widget_config(self, tmp_path):
         _register_snapshot_widget(tmp_path)
         raw = json.dumps({"filename": "x.jpg"})
         env = apply_widget_template(
             "frigate_snapshot", raw, widget_config={"show_bbox": False},
         )
-        # `config` is a template-side concept; the iframe's toolResult should
-        # mirror the tool's own output exactly, not the merged config.
+        # The merged config (default_config < widget_config) rides into the
+        # iframe under `toolResult.config` so widget JS can gate rendering
+        # on user-selected state (e.g. starred URLs, toggles, unit prefs).
         preamble = env.body.split("</script>")[0]
         json_text = preamble.split("window.spindrel.toolResult = ", 1)[1].rstrip(";")
         parsed = json.loads(json_text)
-        assert "config" not in parsed
+        assert parsed.get("config") == {"show_bbox": False}
+
+    def test_preamble_uses_default_config_when_no_pin_overrides(self, tmp_path):
+        _register_snapshot_widget(tmp_path)
+        env = apply_widget_template("frigate_snapshot", json.dumps({"filename": "x"}))
+        preamble = env.body.split("</script>")[0]
+        json_text = preamble.split("window.spindrel.toolResult = ", 1)[1].rstrip(";")
+        parsed = json.loads(json_text)
+        assert parsed.get("config") == {"show_bbox": True}
 
     def test_display_label_substituted(self, tmp_path):
         _register_snapshot_widget(tmp_path)

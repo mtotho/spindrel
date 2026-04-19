@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import copy
 import json
 import logging
 import time
@@ -340,23 +339,39 @@ async def _persist_tokens(provider_id: str, token_payload: dict) -> None:
     Secrets are encrypted before storage; account_id/email/plan/expires_at
     stay plain for admin-UI display. Also updates the in-memory registry so
     the next ``get_llm_client`` call sees fresh tokens without a reload.
+
+    Refresh responses may return a partial payload: refresh_token often
+    rotates in, but can also be omitted entirely (non-rotating refresh);
+    access_token is normally present but not guaranteed. When either is
+    missing, fall back to the prior on-disk value rather than clobbering.
+    id_token frequently drops out on refresh too — preserve account_email
+    / account_id / plan from the existing row in that case.
     """
     info = _extract_account_info(token_payload.get("id_token") or "")
-    new_oauth = {
-        "access_token": encrypt(token_payload.get("access_token") or ""),
-        "refresh_token": encrypt(token_payload.get("refresh_token") or ""),
-        "expires_at": _compute_expires_at(token_payload),
-        "account_email": info.get("email", ""),
-        "account_id": info.get("account_id", ""),
-        "plan": info.get("plan", ""),
-        "client_id": CODEX_OAUTH_CLIENT_ID,
-    }
+
+    # Read the prior values so we can carry them forward on partial refreshes.
+    prior_plaintext: dict = {}
     async with async_session() as db:
         row = await db.get(ProviderConfigRow, provider_id)
         if row is None:
             raise RuntimeError(f"Provider {provider_id!r} not found")
+        prior_plaintext = decrypt_oauth_fields(dict(row.config or {})).get(_OAUTH_FIELD, {}) or {}
+
+        new_access = token_payload.get("access_token") or prior_plaintext.get("access_token") or ""
+        new_refresh = token_payload.get("refresh_token") or prior_plaintext.get("refresh_token") or ""
+
+        new_oauth_encrypted = {
+            "access_token": encrypt(new_access),
+            "refresh_token": encrypt(new_refresh),
+            "expires_at": _compute_expires_at(token_payload),
+            "account_email": info.get("email") or prior_plaintext.get("account_email", ""),
+            "account_id": info.get("account_id") or prior_plaintext.get("account_id", ""),
+            "plan": info.get("plan") or prior_plaintext.get("plan", ""),
+            "client_id": CODEX_OAUTH_CLIENT_ID,
+        }
+
         new_config = dict(row.config or {})
-        new_config[_OAUTH_FIELD] = new_oauth
+        new_config[_OAUTH_FIELD] = new_oauth_encrypted
         row.config = new_config
         await db.commit()
 
@@ -368,9 +383,9 @@ async def _persist_tokens(provider_id: str, token_payload: dict) -> None:
     if live is not None:
         live_config = dict(live.config or {})
         live_config[_OAUTH_FIELD] = {
-            **new_oauth,
-            "access_token": token_payload.get("access_token") or "",
-            "refresh_token": token_payload.get("refresh_token") or "",
+            **new_oauth_encrypted,
+            "access_token": new_access,
+            "refresh_token": new_refresh,
         }
         live.config = live_config
 
@@ -428,17 +443,21 @@ def _parse_expires_at(value: str | None) -> datetime | None:
 
 
 async def _refresh_access_token(refresh_token: str) -> dict:
-    """Exchange a refresh_token for a fresh access_token pair."""
+    """Exchange a refresh_token for a fresh access_token pair.
+
+    Mirrors the Codex CLI's refresh: JSON body, no ``scope`` field.
+    OpenAI's endpoint rejects the refresh if ``scope`` is present without
+    being an exact subset of the original grant, so the cleanest match is
+    to omit it entirely.
+    """
     url = f"{CODEX_OAUTH_ISSUER}{_OAUTH_TOKEN_PATH}"
-    form = {
+    body = {
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
         "client_id": CODEX_OAUTH_CLIENT_ID,
-        "scope": CODEX_OAUTH_SCOPES,
     }
-    headers = _oauth_headers("application/x-www-form-urlencoded")
-    async with httpx.AsyncClient(timeout=15.0, headers=headers) as hc:
-        resp = await hc.post(url, data=form)
+    async with httpx.AsyncClient(timeout=15.0, headers=_oauth_headers()) as hc:
+        resp = await hc.post(url, json=body)
     if not resp.is_success:
         raise RuntimeError(
             f"OAuth refresh failed: HTTP {resp.status_code} — {resp.text[:300]}"
@@ -478,11 +497,9 @@ async def load_and_refresh_tokens(provider: ProviderConfigRow) -> dict:
             )
             if still_stale:
                 token_payload = await _refresh_access_token(oauth["refresh_token"])
-                # Preserve id_token / account_id if the refresh response
-                # omits them (common with scope-narrowed refreshes).
-                if not token_payload.get("id_token") and oauth.get("account_id"):
-                    token_payload = copy.deepcopy(token_payload)
-                    token_payload.setdefault("refresh_token", oauth.get("refresh_token", ""))
+                # _persist_tokens handles partial refresh payloads (missing
+                # refresh_token / id_token / access_token) by carrying the
+                # prior values forward.
                 await _persist_tokens(provider.id, token_payload)
                 oauth = _oauth_field(provider.config)
 

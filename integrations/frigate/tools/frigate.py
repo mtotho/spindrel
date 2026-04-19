@@ -339,19 +339,14 @@ async def _download_media(
     orphan-linking attaches it to the assistant message automatically.
     A client_action is included for immediate Slack display.
 
-    ``tool_name`` — when the calling tool has a registered HTML widget,
-    we skip ONLY the web orphan-linking path: the attachment is created
-    channel-less so persist_turn doesn't auto-attach it to the assistant
-    message (which is what makes web render it inline). Everything else
-    — `client_action` (which Slack/Discord/BlueBubbles consume to post
-    the image to their own surfaces) — stays ON, because those paths are
-    orthogonal to web's inline-attachment rendering. The widget renders
-    the image in web via `attachment_id`, the integrations post it via
-    `client_action`, and nobody shows it twice.
+    ``tool_name`` — routed to ``create_widget_backed_attachment`` which
+    drops ``channel_id`` whenever a widget template is registered for
+    that tool. That opts the row out of persist_turn's orphan-linking
+    while keeping it fetchable by id; ``client_action`` (Slack/Discord
+    path) is untouched below.
     """
     from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
-    from app.services.attachments import create_attachment
-    from app.services.widget_templates import get_widget_template
+    from app.services.attachments import create_widget_backed_attachment
 
     data = await _get_bytes(path, params=params, timeout=timeout)
 
@@ -364,16 +359,9 @@ async def _download_media(
     source = current_dispatch_type.get() or "web"
     is_image = mime_type.startswith("image/")
 
-    # Web renders inline via Attachment.message_id (orphan-linking in
-    # persist_turn). Orphan-linking filters by channel_id, so creating
-    # the attachment with channel_id=None opts it out of the web inline
-    # path. The widget still fetches it by attachment_id. client_action
-    # is a separate channel (Slack/Discord renderers) — don't touch it.
-    widget_handles_web = bool(tool_name and get_widget_template(tool_name))
-
-    att = await create_attachment(
-        message_id=None,
-        channel_id=None if widget_handles_web else channel_id,
+    att = await create_widget_backed_attachment(
+        tool_name=tool_name or "",
+        channel_id=channel_id,
         filename=filename,
         mime_type=mime_type,
         size_bytes=len(data),

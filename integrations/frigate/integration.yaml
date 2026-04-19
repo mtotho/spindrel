@@ -165,3 +165,40 @@ tool_widgets:
           has_clip: true
           license_plate: "ABC 1234"
       count: 3
+
+  frigate_list_cameras:
+    content_type: application/vnd.spindrel.html+interactive
+    display: inline
+    display_label: "Frigate cameras"
+    html_template:
+      path: widgets/frigate_list_cameras.html
+    state_poll:
+      tool: frigate_list_cameras
+      args: {}
+      refresh_interval_seconds: 300
+    sample_payload:
+      cameras:
+        - name: "driveway"
+          enabled: true
+          width: 1920
+          height: 1080
+          fps: 5
+          snapshot_url: "http://frigate:5000/api/driveway/latest.jpg"
+        - name: "backyard"
+          enabled: true
+          width: 2560
+          height: 1440
+          fps: 5
+          snapshot_url: "http://frigate:5000/api/backyard/latest.jpg"
+        - name: "front_porch"
+          enabled: true
+          width: 1920
+          height: 1080
+          fps: 5
+          snapshot_url: "http://frigate:5000/api/front_porch/latest.jpg"
+        - name: "garage"
+          enabled: false
+          width: 1920
+          height: 1080
+          fps: 5
+          snapshot_url: "http://frigate:5000/api/garage/latest.jpg"

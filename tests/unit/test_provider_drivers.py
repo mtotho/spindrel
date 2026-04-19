@@ -126,11 +126,64 @@ class TestDriverCapabilities:
         assert caps.requires_base_url is False
 
     @pytest.mark.asyncio
-    async def test_openai_subscription_lists_hardcoded_models(self):
+    async def test_openai_subscription_falls_back_to_hardcoded_without_oauth(self):
+        """With no OAuth tokens, list_models returns the static fallback so
+        the admin dropdown isn't empty before the user completes Connect.
+        """
         driver = OpenAISubscriptionDriver()
         models = await driver.list_models(_mock_config(provider_type="openai-subscription"))
         assert models == list(OAUTH_MODELS)
         assert "gpt-5.3-codex" in models
+
+    @pytest.mark.asyncio
+    async def test_openai_subscription_fetches_live_models_when_connected(self):
+        """When OAuth is connected, list_models hits {base}/models with the
+        bearer + codex headers and returns whatever the endpoint exposes.
+        Keeps us aligned with OpenAI's shifting catalog.
+        """
+        from app.services.provider_drivers import openai_subscription_driver as mod
+
+        # Ensure no cached hit from a prior test interferes.
+        mod._live_models_cache.clear()
+
+        config = _mock_config(provider_type="openai-subscription", id="live-prov")
+
+        captured: dict = {}
+
+        class _FakeHC:
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *a):
+                return False
+            async def get(self, url, headers=None):
+                captured["url"] = url
+                captured["headers"] = headers
+                r = MagicMock()
+                r.is_success = True
+                r.status_code = 200
+                r.json.return_value = {
+                    "object": "list",
+                    "data": [
+                        {"id": "gpt-5-codex"},
+                        {"id": "gpt-5"},
+                        {"id": "gpt-5-mini"},
+                    ],
+                }
+                return r
+
+        async def _fake_tokens(_provider):
+            return {"access_token": "tok_abc", "account_id": "acct_xyz", "expires_at": ""}
+
+        with patch("app.services.openai_oauth.load_and_refresh_tokens", _fake_tokens):
+            with patch("httpx.AsyncClient", return_value=_FakeHC()):
+                models = await OpenAISubscriptionDriver().list_models(config)
+
+        assert models == ["gpt-5-codex", "gpt-5", "gpt-5-mini"]
+        assert captured["url"].endswith("/models")
+        assert captured["headers"]["Authorization"] == "Bearer tok_abc"
+        assert captured["headers"]["chatgpt-account-id"] == "acct_xyz"
+        assert captured["headers"]["originator"] == "codex_cli_rs"
+        assert "responses=experimental" in captured["headers"]["OpenAI-Beta"]
 
     def test_litellm_capabilities(self):
         caps = get_driver("litellm").capabilities()

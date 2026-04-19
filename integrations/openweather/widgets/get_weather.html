@@ -1,0 +1,325 @@
+<div class="sd-card" id="root">
+  <header class="sd-card-header sd-hstack-between" style="align-items: flex-start;">
+    <div class="sd-stack" style="gap: 0;">
+      <h3 class="sd-title" id="location">Weather</h3>
+      <span class="sd-meta" id="meta"></span>
+    </div>
+    <div class="sd-hstack-sm">
+      <button class="sd-btn sd-btn-subtle" id="unit-toggle" type="button" title="Toggle °F/°C">°F</button>
+      <button class="sd-btn sd-btn-subtle" id="feels-toggle" aria-pressed="false" type="button">Feels like</button>
+    </div>
+  </header>
+
+  <div class="sd-card-body">
+    <div class="sd-error" id="err" hidden></div>
+
+    <div class="sd-hstack-lg" id="hero" style="align-items: baseline; flex-wrap: wrap;">
+      <div id="temp" style="font-size: 52px; line-height: 1; font-weight: 600; color: var(--sd-text);"></div>
+      <div class="sd-stack" style="gap: 2px;">
+        <div id="conditions" style="font-size: var(--sd-font-size); text-transform: capitalize;"></div>
+        <div id="feels-chip" class="sd-meta"></div>
+      </div>
+    </div>
+
+    <div id="details" class="sd-hstack-sm" style="flex-wrap: wrap; margin-top: 10px;"></div>
+
+    <div id="alerts-wrap" style="margin-top: 12px;"></div>
+
+    <section id="hourly-section" style="margin-top: 16px;" hidden>
+      <div class="sd-hstack-between" style="margin-bottom: 6px;">
+        <span class="sd-subtitle">Next 12 hours</span>
+        <span id="hourly-range" class="sd-meta"></span>
+      </div>
+      <div id="chart-wrap" style="position: relative;">
+        <svg id="chart" viewBox="0 0 640 180" preserveAspectRatio="none"
+             style="width: 100%; height: 180px; display: block;"></svg>
+      </div>
+    </section>
+
+    <section id="daily-section" style="margin-top: 16px;" hidden>
+      <div class="sd-subtitle" style="margin-bottom: 6px;">Daily forecast</div>
+      <div id="daily-tiles" class="sd-tiles" style="--min-tile: 104px;"></div>
+    </section>
+  </div>
+</div>
+<script>
+(function () {
+  var locationEl = document.getElementById("location");
+  var metaEl = document.getElementById("meta");
+  var tempEl = document.getElementById("temp");
+  var conditionsEl = document.getElementById("conditions");
+  var feelsChipEl = document.getElementById("feels-chip");
+  var detailsEl = document.getElementById("details");
+  var alertsWrapEl = document.getElementById("alerts-wrap");
+  var chartEl = document.getElementById("chart");
+  var hourlySectionEl = document.getElementById("hourly-section");
+  var hourlyRangeEl = document.getElementById("hourly-range");
+  var dailySectionEl = document.getElementById("daily-section");
+  var dailyTilesEl = document.getElementById("daily-tiles");
+  var errEl = document.getElementById("err");
+  var unitToggle = document.getElementById("unit-toggle");
+  var feelsToggle = document.getElementById("feels-toggle");
+
+  function setError(msg) {
+    if (!msg) { errEl.hidden = true; errEl.textContent = ""; return; }
+    errEl.hidden = false;
+    errEl.textContent = msg;
+  }
+
+  function parseNumber(s) {
+    if (s == null) return null;
+    if (typeof s === "number") return s;
+    var m = String(s).match(/-?\d+(\.\d+)?/);
+    return m ? parseFloat(m[0]) : null;
+  }
+
+  function parsePct(s) {
+    var n = parseNumber(s);
+    if (n == null) return 0;
+    return Math.max(0, Math.min(100, n));
+  }
+
+  function pathFromPoints(points, close) {
+    if (!points.length) return "";
+    var d = "M" + points.map(function (p) { return p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" L");
+    if (close) {
+      var last = points[points.length - 1];
+      var first = points[0];
+      d += " L" + last.x.toFixed(1) + ",180 L" + first.x.toFixed(1) + ",180 Z";
+    }
+    return d;
+  }
+
+  function renderChart(hourly) {
+    var ns = "http://www.w3.org/2000/svg";
+    chartEl.innerHTML = "";
+    if (!Array.isArray(hourly) || hourly.length < 2) {
+      hourlySectionEl.hidden = true;
+      return;
+    }
+    hourlySectionEl.hidden = false;
+    var slice = hourly.slice(0, 12);
+
+    var W = 640, H = 180, padL = 36, padR = 16, padT = 14, padB = 26;
+    var xSpan = W - padL - padR;
+    var ySpan = H - padT - padB;
+
+    var temps = slice.map(function (h) { return parseNumber(h.temperature); }).filter(function (n) { return n != null; });
+    if (!temps.length) { hourlySectionEl.hidden = true; return; }
+    var tMin = Math.min.apply(null, temps);
+    var tMax = Math.max.apply(null, temps);
+    if (tMin === tMax) { tMin -= 1; tMax += 1; }
+    var tPad = (tMax - tMin) * 0.2;
+    tMin -= tPad; tMax += tPad;
+
+    // Y-grid
+    [0, 0.5, 1].forEach(function (frac) {
+      var y = padT + ySpan * frac;
+      var line = document.createElementNS(ns, "line");
+      line.setAttribute("x1", padL); line.setAttribute("x2", W - padR);
+      line.setAttribute("y1", y); line.setAttribute("y2", y);
+      line.setAttribute("stroke", "var(--sd-surface-border)");
+      line.setAttribute("stroke-dasharray", "2,3");
+      line.setAttribute("stroke-width", "1");
+      chartEl.appendChild(line);
+      var label = document.createElementNS(ns, "text");
+      label.setAttribute("x", padL - 8);
+      label.setAttribute("y", y + 3);
+      label.setAttribute("text-anchor", "end");
+      label.setAttribute("fill", "var(--sd-text-dim)");
+      label.setAttribute("font-size", "10");
+      label.setAttribute("font-family", "var(--sd-font-sans)");
+      label.textContent = Math.round(tMax - (tMax - tMin) * frac) + "°";
+      chartEl.appendChild(label);
+    });
+
+    // Precip bars
+    slice.forEach(function (h, i) {
+      var p = parsePct(h.precip_probability);
+      if (p <= 0) return;
+      var x = padL + (xSpan * i) / Math.max(1, slice.length - 1);
+      var barW = Math.max(6, xSpan / slice.length - 4);
+      var barH = (ySpan * p) / 100;
+      var rect = document.createElementNS(ns, "rect");
+      rect.setAttribute("x", x - barW / 2);
+      rect.setAttribute("y", padT + ySpan - barH);
+      rect.setAttribute("width", barW);
+      rect.setAttribute("height", barH);
+      rect.setAttribute("fill", "var(--sd-accent-muted)");
+      rect.setAttribute("opacity", "0.55");
+      rect.setAttribute("rx", "2");
+      chartEl.appendChild(rect);
+    });
+
+    // Temperature points/path
+    var points = slice.map(function (h, i) {
+      var t = parseNumber(h.temperature);
+      if (t == null) return null;
+      var x = padL + (xSpan * i) / Math.max(1, slice.length - 1);
+      var y = padT + ySpan - ((t - tMin) / (tMax - tMin)) * ySpan;
+      return { x: x, y: y };
+    }).filter(Boolean);
+
+    // Fill under curve for texture
+    var fill = document.createElementNS(ns, "path");
+    fill.setAttribute("d", pathFromPoints(points, true));
+    fill.setAttribute("fill", "var(--sd-accent)");
+    fill.setAttribute("opacity", "0.12");
+    chartEl.appendChild(fill);
+
+    var stroke = document.createElementNS(ns, "path");
+    stroke.setAttribute("d", pathFromPoints(points, false));
+    stroke.setAttribute("fill", "none");
+    stroke.setAttribute("stroke", "var(--sd-accent)");
+    stroke.setAttribute("stroke-width", "2");
+    stroke.setAttribute("stroke-linecap", "round");
+    stroke.setAttribute("stroke-linejoin", "round");
+    chartEl.appendChild(stroke);
+
+    points.forEach(function (p, i) {
+      var dot = document.createElementNS(ns, "circle");
+      dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y);
+      dot.setAttribute("r", 2.5);
+      dot.setAttribute("fill", "var(--sd-accent)");
+      chartEl.appendChild(dot);
+      // Temperature label every other hour to avoid crowding
+      if (i % 2 === 0) {
+        var txt = document.createElementNS(ns, "text");
+        txt.setAttribute("x", p.x);
+        txt.setAttribute("y", p.y - 6);
+        txt.setAttribute("text-anchor", "middle");
+        txt.setAttribute("fill", "var(--sd-text-muted)");
+        txt.setAttribute("font-size", "10");
+        txt.setAttribute("font-family", "var(--sd-font-sans)");
+        txt.textContent = Math.round(parseNumber(slice[i].temperature)) + "°";
+        chartEl.appendChild(txt);
+      }
+    });
+
+    // X labels
+    slice.forEach(function (h, i) {
+      if (i % 2 !== 0) return;
+      var x = padL + (xSpan * i) / Math.max(1, slice.length - 1);
+      var label = document.createElementNS(ns, "text");
+      label.setAttribute("x", x);
+      label.setAttribute("y", H - 6);
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("fill", "var(--sd-text-dim)");
+      label.setAttribute("font-size", "10");
+      label.setAttribute("font-family", "var(--sd-font-sans)");
+      label.textContent = (h.time || "").replace(/:00$/, "");
+      chartEl.appendChild(label);
+    });
+
+    hourlyRangeEl.textContent = slice[0].time + " – " + slice[slice.length - 1].time;
+  }
+
+  function renderDetail(label, value) {
+    if (value == null || value === "") return "";
+    return '<span class="sd-chip">' +
+      '<span class="sd-dim" style="margin-right: 4px;">' + label + '</span>' +
+      String(value) + '</span>';
+  }
+
+  function renderAlerts(alerts) {
+    if (!Array.isArray(alerts) || !alerts.length) {
+      alertsWrapEl.innerHTML = "";
+      return;
+    }
+    var html = alerts.map(function (a) {
+      return '<div class="sd-error" style="margin-bottom: 6px;">' +
+        '<strong>' + (a.event || "Alert") + '</strong>' +
+        (a.sender ? ' · <span class="sd-dim">' + a.sender + '</span>' : '') +
+        (a.description ? '<div class="sd-meta" style="margin-top: 4px;">' + a.description.slice(0, 280) + '</div>' : '') +
+        '</div>';
+    }).join("");
+    alertsWrapEl.innerHTML = html;
+  }
+
+  function renderDaily(daily) {
+    if (!Array.isArray(daily) || !daily.length) {
+      dailySectionEl.hidden = true;
+      return;
+    }
+    dailySectionEl.hidden = false;
+    dailyTilesEl.innerHTML = daily.slice(0, 7).map(function (d) {
+      return '<div class="sd-tile">' +
+        '<div class="sd-meta" style="font-weight: 500;">' + (d.date || "") + '</div>' +
+        '<div style="font-size: 15px; color: var(--sd-text);">' + (d.temp_max || "") + '</div>' +
+        '<div class="sd-dim">' + (d.temp_min || "") + '</div>' +
+        '<div class="sd-meta" style="text-transform: capitalize; margin-top: 2px;">' + (d.conditions || "") + '</div>' +
+        (d.precip_probability ? '<div class="sd-dim">💧 ' + d.precip_probability + '</div>' : '') +
+        '</div>';
+    }).join("");
+  }
+
+  function render(data) {
+    if (!data) { setError("No weather data"); return; }
+    if (data.error) { setError(data.error); return; }
+    setError("");
+
+    var cfg = (data.config || {});
+    var showFeels = !!cfg.show_feels_like;
+    feelsToggle.setAttribute("aria-pressed", showFeels ? "true" : "false");
+    unitToggle.textContent = cfg.units === "metric" ? "°C" : "°F";
+
+    locationEl.textContent = data.location || "Weather";
+    metaEl.textContent = data.timezone || "";
+
+    var cur = data.current || {};
+    var primaryTemp = (showFeels && cur.feels_like) ? cur.feels_like : cur.temperature;
+    tempEl.textContent = primaryTemp || "—";
+    conditionsEl.textContent = cur.conditions || "";
+
+    if (cur.feels_like && cur.temperature && !showFeels) {
+      feelsChipEl.textContent = "Feels like " + cur.feels_like;
+    } else if (showFeels && cur.temperature) {
+      feelsChipEl.textContent = "Actual " + cur.temperature;
+    } else {
+      feelsChipEl.textContent = "";
+    }
+
+    detailsEl.innerHTML = [
+      renderDetail("Humidity", cur.humidity),
+      renderDetail("Wind", cur.wind_speed),
+      renderDetail("Gust", cur.wind_gust),
+      renderDetail("UV", cur.uv_index),
+      renderDetail("Clouds", cur.cloud_cover)
+    ].join("");
+
+    renderAlerts(data.alerts);
+    renderChart(data.hourly_forecast);
+    renderDaily(data.daily_forecast);
+  }
+
+  function dispatchConfig(patch) {
+    if (!window.spindrel.channelId && !window.spindrel.botId) return;
+    var body = {
+      dispatch: "widget_config",
+      dashboard_pin_id: null,
+      config: patch,
+      display_label: locationEl.textContent || undefined
+    };
+    // When we have a dashboard_pin_id we'd dispatch; otherwise this is an
+    // inline-only widget and the toggle is purely local (render() uses the
+    // baked-in config).
+    // Dashboard pin id is embedded nowhere in the iframe — rely on host
+    // widget_config refetching on next load if backend persistence is needed.
+    window.spindrel.toolResult = Object.assign({}, window.spindrel.toolResult,
+      { config: Object.assign({}, window.spindrel.toolResult && window.spindrel.toolResult.config, patch) });
+    render(window.spindrel.toolResult);
+  }
+
+  feelsToggle.addEventListener("click", function () {
+    var next = feelsToggle.getAttribute("aria-pressed") !== "true";
+    dispatchConfig({ show_feels_like: next });
+  });
+  unitToggle.addEventListener("click", function () {
+    var cur = (window.spindrel.toolResult && window.spindrel.toolResult.config && window.spindrel.toolResult.config.units) || "imperial";
+    dispatchConfig({ units: cur === "metric" ? "imperial" : "metric" });
+  });
+
+  window.addEventListener("spindrel:toolresult", function (ev) { render(ev.detail); });
+  render(window.spindrel && window.spindrel.toolResult);
+})();
+</script>

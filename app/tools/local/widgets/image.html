@@ -1,0 +1,201 @@
+<div class="sd-card" id="root">
+  <header class="sd-card-header">
+    <h3 class="sd-title" id="title">Image</h3>
+    <span class="sd-meta" id="meta"></span>
+  </header>
+  <div class="sd-card-body">
+    <div class="sd-grid" id="grid" style="gap: var(--sd-gap-sm);"></div>
+    <p class="sd-muted" id="prompt-line" style="margin: 10px 0 0; font-size: var(--sd-font-size-sm);"></p>
+    <div class="sd-error" id="err" hidden></div>
+  </div>
+  <div class="sd-card-actions" id="actions">
+    <button class="sd-btn sd-btn-subtle" data-variant="" type="button">Try again</button>
+    <button class="sd-btn sd-btn-subtle" data-variant="brighter" type="button">Brighter</button>
+    <button class="sd-btn sd-btn-subtle" data-variant="different-angle" type="button">Different angle</button>
+    <button class="sd-btn sd-btn-subtle" data-variant="more-detail" type="button">More detail</button>
+  </div>
+</div>
+<script>
+(function () {
+  var titleEl = document.getElementById("title");
+  var metaEl = document.getElementById("meta");
+  var gridEl = document.getElementById("grid");
+  var promptEl = document.getElementById("prompt-line");
+  var errEl = document.getElementById("err");
+  var actionsEl = document.getElementById("actions");
+
+  var VARIANT_MUTATORS = {
+    "": null,
+    "brighter": "brighter, softer lighting",
+    "different-angle": "from a different angle",
+    "more-detail": "with more detail and sharper textures"
+  };
+
+  function setError(msg) {
+    if (!msg) { errEl.hidden = true; errEl.textContent = ""; return; }
+    errEl.hidden = false;
+    errEl.textContent = msg;
+  }
+
+  function normaliseImages(data) {
+    if (!data) return [];
+    if (Array.isArray(data.images) && data.images.length) return data.images;
+    var ca = data.client_action;
+    if (Array.isArray(ca)) {
+      return ca.filter(function (x) { return x && x.attachment_id; })
+               .map(function (x) { return { attachment_id: x.attachment_id, filename: x.filename }; });
+    }
+    if (ca && ca.attachment_id) {
+      return [{ attachment_id: ca.attachment_id, filename: ca.filename }];
+    }
+    return [];
+  }
+
+  function gridTemplate(n) {
+    if (n <= 1) return "1fr";
+    if (n === 2) return "1fr 1fr";
+    return "repeat(auto-fit, minmax(160px, 1fr))";
+  }
+
+  function openLightbox(src, alt) {
+    var backdrop = document.createElement("div");
+    backdrop.style.cssText = [
+      "position: fixed",
+      "inset: 0",
+      "background: rgba(0,0,0,0.85)",
+      "z-index: 9999",
+      "display: flex",
+      "align-items: center",
+      "justify-content: center",
+      "padding: 24px",
+      "cursor: zoom-out"
+    ].join(";");
+    var img = document.createElement("img");
+    img.src = src;
+    img.alt = alt || "";
+    img.style.cssText = "max-width: 100%; max-height: 100%; border-radius: var(--sd-radius-md);";
+    backdrop.appendChild(img);
+    backdrop.addEventListener("click", function () { backdrop.remove(); });
+    document.addEventListener("keydown", function onKey(ev) {
+      if (ev.key === "Escape") { backdrop.remove(); document.removeEventListener("keydown", onKey); }
+    });
+    document.body.appendChild(backdrop);
+  }
+
+  function renderImage(tile, item) {
+    var loader = document.createElement("div");
+    loader.className = "sd-skeleton";
+    loader.style.cssText = "aspect-ratio: 1/1; border-radius: var(--sd-radius-md);";
+    tile.appendChild(loader);
+    window.spindrel
+      .apiFetch("/api/v1/attachments/" + encodeURIComponent(item.attachment_id), {
+        headers: { Accept: "image/*" }
+      })
+      .then(function (r) {
+        if (!r || !r.ok) throw new Error("HTTP " + (r && r.status));
+        return r.blob();
+      })
+      .then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var img = document.createElement("img");
+        img.src = url;
+        img.alt = item.filename || "Generated image";
+        img.style.cssText = [
+          "width: 100%",
+          "height: auto",
+          "display: block",
+          "border-radius: var(--sd-radius-md)",
+          "cursor: zoom-in",
+          "background: var(--sd-surface-overlay)"
+        ].join(";");
+        img.addEventListener("click", function () { openLightbox(url, img.alt); });
+        tile.innerHTML = "";
+        tile.appendChild(img);
+      })
+      .catch(function (e) {
+        tile.innerHTML = '<div class="sd-empty" style="padding: 18px;">Image fetch failed</div>';
+        setError("Image fetch failed: " + (e && e.message));
+      });
+  }
+
+  function render(data) {
+    if (!data) { setError("No image data"); return; }
+    if (data.error) { setError(data.error); return; }
+    setError("");
+
+    var images = normaliseImages(data);
+    titleEl.textContent = images.length > 1 ? images.length + " images" : "Image";
+
+    var bits = [];
+    if (data.model) bits.push(data.model);
+    if (data.gemini_fallback) bits.push("edit fallback");
+    metaEl.textContent = bits.join(" · ");
+
+    gridEl.style.gridTemplateColumns = gridTemplate(images.length);
+    gridEl.innerHTML = "";
+    if (!images.length) {
+      gridEl.innerHTML = '<div class="sd-empty">No images returned.</div>';
+    } else {
+      images.forEach(function (item) {
+        var tile = document.createElement("div");
+        tile.className = "sd-frame";
+        tile.style.cssText = "overflow: hidden; aspect-ratio: 1/1;";
+        gridEl.appendChild(tile);
+        renderImage(tile, item);
+      });
+    }
+
+    if (data.prompt) {
+      promptEl.textContent = "“" + data.prompt + "”";
+      promptEl.style.display = "";
+    } else {
+      promptEl.style.display = "none";
+    }
+  }
+
+  function regen(variant) {
+    var data = window.spindrel && window.spindrel.toolResult;
+    var basePrompt = data && data.prompt;
+    if (!basePrompt) { setError("No prompt to regenerate from."); return; }
+    var mutator = VARIANT_MUTATORS[variant] || null;
+    var nextPrompt = mutator ? basePrompt + ", " + mutator : basePrompt;
+
+    // Disable buttons during dispatch to prevent double-clicks
+    var buttons = actionsEl.querySelectorAll("button");
+    buttons.forEach(function (b) { b.disabled = true; });
+    var clicked = actionsEl.querySelector('button[data-variant="' + variant + '"]');
+    var originalLabel = clicked ? clicked.textContent : "";
+    if (clicked) clicked.textContent = "Generating…";
+
+    var body = {
+      dispatch: "tool",
+      tool: "generate_image",
+      args: { prompt: nextPrompt },
+      bot_id: window.spindrel.botId,
+      channel_id: window.spindrel.channelId
+    };
+    window.spindrel
+      .api("/api/v1/widget-actions", { method: "POST", body: JSON.stringify(body) })
+      .then(function () {
+        // The host extracts the refreshed envelope preamble and pushes via
+        // __setToolResult, which triggers our spindrel:toolresult listener.
+      })
+      .catch(function (e) {
+        setError("Regeneration failed: " + (e && e.message));
+      })
+      .finally(function () {
+        buttons.forEach(function (b) { b.disabled = false; });
+        if (clicked) clicked.textContent = originalLabel;
+      });
+  }
+
+  actionsEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("button[data-variant]");
+    if (!btn) return;
+    regen(btn.getAttribute("data-variant"));
+  });
+
+  window.addEventListener("spindrel:toolresult", function (ev) { render(ev.detail); });
+  render(window.spindrel && window.spindrel.toolResult);
+})();
+</script>

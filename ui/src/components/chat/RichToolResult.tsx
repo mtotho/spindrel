@@ -54,10 +54,15 @@ interface Props {
    *  of measuring their inner content. Dashboard grid tiles opt in so a
    *  user-resized tile actually renders the widget at the tile's size. */
   fillHeight?: boolean;
+  /** When the rendered widget lives on a dashboard pin, pass the pin id so
+   *  interactive HTML widgets can dispatch ``widget_config`` patches that
+   *  persist against the pin (star-to-save, toggle state, etc.). Undefined
+   *  for inline chat widgets — config changes stay local-only. */
+  dashboardPinId?: string;
   t: ThemeTokens;
 }
 
-export function RichToolResult({ envelope, sessionId, channelId, botId, dispatcher, fillHeight, t }: Props) {
+export function RichToolResult({ envelope, sessionId, channelId, botId, dispatcher, fillHeight, dashboardPinId, t }: Props) {
   const [fetched, setFetched] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -168,6 +173,7 @@ export function RichToolResult({ envelope, sessionId, channelId, botId, dispatch
             envelope={envelope}
             channelId={channelId}
             fillHeight={fillHeight}
+            dashboardPinId={dashboardPinId}
             t={t}
           />
         );

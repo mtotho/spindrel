@@ -1,0 +1,21 @@
+# Widget template for generate_image — renders as an interactive HTML widget
+# with lightbox + regen buttons that dispatch mutated prompts.
+
+generate_image:
+  content_type: application/vnd.spindrel.html+interactive
+  display: inline
+  display_label: "Image"
+  html_template:
+    path: widgets/image.html
+  sample_payload:
+    message: "1 image(s) generated successfully."
+    prompt: "a golden retriever wearing aviator sunglasses lounging on a tropical beach, cinematic lighting"
+    model: "gpt-image-1"
+    images:
+      - attachment_id: "00000000-0000-0000-0000-000000000001"
+        filename: "generated.png"
+    client_action:
+      type: upload_image
+      attachment_id: "00000000-0000-0000-0000-000000000001"
+      filename: "generated.png"
+      caption: ""

@@ -1,0 +1,226 @@
+<div class="sd-card" id="root">
+  <header class="sd-card-header sd-hstack-between" style="align-items: flex-start;">
+    <div class="sd-stack" style="gap: 0;">
+      <h3 class="sd-title" id="query-line">Results</h3>
+      <span class="sd-meta" id="count-line"></span>
+    </div>
+    <div class="sd-hstack-sm">
+      <button class="sd-btn sd-btn-subtle" id="starred-filter" aria-pressed="false" type="button" title="Show only starred results">☆ <span id="starred-count">0</span></button>
+    </div>
+  </header>
+  <div class="sd-card-body">
+    <div class="sd-error" id="err" hidden></div>
+    <div id="list" class="sd-stack-sm"></div>
+    <div class="sd-empty" id="empty" hidden>No results.</div>
+  </div>
+</div>
+<script>
+(function () {
+  var queryEl = document.getElementById("query-line");
+  var countEl = document.getElementById("count-line");
+  var listEl = document.getElementById("list");
+  var emptyEl = document.getElementById("empty");
+  var errEl = document.getElementById("err");
+  var starredFilterEl = document.getElementById("starred-filter");
+  var starredCountEl = document.getElementById("starred-count");
+
+  function setError(msg) {
+    if (!msg) { errEl.hidden = true; errEl.textContent = ""; return; }
+    errEl.hidden = false;
+    errEl.textContent = msg;
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function domainOf(url) {
+    try {
+      var u = new URL(url);
+      return u.hostname.replace(/^www\./, "");
+    } catch (_) { return ""; }
+  }
+
+  function currentStarred() {
+    var cfg = (window.spindrel.toolResult && window.spindrel.toolResult.config) || {};
+    return Array.isArray(cfg.starred) ? cfg.starred.slice() : [];
+  }
+
+  function pinId() {
+    return (window.spindrel && window.spindrel.dashboardPinId) || null;
+  }
+
+  function persistStarred(next) {
+    var body = {
+      dispatch: "widget_config",
+      config: { starred: next }
+    };
+    var pid = pinId();
+    if (pid) body.dashboard_pin_id = pid;
+    // Optimistically mutate the local toolResult so subsequent reads see it
+    // before the server round-trips.
+    if (window.spindrel.toolResult) {
+      window.spindrel.toolResult.config = Object.assign(
+        {},
+        window.spindrel.toolResult.config || {},
+        { starred: next }
+      );
+    }
+    if (!pid) {
+      // Inline (non-pinned) widget — no backend to persist to. Local-only.
+      return Promise.resolve();
+    }
+    return window.spindrel
+      .api("/api/v1/widget-actions", { method: "POST", body: JSON.stringify(body) })
+      .catch(function (e) { setError("Could not persist star: " + (e && e.message)); });
+  }
+
+  function toggleStar(url) {
+    var starred = currentStarred();
+    var idx = starred.indexOf(url);
+    if (idx >= 0) starred.splice(idx, 1); else starred.push(url);
+    persistStarred(starred).then(function () { render(window.spindrel.toolResult); });
+  }
+
+  function openUrl(url) {
+    // Can't open top-level navigations inside sandbox="allow-scripts
+    // allow-same-origin" — no allow-popups either. Post a message to the
+    // host so the containing app can open it in a new tab.
+    try {
+      window.top.postMessage({ type: "spindrel:open-url", url: url }, "*");
+    } catch (_) { /* ignore */ }
+    // Best-effort secondary: try the open() call directly.
+    try { window.open(url, "_blank", "noopener,noreferrer"); } catch (_) { /* ignore */ }
+  }
+
+  function renderResult(r, starred) {
+    var url = r.url || "";
+    var isStarred = starred.indexOf(url) >= 0;
+    var dom = domainOf(url);
+    var faviconSrc = dom ? ("/api/v1/favicon?domain=" + encodeURIComponent(dom)) : "";
+    var card = document.createElement("article");
+    card.className = "sd-tile";
+    card.style.cssText = "padding: 10px 12px; display: flex; gap: 10px; align-items: flex-start;";
+    card.innerHTML =
+      (faviconSrc
+        ? '<img src="' + faviconSrc + '" width="20" height="20" alt="" ' +
+          'style="flex-shrink: 0; border-radius: 3px; margin-top: 3px; background: var(--sd-surface-overlay);" ' +
+          'onerror="this.style.visibility=\'hidden\'"/>'
+        : '<div style="width:20px; flex-shrink: 0;"></div>') +
+      '<div class="sd-stack" style="flex: 1; min-width: 0; gap: 2px;">' +
+        '<a href="#" class="sd-title result-title" data-url="' + escapeHtml(url) + '" ' +
+          'style="font-size: 14px; font-weight: 500; color: var(--sd-accent); text-decoration: none; cursor: pointer;">' +
+          escapeHtml(r.title || url) +
+        '</a>' +
+        '<div class="sd-meta" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">' +
+          (dom ? '<span class="sd-chip" style="font-size: 10px;">' + escapeHtml(dom) + '</span>' : '') +
+        '</div>' +
+        '<p class="sd-muted result-snippet" style="margin: 2px 0 0; font-size: var(--sd-font-size-sm); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">' +
+          escapeHtml(r.content || "") +
+        '</p>' +
+        '<div class="sd-hstack-sm" style="margin-top: 6px;">' +
+          '<button class="sd-btn sd-btn-subtle star-btn" data-url="' + escapeHtml(url) + '" aria-pressed="' + (isStarred ? 'true' : 'false') + '" type="button" title="Save for later" style="padding: 2px 8px; font-size: 11px;">' +
+            (isStarred ? '★ Saved' : '☆ Save') +
+          '</button>' +
+          '<button class="sd-btn sd-btn-subtle summarize-btn" data-url="' + escapeHtml(url) + '" type="button" style="padding: 2px 8px; font-size: 11px;">' +
+            '✎ Summarize' +
+          '</button>' +
+          '<button class="sd-btn sd-btn-subtle open-btn" data-url="' + escapeHtml(url) + '" type="button" style="padding: 2px 8px; font-size: 11px;">' +
+            'Open ↗' +
+          '</button>' +
+        '</div>' +
+        '<div class="summary-panel" hidden style="margin-top: 8px;"></div>' +
+      '</div>';
+    return card;
+  }
+
+  function render(data) {
+    if (!data) { setError("No search data"); return; }
+    if (data.error) { setError(data.error); return; }
+    setError("");
+
+    var results = Array.isArray(data.results) ? data.results : [];
+    var starred = currentStarred();
+    var showOnlyStarred = starredFilterEl.getAttribute("aria-pressed") === "true";
+
+    queryEl.textContent = data.query ? '“' + data.query + '”' : 'Web search';
+    countEl.textContent = results.length + (results.length === 1 ? " result" : " results");
+    starredCountEl.textContent = starred.length;
+    starredFilterEl.style.opacity = starred.length ? "1" : "0.5";
+
+    var shown = showOnlyStarred
+      ? results.filter(function (r) { return starred.indexOf(r.url) >= 0; })
+      : results;
+
+    listEl.innerHTML = "";
+    if (!shown.length) {
+      emptyEl.hidden = false;
+      emptyEl.textContent = showOnlyStarred ? "No starred results yet." : "No results.";
+      return;
+    }
+    emptyEl.hidden = true;
+    shown.forEach(function (r) { listEl.appendChild(renderResult(r, starred)); });
+  }
+
+  listEl.addEventListener("click", function (ev) {
+    var star = ev.target.closest(".star-btn");
+    if (star) { toggleStar(star.getAttribute("data-url")); return; }
+    var open = ev.target.closest(".open-btn");
+    if (open) { openUrl(open.getAttribute("data-url")); return; }
+    var title = ev.target.closest(".result-title");
+    if (title) { ev.preventDefault(); openUrl(title.getAttribute("data-url")); return; }
+    var sum = ev.target.closest(".summarize-btn");
+    if (sum) { summarize(sum); }
+  });
+
+  function summarize(btn) {
+    var url = btn.getAttribute("data-url");
+    var card = btn.closest(".sd-tile");
+    var panel = card.querySelector(".summary-panel");
+    if (!panel.hidden && panel.dataset.url === url) { panel.hidden = true; return; }
+
+    btn.disabled = true;
+    var oldLabel = btn.textContent;
+    btn.textContent = "Summarizing…";
+    panel.hidden = false;
+    panel.dataset.url = url;
+    panel.innerHTML = '<div class="sd-skeleton" style="height: 40px;"></div>';
+
+    var body = {
+      dispatch: "tool",
+      tool: "fetch_url",
+      args: { url: url },
+      bot_id: window.spindrel.botId,
+      channel_id: window.spindrel.channelId
+    };
+    window.spindrel
+      .api("/api/v1/widget-actions", { method: "POST", body: JSON.stringify(body) })
+      .then(function (resp) {
+        var env = resp && resp.envelope;
+        var text = (env && (env.plain_body || env.body)) || "No content returned.";
+        if (typeof text !== "string") text = JSON.stringify(text);
+        var clipped = text.length > 1400 ? text.slice(0, 1400) + "…" : text;
+        panel.innerHTML = '<div class="sd-tile" style="padding: 10px 12px; white-space: pre-wrap; font-size: var(--sd-font-size-sm); max-height: 240px; overflow-y: auto;">' +
+          escapeHtml(clipped) + '</div>';
+      })
+      .catch(function (e) {
+        panel.innerHTML = '<div class="sd-error">Summarize failed: ' + escapeHtml(e && e.message) + '</div>';
+      })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = oldLabel;
+      });
+  }
+
+  starredFilterEl.addEventListener("click", function () {
+    var next = starredFilterEl.getAttribute("aria-pressed") !== "true";
+    starredFilterEl.setAttribute("aria-pressed", next ? "true" : "false");
+    render(window.spindrel.toolResult);
+  });
+
+  window.addEventListener("spindrel:toolresult", function (ev) { render(ev.detail); });
+  render(window.spindrel && window.spindrel.toolResult);
+})();
+</script>
