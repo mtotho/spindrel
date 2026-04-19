@@ -717,7 +717,11 @@ class TestNewMessage:
         # from actor.id can't silently break echo prevention.
         ev = _new_message_event(
             role="user",
-            content="[Slack channel:C123 user:U06STGBF4Q0] Test from slack",
+            # Per the ingest contract, content is the raw user text; Slack
+            # identity lives in metadata. The echo-prevention check must
+            # hinge on metadata.source (and the actor.id fallback below) —
+            # NOT on any in-content prefix.
+            content="Test from slack",
             actor=ActorRef.user("U06STGBF4Q0", display_name="Michael"),
             metadata={"source": "slack", "sender_id": "slack:U06STGBF4Q0"},
         )
@@ -742,7 +746,7 @@ class TestNewMessage:
         slack_origin_actor = ActorRef.user("slack:U06STGBF4Q0", display_name="Michael")
         ev = _new_message_event(
             role="user",
-            content="[Slack channel:C123 user:U06STGBF4Q0] Test from slack",
+            content="Test from slack",
             actor=slack_origin_actor,
             # metadata empty — exercises the fallback path
         )

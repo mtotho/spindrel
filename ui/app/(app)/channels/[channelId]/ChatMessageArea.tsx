@@ -292,11 +292,11 @@ export function ChatMessageArea({
           className="scroll-fab"
           style={{
             position: "absolute",
-            bottom: 16,
-            right: 24,
-            width: 40,
-            height: 40,
-            borderRadius: 20,
+            bottom: "calc(16px + env(safe-area-inset-bottom))",
+            right: 16,
+            width: 48,
+            height: 48,
+            borderRadius: 24,
             backgroundColor: t.surfaceRaised,
             border: `1px solid ${t.surfaceBorder}`,
             display: "flex", flexDirection: "row",
@@ -307,7 +307,7 @@ export function ChatMessageArea({
             padding: 0,
           }}
         >
-          <ChevronDown size={20} color={t.textMuted} />
+          <ChevronDown size={22} color={t.textMuted} />
         </button>
       )}
     </div>

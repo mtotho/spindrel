@@ -275,6 +275,16 @@ async def dispatch(
     if not is_bot_sender:
         _slack_display_name = await _resolve_slack_display_name(client, user)
 
+    thread_summary = ""
+    if thread_ts:
+        thread_summary = await _fetch_thread_parent_summary(
+            client, channel, thread_ts, message_ts,
+        )
+
+    # Per the ingest contract (docs/integrations/message-ingest-contract.md):
+    # content is the raw user text; identity/routing/thread context lives in
+    # metadata. The assembly layer composes the LLM-facing "[Name (<@U…>)]:"
+    # prefix and injects thread_context as a system block adjacent to the turn.
     msg_metadata = {
         "passive": is_passive,
         "include_in_memory": config["passive_memory"],
@@ -283,28 +293,14 @@ async def dispatch(
         "sender_type": "bot" if is_bot_sender else "human",
         "sender_id": f"slack:{user}",
         "sender_display_name": _slack_display_name,
+        "channel_external_id": channel,
+        # Only humans get a mention token — Slack bot users don't have one.
+        "mention_token": None if is_bot_sender else f"<@{user}>",
+        "thread_context": thread_summary or None,
         "recipient_id": f"bot:{bot_id}" if mentioned else None,
     }
 
-    # Show the user's Slack ID in native <@...> syntax so the agent can tag
-    # them back by copying the token verbatim.
-    if is_bot_sender:
-        sender_mention = _slack_display_name
-    else:
-        sender_mention = f"{_slack_display_name} (<@{user}>)"
-
-    thread_summary = ""
-    if thread_ts:
-        thread_summary = await _fetch_thread_parent_summary(
-            client, channel, thread_ts, message_ts,
-        )
-    thread_prefix = f"{thread_summary}\n\n" if thread_summary else ""
-
-    full_message = (
-        f"{thread_prefix}"
-        f"[Slack channel:{channel} user:{sender_mention}] "
-        f"{text}{appended}"
-    )
+    full_message = f"{text}{appended}"
 
     if is_passive:
         # Store message without running agent

@@ -31,6 +31,64 @@ tools, importable from one place::
 Works for in-repo integrations, packages/, and external INTEGRATION_DIRS.
 When running standalone (outside the server), provides compatible stubs
 for tool registration so integrations can be developed independently.
+
+Message ingest contract (REQUIRED READING FOR INTEGRATION AUTHORS)
+------------------------------------------------------------------
+
+When your integration receives a user-authored message and submits it to
+the agent (via ``submit_chat``, ``inject_message``, or
+``store_passive_message_http``), follow this rule:
+
+    ``content`` = the raw text the human typed.
+    ``msg_metadata`` / ``extra_metadata`` = everything else.
+
+Do NOT concatenate ``[Source channel:… user:…]`` or ``[Name]:`` or thread
+summaries into ``content``. The assembly layer composes the LLM-facing
+attribution prefix from metadata and injects thread context as a system
+block — having integrations do their own formatting produces double
+attribution, fragile UI strippers, and drift between what the human
+actually said and what we store.
+
+Metadata shape (see ``app.routers.chat._schemas.IngestMessageMetadata``)::
+
+    {
+        "source": "slack",                         # required
+        "sender_id": "slack:U06STGBF4Q0",          # required, namespaced
+        "sender_display_name": "Olivia",           # required
+        "sender_type": "human",                    # required ("human" | "bot")
+        "channel_external_id": "C06RY3YBSLE",      # optional
+        "mention_token": "<@U06STGBF4Q0>",         # optional; platform-native
+                                                   #  tag syntax so the agent
+                                                   #  can echo it back verbatim
+        "thread_context": "[Thread context — …]",  # optional; multi-line,
+                                                   #  LLM-ready prior-message
+                                                   #  summary
+        "is_from_me": False,                       # optional; BlueBubbles
+        "passive": False,                          # optional
+        "trigger_rag": True,                       # optional
+        "recipient_id": "bot:calc-bot",            # optional
+    }
+
+Worked example — Slack inbound::
+
+    msg_metadata = {
+        "source": "slack",
+        "sender_id": f"slack:{user}",
+        "sender_display_name": display_name,
+        "sender_type": "human",
+        "channel_external_id": channel,
+        "mention_token": f"<@{user}>",      # required for outbound @-tags
+        "thread_context": thread_summary or None,
+    }
+    await submit_chat(
+        message=text,                       # RAW user text — nothing else
+        bot_id=bot_id, client_id=client_id,
+        msg_metadata=msg_metadata,
+        dispatch_type="slack", dispatch_config={...},
+    )
+
+See ``docs/integrations/message-ingest-contract.md`` for the full
+rationale and the walkthrough for Discord / BlueBubbles / etc.
 """
 from __future__ import annotations
 

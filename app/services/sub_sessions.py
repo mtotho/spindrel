@@ -126,18 +126,22 @@ async def emit_step_output_message(
 
     Message shape:
       role = "assistant"
-      content = state.result (or a rendered error) — raw enough that
-        Markdown / JSON / plain-text auto-detection in the chat renderer
-        picks the right rendering.
+      content = state.result (or a rendered error) — kept for historical
+        consumers; UI suppresses this when ``metadata.envelope`` is set.
       metadata_ = {
         kind: "step_output",
         step_index, step_type, step_name, tool_name?,
-        status, error, duration_ms, args?
+        status, error, duration_ms,
+        envelope?: ToolResultEnvelope.compact_dict(),
+        source?: tool_name or step_type,
       }
 
-    The chat renderer uses ``kind == "step_output"`` to pick the rich
-    widget for tool-output results (WidgetCard templates, JSON cards,
-    Markdown) — that UI wiring lands in the envelope-refactor phase.
+    For successful non-agent steps with textual output, we stamp a full
+    ``ToolResultEnvelope`` onto ``metadata.envelope`` so ``MessageBubble``
+    dispatches to the same ``RichToolResult`` renderer that chat uses —
+    JSON tree, markdown, diff, file-listing, components, etc. Agent steps
+    are skipped because their child Task's turn already produces the
+    normal assistant/tool-call Messages on the sub-session.
     """
     # Local imports to dodge circular dependency with task_run_anchor.
     import uuid as _uuid
@@ -184,7 +188,7 @@ async def emit_step_output_message(
     except Exception:
         pass
 
-    metadata = {
+    metadata: dict = {
         "kind": "step_output",
         "step_index": step_index,
         "step_type": step_type,
@@ -192,12 +196,41 @@ async def emit_step_output_message(
         "status": status,
         "ui_only": True,
     }
-    if step_def.get("tool_name"):
-        metadata["tool_name"] = step_def["tool_name"]
+    tool_name = step_def.get("tool_name")
+    if tool_name:
+        metadata["tool_name"] = tool_name
     if error_text:
         metadata["error"] = error_text[:2000]
     if duration_ms is not None:
         metadata["duration_ms"] = duration_ms
+
+    # Build a ToolResultEnvelope so the UI dispatches through the same
+    # RichToolResult renderer as normal chat (JSON tree, markdown, diff,
+    # file-listing, components, ...). Local import to avoid pulling the
+    # agent stack on module load — step_executor runs in a tight loop and
+    # this helper is on the hot path.
+    if (
+        status == "done"
+        and isinstance(result_text, str)
+        and result_text
+    ):
+        try:
+            from app.agent.tool_dispatch import _build_default_envelope  # type: ignore
+
+            envelope = _build_default_envelope(result_text)
+            envelope.display = "inline"
+            if tool_name:
+                envelope.tool_name = tool_name
+            metadata["envelope"] = envelope.compact_dict()
+            # Label on the envelope chip — tool_name for tool steps, the
+            # step type otherwise ("exec", "evaluate").
+            metadata["source"] = tool_name or step_type
+        except Exception:
+            logger.exception(
+                "emit_step_output_message: envelope build failed for task %s step %d",
+                task.id,
+                step_index,
+            )
 
     msg = Message(
         id=_uuid.uuid4(),

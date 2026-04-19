@@ -132,15 +132,19 @@ def register_slash_commands(tree: app_commands.CommandTree) -> None:
             return
 
         client_id = discord_client_id(channel_id)
+        # Ingest contract: content = raw text; identity/routing in metadata.
         msg_metadata = {
             "passive": False,
             "source": "discord",
             "sender_type": "human",
             "sender_id": f"discord:{user}",
+            "sender_display_name": interaction.user.display_name,
+            "channel_external_id": str(channel_id),
+            "mention_token": f"<@{user}>",
             "recipient_id": f"bot:{bot_id}",
             "trigger_rag": True,
         }
-        full_message = f"[Discord channel:{channel_id} user:{interaction.user.display_name}] {message}"
+        full_message = message
         dispatch_config = {
             "channel_id": channel_id,
             "token": DISCORD_TOKEN,

@@ -49,7 +49,14 @@ import type { Message } from "@/src/types/api";
 
 import type { ActiveHud } from "@/src/api/hooks/useChatHud";
 
-/** Collapsible wrapper around HUD status strips with a toggle icon. */
+/** Collapsible wrapper around HUD status strips with a toggle icon.
+ *
+ * On mobile (`compact`), the HUD defaults to collapsed — it's channel chrome
+ * the user can opt into, not something we shove above every conversation.
+ * On desktop the legacy expanded-by-default behavior is preserved. The
+ * `hudCollapsedChannels` store value records the user's *explicit* toggle,
+ * so a tap to collapse on desktop also persists to mobile and vice versa.
+ */
 function HudStripBar({
   statusStrips,
   channelId,
@@ -60,20 +67,30 @@ function HudStripBar({
   compact: boolean;
 }) {
   const t = useThemeTokens();
-  const hudCollapsed = useUIStore((s) => s.hudCollapsedChannels.includes(channelId));
+  const explicitlyCollapsed = useUIStore((s) => s.hudCollapsedChannels.includes(channelId));
+  const explicitlyExpanded = useUIStore((s) => s.hudExpandedOnMobile.includes(channelId));
   const toggleHud = useUIStore((s) => s.toggleHudCollapsed);
+  const toggleMobileExpand = useUIStore((s) => s.toggleHudExpandedOnMobile);
+  const hudCollapsed = compact
+    ? (!explicitlyExpanded || explicitlyCollapsed)
+    : explicitlyCollapsed;
+  const handleToggle = () => {
+    if (compact) toggleMobileExpand(channelId);
+    else toggleHud(channelId);
+  };
 
   if (hudCollapsed) {
     return (
       <button
-        onClick={() => toggleHud(channelId)}
+        onClick={handleToggle}
         aria-label="Expand HUD"
         style={{
           display: "flex", flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
           gap: 4,
-          padding: "6px 0",
+          padding: "10px 0",
+          minHeight: 28,
           border: "none",
           borderBottom: `1px solid ${t.surfaceBorder}`,
           background: t.surfaceRaised,
@@ -94,19 +111,22 @@ function HudStripBar({
         <HudStatusStrip key={h.key} hud={h} compact={compact} />
       ))}
       <button
-        onClick={() => toggleHud(channelId)}
+        onClick={handleToggle}
         className="header-icon-btn"
         style={{
           position: "absolute",
-          right: 4,
-          top: 2,
+          right: 0,
+          top: 0,
+          width: 32,
+          height: 32,
           background: "none",
           border: "none",
           cursor: "pointer",
-          padding: 6,
+          padding: 0,
           borderRadius: 4,
           display: "flex", flexDirection: "row",
           alignItems: "center",
+          justifyContent: "center",
           opacity: 0.4,
         }}
         title="Collapse HUD"
@@ -519,13 +539,17 @@ export default function ChatScreen() {
 
   const outerChildren = (
     <>
-      {/* Unified header block — glass bg + single bottom border */}
+      {/* Unified header block — glass bg + single bottom border.
+          Safe-area top inset is active in PWA / standalone mode where the
+          Dynamic Island / notch overlays the webview. In a browser tab
+          `env(safe-area-inset-top)` resolves to 0, so this is a no-op. */}
       <div style={{
         borderBottom: `1px solid ${t.surfaceBorder}`,
         flexShrink: 0,
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
         backgroundColor: `${t.surface}e6`,
+        paddingTop: isMobile ? "env(safe-area-inset-top)" : undefined,
       }}>
         <ChannelHeader
           channelId={channelId!}

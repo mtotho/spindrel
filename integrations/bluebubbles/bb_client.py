@@ -194,11 +194,16 @@ async def _handle_message(message: dict) -> None:
         "password": BB_PASSWORD,
     }
 
-    # Build sender metadata
+    # Build sender metadata per the ingest contract. content (the `text` var
+    # below) is the raw message; routing and identity live here.
     sender = _extract_sender(message) if not is_from_me else "me"
+    _attribution_name = "Me" if is_from_me else sender
     msg_metadata = {
+        "source": "bluebubbles",
         "sender": sender,
-        "sender_display_name": sender,
+        "sender_type": "human",
+        "sender_id": f"bb:{sender}",
+        "sender_display_name": _attribution_name,
         "is_from_me": is_from_me,
         "bb_guid": msg_guid,
     }
@@ -225,13 +230,17 @@ async def _store_passive(chat_guid: str, message: dict, text: str,
     bot_id = _bot_for_chat(chat_guid)
     client_id = bb_client_id(chat_guid)
     sender = _extract_sender(message)
+    # Ingest contract: content = raw text; identity lives in metadata.
     try:
         await store_passive_message(
             client_id=client_id,
             bot_id=bot_id,
-            content=f"[{sender}]: {text}",
+            content=text,
             metadata={
+                "source": "bluebubbles",
                 "sender": sender,
+                "sender_type": "human",
+                "sender_id": f"bb:{sender}",
                 "sender_display_name": sender,
                 "bb_guid": message.get("guid", ""),
                 "include_in_memory": include_in_memory,

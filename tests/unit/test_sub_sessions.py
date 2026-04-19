@@ -193,6 +193,53 @@ class TestEmitStepOutputMessage:
             task=task, step_def=step_def, step_index=0, state=state, db=db_session,
         )
 
+    async def test_tool_step_stamps_envelope_for_rich_ui(self, db_session):
+        """Tool step results must carry a ``ToolResultEnvelope`` on
+        ``metadata.envelope`` so ``MessageBubble`` → ``RichToolResult``
+        dispatches to the JSON/markdown/diff/etc. renderers instead of
+        falling back to a raw MarkdownContent dump."""
+        task = await self._make_task_with_sub(db_session)
+        step_def = {"type": "tool", "tool_name": "call_api", "name": "Fetch bot"}
+        state = {
+            "status": "done",
+            "result": '{"status": 200, "body": {"id": "olivia-bot", "name": "Sprout"}}',
+            "started_at": "2026-04-18T10:00:00+00:00",
+            "completed_at": "2026-04-18T10:00:00.050000+00:00",
+        }
+
+        await emit_step_output_message(
+            task=task, step_def=step_def, step_index=2, state=state, db=db_session,
+        )
+
+        row = (await db_session.execute(
+            select(Message).where(Message.session_id == task.run_session_id)
+        )).scalar_one()
+        env = row.metadata_.get("envelope")
+        assert env is not None, "tool step must populate metadata.envelope"
+        assert env["content_type"] == "application/json"
+        assert env["tool_name"] == "call_api"
+        assert env["display"] == "inline"
+        assert "olivia-bot" in (env.get("body") or "")
+        # `source` drives the header chip in MessageBubble's rich-envelope path.
+        assert row.metadata_["source"] == "call_api"
+
+    async def test_failed_tool_step_omits_envelope(self, db_session):
+        """Failed steps render via the plain error-text path — no
+        envelope means MessageBubble falls back to MarkdownContent
+        (which shows the `[error] ...` string)."""
+        task = await self._make_task_with_sub(db_session)
+        step_def = {"type": "tool", "tool_name": "call_api"}
+        state = {"status": "failed", "result": None, "error": "boom"}
+
+        await emit_step_output_message(
+            task=task, step_def=step_def, step_index=0, state=state, db=db_session,
+        )
+
+        row = (await db_session.execute(
+            select(Message).where(Message.session_id == task.run_session_id)
+        )).scalar_one()
+        assert "envelope" not in row.metadata_
+
     async def test_writes_error_envelope_on_failure(self, db_session):
         task = await self._make_task_with_sub(db_session)
         step_def = {"type": "tool", "tool_name": "call_api", "name": "API"}

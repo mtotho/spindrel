@@ -9,6 +9,10 @@ import logging
 from dataclasses import dataclass
 
 from app.agent import bots as _bots_mod
+from app.agent.message_formatting import (
+    compose_attribution_prefix,
+    compose_thread_context_block,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,25 +22,66 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _apply_user_attribution(messages: list[dict]) -> None:
-    """Add [Name]: prefix to user messages based on _metadata.sender_display_name.
+    """Prefix user messages with an attribution header built from ``_metadata``.
 
-    Must be called while _metadata is still present (before strip_metadata_keys).
-    Safe to call alongside _rewrite_history_for_member_bot — duplicate-prefix
-    check prevents double-prefixing.
+    Single source of truth for the ``[Speaker]:`` / ``[Speaker (<@U…>)]:`` line
+    the LLM sees on user turns — integrations MUST NOT bake their own prefix
+    into content (see ``docs/integrations/message-ingest-contract.md``). The
+    prefix shape is composed by
+    :func:`app.agent.message_formatting.compose_attribution_prefix` from the
+    metadata contract (``sender_display_name`` required, ``mention_token``
+    optional for platforms that need a native tag token).
+
+    Idempotent: re-entry on an already-prefixed message leaves it alone.
+    Must run while ``_metadata`` is still present (before
+    ``strip_metadata_keys``).
     """
     for msg in messages:
         if msg.get("role") != "user":
             continue
         meta = msg.get("_metadata") or {}
-        sender_name = meta.get("sender_display_name", "")
-        if not sender_name:
+        prefix = compose_attribution_prefix(meta)
+        if not prefix:
             continue
         content = msg.get("content", "")
         # Skip multimodal messages (list content from image attachments)
         if not isinstance(content, str):
             continue
-        if not content.startswith(f"[{sender_name}]:"):
-            msg["content"] = f"[{sender_name}]: {content}"
+        if content.startswith(prefix):
+            continue
+        # Also skip if a legacy name-only prefix is already present — the
+        # idempotency guard from the pre-mention-token era.
+        legacy_prefix = f"[{meta.get('sender_display_name')}]:"
+        if prefix != legacy_prefix and content.startswith(legacy_prefix):
+            continue
+        msg["content"] = f"{prefix} {content}"
+
+
+def _inject_thread_context_blocks(messages: list[dict]) -> None:
+    """Insert a system message containing each user turn's ``thread_context``.
+
+    When an integration supplies a multi-line summary of prior thread messages
+    via ``_metadata.thread_context`` (e.g. Slack threaded replies), we expose
+    that to the LLM as a system block placed immediately before the user turn
+    it belongs to — never concatenated into the user's own text.
+
+    Must run while ``_metadata`` is still present (before
+    ``strip_metadata_keys``). Idempotent: re-entry does nothing because the
+    injected system messages have no metadata.
+    """
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        if msg.get("role") != "user":
+            i += 1
+            continue
+        meta = msg.get("_metadata") or {}
+        block = compose_thread_context_block(meta)
+        if not block:
+            i += 1
+            continue
+        messages.insert(i, {"role": "system", "content": block})
+        i += 2  # skip the inserted block and the user message itself
 
 
 def _rewrite_history_for_member_bot(
@@ -227,7 +272,8 @@ async def prepare_bot_context(
     2. Save raw snapshot (deep copy, pre-rewrite)
     3. If from_snapshot: extract user prompt from end
     4. _rewrite_history_for_member_bot()
-    5. _apply_user_attribution()  ← was missing from member bot path
+    5. _apply_user_attribution()
+    5b. _inject_thread_context_blocks()
     6. strip_metadata_keys()
     7. _inject_member_config()
     8. _build_identity_preamble() → returns preamble or None
@@ -291,6 +337,9 @@ async def prepare_bot_context(
 
     # --- Step 5: apply user attribution (THE BUG FIX) ---
     _apply_user_attribution(messages)
+
+    # --- Step 5b: inject per-turn thread_context blocks as system messages ---
+    _inject_thread_context_blocks(messages)
 
     # --- Step 6: strip metadata ---
     from app.services.sessions import strip_metadata_keys

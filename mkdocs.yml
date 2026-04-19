@@ -61,6 +61,7 @@ nav:
     - Creating an Integration: integrations/index.md
     - Example Integration: integrations/example.md
     - Activation & Templates: integrations/activation-and-templates.md
+    - Message Ingest Contract: integrations/message-ingest-contract.md
     - Design Philosophy: integrations/design.md
   - Reference:
     - Architecture: reference/architecture.md

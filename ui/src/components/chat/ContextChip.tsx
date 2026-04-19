@@ -26,18 +26,20 @@ const SOURCE_BADGE: Record<string, { label: string; bg: string; fg: string }> = 
 
 interface ContextChipProps {
   channelId?: string;
-  /** Composer text — used to count not-yet-sent @skill: tags. */
-  composerText: string;
+  /** Composer text — used to count not-yet-sent @skill: tags. Omit for view-only placements (e.g. header). */
+  composerText?: string;
   /** Current bot — enrolled skills sort first and get an "enrolled" marker. */
   botId?: string;
-  /** Insert "@skill:<id> " at cursor in the composer. */
-  onInsertSkillTag: (skillId: string) => void;
+  /** Insert "@skill:<id> " at cursor in the composer. When omitted, the popover becomes view-only — no search / drop-in section. */
+  onInsertSkillTag?: (skillId: string) => void;
   /** Match the surrounding toolbar button height. */
   size?: number;
   /** Don't render the chip at all when count is 0. Useful on mobile where toolbar space is tight. */
   hideWhenEmpty?: boolean;
   /** Mobile-friendly popover sizing — near-full-width and taller. */
   compact?: boolean;
+  /** Open popover above the chip (default, composer placement) or below (header placement). */
+  placement?: "above" | "below";
 }
 
 type LoadedEntry = {
@@ -52,23 +54,25 @@ type LoadedEntry = {
 
 export function ContextChip({
   channelId,
-  composerText,
+  composerText = "",
   botId,
   onInsertSkillTag,
   size = 36,
   hideWhenEmpty = false,
   compact = false,
+  placement = "above",
 }: ContextChipProps) {
   const t = useThemeTokens();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ bottom: 0, left: 0 });
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number }>({ bottom: 0, left: 0 });
   const [search, setSearch] = useState("");
+  const canDrop = !!onInsertSkillTag;
 
   const messages = useChatStore((s) => (channelId ? s.getChannel(channelId).messages : []));
-  const { data: skills = [], isLoading } = useSkills({ sort: "recent" });
-  const { data: enrolledSkills = [] } = useEnrolledSkills(botId);
+  const { data: skills = [], isLoading } = useSkills(canDrop ? { sort: "recent" } : undefined);
+  const { data: enrolledSkills = [] } = useEnrolledSkills(canDrop ? botId : undefined);
   const enrolledSet = useMemo(
     () => new Set(enrolledSkills.map((e) => e.skill_id)),
     [enrolledSkills],
@@ -117,12 +121,14 @@ export function ContextChip({
     }
     const rect = triggerRef.current.getBoundingClientRect();
     const width = compact ? Math.min(window.innerWidth - 16, 420) : 360;
-    setPos({
-      bottom: window.innerHeight - rect.top + 8,
-      left: compact
-        ? Math.max(8, (window.innerWidth - width) / 2)
-        : Math.max(12, Math.min(rect.left - width + rect.width, window.innerWidth - width - 12)),
-    });
+    const left = compact
+      ? Math.max(8, (window.innerWidth - width) / 2)
+      : Math.max(12, Math.min(rect.left - width + rect.width, window.innerWidth - width - 12));
+    if (placement === "below") {
+      setPos({ top: rect.bottom + 8, left });
+    } else {
+      setPos({ bottom: window.innerHeight - rect.top + 8, left });
+    }
     setOpen((v) => !v);
   };
 
@@ -214,6 +220,7 @@ export function ContextChip({
             aria-label="Skills in context"
             className="fixed z-[10000] flex flex-col rounded-lg border shadow-xl"
             style={{
+              top: pos.top,
               bottom: pos.bottom,
               left: pos.left,
               width: compact ? Math.min(window.innerWidth - 16, 420) : 360,
@@ -245,65 +252,81 @@ export function ContextChip({
             </div>
 
             {/* Loaded section */}
-            {entries.length > 0 && (
-              <div className="shrink-0" style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}>
+            {entries.length > 0 ? (
+              <div
+                className={canDrop ? "shrink-0" : "overflow-y-auto"}
+                style={{
+                  flex: canDrop ? undefined : 1,
+                  borderBottom: canDrop ? `1px solid ${t.surfaceBorder}` : undefined,
+                }}
+              >
                 {entries.map((e) => <EntryRow key={`${e.origin}:${e.id}`} entry={e} />)}
               </div>
-            )}
+            ) : !canDrop ? (
+              <div
+                className="px-3 py-6 text-center"
+                style={{ flex: 1, fontSize: 11, color: t.textDim }}
+              >
+                No skills loaded. Type <code style={{ fontFamily: "monospace" }}>@skill:</code> in the composer to drop one in.
+              </div>
+            ) : null}
 
-            {/* Search */}
-            <div
-              className="flex flex-row items-center gap-1.5 px-2 py-2 shrink-0"
-              style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}
-            >
-              <Search size={12} className="text-text-dim shrink-0 ml-1" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Drop a skill into context…"
-                autoFocus
-                className="flex-1 min-w-0 px-2 py-1 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
-              />
-            </div>
-
-            {/* Catalog status */}
-            <div
-              className="px-3 py-1 text-[10px] shrink-0"
-              style={{ color: t.textDim, borderBottom: `1px solid ${t.surfaceBorder}55` }}
-            >
-              {isLoading
-                ? "Loading skills…"
-                : `${filteredSkills.length} of ${skills.length} skill${skills.length === 1 ? "" : "s"}${
-                    search.trim() && filteredSkills.length === 80 ? " (showing first 80)" : ""
-                  }`}
-            </div>
-
-            {/* Catalog list */}
-            <div className="overflow-y-auto" style={{ flex: 1 }}>
-              {filteredSkills.length === 0 ? (
+            {canDrop && (
+              <>
+                {/* Search */}
                 <div
-                  className="px-3 py-4 text-center"
-                  style={{ fontSize: 11, color: t.textDim }}
+                  className="flex flex-row items-center gap-1.5 px-2 py-2 shrink-0"
+                  style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}
                 >
-                  {isLoading ? "" : "No skills match."}
-                </div>
-              ) : (
-                filteredSkills.map((skill) => (
-                  <CatalogRow
-                    key={skill.id}
-                    skill={skill}
-                    loaded={loadedSet.has(skill.id)}
-                    enrolled={enrolledSet.has(skill.id)}
-                    onSelect={() => {
-                      onInsertSkillTag(skill.id);
-                      setSearch("");
-                      // Keep the popover open so the user can see the queued state update.
-                    }}
+                  <Search size={12} className="text-text-dim shrink-0 ml-1" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Drop a skill into context…"
+                    autoFocus
+                    className="flex-1 min-w-0 px-2 py-1 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
                   />
-                ))
-              )}
-            </div>
+                </div>
+
+                {/* Catalog status */}
+                <div
+                  className="px-3 py-1 text-[10px] shrink-0"
+                  style={{ color: t.textDim, borderBottom: `1px solid ${t.surfaceBorder}55` }}
+                >
+                  {isLoading
+                    ? "Loading skills…"
+                    : `${filteredSkills.length} of ${skills.length} skill${skills.length === 1 ? "" : "s"}${
+                        search.trim() && filteredSkills.length === 80 ? " (showing first 80)" : ""
+                      }`}
+                </div>
+
+                {/* Catalog list */}
+                <div className="overflow-y-auto" style={{ flex: 1 }}>
+                  {filteredSkills.length === 0 ? (
+                    <div
+                      className="px-3 py-4 text-center"
+                      style={{ fontSize: 11, color: t.textDim }}
+                    >
+                      {isLoading ? "" : "No skills match."}
+                    </div>
+                  ) : (
+                    filteredSkills.map((skill) => (
+                      <CatalogRow
+                        key={skill.id}
+                        skill={skill}
+                        loaded={loadedSet.has(skill.id)}
+                        enrolled={enrolledSet.has(skill.id)}
+                        onSelect={() => {
+                          onInsertSkillTag!(skill.id);
+                          setSearch("");
+                        }}
+                      />
+                    ))
+                  )}
+                </div>
+              </>
+            )}
           </div>,
           document.body,
         )}

@@ -57,6 +57,26 @@ brand names (like "slack") in business logic. The word "slack" is allowed only i
 
 ---
 
+## Message Ingest Contract
+
+When an integration receives a human-authored message and submits it to the
+agent, it MUST pass the raw user text in `content` and put all routing,
+identity, and platform-native data (mention tokens, channel ids, thread
+summaries, etc.) in `msg_metadata`. The assembly layer composes the LLM's
+`[Name]:` / `[Name (<@U…>)]:` prefix from metadata and injects
+`thread_context` as a system block — integrations that bake their own
+prefix into content cause double attribution, UI-regex arms races, and
+drift from what the human actually said.
+
+Full rule + worked examples for Slack / Discord / BlueBubbles:
+**[Message Ingest Contract](message-ingest-contract.md)**.
+
+The canonical metadata shape is
+`app/routers/chat/_schemas.IngestMessageMetadata`; the composers live in
+`app/agent/message_formatting.py`.
+
+---
+
 ## Renderer Registry (Message Delivery)
 
 Renderers answer one question: **"Given a channel event, how do I deliver it to the external service?"**

@@ -46,6 +46,12 @@ interface Props {
   onConfigOverheadClick?: () => void;
 }
 
+/** Short non-blocking haptic buzz. No-op on iOS Safari (vibrate is
+ *  gated behind a user gesture and unsupported there) and on desktop. */
+function tapHaptic(pattern: number | number[] = 8) {
+  try { (navigator as Navigator & { vibrate?: (p: number | number[]) => boolean }).vibrate?.(pattern); } catch { /* ignore */ }
+}
+
 /** Rebuild PendingFile objects from serialized DraftFiles (restores File + preview). */
 function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   return draftFiles.map((df) => {
@@ -107,6 +113,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const handleSend = useCallback(() => {
     const message = (editorRef.current?.getMarkdown() ?? text).trim();
     if ((!message && pendingFiles.length === 0) || disabled) return;
+    tapHaptic(8);
     onSend(message, pendingFiles.length > 0 ? pendingFiles : undefined);
     if (channelId) clearDraft(channelId);
     else { setLocalText(""); setLocalFiles([]); }
@@ -202,6 +209,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const handleSendNowLocal = useCallback(() => {
     const message = (editorRef.current?.getMarkdown() ?? text).trim();
     if ((!message && pendingFiles.length === 0) || disabled) return;
+    tapHaptic([4, 30, 8]);
     onSendNow?.(message, pendingFiles.length > 0 ? pendingFiles : undefined);
     if (channelId) clearDraft(channelId);
     else { setLocalText(""); setLocalFiles([]); }
@@ -216,7 +224,14 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     const sendBtnOpacity = canSend || showStop || showMic || recorder.isRecording ? 1 : 0.4;
 
     return (
-      <div style={{ flexShrink: 0, boxShadow: "0 -1px 8px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", backgroundColor: `${t.surface}e6` }}>
+      <div style={{
+        flexShrink: 0,
+        boxShadow: "0 -1px 8px rgba(0,0,0,0.06)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        backgroundColor: `${t.surface}e6`,
+        paddingBottom: isMobile ? "env(safe-area-inset-bottom)" : undefined,
+      }}>
         {/* Audio recorder error */}
         {recorder.error && (
           <div style={{ padding: "4px 20px", background: "rgba(239,68,68,0.08)" }}>
@@ -364,18 +379,18 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             display: "flex",
             flexDirection: "row",
             alignItems: "flex-end",
-            gap: isMobile ? 6 : 12,
-            padding: isMobile ? "8px 8px" : "12px 20px",
+            gap: isMobile ? 4 : 12,
+            padding: isMobile ? "6px 8px" : "12px 20px",
           }}
         >
-          {/* Attach button */}
+          {/* Attach button — 44×44 tap area on mobile per Apple HIG; glyph stays small. */}
           <button
             className="input-action-btn"
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled || recorder.isRecording}
             style={{
-              width: isMobile ? 36 : 44,
-              height: isMobile ? 36 : 44,
+              width: 44,
+              height: 44,
               flexShrink: 0,
               opacity: recorder.isRecording ? 0.3 : 1,
             }}
@@ -403,7 +418,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             style={{
               flex: 1,
               minWidth: 0,
-              minHeight: isMobile ? 36 : 44,
+              minHeight: 44,
               maxHeight: 280,
               background: t.surfaceRaised,
               borderRadius: 16,
@@ -437,8 +452,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             )}
           </div>
 
-          {/* Skills-in-context chip — on mobile, hides the button when empty to save toolbar space. */}
-          {channelId && (
+          {/* Skills-in-context chip — composer placement for desktop only.
+              Mobile gets a view-only indicator in the channel header instead (no toolbar bloat). */}
+          {!isMobile && channelId && (
             <ContextChip
               channelId={channelId}
               composerText={text}
@@ -446,9 +462,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               onInsertSkillTag={(skillId) => {
                 editorRef.current?.insertMention(`skill:${skillId}`);
               }}
-              size={isMobile ? 32 : 36}
-              hideWhenEmpty={isMobile}
-              compact={isMobile}
+              size={36}
             />
           )}
 
@@ -543,7 +557,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           <button
             className="send-btn"
             onClick={
-              (showStop && stopArmed) ? onCancel
+              (showStop && stopArmed) ? () => { tapHaptic(12); onCancel?.(); }
               : recorder.isRecording ? handleMicToggle
               : showMic ? handleMicToggle
               : showStop ? undefined  // visible but not armed yet
@@ -554,8 +568,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               display: "flex", flexDirection: "row",
               alignItems: "center",
               justifyContent: "center",
-              width: isMobile ? 36 : 44,
-              height: isMobile ? 36 : 44,
+              width: 44,
+              height: 44,
               flexShrink: 0,
               borderRadius: 12,
               border: "none",

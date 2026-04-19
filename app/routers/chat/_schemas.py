@@ -1,8 +1,8 @@
 """Pydantic request/response models for chat endpoints."""
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Attachment(BaseModel):
@@ -11,6 +11,76 @@ class Attachment(BaseModel):
     content: str  # base64-encoded bytes
     mime_type: str = "image/jpeg"
     name: str = ""
+
+
+class IngestMessageMetadata(BaseModel):
+    """Canonical shape for the ``msg_metadata`` blob on an inbound user message.
+
+    This is the contract every integration follows. ``Message.content`` stores
+    the raw text the human typed — no prefixes, no thread summaries, no
+    platform tokens. All routing, identity, and platform-native data lives
+    here. See ``docs/integrations/message-ingest-contract.md`` for the full
+    rule and a worked Slack example.
+
+    Integrations may include extra keys beyond these (forward-compat); only
+    the fields declared below are validated.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    source: str = Field(
+        ...,
+        description="Integration identifier: 'slack', 'discord', 'bluebubbles', 'web', ...",
+    )
+    sender_id: str = Field(
+        ...,
+        description="Namespaced external ID, e.g. 'slack:U06STGBF4Q0', 'discord:123', 'bb:+15551234567'.",
+    )
+    sender_display_name: str = Field(
+        ...,
+        description="Human-readable name used by the UI and the LLM attribution prefix.",
+    )
+    sender_type: Literal["human", "bot"] = Field(
+        ...,
+        description="Whether the sender is a person or another bot (for cross-bot relay).",
+    )
+    channel_external_id: Optional[str] = Field(
+        default=None,
+        description="Platform-native channel/chat identifier (Slack 'C…', Discord channel ID, BB chat GUID).",
+    )
+    mention_token: Optional[str] = Field(
+        default=None,
+        description=(
+            "Platform-native token the agent must echo back verbatim to tag this "
+            "user in a reply (e.g. Slack '<@U06STGBF4Q0>', Discord '<@123>'). "
+            "None for platforms that resolve mentions by display name or have no "
+            "mention concept (iMessage, email, web)."
+        ),
+    )
+    thread_context: Optional[str] = Field(
+        default=None,
+        description=(
+            "Multi-line LLM-ready summary of prior messages in this thread. "
+            "Injected by the assembly layer as a system message adjacent to "
+            "the user turn; never concatenated into content."
+        ),
+    )
+    is_from_me: Optional[bool] = Field(
+        default=None,
+        description="BlueBubbles: true when the message came from the local user's own handle.",
+    )
+    passive: Optional[bool] = Field(
+        default=None,
+        description="Store-only; skip the agent run.",
+    )
+    trigger_rag: Optional[bool] = Field(
+        default=None,
+        description="Whether retrieval should consider this turn.",
+    )
+    recipient_id: Optional[str] = Field(
+        default=None,
+        description="Namespaced identifier of the intended recipient (e.g. 'bot:calc-bot').",
+    )
 
 
 class FileMetadata(BaseModel):
@@ -24,7 +94,16 @@ class FileMetadata(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str = ""
+    message: str = Field(
+        default="",
+        description=(
+            "The raw user-authored text. Integrations MUST pass it verbatim — no "
+            "prefixes like '[Slack channel:... user:...]', no thread summaries, no "
+            "'[Name]:' attribution. LLM context that depends on the integration "
+            "goes in ``msg_metadata`` (see ``IngestMessageMetadata``); the assembly "
+            "layer turns metadata into LLM-facing prefixes + system blocks."
+        ),
+    )
     channel_id: Optional[uuid.UUID] = None  # Preferred for channel targeting
     session_id: Optional[uuid.UUID] = None  # backward compat; resolves to channel
     client_id: str = "default"
@@ -39,7 +118,15 @@ class ChatRequest(BaseModel):
     model_override: Optional[str] = None  # Per-turn model override (highest priority)
     model_provider_id_override: Optional[str] = None  # Per-turn provider override (paired with model_override)
     passive: bool = False  # If True, store message but skip agent run
-    msg_metadata: Optional[dict] = None  # Metadata to attach to the user message row
+    msg_metadata: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Metadata attached to the user message row. For integration-sourced "
+            "messages, should conform to ``IngestMessageMetadata`` — "
+            "source/sender_id/sender_display_name/sender_type required; "
+            "mention_token, channel_external_id, thread_context optional."
+        ),
+    )
 
 
 class CancelRequest(BaseModel):

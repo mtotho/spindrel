@@ -39,49 +39,48 @@ export function extractDisplayText(content: string | null | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
+// Legacy ingest-prefix stripping (historic rows only — remove after 2026-Q3)
+// ---------------------------------------------------------------------------
+// Current integrations emit clean content per the ingest contract
+// (docs/integrations/message-ingest-contract.md). Rows written before the
+// refactor may still carry `[Slack channel:... user:...]`, `[Discord
+// channel:... user:...]`, or `[Name]:` prefixes — this helper peels them off
+// for display so historic rows don't look corrupt next to fresh ones.
+const LEGACY_SLACK_PREFIX_RE = /^\[Slack channel:\S+ user:[^\]]+\]\s*/;
+const LEGACY_DISCORD_PREFIX_RE = /^\[Discord channel:\S+ user:[^\]]+\]\s*/;
+const LEGACY_NAME_PREFIX_RE = /^\[[^\]]+\]:\s*/;
+
+/**
+ * Strip a legacy integration-source prefix from persisted content.
+ * TODO: remove after 2026-Q3 once prefixed rows have aged out.
+ */
+export function stripLegacyIngestPrefix(content: string, source: string | undefined | null): string {
+  if (!content) return content;
+  if (source === "slack") return content.replace(LEGACY_SLACK_PREFIX_RE, "");
+  if (source === "discord") return content.replace(LEGACY_DISCORD_PREFIX_RE, "");
+  if (source === "bluebubbles") return content.replace(LEGACY_NAME_PREFIX_RE, "");
+  return content;
+}
+
+// ---------------------------------------------------------------------------
 // Metadata-aware display name resolution
 // ---------------------------------------------------------------------------
-
-const SLACK_PREFIX_RE = /^\[Slack channel:\S+ user:(\S+)\]\s*/;
-
-/** Extract Slack user ID from content prefix (for legacy messages without metadata). */
-export function parseSlackPrefix(content: string): { slackUserId: string | null; cleaned: string } {
-  const m = SLACK_PREFIX_RE.exec(content);
-  if (m) {
-    return { slackUserId: m[1], cleaned: content.replace(SLACK_PREFIX_RE, "") };
-  }
-  return { slackUserId: null, cleaned: content };
-}
-
-const BB_PREFIX_RE = /^\[([^\]]+)\]:\s*/;
-
-/** Strip BlueBubbles sender prefix from content when metadata provides sender info. */
-export function stripBBPrefix(content: string): string {
-  return content.replace(BB_PREFIX_RE, "");
-}
 
 export interface DisplayInfo {
   name: string;
   isCurrentUser: boolean;
-  /** @deprecated unused — kept for type compat, always false */
-  isSlack: boolean;
   isMemberBot: boolean;
   sourceLabel: string | null;
 }
 
 /** Pretty-print an integration source for the "via X" label. */
 function formatSourceLabel(source: string): string {
-  // Capitalize first letter, leave rest as-is
   return `via ${source.charAt(0).toUpperCase()}${source.slice(1)}`;
 }
 
-export function resolveDisplay(
-  message: Message,
-  botName?: string,
-  contentSlackUserId?: string | null,
-): DisplayInfo {
+export function resolveDisplay(message: Message, botName?: string): DisplayInfo {
   const meta = message.metadata || {};
-  const base = { isSlack: false as const, isMemberBot: false };
+  const base = { isMemberBot: false };
 
   // --- Assistant messages ---
   if (message.role === "assistant") {
@@ -109,11 +108,6 @@ export function resolveDisplay(
   // Web with explicit sender name (e.g. authenticated user)
   if (meta.source === "web" && meta.sender_display_name) {
     return { ...base, name: meta.sender_display_name, isCurrentUser: true, sourceLabel: null };
-  }
-
-  // Legacy fallback: detect Slack prefix in content (old messages without metadata)
-  if (contentSlackUserId) {
-    return { ...base, name: meta.sender_display_name || `Slack:${contentSlackUserId}`, isCurrentUser: false, sourceLabel: "via Slack" };
   }
 
   return { ...base, name: "You", isCurrentUser: true, sourceLabel: null };

@@ -10,7 +10,7 @@ import { SkillOrb, type ActiveSkillLike } from "./SkillOrb";
 import { MessageActions, TimestampActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
 import { RichToolResult } from "./RichToolResult";
-import { extractDisplayText, parseSlackPrefix, stripBBPrefix, resolveDisplay, avatarColor } from "./messageUtils";
+import { extractDisplayText, stripLegacyIngestPrefix, resolveDisplay, avatarColor } from "./messageUtils";
 import { normalizeToolCall } from "../../types/api";
 import { useToolResultCompact } from "../../stores/toolResultPref";
 import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
@@ -82,13 +82,12 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     [setExplorerOpen],
   );
   const meta = message.metadata || {};
-  // Extract text from content (handles JSON-array content blocks) then strip integration prefixes
+  // Extract text from content (handles JSON-array content blocks). Current
+  // integrations emit clean content per the ingest contract; stripLegacyIngestPrefix
+  // covers rows written before that refactor (remove after 2026-Q3).
   const rawText = extractDisplayText(message.content);
-  const { slackUserId, cleaned: afterSlack } = parseSlackPrefix(rawText);
-  const { name: displayName, isCurrentUser, isSlack, isMemberBot, sourceLabel } = resolveDisplay(message, botName, slackUserId);
-  // Strip BB sender prefix from display when metadata provides sender info.
-  // Use strict === false to avoid stripping legacy messages (where is_from_me is undefined).
-  const displayContent = meta.source === "bluebubbles" && meta.is_from_me === false ? stripBBPrefix(afterSlack) : afterSlack;
+  const displayContent = stripLegacyIngestPrefix(rawText, meta.source as string | undefined);
+  const { name: displayName, isCurrentUser, isMemberBot, sourceLabel } = resolveDisplay(message, botName);
   const isUser = isCurrentUser;
   const timestamp = formatTimeShort(message.created_at);
   const toolsUsed: string[] = (meta.tools_used as string[]) || [];
@@ -226,7 +225,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         <MarkdownContent text={displayContent} t={t} />
       ) : null}
       {message.attachments && message.attachments.length > 0 && (
-        <AttachmentImages attachments={message.attachments} t={t} />
+        <AttachmentImages attachments={message.attachments} />
       )}
       {/* Inline widget cards — rendered outside ToolBadges chrome */}
       {inlineWidgets.map((w, i) => (

@@ -145,9 +145,15 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
 
   // Sync DB messages into the chat store when new page data arrives.
   // Suppressed while a turn is streaming so we don't clobber the synthetic
-  // streamingContent message before it's materialized.
+  // streamingContent message before it's materialized — EXCEPT on initial
+  // load (empty store), because opening a channel mid-turn gets rehydrated
+  // turns from the /state snapshot before the message page lands, and
+  // skipping the sync there leaves the UI stuck on "Send a message to
+  // start the conversation" until the turn finishes.
   useEffect(() => {
-    if (channelId && pages && turnsCount === 0 && !chatState.isProcessing) {
+    const storeEmpty = (chatState.messages?.length ?? 0) === 0;
+    const canSync = turnsCount === 0 && !chatState.isProcessing;
+    if (channelId && pages && (canSync || storeEmpty)) {
       const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages)
         .filter((m) => {
           const meta = (m as any).metadata ?? {};

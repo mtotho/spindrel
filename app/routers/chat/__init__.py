@@ -38,6 +38,7 @@ from ._context import (  # noqa: F401
     prepare_bot_context,
     _build_identity_preamble,
     _apply_user_attribution,
+    _inject_thread_context_blocks,
     _rewrite_history_for_member_bot,
     _inject_member_config,
 )

@@ -176,6 +176,14 @@ textarea::placeholder {
   overflow-anchor: none;           /* disable browser scroll anchoring — fights column-reverse auto-pin */
 }
 
+/* On touch devices the chat scrollbar reads as chrome noise — hide it.
+   Desktop (pointer: fine) keeps the subtle scrollbar so users can tell
+   there's more content above. */
+@media (pointer: coarse) {
+  .chat-scroll-web { scrollbar-width: none; }
+  .chat-scroll-web::-webkit-scrollbar { display: none; }
+}
+
 /* Message hover effect (Slack-style, pointer devices only) */
 .msg-hover {
   position: relative;
@@ -262,7 +270,7 @@ textarea::placeholder {
 }
 
 /* Scroll-to-bottom FAB entrance */
-.scroll-fab { animation: fab-in 0.15s ease-out; }
+.scroll-fab { animation: fab-in 0.15s ease-out; touch-action: manipulation; }
 @keyframes fab-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -273,6 +281,7 @@ textarea::placeholder {
   display: flex; align-items: center; justify-content: center;
   border-radius: 8px; border: none; background: transparent;
   cursor: pointer; padding: 0;
+  touch-action: manipulation;
   transition: background-color 0.1s ease;
 }
 .input-action-btn:hover { background-color: rgb(var(--color-surface-overlay)); }
@@ -281,6 +290,7 @@ textarea::placeholder {
 .input-action-btn:disabled:hover { background-color: transparent; }
 
 /* Send/stop/mic button */
+.send-btn { touch-action: manipulation; }
 .send-btn:hover:not(:disabled) { filter: brightness(1.12); }
 .send-btn:active:not(:disabled) { filter: brightness(0.92); }
 
@@ -290,6 +300,7 @@ textarea::placeholder {
   border-radius: 6px;
   border: none; background: transparent;
   cursor: pointer; padding: 0;
+  touch-action: manipulation;
   transition: background-color 0.1s ease;
 }
 .header-icon-btn:hover { background-color: rgb(var(--color-surface-overlay)); }

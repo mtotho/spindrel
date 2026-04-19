@@ -23,6 +23,7 @@ from agent_client import (
     update_plan_status,
 )
 from formatting import format_last_active, split_for_slack
+from message_handlers import _resolve_slack_display_name
 from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info
 from state import get_channel_state, get_global_setting, set_channel_state, set_global_setting
@@ -143,16 +144,22 @@ def register_slash_commands(app):
 
         client_id = slack_client_id(channel)
 
+        _sender_display_name = await _resolve_slack_display_name(client, user)
+
+        # Ingest contract: content = raw text; identity in metadata.
         msg_metadata = {
             "passive": False,
             "source": "slack",
             "sender_type": "human",
             "sender_id": f"slack:{user}",
+            "sender_display_name": _sender_display_name,
+            "channel_external_id": channel,
+            "mention_token": f"<@{user}>",
             "recipient_id": f"bot:{target_bot_id}",
             "trigger_rag": True,
         }
 
-        full_message = f"[Slack channel:{channel} user:{user}] {message}"
+        full_message = message
 
         dispatch_config = {
             "channel_id": channel,

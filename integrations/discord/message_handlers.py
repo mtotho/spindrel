@@ -135,6 +135,8 @@ async def dispatch(
     is_bot_sender = message.author.bot
     is_passive = not mentioned and config["require_mention"] and not (is_bot_sender and config.get("allow_bot_messages"))
 
+    # Per the ingest contract (docs/integrations/message-ingest-contract.md):
+    # content is raw user text; identity/routing/mention tokens live in metadata.
     msg_metadata = {
         "passive": is_passive,
         "include_in_memory": config["passive_memory"],
@@ -142,10 +144,14 @@ async def dispatch(
         "source": "discord",
         "sender_type": "bot" if is_bot_sender else "human",
         "sender_id": f"discord:{user}",
+        "sender_display_name": message.author.display_name,
+        "channel_external_id": str(channel_id),
+        # Discord human mention syntax is "<@USER_ID>"; bots have no tag token.
+        "mention_token": None if is_bot_sender else f"<@{user}>",
         "recipient_id": f"bot:{bot_id}" if mentioned else None,
     }
 
-    full_message = f"[Discord channel:{channel_id} user:{message.author.display_name}] {text}{appended}"
+    full_message = f"{text}{appended}"
 
     if is_passive:
         try:

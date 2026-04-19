@@ -27,6 +27,11 @@ interface UIState {
   fileExplorerOpen: boolean;
   fileExplorerSplit: boolean;
   hudCollapsedChannels: string[];
+  /** Channels where the user has explicitly opted to expand the HUD on
+   *  mobile. On small viewports the HUD defaults to collapsed; this tracks
+   *  the per-channel override. Ignored on desktop — desktop uses
+   *  `hudCollapsedChannels` exclusively. */
+  hudExpandedOnMobile: string[];
   recentPages: RecentPage[];
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
@@ -44,6 +49,7 @@ interface UIState {
   setFileExplorerOpen: (open: boolean) => void;
   toggleFileExplorerSplit: () => void;
   toggleHudCollapsed: (channelId: string) => void;
+  toggleHudExpandedOnMobile: (channelId: string) => void;
   recordPageVisit: (href: string) => void;
   enrichRecentPage: (href: string, label: string) => void;
 }
@@ -59,6 +65,7 @@ export const useUIStore = create<UIState>()(
       fileExplorerOpen: false,
       fileExplorerSplit: false,
       hudCollapsedChannels: [],
+      hudExpandedOnMobile: [],
       recentPages: [],
       toggleSidebar: () =>
         set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -88,6 +95,12 @@ export const useUIStore = create<UIState>()(
             ? s.hudCollapsedChannels.filter((id) => id !== channelId)
             : [...s.hudCollapsedChannels, channelId],
         })),
+      toggleHudExpandedOnMobile: (channelId) =>
+        set((s) => ({
+          hudExpandedOnMobile: s.hudExpandedOnMobile.includes(channelId)
+            ? s.hudExpandedOnMobile.filter((id) => id !== channelId)
+            : [...s.hudExpandedOnMobile, channelId],
+        })),
       recordPageVisit: (href) =>
         set((s) => {
           const existing = s.recentPages.find((p) => p.href === href);
@@ -114,6 +127,7 @@ export const useUIStore = create<UIState>()(
         fileExplorerOpen: state.fileExplorerOpen,
         fileExplorerSplit: state.fileExplorerSplit,
         hudCollapsedChannels: state.hudCollapsedChannels,
+        hudExpandedOnMobile: state.hudExpandedOnMobile,
         recentPages: state.recentPages,
       }),
       // Migrate old string[] format to RecentPage[]

@@ -32,8 +32,17 @@ export function PipelineRunLive({
 }: PipelineRunLiveProps) {
   const navigate = useNavigate();
   // Poll the task row while it's running so status + run_session_id land.
-  // On completion the polling stops (useTask internal refetchInterval).
-  const { data: task } = useTask(taskId);
+  // `run_session_id` is spawned lazily inside `run_task_pipeline` → `ensure_anchor_message`,
+  // so the first fetch after `/run` returns `null` for it. Polling stops on terminal status.
+  const { data: task } = useTask(taskId, {
+    refetchInterval: (t) => {
+      if (!t) return 1500;
+      const s = t.status;
+      if (s === "complete" || s === "failed" || s === "cancelled") return false;
+      // While spinning up, hit it fast; once run_session_id lands, relax.
+      return t.run_session_id ? 3000 : 1500;
+    },
+  });
 
   const runSessionId = task?.run_session_id ?? null;
   const status = (task?.status ?? "pending") as string;

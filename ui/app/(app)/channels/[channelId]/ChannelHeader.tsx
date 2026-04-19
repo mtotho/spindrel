@@ -4,6 +4,7 @@ import { Settings, Menu, ArrowLeft, Hash, FolderOpen, LayoutDashboard, PanelLeft
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
 import { useUIStore } from "@/src/stores/ui";
+import { ContextChip } from "@/src/components/chat/ContextChip";
 
 export interface ChannelHeaderProps {
   channelId: string;
@@ -89,16 +90,16 @@ export function ChannelHeader({
           display: "flex",
           flexDirection: "row",
           alignItems: "center",
-          gap: isMobile ? 8 : 12,
-          padding: isMobile ? "0 12px" : "0 16px",
+          gap: isMobile ? 4 : 12,
+          padding: isMobile ? "0 8px" : "0 16px",
           backgroundColor: "transparent",
           flexShrink: 0,
           zIndex: 10,
-          minHeight: 52,
+          minHeight: isMobile ? 48 : 52,
         }}
       >
         {isMobile ? (
-          <button className="header-icon-btn" style={{ width: 36, height: 36 }} onClick={openPalette} title="Open menu">
+          <button className="header-icon-btn" style={{ width: 44, height: 44 }} onClick={openPalette} title="Open menu">
             <Menu size={18} color={t.textMuted} />
           </button>
         ) : columns === "single" ? (
@@ -115,7 +116,11 @@ export function ChannelHeader({
         ) : (
           <Hash size={18} color={t.textDim} style={{ marginLeft: 2, flexShrink: 0 }} />
         )}
-        <div style={{ flex: 1, minWidth: 0, padding: "8px 0" }}>
+        <div
+          style={{ flex: 1, minWidth: 0, padding: isMobile ? "6px 0" : "8px 0", cursor: isMobile && !isSystemChannel && bot ? "pointer" : undefined }}
+          onClick={isMobile && !isSystemChannel && bot ? onContextBudgetClick : undefined}
+          title={isMobile && !isSystemChannel && bot ? `${bot.name}${modelShort ? ` · ${modelShort}` : ""}` : undefined}
+        >
           <div className="flex flex-row items-center gap-2 min-w-0">
             <span style={{ fontSize: 16, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {displayName}
@@ -131,13 +136,28 @@ export function ChannelHeader({
                 SYSTEM
               </span>
             )}
+            {/* Mobile-only: inline context budget pip when significant. The full
+                subtitle (bot name, model, budget numbers) is hidden on mobile —
+                tap the title to open BotInfoPanel for full detail. */}
+            {isMobile && !isSystemChannel && contextBudget && contextBudget.total > 0 && contextBudget.utilization > 0.5 && (
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  backgroundColor: contextBudget.utilization > 0.8 ? "#f87171" : "#fbbf24",
+                  flexShrink: 0,
+                }}
+                title={`Context: ${fmtTokens(contextBudget.consumed)} / ${fmtTokens(contextBudget.total)} (${Math.round(contextBudget.utilization * 100)}%)`}
+              />
+            )}
           </div>
-          {isSystemChannel && (
+          {isSystemChannel && !isMobile && (
             <div className="text-[11px] text-text-dim mt-0.5 truncate">
               System configuration channel
             </div>
           )}
-          {!isSystemChannel && bot && (
+          {!isSystemChannel && !isMobile && bot && (
             <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2, minWidth: 0 }}>
               <a
                 className="header-bot-link"
@@ -193,7 +213,7 @@ export function ChannelHeader({
         {!isSystemChannel && (
           <button
             className="header-icon-btn"
-            style={{ width: 36, height: 36, backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent" }}
+            style={{ width: isMobile ? 44 : 36, height: isMobile ? 44 : 36, backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent" }}
             onClick={toggleExplorer}
             title={explorerOpen ? "Hide panel" : "Show panel"}
           >
@@ -229,7 +249,7 @@ export function ChannelHeader({
           <Link
             to={`/widgets/channel/${channelId}`}
             className="header-icon-btn"
-            style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}
+            style={{ width: isMobile ? 44 : 36, height: isMobile ? 44 : 36, display: "flex", alignItems: "center", justifyContent: "center" }}
             title="Channel dashboard"
             aria-label="Channel dashboard"
           >
@@ -240,8 +260,8 @@ export function ChannelHeader({
           <button
             className="header-icon-btn relative"
             style={{
-              width: isMobile ? 36 : 36,
-              height: isMobile ? 36 : 36,
+              width: isMobile ? 44 : 36,
+              height: isMobile ? 44 : 36,
               backgroundColor: findingsPanelOpen ? t.surfaceOverlay : "transparent",
             }}
             onClick={toggleFindingsPanel}
@@ -293,10 +313,23 @@ export function ChannelHeader({
             )}
           </button>
         )}
+        {/* Skills-in-context indicator — mobile only (desktop has it in the composer).
+            View-only: popover lists loaded skills with "msgs ago" subtext, no drop picker.
+            Hidden when nothing is loaded so it doesn't clutter the header. */}
+        {isMobile && channelId && (
+          <ContextChip
+            channelId={channelId}
+            botId={bot?.id}
+            size={44}
+            hideWhenEmpty
+            compact
+            placement="below"
+          />
+        )}
         {channelId && (
           <button
             className="header-icon-btn"
-            style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44 }}
+            style={{ width: 44, height: 44 }}
             onClick={() => navigate(`/channels/${channelId}/settings`)}
             title="Channel settings"
           >

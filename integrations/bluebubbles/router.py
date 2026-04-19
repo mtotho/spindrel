@@ -1185,16 +1185,17 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
                 or binding.display_name
                 or (_handle_address if not is_from_me else None)
             )
-        # Label used in message content so the LLM can distinguish speakers.
-        # is_from_me → owner's phone number (from BB server/info), so the bot
-        # sees a real identity instead of the ambiguous "Me". If the user links
-        # their phone in the profile UI, downstream display resolves to their name.
+        # Sender label used by the assembly layer to build the LLM attribution
+        # prefix (the UI reads meta.is_from_me to render "You" for local-user
+        # turns — it doesn't depend on this label).
+        # is_from_me → "Me" so the agent hears a speaker identity consistent
+        # with historical context rather than the ambiguous owner phone number.
         # Non-is_from_me → contact's display name or raw address.
         # In group chats, append the address as a stable disambiguator when the
         # display name doesn't already contain it — so two participants who
         # share a first name don't blur into one identity in the agent's view.
         if is_from_me:
-            _sender_label = _cached_owner or "unknown"
+            _sender_label = "Me"
         else:
             _sender_label = sender_display or sender
             if (
@@ -1220,25 +1221,24 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
                         sender_addr, _expected,
                     )
 
+        # Per the ingest contract (docs/integrations/message-ingest-contract.md):
+        # content is the raw user text. Only run_agent varies by branch.
+        content = text
         if _unexpected_sender:
             # Not from the expected contact — store passively regardless of settings
             run_agent = False
-            content = f"[{_sender_label}]: {text}"
         elif not channel.require_mention:
             # No mention required
             if is_from_me:
                 # Human texting from their own phone — always active
                 run_agent = True
-                content = f"[Me]: {text}"
             elif shared_tracker.in_echo_suppress(chat_guid, window=effective_echo_window):
                 # Suppress if we just replied (catches echoed bot messages
                 # that iMessage modified, breaking content hash)
                 logger.info("BB webhook: echo suppress (no-mention path), chat_guid=%s", chat_guid)
                 run_agent = False
-                content = f"[{_sender_label}]: {text}"
             else:
                 run_agent = True
-                content = f"[{_sender_label}]: {text}"
         else:
             # require_mention is True — check wake words for ALL messages
             # (including is_from_me so the user can text in monitored chats
@@ -1254,28 +1254,26 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
                 if not is_from_me and shared_tracker.in_echo_suppress(chat_guid, window=effective_echo_window):
                     logger.info("BB webhook: echo suppress (wake word path), chat_guid=%s", chat_guid)
                     run_agent = False
-                    content = f"[{_sender_label}]: {text}"
                 else:
                     run_agent = True
-                    content = f"[{_sender_label}]: {text}"
             else:
-                # Passive — store with sender prefix, no agent run
+                # Passive — no agent run
                 run_agent = False
-                content = f"[{_sender_label}]: {text}"
 
         # Sender metadata — matches the Slack/Discord pattern so the
         # agent context builder can attribute messages properly in group
         # chats. ``message_guid`` is included so tools (e.g. reactions)
-        # can reference the specific inbound message.
+        # can reference the specific inbound message. iMessage has no
+        # mention-token concept, so mention_token is left unset.
         _sender_address = handle.get("address", "unknown") if not is_from_me else (_cached_owner or "unknown")
         extra_metadata: dict = {
             "sender_id": f"bb:{_sender_address}",
             "sender_type": "human",
+            "sender_display_name": _sender_label,
+            "channel_external_id": chat_guid,
             "is_from_me": is_from_me,
             "message_guid": data.get("guid", ""),
         }
-        if sender_display:
-            extra_metadata["sender_display_name"] = sender_display
         if binding.display_name:
             extra_metadata["binding_display_name"] = binding.display_name
 

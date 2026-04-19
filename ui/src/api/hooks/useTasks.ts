@@ -188,11 +188,26 @@ export function useTriggerEvents() {
   });
 }
 
-export function useTask(taskId: string | undefined) {
+export interface UseTaskOptions {
+  /** Polling interval in ms. Accepts a function of the latest task row for
+   *  dynamic cadence (e.g. poll only while non-terminal). Return ``false``
+   *  to stop polling. */
+  refetchInterval?:
+    | number
+    | false
+    | ((task: TaskDetail | undefined) => number | false);
+}
+
+export function useTask(taskId: string | undefined, options: UseTaskOptions = {}) {
+  const { refetchInterval } = options;
   return useQuery({
     queryKey: ["admin-task", taskId],
     queryFn: () => apiFetch<TaskDetail>(`/api/v1/admin/tasks/${taskId}`),
     enabled: !!taskId,
+    refetchInterval:
+      typeof refetchInterval === "function"
+        ? (query) => refetchInterval(query.state.data as TaskDetail | undefined)
+        : refetchInterval,
   });
 }
 
