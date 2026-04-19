@@ -110,10 +110,13 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
 
   const isDefault = dashboard.slug === "default";
   // Channel dashboards: name is tied to the channel so it's readonly here,
-  // the `pin_to_rail` concept doesn't apply (they're not in the tab bar),
-  // and delete isn't allowed (lifecycle is owned by the channel).
+  // and delete isn't allowed (lifecycle is owned by the channel). pin_to_rail
+  // is supported for any scope — the sidebar rail shows channel entries with
+  // a `#`-icon distinct from user dashboards.
   const dirty = isChannel
-    ? (icon ?? null) !== (dashboard.icon ?? null) || presetId !== currentPresetId
+    ? (icon ?? null) !== (dashboard.icon ?? null)
+      || pinToRail !== dashboard.pin_to_rail
+      || presetId !== currentPresetId
     : name.trim() !== dashboard.name
       || (icon ?? null) !== (dashboard.icon ?? null)
       || pinToRail !== dashboard.pin_to_rail
@@ -130,6 +133,7 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
       const patch = isChannel
         ? {
             icon: icon ?? null,
+            pin_to_rail: pinToRail,
             grid_config:
               presetId === "standard"
                 ? null
@@ -222,17 +226,15 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
 
           <IconPicker value={icon} onChange={setIcon} label="Icon" />
 
-          {!isChannel && (
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={pinToRail}
-                onChange={(e) => setPinToRail(e.target.checked)}
-                className="h-4 w-4 accent-current text-accent"
-              />
-              <span className="text-[12px] text-text">Show in sidebar rail</span>
-            </label>
-          )}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={pinToRail}
+              onChange={(e) => setPinToRail(e.target.checked)}
+              className="h-4 w-4 accent-current text-accent"
+            />
+            <span className="text-[12px] text-text">Show in sidebar rail</span>
+          </label>
 
           <div className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-text-muted">Grid layout</span>

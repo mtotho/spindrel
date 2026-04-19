@@ -294,10 +294,10 @@ export default function ChatScreen() {
       }
       const fullTurnText = getTurnText(invertedData, headerIdx);
       const isLatestBotMessage = item.role === "assistant" && index === 0;
-      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} isLatestBotMessage={isLatestBotMessage} />;
+      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} isLatestBotMessage={isLatestBotMessage} isMobile={columns === "single"} />;
       return <>{dateSep}{bubble}</>;
     },
-    [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByGroup]
+    [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByGroup, columns]
   );
 
   // ---- Workspace / file explorer state ----
@@ -566,6 +566,20 @@ export default function ChatScreen() {
     return () => ro.disconnect();
   }, []);
 
+  // Measured height of the composer overlay (input card + banners + strips)
+  // so messages scroll BEHIND the frosted input at the bottom — Claude-style.
+  const inputOverlayRef = useRef<HTMLDivElement>(null);
+  const [inputOverlayHeight, setInputOverlayHeight] = useState(96);
+  useEffect(() => {
+    if (!inputOverlayRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h) setInputOverlayHeight(Math.ceil(h));
+    });
+    ro.observe(inputOverlayRef.current);
+    return () => ro.disconnect();
+  }, []);
+
   const channelHeaderBlock = (
     <div ref={headerOverlayRef} style={{
       flexShrink: 0,
@@ -645,27 +659,30 @@ export default function ChatScreen() {
         ) : (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", minHeight: 0 }}>
             <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-              <ChatMessageArea {...messageAreaProps} />
+              <ChatMessageArea {...messageAreaProps} scrollPaddingBottom={inputOverlayHeight + 48} />
               {floatingActions.map((h) => (
                 <HudFloatingAction key={h.key} hud={h} />
               ))}
+              {/* Composer overlay — messages scroll behind the frosted input. */}
+              <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
+                {chatState.error && (
+                  <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
+                )}
+                {chatState.secretWarning && (
+                  <SecretWarningBanner
+                    patterns={chatState.secretWarning.patterns}
+                    onDismiss={() => channelId && useChatStore.setState((s) => ({
+                      channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
+                    }))}
+                  />
+                )}
+                <ActiveWorkflowStrip channelId={channelId!} />
+                {inputBars.map((h) => (
+                  <HudInputBar key={h.key} hud={h} />
+                ))}
+                <MessageInput {...messageInputProps} />
+              </div>
             </div>
-            {chatState.error && (
-              <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
-            )}
-            {chatState.secretWarning && (
-              <SecretWarningBanner
-                patterns={chatState.secretWarning.patterns}
-                onDismiss={() => channelId && useChatStore.setState((s) => ({
-                  channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
-                }))}
-              />
-            )}
-            <ActiveWorkflowStrip channelId={channelId!} />
-            {inputBars.map((h) => (
-              <HudInputBar key={h.key} hud={h} />
-            ))}
-            <MessageInput {...messageInputProps} />
             {/* Mobile participants overlay */}
             {participantsPanelOpen && channelId && (
               <ParticipantsPanel
@@ -745,28 +762,37 @@ export default function ChatScreen() {
                 <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 5 }}>
                   {channelHeaderBlock}
                 </div>
-                <ChatMessageArea {...messageAreaProps} scrollPaddingTop={headerOverlayHeight} />
+                <ChatMessageArea
+                  {...messageAreaProps}
+                  scrollPaddingTop={headerOverlayHeight}
+                  scrollPaddingBottom={inputOverlayHeight + 48}
+                />
                 {floatingActions.map((h) => (
                   <HudFloatingAction key={h.key} hud={h} />
                 ))}
-              </div>
-              {chatState.error && (
-                <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
-              )}
-              {chatState.secretWarning && (
-                <SecretWarningBanner
-                  patterns={chatState.secretWarning.patterns}
-                  onDismiss={() => channelId && useChatStore.setState((s) => ({
-                    channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
-                  }))}
-                />
-              )}
-              <ActiveWorkflowStrip channelId={channelId!} />
-              {inputBars.map((h) => (
-                <HudInputBar key={h.key} hud={h} />
-              ))}
-              <div className="w-full mx-auto max-w-[820px] px-4">
-                <MessageInput {...messageInputProps} />
+                {/* Composer overlay — messages scroll behind the frosted input.
+                    Banners + strips + bars + input all share the overlay so
+                    they sit above the chat content at the bottom. */}
+                <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
+                  {chatState.error && (
+                    <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
+                  )}
+                  {chatState.secretWarning && (
+                    <SecretWarningBanner
+                      patterns={chatState.secretWarning.patterns}
+                      onDismiss={() => channelId && useChatStore.setState((s) => ({
+                        channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
+                      }))}
+                    />
+                  )}
+                  <ActiveWorkflowStrip channelId={channelId!} />
+                  {inputBars.map((h) => (
+                    <HudInputBar key={h.key} hud={h} />
+                  ))}
+                  <div className="w-full mx-auto max-w-[820px] px-4">
+                    <MessageInput {...messageInputProps} />
+                  </div>
+                </div>
               </div>
             </div>
           )}

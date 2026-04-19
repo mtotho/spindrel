@@ -39,13 +39,16 @@ interface Props {
   /** When true, this is the newest bot message in the channel — tool results
    *  auto-expand. Older messages render collapsed. */
   isLatestBotMessage?: boolean;
+  /** Mobile layout: avatar inlined with name header, content flows flush-left
+   *  (no avatar-column indent) so the narrow viewport gets full width. */
+  isMobile?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // MessageBubble -- Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage, isMobile = false }: Props) {
   const t = useThemeTokens();
   const [compact] = useToolResultCompact(channelId ?? "");
   const setExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
@@ -281,14 +284,15 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     </>
   );
 
-  // Grouped message -- compact, no avatar or name header
+  // Grouped message -- compact, no avatar or name header.
+  // Mobile: no left indent (flush-left like non-grouped).
   if (isGrouped) {
     return (
       <div
         className="msg-hover"
         style={{
-          paddingLeft: 68,
-          paddingRight: 20,
+          paddingLeft: isMobile ? 12 : 68,
+          paddingRight: isMobile ? 12 : 20,
           paddingTop: 1,
           paddingBottom: 1,
           borderRadius: 4,
@@ -305,25 +309,31 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     ? () => onBotClick((meta.sender_bot_id as string) || null)
     : undefined;
 
-  // Full message -- avatar + name header + content
+  // Full message -- avatar + name header + content.
+  // Mobile: avatar is inlined in the name header (small badge), content flows
+  // flush-left with no avatar-column indent — reclaims the full chat width.
   return (
     <div
       className="msg-hover"
       style={{
         display: "flex",
-        flexDirection: "row",
-        gap: 12,
-        paddingLeft: 20,
-        paddingRight: 20,
+        flexDirection: isMobile ? "column" : "row",
+        gap: isMobile ? 0 : 12,
+        paddingLeft: isMobile ? 12 : 20,
+        paddingRight: isMobile ? 12 : 20,
         paddingTop: 14,
         paddingBottom: 6,
         borderRadius: 4,
       }}
     >
-      {/* Avatar */}
-      <div style={{ paddingTop: 2 }}>
-        <Avatar name={displayName} isUser={isUser} onClick={handleBotClick} />
-      </div>
+      {/* Avatar — desktop only. Mobile drops the avatar entirely; the colored
+          name carries identity and the layout feels better balanced without a
+          tiny badge sitting off to the left of the header. */}
+      {!isMobile && (
+        <div style={{ paddingTop: 2 }}>
+          <Avatar name={displayName} isUser={isUser} onClick={handleBotClick} />
+        </div>
+      )}
 
       {/* Content */}
       <div style={{ flex: 1, minWidth: 0 }}>

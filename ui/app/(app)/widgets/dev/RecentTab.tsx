@@ -64,6 +64,85 @@ function parseResult(raw: string | null): unknown {
   }
 }
 
+/** Reconstruct an `emit_html_widget` envelope from the call's arguments + row
+ *  metadata. Used when the stored result is missing or was stored before the
+ *  row committed — without this, the Recent tab preview would degrade to the
+ *  generic components render (empty placeholder) even though the arguments
+ *  fully describe what the widget will render. */
+function synthesizeHtmlWidgetEnvelope(
+  args: Record<string, unknown> | null | undefined,
+  channelId: string | null,
+  botId: string | null,
+): ToolResultEnvelope | null {
+  if (!args) return null;
+  const html = typeof args.html === "string" ? args.html : "";
+  const path = typeof args.path === "string" ? args.path : "";
+  const displayLabel =
+    typeof args.display_label === "string" && args.display_label.trim()
+      ? args.display_label.trim()
+      : null;
+  const extraCsp =
+    args.extra_csp && typeof args.extra_csp === "object" && !Array.isArray(args.extra_csp)
+      ? (args.extra_csp as Record<string, string[]>)
+      : null;
+
+  // Path-mode: parse the channel id out of /workspace/channels/<uuid>/... so
+  // `InteractiveHtmlRenderer` can actually fetch the file. Bare relative
+  // paths fall back to the call's own channel id.
+  if (path) {
+    const absMatch = /^\/workspace\/channels\/([0-9a-f-]+)\/(.*)$/i.exec(path.trim());
+    const resolvedChannelId = absMatch ? absMatch[1] : channelId;
+    const resolvedPath = absMatch ? absMatch[2] : path.trim();
+    if (!resolvedChannelId || !resolvedPath) return null;
+    return {
+      content_type: "application/vnd.spindrel.html+interactive",
+      body: "",
+      plain_body: displayLabel ?? resolvedPath,
+      display: "inline",
+      truncated: false,
+      record_id: null,
+      byte_size: 0,
+      widget_type: undefined,
+      display_label: displayLabel,
+      refreshable: false,
+      refresh_interval_seconds: null,
+      source_path: resolvedPath,
+      source_channel_id: resolvedChannelId,
+      source_bot_id: botId,
+      extra_csp: extraCsp,
+    };
+  }
+
+  if (html) {
+    const css = typeof args.css === "string" ? args.css : "";
+    const js = typeof args.js === "string" ? args.js : "";
+    const parts: string[] = [];
+    if (css) parts.push(`<style>\n${css}\n</style>`);
+    parts.push(html);
+    if (js) parts.push(`<script>\n${js}\n</script>`);
+    const body = parts.join("\n");
+    return {
+      content_type: "application/vnd.spindrel.html+interactive",
+      body,
+      plain_body: displayLabel ?? "",
+      display: "inline",
+      truncated: false,
+      record_id: null,
+      byte_size: body.length,
+      widget_type: undefined,
+      display_label: displayLabel,
+      refreshable: false,
+      refresh_interval_seconds: null,
+      source_path: null,
+      source_channel_id: channelId,
+      source_bot_id: botId,
+      extra_csp: extraCsp,
+    };
+  }
+
+  return null;
+}
+
 export function RecentTab() {
   const t = useThemeTokens();
   const navigate = useNavigate();
@@ -338,6 +417,19 @@ function CallDetail({
     [detail?.result],
   );
 
+  // The sample payload the Import-into-Templates button hands off. Falls back
+  // to the call's arguments when the stored result is absent so widget
+  // authors can still scaffold a template from a historical call that lost
+  // its result (null / truncation edge cases). For emit_html_widget the
+  // arguments ARE the canonical sample — they describe the widget directly.
+  const importSample = useMemo(() => {
+    if (rawResult != null) return rawResult;
+    if (detail?.arguments && Object.keys(detail.arguments).length > 0) {
+      return detail.arguments;
+    }
+    return null;
+  }, [rawResult, detail?.arguments]);
+
   // (Re)render when the selection or tab changes. Resolver priority:
   // tool-declared `_envelope` → widget template → generic render. Cheap —
   // the backend caches generic output and tool templates by (tool, payload).
@@ -365,6 +457,24 @@ function CallDetail({
           && typeof (env as Record<string, unknown>).content_type === "string"
           && (env as Record<string, unknown>).body != null;
       })();
+    // emit_html_widget is the one tool whose preview we can always reconstruct
+    // from the call's arguments alone — the args carry everything the iframe
+    // needs (inline body OR path + channel + bot). Skip the resolver chain
+    // for this tool so stored-result corner cases (null / truncated / redacted)
+    // don't silently collapse the preview to "—".
+    if (tool === "emit_html_widget") {
+      const synth = synthesizeHtmlWidgetEnvelope(
+        detail.arguments ?? {},
+        detail.channel_id ?? null,
+        detail.bot_id ?? null,
+      );
+      if (synth) {
+        setEnvelope(synth);
+        setEnvelopeSource("declared");
+        setEnvLoading(false);
+        return;
+      }
+    }
     resolveToolEnvelope({
       toolName: tool,
       rawResult: rr,
@@ -441,11 +551,11 @@ function CallDetail({
         </div>
         <button
           type="button"
-          onClick={() => onImport(cleaned, rawResult)}
-          disabled={rawResult == null}
+          onClick={() => onImport(cleaned, importSample)}
+          disabled={importSample == null}
           className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
           title={
-            rawResult == null
+            importSample == null
               ? "No result body to import"
               : "Open Templates editor with this call's result as the sample payload"
           }
@@ -456,7 +566,7 @@ function CallDetail({
         <button
           type="button"
           onClick={handlePin}
-          disabled={pinState === "pinning" || rawResult == null}
+          disabled={pinState === "pinning" || (envelope == null && rawResult == null)}
           className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-3 py-1.5 text-[12px] font-medium text-text-muted hover:bg-surface-overlay disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           title={
             envelopeSource === "declared"

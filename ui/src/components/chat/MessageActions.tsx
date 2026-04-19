@@ -302,18 +302,20 @@ function MenuItem({
 // Avatar
 // ---------------------------------------------------------------------------
 
-export function Avatar({ name, isUser, onClick }: { name: string; isUser: boolean; onClick?: () => void }) {
+export function Avatar({ name, isUser, onClick, size = 36 }: { name: string; isUser: boolean; onClick?: () => void; size?: number }) {
   const bg = isUser ? "#4b5563" : avatarColorLocal(name);
   const letter = isUser ? "U" : (name[0] || "B").toUpperCase();
   const clickable = !isUser && !!onClick;
+  const fontSize = size <= 24 ? 11 : 14;
+  const radius = size <= 24 ? 4 : 6;
 
   return (
     <div
       onClick={clickable ? onClick : undefined}
       style={{
-        width: 36,
-        height: 36,
-        borderRadius: 6,
+        width: size,
+        height: size,
+        borderRadius: radius,
         backgroundColor: bg,
         display: "flex", flexDirection: "row",
         alignItems: "center",
@@ -323,7 +325,7 @@ export function Avatar({ name, isUser, onClick }: { name: string; isUser: boolea
         cursor: clickable ? "pointer" : undefined,
       }}
     >
-      <span style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>
+      <span style={{ color: "#fff", fontSize, fontWeight: 700 }}>
         {letter}
       </span>
     </div>

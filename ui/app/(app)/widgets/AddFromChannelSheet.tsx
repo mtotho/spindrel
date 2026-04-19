@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { X, CheckCircle2, Wrench, Search, Pin, Clock } from "lucide-react";
+import { X, CheckCircle2, ChevronDown, Loader2, Wrench, Search, Pin, Clock } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { toast } from "@/src/stores/toast";
+import { RichToolResult } from "@/src/components/chat/RichToolResult";
+import { useThemeTokens } from "@/src/theme/tokens";
+import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
 import type { ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
+
+/** Previews are read-only — widget `callTool` dispatches inside the sheet
+ *  don't mutate anything. A no-op dispatcher makes that explicit. */
+const NOOP_DISPATCHER: WidgetActionDispatcher = {
+  dispatchAction: async () => ({ envelope: null, apiResponse: null }),
+};
 
 interface Props {
   open: boolean;
@@ -378,6 +387,7 @@ function ChannelSection({
   existingIdentities: Set<string>;
   onPin: (group: ChannelPinsGroup, pin: WidgetDashboardPin) => Promise<void>;
 }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   return (
     <li className="py-2">
       <div className="flex items-center justify-between px-4 py-1">
@@ -392,12 +402,16 @@ function ChannelSection({
         {group.pins.map((p) => {
           const identity = envelopeIdentityKey(p.tool_name, p.envelope);
           const already = existingIdentities.has(identity);
+          const selected = selectedId === p.id;
           return (
             <li key={p.id}>
               <PinRow
                 pin={p}
                 already={already}
-                onClick={() => onPin(group, p)}
+                selected={selected}
+                onSelect={() => setSelectedId(selected ? null : p.id)}
+                onConfirm={() => onPin(group, p)}
+                onCancel={() => setSelectedId(null)}
               />
             </li>
           );
@@ -408,67 +422,77 @@ function ChannelSection({
 }
 
 function PinRow({
-  pin, already, onClick,
-}: { pin: WidgetDashboardPin; already: boolean; onClick: () => void | Promise<void> }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  pin, already, selected, onSelect, onConfirm, onCancel,
+}: {
+  pin: WidgetDashboardPin;
+  already: boolean;
+  selected: boolean;
+  onSelect: () => void;
+  onConfirm: () => Promise<void>;
+  onCancel: () => void;
+}) {
   const label =
     pin.display_label ?? pin.envelope?.display_label ?? pin.tool_name;
   const integration =
     pin.tool_name.includes("-") ? pin.tool_name.split("-")[0] : pin.tool_name;
 
-  const handleClick = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await onClick();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const disabled = busy || already;
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={handleClick}
-      aria-disabled={disabled}
-      title={already ? "Already on this dashboard" : undefined}
+    <div
       className={[
-        "group flex w-full items-center gap-2.5 rounded-md border border-transparent bg-surface px-3 py-2 text-left transition-colors",
-        busy && "opacity-60 cursor-wait",
-        already && "cursor-not-allowed bg-surface/40 opacity-70",
-        !disabled && "hover:border-accent/40 hover:bg-surface-overlay",
+        "rounded-md border transition-colors",
+        selected ? "border-accent/50 bg-surface" : "border-transparent bg-surface",
+        already && "opacity-70",
       ]
         .filter(Boolean)
         .join(" ")}
     >
-      <div className="flex-1 min-w-0">
-        <div className={"truncate text-[12px] font-medium " + (already ? "text-text-muted" : "text-text")}>
-          {label}
+      <button
+        type="button"
+        onClick={onSelect}
+        disabled={already}
+        aria-disabled={already}
+        aria-expanded={selected}
+        title={already ? "Already on this dashboard" : undefined}
+        className={[
+          "group flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors rounded-md",
+          already && "cursor-not-allowed",
+          !already && !selected && "hover:bg-surface-overlay",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <div className="flex-1 min-w-0">
+          <div className={"truncate text-[12px] font-medium " + (already ? "text-text-muted" : "text-text")}>
+            {label}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-text-dim">
+            <span className="rounded bg-surface-overlay px-1 py-px uppercase tracking-wider">
+              {integration}
+            </span>
+          </div>
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-text-dim">
-          <span className="rounded bg-surface-overlay px-1 py-px uppercase tracking-wider">
-            {integration}
+        {already ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+            <CheckCircle2 size={10} /> Pinned
           </span>
-          {error && <span className="text-danger">{error}</span>}
-        </div>
-      </div>
-      {already ? (
-        <span
-          className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent"
-        >
-          <CheckCircle2 size={10} /> Pinned
-        </span>
-      ) : (
-        <span className="inline-flex items-center gap-1 rounded-full bg-accent/0 px-2 py-0.5 text-[10px] font-medium text-text-dim opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-accent">
-          <Pin size={10} /> Add
-        </span>
+        ) : (
+          <ChevronDown
+            size={13}
+            className={
+              "shrink-0 text-text-dim transition-transform "
+              + (selected ? "rotate-180 text-accent" : "group-hover:text-text")
+            }
+          />
+        )}
+      </button>
+      {selected && !already && (
+        <PreviewPanel
+          envelope={pin.envelope}
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
       )}
-    </button>
+    </div>
   );
 }
 
@@ -507,6 +531,7 @@ function RecentCallsTab({
   scoped: boolean;
   onPin: (call: RecentCall) => Promise<void>;
 }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const filtered = useMemo(() => {
     if (!loaded) return [];
     const q = query.trim().toLowerCase();
@@ -561,13 +586,17 @@ function RecentCallsTab({
       {filtered.map((call) => {
         const identity = envelopeIdentityKey(call.tool_name, call.envelope);
         const already = existingIdentities.has(identity);
+        const selected = selectedId === call.id;
         return (
           <li key={call.id} className="px-3 py-1.5">
             <RecentCallRow
               call={call}
               already={already}
+              selected={selected}
               showChannel={!scoped}
-              onClick={() => onPin(call)}
+              onSelect={() => setSelectedId(selected ? null : call.id)}
+              onConfirm={() => onPin(call)}
+              onCancel={() => setSelectedId(null)}
             />
           </li>
         );
@@ -579,73 +608,144 @@ function RecentCallsTab({
 function RecentCallRow({
   call,
   already,
+  selected,
   showChannel,
-  onClick,
+  onSelect,
+  onConfirm,
+  onCancel,
 }: {
   call: RecentCall;
   already: boolean;
+  selected: boolean;
   showChannel: boolean;
-  onClick: () => void | Promise<void>;
+  onSelect: () => void;
+  onConfirm: () => Promise<void>;
+  onCancel: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const label = call.display_label ?? call.envelope?.display_label ?? call.tool_name;
   const integration = call.tool_name.includes("-")
     ? call.tool_name.split("-")[0]
     : call.tool_name;
 
-  const handleClick = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await onClick();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const disabled = busy || already;
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={handleClick}
-      aria-disabled={disabled}
-      title={already ? "Already on this dashboard" : undefined}
+    <div
       className={[
-        "group flex w-full items-center gap-2.5 rounded-md border border-transparent bg-surface px-3 py-2 text-left transition-colors",
-        busy && "opacity-60 cursor-wait",
-        already && "cursor-not-allowed bg-surface/40 opacity-70",
-        !disabled && "hover:border-accent/40 hover:bg-surface-overlay",
+        "rounded-md border transition-colors",
+        selected ? "border-accent/50 bg-surface" : "border-transparent bg-surface",
+        already && "opacity-70",
       ]
         .filter(Boolean)
         .join(" ")}
     >
-      <div className="flex-1 min-w-0">
-        <div className={"truncate text-[12px] font-medium " + (already ? "text-text-muted" : "text-text")}>
-          {label}
+      <button
+        type="button"
+        onClick={onSelect}
+        disabled={already}
+        aria-disabled={already}
+        aria-expanded={selected}
+        title={already ? "Already on this dashboard" : undefined}
+        className={[
+          "group flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors rounded-md",
+          already && "cursor-not-allowed",
+          !already && !selected && "hover:bg-surface-overlay",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <div className="flex-1 min-w-0">
+          <div className={"truncate text-[12px] font-medium " + (already ? "text-text-muted" : "text-text")}>
+            {label}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-text-dim">
+            <span className="rounded bg-surface-overlay px-1 py-px uppercase tracking-wider">
+              {integration}
+            </span>
+            {showChannel && call.channel_name && (
+              <span className="truncate">#{call.channel_name}</span>
+            )}
+          </div>
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-text-dim">
-          <span className="rounded bg-surface-overlay px-1 py-px uppercase tracking-wider">
-            {integration}
+        {already ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+            <CheckCircle2 size={10} /> Pinned
           </span>
-          {showChannel && call.channel_name && (
-            <span className="truncate">#{call.channel_name}</span>
-          )}
-          {error && <span className="text-danger">{error}</span>}
-        </div>
-      </div>
-      {already ? (
-        <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
-          <CheckCircle2 size={10} /> Pinned
-        </span>
-      ) : (
-        <span className="inline-flex items-center gap-1 rounded-full bg-accent/0 px-2 py-0.5 text-[10px] font-medium text-text-dim opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-accent">
-          <Pin size={10} /> Add
-        </span>
+        ) : (
+          <ChevronDown
+            size={13}
+            className={
+              "shrink-0 text-text-dim transition-transform "
+              + (selected ? "rotate-180 text-accent" : "group-hover:text-text")
+            }
+          />
+        )}
+      </button>
+      {selected && !already && (
+        <PreviewPanel
+          envelope={call.envelope}
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
       )}
-    </button>
+    </div>
+  );
+}
+
+/** Shared rendered-widget preview + confirm/cancel footer. Used by both the
+ *  Recent-calls and From-channel flows so the click-to-preview-then-confirm
+ *  gesture looks identical in each tab. */
+function PreviewPanel({
+  envelope,
+  onConfirm,
+  onCancel,
+}: {
+  envelope: ToolResultEnvelope;
+  onConfirm: () => Promise<void>;
+  onCancel: () => void;
+}) {
+  const t = useThemeTokens();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleConfirm = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onConfirm();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-surface-border/70 px-3 py-2">
+      <div className="max-h-[280px] overflow-y-auto rounded-md bg-surface-overlay/40 p-2">
+        <RichToolResult envelope={envelope} dispatcher={NOOP_DISPATCHER} t={t} />
+      </div>
+      {error && (
+        <div className="mt-2 rounded-md border border-danger/30 bg-danger/10 px-2 py-1 text-[11px] text-danger">
+          {error}
+        </div>
+      )}
+      <div className="mt-2 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="rounded-md border border-surface-border px-2.5 py-1 text-[11px] font-medium text-text-muted hover:bg-surface-overlay disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleConfirm}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {busy ? <Loader2 size={11} className="animate-spin" /> : <Pin size={11} />}
+          Add to dashboard
+        </button>
+      </div>
+    </div>
   );
 }

@@ -11,6 +11,37 @@ from app.db.models import ToolCall, TraceEvent
 
 logger = logging.getLogger(__name__)
 
+# DB-storage cap for raw tool results when the caller didn't opt in to
+# ``store_full_result`` (the dispatch path sets that flag for summarized +
+# large results so retrieval pointers work). The cap exists to keep the
+# tool_calls row reasonable in the common case where a tool returns a huge
+# blob the UI never needs to re-parse.
+_STORED_RESULT_CAP_CHARS = 4000
+
+
+def _trim_stored_result(result: str | None, store_full: bool) -> str | None:
+    """Decide what to persist on the ToolCall row's ``result`` column.
+
+    Preserves the full payload when the caller opted in, or when the payload
+    is a tool-authored envelope (``{"_envelope": ...}``) — those are structured
+    JSON that the dev panel and import-into-templates flow re-parse, and mid-JSON
+    truncation collapses them to unparseable strings (which then renders as
+    "—" with Import disabled). Envelope size is already bounded upstream
+    (``INLINE_BODY_CAP_BYTES``; HTML widgets are rendering-critical and
+    intentionally exempt from that cap), so this is a safe exemption.
+    """
+    if result is None:
+        return None
+    if store_full:
+        return result
+    # Cheap prefix sniff — avoids parsing JSON just to decide how to store.
+    # Anchored start-only so payloads that happen to contain the string deeper
+    # in a body don't accidentally slip through.
+    stripped = result.lstrip()
+    if stripped.startswith('{"_envelope"') or stripped.startswith("{'_envelope'"):
+        return result
+    return result[:_STORED_RESULT_CAP_CHARS]
+
 
 def schedule_exec_completion_record(
     *,
@@ -128,9 +159,7 @@ async def _record_tool_call(
     (used when summarization occurred so the full output is retrievable).
     """
     try:
-        stored_result = result
-        if stored_result and not store_full_result:
-            stored_result = stored_result[:4000]
+        stored_result = _trim_stored_result(result, store_full_result)
         now = datetime.now(timezone.utc)
         kwargs: dict = dict(
             session_id=session_id,
@@ -219,9 +248,7 @@ async def _complete_tool_call(
     terminal state and stamps the result.
     """
     try:
-        stored_result = result
-        if stored_result and not store_full_result:
-            stored_result = stored_result[:4000]
+        stored_result = _trim_stored_result(result, store_full_result)
         async with async_session() as db:
             await db.execute(
                 update(ToolCall)

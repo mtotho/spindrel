@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { StreamingIndicator, ProcessingIndicator } from "@/src/components/chat/StreamingIndicator";
+import { SpindrelLogo } from "@/src/components/layout/SpindrelLogo";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { Message } from "@/src/types/api";
 import type { TurnState } from "@/src/stores/chat";
@@ -81,6 +82,9 @@ export interface ChatMessageAreaProps {
   /** Top padding on the scroll container — lets callers reserve space for an
    *  overlay header that messages should scroll behind. Default 8. */
   scrollPaddingTop?: number;
+  /** Bottom padding on the scroll container — reserves space for an overlay
+   *  composer so messages can scroll behind it. Default 12. */
+  scrollPaddingBottom?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +126,7 @@ export function ChatMessageArea({
   pendingApprovalsSlot,
   emptyStateComponent,
   scrollPaddingTop = 8,
+  scrollPaddingBottom = 12,
 }: ChatMessageAreaProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -234,18 +239,25 @@ export function ChatMessageArea({
           overflowY: "auto",
           height: "100%",
           paddingTop: scrollPaddingTop,
-          paddingBottom: 12,
+          paddingBottom: scrollPaddingBottom,
         }}
       >
         {/* Each column-reverse child is centered within the full-width scroll
             container and capped at 820px. The scroll container itself spans
             edge-to-edge so the scrollbar sits at the right edge of the chat
             column, not at the right edge of the 820px content area. */}
-        {/* DOM first == visual BOTTOM — streaming / processing indicators. */}
+        {/* DOM first == visual BOTTOM — streaming / processing indicators +
+            a Spindrel brand mark tucked below the newest message. Scrolls
+            with the content so it slips off when the user scrolls up. */}
         <div className="w-full mx-auto px-4" style={{ maxWidth: 820 }}>
           {pendingApprovalsSlot?.(liveApprovalIds)}
           {turnIndicators}
           {processingIndicator}
+          {invertedData.length > 0 && (
+            <div className="flex flex-row justify-center" style={{ paddingTop: 12, paddingBottom: 6, opacity: 0.7 }}>
+              <SpindrelLogo size={20} color={t.purple} />
+            </div>
+          )}
         </div>
 
         {/* Messages in chronological DOM order inside a normal-flow div. */}

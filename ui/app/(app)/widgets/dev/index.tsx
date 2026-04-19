@@ -1,8 +1,15 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { BookOpen } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { WidgetTemplatesDocsModal } from "@/app/(app)/admin/tools/library/WidgetTemplatesDocsModal";
+import {
+  channelIdFromSlug,
+  isChannelSlug,
+} from "@/src/stores/dashboards";
+import { useChannel } from "@/src/api/hooks/useChannels";
+import { useDashboardsStore } from "@/src/stores/dashboards";
 import { ToolsSandbox } from "./ToolsSandbox";
 import { TemplatesTab } from "./TemplatesTab";
 import { LibraryTab } from "./LibraryTab";
@@ -19,16 +26,50 @@ const LABELS: Record<DevTab, string> = {
   recent: "Recent",
 };
 
+/** Read `?from=<slug>` once at mount. Persisted in state so the picker can
+ *  strip the query param without losing the back-navigation target. */
+function useOriginSlug(): string | null {
+  const [params] = useSearchParams();
+  const [initial] = useState(() => params.get("from"));
+  return initial;
+}
+
 export default function WidgetDevPanelPage() {
   const [tab, setTab] = useHashTab<DevTab>("library", TABS);
   const [docsOpen, setDocsOpen] = useState(false);
+  const originSlug = useOriginSlug();
+
+  // Channel dashboard: route back via the pretty /widgets/channel/<id> form.
+  // User dashboard: /widgets/<slug>. No origin: default lands on /widgets.
+  const backTo = useMemo(() => {
+    if (!originSlug) return "/widgets";
+    if (isChannelSlug(originSlug)) {
+      const chId = channelIdFromSlug(originSlug);
+      return chId ? `/widgets/channel/${chId}` : "/widgets";
+    }
+    return `/widgets/${originSlug}`;
+  }, [originSlug]);
+
+  const originChannelId = originSlug && isChannelSlug(originSlug)
+    ? channelIdFromSlug(originSlug)
+    : null;
+  const { data: channelRow } = useChannel(originChannelId ?? undefined);
+  const dashboards = useDashboardsStore((s) => s.list);
+  const originDashboard = originSlug
+    ? dashboards.find((d) => d.slug === originSlug)
+    : null;
+  const parentLabel = useMemo(() => {
+    if (!originSlug) return "Widgets";
+    if (originChannelId) return channelRow?.name ? `#${channelRow.name}` : "Channel dashboard";
+    return originDashboard?.name ?? "Widgets";
+  }, [originSlug, originChannelId, channelRow?.name, originDashboard?.name]);
 
   return (
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
       <PageHeader
         variant="detail"
-        backTo="/widgets"
-        parentLabel="Widgets"
+        backTo={backTo}
+        parentLabel={parentLabel}
         title="Developer panel"
         subtitle="Browse the library, author templates, call tools, inspect recent results"
       />

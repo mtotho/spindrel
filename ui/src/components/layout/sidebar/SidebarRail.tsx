@@ -5,6 +5,7 @@ import {
   Brain,
   Bot,
   BookOpen,
+  Hash,
   LayoutDashboard,
   Plug,
   PanelLeftClose,
@@ -12,13 +13,18 @@ import {
   Sun,
   Moon,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { SpindrelLogo } from "../SpindrelLogo";
 import { useUIStore } from "../../../stores/ui";
 import { useAuthStore } from "../../../stores/auth";
 import { useThemeStore } from "../../../stores/theme";
 import { useVersion } from "../../../api/hooks/useVersion";
-import { useDashboards } from "../../../stores/dashboards";
+import {
+  channelIdFromSlug,
+  isChannelSlug,
+  useDashboards,
+} from "../../../stores/dashboards";
+import { useChannels } from "../../../api/hooks/useChannels";
 import { LucideIconByName } from "../../IconPicker";
 import { cn } from "../../../lib/cn";
 import { useTodayUpcomingCount } from "./UpcomingRailPopover";
@@ -60,8 +66,17 @@ export function SidebarRail() {
   const toggleTheme = useThemeStore((s) => s.toggle);
   const { data: version } = useVersion();
   const upcomingCount = useTodayUpcomingCount();
-  const { list: dashboards } = useDashboards();
-  const railDashboards = dashboards
+  // `allDashboards` includes channel-scoped dashboards (slug prefix `channel:`)
+  // so a user can opt to pin a channel dashboard to the rail like any other.
+  const { allDashboards } = useDashboards();
+  const { data: channels } = useChannels();
+  const channelNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    if (!channels) return m;
+    for (const c of channels) m.set(c.id, c.name);
+    return m;
+  }, [channels]);
+  const railDashboards = allDashboards
     .filter((d) => d.pin_to_rail)
     .sort((a, b) => {
       const ap = a.rail_position ?? Number.MAX_SAFE_INTEGER;
@@ -141,19 +156,33 @@ export function SidebarRail() {
         </RailLink>
 
         {railDashboards.map((d) => {
-          const active = pathname === `/widgets/${d.slug}`;
+          const isChannel = isChannelSlug(d.slug);
+          const channelId = isChannel ? channelIdFromSlug(d.slug) : null;
+          const href = channelId
+            ? `/widgets/channel/${channelId}`
+            : `/widgets/${d.slug}`;
+          // Channel dashboards live at two path shapes (pretty + raw-slug).
+          // Match both so the rail highlights correctly regardless of which
+          // entry point the user followed.
+          const active = channelId
+            ? pathname === href
+              || pathname === `/widgets/${encodeURIComponent(d.slug)}`
+              || pathname === `/widgets/${d.slug}`
+            : pathname === `/widgets/${d.slug}`;
+          const label = channelId
+            ? `#${channelNameById.get(channelId) ?? d.name}`
+            : d.name;
           return (
-            <RailLink
-              key={d.slug}
-              href={`/widgets/${d.slug}`}
-              active={active}
-              title={d.name}
-            >
-              <LucideIconByName
-                name={d.icon}
-                size={18}
-                className={active ? "text-accent" : "text-text-dim"}
-              />
+            <RailLink key={d.slug} href={href} active={active} title={label}>
+              {isChannel && !d.icon ? (
+                <Hash size={18} className={active ? "text-accent" : "text-text-dim"} />
+              ) : (
+                <LucideIconByName
+                  name={d.icon}
+                  size={18}
+                  className={active ? "text-accent" : "text-text-dim"}
+                />
+              )}
             </RailLink>
           );
         })}

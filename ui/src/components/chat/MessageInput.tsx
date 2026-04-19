@@ -108,6 +108,13 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapChatInputHandle>(null);
   const editorWrapperRef = useRef<HTMLDivElement>(null);
+  const [isFocused, setIsFocused] = useState(false);
+  // Mobile idle collapse: single-row card when unfocused + empty + not
+  // recording. Tap the input to expand back to the full composer card.
+  const collapsed = isMobile && !isFocused
+    && text.length === 0
+    && pendingFiles.length === 0
+    && !recorder.isRecording;
 
   const handleSend = useCallback(() => {
     const message = (editorRef.current?.getMarkdown() ?? text).trim();
@@ -223,7 +230,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     const sendBtnOpacity = canSend || showStop || showMic || recorder.isRecording ? 1 : 0.4;
 
     return (
-      <div style={{ flexShrink: 0, boxShadow: "0 -1px 8px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", backgroundColor: `${t.surface}e6` }}>
+      <div style={{ flexShrink: 0 }}>
         {/* Audio recorder error */}
         {recorder.error && (
           <div style={{ padding: "4px 20px", background: "rgba(239,68,68,0.08)" }}>
@@ -368,33 +375,50 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
         <div
           style={{
-            padding: isMobile ? "0 8px 8px" : "0 16px 14px",
+            padding: isMobile ? "0 16px 16px" : "0 16px 14px",
           }}
         >
           {/* One card. Editor on top (flat — no inner border/bg), actions on bottom. */}
           <div
             ref={editorWrapperRef}
-            onFocusCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.boxShadow = `inset 0 0 0 1px ${t.overlayBorder}`; }}
-            onBlurCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.boxShadow = `inset 0 0 0 1px ${t.overlayLight}`; }}
+            onFocusCapture={() => setIsFocused(true)}
+            onBlurCapture={() => {
+              // Delay so focus bouncing through portals (mentions, + menu) doesn't
+              // trigger a visible collapse flash on mobile.
+              setTimeout(() => {
+                if (editorWrapperRef.current && !editorWrapperRef.current.contains(document.activeElement)) {
+                  setIsFocused(false);
+                }
+              }, 0);
+            }}
             style={{
               display: "flex",
               flexDirection: "column",
-              background: t.surfaceRaised,
-              borderRadius: 20,
-              boxShadow: `inset 0 0 0 1px ${t.overlayLight}`,
+              // Slightly translucent + blurred so messages scrolling behind
+              // the composer read through the card (paired with the wrapper's
+              // backdrop-filter — Claude-style frosted glass).
+              background: `${t.surfaceRaised}d9`,
+              backdropFilter: "blur(14px)",
+              WebkitBackdropFilter: "blur(14px)",
+              borderRadius: collapsed ? 999 : 20,
+              boxShadow: `inset 0 0 0 1px ${isFocused ? t.overlayBorder : t.overlayLight}`,
               overflow: "hidden",
-              transition: "box-shadow 0.15s",
+              transition: "box-shadow 0.15s, border-radius 0.15s",
             }}
           >
-            {/* Editor area — no own border/background; inherits the card. */}
+            {/* Editor area — no own border/background; inherits the card.
+                Mobile collapsed mode inlines a compact mic on the right so
+                the single-row pill stays useful. */}
             <div
               style={{
-                minHeight: isMobile ? 40 : 60,
+                minHeight: isMobile ? 36 : 60,
                 maxHeight: 260,
-                padding: isMobile ? "8px 12px 4px" : "12px 16px 4px",
+                padding: collapsed ? "4px 6px 4px 14px" : isMobile ? "6px 10px 2px" : "12px 16px 4px",
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "row",
+                alignItems: collapsed ? "center" : undefined,
+                gap: collapsed ? 6 : 0,
               }}
             >
               {recorder.isRecording ? (
@@ -419,16 +443,31 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   isMultiBot={isMultiBot}
                 />
               )}
+              {/* Collapsed mobile: inline compact mic so the one-row pill
+                  still offers voice-input without opening the full card. */}
+              {collapsed && (
+                <button
+                  type="button"
+                  className="input-action-btn"
+                  onClick={handleMicToggle}
+                  style={{ width: 30, height: 30, flexShrink: 0, opacity: 0.8 }}
+                  aria-label="Record audio"
+                  title="Record audio"
+                >
+                  <Mic size={16} color={t.textDim} />
+                </button>
+              )}
             </div>
 
-            {/* Action row — attached to the bottom of the card. */}
+            {/* Action row — attached to the bottom of the card. Hidden on
+                mobile when the card is idle (collapsed to a one-row pill). */}
             <div
               style={{
-                display: "flex",
+                display: collapsed ? "none" : "flex",
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
-                padding: isMobile ? "4px 6px 4px" : "4px 8px 6px",
+                padding: isMobile ? "2px 4px 3px" : "4px 8px 6px",
               }}
             >
               <ComposerAddMenu
