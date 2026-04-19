@@ -1866,18 +1866,19 @@ class DashboardRailPin(Base):
     """
     __tablename__ = "dashboard_rail_pins"
 
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     dashboard_slug: Mapped[str] = mapped_column(
         Text,
         ForeignKey(
             "widget_dashboards.slug",
             ondelete="CASCADE", onupdate="CASCADE",
         ),
-        primary_key=True, nullable=False,
+        nullable=False,
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
-        primary_key=True, nullable=True,
+        nullable=True,
     )
     rail_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
