@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { X, CheckCircle2, Wrench, Search, Pin } from "lucide-react";
+import { X, CheckCircle2, Wrench, Search, Pin, Clock } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { toast } from "@/src/stores/toast";
-import type { Channel, PinnedWidget } from "@/src/types/api";
+import type { Channel, PinnedWidget, ToolResultEnvelope } from "@/src/types/api";
 
 interface Props {
   open: boolean;
@@ -17,9 +17,24 @@ interface Props {
   /** Called with the new pin's id after a successful add. The dashboard page
    *  uses this to scroll-into-view + accent-flash the new tile. */
   onPinned?: (pinId: string) => void;
+  /** When set, the "Recent calls" tab pre-filters to calls in this channel
+   *  and becomes the default tab (channel dashboards open here most often). */
+  scopeChannelId?: string | null;
 }
 
-type Tab = "channel" | "build";
+type Tab = "channel" | "recent" | "build";
+
+interface RecentCall {
+  id: string;
+  tool_name: string;
+  bot_id: string | null;
+  channel_id: string | null;
+  channel_name: string | null;
+  tool_args: Record<string, unknown>;
+  envelope: ToolResultEnvelope;
+  display_label: string | null;
+  created_at: string | null;
+}
 
 async function fetchChannelDetail(channelId: string): Promise<Channel> {
   return apiFetch<Channel>(`/api/v1/channels/${channelId}`);
@@ -30,8 +45,14 @@ interface ChannelWithPins {
   pins: PinnedWidget[];
 }
 
-export default function AddFromChannelSheet({ open, onClose, dashboardName, onPinned }: Props) {
-  const [tab, setTab] = useState<Tab>("channel");
+export default function AddFromChannelSheet({
+  open,
+  onClose,
+  dashboardName,
+  onPinned,
+  scopeChannelId,
+}: Props) {
+  const [tab, setTab] = useState<Tab>(scopeChannelId ? "recent" : "channel");
   const [query, setQuery] = useState("");
   const { data: channels } = useChannels();
   const pins = useDashboardPinsStore((s) => s.pins);
@@ -41,6 +62,10 @@ export default function AddFromChannelSheet({ open, onClose, dashboardName, onPi
   // show pin counts without per-row expansion cost.
   const [loaded, setLoaded] = useState<ChannelWithPins[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Recent tool-call envelopes — filtered to scopeChannelId when provided.
+  const [recent, setRecent] = useState<RecentCall[] | null>(null);
+  const [recentError, setRecentError] = useState<string | null>(null);
 
   // Close on Escape — standard modal UX.
   useEffect(() => {
@@ -75,6 +100,25 @@ export default function AddFromChannelSheet({ open, onClose, dashboardName, onPi
     });
     return () => { cancelled = true; };
   }, [open, channels]);
+
+  // Fetch recent widget-producing tool calls, refetched whenever the sheet
+  // opens or the channel scope changes.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setRecent(null);
+    setRecentError(null);
+    const qs = new URLSearchParams({ limit: "30" });
+    if (scopeChannelId) qs.set("channel_id", scopeChannelId);
+    apiFetch<{ calls: RecentCall[] }>(`/api/v1/widgets/recent-calls?${qs}`)
+      .then((resp) => {
+        if (!cancelled) setRecent(resp.calls ?? []);
+      })
+      .catch((e) => {
+        if (!cancelled) setRecentError(e instanceof Error ? e.message : String(e));
+      });
+    return () => { cancelled = true; };
+  }, [open, scopeChannelId]);
 
   const existingIdentities = useMemo(
     () => new Set(pins.map((p) => envelopeIdentityKey(p.tool_name, p.envelope))),
@@ -128,6 +172,9 @@ export default function AddFromChannelSheet({ open, onClose, dashboardName, onPi
         </header>
 
         <div className="flex gap-1 border-b border-surface-border px-4 pt-3 pb-0">
+          <TabButton active={tab === "recent"} onClick={() => setTab("recent")}>
+            Recent calls
+          </TabButton>
           <TabButton active={tab === "channel"} onClick={() => setTab("channel")}>
             From channel
           </TabButton>
@@ -160,7 +207,44 @@ export default function AddFromChannelSheet({ open, onClose, dashboardName, onPi
         )}
 
         <div className="flex-1 overflow-auto">
-          {tab === "channel" ? (
+          {tab === "recent" && (
+            <RecentCallsTab
+              loaded={recent}
+              loadError={recentError}
+              query={query}
+              existingIdentities={existingIdentities}
+              scoped={!!scopeChannelId}
+              onPin={async (call) => {
+                const created = await pinWidget({
+                  source_kind: call.channel_id ? "channel" : "adhoc",
+                  source_channel_id: call.channel_id ?? null,
+                  source_bot_id: call.bot_id ?? null,
+                  tool_name: call.tool_name,
+                  tool_args: call.tool_args,
+                  envelope: call.envelope,
+                  display_label:
+                    call.display_label ?? call.envelope?.display_label ?? null,
+                });
+                const label =
+                  call.display_label ?? call.envelope?.display_label ?? call.tool_name;
+                toast({
+                  kind: "success",
+                  message: `Added ${label} to ${dashboardName ?? "dashboard"}`,
+                  action: onPinned
+                    ? {
+                        label: "View",
+                        onClick: () => {
+                          onPinned(created.id);
+                          onClose();
+                        },
+                      }
+                    : undefined,
+                });
+                onPinned?.(created.id);
+              }}
+            />
+          )}
+          {tab === "channel" && (
             <ChannelPinsTab
               loaded={loaded}
               loadError={loadError}
@@ -196,9 +280,8 @@ export default function AddFromChannelSheet({ open, onClose, dashboardName, onPi
                 onPinned?.(created.id);
               }}
             />
-          ) : (
-            <BuildTab onClose={onClose} />
           )}
+          {tab === "build" && <BuildTab onClose={onClose} />}
         </div>
       </div>
     </div>,
@@ -405,5 +488,163 @@ function BuildTab({ onClose }: { onClose: () => void }) {
         Open developer panel
       </Link>
     </div>
+  );
+}
+
+function RecentCallsTab({
+  loaded,
+  loadError,
+  query,
+  existingIdentities,
+  scoped,
+  onPin,
+}: {
+  loaded: RecentCall[] | null;
+  loadError: string | null;
+  query: string;
+  existingIdentities: Set<string>;
+  scoped: boolean;
+  onPin: (call: RecentCall) => Promise<void>;
+}) {
+  const filtered = useMemo(() => {
+    if (!loaded) return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return loaded;
+    return loaded.filter((c) => {
+      const label = (c.display_label ?? c.envelope?.display_label ?? c.tool_name).toLowerCase();
+      if (label.includes(q)) return true;
+      if (c.tool_name.toLowerCase().includes(q)) return true;
+      if (c.channel_name?.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [loaded, query]);
+
+  if (loadError) {
+    return (
+      <p className="p-5 text-[12px] text-danger">
+        Failed to load recent calls: {loadError}
+      </p>
+    );
+  }
+  if (loaded === null) {
+    return (
+      <div className="space-y-2 p-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-12 animate-pulse rounded-md bg-surface-overlay/40" />
+        ))}
+      </div>
+    );
+  }
+  if (filtered.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+        <div className="rounded-full bg-surface-overlay p-3">
+          <Clock size={16} className="text-text-dim" />
+        </div>
+        <p className="text-[13px] font-medium text-text">
+          {query ? "No matches" : "No recent widget calls"}
+        </p>
+        <p className="max-w-[260px] text-[11px] text-text-muted">
+          {query
+            ? "Try a different tool or widget name."
+            : scoped
+              ? "Run any widget-returning tool in this channel, then come back here."
+              : "Run any widget-returning tool in a channel, then come back here."}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <ul className="divide-y divide-surface-border">
+      {filtered.map((call) => {
+        const identity = envelopeIdentityKey(call.tool_name, call.envelope);
+        const already = existingIdentities.has(identity);
+        return (
+          <li key={call.id} className="px-3 py-1.5">
+            <RecentCallRow
+              call={call}
+              already={already}
+              showChannel={!scoped}
+              onClick={() => onPin(call)}
+            />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function RecentCallRow({
+  call,
+  already,
+  showChannel,
+  onClick,
+}: {
+  call: RecentCall;
+  already: boolean;
+  showChannel: boolean;
+  onClick: () => void | Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const label = call.display_label ?? call.envelope?.display_label ?? call.tool_name;
+  const integration = call.tool_name.includes("-")
+    ? call.tool_name.split("-")[0]
+    : call.tool_name;
+
+  const handleClick = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onClick();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disabled = busy || already;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={handleClick}
+      aria-disabled={disabled}
+      title={already ? "Already on this dashboard" : undefined}
+      className={[
+        "group flex w-full items-center gap-2.5 rounded-md border border-transparent bg-surface px-3 py-2 text-left transition-colors",
+        busy && "opacity-60 cursor-wait",
+        already && "cursor-not-allowed bg-surface/40 opacity-70",
+        !disabled && "hover:border-accent/40 hover:bg-surface-overlay",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <div className="flex-1 min-w-0">
+        <div className={"truncate text-[12px] font-medium " + (already ? "text-text-muted" : "text-text")}>
+          {label}
+        </div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-text-dim">
+          <span className="rounded bg-surface-overlay px-1 py-px uppercase tracking-wider">
+            {integration}
+          </span>
+          {showChannel && call.channel_name && (
+            <span className="truncate">#{call.channel_name}</span>
+          )}
+          {error && <span className="text-danger">{error}</span>}
+        </div>
+      </div>
+      {already ? (
+        <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+          <CheckCircle2 size={10} /> Pinned
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1 rounded-full bg-accent/0 px-2 py-0.5 text-[10px] font-medium text-text-dim opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-accent">
+          <Pin size={10} /> Add
+        </span>
+      )}
+    </button>
   );
 }

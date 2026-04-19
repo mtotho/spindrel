@@ -62,10 +62,15 @@ export function SessionChatView({
     isFetchingNextPage,
   } = useSessionMessages(sessionId);
 
-  // Flatten pages → chronological (oldest first), filter UI-invisible rows.
+  // Flatten pages → newest-first (what ChatMessageArea expects — it then
+  // inverts to chronological for DOM rendering). Each page comes from the
+  // backend in chronological order (oldest→newest within the page), and
+  // pages themselves arrive newest-page first. Reverse each page so it's
+  // newest-first internally, then concat in page order — page 0 (newest
+  // batch) first, older pages appended.
   const invertedData = useMemo<Message[]>(() => {
     if (!pages) return [];
-    return [...pages.pages].reverse().flatMap((p) => p.messages).filter((m) => {
+    return pages.pages.flatMap((p) => [...p.messages].reverse()).filter((m) => {
       const meta = (m.metadata ?? {}) as Record<string, any>;
       // task_run envelopes render even without role/content (metadata-only).
       if (meta.kind === "task_run") return true;

@@ -186,13 +186,19 @@ def _detect_content_type(text: str) -> tuple[str, str]:
     if not stripped:
         return "text/plain", "badge"
 
-    # JSON detection — must be a valid object or array.
+    # JSON detection — valid object/array, OR one that was tail-truncated
+    # by a caller (e.g. ``_run_tool_step`` appends ``"... [truncated]"``
+    # past its cap). Recognizing the truncated form keeps the JSON
+    # renderer on the happy path instead of falling through to markdown,
+    # where ``---`` separators and ``**bold**`` inside embedded string
+    # values get rendered as formatting.
     if stripped[0] in "{[":
         try:
             json.loads(stripped)
             return "application/json", "badge"
         except (json.JSONDecodeError, ValueError):
-            pass
+            if stripped.rstrip().endswith("[truncated]"):
+                return "application/json", "badge"
 
     # Markdown detection — count signals, require ≥ 2.
     md_signals = sum([

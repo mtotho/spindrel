@@ -154,6 +154,98 @@ async def remove_dashboard(slug: str, db: AsyncSession = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# Recent widget-producing tool calls
+# ---------------------------------------------------------------------------
+# Used by the "Add widget" sheet's "Recent calls" tab — surfaces tool calls
+# whose result is a renderable widget envelope (components, html-interactive,
+# html, etc.) so users can pin them straight to a dashboard without having
+# to first pin them to a channel's OmniPanel rail.
+_WIDGET_CONTENT_TYPES = {
+    "application/vnd.spindrel.components+json",
+    "application/vnd.spindrel.html+interactive",
+    "application/vnd.spindrel.diff+text",
+    "application/vnd.spindrel.file-listing+json",
+    "text/html",
+}
+
+
+@router.get(
+    "/recent-calls",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def list_recent_widget_calls(
+    channel_id: uuid.UUID | None = Query(default=None),
+    limit: int = Query(default=30, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """List recent tool calls whose result is a widget-renderable envelope.
+
+    When ``channel_id`` is provided, filters to calls whose session belongs
+    to that channel. Otherwise returns calls across all channels. Callers
+    feed these results into the `POST /dashboard` pin endpoint verbatim.
+    """
+    import json
+    from sqlalchemy import select
+    from app.db.models import Session as SessionModel, ToolCall, Channel
+
+    # Pull more than `limit` up front since we filter out non-widget
+    # envelopes after parsing — otherwise a page full of text results
+    # would leave the user with an empty list.
+    over_limit = limit * 4
+
+    stmt = (
+        select(ToolCall, SessionModel.channel_id, Channel.name)
+        .join(SessionModel, SessionModel.id == ToolCall.session_id, isouter=True)
+        .join(Channel, Channel.id == SessionModel.channel_id, isouter=True)
+        .where(ToolCall.status == "done")
+        .where(ToolCall.result.isnot(None))
+        .order_by(ToolCall.created_at.desc())
+    )
+    if channel_id is not None:
+        stmt = stmt.where(SessionModel.channel_id == channel_id)
+    stmt = stmt.limit(over_limit)
+
+    rows = (await db.execute(stmt)).all()
+
+    out: list[dict] = []
+    seen_identities: set[str] = set()
+    for tool_call, row_channel_id, row_channel_name in rows:
+        if len(out) >= limit:
+            break
+        if not tool_call.result:
+            continue
+        try:
+            envelope = json.loads(tool_call.result)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(envelope, dict):
+            continue
+        content_type = envelope.get("content_type")
+        if content_type not in _WIDGET_CONTENT_TYPES:
+            continue
+        # De-dupe: tool_name + first 120 chars of body is a good-enough
+        # identity for "is this the same widget I already saw 3 calls up".
+        body = envelope.get("body")
+        body_str = body if isinstance(body, str) else json.dumps(body or "")
+        identity = f"{tool_call.tool_name}::{body_str[:120]}"
+        if identity in seen_identities:
+            continue
+        seen_identities.add(identity)
+        out.append({
+            "id": str(tool_call.id),
+            "tool_name": tool_call.tool_name,
+            "bot_id": tool_call.bot_id,
+            "channel_id": str(row_channel_id) if row_channel_id else None,
+            "channel_name": row_channel_name,
+            "tool_args": tool_call.arguments or {},
+            "envelope": envelope,
+            "display_label": envelope.get("display_label"),
+            "created_at": tool_call.created_at.isoformat() if tool_call.created_at else None,
+        })
+    return {"calls": out}
+
+
+# ---------------------------------------------------------------------------
 # Pins (scoped by ?slug= query param — defaults to 'default')
 # ---------------------------------------------------------------------------
 class CreatePinRequest(BaseModel):

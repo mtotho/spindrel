@@ -230,6 +230,20 @@ function spindrelBootstrap(
 </script>`;
 }
 
+// Widgets that never call the app's API (pure data render off
+// `window.spindrel.toolResult`) don't need a bot-scoped bearer. Skipping
+// the mint for them avoids a pointless 400 when the emitting bot has no
+// API key configured — and, more importantly, avoids surfacing a red
+// "no API permissions" banner on a widget that wouldn't have used the
+// permissions anyway. Heuristic: look for the three signatures bot
+// widgets use to hit our backend. False positives are fine (mint runs,
+// banner only shows if bot has no key AND widget mentions one of these).
+const WIDGET_NEEDS_AUTH_RE = /\.api(?:Fetch)?\(|\/api\/v1\//;
+function bodyNeedsAuth(body: string | null | undefined): boolean {
+  if (!body) return false;
+  return WIDGET_NEEDS_AUTH_RE.test(body);
+}
+
 // Matches the server-side preamble written in
 // `_build_html_widget_body`. We snapshot-extract the JSON so refreshes can
 // postMessage-equivalent push fresh data into a live iframe without
@@ -308,6 +322,15 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
   const pathMode = !!sourcePath && !!sourceChannelId;
   const effectiveChannelId = channelId ?? sourceChannelId;
 
+  // For inline widgets we know the body at mount time and can skip minting
+  // when the widget won't use it. PathMode widgets fetch their body later,
+  // so we can't pre-check — mint unconditionally and let the banner surface
+  // if the bot turns out to have no key. Inline is the common case (every
+  // tool-emitted widget template), so the weather-widget false-positive
+  // banner is solved.
+  const inlineNeedsAuth = !pathMode && bodyNeedsAuth(envelope.body);
+  const shouldMint = !!sourceBotId && (pathMode || inlineNeedsAuth);
+
   const themeCss = useMemo(
     () => buildWidgetThemeCss({ tokens: t, isDark }),
     [t, isDark],
@@ -328,7 +351,7 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
         method: "POST",
         body: JSON.stringify({ source_bot_id: sourceBotId }),
       }),
-    enabled: !!sourceBotId,
+    enabled: shouldMint,
     // 15-minute server TTL; re-mint at 12 min so the widget never sees a
     // 401 mid-call. Short TTL = short screenshot exposure.
     refetchInterval: 12 * 60 * 1000,
@@ -509,7 +532,7 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
   // error 400: Bad Request" so the user sees actionable guidance (where
   // to provision scopes) directly in the widget chrome.
   const authError = (() => {
-    if (!sourceBotId || !tokenQuery.error) return null;
+    if (!shouldMint || !tokenQuery.error) return null;
     const err = tokenQuery.error;
     if (err instanceof ApiError && err.detail) return err.detail;
     if (err instanceof Error) return err.message;

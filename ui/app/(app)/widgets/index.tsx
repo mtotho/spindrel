@@ -443,6 +443,7 @@ export default function WidgetsDashboardPage() {
         onClose={() => setSheetOpen(false)}
         dashboardName={currentDashboard?.name ?? "dashboard"}
         onPinned={highlightPin}
+        scopeChannelId={channelScopedId}
       />
       <EditPinDrawer
         pinId={editingPinId}
