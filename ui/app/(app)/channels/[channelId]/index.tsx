@@ -552,15 +552,27 @@ export default function ChatScreen() {
     t,
   };
 
+  // Measured height of the header overlay (desktop) so the chat scroll can
+  // reserve matching top padding — content flows under the frosted header.
+  const headerOverlayRef = useRef<HTMLDivElement>(null);
+  const [headerOverlayHeight, setHeaderOverlayHeight] = useState(52);
+  useEffect(() => {
+    if (!headerOverlayRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h) setHeaderOverlayHeight(Math.ceil(h));
+    });
+    ro.observe(headerOverlayRef.current);
+    return () => ro.disconnect();
+  }, []);
+
   const channelHeaderBlock = (
-    <>
-      <div style={{
-        borderBottom: `1px solid ${t.surfaceBorder}`,
-        flexShrink: 0,
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        backgroundColor: `${t.surface}e6`,
-      }}>
+    <div ref={headerOverlayRef} style={{
+      flexShrink: 0,
+      backdropFilter: "blur(12px)",
+      WebkitBackdropFilter: "blur(12px)",
+      backgroundColor: `${t.surface}cc`,
+    }}>
         <ChannelHeader
           channelId={channelId!}
           displayName={displayName}
@@ -596,7 +608,6 @@ export default function ChatScreen() {
         {/* Desktop: integration dots inlined into ChannelHeader subtitle.
             Mobile: retain the compact scrolling bar (no subtitle row to inline into). */}
         {channelId && isMobile && <ActiveBadgeBar channelId={channelId} compact />}
-      </div>
 
       {statusStrips.length > 0 && (
         <HudStripBar
@@ -612,7 +623,7 @@ export default function ChatScreen() {
           onOpenFindings={() => setFindingsPanelOpen(true)}
         />
       )}
-    </>
+    </div>
   );
 
   const outerChildren = (
@@ -728,9 +739,13 @@ export default function ChatScreen() {
               820px centered for readability. */}
           {(!showFileViewer || splitMode) && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-              {channelHeaderBlock}
               <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-                <ChatMessageArea {...messageAreaProps} />
+                {/* Header overlays the chat area so messages scroll behind
+                    the frosted bar (bg + blur applied to the wrapper). */}
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 5 }}>
+                  {channelHeaderBlock}
+                </div>
+                <ChatMessageArea {...messageAreaProps} scrollPaddingTop={headerOverlayHeight} />
                 {floatingActions.map((h) => (
                   <HudFloatingAction key={h.key} hud={h} />
                 ))}

@@ -91,6 +91,23 @@ class TurnStreamTokenPayload:
 
 
 @dataclass(frozen=True)
+class TurnStreamThinkingPayload:
+    """Payload for `turn_stream_thinking` events — incremental reasoning text.
+
+    Separate from `TurnStreamTokenPayload` so UI subscribers can route the
+    delta into the channel's thinking display without interleaving it with
+    assistant content. Renderers with STREAMING_EDIT that don't surface
+    thinking can safely ignore this kind; those that do (the web UI) append
+    the delta to the turn's `thinkingContent`.
+    """
+
+    bot_id: str
+    turn_id: uuid.UUID
+    delta: str
+    session_id: uuid.UUID | None = None
+
+
+@dataclass(frozen=True)
 class TurnStreamToolStartPayload:
     """Payload for `turn_stream_tool_start` events — agent began invoking a tool."""
 
@@ -422,6 +439,7 @@ ChannelEventPayload = (
     | MessageUpdatedPayload
     | TurnStartedPayload
     | TurnStreamTokenPayload
+    | TurnStreamThinkingPayload
     | TurnStreamToolStartPayload
     | TurnStreamToolResultPayload
     | TurnEndedPayload

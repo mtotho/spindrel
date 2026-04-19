@@ -129,6 +129,161 @@ if (typeof document !== "undefined") {
   }
 }
 
+interface ContentProps {
+  value: string;
+  selectedProviderId?: string | null;
+  onSelect: (modelId: string, providerId?: string | null) => void;
+  variant?: "llm" | "embedding";
+  autoFocusSearch?: boolean;
+}
+
+/**
+ * Just the popover body (search + grouped list) of the model dropdown —
+ * styled identically, without its own trigger/portal. Callers provide
+ * positioning (e.g. anchored inline in the composer).
+ */
+export function LlmModelDropdownContent({
+  value,
+  selectedProviderId,
+  onSelect,
+  variant = "llm",
+  autoFocusSearch = true,
+}: ContentProps) {
+  const [search, setSearch] = useState("");
+  const llmQuery = useModelGroups();
+  const embeddingQuery = useEmbeddingModelGroups();
+  const { data: groups, isLoading } = variant === "embedding" ? embeddingQuery : llmQuery;
+  const downloadMutation = useDownloadEmbeddingModel();
+  const t = useThemeTokens();
+
+  const filteredGroups = groups
+    ?.map((g) => ({
+      ...g,
+      models: g.models.filter(
+        (m) =>
+          !search ||
+          m.id.toLowerCase().includes(search.toLowerCase()) ||
+          m.display.toLowerCase().includes(search.toLowerCase())
+      ),
+    }))
+    .filter((g) => g.models.length > 0);
+
+  return (
+    <div
+      style={{
+        background: t.surfaceRaised,
+        border: `1px solid ${t.surfaceBorder}`,
+        borderRadius: 10,
+        boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        maxHeight: 340,
+      }}
+    >
+      {/* Search */}
+      <div style={{ padding: "10px 12px", borderBottom: `1px solid ${t.surfaceBorder}` }}>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search models..."
+          autoFocus={autoFocusSearch}
+          style={{
+            width: "100%",
+            background: t.inputBg,
+            border: `1px solid ${t.surfaceBorder}`,
+            borderRadius: 6,
+            padding: "6px 10px",
+            color: t.inputText,
+            fontSize: 13,
+            outline: "none",
+          }}
+          onFocus={(e) => { (e.target as HTMLInputElement).style.borderColor = t.accent; }}
+          onBlur={(e) => { (e.target as HTMLInputElement).style.borderColor = t.surfaceBorder; }}
+        />
+      </div>
+
+      {/* Model list */}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {isLoading ? (
+          <div style={{ padding: 16, color: t.textDim, fontSize: 13 }}>Loading models...</div>
+        ) : filteredGroups?.length === 0 ? (
+          <div style={{ padding: 16, color: t.textDim, fontSize: 13, textAlign: "center" }}>No models found</div>
+        ) : (
+          filteredGroups?.map((group) => (
+            <div key={group.provider_name}>
+              <div style={{
+                padding: "6px 12px",
+                background: t.surfaceOverlay,
+                fontSize: 10,
+                fontWeight: 600,
+                color: t.textDim,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                position: "sticky",
+                top: 0,
+              }}>
+                {group.provider_name}
+              </div>
+              {group.models.map((model) => {
+                const isDownloading = model.download_status === "downloading";
+                const isSelected = model.id === value && (
+                  selectedProviderId === undefined ||
+                  (group.provider_id ?? null) === (selectedProviderId ?? null)
+                );
+                return (
+                  <div
+                    key={model.id}
+                    onClick={() => {
+                      if (isDownloading) return;
+                      onSelect(model.id, group.provider_id ?? null);
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isDownloading) {
+                        (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay;
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.background =
+                        isSelected ? t.accentSubtle : "transparent";
+                    }}
+                    style={{
+                      padding: "8px 12px",
+                      cursor: isDownloading ? "default" : "pointer",
+                      background: isSelected ? t.accentSubtle : "transparent",
+                      opacity: isDownloading ? 0.6 : 1,
+                      display: "flex", flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: isSelected ? t.accent : t.text }}>
+                        {model.id}
+                      </div>
+                      {model.display !== model.id && (
+                        <div style={{ fontSize: 11, color: t.textDim, marginTop: 1 }}>
+                          {model.display}
+                        </div>
+                      )}
+                    </div>
+                    <ModelStatusBadge
+                      model={model}
+                      onDownload={(id) => downloadMutation.mutate(id)}
+                      isDownloadPending={downloadMutation.isPending}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Model picker dropdown that renders into a portal (document.body)
  * to avoid any z-index / overflow clipping from parent ScrollViews.
@@ -144,13 +299,8 @@ export function LlmModelDropdown({
   selectedProviderId,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
   const [pos, setPos] = useState({ top: 0, left: 0, bottom: 0, width: 0 });
   const triggerRef = useRef<HTMLDivElement>(null);
-  const llmQuery = useModelGroups();
-  const embeddingQuery = useEmbeddingModelGroups();
-  const { data: groups, isLoading } = variant === "embedding" ? embeddingQuery : llmQuery;
-  const downloadMutation = useDownloadEmbeddingModel();
   const t = useThemeTokens();
 
   // Measure trigger position for portal dropdown.
@@ -170,27 +320,7 @@ export function LlmModelDropdown({
       });
     }
     setOpen(true);
-    setSearch("");
   }, [anchor]);
-
-  const filteredGroups = groups
-    ?.map((g) => ({
-      ...g,
-      models: g.models.filter(
-        (m) =>
-          !search ||
-          m.id.toLowerCase().includes(search.toLowerCase()) ||
-          m.display.toLowerCase().includes(search.toLowerCase())
-      ),
-    }))
-    .filter((g) => g.models.length > 0);
-
-  const handleModelClick = (model: LlmModel, providerId?: string | null) => {
-    // Don't select models that are currently downloading
-    if (model.download_status === "downloading") return;
-    onChange(model.id, providerId);
-    setOpen(false);
-  };
 
   return (
     <div style={{ position: "relative" }}>
@@ -245,113 +375,18 @@ export function LlmModelDropdown({
                     ? { bottom: pos.bottom, left: pos.left }
                     : { top: pos.top, left: pos.left }),
                   width: Math.max(pos.width, 320),
-                  maxHeight: 340,
                   zIndex: 50001,
-                  background: t.surfaceRaised,
-                  border: `1px solid ${t.surfaceBorder}`,
-                  borderRadius: 10,
-                  boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
-                  display: "flex",
-                  flexDirection: "column",
-                  overflow: "hidden",
                 }}
               >
-                {/* Search */}
-                <div style={{ padding: "10px 12px", borderBottom: `1px solid ${t.surfaceBorder}` }}>
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search models..."
-                    autoFocus
-                    style={{
-                      width: "100%",
-                      background: t.inputBg,
-                      border: `1px solid ${t.surfaceBorder}`,
-                      borderRadius: 6,
-                      padding: "6px 10px",
-                      color: t.inputText,
-                      fontSize: 13,
-                      outline: "none",
-                    }}
-                    onFocus={(e) => { (e.target as HTMLInputElement).style.borderColor = t.accent; }}
-                    onBlur={(e) => { (e.target as HTMLInputElement).style.borderColor = t.surfaceBorder; }}
-                  />
-                </div>
-
-                {/* Model list */}
-                <div style={{ flex: 1, overflowY: "auto" }}>
-                  {isLoading ? (
-                    <div style={{ padding: 16, color: t.textDim, fontSize: 13 }}>Loading models...</div>
-                  ) : filteredGroups?.length === 0 ? (
-                    <div style={{ padding: 16, color: t.textDim, fontSize: 13, textAlign: "center" }}>No models found</div>
-                  ) : (
-                    filteredGroups?.map((group) => (
-                      <div key={group.provider_name}>
-                        <div style={{
-                          padding: "6px 12px",
-                          background: t.surfaceOverlay,
-                          fontSize: 10,
-                          fontWeight: 600,
-                          color: t.textDim,
-                          letterSpacing: "0.05em",
-                          textTransform: "uppercase",
-                          position: "sticky",
-                          top: 0,
-                        }}>
-                          {group.provider_name}
-                        </div>
-                        {group.models.map((model) => {
-                          const isDownloading = model.download_status === "downloading";
-                          const isSelected = model.id === value && (
-                            selectedProviderId === undefined ||
-                            (group.provider_id ?? null) === (selectedProviderId ?? null)
-                          );
-                          return (
-                            <div
-                              key={model.id}
-                              onClick={() => handleModelClick(model, group.provider_id ?? null)}
-                              onMouseEnter={(e) => {
-                                if (!isDownloading) {
-                                  (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay;
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                (e.currentTarget as HTMLElement).style.background =
-                                  isSelected ? t.accentSubtle : "transparent";
-                              }}
-                              style={{
-                                padding: "8px 12px",
-                                cursor: isDownloading ? "default" : "pointer",
-                                background: isSelected ? t.accentSubtle : "transparent",
-                                opacity: isDownloading ? 0.6 : 1,
-                                display: "flex", flexDirection: "row",
-                                alignItems: "center",
-                                gap: 8,
-                              }}
-                            >
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, color: isSelected ? t.accent : t.text }}>
-                                  {model.id}
-                                </div>
-                                {model.display !== model.id && (
-                                  <div style={{ fontSize: 11, color: t.textDim, marginTop: 1 }}>
-                                    {model.display}
-                                  </div>
-                                )}
-                              </div>
-                              <ModelStatusBadge
-                                model={model}
-                                onDownload={(id) => downloadMutation.mutate(id)}
-                                isDownloadPending={downloadMutation.isPending}
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))
-                  )}
-                </div>
+                <LlmModelDropdownContent
+                  value={value}
+                  selectedProviderId={selectedProviderId}
+                  variant={variant}
+                  onSelect={(modelId, providerId) => {
+                    onChange(modelId, providerId);
+                    setOpen(false);
+                  }}
+                />
               </div>
             </>,
             document.body

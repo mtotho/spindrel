@@ -217,6 +217,7 @@ export function RecentTab() {
               // or widget template); only fall back to generic-render when the
               // resolver produced nothing.
               let envelope: ToolResultEnvelope | null = resolvedEnvelope;
+              let isGeneric = false;
               if (!envelope) {
                 const preview = await genericRenderWidget({
                   tool_name: toolName,
@@ -226,20 +227,24 @@ export function RecentTab() {
                   throw new Error("Generic render failed");
                 }
                 envelope = preview.envelope as unknown as ToolResultEnvelope;
+                isGeneric = true;
               }
               // Carry the origin call's channel/bot through so pinning to a
               // channel dashboard satisfies the source_channel_id constraint
               // and the widget refresh path resolves identity correctly.
+              // `generic_view: true` is only stamped when we actually fell
+              // back to the auto-renderer — concrete tool-declared envelopes
+              // (emit_html_widget, widget templates) pin as-is so the pinned
+              // tile matches what the user saw in the preview.
               await pinWidget({
                 source_kind: channelId ? "channel" : "adhoc",
                 source_bot_id: botId,
                 source_channel_id: channelId,
                 tool_name: toolName,
                 tool_args: toolArgs,
-                widget_config: {
-                  generic_view: true,
-                  imported_from_call: selectedId,
-                },
+                widget_config: isGeneric
+                  ? { generic_view: true, imported_from_call: selectedId }
+                  : { imported_from_call: selectedId },
                 envelope,
                 display_label: label,
               });
@@ -320,6 +325,11 @@ function CallDetail({
   const [resultTab, setResultTab] = useState<"raw" | "rendered">("rendered");
   const [envelope, setEnvelope] = useState<ToolResultEnvelope | null>(null);
   const [envLoading, setEnvLoading] = useState(false);
+  // Which resolver produced the current envelope — drives the Pin button
+  // label ("Pin this widget" when the tool hand-authored the envelope, "Pin
+  // generic view" when we fell back to auto-render). Persisting this rather
+  // than the button guessing from envelope shape.
+  const [envelopeSource, setEnvelopeSource] = useState<"declared" | "template" | "generic" | null>(null);
   const [pinState, setPinState] = useState<"idle" | "pinning" | "success" | "error">("idle");
   const [pinError, setPinError] = useState<string | null>(null);
 
@@ -331,19 +341,49 @@ function CallDetail({
   // (Re)render when the selection or tab changes. Resolver priority:
   // tool-declared `_envelope` → widget template → generic render. Cheap —
   // the backend caches generic output and tool templates by (tool, payload).
+  // Tracks which source produced the envelope so the Pin button can say
+  // "Pin this widget" when the tool authored a concrete envelope (e.g.
+  // emit_html_widget) versus "Pin generic view" on the fallback render.
   useEffect(() => {
     if (!detail) return;
     if (resultTab !== "rendered") return;
     setEnvelope(null);
+    setEnvelopeSource(null);
     setEnvLoading(true);
     const tool = cleanToolName(detail.tool_name);
+    const rr = rawResult;
+    // Mirror resolveToolEnvelope's priority client-side so we can tag the
+    // source without plumbing it through the resolver's return type.
+    const hasDeclaredEnvelope =
+      rr != null
+      && typeof rr === "object"
+      && !Array.isArray(rr)
+      && "_envelope" in (rr as Record<string, unknown>)
+      && (() => {
+        const env = (rr as Record<string, unknown>)._envelope;
+        return !!env && typeof env === "object" && !Array.isArray(env)
+          && typeof (env as Record<string, unknown>).content_type === "string"
+          && (env as Record<string, unknown>).body != null;
+      })();
     resolveToolEnvelope({
       toolName: tool,
-      rawResult,
+      rawResult: rr,
       sourceBotId: detail.bot_id ?? null,
       sourceChannelId: detail.channel_id ?? null,
     })
-      .then((env) => setEnvelope(env))
+      .then((env) => {
+        setEnvelope(env);
+        if (env) {
+          setEnvelopeSource(
+            hasDeclaredEnvelope ? "declared" : "template",
+          );
+          // ^ We can't cheaply distinguish "template" from "generic" without
+          // duplicating resolveToolEnvelope logic here. Mark as "template"
+          // for the non-declared case; the label still renders "Pin this
+          // widget" because both are concrete per-tool renders. Generic-only
+          // pins come from the fallback in the pin handler below.
+        }
+      })
       .catch(() => {})
       .finally(() => setEnvLoading(false));
   }, [detail, rawResult, resultTab]);
@@ -418,6 +458,13 @@ function CallDetail({
           onClick={handlePin}
           disabled={pinState === "pinning" || rawResult == null}
           className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-3 py-1.5 text-[12px] font-medium text-text-muted hover:bg-surface-overlay disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          title={
+            envelopeSource === "declared"
+              ? "Pin this exact widget (the tool authored its own envelope — emit_html_widget, integration widget template, etc.)"
+              : envelope
+                ? "Pin this widget using the per-tool render"
+                : "Pin a generic auto-rendered view (falls back when no tool envelope is available)"
+          }
         >
           {pinState === "pinning" ? (
             <Loader2 size={13} className="animate-spin" />
@@ -426,7 +473,11 @@ function CallDetail({
           ) : (
             <Pin size={13} />
           )}
-          {pinState === "success" ? "Pinned" : "Pin generic view"}
+          {pinState === "success"
+            ? "Pinned"
+            : envelope
+              ? "Pin this widget"
+              : "Pin generic view"}
         </button>
       </div>
 

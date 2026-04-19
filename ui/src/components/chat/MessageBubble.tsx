@@ -75,7 +75,23 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           display_label: displayName,
         });
       } catch (err) {
-        console.error("Failed to pin widget from chat:", err);
+        // Surface the server's detail (e.g. "Bot 'X' has no API permissions")
+        // instead of the generic ApiError string. The bare console.error
+        // leaves the user guessing which field the backend rejected.
+        const { ApiError } = await import("../../api/client");
+        const detail = err instanceof ApiError ? err.detail : null;
+        const summary = detail ?? (err instanceof Error ? err.message : String(err));
+        console.error("Failed to pin widget from chat:", summary, err);
+        try {
+          const { useToastStore } = await import("../../stores/toast");
+          useToastStore.getState().push({
+            kind: "error",
+            message: `Pin failed: ${summary}`,
+            durationMs: 6000,
+          });
+        } catch {
+          // Toast store unavailable — console message above is enough.
+        }
       }
       setExplorerOpen(true);
     },

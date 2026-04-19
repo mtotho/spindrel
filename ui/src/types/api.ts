@@ -661,6 +661,14 @@ export interface ToolResultEnvelope {
    *  interactive HTML widgets authenticate as this bot, not as the
    *  viewing user. */
   source_bot_id?: string | null;
+  /** Per-widget CSP extensions — third-party origins the iframe is
+   *  permitted to load for this envelope. Keys are snake_case CSP
+   *  directives (`script_src`, `connect_src`, `img_src`, `style_src`,
+   *  `font_src`, `media_src`, `frame_src`, `worker_src`), values are
+   *  arrays of `https://host[:port]` origins. Backend-validated at emit
+   *  time; the renderer merges them into the iframe's Content-Security-
+   *  Policy (appending to baseline `'self'` + inline allowances). */
+  extra_csp?: Record<string, string[]> | null;
 }
 
 /** Action definition for interactive widget components (toggle, button, select, etc.) */

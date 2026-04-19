@@ -79,6 +79,48 @@ class TestEmitRunStreamEvents:
         assert published[0].kind is ChannelEventKind.TURN_STREAM_TOKEN
         assert published[0].payload.delta == "hello"
 
+    async def test_when_thinking_delta_then_publishes_turn_stream_thinking(self):
+        # Regression: reasoning deltas from providers that stream summaries
+        # (OpenAI Responses, Anthropic thinking_delta) must cross the bus, or
+        # the web UI's thinking display stays empty even when the run_stream
+        # is yielding `thinking` events.
+        ch = uuid.uuid4()
+
+        yielded, published = await _run(
+            [{"type": "thinking", "delta": "pondering..."}], ch
+        )
+
+        assert len(published) == 1
+        assert published[0].kind is ChannelEventKind.TURN_STREAM_THINKING
+        assert published[0].payload.delta == "pondering..."
+        assert yielded == [{"type": "thinking", "delta": "pondering..."}]
+
+    async def test_when_empty_thinking_delta_then_no_publish(self):
+        ch = uuid.uuid4()
+
+        yielded, published = await _run([{"type": "thinking", "delta": ""}], ch)
+
+        assert published == []
+        assert len(yielded) == 1
+
+    async def test_when_thinking_content_then_not_republished_to_bus(self):
+        # `thinking_content` is the end-of-iteration accumulation of the
+        # deltas this helper already published — bus-publishing it would
+        # double-append in the UI.
+        ch = uuid.uuid4()
+
+        yielded, published = await _run(
+            [
+                {"type": "thinking", "delta": "hi"},
+                {"type": "thinking_content", "text": "hi"},
+            ],
+            ch,
+        )
+
+        assert len(published) == 1
+        assert published[0].kind is ChannelEventKind.TURN_STREAM_THINKING
+        assert len(yielded) == 2  # both still forwarded to caller
+
     async def test_when_tool_start_then_publishes_tool_start_with_parsed_args(self):
         ch = uuid.uuid4()
 

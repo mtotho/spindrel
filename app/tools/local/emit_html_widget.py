@@ -112,6 +112,36 @@ _SCHEMA = {
                         "dashboard pins + pinned-widget context injection."
                     ),
                 },
+                "extra_csp": {
+                    "type": "object",
+                    "description": (
+                        "Per-widget CSP extensions — opt in to third-party "
+                        "origins the iframe needs to load (Google Maps, "
+                        "Mapbox, Stripe Elements, Chart.js CDN, etc.). "
+                        "Shape: `{\"script_src\": [\"https://maps.googleapis.com\", "
+                        "\"https://maps.gstatic.com\"], \"connect_src\": "
+                        "[\"https://maps.googleapis.com\"], \"img_src\": "
+                        "[\"https://maps.gstatic.com\"], \"style_src\": "
+                        "[\"https://fonts.googleapis.com\"], \"font_src\": "
+                        "[\"https://fonts.gstatic.com\"]}`. Values must be "
+                        "concrete `https://host[:port]` origins — wildcards, "
+                        "non-https schemes, and CSP keywords (`'self'`, "
+                        "`'unsafe-*'`, `data:`, `blob:`) are rejected. "
+                        "Max 10 origins per directive. Supported directives: "
+                        "script_src, connect_src, img_src, style_src, "
+                        "font_src, media_src, frame_src, worker_src."
+                    ),
+                    "properties": {
+                        "script_src": {"type": "array", "items": {"type": "string"}},
+                        "connect_src": {"type": "array", "items": {"type": "string"}},
+                        "img_src": {"type": "array", "items": {"type": "string"}},
+                        "style_src": {"type": "array", "items": {"type": "string"}},
+                        "font_src": {"type": "array", "items": {"type": "string"}},
+                        "media_src": {"type": "array", "items": {"type": "string"}},
+                        "frame_src": {"type": "array", "items": {"type": "string"}},
+                        "worker_src": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
             },
         },
     },
@@ -159,6 +189,7 @@ async def emit_html_widget(
     js: str = "",
     css: str = "",
     display_label: str = "",
+    extra_csp: dict | None = None,
 ) -> str:
     # Exactly-one validation. Reject both-set and neither-set.
     html_set = bool(html and html.strip())
@@ -170,6 +201,18 @@ async def emit_html_widget(
         )
 
     label = display_label.strip() or None
+
+    # Validate + normalize the CSP extension before we build the envelope so a
+    # misspecified payload surfaces as a tool error (visible to the bot and
+    # testable) instead of silently dropping. Sanitizer rejects wildcards,
+    # non-https schemes, CSP keywords, and full-URL values.
+    validated_csp: dict[str, list[str]] | None = None
+    if extra_csp is not None:
+        from app.agent.tool_dispatch import _sanitize_extra_csp
+        try:
+            validated_csp = _sanitize_extra_csp(extra_csp)
+        except ValueError as exc:
+            return _error(str(exc))
 
     # Channel + bot context at emit time. Persisted on the envelope so the
     # widget's JS can keep calling channel-scoped APIs after the pin is
@@ -198,6 +241,8 @@ async def emit_html_widget(
             envelope["source_bot_id"] = emit_bot_id
         if label:
             envelope["display_label"] = label
+        if validated_csp:
+            envelope["extra_csp"] = validated_csp
         return json.dumps(
             {"_envelope": envelope, "llm": f"Emitted HTML widget ({len(body)} chars)."},
             ensure_ascii=False,
@@ -282,6 +327,8 @@ async def emit_html_widget(
     }
     if label:
         envelope["display_label"] = label
+    if validated_csp:
+        envelope["extra_csp"] = validated_csp
     return json.dumps(
         {
             "_envelope": envelope,

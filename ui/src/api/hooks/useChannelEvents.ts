@@ -363,6 +363,25 @@ export function useChannelEvents(
           return;
         }
 
+        case "turn_stream_thinking": {
+          // Reasoning deltas from providers that stream summary text
+          // (OpenAI Responses, Anthropic thinking_delta, DeepSeek <think>).
+          // Batched with the same RAF flush as text_delta so a single frame
+          // dispatches both streams to the store.
+          const turnId = payload?.turn_id as string | undefined;
+          if (!turnId) return;
+          if (!store.getChannel(storeKey).turns[turnId]) return;
+          startObserverTimeout(chId, turnId);
+          if (!pendingDeltasRef.current[turnId]) {
+            pendingDeltasRef.current[turnId] = { text: "", think: "" };
+          }
+          pendingDeltasRef.current[turnId].think += (payload?.delta as string) ?? "";
+          if (!rafRef.current) {
+            rafRef.current = requestAnimationFrame(() => flushDeltas(chId));
+          }
+          return;
+        }
+
         case "turn_stream_tool_start": {
           const turnId = payload?.turn_id as string | undefined;
           if (!turnId) return;

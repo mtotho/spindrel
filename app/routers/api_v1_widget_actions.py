@@ -178,8 +178,13 @@ async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
     if result is None:
         return WidgetActionResponse(ok=True, envelope=None)
 
-    # Build envelope from result
-    envelope = _build_result_envelope(resolved_name, result, req.widget_config)
+    # Build envelope from result. ``cap_body=False`` — the envelope is handed
+    # directly to widget JS via ``window.spindrel.callTool``; truncating would
+    # deliver ``body=None`` and break ``JSON.parse(env.body)`` consumers. Widget
+    # dispatch never flows into the LLM context window that the cap protects.
+    envelope = _build_result_envelope(
+        resolved_name, result, req.widget_config, cap_body=False,
+    )
 
     logger.info(
         "Widget action: tool=%s resolved=%s args=%s channel=%s result_preview=%.200s",
@@ -255,18 +260,26 @@ def _build_result_envelope(
     tool_name: str,
     raw_result: str,
     widget_config: dict | None = None,
+    *,
+    cap_body: bool = True,
 ) -> ToolResultEnvelope:
     """Build a ToolResultEnvelope from a raw tool result string.
 
     Tries in order: _envelope opt-in → widget template → default envelope.
     ``widget_config`` is threaded into the widget template so ``{{config.*}}``
     resolves against the caller's per-pin config.
+
+    ``cap_body=False`` skips the 4KB body truncation for callers that need the
+    full payload (e.g. widget-actions tool dispatch, where the envelope is
+    handed straight to widget JS that parses ``body``).
     """
     # Try to parse as JSON and check for _envelope opt-in
     try:
         parsed = json.loads(raw_result)
         if isinstance(parsed, dict) and "_envelope" in parsed:
-            return _build_envelope_from_optin(parsed["_envelope"], raw_result)
+            return _build_envelope_from_optin(
+                parsed["_envelope"], raw_result, cap_body=cap_body,
+            )
     except (json.JSONDecodeError, TypeError):
         pass
 
@@ -275,7 +288,7 @@ def _build_result_envelope(
     if widget_env is not None:
         return widget_env
 
-    return _build_default_envelope(raw_result)
+    return _build_default_envelope(raw_result, cap_body=cap_body)
 
 
 # ── State poll cache — deduplicates concurrent poll calls ──

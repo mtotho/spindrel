@@ -9,10 +9,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
-import { Plus, Paperclip, Sparkles, ChevronRight, ArrowLeft } from "lucide-react";
+import { Plus, Paperclip, Sparkles, ChevronRight, ArrowLeft, Wrench } from "lucide-react";
 
 import { useThemeTokens } from "../../theme/tokens";
 import { SkillsInContextPanel, useSkillsInContext } from "./SkillsInContextPanel";
+import { ToolsInContextPanel, useToolsPosture } from "./ToolsInContextPanel";
 
 const FILE_ACCEPT =
   "image/*,.pdf,.txt,.csv,.json,.md,.yaml,.yml,.xml,.html,.log,.py,.js,.ts,.sh,.doc,.docx,.xlsx,.xls,.pptx";
@@ -27,7 +28,7 @@ interface ComposerAddMenuProps {
   isMobile?: boolean;
 }
 
-type View = "root" | "skills";
+type View = "root" | "skills" | "tools";
 
 export function ComposerAddMenu({
   channelId,
@@ -49,6 +50,9 @@ export function ComposerAddMenu({
 
   const { count } = useSkillsInContext({ channelId, composerText });
   const empty = count === 0;
+
+  const { pinnedCount } = useToolsPosture({ channelId, botId });
+  const toolsEmpty = pinnedCount === 0;
 
   // Outside click dismiss.
   useEffect(() => {
@@ -113,7 +117,7 @@ export function ComposerAddMenu({
   };
 
   const width = isMobile ? Math.min(window.innerWidth - 16, 360) : 320;
-  const maxHeight = view === "skills" ? "min(60vh, 520px)" : "auto";
+  const maxHeight = view === "skills" || view === "tools" ? "min(60vh, 520px)" : "auto";
 
   return (
     <>
@@ -198,6 +202,13 @@ export function ComposerAddMenu({
                   trailing={<ChevronRight size={12} color={t.textDim} />}
                   onClick={() => setView("skills")}
                 />
+                <MenuRow
+                  icon={<Wrench size={14} color={toolsEmpty ? t.textMuted : t.purple} />}
+                  label="Tools"
+                  badge={toolsEmpty ? undefined : String(pinnedCount)}
+                  trailing={<ChevronRight size={12} color={t.textDim} />}
+                  onClick={() => setView("tools")}
+                />
               </div>
             ) : (
               <div className="flex flex-col flex-1 min-h-0">
@@ -211,16 +222,24 @@ export function ComposerAddMenu({
                   Back
                 </button>
                 <div className="flex-1 min-h-0 flex flex-col">
-                  <SkillsInContextPanel
-                    channelId={channelId}
-                    composerText={composerText}
-                    botId={botId}
-                    onInsertSkillTag={(skillId) => {
-                      onInsertSkillTag(skillId);
-                      setOpen(false);
-                    }}
-                    onClose={() => setOpen(false)}
-                  />
+                  {view === "skills" ? (
+                    <SkillsInContextPanel
+                      channelId={channelId}
+                      composerText={composerText}
+                      botId={botId}
+                      onInsertSkillTag={(skillId) => {
+                        onInsertSkillTag(skillId);
+                        setOpen(false);
+                      }}
+                      onClose={() => setOpen(false)}
+                    />
+                  ) : (
+                    <ToolsInContextPanel
+                      channelId={channelId}
+                      botId={botId}
+                      onClose={() => setOpen(false)}
+                    />
+                  )}
                 </div>
               </div>
             )}

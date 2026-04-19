@@ -78,6 +78,9 @@ export interface ChatMessageAreaProps {
       any channel can inject a purpose-specific empty-state (e.g. orchestrator's
       launchpad, DM channels' suggested prompts, etc). */
   emptyStateComponent?: React.ReactNode;
+  /** Top padding on the scroll container — lets callers reserve space for an
+   *  overlay header that messages should scroll behind. Default 8. */
+  scrollPaddingTop?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +121,7 @@ export function ChatMessageArea({
   t,
   pendingApprovalsSlot,
   emptyStateComponent,
+  scrollPaddingTop = 8,
 }: ChatMessageAreaProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -229,8 +233,8 @@ export function ChatMessageArea({
           flexDirection: "column-reverse",
           overflowY: "auto",
           height: "100%",
-          paddingTop: 8,
-          paddingBottom: 8,
+          paddingTop: scrollPaddingTop,
+          paddingBottom: 0,
         }}
       >
         {/* Each column-reverse child is centered within the full-width scroll

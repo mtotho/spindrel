@@ -83,6 +83,17 @@ class ToolResultEnvelope:
     # viewing user's session — an admin looking at a pinned widget should
     # not be unwittingly lending their credentials to bot-authored JS.
     source_bot_id: str | None = None
+    # Per-widget CSP extensions. Interactive-HTML widgets that need to load
+    # third-party scripts/tiles/fonts (Google Maps, Mapbox, Stripe Elements)
+    # declare the extra origins here; the renderer merges them into the
+    # iframe CSP at srcDoc-generation time. Shape:
+    #   {"script_src": ["https://maps.googleapis.com", ...],
+    #    "connect_src": [...], "img_src": [...], "style_src": [...],
+    #    "font_src": [...], "media_src": [...], "frame_src": [...],
+    #    "worker_src": [...]}
+    # Values must be https:// origins — no wildcards, no scheme keywords
+    # (`data:`, `blob:`, `'self'`, `'unsafe-*'`). Validated at emit time.
+    extra_csp: dict[str, list[str]] | None = None
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -114,6 +125,8 @@ class ToolResultEnvelope:
             d["source_channel_id"] = self.source_channel_id
         if self.source_bot_id:
             d["source_bot_id"] = self.source_bot_id
+        if self.extra_csp:
+            d["extra_csp"] = self.extra_csp
         return d
 
 
@@ -137,7 +150,7 @@ class ToolCallResult:
     approval_reason: str | None = None
 
 
-def _build_default_envelope(text: str) -> ToolResultEnvelope:
+def _build_default_envelope(text: str, *, cap_body: bool = True) -> ToolResultEnvelope:
     """Build a default envelope from raw tool result text.
 
     Used for tools that don't opt into the structured envelope. Detects
@@ -147,13 +160,16 @@ def _build_default_envelope(text: str) -> ToolResultEnvelope:
     - JSON (valid parse) → ``application/json`` + badge
     - Plain text fallback → ``text/plain`` + badge
 
-    Caps body at INLINE_BODY_CAP_BYTES and sets the truncated flag if the
-    underlying text is larger.
+    When ``cap_body`` is True (the default, used by the LLM turn loop) the
+    body is capped at INLINE_BODY_CAP_BYTES. Widget-actions dispatch passes
+    ``cap_body=False`` because the envelope is returned directly to widget
+    JS that needs to parse the full payload — truncation would deliver a
+    null ``body`` and break any ``JSON.parse(env.body)`` consumer.
     """
     text = text or ""
     content_type, display = _detect_content_type(text)
     byte_size = len(text.encode("utf-8"))
-    truncated = len(text) > INLINE_BODY_CAP_BYTES
+    truncated = cap_body and len(text) > INLINE_BODY_CAP_BYTES
     return ToolResultEnvelope(
         content_type=content_type,
         body=None if truncated else text,
@@ -214,13 +230,21 @@ def _detect_content_type(text: str) -> tuple[str, str]:
     return "text/plain", "badge"
 
 
-def _build_envelope_from_optin(envelope_data: dict, raw_text: str) -> ToolResultEnvelope:
+def _build_envelope_from_optin(
+    envelope_data: dict, raw_text: str, *, cap_body: bool = True,
+) -> ToolResultEnvelope:
     """Build an envelope from a tool's ``_envelope`` opt-in payload.
 
     Truncates ``body`` if it exceeds the inline cap and sets truncated/byte_size
     accordingly. ``raw_text`` is the redacted full result string that lives on
     the persisted ``tool_calls`` row — used to compute byte_size when the
     envelope omits its own ``body``.
+
+    ``cap_body`` — when False, the inline cap is skipped and ``body`` always
+    carries the full serialized payload. Widget-actions dispatch sets this to
+    False so ``callTool`` returns a fully parseable envelope to widget JS.
+    The ``application/vnd.spindrel.html+interactive`` exemption is orthogonal
+    and applies regardless of caller.
     """
     content_type = str(envelope_data.get("content_type") or "text/plain")
     body = envelope_data.get("body")
@@ -250,7 +274,8 @@ def _build_envelope_from_optin(envelope_data: dict, raw_text: str) -> ToolResult
     # fall-back to lazy-fetch a truncated HTML body — truncation renders as
     # an empty iframe. Exempt only this content_type.
     if (
-        len(body_str) > INLINE_BODY_CAP_BYTES
+        cap_body
+        and len(body_str) > INLINE_BODY_CAP_BYTES
         and content_type != "application/vnd.spindrel.html+interactive"
     ):
         body_str = None
@@ -262,6 +287,8 @@ def _build_envelope_from_optin(envelope_data: dict, raw_text: str) -> ToolResult
     display_label = envelope_data.get("display_label")
     refreshable = bool(envelope_data.get("refreshable"))
     refresh_interval_seconds = envelope_data.get("refresh_interval_seconds")
+    extra_csp_raw = envelope_data.get("extra_csp")
+    extra_csp = _sanitize_extra_csp(extra_csp_raw) if extra_csp_raw else None
 
     return ToolResultEnvelope(
         content_type=content_type,
@@ -276,7 +303,111 @@ def _build_envelope_from_optin(envelope_data: dict, raw_text: str) -> ToolResult
         source_path=str(source_path) if source_path else None,
         source_channel_id=str(source_channel_id) if source_channel_id else None,
         source_bot_id=str(source_bot_id) if source_bot_id else None,
+        extra_csp=extra_csp,
     )
+
+
+# Whitelist of CSP directives a widget may extend. Keys are snake_case as the
+# tool accepts them; values are the CSP directive name used on the wire.
+_CSP_DIRECTIVE_MAP = {
+    "script_src": "script-src",
+    "connect_src": "connect-src",
+    "img_src": "img-src",
+    "style_src": "style-src",
+    "font_src": "font-src",
+    "media_src": "media-src",
+    "frame_src": "frame-src",
+    "worker_src": "worker-src",
+}
+
+# Per-directive cap. A widget needing more than this for a single directive is
+# almost certainly overreaching — Google Maps' kitchen-sink setup lands at ~6.
+_CSP_ORIGINS_PER_DIRECTIVE = 10
+
+# Reject any entry that tries to relax the policy beyond adding named origins.
+# These are the CSP keywords/schemes the renderer's default CSP controls; we
+# don't want a widget turning on `'unsafe-eval'` or `data:` for a directive
+# that doesn't already have it.
+_CSP_FORBIDDEN_TOKENS = {
+    "*",
+    "'self'",
+    "'unsafe-inline'",
+    "'unsafe-eval'",
+    "'unsafe-hashes'",
+    "'strict-dynamic'",
+    "data:",
+    "blob:",
+    "http:",
+    "https:",
+    "ws:",
+    "wss:",
+}
+
+
+def _sanitize_extra_csp(raw: Any) -> dict[str, list[str]] | None:
+    """Validate + normalize a widget's ``extra_csp`` payload.
+
+    Returns a clean ``{directive_snake: [origin, ...]}`` dict with duplicates
+    removed, or raises ValueError with a user-facing message on any violation.
+    Accepts list-shape inputs and normalizes to lists; skips unknown directive
+    keys silently (forward-compat for future directive additions on the
+    renderer side without requiring a concurrent backend bump).
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("extra_csp must be an object keyed by directive")
+    out: dict[str, list[str]] = {}
+    for key, value in raw.items():
+        if key not in _CSP_DIRECTIVE_MAP:
+            continue
+        if isinstance(value, str):
+            origins = [value]
+        elif isinstance(value, (list, tuple)):
+            origins = list(value)
+        else:
+            raise ValueError(
+                f"extra_csp.{key} must be a list of https:// origins"
+            )
+        if len(origins) > _CSP_ORIGINS_PER_DIRECTIVE:
+            raise ValueError(
+                f"extra_csp.{key}: max {_CSP_ORIGINS_PER_DIRECTIVE} origins "
+                f"per directive (got {len(origins)})"
+            )
+        seen: set[str] = set()
+        clean: list[str] = []
+        for origin in origins:
+            if not isinstance(origin, str):
+                raise ValueError(f"extra_csp.{key}: non-string entry")
+            o = origin.strip()
+            if not o:
+                continue
+            if o in _CSP_FORBIDDEN_TOKENS or o.lower() in _CSP_FORBIDDEN_TOKENS:
+                raise ValueError(
+                    f"extra_csp.{key}: {o!r} is not allowed — pass a concrete "
+                    "https://host origin, not a scheme keyword or wildcard"
+                )
+            if not o.startswith("https://"):
+                raise ValueError(
+                    f"extra_csp.{key}: {o!r} must start with https:// "
+                    "(http, data, blob, ws not permitted)"
+                )
+            # Reject path/query/fragment — CSP source expressions are origins,
+            # not URLs. "https://maps.googleapis.com/maps/api/js" is a category
+            # error: CSP matches the origin only.
+            rest = o[len("https://"):]
+            if "/" in rest or "?" in rest or "#" in rest:
+                raise ValueError(
+                    f"extra_csp.{key}: {o!r} should be an origin "
+                    "(https://host[:port]), not a full URL"
+                )
+            if not rest:
+                raise ValueError(f"extra_csp.{key}: empty host in {o!r}")
+            if o in seen:
+                continue
+            seen.add(o)
+            clean.append(o)
+        if clean:
+            out[key] = clean
+    return out or None
 
 
 async def dispatch_tool_call(

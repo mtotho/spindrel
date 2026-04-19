@@ -7,7 +7,7 @@ import { useThemeTokens } from "../../theme/tokens";
 import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import { TiptapChatInput, type TiptapChatInputHandle } from "./TiptapChatInput";
 import { createPortal } from "react-dom";
-import { LlmModelDropdown } from "../shared/LlmModelDropdown";
+import { LlmModelDropdownContent } from "../shared/LlmModelDropdown";
 import { ComposerAddMenu } from "./ComposerAddMenu";
 
 export interface PendingFile {
@@ -368,7 +368,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
         <div
           style={{
-            padding: isMobile ? "6px 8px 8px" : "10px 16px 14px",
+            padding: isMobile ? "0 8px 8px" : "0 16px 14px",
           }}
         >
           {/* One card. Editor on top (flat — no inner border/bg), actions on bottom. */}
@@ -527,17 +527,37 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                             style={{ position: "fixed", inset: 0, zIndex: 50000 }}
                           />
                           <div style={{ position: "fixed", bottom: dropdownBottom, right: dropdownRight, zIndex: 50001, width: 320 }}>
-                            <LlmModelDropdown
+                            <LlmModelDropdownContent
                               value={modelOverride ?? ""}
                               selectedProviderId={modelProviderIdOverride}
-                              onChange={(m: string, pid?: string | null) => {
+                              onSelect={(m, pid) => {
                                 onModelOverrideChange(m || undefined, pid);
                                 setShowModelPicker(false);
                               }}
-                              placeholder={defaultModel ? `inherit (${defaultModel})` : "Select model..."}
-                              allowClear
-                              anchor="top"
                             />
+                            {hasOverride && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onModelOverrideChange(undefined, null);
+                                  setShowModelPicker(false);
+                                }}
+                                style={{
+                                  marginTop: 6,
+                                  width: "100%",
+                                  background: t.surfaceRaised,
+                                  border: `1px solid ${t.surfaceBorder}`,
+                                  borderRadius: 8,
+                                  padding: "8px 12px",
+                                  color: t.textMuted,
+                                  fontSize: 12,
+                                  cursor: "pointer",
+                                  textAlign: "left",
+                                }}
+                              >
+                                Clear override — inherit {defaultModel ?? "default"}
+                              </button>
+                            )}
                           </div>
                         </>,
                         document.body

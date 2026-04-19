@@ -34,6 +34,7 @@ from app.domain.payloads import (
     LlmStatusPayload,
     MemorySchemeBootstrapPayload,
     SkillAutoInjectPayload,
+    TurnStreamThinkingPayload,
     TurnStreamTokenPayload,
     TurnStreamToolResultPayload,
     TurnStreamToolStartPayload,
@@ -81,10 +82,11 @@ async def emit_run_stream_events(
     """Wrap a ``run_stream`` async iterator and publish typed bus events.
 
     Forwards every underlying event dict unchanged so the caller can still
-    match on ``event.get("type")``. As a side effect, publishes the five
+    match on ``event.get("type")``. As a side effect, publishes the
     mechanically translatable kinds:
 
     - ``text_delta`` → ``TURN_STREAM_TOKEN``
+    - ``thinking`` → ``TURN_STREAM_THINKING`` (reasoning deltas)
     - ``tool_start`` → ``TURN_STREAM_TOOL_START``
     - ``tool_result`` → ``TURN_STREAM_TOOL_RESULT`` (``is_error`` set when
       the underlying event has a non-empty ``error`` field)
@@ -95,8 +97,10 @@ async def emit_run_stream_events(
     ``context_budget``, ``delegation_post``, ``thinking_content``,
     ``warning``, ``rate_limit_wait``, ``context_pruning``) are forwarded
     unchanged with no bus publish — the caller decides what to do with
-    them. ``TURN_STARTED`` and ``TURN_ENDED`` are the caller's
-    responsibility.
+    them. ``thinking_content`` is intentionally *not* republished because
+    its text is the accumulation of the ``thinking`` deltas this helper
+    already emitted, so rebroadcasting would double-append in the UI.
+    ``TURN_STARTED`` and ``TURN_ENDED`` are the caller's responsibility.
     """
     async for event in run_stream_iter:
         etype = event.get("type")
@@ -115,6 +119,31 @@ async def emit_run_stream_events(
                     ),
                 ),
             )
+
+        # Reasoning deltas: `thinking` carries incremental reasoning text from
+        # providers that stream it (OpenAI Responses summary stream, Anthropic
+        # thinking_delta, DeepSeek <think> blocks). Without this publish the
+        # deltas reach the run-stream consumer but never cross the bus, so the
+        # web UI's thinking panel stays empty even when the provider is
+        # emitting summaries. The trailing `thinking_content` event
+        # (`app/agent/loop.py:757`) replays the same accumulated text, so we
+        # deliberately skip that one on the bus to avoid double-appending.
+        elif etype == "thinking":
+            delta = event.get("delta", "")
+            if delta:
+                publish_typed(
+                    channel_id,
+                    ChannelEvent(
+                        channel_id=channel_id,
+                        kind=ChannelEventKind.TURN_STREAM_THINKING,
+                        payload=TurnStreamThinkingPayload(
+                            bot_id=bot_id,
+                            turn_id=turn_id,
+                            delta=delta,
+                            session_id=session_id,
+                        ),
+                    ),
+                )
 
         elif etype == "tool_start":
             publish_typed(

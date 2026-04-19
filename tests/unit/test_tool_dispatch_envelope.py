@@ -150,6 +150,42 @@ class TestOptInEnvelope:
         assert env.content_type == "text/plain"
 
 
+class TestCapBodyBypass:
+    """Widget-actions dispatch passes ``cap_body=False`` so ``callTool``
+    returns a fully parseable envelope to widget JS. Without this, large
+    JSON tool results arrive as ``{body: null, truncated: true, plain_body: <200-char preview>}``
+    and any widget that runs ``JSON.parse(env.body)`` crashes."""
+
+    def test_default_envelope_bypass_cap(self):
+        big = "x" * (INLINE_BODY_CAP_BYTES + 500)
+        env = _build_default_envelope(big, cap_body=False)
+        assert env.truncated is False
+        assert env.body == big
+        # byte_size still reflects actual size so widgets can decide what to do
+        assert env.byte_size == INLINE_BODY_CAP_BYTES + 500
+
+    def test_optin_bypass_cap(self):
+        big_json = json.dumps({"items": [{"k": "v"} for _ in range(500)]})
+        assert len(big_json) > INLINE_BODY_CAP_BYTES
+        env = _build_envelope_from_optin(
+            {"content_type": "application/json", "body": big_json, "plain_body": "big"},
+            raw_text=big_json,
+            cap_body=False,
+        )
+        assert env.truncated is False
+        assert env.body == big_json
+        # Widget JS can parse it without a lazy-fetch roundtrip
+        parsed = json.loads(env.body)
+        assert len(parsed["items"]) == 500
+
+    def test_cap_body_default_still_caps(self):
+        # Sanity: the default path (LLM turn loop) must still truncate.
+        big = "x" * (INLINE_BODY_CAP_BYTES + 100)
+        env = _build_default_envelope(big)
+        assert env.truncated is True
+        assert env.body is None
+
+
 class TestCompactDict:
     def test_round_trip_through_json(self):
         record = uuid.uuid4()

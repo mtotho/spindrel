@@ -61,6 +61,7 @@ export function adaptToToolResultEnvelope(
     source_path: (src as { source_path?: string | null }).source_path ?? null,
     source_channel_id: (src as { source_channel_id?: string | null }).source_channel_id ?? null,
     source_bot_id: (src as { source_bot_id?: string | null }).source_bot_id ?? null,
+    extra_csp: (src as { extra_csp?: Record<string, string[]> | null }).extra_csp ?? null,
   };
 }
 

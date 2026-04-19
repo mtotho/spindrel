@@ -169,6 +169,40 @@ The widget runs in an iframe with `sandbox="allow-scripts allow-same-origin"` an
 
 If you need external data, have a prior tool call fetch it and inline the JSON into the widget — or trigger `fetch_url` from the widget via the tool dispatcher (see below).
 
+### Loading third-party scripts / tiles / fonts (`extra_csp`)
+
+Some widgets need to pull in external libraries that can't be inlined — Google Maps, Mapbox, Stripe Elements, YouTube embeds, Chart.js CDN, Google Fonts. Pass `extra_csp` to `emit_html_widget` to append the specific origins to the CSP for this widget only:
+
+```python
+emit_html_widget(
+    path="data/widgets/home-map/index.html",
+    display_label="Home map",
+    extra_csp={
+        "script_src":  ["https://maps.googleapis.com", "https://maps.gstatic.com"],
+        "connect_src": ["https://maps.googleapis.com"],
+        "img_src":     ["https://maps.gstatic.com", "https://maps.googleapis.com"],
+        "style_src":   ["https://fonts.googleapis.com"],
+        "font_src":    ["https://fonts.gstatic.com"],
+    },
+)
+```
+
+Rules the validator enforces:
+
+- Concrete `https://host[:port]` origins only — no `*`, no `data:` / `blob:` / `http:`, no CSP keywords (`'self'`, `'unsafe-*'`).
+- Max 10 origins per directive.
+- Origin-only — pass `https://maps.googleapis.com`, not `https://maps.googleapis.com/maps/api/js`.
+- Supported directives (snake_case): `script_src`, `connect_src`, `img_src`, `style_src`, `font_src`, `media_src`, `frame_src`, `worker_src`.
+
+The default CSP (`'self'` + `'unsafe-inline'` scripts/styles, `data:` + `blob:` images) stays in place — your extras are **appended**, not replacements. Widgets that don't need external origins keep the tight default; only the specific widget that asks for Maps is granted Maps.
+
+Common presets worth memorizing:
+
+- **Google Maps JS API**: `script_src` + `connect_src` + `img_src` on `https://maps.googleapis.com` + `https://maps.gstatic.com`; `style_src` `https://fonts.googleapis.com`; `font_src` `https://fonts.gstatic.com`.
+- **Mapbox GL**: `script_src` `https://api.mapbox.com`; `connect_src` `https://api.mapbox.com https://events.mapbox.com`; `img_src` `https://api.mapbox.com`.
+- **YouTube embed**: `frame_src` `https://www.youtube.com` (or `https://www.youtube-nocookie.com`).
+- **Stripe Elements**: `script_src` + `frame_src` `https://js.stripe.com`; `connect_src` `https://api.stripe.com`.
+
 ## Auth — widgets run as YOU (the bot), not as the viewer
 
 When you emit a widget, the envelope captures your bot id. At render time the host mints a **short-lived (15 min) bearer token scoped to your bot's API key** and injects it into `window.spindrel.api()`. Consequences:
@@ -384,6 +418,34 @@ document.getElementById("run").addEventListener("click", async () => {
 ```
 
 Returns the fresh envelope (same shape as `window.spindrel.toolResult`) on success, or `null` if the tool produced no envelope. Throws with the server's error message on non-ok response.
+
+### The envelope shape
+
+Every envelope — whether returned from `callTool`, pushed into `window.spindrel.toolResult`, or received via `onToolResult` — has the same fields:
+
+| Field | Type | What it carries |
+|---|---|---|
+| `content_type` | string | MIME-ish type, e.g. `"application/json"`, `"text/markdown"`, `"text/plain"`, `"application/vnd.spindrel.html+interactive"` |
+| `body` | string \| null | **The full tool output** as a string. JSON tools ship a JSON-encoded string — parse with `JSON.parse(env.body)`. |
+| `plain_body` | string | Short preview (≤200 chars for default envelopes, ≤800 for opt-in). **Never** the full payload — don't parse it. |
+| `display` | `"badge" \| "inline" \| "panel"` | Renderer hint for the chat bubble. Widgets can ignore. |
+| `truncated` | boolean | `true` means `body` was dropped because the underlying payload exceeded the inline cap. **Never true for `callTool` results** (see below). |
+| `byte_size` | integer | Actual UTF-8 size of the full payload, even when `body` is null. |
+| `record_id` | string \| null | Persisted `tool_calls` row id. Not addressable from widget auth — informational only. |
+| `tool_name` | string | The tool that produced this envelope. |
+
+**`body` vs `plain_body`** — `body` is what you parse; `plain_body` is a short human-readable preview for the chat badge. They are not interchangeable. `JSON.parse(env.plain_body)` will fail on any non-trivial payload because `plain_body` is truncated by design.
+
+### Truncation — does not apply to `callTool`
+
+The LLM turn loop caps envelope `body` at 4 KB to protect the model's context window. When that cap fires, `body` becomes `null`, `truncated` becomes `true`, and the UI lazy-fetches the full content through a session-scoped endpoint.
+
+**`callTool` bypasses this cap.** Widget-actions dispatch returns the full `body` regardless of size — widgets can always `JSON.parse(env.body)` without worrying about truncation. Two consequences:
+
+- Your widget can safely call `callTool` against tools that return large JSON (directory listings, API dumps, many-row queries) without seeing `body: null`.
+- **Don't defensively handle `truncated: true` on `callTool` results.** If you see it, it's a bug worth reporting — not an expected state.
+
+The only content type that was already exempt from the cap — `application/vnd.spindrel.html+interactive` — stays exempt everywhere.
 
 **`opts.extra`** passes through additional widget-actions fields when you need them:
 

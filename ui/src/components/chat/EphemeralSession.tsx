@@ -75,58 +75,58 @@ export function EphemeralSession({
     sessionStorageKey ? loadEphemeralState(sessionStorageKey) : null,
   );
 
-  const sessionId = stored?.sessionId ?? null;
+  // stored.sessionId is "" before first-send; normalise to null so child
+  // components / hooks that read ``sessionId`` see the absence cleanly.
+  const sessionId = stored?.sessionId && stored.sessionId.length > 0 ? stored.sessionId : null;
   const botId = stored?.botId ?? resolvedDefault;
   const modelOverride = stored?.modelOverride ?? undefined;
   const modelProviderId = stored?.modelProviderId ?? null;
 
-  // Runtime shape (defaults to the prop but the expand button toggles it).
+  // Runtime shape (initialised from prop; expand button toggles it).
   const [mode, setMode] = useState<"dock" | "modal">(shape);
-  useEffect(() => {
-    setMode(shape);
-  }, [shape]);
   // Dock expansion (FAB vs panel). The controller owns it so the header
   // X button can collapse back to the FAB.
   const [dockExpanded, setDockExpanded] = useState(false);
 
-  const persist = useCallback(
-    (patch: Partial<StoredEphemeralState>) => {
-      setStored((s) => {
-        const next: StoredEphemeralState = {
-          sessionId: s?.sessionId ?? "",
-          botId: s?.botId ?? resolvedDefault,
-          modelOverride: s?.modelOverride ?? null,
-          modelProviderId: s?.modelProviderId ?? null,
-          ...patch,
-        };
-        if (sessionStorageKey) saveEphemeralState(sessionStorageKey, next);
-        return next;
-      });
-    },
-    [resolvedDefault, sessionStorageKey],
-  );
+  // Persist-updater: merges a patch into `stored` and writes localStorage.
+  // Kept as a ref so effects can call it without participating in deps,
+  // avoiding render loops when its dependencies shift.
+  const persistRef = useRef<(patch: Partial<StoredEphemeralState>) => void>(() => {});
+  persistRef.current = (patch: Partial<StoredEphemeralState>) => {
+    setStored((s) => {
+      const next: StoredEphemeralState = {
+        sessionId: s?.sessionId ?? "",
+        botId: s?.botId ?? resolvedDefault,
+        modelOverride: s?.modelOverride ?? null,
+        modelProviderId: s?.modelProviderId ?? null,
+        ...patch,
+      };
+      if (sessionStorageKey) saveEphemeralState(sessionStorageKey, next);
+      return next;
+    });
+  };
 
   const setBotId = useCallback(
     (id: string) => {
       if (stored?.sessionId) return; // locked once session exists
-      persist({ botId: id });
+      persistRef.current({ botId: id });
     },
-    [persist, stored?.sessionId],
+    [stored?.sessionId],
   );
 
   const setModelOverride = useCallback(
     (m: string | undefined, pid?: string | null) => {
-      persist({ modelOverride: m ?? null, modelProviderId: pid ?? null });
+      persistRef.current({ modelOverride: m ?? null, modelProviderId: pid ?? null });
     },
-    [persist],
+    [],
   );
 
   // Seed the default bot into state (without yet creating a session).
   useEffect(() => {
     if (!stored?.botId && resolvedDefault) {
-      persist({ botId: resolvedDefault });
+      persistRef.current({ botId: resolvedDefault });
     }
-  }, [resolvedDefault, stored?.botId, persist]);
+  }, [resolvedDefault, stored?.botId]);
 
   const spawn = useSpawnEphemeralSession();
   const submitChat = useSubmitChat();
@@ -158,7 +158,7 @@ export function EphemeralSession({
             context,
           });
           activeSessionId = result.session_id;
-          persist({ sessionId: activeSessionId, botId });
+          persistRef.current({ sessionId: activeSessionId, botId });
         } catch (err) {
           setSendError(err instanceof Error ? err.message : "Failed to start session");
           return;
@@ -182,7 +182,7 @@ export function EphemeralSession({
         setSendError(err instanceof Error ? err.message : "Failed to send message");
       }
     },
-    [botId, sessionId, parentChannelId, context, persist, spawn, submitChat, modelOverride, modelProviderId, qc],
+    [botId, sessionId, parentChannelId, context, spawn, submitChat, modelOverride, modelProviderId, qc],
   );
 
   // Two-click speed-bump for reset.

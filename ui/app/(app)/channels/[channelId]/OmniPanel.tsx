@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   Layers,
+  LayoutDashboard,
   Plus,
   Search,
 } from "lucide-react";
@@ -249,6 +250,30 @@ export function OmniPanel({
           compact
           t={t}
         />
+        {activeTab === "widgets" && (
+          <Link
+            to={dashboardHref}
+            aria-label="Open channel dashboard"
+            title="Open channel dashboard"
+            className="ml-auto flex items-center justify-center w-6 h-6 rounded-md transition-colors"
+            style={{
+              color: t.textDim,
+              opacity: 0.55,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = "1";
+              e.currentTarget.style.backgroundColor = t.surfaceOverlay;
+              e.currentTarget.style.color = t.text;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = "0.55";
+              e.currentTarget.style.backgroundColor = "transparent";
+              e.currentTarget.style.color = t.textDim;
+            }}
+          >
+            <LayoutDashboard size={12} />
+          </Link>
+        )}
       </div>
 
       {activeTab === "files" && hasWorkspace ? (

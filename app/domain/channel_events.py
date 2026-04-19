@@ -42,6 +42,7 @@ from app.domain.payloads import (
     ToolActivityPayload,
     TurnEndedPayload,
     TurnStartedPayload,
+    TurnStreamThinkingPayload,
     TurnStreamToolResultPayload,
     TurnStreamToolStartPayload,
     TurnStreamTokenPayload,
@@ -54,6 +55,7 @@ class ChannelEventKind(StrEnum):
     MESSAGE_UPDATED = "message_updated"
     TURN_STARTED = "turn_started"
     TURN_STREAM_TOKEN = "turn_stream_token"
+    TURN_STREAM_THINKING = "turn_stream_thinking"
     TURN_STREAM_TOOL_START = "turn_stream_tool_start"
     TURN_STREAM_TOOL_RESULT = "turn_stream_tool_result"
     TURN_ENDED = "turn_ended"
@@ -119,6 +121,7 @@ _REQUIRED_CAPS: dict[ChannelEventKind, frozenset[Capability]] = {
     ChannelEventKind.MESSAGE_UPDATED: frozenset({Capability.STREAMING_EDIT}),
     ChannelEventKind.TURN_STARTED: frozenset({Capability.TEXT}),
     ChannelEventKind.TURN_STREAM_TOKEN: frozenset({Capability.STREAMING_EDIT}),
+    ChannelEventKind.TURN_STREAM_THINKING: frozenset({Capability.STREAMING_EDIT}),
     ChannelEventKind.TURN_STREAM_TOOL_START: frozenset({Capability.STREAMING_EDIT}),
     ChannelEventKind.TURN_STREAM_TOOL_RESULT: frozenset({Capability.STREAMING_EDIT}),
     ChannelEventKind.TURN_ENDED: frozenset({Capability.TEXT}),
@@ -160,6 +163,7 @@ _KIND_PAYLOAD: dict[ChannelEventKind, type] = {
     ChannelEventKind.MESSAGE_UPDATED: MessageUpdatedPayload,
     ChannelEventKind.TURN_STARTED: TurnStartedPayload,
     ChannelEventKind.TURN_STREAM_TOKEN: TurnStreamTokenPayload,
+    ChannelEventKind.TURN_STREAM_THINKING: TurnStreamThinkingPayload,
     ChannelEventKind.TURN_STREAM_TOOL_START: TurnStreamToolStartPayload,
     ChannelEventKind.TURN_STREAM_TOOL_RESULT: TurnStreamToolResultPayload,
     ChannelEventKind.TURN_ENDED: TurnEndedPayload,

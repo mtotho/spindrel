@@ -74,13 +74,72 @@ interface Props {
   t: ThemeTokens;
 }
 
-const CSP =
-  "default-src 'self'; " +
-  "script-src 'unsafe-inline' 'self'; " +
-  "style-src 'unsafe-inline' 'self'; " +
-  "img-src data: blob: 'self'; " +
-  "font-src data: 'self'; " +
-  "connect-src 'self'";
+// Default CSP directive → baseline source list. Kept as structured data
+// (not a flat string) so envelope-declared `extra_csp` can append origins
+// per directive without fragile string splicing.
+const DEFAULT_CSP: Record<string, string[]> = {
+  "default-src": ["'self'"],
+  "script-src": ["'unsafe-inline'", "'self'"],
+  "style-src": ["'unsafe-inline'", "'self'"],
+  "img-src": ["data:", "blob:", "'self'"],
+  "font-src": ["data:", "'self'"],
+  "connect-src": ["'self'"],
+};
+
+// snake_case (backend / envelope wire format) → kebab-case (CSP directive).
+const CSP_DIRECTIVE_MAP: Record<string, string> = {
+  script_src: "script-src",
+  connect_src: "connect-src",
+  img_src: "img-src",
+  style_src: "style-src",
+  font_src: "font-src",
+  media_src: "media-src",
+  frame_src: "frame-src",
+  worker_src: "worker-src",
+};
+
+// Origin guard — second line of defense (backend sanitize_extra_csp is first).
+// Drops anything that isn't a bare https:// origin so a compromised envelope
+// can't downgrade the policy by smuggling `'unsafe-eval'` or `*` through.
+function isSafeCspOrigin(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const v = value.trim();
+  if (!v.startsWith("https://")) return false;
+  const host = v.slice("https://".length);
+  if (!host) return false;
+  if (host.includes("/") || host.includes("?") || host.includes("#")) return false;
+  if (host.includes("*")) return false;
+  return true;
+}
+
+function buildCsp(extra: Record<string, unknown> | null | undefined): string {
+  const merged: Record<string, string[]> = {};
+  for (const [directive, sources] of Object.entries(DEFAULT_CSP)) {
+    merged[directive] = [...sources];
+  }
+  if (extra && typeof extra === "object") {
+    for (const [key, value] of Object.entries(extra)) {
+      const directive = CSP_DIRECTIVE_MAP[key];
+      if (!directive) continue;
+      const list = Array.isArray(value) ? value : [value];
+      const clean = list.filter(isSafeCspOrigin) as string[];
+      if (!clean.length) continue;
+      // Lazy-initialize directives not in the baseline (media-src, frame-src,
+      // worker-src) — CSP falls back to default-src 'self' otherwise, which
+      // would block the very third-party the widget just declared.
+      if (!merged[directive]) merged[directive] = ["'self'"];
+      const seen = new Set(merged[directive]);
+      for (const origin of clean) {
+        if (seen.has(origin)) continue;
+        seen.add(origin);
+        merged[directive].push(origin);
+      }
+    }
+  }
+  return Object.entries(merged)
+    .map(([directive, sources]) => `${directive} ${sources.join(" ")}`)
+    .join("; ");
+}
 
 const MAX_IFRAME_HEIGHT = 800;
 
@@ -592,12 +651,13 @@ function wrapHtml(
   isDark: boolean,
   dashboardPinId: string | null,
   widgetPath: string | null,
+  csp: string,
 ): string {
   return `<!doctype html>
 <html${isDark ? ' class="dark"' : ""}>
 <head>
 <meta charset="utf-8" />
-<meta http-equiv="Content-Security-Policy" content="${CSP}" />
+<meta http-equiv="Content-Security-Policy" content="${csp}" />
 <style id="__spindrel_theme">${themeCss}</style>
 ${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath)}
 </head>
@@ -648,6 +708,14 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
   const themeJson = useMemo(
     () => JSON.stringify(buildWidgetThemeObject({ tokens: t, isDark })),
     [t, isDark],
+  );
+  // CSP is derived per-envelope — widgets declare their third-party origin
+  // needs via ``extra_csp`` (Maps, Mapbox, etc.). ``buildCsp`` merges onto
+  // the locked-down baseline and drops anything that isn't a concrete
+  // ``https://`` origin.
+  const cspString = useMemo(
+    () => buildCsp(envelope.extra_csp),
+    [envelope.extra_csp],
   );
 
   // Mint a bot-scoped bearer token so widget JS authenticates as the
@@ -962,6 +1030,7 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
           isDark,
           dashboardPinId ?? null,
           sourcePath,
+          cspString,
         )}
         sandbox="allow-scripts allow-same-origin"
         title={envelope.display_label || "Interactive HTML widget"}
