@@ -209,6 +209,103 @@ class TestPathMode:
             current_bot_id.reset(ctx_bot)
 
 
+class TestAbsoluteChannelPath:
+    """Absolute /workspace/channels/<uuid>/... overrides the current-channel
+    scope so bots can emit widgets from outside a channel context (cron, tasks,
+    autoresearch) or target a different channel than the emitting one."""
+
+    @pytest.mark.asyncio
+    async def test_absolute_path_works_without_channel_context(self):
+        # No current_channel_id — absolute path carries its own target.
+        ctx_bot = current_bot_id.set("bot-abc")
+        target = "00000000-0000-0000-0000-000000000042"
+        try:
+            with patch("app.agent.bots.get_bot", return_value=object()), \
+                 patch(
+                     "app.services.channel_workspace.read_workspace_file",
+                     return_value="<html>ok</html>",
+                 ) as read_mock:
+                result = await emit_html_widget(
+                    path=f"/workspace/channels/{target}/data/widgets/foo/index.html",
+                    display_label="Foo",
+                )
+            env = _envelope(result)
+            assert env["source_channel_id"] == target
+            # Resolved path has the /workspace/channels/<id>/ prefix stripped.
+            assert env["source_path"] == "data/widgets/foo/index.html"
+            # read_workspace_file was called with parsed channel + stripped path.
+            read_mock.assert_called_once()
+            args = read_mock.call_args[0]
+            assert args[0] == target
+            assert args[2] == "data/widgets/foo/index.html"
+        finally:
+            current_bot_id.reset(ctx_bot)
+
+    @pytest.mark.asyncio
+    async def test_absolute_path_overrides_emitting_channel(self):
+        # Bot IS in a channel, but uses an absolute path targeting a different
+        # channel — envelope should carry the parsed channel, not the emitting.
+        emitting = uuid.uuid4()
+        target = "11111111-1111-1111-1111-111111111111"
+        ctx_channel = current_channel_id.set(emitting)
+        ctx_bot = current_bot_id.set("bot-abc")
+        try:
+            with patch("app.agent.bots.get_bot", return_value=object()), \
+                 patch(
+                     "app.services.channel_workspace.read_workspace_file",
+                     return_value="<html>ok</html>",
+                 ):
+                result = await emit_html_widget(
+                    path=f"/workspace/channels/{target}/data/widgets/foo/index.html",
+                )
+            env = _envelope(result)
+            assert env["source_channel_id"] == target
+            assert env["source_channel_id"] != str(emitting)
+        finally:
+            current_channel_id.reset(ctx_channel)
+            current_bot_id.reset(ctx_bot)
+
+    @pytest.mark.asyncio
+    async def test_absolute_path_without_file_portion_errors(self):
+        # "/workspace/channels/<uuid>" with no trailing file part is ambiguous.
+        ctx_bot = current_bot_id.set("bot-abc")
+        target = "00000000-0000-0000-0000-000000000001"
+        try:
+            result = await emit_html_widget(
+                path=f"/workspace/channels/{target}",
+            )
+            assert _parse(result).get("error")
+            assert "point at a file" in _parse(result)["error"]
+        finally:
+            current_bot_id.reset(ctx_bot)
+
+    @pytest.mark.asyncio
+    async def test_non_channel_absolute_rejected(self):
+        # /workspace/widgets/... is DX-5b territory — not resolvable yet. Tool
+        # rejects with a clear pointer instead of silently misresolving.
+        ctx_bot = current_bot_id.set("bot-abc")
+        try:
+            result = await emit_html_widget(
+                path="/workspace/widgets/shared/index.html",
+            )
+            err = _parse(result).get("error", "")
+            assert "/workspace/channels/" in err
+        finally:
+            current_bot_id.reset(ctx_bot)
+
+    @pytest.mark.asyncio
+    async def test_relative_path_still_requires_channel_context(self):
+        # Relative paths keep the old behavior — they need current_channel_id
+        # to scope against.
+        ctx_bot = current_bot_id.set("bot-abc")
+        try:
+            result = await emit_html_widget(path="data/widgets/foo/index.html")
+            err = _parse(result).get("error", "")
+            assert "absolute path" in err.lower() or "channel context" in err.lower()
+        finally:
+            current_bot_id.reset(ctx_bot)
+
+
 class TestEnvelopeRoundTrip:
     def test_source_fields_round_trip_through_optin(self):
         env = _build_envelope_from_optin(

@@ -46,30 +46,40 @@ A widget is a **folder**, not a single HTML file. Put everything the widget need
 └── assets/             ← images, icons, sub-data files (optional)
 ```
 
-### ⚠️ Path grammar — the `file` tool and `emit_html_widget` resolve paths differently
+### Path grammar — use absolute `/workspace/channels/<channel_id>/...` for both tools
 
-This is the #1 gotcha. Read twice.
-
-- **`file` tool** — paths are rooted at your **bot workspace** (`{ws}/{bot_id}/`). Relative `data/widgets/foo/index.html` writes to `{ws}/{bot}/data/widgets/foo/index.html` — **not** the channel workspace. To write into the channel workspace you must include the `channels/<channel_id>/` segment, typically via the full `/workspace/channels/<channel_id>/...` form.
-- **`emit_html_widget`** — paths are rooted inside the **current channel's workspace** (`{ws}/{bot}/channels/<channel_id>/`). `data/widgets/foo/index.html` means `{ws}/{bot}/channels/<cid>/data/widgets/foo/index.html`. It does **not** accept `/workspace/...` absolute paths.
-
-The two tools must point at the **same file on disk**. Match them like this:
+The cleanest pattern is **symmetric**: pass the same absolute path to `file` and `emit_html_widget`. Both accept the `/workspace/channels/<channel_id>/...` form, and using it removes any ambiguity about where the file lands.
 
 ```
-# 1. WRITE — use the absolute /workspace/channels/<channel_id>/... form so the file tool writes into the channel workspace
+# 1. WRITE the bundle
 file(create,
-     path="/workspace/channels/<CURRENT_CHANNEL_ID>/data/widgets/project-status/index.html",
+     path="/workspace/channels/<CHANNEL_ID>/data/widgets/project-status/index.html",
      content="<!doctype html>...")
 
-# 2. EMIT — use a channel-workspace-relative path (no leading slash, no channels/<id>/ prefix) so emit_html_widget finds the same file
+# 2. EMIT the widget — same absolute path
 emit_html_widget(
-    path="data/widgets/project-status/index.html",
+    path="/workspace/channels/<CHANNEL_ID>/data/widgets/project-status/index.html",
     display_label="Project status")
 ```
 
-If you see `Workspace file not found (or path escapes workspace)` from `emit_html_widget`, it almost always means you wrote the file via `file(path="data/widgets/...")` (which landed in the bot workspace) and then asked `emit_html_widget` to find it in the channel workspace. Re-write with the full `/workspace/channels/<channel_id>/...` path.
+Your **current channel ID** is in your system context (pinned-widget chrome + turn context). You can also discover it inside the widget at runtime via `window.spindrel.channelId`.
 
-Your **current channel ID** is in your system context (it's pinned-widget chrome and turn context). You can also discover it at runtime inside the widget via `window.spindrel.channelId`.
+**Why this form is better** than the relative shortcut:
+
+- Works **even when you're outside a channel** (cron-triggered tasks, autoresearch, task pipelines). Relative paths require a current channel to scope against; absolute paths carry their own target channel.
+- Lets you emit widgets that target a **different channel** than the one you're replying in — useful for cross-channel dashboards.
+- Matches what the `file` tool needs anyway (its relative paths are rooted at the bot workspace, not the channel workspace), so you avoid the two-grammar trap.
+
+### Shortcut: relative paths (in-channel only)
+
+`emit_html_widget` still accepts channel-workspace-relative paths like `data/widgets/foo/index.html` when you're inside a channel — it scopes them to the current channel. But be aware:
+
+- The `file` tool's relative paths resolve to the **bot workspace** (`{ws}/{bot}/`), not the channel workspace. So `file(path="data/widgets/foo/index.html")` + `emit_html_widget(path="data/widgets/foo/index.html")` point at **different files**. You'll see `Workspace file not found (or path escapes workspace)`.
+- If you go the relative-path route, use `file(path="channels/<CHANNEL_ID>/data/widgets/foo/index.html")` (note the `channels/<id>/` prefix) so both tools land on the same file.
+
+**Recommended**: just use the absolute form everywhere. It's longer to type, but it's the form that always works.
+
+**Non-channel absolute paths** (`/workspace/widgets/<slug>/...`) are reserved for DX-5b and currently rejected with a clear error.
 
 ### The bundle shape
 
@@ -141,11 +151,11 @@ emit_html_widget(
 ### Path Example (the default for dashboards)
 
 ```
-1. file(create, path="/workspace/channels/<CURRENT_CHANNEL_ID>/data/widgets/project-status/index.html", content="<html>… full doc …</html>")
-2. file(create, path="/workspace/channels/<CURRENT_CHANNEL_ID>/data/widgets/project-status/state.json", content='{"phase":"Planning","progress":0}')
-3. emit_html_widget(path="data/widgets/project-status/index.html", display_label="Project status")
+1. file(create, path="/workspace/channels/<CHANNEL_ID>/data/widgets/project-status/index.html", content="<html>… full doc …</html>")
+2. file(create, path="/workspace/channels/<CHANNEL_ID>/data/widgets/project-status/state.json", content='{"phase":"Planning","progress":0}')
+3. emit_html_widget(path="/workspace/channels/<CHANNEL_ID>/data/widgets/project-status/index.html", display_label="Project status")
 
-Notice the asymmetry — the `file` tool needs `/workspace/channels/<channel_id>/...` to target the channel workspace; `emit_html_widget` drops the `/workspace/channels/<channel_id>/` prefix because it's already scoped to the current channel.
+Same path for both tools. `emit_html_widget` parses the `/workspace/channels/<channel_id>/` prefix and scopes to that channel regardless of whether you're currently in it.
 ```
 
 After pinning, further edits to files in that bundle refresh the pinned widget within ~3 seconds. Iterate on the folder; no need to re-emit.
@@ -257,6 +267,57 @@ document.getElementById("clip").src = await window.spindrel.loadAsset("./media/i
 The object URLs stay valid for the lifetime of the iframe. If you're loading many large assets and want to free memory explicitly, call `window.spindrel.revokeAsset(url)`.
 
 Supported MIME types are whatever the workspace `/files/raw` endpoint serves — common image formats, PDFs, SVG, short audio/video clips.
+
+### Channel attachments (images/files from the conversation)
+
+Widgets often want to show **attachments** — images pasted into chat, files uploaded by the user, screenshots dropped by an integration. Two paths:
+
+#### (a) Pre-download into the bundle — best for "fixed" widgets
+
+In the bot turn before emitting, use the `save_attachment` tool to copy attachments into the widget bundle, then reference them with `loadAsset` (or directly):
+
+```
+list_attachments(channel_id=<id>)
+  → [{id: "abc-123...", filename: "sunrise.jpg", mime_type: "image/jpeg", size: 240_000}, ...]
+
+save_attachment(attachment_id="abc-123...",
+                path="/workspace/channels/<CHANNEL_ID>/data/widgets/gallery/assets/sunrise.jpg")
+
+emit_html_widget(path="/workspace/channels/<CHANNEL_ID>/data/widgets/gallery/index.html", ...)
+```
+
+Inside the widget:
+```js
+document.getElementById("photo").src = await window.spindrel.loadAsset("./assets/sunrise.jpg");
+```
+
+This baked-in pattern is durable — attachments can be deleted from the channel, but the widget's copy lives in the bundle.
+
+#### (b) Fetch live from the channel — best for "browse all attachments" dashboards
+
+The widget reads the attachment list from the API and renders each one as an image via `apiFetch` → blob → object URL:
+
+```js
+const list = await window.spindrel.api(
+  "/api/v1/attachments?channel_id=" + window.spindrel.channelId + "&limit=20"
+);
+for (const att of list) {
+  if (!att.mime_type.startsWith("image/")) continue;
+  const r = await window.spindrel.apiFetch("/api/v1/attachments/" + att.id + "/file");
+  if (!r.ok) continue;
+  const url = URL.createObjectURL(await r.blob());
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = att.filename;
+  document.getElementById("gallery").appendChild(img);
+}
+```
+
+The `/api/v1/attachments/<id>/file` endpoint is authed — `apiFetch` attaches the widget's bearer automatically.
+
+**When to use which**: pre-download (a) if the widget is meant to persist a specific set of assets as part of its design. Fetch-live (b) if the widget is about whatever's in the channel right now.
+
+Use the `list_attachments` tool from the bot turn to discover IDs; use `/api/v1/attachments?channel_id=...` from inside the widget to browse live.
 
 ### Relative paths
 
@@ -749,7 +810,7 @@ If the widget uses `state.json`, paste the schema here with field semantics.
 | Hand-rolled `.card { border: 1px solid #e5e7eb; ... }` | `class="sd-card"` | The vocabulary already covers this. |
 | `html=...` + `path=...` together | Exactly one | Tool errors — pick inline OR path |
 | Path mode pointing at a non-existent file | Create the file first with `file(create, ...)` | Tool refuses if the path doesn't resolve |
-| `file(create, path="data/widgets/foo/index.html")` + `emit_html_widget(path="data/widgets/foo/index.html")` | Write with `/workspace/channels/<channel_id>/data/widgets/foo/index.html`, emit with `data/widgets/foo/index.html` | The two tools root paths differently — `file` is bot-workspace-relative, `emit_html_widget` is channel-workspace-relative. Writing to "data/..." via `file` lands in the bot workspace, which `emit_html_widget` never looks at. |
+| `file(create, path="data/widgets/foo/index.html")` + `emit_html_widget(path="data/widgets/foo/index.html")` | Use the same absolute `/workspace/channels/<channel_id>/data/widgets/foo/index.html` for **both** tools | `file`'s relative paths root at the bot workspace; `emit_html_widget`'s relative paths root at the channel workspace. Pass the absolute form to both and the ambiguity goes away. |
 | Shipping a widget without updating `memory/MEMORY.md` | Add index entry + `memory/reference/<slug>.md` same turn | Future turns lose the bundle. You'll rebuild or debug blind. |
 | Dumping loose `.html` at the workspace root | Put each widget in its own bundle folder | Bundles move/rename/delete atomically; the root stays legible |
 | Blind-overwriting `state.json` | Read-merge-write | Two open copies stay coherent; no silent data loss |
@@ -770,9 +831,9 @@ When the user says "build me a dashboard for X":
 1. **Discover** — `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had.
 2. **Pick a root** — channel-scoped `data/widgets/<slug>/` (the default, works today). Non-channel roots arrive with DX-5b.
 3. **Pick an archetype** — status (RMW `state.json`), feed (poll API), control panel (dispatch tools), KB reader (workspace files + markdown). Most real dashboards mix two.
-4. **One-shot the bundle** — `file(create, path="/workspace/channels/<CURRENT_CHANNEL_ID>/data/widgets/<slug>/index.html", content=<full doc>)` plus any `state.json` defaults (same `/workspace/channels/<id>/...` form). Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
-5. **Emit** — `emit_html_widget(path="data/widgets/<slug>/index.html", display_label="<Slug>")` — channel-workspace-relative, no `/workspace/channels/<id>/` prefix. User pins it to the dashboard.
-6. **Iterate** — tweaks via `file(edit, path="/workspace/channels/<CURRENT_CHANNEL_ID>/data/widgets/<slug>/index.html", find=..., replace=...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
+4. **One-shot the bundle** — `file(create, path="/workspace/channels/<CHANNEL_ID>/data/widgets/<slug>/index.html", content=<full doc>)` plus any `state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
+5. **Emit** — `emit_html_widget(path="/workspace/channels/<CHANNEL_ID>/data/widgets/<slug>/index.html", display_label="<Slug>")`. Same absolute path you used to write. User pins it to the dashboard.
+6. **Iterate** — tweaks via `file(edit, path="/workspace/channels/<CHANNEL_ID>/data/widgets/<slug>/index.html", find=..., replace=...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
 7. **Record it** — leave breadcrumbs in your memory (see "Remember what you built" below) so future-you knows the widget exists and where to find it.
 
 This is the highest-leverage pattern: path mode + a bundle folder + the `file` tool turns "build me a widget" into a live, iteratively-editable surface.

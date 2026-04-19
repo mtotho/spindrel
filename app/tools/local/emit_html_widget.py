@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from app.agent.context import current_bot_id, current_channel_id
 from app.tools.registry import register
@@ -32,6 +33,13 @@ from app.tools.registry import register
 logger = logging.getLogger(__name__)
 
 INTERACTIVE_HTML_CONTENT_TYPE = "application/vnd.spindrel.html+interactive"
+
+# Match /workspace/channels/<uuid>/... for absolute-path overrides.  Lets a
+# bot emit a widget pointing at any channel workspace it has access to —
+# including from outside a channel context (e.g., cron-triggered tasks).
+_CHANNEL_PATH_RE = re.compile(
+    r"^/workspace/channels/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(/.*)?$"
+)
 
 _SCHEMA = {
     "type": "function",
@@ -68,10 +76,16 @@ _SCHEMA = {
                 "path": {
                     "type": "string",
                     "description": (
-                        "Workspace-relative path to an HTML file (e.g. "
-                        "'dashboards/cpu.html'). Path mode — widget re-"
-                        "fetches the file so updates to it propagate. "
-                        "Mutually exclusive with `html`."
+                        "Path to an HTML file. Accepts two forms: "
+                        "(1) channel-workspace-relative (e.g. "
+                        "'data/widgets/project-status/index.html') — "
+                        "resolves against your current channel's workspace; "
+                        "(2) absolute channel path (e.g. "
+                        "'/workspace/channels/<channel_id>/data/widgets/foo/index.html') "
+                        "— targets a specific channel's workspace, works even "
+                        "from outside a channel context. Path mode — widget "
+                        "re-fetches the file so updates propagate. Mutually "
+                        "exclusive with `html`."
                     ),
                 },
                 "js": {
@@ -189,14 +203,54 @@ async def emit_html_widget(
             ensure_ascii=False,
         )
 
-    # Path mode — validate the file resolves + exists under the current
-    # channel's workspace so the renderer won't 404.
-    channel_id = emit_channel
+    # Path mode — resolve the target channel + relative path, then validate
+    # the file exists so the renderer won't 404.
+    #
+    # Two grammars accepted:
+    #   - Absolute: "/workspace/channels/<uuid>/<path>" — targets a specific
+    #     channel, works even when current_channel_id is unset (e.g. cron,
+    #     autoresearch). Path is parsed and the parsed channel drives both
+    #     file resolution and the envelope's source_channel_id.
+    #   - Relative: "<path>" — resolves against the emitting channel's
+    #     workspace (original behavior). Requires current_channel_id.
     bot_id = current_bot_id.get()
-    if not channel_id or not bot_id:
+    if not bot_id:
+        return _error("Path mode requires bot context — none available.")
+
+    stripped = path.strip()
+    target_channel_id: str | None = None
+    resolved_path = stripped
+
+    m = _CHANNEL_PATH_RE.match(stripped)
+    if m:
+        target_channel_id = m.group(1)
+        # Group 2 is "/rest/of/path" or None. Strip the leading slash so the
+        # channel-workspace resolver (which os.path.joins with the root) treats
+        # it as relative.
+        rest = m.group(2) or ""
+        resolved_path = rest.lstrip("/")
+        if not resolved_path:
+            return _error(
+                "Path must point at a file, not a channel root: " + stripped
+            )
+    elif stripped.startswith("/workspace/"):
+        # Non-channel absolute paths are reserved for DX-5b (non-channel
+        # workspace root). Reject with a clear pointer instead of silently
+        # resolving against the channel workspace.
         return _error(
-            "Path mode requires channel + bot context — none available."
+            "Absolute /workspace/... paths must be of the form "
+            "/workspace/channels/<channel_id>/... (non-channel workspace "
+            "roots are not yet supported — use channel-workspace paths)."
         )
+    else:
+        # Relative — need an emitting channel to scope against.
+        if emit_channel is None:
+            return _error(
+                "Relative paths require channel context. Either run inside a "
+                "channel, or pass an absolute path: "
+                "/workspace/channels/<channel_id>/<path>"
+            )
+        target_channel_id = str(emit_channel)
 
     from app.agent.bots import get_bot
     from app.services.channel_workspace import read_workspace_file
@@ -205,7 +259,7 @@ async def emit_html_widget(
     if bot is None:
         return _error(f"Bot {bot_id} not found")
 
-    content = read_workspace_file(str(channel_id), bot, path)
+    content = read_workspace_file(target_channel_id, bot, resolved_path)
     if content is None:
         return _error(
             f"Workspace file not found (or path escapes workspace): {path}"
@@ -218,8 +272,8 @@ async def emit_html_widget(
     envelope = {
         "content_type": INTERACTIVE_HTML_CONTENT_TYPE,
         "body": "",
-        "source_path": path,
-        "source_channel_id": str(channel_id),
+        "source_path": resolved_path,
+        "source_channel_id": target_channel_id,
         "source_bot_id": bot_id,
         "plain_body": _derive_plain_body(
             display_label=label, path=path, body_len=0
