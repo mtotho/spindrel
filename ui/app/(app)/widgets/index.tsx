@@ -140,6 +140,11 @@ export default function WidgetsDashboardPage() {
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  /** Current RGL breakpoint. We only persist layout edits at `lg` — smaller
+   *  breakpoints are auto-reflowed by RGL and their coordinates should not
+   *  become the canonical `grid_layout` (otherwise narrowing the window in
+   *  edit mode corrupts the saved layout for everyone). */
+  const [breakpoint, setBreakpoint] = useState<string>("lg");
   const [editingPinId, setEditingPinId] = useState<string | null>(null);
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -160,7 +165,10 @@ export default function WidgetsDashboardPage() {
     mql.addEventListener("change", update);
     return () => mql.removeEventListener("change", update);
   }, []);
-  const layoutEditable = editMode && !isMobile;
+  // Edit gestures only at `lg` — the edit UX (grid guides, column math) is
+  // all sized to `preset.cols.lg`, and committing a narrower breakpoint's
+  // coordinates would corrupt the canonical layout.
+  const layoutEditable = editMode && !isMobile && breakpoint === "lg";
 
   const highlightPin = useCallback((pinId: string) => {
     setHighlightPinId(pinId);
@@ -198,7 +206,41 @@ export default function WidgetsDashboardPage() {
         maxW: preset.cols.lg,
       };
     });
-    return { lg };
+
+    // For narrower breakpoints, stack widgets single-column full-width
+    // sorted by their lg (y, x) position. Prevents RGL from deriving weird
+    // half-width/gapped arrangements when widget widths don't divide evenly
+    // into the breakpoint's col count.
+    const sortedForStack = [...pins]
+      .map((p, idx) => ({
+        p,
+        base: hasLayout(p) ? p.grid_layout : defaultLayoutForIndex(idx, preset),
+      }))
+      .sort((a, b) => a.base.y - b.base.y || a.base.x - b.base.x);
+
+    const stackFor = (cols: number): LayoutItem[] => {
+      let y = 0;
+      return sortedForStack.map(({ p, base }) => {
+        const item: LayoutItem = {
+          i: p.id,
+          x: 0,
+          y,
+          w: cols,
+          h: base.h,
+          minH: preset.minTile.h,
+        };
+        y += base.h;
+        return item;
+      });
+    };
+
+    return {
+      lg,
+      md: stackFor(preset.cols.md),
+      sm: stackFor(preset.cols.sm),
+      xs: stackFor(preset.cols.xs),
+      xxs: stackFor(preset.cols.xxs),
+    };
   }, [pins, preset]);
 
   // Debounce layout commits — drag/resize fires many `onLayoutChange` events.
@@ -272,21 +314,14 @@ export default function WidgetsDashboardPage() {
   return (
     <div className="flex-1 flex flex-col bg-surface overflow-hidden">
       {isChannelScoped && channelScopedId ? (
-        <>
-          <ChannelDashboardBreadcrumb
-            channelId={channelScopedId}
-            channelName={channelRow?.name}
-            railCount={railCount}
-            pinCount={pins.length}
-          />
-          <div
-            className="flex shrink-0 items-center justify-end gap-2 border-b border-surface-border bg-surface px-3 py-1.5"
-            role="toolbar"
-            aria-label="Dashboard actions"
-          >
-            {actions}
-          </div>
-        </>
+        <ChannelDashboardBreadcrumb
+          channelId={channelScopedId}
+          channelName={channelRow?.name}
+          railCount={railCount}
+          pinCount={pins.length}
+          onOpenManage={() => setManageSlug(slug)}
+          right={actions}
+        />
       ) : (
         <DashboardTabs
           activeSlug={slug}
@@ -363,8 +398,9 @@ export default function WidgetsDashboardPage() {
                 if (newItem) setDragX(newItem.x);
               }}
               onDragStop={() => setDragX(null)}
+              onBreakpointChange={(bp) => setBreakpoint(bp)}
               onLayoutChange={(current) => {
-                if (layoutEditable) scheduleCommit(current);
+                if (layoutEditable && breakpoint === "lg") scheduleCommit(current);
               }}
             >
               {pins.map((p) => (

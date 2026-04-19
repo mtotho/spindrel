@@ -9,6 +9,9 @@ via `ComponentRenderer`.
 
 Packages are editable in the admin UI at **Tools → Widget Library**.
 
+!!! tip "Looking for bot-authored HTML widgets?"
+    The template system on this page is for **tool-result component widgets** — declarative YAML bound to a tool. For bot-written HTML (charts, mini-dashboards, anything outside the component grammar), see the [HTML Widgets guide](guides/html-widgets.md). Those run as the emitting bot with short-lived bot-scoped tokens — a different auth model.
+
 ## Package model
 
 A package has three things:

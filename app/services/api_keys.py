@@ -37,8 +37,6 @@ ALL_SCOPES = [
     "workspaces.files:read", "workspaces.files:write",
     # Documents
     "documents:read", "documents:write",
-    # Knowledge
-    "knowledge:read", "knowledge:write",
     # Todos
     "todos:read", "todos:write",
     # Attachments
@@ -119,8 +117,6 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "workspaces.files:write": "Write, upload, and delete workspace files",
     "documents:read": "Semantic search over ingested documents",
     "documents:write": "Ingest and delete documents",
-    "knowledge:read": "Read knowledge entries",
-    "knowledge:write": "Create and manage knowledge entries",
     "todos:read": "List todos",
     "todos:write": "Create, update, and delete todos",
     "attachments:read": "Get attachment metadata and download files",
@@ -215,10 +211,6 @@ SCOPE_GROUPS: dict[str, dict] = {
     "Documents": {
         "description": "Ingest text for RAG and search over embedded documents",
         "scopes": ["documents:read", "documents:write"],
-    },
-    "Knowledge": {
-        "description": "Bot knowledge entries (LLM-written persistent docs)",
-        "scopes": ["knowledge:read", "knowledge:write"],
     },
     "Todos": {
         "description": "Persistent work items scoped to bot + channel",

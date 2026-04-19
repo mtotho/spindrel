@@ -91,6 +91,14 @@ The admin UI offers one-click presets for common use cases:
 
 The UI uses JWT tokens via Google OAuth. For API access, scoped keys are preferred.
 
+### Widget Tokens (Short-Lived, Bot-Scoped)
+
+Interactive HTML widgets (authored by bots via `emit_html_widget`) render in sandboxed iframes and need to call `/api/v1/...` endpoints without borrowing the viewing user's session. Spindrel mints **short-lived (15 min) bot-scoped JWTs** for this case via `POST /api/v1/widget-auth/mint` — payload `{source_bot_id, pin_id?}`, response `{token, expires_at, expires_in, bot_id, bot_name, scopes}`. The renderer re-mints every 12 min and pushes the new token into the live iframe so the widget never 401s mid-session.
+
+Under the hood these are regular JWTs with `kind: "widget"` in the payload; the auth dependency has a dedicated branch that returns an `ApiKeyAuth` with the scopes inlined from the token (no per-request DB lookup). Scopes are copied from the bot's configured API key at mint time, so **the widget can only do what the bot could do** — not what the viewing user could do. See the [HTML Widgets guide](html-widgets.md) for the user-facing version.
+
+You shouldn't typically call `/widget-auth/mint` yourself — it's automated by the widget renderer. It's documented here for completeness.
+
 ## Endpoint Discovery
 
 The `/api/v1/discover` endpoint returns all accessible endpoints filtered by your key's scopes:

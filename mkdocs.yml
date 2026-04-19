@@ -42,6 +42,7 @@ nav:
     - Workflows: guides/workflows.md
     - Heartbeats: guides/heartbeats.md
     - Custom Tools & Extensions: guides/custom-tools.md
+    - HTML Widgets: guides/html-widgets.md
     - Slack Integration: guides/slack.md
     - Discord Integration: guides/discord.md
     - BlueBubbles (iMessage): guides/bluebubbles.md

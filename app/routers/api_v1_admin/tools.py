@@ -66,7 +66,7 @@ class ToolExecuteResponse(BaseModel):
 @router.get("/tools", response_model=list[ToolOut])
 async def admin_list_tools(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_scopes("admin")),
+    _auth: str = Depends(require_scopes("tools:read")),
 ):
     """List all indexed tools."""
     rows = (await db.execute(
@@ -100,7 +100,7 @@ async def _widget_package_index(
 async def admin_get_tool(
     tool_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_scopes("admin")),
+    _auth: str = Depends(require_scopes("tools:read")),
 ):
     """Get a single tool by ID (UUID) or tool_key."""
     # Try UUID first

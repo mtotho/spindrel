@@ -46,6 +46,7 @@ _MODULE_LEVEL_ALIASES = (
     "app.services.attachments.async_session",
     "app.services.workflows.async_session",
     "app.services.task_run_anchor.async_session",
+    "app.services.skill_enrollment.async_session",
     "app.agent.tasks.async_session",
     "app.agent.recording.async_session",
     "app.services.sessions.async_session",
@@ -84,6 +85,8 @@ async def patched_async_sessions(engine):
         "app.services.workflows.async_session", factory
     ), patch(
         "app.services.task_run_anchor.async_session", factory
+    ), patch(
+        "app.services.skill_enrollment.async_session", factory
     ), patch("app.agent.tasks.async_session", factory), patch(
         "app.agent.recording.async_session", factory
     ), patch(

@@ -104,6 +104,27 @@ window.spindrel.listWorkspaceFiles({include_archive?, include_data?, data_prefix
 
 `api(path, options)` is a thin `fetch` wrapper — attaches `Authorization: Bearer <short-lived bot token>`, sets `Content-Type: application/json`, parses JSON responses, and throws on non-2xx so you can `try/catch`. **Always use this instead of raw `fetch()`**; raw fetch won't be authenticated.
 
+## Discovering what endpoints your widget can hit
+
+Don't guess URLs or copy examples blindly — **call `list_api_endpoints` BEFORE writing the widget** and use the result as your ground truth. It returns only the endpoints your bot's scoped API key can hit, so you never paste in a call that will 403 inside the iframe.
+
+```
+list_api_endpoints(scope="channels")   # → all channel endpoints in your scope
+list_api_endpoints(scope="admin")       # → admin endpoints (if you have them)
+list_api_endpoints()                    # → everything your bot can touch
+```
+
+Then inside the widget, use those exact paths with `window.spindrel.api()`:
+
+```js
+// list_api_endpoints told you about GET /api/v1/channels/{channel_id}/state
+const state = await window.spindrel.api(
+  "/api/v1/channels/" + window.spindrel.channelId + "/state"
+);
+```
+
+The symmetry is intentional: `call_api` (server-side) and `window.spindrel.api` (widget-side) both use the same bot-scoped API key. If `call_api` works from your tool, `spindrel.api` works from the widget — same scopes, same endpoints, same responses.
+
 ## JavaScript Cookbook
 
 Concrete patterns that work in the sandbox. Use these directly.
@@ -247,7 +268,9 @@ The iframe auto-sizes to content height, capped at 800px. Taller content scrolls
 | `GET /api/v1/admin/tool-calls/recent` | Recent tool-call envelopes |
 | `GET /api/v1/bots/me` | Bot's own config |
 
-Writes (POST/PUT/PATCH/DELETE) work the same way. Think of it as "a browser tab logged in as the user."
+Writes (POST/PUT/PATCH/DELETE) work the same way. Think of it as **your own scoped API key running in a browser tab** — because that's exactly what it is.
+
+For the exhaustive filtered-by-your-scopes list, call `list_api_endpoints()`. That's always more authoritative than this table.
 
 ## Layout & Sizing
 
@@ -264,12 +287,15 @@ Always set `display_label` — it appears on the dashboard card header, in the "
 | Wrong | Right | Why |
 |---|---|---|
 | Returning HTML as Markdown or a code fence | `emit_html_widget(html=...)` | Only this tool gets you interactivity + pin-to-dashboard |
+| `fetch("/api/v1/...")` inside the widget | `window.spindrel.api("/api/v1/...")` | Only `spindrel.api` attaches the bearer. Raw `fetch` → 422 (missing Authorization). |
 | `fetch("https://api.example.com/...")` from widget JS | Prior tool call fetches it; inline the data | CSP blocks cross-origin; iframe can only hit same-origin |
+| Guessing API paths | `list_api_endpoints()` first, copy the exact path | You only see endpoints your scopes cover. Saves a roundtrip of 403s. |
 | `html=...` + `path=...` together | Exactly one | Tool errors — pick inline OR path |
 | Path mode pointing at a non-existent file | Create the file first with `file(create, ...)` | Tool refuses if the path doesn't resolve |
 | `emit_html_widget(html="<script>...</script>")` with no HTML body | Put JS in `js=...`, not inside `html=...` | Cleaner; the tool stitches them correctly |
 | Bare style tags in `html` | Use `css=...` | Same — cleaner separation, avoids duplicates |
 | Skipping `display_label` | Always supply one | Blank headers on the dashboard are ugly + fail the pinned-widget context hint |
+| Asking the user to "broaden your admin key" so your widget works | Ask them to broaden YOUR BOT's scopes via admin UI | The widget uses your bot's key, not the user's session. Scope the bot, not the user. |
 
 ## When NOT to Use This
 
@@ -282,10 +308,11 @@ Always set `display_label` — it appears on the dashboard card header, in the "
 
 When the user says "build me a dashboard for X":
 
-1. Plan what panels / what data sources you need.
-2. `file(create, path="dashboards/<slug>.html", content=<full HTML doc>)` — one-shot the first cut.
-3. `emit_html_widget(path="dashboards/<slug>.html", display_label="<Slug>")` — renders; user pins it to the dashboard.
-4. User asks for tweaks → `file(edit, path="dashboards/<slug>.html", find=..., replace=...)` — the pinned widget updates within a few seconds.
-5. Keep iterating on the file. No need to re-emit the widget.
+1. **Discover**: `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had.
+2. **Plan** what panels / what data sources you need. If a data source you want isn't in the endpoint list, ask the user to broaden your bot's scopes (admin UI → Bots → this bot → API permissions) — don't work around it.
+3. `file(create, path="dashboards/<slug>.html", content=<full HTML doc>)` — one-shot the first cut. Use `window.spindrel.api()` for every call; hard-code the literal endpoint paths you discovered in step 1.
+4. `emit_html_widget(path="dashboards/<slug>.html", display_label="<Slug>")` — renders; user pins it to the dashboard.
+5. User asks for tweaks → `file(edit, path="dashboards/<slug>.html", find=..., replace=...)` — the pinned widget updates within a few seconds.
+6. Keep iterating on the file. No need to re-emit the widget.
 
 This is the highest-leverage pattern: path mode + the `file` tool turns "build me a widget" into a live, iteratively-editable surface for the user.

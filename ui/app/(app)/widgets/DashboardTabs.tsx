@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Settings } from "lucide-react";
+import { Menu, Plus, Settings } from "lucide-react";
 import { cn } from "@/src/lib/cn";
 import { useDashboards } from "@/src/stores/dashboards";
+import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
+import { useUIStore } from "@/src/stores/ui";
 import { LucideIconByName } from "@/src/components/IconPicker";
 
 interface Props {
@@ -19,6 +21,9 @@ interface Props {
  *  actions (right) so the two scopes read as distinct. */
 export function DashboardTabs({ activeSlug, onOpenCreate, onOpenManage, right }: Props) {
   const { list, isLoading } = useDashboards();
+  const columns = useResponsiveColumns();
+  const openPalette = useUIStore((s) => s.openPalette);
+  const isMobile = columns === "single";
 
   if (isLoading) {
     return (
@@ -35,6 +40,16 @@ export function DashboardTabs({ activeSlug, onOpenCreate, onOpenManage, right }:
       aria-label="Dashboards"
       className="relative flex items-center gap-1 bg-surface px-2 sm:px-3 py-1.5 shadow-[0_1px_3px_-1px_rgba(0,0,0,0.22)]"
     >
+      {isMobile && (
+        <button
+          type="button"
+          onClick={openPalette}
+          aria-label="Open menu"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay hover:text-text transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+        >
+          <Menu size={18} />
+        </button>
+      )}
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto scrollbar-thin">
         {list.map((d) => {
           const active = d.slug === activeSlug;

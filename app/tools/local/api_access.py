@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
         "name": "list_api_endpoints",
         "description": (
             "List API endpoints available to this bot, filtered by its scoped API key permissions. "
-            "Optionally filter by a specific scope prefix (e.g. 'channels', 'tasks')."
+            "Optionally filter by a specific scope prefix (e.g. 'channels', 'tasks'). "
+            "The results are valid for BOTH server-side `call_api` AND widget-side `window.spindrel.api()` — "
+            "your scoped key is the common denominator. Call this before writing an HTML widget so you "
+            "bind to paths your widget can actually hit."
         ),
         "parameters": {
             "type": "object",
