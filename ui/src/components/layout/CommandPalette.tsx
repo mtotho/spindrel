@@ -447,11 +447,16 @@ export function CommandPaletteContent({
     });
 
     if (channels) {
+      const botNameById = new Map(
+        (bots ?? []).map((b) => [b.id, b.name])
+      );
       for (const ch of channels) {
+        const botName = ch.bot_id ? botNameById.get(ch.bot_id) : undefined;
+        const hintParts = [ch.integration, botName].filter(Boolean);
         items.push({
           id: `ch-${ch.id}`,
           label: ch.name,
-          hint: ch.integration ? `${ch.integration}` : undefined,
+          hint: hintParts.length ? hintParts.join(" · ") : undefined,
           href: `/channels/${ch.id}`,
           icon: Hash,
           category: "Channels",

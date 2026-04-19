@@ -38,6 +38,9 @@ def upgrade() -> None:
         ),
     )
     op.create_primary_key("dashboard_rail_pins_pkey", "dashboard_rail_pins", ["id"])
+    # Dropping the PK does not automatically remove the NOT NULL constraint
+    # PostgreSQL placed on user_id when it was a PK column.
+    op.alter_column("dashboard_rail_pins", "user_id", nullable=True)
 
 
 def downgrade() -> None:

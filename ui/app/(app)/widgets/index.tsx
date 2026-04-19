@@ -35,7 +35,8 @@ import {
   useDashboards,
 } from "@/src/stores/dashboards";
 import { resolvePreset, type GridPreset } from "@/src/lib/dashboardGrid";
-import { EphemeralSession } from "@/src/components/chat/EphemeralSession";
+// EphemeralSession import removed — dock disabled pending React #185 fix (see Track - Task Sub-Sessions §4.0c)
+// import { EphemeralSession } from "@/src/components/chat/EphemeralSession";
 
 /** A pin lives in the sidebar "rail zone" when its left edge sits inside the
  *  leftmost band of the dashboard grid. Width and right-edge are intentionally
