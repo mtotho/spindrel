@@ -499,6 +499,15 @@ class Settings(BaseSettings):
     # Encryption (secrets at rest)
     ENCRYPTION_KEY: str = ""  # Fernet key for encrypting provider API keys + integration secrets
 
+    # Web Push / VAPID
+    # Generate a keypair once via: `python -m app.tools.generate_vapid_keys`,
+    # then paste the printed lines into `.env`. When unset, push endpoints
+    # return 503 and the `send_push_notification` tool no-ops with a clear
+    # error. `VAPID_SUBJECT` is `mailto:you@example.com` or `https://your.site`.
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_SUBJECT: str = ""
+
     # Auth
     API_KEY: str
     ADMIN_API_KEY: str = ""  # empty = fall back to API_KEY for backward compat

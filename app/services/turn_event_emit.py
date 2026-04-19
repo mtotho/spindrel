@@ -76,6 +76,7 @@ async def emit_run_stream_events(
     channel_id: uuid.UUID,
     bot_id: str,
     turn_id: uuid.UUID,
+    session_id: uuid.UUID | None = None,
 ) -> AsyncIterator[dict]:
     """Wrap a ``run_stream`` async iterator and publish typed bus events.
 
@@ -110,6 +111,7 @@ async def emit_run_stream_events(
                         bot_id=bot_id,
                         turn_id=turn_id,
                         delta=event.get("delta", ""),
+                        session_id=session_id,
                     ),
                 ),
             )
@@ -125,6 +127,7 @@ async def emit_run_stream_events(
                         turn_id=turn_id,
                         tool_name=event.get("tool", ""),
                         arguments=_coerce_tool_arguments(event.get("args")),
+                        session_id=session_id,
                     ),
                 ),
             )
@@ -143,6 +146,7 @@ async def emit_run_stream_events(
                         result_summary=str(_result_text)[:500],
                         is_error=bool(event.get("error")),
                         envelope=event.get("envelope"),
+                        session_id=session_id,
                     ),
                 ),
             )
@@ -160,6 +164,7 @@ async def emit_run_stream_events(
                         arguments=_coerce_tool_arguments(event.get("args")),
                         reason=event.get("reason"),
                         turn_id=turn_id,
+                        session_id=session_id,
                     ),
                 ),
             )
@@ -177,6 +182,7 @@ async def emit_run_stream_events(
                     payload=ApprovalResolvedPayload(
                         approval_id=event.get("approval_id", ""),
                         decision=event.get("verdict") or event.get("decision") or "",
+                        session_id=session_id,
                     ),
                 ),
             )

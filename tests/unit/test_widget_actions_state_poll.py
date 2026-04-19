@@ -41,6 +41,65 @@ def _register_weather_widget():
     }
 
 
+class TestStatePollAgentContext:
+    @pytest.mark.asyncio
+    async def test_bot_and_channel_context_set_during_call(self):
+        """``_do_state_poll`` must set ContextVars before invoking the poll tool
+        so dashboard-pinned tools that read ``current_bot_id`` / channel resolve
+        identity from the pin's source instead of returning "No bot context"."""
+        from app.agent.context import current_bot_id, current_channel_id
+
+        _register_weather_widget()
+        poll_cfg = _widget_templates["get_weather"]["state_poll"]
+        captured: dict = {}
+
+        async def _probe(_name, _args):
+            captured["bot_id"] = current_bot_id.get()
+            captured["channel_id"] = current_channel_id.get()
+            return json.dumps({"location": "Boise, ID"})
+
+        channel = uuid.uuid4()
+        with patch.object(router_mod, "is_local_tool", return_value=True), \
+             patch.object(router_mod, "call_local_tool", side_effect=_probe), \
+             patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n):
+            await router_mod._do_state_poll(
+                tool_name="get_weather",
+                display_label="Boise, ID",
+                poll_cfg=poll_cfg,
+                bot_id="weather-bot",
+                channel_id=channel,
+            )
+        assert captured["bot_id"] == "weather-bot"
+        assert captured["channel_id"] == channel
+
+    @pytest.mark.asyncio
+    async def test_context_unset_when_no_bot_passed(self):
+        """When no bot/channel is provided, ContextVars stay at their defaults
+        (None) — so a poll tool that doesn't need context isn't accidentally
+        bound to a previous request's identity."""
+        from app.agent.context import current_bot_id, current_channel_id
+
+        _register_weather_widget()
+        poll_cfg = _widget_templates["get_weather"]["state_poll"]
+        captured: dict = {}
+
+        async def _probe(_name, _args):
+            captured["bot_id"] = current_bot_id.get()
+            captured["channel_id"] = current_channel_id.get()
+            return json.dumps({"location": "x"})
+
+        with patch.object(router_mod, "is_local_tool", return_value=True), \
+             patch.object(router_mod, "call_local_tool", side_effect=_probe), \
+             patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n):
+            await router_mod._do_state_poll(
+                tool_name="get_weather",
+                display_label="x",
+                poll_cfg=poll_cfg,
+            )
+        assert captured["bot_id"] is None
+        assert captured["channel_id"] is None
+
+
 class TestStatePollArgSubstitution:
     @pytest.mark.asyncio
     async def test_display_label_substituted_into_args(self):

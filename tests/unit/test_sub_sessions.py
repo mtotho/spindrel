@@ -23,7 +23,8 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
-from app.db.models import Message, Session, Task
+from app.db.models import Channel, Message, Session, Task
+from app.services.sub_session_bus import resolve_sub_session_entry
 from app.services.sub_sessions import (
     SESSION_TYPE_EVAL,
     SESSION_TYPE_PIPELINE_RUN,
@@ -384,3 +385,250 @@ def test_fallback_text_sub_session_shows_error_when_no_result():
     )
     out = _fallback_text(task, "failed", [{"status": "failed"}])
     assert "provider unreachable" in out
+
+
+# ---------------------------------------------------------------------------
+# resolve_sub_session_entry — chat router's sub-session detector
+# ---------------------------------------------------------------------------
+
+
+async def _build_chain(db_session, *, task_status: str = "complete", bot_id: str = "orch"):
+    """Build channel → parent_session → sub_session → task chain."""
+    channel_id = uuid.uuid4()
+    channel = Channel(
+        id=channel_id,
+        client_id="web",
+        bot_id=bot_id,
+        name="t",
+    )
+    db_session.add(channel)
+    parent = Session(
+        id=uuid.uuid4(),
+        client_id="web",
+        bot_id=bot_id,
+        channel_id=channel_id,
+        depth=0,
+        session_type="channel",
+    )
+    sub = Session(
+        id=uuid.uuid4(),
+        client_id="task",
+        bot_id=bot_id,
+        channel_id=None,
+        parent_session_id=parent.id,
+        root_session_id=parent.id,
+        depth=1,
+        session_type=SESSION_TYPE_PIPELINE_RUN,
+    )
+    db_session.add_all([parent, sub])
+    await db_session.flush()
+
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id=bot_id,
+        prompt="p",
+        status=task_status,
+        task_type="pipeline",
+        dispatch_type="none",
+        run_isolation="sub_session",
+        run_session_id=sub.id,
+        channel_id=channel_id,
+    )
+    db_session.add(task)
+    await db_session.flush()
+    # Back-reference
+    sub.source_task_id = task.id
+    await db_session.flush()
+    return channel, parent, sub, task
+
+
+@pytest.mark.asyncio
+class TestResolveSubSessionEntry:
+    async def test_returns_entry_for_terminal_sub_session(self, db_session):
+        channel, parent, sub, task = await _build_chain(db_session, task_status="complete")
+        entry = await resolve_sub_session_entry(db_session, sub.id)
+        assert entry is not None
+        assert entry.session.id == sub.id
+        assert entry.parent_channel_id == channel.id
+        assert entry.source_task.id == task.id
+
+    async def test_returns_none_for_channel_session(self, db_session):
+        """A normal channel session is not a sub-session entry — falls through
+        to the regular chat path."""
+        channel_id = uuid.uuid4()
+        channel = Channel(id=channel_id, client_id="web", bot_id="b", name="t")
+        db_session.add(channel)
+        sess = Session(
+            id=uuid.uuid4(),
+            client_id="web",
+            bot_id="b",
+            channel_id=channel_id,
+            depth=0,
+            session_type="channel",
+        )
+        db_session.add(sess)
+        await db_session.flush()
+        assert await resolve_sub_session_entry(db_session, sess.id) is None
+
+    async def test_returns_none_when_source_task_missing(self, db_session):
+        """A sub-session with no source_task_id is an orphan — don't accept a
+        follow-up turn against it (we can't resolve the bot or the status)."""
+        channel_id = uuid.uuid4()
+        channel = Channel(id=channel_id, client_id="web", bot_id="b", name="t")
+        db_session.add(channel)
+        parent = Session(
+            id=uuid.uuid4(),
+            client_id="web",
+            bot_id="b",
+            channel_id=channel_id,
+            depth=0,
+            session_type="channel",
+        )
+        sub = Session(
+            id=uuid.uuid4(),
+            client_id="task",
+            bot_id="b",
+            channel_id=None,
+            parent_session_id=parent.id,
+            root_session_id=parent.id,
+            depth=1,
+            session_type=SESSION_TYPE_PIPELINE_RUN,
+            source_task_id=None,
+        )
+        db_session.add_all([parent, sub])
+        await db_session.flush()
+        assert await resolve_sub_session_entry(db_session, sub.id) is None
+
+    async def test_returns_none_for_missing_session(self, db_session):
+        assert await resolve_sub_session_entry(db_session, uuid.uuid4()) is None
+
+    async def test_walks_through_nested_sub_session(self, db_session):
+        """An eval spawned inside a pipeline_run still resolves to the original
+        parent channel."""
+        channel, parent, sub, task = await _build_chain(db_session)
+        nested_task = Task(
+            id=uuid.uuid4(),
+            bot_id="orch",
+            prompt="nested",
+            status="complete",
+            task_type="eval",
+            dispatch_type="none",
+            run_isolation="sub_session",
+        )
+        db_session.add(nested_task)
+        nested_sub = Session(
+            id=uuid.uuid4(),
+            client_id="task",
+            bot_id="orch",
+            channel_id=None,
+            parent_session_id=sub.id,
+            root_session_id=parent.id,
+            depth=2,
+            session_type=SESSION_TYPE_EVAL,
+            source_task_id=nested_task.id,
+        )
+        db_session.add(nested_sub)
+        nested_task.run_session_id = nested_sub.id
+        await db_session.flush()
+
+        entry = await resolve_sub_session_entry(db_session, nested_sub.id)
+        assert entry is not None
+        assert entry.parent_channel_id == channel.id
+
+
+# ---------------------------------------------------------------------------
+# _try_resolve_sub_session_chat — terminal/auth gates
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestSubSessionChatResolver:
+    async def test_resolves_and_normalizes_bot_id(self, db_session):
+        from app.routers.chat._helpers import _try_resolve_sub_session_chat
+        from app.routers.chat._schemas import ChatRequest
+
+        channel, parent, sub, task = await _build_chain(
+            db_session, task_status="complete", bot_id="orchestrator",
+        )
+        # Seed a couple of Messages on the sub-session so history load is real.
+        db_session.add_all([
+            Message(
+                id=uuid.uuid4(), session_id=sub.id, role="assistant",
+                content="step output", metadata_={"kind": "step_output"},
+            ),
+            Message(
+                id=uuid.uuid4(), session_id=sub.id, role="assistant",
+                content="final result", metadata_={},
+            ),
+        ])
+        await db_session.flush()
+
+        req = ChatRequest(
+            message="follow-up question",
+            session_id=sub.id,
+            bot_id="default",  # will be normalized to task.bot_id
+            client_id="web",
+        )
+        chat_entry = await _try_resolve_sub_session_chat(db_session, req, user=None)
+
+        assert chat_entry is not None
+        assert chat_entry.parent_channel.id == channel.id
+        assert req.bot_id == "orchestrator"
+        # Loaded Messages from the sub-session (both, in created order)
+        assert len(chat_entry.messages) == 2
+
+    async def test_rejects_non_terminal_run_with_409(self, db_session):
+        from fastapi import HTTPException
+
+        from app.routers.chat._helpers import _try_resolve_sub_session_chat
+        from app.routers.chat._schemas import ChatRequest
+
+        _, _, sub, _ = await _build_chain(db_session, task_status="running")
+        req = ChatRequest(
+            message="can't interrupt", session_id=sub.id, bot_id="orch", client_id="web",
+        )
+        with pytest.raises(HTTPException) as exc:
+            await _try_resolve_sub_session_chat(db_session, req, user=None)
+        assert exc.value.status_code == 409
+
+    async def test_returns_none_for_normal_channel_session(self, db_session):
+        """A channel session_id → the resolver short-circuits so the regular
+        chat path runs."""
+        from app.routers.chat._helpers import _try_resolve_sub_session_chat
+        from app.routers.chat._schemas import ChatRequest
+
+        channel_id = uuid.uuid4()
+        channel = Channel(id=channel_id, client_id="web", bot_id="b", name="t")
+        db_session.add(channel)
+        sess = Session(
+            id=uuid.uuid4(), client_id="web", bot_id="b",
+            channel_id=channel_id, depth=0, session_type="channel",
+        )
+        db_session.add(sess)
+        await db_session.flush()
+
+        req = ChatRequest(
+            message="normal chat", session_id=sess.id, bot_id="b", client_id="web",
+        )
+        assert await _try_resolve_sub_session_chat(db_session, req, user=None) is None
+
+    async def test_non_member_user_forbidden(self, db_session):
+        from types import SimpleNamespace
+
+        from fastapi import HTTPException
+
+        from app.routers.chat._helpers import _try_resolve_sub_session_chat
+        from app.routers.chat._schemas import ChatRequest
+
+        channel, _, sub, _ = await _build_chain(db_session)
+        # Make parent channel private to user_id=42
+        channel.user_id = 42
+        await db_session.flush()
+
+        req = ChatRequest(
+            message="hi", session_id=sub.id, bot_id="orch", client_id="web",
+        )
+        other_user = SimpleNamespace(id=999, display_name="Stranger")
+        with pytest.raises(HTTPException) as exc:
+            await _try_resolve_sub_session_chat(db_session, req, user=other_user)
+        assert exc.value.status_code == 403

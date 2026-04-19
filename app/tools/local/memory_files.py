@@ -93,7 +93,7 @@ def _resolve_memory_path(name: str, memory_root: str) -> str | None:
             "required": ["query"],
         },
     },
-})
+}, requires_bot_context=True)
 async def search_memory(query: str) -> str:
     """Hybrid search across memory files."""
     bot, bot_id, ws_root = _get_bot_and_root()
@@ -171,7 +171,7 @@ async def search_memory(query: str) -> str:
             "required": ["name"],
         },
     },
-})
+}, requires_bot_context=True)
 async def get_memory_file(name: str) -> str:
     """Read a memory file by name."""
     bot, bot_id, ws_root = _get_bot_and_root()
@@ -231,7 +231,7 @@ async def get_memory_file(name: str) -> str:
             "required": ["bot_id", "query"],
         },
     },
-})
+}, requires_bot_context=True)
 async def search_bot_memory(bot_id: str, query: str) -> str:
     """Search another bot's memory files (for orchestrators).
 

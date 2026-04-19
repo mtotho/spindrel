@@ -210,7 +210,7 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
             "required": ["action"],
         },
     },
-}, safety_tier="control_plane")
+}, safety_tier="control_plane", requires_bot_context=True)
 async def manage_bot_skill(
     action: str,
     name: str = "",

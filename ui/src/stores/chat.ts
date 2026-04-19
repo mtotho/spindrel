@@ -38,6 +38,11 @@ export interface TurnState {
   toolCalls: ToolCall[];
   autoInjectedSkills: AutoInjectedSkill[];
   correlationId?: string | null;
+  /** Epoch ms when the slot was created. Used by the snapshot-reconcile
+   * pass in useChannelState to decide whether a local turn that's missing
+   * from the server snapshot is a ghost (kill it) or just-started and
+   * racing the snapshot fetch (keep it). */
+  startedAt: number;
   error?: string;
   llmStatus?: {
     status: string; // "retry" | "fallback" | "cooldown_skip"
@@ -167,6 +172,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 toolCalls: [],
                 autoInjectedSkills: [],
                 correlationId: turnId,
+                startedAt: Date.now(),
                 llmStatus: null,
               },
             },
@@ -205,6 +211,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 toolCalls,
                 autoInjectedSkills,
                 correlationId: turnId,
+                startedAt: existing?.startedAt ?? Date.now(),
                 llmStatus: existing?.llmStatus ?? null,
               },
             },

@@ -224,7 +224,7 @@ def _build_credentials_json() -> dict | None:
             "required": ["command"],
         },
     },
-})
+}, requires_channel_context=True)
 async def gws(command: str) -> str:
     """Execute a Google Workspace CLI command with channel-scoped service access."""
     # Check binary exists (also check ~/.local/bin where user-prefix npm installs go)

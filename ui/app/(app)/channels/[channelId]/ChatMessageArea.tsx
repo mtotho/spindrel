@@ -292,7 +292,7 @@ export function ChatMessageArea({
           className="scroll-fab"
           style={{
             position: "absolute",
-            bottom: "calc(16px + env(safe-area-inset-bottom))",
+            bottom: 16,
             right: 16,
             width: 48,
             height: 48,

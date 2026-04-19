@@ -32,7 +32,7 @@ from app.tools.registry import register
             "required": ["query"],
         },
     },
-})
+}, requires_bot_context=True)
 async def search_workspace(query: str, top_k: int | None = None) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:

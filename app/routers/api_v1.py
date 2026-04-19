@@ -24,6 +24,7 @@ from app.routers.api_v1_search import router as search_router
 from app.routers.api_v1_widget_actions import router as widget_actions_router
 from app.routers.api_v1_widget_auth import router as widget_auth_router
 from app.routers.api_v1_dashboard import router as dashboard_router
+from app.routers.api_v1_push import router as push_router, presence_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(admin_router)
@@ -49,3 +50,5 @@ router.include_router(search_router)
 router.include_router(widget_actions_router)
 router.include_router(widget_auth_router)
 router.include_router(dashboard_router)
+router.include_router(push_router)
+router.include_router(presence_router)

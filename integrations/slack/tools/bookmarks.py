@@ -42,7 +42,7 @@ from integrations.slack.web_api import (
             "required": ["title", "link"],
         },
     },
-}, required_integrations=frozenset({"slack"}))
+}, required_integrations=frozenset({"slack"}), requires_channel_context=True)
 async def slack_add_bookmark(
     title: str,
     link: str,

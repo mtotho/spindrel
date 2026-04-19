@@ -1,3 +1,5 @@
+import { useCallback, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   CheckCircle2,
@@ -10,7 +12,10 @@ import {
 } from "lucide-react";
 import { useTask } from "@/src/api/hooks/useTasks";
 import type { StepState } from "@/src/api/hooks/useTasks";
+import { useSubmitChat } from "@/src/api/hooks/useChat";
 import { SessionChatView } from "@/src/components/chat/SessionChatView";
+import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
+import { useChatStore } from "@/src/stores/chat";
 import { cn } from "@/src/lib/cn";
 
 export interface PipelineRunLiveProps {
@@ -57,7 +62,41 @@ export function PipelineRunLive({
     (s) => s?.status === "awaiting_user_input",
   ).length;
 
-  const isTerminal = status === "complete" || status === "failed";
+  const isTerminal = status === "complete" || status === "failed" || status === "cancelled";
+
+  // --- Session-scoped follow-up composer ---------------------------------
+  // Enabled once the pipeline reaches a terminal state. Routes through POST
+  // /chat with ``session_id=<sub>`` which the backend detects as a
+  // sub-session follow-up, suppresses outbox dispatch, and runs the bot
+  // under the sub-session's own history scope.
+  const submitChat = useSubmitChat();
+  const qc = useQueryClient();
+  const [sendError, setSendError] = useState<string | null>(null);
+  const sessionChatState = useChatStore((s) =>
+    runSessionId ? s.getChannel(runSessionId) : null,
+  );
+  const isSending = submitChat.isPending || (sessionChatState?.isProcessing ?? false);
+
+  const handleSend = useCallback(
+    async (message: string, _files?: PendingFile[]) => {
+      if (!runSessionId || !task?.bot_id || !isTerminal) return;
+      setSendError(null);
+      try {
+        await submitChat.mutateAsync({
+          session_id: runSessionId,
+          bot_id: task.bot_id,
+          client_id: "web",
+          message,
+        });
+        qc.invalidateQueries({ queryKey: ["session-messages", runSessionId] });
+      } catch (err) {
+        setSendError(
+          err instanceof Error ? err.message : "Failed to send follow-up message",
+        );
+      }
+    },
+    [runSessionId, task?.bot_id, isTerminal, submitChat, qc],
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -135,16 +174,32 @@ export function PipelineRunLive({
         )}
       </div>
 
-      {/* Footer — disabled composer placeholder (Phase 3 will enable) */}
-      {!isTerminal && (
+      {/* Footer — composer is live once the run reaches a terminal state.
+          Mid-run push-back requires step pause/resume (Phase E, parked). */}
+      {isTerminal ? (
+        <div className="border-t border-surface-border shrink-0">
+          {sendError && (
+            <div className="px-5 py-1.5 text-[11px] text-red-400 border-b border-red-500/20 bg-red-500/5">
+              {sendError}
+            </div>
+          )}
+          <MessageInput
+            onSend={handleSend}
+            disabled={!runSessionId}
+            isStreaming={isSending}
+            currentBotId={task?.bot_id}
+            channelId={runSessionId ?? undefined}
+          />
+        </div>
+      ) : (
         <div className="border-t border-surface-border shrink-0 px-5 py-2.5">
           <div
             className="flex items-center gap-2 px-3 py-2 rounded-md
                        bg-surface/40 border border-surface-border/50 text-[11px] text-text-dim/80 italic"
-            title="Joining a live pipeline run lands in Phase 3."
+            title="Mid-run push-back lands in a future phase."
           >
             <span className="text-text-dim/60">🔒</span>
-            Composer is read-only while the pipeline runs. Push-back lands in a future phase.
+            Composer unlocks once the run finishes — follow up with {task?.bot_id ?? "the bot"} from here.
           </div>
         </div>
       )}

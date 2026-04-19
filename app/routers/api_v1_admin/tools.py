@@ -45,12 +45,21 @@ class ToolOut(BaseModel):
     indexed_at: datetime
     active_widget_package: Optional[ActiveWidgetPackageOut] = None
     widget_package_count: int = 0
+    requires_bot_context: bool = False
+    requires_channel_context: bool = False
 
     model_config = {"from_attributes": True}
 
 
 class ToolExecuteRequest(BaseModel):
     arguments: dict[str, Any] = {}
+    # Optional agent context to set during tool invocation. Tools that read
+    # ``current_bot_id`` / ``current_channel_id`` (most local tools) error out
+    # with "No bot context available." when these are unset. The dev-panel
+    # sandbox passes the user-selected bot/channel through here so the tool
+    # behaves identically to an LLM-driven call.
+    bot_id: Optional[str] = None
+    channel_id: Optional[str] = None
 
 
 class ToolExecuteResponse(BaseModel):
@@ -145,33 +154,76 @@ async def admin_execute_tool(
     Bot-scoped API keys are restricted to the bot's configured local_tools
     (including tools provided by carapaces).  Admin keys have unrestricted access.
     """
-    from app.tools.registry import is_local_tool, call_local_tool
+    from app.tools.registry import (
+        is_local_tool,
+        call_local_tool,
+        get_tool_context_requirements,
+    )
     from app.tools.mcp import is_mcp_tool, call_mcp_tool
+    from app.agent.context import current_bot_id, current_channel_id
+    from app.agent.bots import _registry as _bot_registry
 
     args_json = json.dumps(body.arguments)
 
-    if is_local_tool(tool_name):
-        if isinstance(auth, ApiKeyAuth) and not has_scope(auth.scopes, "admin"):
-            if not has_scope(auth.scopes, "tools:execute"):
-                raise HTTPException(status_code=403, detail="Missing tools:execute scope")
-            allowed = await _resolve_bot_tools(db, auth.key_id)
-            if allowed is not None and tool_name not in allowed:
+    # Validate / resolve agent context against tool requirements.
+    requires_bot, requires_channel = get_tool_context_requirements(tool_name)
+    if requires_bot and not body.bot_id:
+        raise HTTPException(
+            status_code=400,
+            detail="This tool requires bot context. Pass bot_id in the request body.",
+        )
+    if requires_channel and not body.channel_id:
+        raise HTTPException(
+            status_code=400,
+            detail="This tool requires channel context. Pass channel_id in the request body.",
+        )
+
+    if body.bot_id and body.bot_id not in _bot_registry:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown bot_id '{body.bot_id}'.",
+        )
+
+    channel_uuid: UUID | None = None
+    if body.channel_id:
+        try:
+            channel_uuid = UUID(body.channel_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"channel_id '{body.channel_id}' is not a valid UUID.",
+            )
+
+    bot_token = current_bot_id.set(body.bot_id) if body.bot_id else None
+    channel_token = current_channel_id.set(channel_uuid) if channel_uuid else None
+    try:
+        if is_local_tool(tool_name):
+            if isinstance(auth, ApiKeyAuth) and not has_scope(auth.scopes, "admin"):
+                if not has_scope(auth.scopes, "tools:execute"):
+                    raise HTTPException(status_code=403, detail="Missing tools:execute scope")
+                allowed = await _resolve_bot_tools(db, auth.key_id)
+                if allowed is not None and tool_name not in allowed:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Bot does not have access to tool '{tool_name}'",
+                    )
+            logger.info("Direct tool execute (local): %s args=%s", tool_name, args_json[:200])
+            raw = await call_local_tool(tool_name, args_json)
+        elif is_mcp_tool(tool_name):
+            if isinstance(auth, ApiKeyAuth) and not has_scope(auth.scopes, "admin"):
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Bot does not have access to tool '{tool_name}'",
+                    detail="MCP tools can only be executed by admin keys from this endpoint",
                 )
-        logger.info("Direct tool execute (local): %s args=%s", tool_name, args_json[:200])
-        raw = await call_local_tool(tool_name, args_json)
-    elif is_mcp_tool(tool_name):
-        if isinstance(auth, ApiKeyAuth) and not has_scope(auth.scopes, "admin"):
-            raise HTTPException(
-                status_code=403,
-                detail="MCP tools can only be executed by admin keys from this endpoint",
-            )
-        logger.info("Direct tool execute (mcp): %s args=%s", tool_name, args_json[:200])
-        raw = await call_mcp_tool(tool_name, args_json)
-    else:
-        raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
+            logger.info("Direct tool execute (mcp): %s args=%s", tool_name, args_json[:200])
+            raw = await call_mcp_tool(tool_name, args_json)
+        else:
+            raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
+    finally:
+        if bot_token is not None:
+            current_bot_id.reset(bot_token)
+        if channel_token is not None:
+            current_channel_id.reset(channel_token)
 
     # Try to parse as JSON for structured output
     try:
@@ -225,6 +277,8 @@ def _to_out(
     active_by_tool: dict[str, WidgetTemplatePackage] | None = None,
     count_by_tool: dict[str, int] | None = None,
 ) -> ToolOut:
+    from app.tools.registry import get_tool_context_requirements
+
     schema = row.schema_ or {}
     fn = schema.get("function", {})
     active_by_tool = active_by_tool or {}
@@ -238,6 +292,8 @@ def _to_out(
     count = count_by_tool.get(row.tool_name, 0) + (
         count_by_tool.get(bare_name, 0) if bare_name else 0
     )
+
+    requires_bot, requires_channel = get_tool_context_requirements(row.tool_name)
 
     return ToolOut(
         id=str(row.id),
@@ -255,4 +311,6 @@ def _to_out(
             id=str(active.id), name=active.name, source=active.source,
         ) if active is not None else None,
         widget_package_count=count,
+        requires_bot_context=requires_bot,
+        requires_channel_context=requires_channel,
     )

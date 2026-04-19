@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
             },
         },
     },
-}, safety_tier="readonly")
+}, safety_tier="readonly", requires_bot_context=True)
 async def list_api_endpoints(scope: str = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
@@ -105,7 +105,7 @@ async def list_api_endpoints(scope: str = "") -> str:
             "required": ["method", "path"],
         },
     },
-}, safety_tier="mutating")
+}, safety_tier="mutating", requires_bot_context=True)
 async def call_api(method: str, path: str, body: str = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:

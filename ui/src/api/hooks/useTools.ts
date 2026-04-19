@@ -21,6 +21,8 @@ export interface ToolItem {
   indexed_at: string;
   active_widget_package?: ActiveWidgetPackage | null;
   widget_package_count?: number;
+  requires_bot_context?: boolean;
+  requires_channel_context?: boolean;
 }
 
 export function useTools() {
@@ -47,9 +49,13 @@ export interface ToolExecuteResponse {
 export function executeTool(
   toolName: string,
   args: Record<string, unknown>,
+  opts?: { bot_id?: string | null; channel_id?: string | null },
 ): Promise<ToolExecuteResponse> {
+  const body: Record<string, unknown> = { arguments: args };
+  if (opts?.bot_id) body.bot_id = opts.bot_id;
+  if (opts?.channel_id) body.channel_id = opts.channel_id;
   return apiFetch<ToolExecuteResponse>(
     `/api/v1/admin/tools/${encodeURIComponent(toolName)}/execute`,
-    { method: "POST", body: JSON.stringify({ arguments: args }) },
+    { method: "POST", body: JSON.stringify(body) },
   );
 }

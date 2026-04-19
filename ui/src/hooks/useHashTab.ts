@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 
 /**
  * Drop-in replacement for `useState` that syncs active tab with `window.location.hash`.
@@ -10,35 +11,33 @@ export function useHashTab<T extends string>(
   defaultTab: T,
   validTabs?: readonly T[],
 ): [T, (tab: T) => void] {
-  const readHash = useCallback((): T => {
-    const raw = decodeURIComponent(window.location.hash.replace(/^#/, ""));
-    if (!raw) return defaultTab;
-    if (validTabs && !validTabs.includes(raw as T)) return defaultTab;
-    return raw as T;
-  }, [defaultTab, validTabs]);
+  const location = useLocation();
 
-  const [tab, setTabState] = useState<T>(readHash);
-
-  // Re-evaluate when validTabs changes (handles async data loading)
-  useEffect(() => {
-    setTabState(readHash());
-  }, [readHash]);
-
-  // Listen for browser back/forward
-  useEffect(() => {
-    const onPopState = () => setTabState(readHash());
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, [readHash]);
-
-  const setTab = useCallback(
-    (next: T) => {
-      setTabState(next);
-      const encoded = encodeURIComponent(next);
-      window.history.pushState(null, "", `#${encoded}`);
+  const parseHash = useCallback(
+    (hash: string): T => {
+      const raw = decodeURIComponent(hash.replace(/^#/, ""));
+      if (!raw) return defaultTab;
+      if (validTabs && !validTabs.includes(raw as T)) return defaultTab;
+      return raw as T;
     },
-    [],
+    [defaultTab, validTabs],
   );
+
+  const [tab, setTabState] = useState<T>(() => parseHash(window.location.hash));
+
+  // Re-read whenever react-router's location hash changes (covers both
+  // programmatic navigate(...) and validTabs becoming available async).
+  useEffect(() => {
+    setTabState(parseHash(location.hash));
+  }, [location.hash, parseHash]);
+
+  const setTab = useCallback((next: T) => {
+    setTabState(next);
+    const encoded = encodeURIComponent(next);
+    // Preserve current pathname + search so we don't clobber query params.
+    const { pathname, search } = window.location;
+    window.history.pushState(null, "", `${pathname}${search}#${encoded}`);
+  }, []);
 
   return [tab, setTab];
 }

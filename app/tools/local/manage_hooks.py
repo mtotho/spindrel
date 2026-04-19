@@ -75,7 +75,7 @@ logger = logging.getLogger(__name__)
             "required": ["action"],
         },
     },
-}, safety_tier="mutating")
+}, safety_tier="mutating", requires_bot_context=True)
 async def manage_hooks(
     action: str,
     hook_id: str | None = None,

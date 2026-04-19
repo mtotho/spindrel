@@ -118,7 +118,7 @@ def _serialize_messages(messages):
             "required": []
         }
     }
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def search_history(
     query: str | None = None,
     start_date: str | None = None,

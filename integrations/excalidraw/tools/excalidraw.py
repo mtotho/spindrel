@@ -343,7 +343,7 @@ async def _deliver(data: bytes, filename: str, mime: str) -> str:
             "required": ["elements"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def create_excalidraw(
     elements: list,
     app_state: dict | None = None,
@@ -415,7 +415,7 @@ async def create_excalidraw(
             "required": ["mermaid"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def mermaid_to_excalidraw(
     mermaid: str,
     filename: str = "diagram",

@@ -477,6 +477,7 @@ async def persist_turn(
     is_heartbeat: bool = False,
     pre_user_msg_id: uuid.UUID | None = None,
     hide_messages: bool = False,
+    suppress_outbox: bool = False,
 ) -> uuid.UUID | None:
     """Persist new messages from a turn. Returns the first user message ID (for attachment linking).
 
@@ -609,7 +610,7 @@ async def persist_turn(
     # commit proceeded, leaving the bus subscribers with a NEW_MESSAGE
     # for which no integration delivery was ever attempted. Atomicity
     # is the entire point of the outbox pattern.
-    if channel_id and persisted_records:
+    if channel_id and persisted_records and not suppress_outbox:
         from app.domain.channel_events import ChannelEvent, ChannelEventKind
         from app.domain.message import Message as DomainMessage
         from app.domain.payloads import MessagePayload

@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
             "required": ["action"],
         },
     },
-}, safety_tier="exec_capable")
+}, safety_tier="exec_capable", requires_bot_context=True, requires_channel_context=True)
 async def manage_docker_stack(
     action: str,
     stack_id: str | None = None,

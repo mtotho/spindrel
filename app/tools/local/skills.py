@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
             "required": ["skill_id"],
         },
     },
-})
+}, requires_bot_context=True)
 async def get_skill(skill_id: str) -> str:
     """Fetch the full content of a skill from DB."""
     from app.agent.context import current_channel_id
@@ -122,7 +122,7 @@ _PRUNE_PROTECTION_DAYS = 7  # skills enrolled less than this many days ago are p
             "required": ["skill_ids"],
         },
     },
-})
+}, requires_bot_context=True)
 async def prune_enrolled_skills(skill_ids: list[str], overrides: dict[str, str] | None = None) -> str:
     """Remove the listed skills from this bot's persistent enrollment.
 

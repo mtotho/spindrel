@@ -74,7 +74,9 @@ export function useChannelState(channelId: string | undefined, primaryBotId?: st
     if (bots) {
       for (const b of bots) botName[b.id] = b.name ?? b.id;
     }
+    const snapshotTurnIds = new Set<string>();
     for (const turn of query.data.active_turns) {
+      snapshotTurnIds.add(turn.turn_id);
       const toolCalls = turn.tool_calls.map((tc) => ({
         name: tc.tool_name,
         args: tc.arguments && Object.keys(tc.arguments).length > 0
@@ -102,6 +104,22 @@ export function useChannelState(channelId: string | undefined, primaryBotId?: st
         toolCalls,
         skills,
       );
+    }
+
+    // Reconcile ghosts: the server snapshot is authoritative for what's
+    // in-flight right now. Any local turn not in the snapshot is either a
+    // just-started turn whose trace-event rows haven't landed yet (keep),
+    // or a ghost left over from a lost `turn_ended` / SSE replay gap (kill).
+    // The 3s grace window catches the race where SSE's `turn_started` beats
+    // the first DB trace write; anything older has definitely been ignored
+    // by the snapshot on purpose.
+    const GHOST_GRACE_MS = 3000;
+    const now = Date.now();
+    const ch = store.getChannel(channelId);
+    for (const [turnId, turn] of Object.entries(ch.turns)) {
+      if (snapshotTurnIds.has(turnId)) continue;
+      if (now - turn.startedAt < GHOST_GRACE_MS) continue;
+      store.finishTurn(channelId, turnId);
     }
   }, [channelId, query.data, bots, primaryBotId]);
 

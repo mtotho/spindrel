@@ -91,6 +91,7 @@ async def run_turn(
     channel_id = handle.channel_id
     session_id = handle.session_id
     turn_id = handle.turn_id
+    session_scoped = handle.session_scoped
     correlation_id = turn_id  # turn_id IS the correlation_id — threads through SSE→synthetic→DB for reliable dedup
     response_text = ""
     response_actions: list | None = None
@@ -135,9 +136,13 @@ async def run_turn(
             correlation_id=correlation_id,
             metadata=_meta,
             pre_allocated_id=uuid.UUID(_pre_id_str) if _pre_id_str else None,
+            suppress_outbox=session_scoped,
         )
 
         # 2. Publish TURN_STARTED so renderers can post a "thinking…" placeholder.
+        #    Session-scoped turns (sub-session follow-ups) tag the payload with
+        #    ``session_id`` so the parent-channel UI filter drops it and the
+        #    run-view modal's session filter picks it up.
         publish_typed(
             channel_id,
             ChannelEvent(
@@ -147,6 +152,7 @@ async def run_turn(
                     bot_id=bot.id,
                     turn_id=turn_id,
                     reason="user_message",
+                    session_id=session_id if session_scoped else None,
                 ),
             ),
         )
@@ -221,6 +227,7 @@ async def run_turn(
             channel_id=channel_id,
             bot_id=bot.id,
             turn_id=turn_id,
+            session_id=session_id if session_scoped else None,
         ):
             etype = event.get("type")
 
@@ -365,6 +372,7 @@ async def run_turn(
                     msg_metadata=req.msg_metadata,
                     channel_id=channel_id,
                     pre_user_msg_id=pre_user_msg_id,
+                    suppress_outbox=session_scoped,
                 )
         except Exception:
             logger.exception(
@@ -436,6 +444,7 @@ async def run_turn(
                         # and error being independent.
                         error=error_text or None,
                         client_actions=list(response_actions or []),
+                        session_id=session_id if session_scoped else None,
                         extra_metadata=(
                             {"auto_injected_skills": _auto_injected_skills}
                             if _auto_injected_skills else {}
@@ -461,6 +470,7 @@ async def _persist_and_publish_user_message(
     correlation_id: uuid.UUID,
     metadata: dict,
     pre_allocated_id: uuid.UUID | None = None,
+    suppress_outbox: bool = False,
 ) -> uuid.UUID | None:
     """Insert the user message row and publish a NEW_MESSAGE event.
 
@@ -523,8 +533,9 @@ async def _persist_and_publish_user_message(
             # event live. The Slack renderer's echo filter then catches
             # this on the outbox path the same way it would on the bus
             # path.
-            from app.services.outbox_publish import enqueue_new_message_for_channel
-            await enqueue_new_message_for_channel(channel_id, domain_msg)
+            if not suppress_outbox:
+                from app.services.outbox_publish import enqueue_new_message_for_channel
+                await enqueue_new_message_for_channel(channel_id, domain_msg)
             publish_typed(
                 channel_id,
                 ChannelEvent(

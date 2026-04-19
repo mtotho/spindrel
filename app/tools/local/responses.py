@@ -50,7 +50,7 @@ from app.tools.registry import register
             "required": ["to_user", "text"],
         },
     },
-}, safety_tier="readonly", required_capabilities=frozenset({Capability.EPHEMERAL}))
+}, safety_tier="readonly", required_capabilities=frozenset({Capability.EPHEMERAL}), requires_bot_context=True, requires_channel_context=True)
 async def respond_privately(to_user: str, text: str) -> str:
     bot_id = current_bot_id.get() or ""
     channel_id = current_channel_id.get()

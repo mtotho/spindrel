@@ -1851,3 +1851,38 @@ class WidgetDashboardPin(Base):
             "dashboard_key", "position",
         ),
     )
+
+
+class PushSubscription(Base):
+    """Web Push subscription — one row per registered (user, device) pair.
+
+    `endpoint` + keys come straight from the browser's PushManager subscription
+    JSON; the backend uses pywebpush to POST encrypted payloads to that
+    endpoint. A 410 Gone from the push service on delivery means the user
+    dropped the subscription (cleared site data, declined notifications) —
+    the send service prunes the row when that happens. """
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    endpoint: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    p256dh: Mapped[str] = mapped_column(Text, nullable=False)
+    auth: Mapped[str] = mapped_column(Text, nullable=False)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True,
+    )
+
+    __table_args__ = (
+        Index("ix_push_subscriptions_user_id", "user_id"),
+    )

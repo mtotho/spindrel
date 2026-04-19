@@ -38,11 +38,18 @@ class TurnHandle:
 
     The client subscribes to ``/api/v1/channels/{channel_id}/events?since=N``
     and filters events by ``turn_id`` (carried on every TURN_* payload).
+
+    ``session_scoped`` marks a turn whose Messages live on a sub-session
+    (post-pipeline follow-up). The ``channel_id`` on the handle still names
+    the parent channel for bus-routing purposes — the flag only tells the
+    worker to skip outbox writes so external renderers (Slack etc.) don't
+    receive the follow-up.
     """
 
     session_id: uuid.UUID
     channel_id: uuid.UUID
     turn_id: uuid.UUID
+    session_scoped: bool = False
 
 
 class SessionBusyError(Exception):
@@ -68,6 +75,7 @@ async def start_turn(
     audio_data: str | None,
     audio_format: str | None,
     att_payload: list[dict] | None,
+    session_scoped: bool = False,
 ) -> TurnHandle:
     """Acquire the session lock and schedule a turn worker for the channel.
 
@@ -86,6 +94,7 @@ async def start_turn(
         session_id=session_id,
         channel_id=channel_id,
         turn_id=uuid.uuid4(),
+        session_scoped=session_scoped,
     )
 
     # Import inside the function to avoid an import cycle:

@@ -42,7 +42,7 @@ from app.tools.registry import register
             },
         },
     },
-})
+}, requires_channel_context=True)
 async def summarize_channel(
     skip: int = 0,
     take: int | None = None,

@@ -43,6 +43,7 @@ from ._helpers import (
     _resolve_audio_native,
     _resolve_channel_and_session,
     _transcribe_audio_data,
+    _try_resolve_sub_session_chat,
 )
 from ._multibot import _maybe_route_to_member_bot
 from ._schemas import (
@@ -149,6 +150,28 @@ async def _enqueue_chat_turn(
         message = "[User sent attachment(s)]"
 
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
+
+    # --- Sub-session follow-up branch ----------------------------------
+    # A POST whose ``session_id`` names a terminal pipeline run's
+    # sub-session routes through a dedicated shorter path: the parent
+    # channel is used only for bus routing + membership auth, history
+    # scope is the sub-session's own Messages, the bot is forced to
+    # the run's task.bot_id, and outbox writes are suppressed so external
+    # renderers (Slack etc.) don't receive the follow-up.
+    sub_chat = await _try_resolve_sub_session_chat(db, req, user=user)
+    if sub_chat is not None:
+        return await _enqueue_sub_session_turn(
+            req=req,
+            user=user,
+            bot=get_bot(req.bot_id),
+            message=message,
+            att_payload=att_payload,
+            audio_data=audio_data,
+            audio_format=audio_format,
+            sub_chat=sub_chat,
+            db=db,
+        )
+    # --- End sub-session branch ---------------------------------------
 
     try:
         channel, session_id, messages, _is_integration = await _resolve_channel_and_session(
@@ -356,6 +379,120 @@ async def _enqueue_chat_turn(
             "session_id": str(handle.session_id),
             "channel_id": str(handle.channel_id),
             "turn_id": str(handle.turn_id),
+        },
+        status_code=202,
+    )
+
+
+async def _enqueue_sub_session_turn(
+    *,
+    req: ChatRequest,
+    user,
+    bot,
+    message: str,
+    att_payload: list[dict] | None,
+    audio_data: str | None,
+    audio_format: str | None,
+    sub_chat,
+    db: AsyncSession,
+) -> JSONResponse:
+    """Shorter chat-enqueue path for a sub-session follow-up turn.
+
+    Mirrors the core of ``_enqueue_chat_turn`` but:
+    - History scope is the sub-session's own Messages (already loaded).
+    - Session id is the sub-session id.
+    - Channel id (for bus routing) is the parent channel's id.
+    - ``session_scoped=True`` flows through ``start_turn`` so the worker
+      suppresses outbox writes and tags published events with session_id
+      (so the parent-channel UI filter drops them and the run-view modal
+      picks them up via its session filter).
+    - No multi-bot @-routing (a run's bot is fixed).
+    - No passive / throttle / system-pause / attachment-eager-insert paths
+      (all unnecessary for a web-originated follow-up on a terminal run).
+    """
+    sub_entry = sub_chat.entry
+    parent_channel = sub_chat.parent_channel
+    session_id = sub_entry.session.id
+    channel_id = parent_channel.id
+    messages = sub_chat.messages
+
+    ctx = await prepare_bot_context(
+        messages=messages,
+        bot=bot,
+        primary_bot_id=bot.id,
+        channel_id=channel_id,
+        member_config=None,
+        user_message=message,
+        msg_metadata=req.msg_metadata,
+        db=db,
+    )
+
+    logger.info(
+        "POST /chat  sub_session  bot=%s  channel=%s  session=%s  task=%s  message=%r",
+        bot.id, channel_id, session_id, sub_entry.source_task.id, message[:80],
+    )
+
+    try:
+        handle: TurnHandle = await start_turn(
+            channel_id=channel_id,
+            session_id=session_id,
+            bot=bot,
+            primary_bot_id=bot.id,
+            messages=messages,
+            user_message=message,
+            ctx=ctx,
+            req=req,
+            user=user,
+            audio_data=audio_data,
+            audio_format=audio_format,
+            att_payload=att_payload,
+            session_scoped=True,
+        )
+    except SessionBusyError:
+        # The sub-session lock is held only while a follow-up turn is in
+        # flight (we gate entry on terminal pipeline status, so the
+        # pipeline's own lock already released). A concurrent follow-up
+        # lands as 202 queued — same semantics as the channel path.
+        queued_task = TaskModel(
+            bot_id=req.bot_id,
+            client_id=req.client_id,
+            session_id=session_id,
+            channel_id=None,
+            prompt=message,
+            status="pending",
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(queued_task)
+        _queued_meta = dict(req.msg_metadata or {})
+        db.add(MessageModel(
+            id=uuid.uuid4(),
+            session_id=session_id,
+            role="user",
+            content=message,
+            metadata_=_queued_meta,
+            created_at=datetime.now(timezone.utc),
+        ))
+        await db.commit()
+        await db.refresh(queued_task)
+        logger.info(
+            "Sub-session %s busy — queued follow-up as task %s",
+            session_id, queued_task.id,
+        )
+        return JSONResponse(
+            {
+                "session_id": str(session_id),
+                "queued": True,
+                "task_id": str(queued_task.id),
+            },
+            status_code=202,
+        )
+
+    return JSONResponse(
+        {
+            "session_id": str(handle.session_id),
+            "channel_id": str(handle.channel_id),
+            "turn_id": str(handle.turn_id),
+            "session_scoped": True,
         },
         status_code=202,
     )

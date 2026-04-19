@@ -54,7 +54,13 @@ async def verify_user(
     except _jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    user_id = UUID(payload["sub"])
+    if payload.get("kind") == "widget":
+        raise HTTPException(status_code=401, detail="Widget tokens cannot authenticate as a user")
+
+    try:
+        user_id = UUID(payload["sub"])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token subject")
     user = await get_user_by_id(db, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or deactivated")
@@ -177,7 +183,16 @@ async def verify_admin_auth(
     except _jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    user_id = UUID(payload["sub"])
+    # Widget-kind JWTs carry a bot_id in `sub`, not a user UUID. They authenticate
+    # interactive HTML widget iframes as the emitting bot — a strictly narrower
+    # surface than the admin API. Reject cleanly rather than crash on UUID parse.
+    if payload.get("kind") == "widget":
+        raise HTTPException(status_code=401, detail="Widget tokens cannot access admin endpoints")
+
+    try:
+        user_id = UUID(payload["sub"])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token subject")
     user = await get_user_by_id(db, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=403, detail="Admin access denied")

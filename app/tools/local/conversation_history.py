@@ -218,7 +218,7 @@ def _extract_snippet(text: str, query: str, context_chars: int = 100) -> str | N
     return snippet
 
 
-@register(_SCHEMA)
+@register(_SCHEMA, requires_bot_context=True, requires_channel_context=True)
 async def read_conversation_history(section: str, channel_id: str | None = None) -> str:
     my_channel_id = current_channel_id.get()
     bot_id = current_bot_id.get()

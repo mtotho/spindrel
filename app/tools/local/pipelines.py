@@ -184,7 +184,7 @@ async def list_pipelines(source: str | None = None) -> str:
             "required": ["pipeline_id"],
         },
     },
-}, safety_tier="control_plane")
+}, safety_tier="control_plane", requires_channel_context=True)
 async def run_pipeline(
     pipeline_id: str,
     params: dict | None = None,

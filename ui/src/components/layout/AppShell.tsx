@@ -11,6 +11,7 @@ import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
 import { useChatStore } from "../../stores/chat";
 import { useSystemStatus } from "../../api/hooks/useSystemStatus";
+import { usePresenceHeartbeat } from "../../hooks/usePresenceHeartbeat";
 import { CommandPalette, useCommandPaletteShortcut } from "./CommandPalette";
 
 export function AppShell() {
@@ -19,6 +20,7 @@ export function AppShell() {
   const paletteOpen = useUIStore((s) => s.paletteOpen);
   const closePalette = useUIStore((s) => s.closePalette);
   useCommandPaletteShortcut();
+  usePresenceHeartbeat();
   const { data: status } = useSystemStatus();
   const anyStreaming = useChatStore(
     (s) => Object.values(s.channels).some((ch) => Object.keys(ch.turns).length > 0),

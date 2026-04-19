@@ -18,14 +18,29 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Session
+from app.db.models import Session, Task
 
 logger = logging.getLogger(__name__)
 
 MAX_WALK_DEPTH = 16
+
+
+@dataclass(frozen=True)
+class SubSessionEntry:
+    """Resolved identifiers for a session-scoped turn request.
+
+    Populated by :func:`resolve_sub_session_entry` from a session_id — used by
+    the chat router to validate and route follow-up turns that target a
+    pipeline run's sub-session instead of the parent channel's active session.
+    """
+
+    session: Session
+    parent_channel_id: uuid.UUID
+    source_task: Task
 
 
 async def resolve_bus_channel_id(
@@ -60,3 +75,38 @@ async def resolve_bus_channel_id(
         current = await db.get(Session, current.parent_session_id)
         depth += 1
     return None
+
+
+async def resolve_sub_session_entry(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+) -> SubSessionEntry | None:
+    """Validate that ``session_id`` names a sub-session and resolve its context.
+
+    Returns ``None`` when the session does not exist, is a normal channel
+    session, has no ``source_task_id`` to anchor to, or has no channel
+    ancestor reachable via ``parent_session_id``. Callers (chat router,
+    discovery tools) treat a ``None`` return as "not a sub-session request"
+    and fall through to the usual channel-scoped path.
+    """
+    sess = await db.get(Session, session_id)
+    if sess is None:
+        return None
+    # A sub-session has ``channel_id IS NULL`` and a non-channel session_type.
+    if sess.channel_id is not None:
+        return None
+    if sess.session_type == "channel":
+        return None
+    if sess.source_task_id is None:
+        return None
+    parent_channel_id = await resolve_bus_channel_id(db, session_id)
+    if parent_channel_id is None:
+        return None
+    task = await db.get(Task, sess.source_task_id)
+    if task is None:
+        return None
+    return SubSessionEntry(
+        session=sess,
+        parent_channel_id=parent_channel_id,
+        source_task=task,
+    )

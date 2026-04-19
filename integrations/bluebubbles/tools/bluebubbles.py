@@ -149,7 +149,7 @@ async def bb_list_chats(limit: int = 25, offset: int = 0) -> str:
             },
         },
     },
-})
+}, requires_channel_context=True)
 async def bb_get_messages(chat_guid: str = "", limit: int = 25, offset: int = 0) -> str:
     try:
         server_url, password = _credentials()
@@ -205,7 +205,7 @@ async def bb_get_messages(chat_guid: str = "", limit: int = 25, offset: int = 0)
             "required": ["message"],
         },
     },
-})
+}, requires_channel_context=True)
 async def bb_send_message(chat_guid: str = "", message: str = "") -> str:
     try:
         server_url, password = _credentials()
@@ -269,7 +269,7 @@ async def bb_send_message(chat_guid: str = "", message: str = "") -> str:
             "required": ["message_text", "reaction"],
         },
     },
-})
+}, requires_channel_context=True)
 async def bb_send_reaction(message_text: str, reaction: str, chat_guid: str = "") -> str:
     try:
         server_url, password = _credentials()

@@ -100,7 +100,7 @@ _MODAL_TIMEOUT_SECONDS = 15 * 60
             "required": ["title", "schema"],
         },
     },
-}, safety_tier="readonly", required_capabilities=frozenset({Capability.MODALS}))
+}, safety_tier="readonly", required_capabilities=frozenset({Capability.MODALS}), requires_bot_context=True, requires_channel_context=True)
 async def open_modal(
     title: str,
     schema: dict,

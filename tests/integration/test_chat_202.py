@@ -103,3 +103,138 @@ class TestChat202:
         body = resp.json()
         assert body.get("queued") is True
         assert "task_id" in body
+
+
+# ---------------------------------------------------------------------------
+# Sub-session follow-up (Phase A of Track - Task Sub-Sessions continuation)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_sub_session_chain(
+    db_session,
+    *,
+    task_status: str = "complete",
+    bot_id: str = "test-bot",
+):
+    """Build a channel → parent_session → sub_session → task chain."""
+    from app.db.models import Channel, Session, Task
+
+    channel = Channel(
+        id=uuid.uuid4(), client_id="web", bot_id=bot_id, name="t",
+    )
+    parent = Session(
+        id=uuid.uuid4(), client_id="web", bot_id=bot_id,
+        channel_id=channel.id, depth=0, session_type="channel",
+    )
+    sub = Session(
+        id=uuid.uuid4(), client_id="task", bot_id=bot_id,
+        channel_id=None, parent_session_id=parent.id, root_session_id=parent.id,
+        depth=1, session_type="pipeline_run",
+    )
+    db_session.add_all([channel, parent, sub])
+    await db_session.flush()
+    task = Task(
+        id=uuid.uuid4(), bot_id=bot_id, prompt="p", status=task_status,
+        task_type="pipeline", dispatch_type="none",
+        run_isolation="sub_session", run_session_id=sub.id,
+        channel_id=channel.id,
+    )
+    db_session.add(task)
+    await db_session.flush()
+    sub.source_task_id = task.id
+    await db_session.flush()
+    return channel, parent, sub, task
+
+
+class TestChatSubSessionFollowUp:
+    """POST /chat with session_id pointing at a terminal sub-session routes
+    through the dedicated sub-session enqueue path: bot forced to task.bot_id,
+    channel_id = parent (for bus routing), start_turn called with
+    session_scoped=True."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_start_turn(self):
+        from app.services.turns import TurnHandle
+
+        with patch(
+            "app.routers.chat._routes.start_turn", new_callable=AsyncMock
+        ) as mock:
+            def _build_handle(*args, **kwargs):
+                return TurnHandle(
+                    session_id=kwargs["session_id"],
+                    channel_id=kwargs["channel_id"],
+                    turn_id=uuid.uuid4(),
+                    session_scoped=kwargs.get("session_scoped", False),
+                )
+
+            mock.side_effect = _build_handle
+            self._mock = mock
+            yield mock
+
+    async def test_post_with_terminal_sub_session_id_returns_session_scoped(
+        self, client, db_session,
+    ):
+        _, _, sub, task = await _seed_sub_session_chain(
+            db_session, task_status="complete", bot_id="test-bot",
+        )
+
+        resp = await client.post(
+            "/chat",
+            json={
+                "message": "follow-up question",
+                "session_id": str(sub.id),
+                "bot_id": "test-bot",
+            },
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 202, resp.text
+        body = resp.json()
+        assert body.get("session_scoped") is True
+        assert body["session_id"] == str(sub.id)
+
+        # start_turn was called exactly once and with session_scoped=True.
+        assert self._mock.await_count == 1
+        kwargs = self._mock.await_args.kwargs
+        assert kwargs["session_scoped"] is True
+        assert kwargs["session_id"] == sub.id
+        # Bot identity is forced to task.bot_id, not the URL-bar bot_id.
+        assert kwargs["bot"].id == task.bot_id
+
+    async def test_non_terminal_run_returns_409(self, client, db_session):
+        _, _, sub, _ = await _seed_sub_session_chain(
+            db_session, task_status="running",
+        )
+
+        resp = await client.post(
+            "/chat",
+            json={"message": "interrupt", "session_id": str(sub.id), "bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 409
+        assert "running" in resp.text.lower() or "terminal" in resp.text.lower()
+        # start_turn MUST NOT have been invoked for a non-terminal run.
+        assert self._mock.await_count == 0
+
+    async def test_unknown_session_falls_through_to_channel_path(
+        self, client, db_session,
+    ):
+        """A session_id that doesn't resolve to a sub-session must NOT be
+        treated as sub-session — the regular channel path handles it, which
+        means start_turn receives session_scoped=False."""
+        random_sid = uuid.uuid4()
+        resp = await client.post(
+            "/chat",
+            json={
+                "message": "hi",
+                "session_id": str(random_sid),
+                "bot_id": "test-bot",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 202
+        assert self._mock.await_count == 1
+        kwargs = self._mock.await_args.kwargs
+        # Regular channel path doesn't pass session_scoped (kwarg absent) —
+        # that's the tell that the sub-session branch did NOT engage.
+        assert not kwargs.get("session_scoped", False)

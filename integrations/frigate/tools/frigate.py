@@ -423,7 +423,7 @@ async def _download_media(
             "required": ["camera"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def frigate_snapshot(
     camera: str,
     bounding_box: bool = True,
@@ -470,7 +470,7 @@ async def frigate_snapshot(
             "required": ["event_id"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def frigate_event_snapshot(event_id: str) -> str:
     if not settings.FRIGATE_URL:
         return _error("FRIGATE_URL is not configured")
@@ -507,7 +507,7 @@ async def frigate_event_snapshot(event_id: str) -> str:
             "required": ["event_id"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def frigate_event_clip(event_id: str) -> str:
     if not settings.FRIGATE_URL:
         return _error("FRIGATE_URL is not configured")
@@ -554,7 +554,7 @@ async def frigate_event_clip(event_id: str) -> str:
             "required": ["camera", "start_time", "end_time"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def frigate_recording_clip(
     camera: str,
     start_time: float,

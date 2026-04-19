@@ -108,7 +108,7 @@ def _safe_jsonl_read(path: str) -> list[dict]:
             "required": ["experiment_id"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def read_experiment_state(experiment_id: str) -> str:
     resolved = _resolve_experiment_dir(experiment_id)
     if not resolved:
@@ -172,7 +172,7 @@ async def read_experiment_state(experiment_id: str) -> str:
             "required": ["experiment_id", "record_json"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def append_experiment_history(experiment_id: str, record_json: str) -> str:
     resolved = _resolve_experiment_dir(experiment_id)
     if not resolved:
@@ -216,7 +216,7 @@ async def append_experiment_history(experiment_id: str, record_json: str) -> str
             "required": ["experiment_id", "record_json"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def update_current_best(experiment_id: str, record_json: str) -> str:
     resolved = _resolve_experiment_dir(experiment_id)
     if not resolved:
@@ -320,7 +320,7 @@ async def build_experiment_record(
             "required": ["experiment_id", "candidate_json"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def update_best_if_improved(experiment_id: str, candidate_json: str) -> str:
     resolved = _resolve_experiment_dir(experiment_id)
     if not resolved:
@@ -446,7 +446,7 @@ async def score_eval_results_tool(
             "required": ["experiment_id"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def check_experiment_budget(experiment_id: str) -> str:
     resolved = _resolve_experiment_dir(experiment_id)
     if not resolved:

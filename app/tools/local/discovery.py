@@ -121,7 +121,7 @@ async def get_tool_info(tool_name: str) -> str:
             "required": ["tool_names"],
         },
     },
-})
+}, requires_bot_context=True)
 async def prune_enrolled_tools(tool_names: list[str]) -> str:
     """Remove the listed tools from this bot's persistent enrollment."""
     bot_id = current_bot_id.get()

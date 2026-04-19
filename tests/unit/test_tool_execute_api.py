@@ -276,6 +276,98 @@ async def test_execute_mcp_tool_bot_scoped_forbidden():
         _clear_overrides()
 
 
+# ---------------------------------------------------------------------------
+# Bot/channel context propagation tests (dev-panel sandbox path)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_execute_sets_bot_and_channel_context(auth_headers):
+    """When bot_id/channel_id are passed, the ContextVars are set during the call."""
+    from app.agent.context import current_bot_id, current_channel_id
+    from app.agent.bots import _registry, BotConfig
+
+    captured: dict = {}
+
+    async def _probe(name: str, args: str) -> str:
+        captured["bot_id"] = current_bot_id.get()
+        captured["channel_id"] = current_channel_id.get()
+        return json.dumps({"ok": True})
+
+    _registry["test-bot"] = BotConfig(id="test-bot", name="Test", model="ollama/test", system_prompt="x")
+    try:
+        channel_uuid = str(uuid4())
+        with patch("app.tools.registry.is_local_tool", return_value=True), \
+             patch("app.tools.registry.call_local_tool", side_effect=_probe), \
+             patch("app.tools.registry.get_tool_context_requirements", return_value=(True, True)):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/admin/tools/probe/execute",
+                    json={"arguments": {}, "bot_id": "test-bot", "channel_id": channel_uuid},
+                    headers=auth_headers,
+                )
+        assert resp.status_code == 200, resp.text
+        assert captured["bot_id"] == "test-bot"
+        assert str(captured["channel_id"]) == channel_uuid
+    finally:
+        _registry.pop("test-bot", None)
+
+
+@pytest.mark.asyncio
+async def test_execute_requires_bot_context_400(auth_headers):
+    """A tool flagged requires_bot_context fails with 400 when bot_id is missing."""
+    with patch("app.tools.registry.get_tool_context_requirements", return_value=(True, False)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/admin/tools/needs_bot/execute",
+                json={"arguments": {}},
+                headers=auth_headers,
+            )
+    assert resp.status_code == 400
+    assert "bot context" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_requires_channel_context_400(auth_headers):
+    """A tool flagged requires_channel_context fails with 400 when channel_id is missing."""
+    with patch("app.tools.registry.get_tool_context_requirements", return_value=(False, True)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/admin/tools/needs_channel/execute",
+                json={"arguments": {}},
+                headers=auth_headers,
+            )
+    assert resp.status_code == 400
+    assert "channel context" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_unknown_bot_id_400(auth_headers):
+    """An unknown bot_id is rejected up front instead of being silently used."""
+    with patch("app.tools.registry.is_local_tool", return_value=True), \
+         patch("app.tools.registry.call_local_tool", new_callable=AsyncMock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/admin/tools/whatever/execute",
+                json={"arguments": {}, "bot_id": "ghost-bot-does-not-exist"},
+                headers=auth_headers,
+            )
+    assert resp.status_code == 400
+    assert "ghost-bot" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_execute_invalid_channel_uuid_400(auth_headers):
+    """A non-UUID channel_id fails fast with 400 instead of crashing in the tool."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/admin/tools/whatever/execute",
+            json={"arguments": {}, "channel_id": "not-a-uuid"},
+            headers=auth_headers,
+        )
+    assert resp.status_code == 400
+    assert "uuid" in resp.json()["detail"].lower()
+
+
 @pytest.mark.asyncio
 async def test_bot_key_with_carapace_tools():
     """Bot-scoped key can access tools provided by carapaces."""

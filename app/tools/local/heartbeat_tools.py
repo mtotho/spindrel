@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
             "required": [],
         },
     },
-})
+}, requires_channel_context=True)
 async def get_last_heartbeat(limit: int = 1) -> str:
     channel_id = current_channel_id.get()
     if not channel_id:
@@ -110,7 +110,12 @@ POST_HEARTBEAT_TO_CHANNEL_SCHEMA = {
 }
 
 
-@register(POST_HEARTBEAT_TO_CHANNEL_SCHEMA, safety_tier="control_plane")
+@register(
+    POST_HEARTBEAT_TO_CHANNEL_SCHEMA,
+    safety_tier="control_plane",
+    requires_bot_context=True,
+    requires_channel_context=True,
+)
 async def post_heartbeat_to_channel(message: str) -> str:
     """Publish a heartbeat message onto the channel-events bus.
 

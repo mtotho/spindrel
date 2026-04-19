@@ -193,3 +193,28 @@ class TestWidgetTokenVerification:
         assert isinstance(auth, ApiKeyAuth)
         assert set(auth.scopes) == {"channels:read", "chat"}
         assert auth.name == f"widget:{bot.id}"
+
+    async def test_widget_token_rejected_by_verify_admin_auth_cleanly(
+        self, client_factory, db_session
+    ):
+        """A widget JWT whose ``sub`` is a bot id must NOT crash admin-router
+        auth with ``ValueError: badly formed hexadecimal UUID string``.
+        Regression: an HTML-widget iframe using ``window.spindrel.api`` to
+        call ``/api/v1/admin/tasks`` was triggering 500s because
+        ``verify_admin_auth`` did ``UUID(payload["sub"])`` unconditionally.
+        """
+        from fastapi import HTTPException
+
+        from app.dependencies import verify_admin_auth
+
+        admin = await _make_user(db_session, is_admin=True)
+        bot, _ = await _make_bot_with_key(db_session, ["chat"])
+        app = client_factory(admin)
+        mint_resp = await _post_mint(app, {"source_bot_id": bot.id})
+        token = mint_resp.json()["token"]
+
+        with pytest.raises(HTTPException) as excinfo:
+            await verify_admin_auth(
+                authorization=f"Bearer {token}", db=db_session,
+            )
+        assert excinfo.value.status_code == 401

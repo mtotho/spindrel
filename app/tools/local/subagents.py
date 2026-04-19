@@ -97,7 +97,7 @@ _PRESET_SUMMARY = ", ".join(
             "required": ["agents"],
         },
     },
-}, safety_tier="readonly")
+}, safety_tier="readonly", requires_bot_context=True, requires_channel_context=True)
 async def spawn_subagents(agents: list[dict]) -> str:
     """Run sub-agents in parallel and return collected results."""
     from app.agent.subagents import run_subagents

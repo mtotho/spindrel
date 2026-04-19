@@ -41,7 +41,12 @@ _PIN_PANEL_SCHEMA = {
 }
 
 
-@register(_PIN_PANEL_SCHEMA, safety_tier="mutating")
+@register(
+    _PIN_PANEL_SCHEMA,
+    safety_tier="mutating",
+    requires_bot_context=True,
+    requires_channel_context=True,
+)
 async def pin_panel(path: str, position: str = "right") -> str:
     channel_id = current_channel_id.get()
     bot_id = current_bot_id.get() or "unknown"
@@ -106,7 +111,11 @@ _UNPIN_PANEL_SCHEMA = {
 }
 
 
-@register(_UNPIN_PANEL_SCHEMA, safety_tier="mutating")
+@register(
+    _UNPIN_PANEL_SCHEMA,
+    safety_tier="mutating",
+    requires_channel_context=True,
+)
 async def unpin_panel(path: str) -> str:
     channel_id = current_channel_id.get()
     if not channel_id:

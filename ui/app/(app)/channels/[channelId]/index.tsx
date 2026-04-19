@@ -539,17 +539,13 @@ export default function ChatScreen() {
 
   const outerChildren = (
     <>
-      {/* Unified header block — glass bg + single bottom border.
-          Safe-area top inset is active in PWA / standalone mode where the
-          Dynamic Island / notch overlays the webview. In a browser tab
-          `env(safe-area-inset-top)` resolves to 0, so this is a no-op. */}
+      {/* Unified header block — glass bg + single bottom border */}
       <div style={{
         borderBottom: `1px solid ${t.surfaceBorder}`,
         flexShrink: 0,
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
         backgroundColor: `${t.surface}e6`,
-        paddingTop: isMobile ? "env(safe-area-inset-top)" : undefined,
       }}>
         <ChannelHeader
           channelId={channelId!}

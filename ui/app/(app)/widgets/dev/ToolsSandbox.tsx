@@ -1,7 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Play, Loader2, Search, Pin, Check, ArrowRight } from "lucide-react";
+import {
+  Play,
+  Loader2,
+  Search,
+  Pin,
+  Check,
+  ArrowRight,
+  Bot,
+  Hash,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 import { useTools, executeTool, type ToolItem } from "@/src/api/hooks/useTools";
+import { useBots } from "@/src/api/hooks/useBots";
+import { useChannels } from "@/src/api/hooks/useChannels";
+import { BotPicker } from "@/src/components/shared/BotPicker";
+import { ChannelPicker } from "@/src/components/shared/ChannelPicker";
 import {
   genericRenderWidget,
   previewWidgetForTool,
@@ -21,10 +36,55 @@ const NOOP_DISPATCHER: WidgetActionDispatcher = {
   dispatchAction: async () => ({ envelope: null, apiResponse: null }),
 };
 
+const CONTEXT_STORAGE_KEY = "spindrel:widgets:dev:context";
+const COLLAPSED_GROUPS_KEY = "spindrel:widgets:dev:collapsed-groups";
+const BUILTIN_GROUP_KEY = "__builtin__";
+
 function toolDisplayName(tool: ToolItem): string {
   return tool.tool_name.includes("-")
     ? tool.tool_name.split("-").slice(1).join("-")
     : tool.tool_name;
+}
+
+function humanizeIntegration(s: string): string {
+  const SPECIAL: Record<string, string> = {
+    bluebubbles: "Blue Bubbles",
+    homeassistant: "Home Assistant",
+    web_search: "Web Search",
+    google_workspace: "Google Workspace",
+    claude_code: "Claude Code",
+    mission_control: "Mission Control",
+  };
+  if (SPECIAL[s]) return SPECIAL[s];
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function groupLabel(key: string): string {
+  if (key === BUILTIN_GROUP_KEY) return "Built-in";
+  return humanizeIntegration(key);
+}
+
+function loadStoredContext(): { bot_id: string; channel_id: string } {
+  if (typeof window === "undefined") return { bot_id: "", channel_id: "" };
+  try {
+    const raw = window.localStorage.getItem(CONTEXT_STORAGE_KEY);
+    if (!raw) return { bot_id: "", channel_id: "" };
+    const parsed = JSON.parse(raw) as { bot_id?: string; channel_id?: string };
+    return { bot_id: parsed.bot_id ?? "", channel_id: parsed.channel_id ?? "" };
+  } catch {
+    return { bot_id: "", channel_id: "" };
+  }
+}
+
+function loadCollapsedGroups(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_GROUPS_KEY);
+    if (!raw) return new Set();
+    return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set();
+  }
 }
 
 function PinActionBar({
@@ -33,6 +93,7 @@ function PinActionBar({
   pinLabel,
   setPinLabel,
   pinState,
+  pinDisabledReason,
   onPin,
   onOpenDashboard,
 }: {
@@ -41,10 +102,11 @@ function PinActionBar({
   pinLabel: string;
   setPinLabel: (v: string) => void;
   pinState: "idle" | "pinning" | "success" | "error";
+  pinDisabledReason: string | null;
   onPin: () => void;
   onOpenDashboard: () => void;
 }) {
-  const disabled = pinState === "pinning";
+  const disabled = pinState === "pinning" || pinDisabledReason !== null;
   const refreshHint = envelope.refreshable
     ? envelope.refresh_interval_seconds
       ? `Auto-refreshes every ${envelope.refresh_interval_seconds}s.`
@@ -77,20 +139,23 @@ function PinActionBar({
             if (e.key === "Enter" && !disabled) onPin();
           }}
           placeholder={toolDisplayName(selected)}
-          disabled={disabled}
+          disabled={pinState === "pinning"}
           className="flex-1 min-w-0 rounded-md border border-surface-border bg-input px-2 py-1.5 text-[12px] text-text outline-none focus:border-accent disabled:opacity-50"
         />
         <button
           type="button"
           onClick={onPin}
           disabled={disabled}
+          title={pinDisabledReason ?? undefined}
           className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50 transition-opacity whitespace-nowrap"
         >
-          {disabled ? <Loader2 size={13} className="animate-spin" /> : <Pin size={13} />}
+          {pinState === "pinning" ? <Loader2 size={13} className="animate-spin" /> : <Pin size={13} />}
           Pin to dashboard
         </button>
       </div>
-      <div className="text-[10px] text-text-dim">{refreshHint}</div>
+      <div className="text-[10px] text-text-dim">
+        {pinDisabledReason ?? refreshHint}
+      </div>
     </div>
   );
 }
@@ -101,6 +166,8 @@ export function ToolsSandbox() {
   const t = useThemeTokens();
   const navigate = useNavigate();
   const { data: tools, isLoading } = useTools();
+  const { data: bots } = useBots();
+  const { data: channels } = useChannels();
   const pinWidget = useDashboardPinsStore((s) => s.pinWidget);
 
   const [filter, setFilter] = useState("");
@@ -115,6 +182,46 @@ export function ToolsSandbox() {
   // template for this tool). Stamped into widget_config on pin so future
   // server-side refresh paths can re-apply generic rendering.
   const [isGenericView, setIsGenericView] = useState(false);
+
+  // Sticky bot/channel context for the sandbox. Persisted to localStorage so
+  // refreshes don't reset the user's chosen agent identity. Doesn't reset on
+  // tool switch — iterating against one bot persona is the common flow.
+  const initialContext = useMemo(loadStoredContext, []);
+  const [selectedBotId, setSelectedBotId] = useState(initialContext.bot_id);
+  const [selectedChannelId, setSelectedChannelId] = useState(initialContext.channel_id);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        CONTEXT_STORAGE_KEY,
+        JSON.stringify({ bot_id: selectedBotId, channel_id: selectedChannelId }),
+      );
+    } catch {
+      // localStorage may be unavailable (private mode, etc.) — silently skip.
+    }
+  }, [selectedBotId, selectedChannelId]);
+
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(loadCollapsedGroups);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        COLLAPSED_GROUPS_KEY,
+        JSON.stringify(Array.from(collapsedGroups)),
+      );
+    } catch {
+      // ignored
+    }
+  }, [collapsedGroups]);
+
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   // Pin-to-dashboard state.
   const [pinLabel, setPinLabel] = useState("");
@@ -138,21 +245,61 @@ export function ToolsSandbox() {
     );
   }, [tools, filter]);
 
+  // Bucket tools into integration sections. "Built-in" (app/tools/local) lands
+  // first; remaining sections sort alphabetically by humanized integration name.
+  const grouped = useMemo(() => {
+    const buckets = new Map<string, ToolItem[]>();
+    for (const tool of filtered) {
+      const key = tool.source_integration ?? BUILTIN_GROUP_KEY;
+      const list = buckets.get(key);
+      if (list) list.push(tool);
+      else buckets.set(key, [tool]);
+    }
+    const entries: Array<[string, ToolItem[]]> = [];
+    if (buckets.has(BUILTIN_GROUP_KEY)) {
+      entries.push([BUILTIN_GROUP_KEY, buckets.get(BUILTIN_GROUP_KEY)!]);
+    }
+    const others = Array.from(buckets.entries())
+      .filter(([k]) => k !== BUILTIN_GROUP_KEY)
+      .sort((a, b) => groupLabel(a[0]).localeCompare(groupLabel(b[0])));
+    return entries.concat(others);
+  }, [filtered]);
+
   const selected = useMemo(
     () => (tools ?? []).find((tool) => tool.tool_key === selectedKey) ?? null,
     [tools, selectedKey],
   );
 
+  const requiresBot = !!selected?.requires_bot_context;
+  const requiresChannel = !!selected?.requires_channel_context;
+  const missingBot = requiresBot && !selectedBotId;
+  const missingChannel = requiresChannel && !selectedChannelId;
+  const runDisabledReason = running
+    ? null
+    : missingBot && missingChannel
+    ? "Select a bot and a channel first."
+    : missingBot
+    ? "Select a bot first."
+    : missingChannel
+    ? "Select a channel first."
+    : null;
+  const pinDisabledReason = missingBot
+    ? "Select a bot first."
+    : missingChannel
+    ? "Select a channel first."
+    : null;
+
   const handlePin = async () => {
     if (!selected || !envelope) return;
+    if (pinDisabledReason) return;
     const toolName = toolDisplayName(selected);
     setPinState("pinning");
     setPinError(null);
     try {
       await pinWidget({
         source_kind: "adhoc",
-        source_bot_id: null,
-        source_channel_id: null,
+        source_bot_id: selectedBotId || null,
+        source_channel_id: selectedChannelId || null,
         tool_name: toolName,
         tool_args: argValues,
         widget_config: isGenericView ? { generic_view: true } : {},
@@ -173,6 +320,7 @@ export function ToolsSandbox() {
 
   const handleRun = async () => {
     if (!selected) return;
+    if (runDisabledReason) return;
     setRunning(true);
     setExecError(null);
     setRawResult(null);
@@ -181,7 +329,10 @@ export function ToolsSandbox() {
     setIsGenericView(false);
     try {
       const toolName = toolDisplayName(selected);
-      const exec = await executeTool(toolName, argValues);
+      const exec = await executeTool(toolName, argValues, {
+        bot_id: selectedBotId || null,
+        channel_id: selectedChannelId || null,
+      });
       if (exec.error) {
         setExecError(exec.error);
       }
@@ -241,43 +392,81 @@ export function ToolsSandbox() {
           {isLoading && (
             <div className="px-3 py-4 text-[12px] text-text-dim">Loading…</div>
           )}
-          {filtered.map((tool) => {
-            const active = tool.tool_key === selectedKey;
+          {grouped.map(([groupKey, groupTools]) => {
+            const collapsed = collapsedGroups.has(groupKey);
             return (
-              <button
-                key={tool.tool_key}
-                onClick={() => {
-                  setSelectedKey(tool.tool_key);
-                  setArgValues({});
-                  setRawResult(null);
-                  setEnvelope(null);
-                  setPreviewErrors([]);
-                  setIsGenericView(false);
-                  setExecError(null);
-                  setPinLabel("");
-                  setPinState("idle");
-                  setPinError(null);
-                  if (successRevertTimer.current) {
-                    clearTimeout(successRevertTimer.current);
-                    successRevertTimer.current = null;
-                  }
-                }}
-                className={
-                  "w-full text-left px-3 py-2 border-b border-surface-border/60 transition-colors bg-transparent " +
-                  (active
-                    ? "bg-accent/[0.08] border-l-2 border-l-accent"
-                    : "hover:bg-surface-overlay")
-                }
-              >
-                <div className="text-[12px] font-mono text-text truncate">
-                  {toolDisplayName(tool)}
-                </div>
-                {tool.server_name && (
-                  <div className="text-[10px] text-text-dim truncate">
-                    {tool.server_name}
+              <div key={groupKey}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(groupKey)}
+                  className="w-full flex items-center justify-between px-3 py-1.5 bg-surface-overlay/50 hover:bg-surface-overlay border-b border-surface-border/60 text-left transition-colors"
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {collapsed ? (
+                      <ChevronRight size={11} className="text-text-dim shrink-0" />
+                    ) : (
+                      <ChevronDown size={11} className="text-text-dim shrink-0" />
+                    )}
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted truncate">
+                      {groupLabel(groupKey)}
+                    </span>
                   </div>
-                )}
-              </button>
+                  <span className="text-[10px] text-text-dim shrink-0">
+                    ({groupTools.length})
+                  </span>
+                </button>
+                {!collapsed && groupTools.map((tool) => {
+                  const active = tool.tool_key === selectedKey;
+                  return (
+                    <button
+                      key={tool.tool_key}
+                      onClick={() => {
+                        setSelectedKey(tool.tool_key);
+                        setArgValues({});
+                        setRawResult(null);
+                        setEnvelope(null);
+                        setPreviewErrors([]);
+                        setIsGenericView(false);
+                        setExecError(null);
+                        setPinLabel("");
+                        setPinState("idle");
+                        setPinError(null);
+                        if (successRevertTimer.current) {
+                          clearTimeout(successRevertTimer.current);
+                          successRevertTimer.current = null;
+                        }
+                      }}
+                      className={
+                        "w-full text-left px-3 py-2 border-b border-surface-border/60 transition-colors bg-transparent " +
+                        (active
+                          ? "bg-accent/[0.08] border-l-2 border-l-accent"
+                          : "hover:bg-surface-overlay")
+                      }
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <div className="text-[12px] font-mono text-text truncate flex-1 min-w-0">
+                          {toolDisplayName(tool)}
+                        </div>
+                        {tool.requires_bot_context && (
+                          <span title="Requires bot context" className="shrink-0 inline-flex">
+                            <Bot size={10} className="text-text-dim" aria-label="Requires bot context" />
+                          </span>
+                        )}
+                        {tool.requires_channel_context && (
+                          <span title="Requires channel context" className="shrink-0 inline-flex">
+                            <Hash size={10} className="text-text-dim" aria-label="Requires channel context" />
+                          </span>
+                        )}
+                      </div>
+                      {tool.server_name && (
+                        <div className="text-[10px] text-text-dim truncate">
+                          {tool.server_name}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             );
           })}
           {!isLoading && filtered.length === 0 && (
@@ -286,7 +475,7 @@ export function ToolsSandbox() {
         </div>
       </div>
 
-      {/* Middle: args + run */}
+      {/* Middle: context + args + run */}
       <div className="w-full md:w-80 md:shrink-0 md:border-r md:border-surface-border flex flex-col md:min-h-0">
         {selected ? (
           <>
@@ -300,6 +489,43 @@ export function ToolsSandbox() {
                 </div>
               )}
             </div>
+            <div className="border-b border-surface-border px-4 py-3 space-y-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim">
+                Run as
+              </div>
+              <div className="space-y-2">
+                <ContextRow
+                  label="Bot"
+                  required={requiresBot}
+                  hasValue={!!selectedBotId}
+                >
+                  <BotPicker
+                    value={selectedBotId}
+                    onChange={setSelectedBotId}
+                    bots={bots ?? []}
+                    allowNone
+                    placeholder="Select bot…"
+                  />
+                </ContextRow>
+                <ContextRow
+                  label="Channel"
+                  required={requiresChannel}
+                  hasValue={!!selectedChannelId}
+                >
+                  <ChannelPicker
+                    value={selectedChannelId}
+                    onChange={setSelectedChannelId}
+                    channels={channels ?? []}
+                    bots={bots ?? []}
+                    allowNone
+                    placeholder="Select channel…"
+                  />
+                </ContextRow>
+              </div>
+              <div className="text-[10px] text-text-dim leading-snug">
+                Pinned widgets run as the selected bot/channel. Persisted across refreshes.
+              </div>
+            </div>
             <div className="flex-1 overflow-auto p-4">
               <ToolArgsForm
                 schema={selected.parameters}
@@ -310,7 +536,8 @@ export function ToolsSandbox() {
             <div className="border-t border-surface-border px-4 py-3">
               <button
                 onClick={handleRun}
-                disabled={running}
+                disabled={running || runDisabledReason !== null}
+                title={runDisabledReason ?? undefined}
                 className="w-full inline-flex items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
                 {running ? (
@@ -320,6 +547,11 @@ export function ToolsSandbox() {
                 )}
                 Run tool
               </button>
+              {runDisabledReason && (
+                <div className="mt-1.5 text-[10px] text-danger text-center">
+                  {runDisabledReason}
+                </div>
+              )}
             </div>
           </>
         ) : (
@@ -360,6 +592,7 @@ export function ToolsSandbox() {
                   pinLabel={pinLabel}
                   setPinLabel={setPinLabel}
                   pinState={pinState}
+                  pinDisabledReason={pinDisabledReason}
                   onPin={handlePin}
                   onOpenDashboard={() => navigate("/widgets")}
                 />
@@ -419,6 +652,42 @@ export function ToolsSandbox() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ContextRow({
+  label,
+  required,
+  hasValue,
+  children,
+}: {
+  label: string;
+  required: boolean;
+  hasValue: boolean;
+  children: React.ReactNode;
+}) {
+  const showRequired = required && !hasValue;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] font-medium text-text-muted">{label}</span>
+        {required ? (
+          <span
+            className={
+              "text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded " +
+              (showRequired ? "bg-danger/15 text-danger" : "bg-success/15 text-success")
+            }
+          >
+            Required
+          </span>
+        ) : (
+          <span className="text-[9px] font-medium uppercase tracking-wider text-text-dim">
+            Optional
+          </span>
+        )}
+      </div>
+      {children}
     </div>
   );
 }

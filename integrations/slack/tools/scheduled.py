@@ -67,7 +67,7 @@ def _parse_post_at(value: str) -> int:
             "required": ["text", "post_at"],
         },
     },
-}, required_integrations=frozenset({"slack"}))
+}, required_integrations=frozenset({"slack"}), requires_channel_context=True)
 async def slack_schedule_message(
     text: str,
     post_at: str,

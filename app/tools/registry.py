@@ -59,6 +59,8 @@ def register(
     safety_tier: str = "readonly",
     required_capabilities: "frozenset | None" = None,
     required_integrations: "frozenset[str] | None" = None,
+    requires_bot_context: bool = False,
+    requires_channel_context: bool = False,
 ):
     """Decorator that registers a local tool function with its OpenAI function schema.
 
@@ -95,6 +97,8 @@ def register(
             "safety_tier": safety_tier,
             "required_capabilities": required_capabilities,
             "required_integrations": required_integrations,
+            "requires_bot_context": requires_bot_context,
+            "requires_channel_context": requires_channel_context,
         }
         logger.info("Registered local tool: %s (tier=%s)", name, safety_tier)
         return func
@@ -115,6 +119,23 @@ def get_tool_capability_requirements(name: str) -> tuple["frozenset | None", "fr
     return (
         entry.get("required_capabilities"),
         entry.get("required_integrations"),
+    )
+
+
+def get_tool_context_requirements(name: str) -> tuple[bool, bool]:
+    """Return ``(requires_bot_context, requires_channel_context)`` for a tool.
+
+    Both default False for unknown tools. Drives the dev-panel sandbox's
+    pre-run validation and the dashboard refresh path's ContextVar setup —
+    without these flags a tool that calls ``current_bot_id.get()`` returns
+    ``"No bot context available."`` from any non-agent caller.
+    """
+    entry = _tools.get(name)
+    if entry is None:
+        return (False, False)
+    return (
+        bool(entry.get("requires_bot_context", False)),
+        bool(entry.get("requires_channel_context", False)),
     )
 
 

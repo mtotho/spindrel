@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
             "required": ["command"],
         },
     },
-}, safety_tier="exec_capable")
+}, safety_tier="exec_capable", requires_bot_context=True)
 async def exec_command(command: str, working_dir: str = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:

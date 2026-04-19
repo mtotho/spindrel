@@ -85,6 +85,9 @@ class TurnStreamTokenPayload:
     bot_id: str
     turn_id: uuid.UUID
     delta: str
+    session_id: uuid.UUID | None = None
+    """See `TurnStartedPayload.session_id` — set when bridged from a
+    sub-session onto a parent channel's bus so UI subscribers can filter."""
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,7 @@ class TurnStreamToolStartPayload:
     turn_id: uuid.UUID
     tool_name: str
     arguments: dict = field(default_factory=dict)
+    session_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -114,6 +118,7 @@ class TurnStreamToolResultPayload:
     result_summary: str
     is_error: bool = False
     envelope: dict | None = None
+    session_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -169,6 +174,7 @@ class ApprovalRequestedPayload:
     decision back to the correct in-flight turn slot — without it, a
     member-bot turn requesting approval while the primary turn is still
     active would land in the primary's slot and never resolve."""
+    session_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -178,6 +184,7 @@ class ApprovalResolvedPayload:
     approval_id: str
     decision: str
     """'approved' | 'denied' | 'allow_always'."""
+    session_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)

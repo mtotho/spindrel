@@ -133,7 +133,12 @@ def _derive_plain_body(
     return f"HTML widget ({body_len} chars)"
 
 
-@register(_SCHEMA, safety_tier="readonly")
+@register(
+    _SCHEMA,
+    safety_tier="readonly",
+    requires_bot_context=True,
+    requires_channel_context=True,
+)
 async def emit_html_widget(
     html: str | None = None,
     path: str | None = None,

@@ -80,6 +80,29 @@ class TestRegister:
         req_caps, req_ints = registry.get_tool_capability_requirements("does_not_exist")
         assert (req_caps, req_ints) == (None, None)
 
+    def test_context_requirements_default_false(self):
+        _register_dummy("ctx_default")
+        bot, channel = registry.get_tool_context_requirements("ctx_default")
+        assert bot is False
+        assert channel is False
+
+    def test_context_requirements_round_trip(self):
+        async def _f(**_):
+            return "ok"
+
+        registry.register(
+            {"type": "function", "function": {"name": "needs_ctx", "parameters": {}}},
+            requires_bot_context=True,
+            requires_channel_context=True,
+        )(_f)
+        bot, channel = registry.get_tool_context_requirements("needs_ctx")
+        assert bot is True
+        assert channel is True
+
+    def test_context_requirements_unknown_tool_false(self):
+        bot, channel = registry.get_tool_context_requirements("nonexistent_tool")
+        assert (bot, channel) == (False, False)
+
 
 # ---------------------------------------------------------------------------
 # iter_registered_tools()

@@ -307,7 +307,7 @@ def _error(msg: str) -> str:
             "required": ["operation", "path"],
         },
     },
-}, safety_tier="mutating")
+}, safety_tier="mutating", requires_bot_context=True)
 async def file(
     operation: str,
     path: str,

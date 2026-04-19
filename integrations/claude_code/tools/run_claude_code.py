@@ -92,7 +92,7 @@ def _parse_bool(val, default: bool = False) -> bool:
             "required": ["prompt"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def run_claude_code(
     prompt: str,
     working_directory: str | None = None,

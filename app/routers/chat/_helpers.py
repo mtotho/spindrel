@@ -1,9 +1,12 @@
 """Standalone helpers: audio, attachments, session resolution, user extraction."""
 import logging
 import uuid
+from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import Channel, Message as MessageModel
 from app.services.channels import (
     get_or_create_channel,
     ensure_active_session,
@@ -11,11 +14,24 @@ from app.services.channels import (
     resolve_integration_user,
 )
 from app.services.sessions import load_or_create
+from app.services.sub_session_bus import SubSessionEntry, resolve_sub_session_entry
 from app.stt import transcribe as stt_transcribe
 
 from ._schemas import ChatRequest, FileMetadata
 
 logger = logging.getLogger(__name__)
+
+
+TERMINAL_TASK_STATUSES = frozenset({"complete", "failed", "cancelled"})
+
+
+@dataclass(frozen=True)
+class SubSessionChatEntry:
+    """Resolved context for a session-scoped chat POST (sub-session follow-up)."""
+
+    entry: SubSessionEntry
+    parent_channel: Channel
+    messages: list[dict]
 
 
 def _is_integration_client(client_id: str) -> bool:
@@ -120,6 +136,101 @@ async def _resolve_channel_and_session(
     )
 
     return channel, session_id, messages, is_integration
+
+
+async def _try_resolve_sub_session_chat(
+    db: AsyncSession,
+    req: ChatRequest,
+    user,
+) -> SubSessionChatEntry | None:
+    """Detect a session-scoped POST (sub-session follow-up) and resolve its context.
+
+    Returns a ``SubSessionChatEntry`` when ``req.session_id`` names a valid
+    sub-session (type ``pipeline_run`` / ``eval``) with a terminal source
+    task and the caller is a member of its parent channel. Returns ``None``
+    for any "this is a normal channel-scoped POST" case so the caller falls
+    through to :func:`_resolve_channel_and_session`.
+
+    Raises ``HTTPException`` on positive-match failure modes (non-terminal
+    task, user not a member of the parent channel, non-matching bot).
+
+    Scope of v1: only terminal sub-sessions accept follow-up turns. Mid-run
+    push-back (composer-while-pipeline-runs) is Phase E — deliberately
+    blocked here so a misconfigured UI can't spawn a user turn on top of
+    an in-flight pipeline's history.
+    """
+    from fastapi import HTTPException
+
+    if req.session_id is None:
+        return None
+
+    sub = await resolve_sub_session_entry(db, req.session_id)
+    if sub is None:
+        return None
+
+    # --- Terminal-only gate (v1) ---
+    task = sub.source_task
+    if task.status not in TERMINAL_TASK_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Pipeline run is {task.status!r} — follow-up turns are only "
+                "accepted after the run reaches a terminal state. "
+                "(Mid-run push-back is not yet supported.)"
+            ),
+        )
+
+    # --- Caller authorization: must be a member of the parent channel ---
+    parent_channel = await db.get(Channel, sub.parent_channel_id)
+    if parent_channel is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Parent channel for this sub-session no longer exists.",
+        )
+    if user is not None:
+        caller_ok = (
+            parent_channel.user_id is None
+            or parent_channel.user_id == user.id
+        )
+        if not caller_ok:
+            raise HTTPException(
+                status_code=403,
+                detail="You are not a member of this pipeline run's parent channel.",
+            )
+
+    # --- Bot identity is forced to task.bot_id ---
+    # If the client sent a different bot_id, normalize silently — the
+    # sub-session's bot is not user-selectable in v1.
+    if task.bot_id:
+        req.bot_id = task.bot_id
+
+    # --- Load Messages from the sub-session itself (history scope = sub-session only) ---
+    rows = (
+        await db.execute(
+            select(MessageModel)
+            .where(MessageModel.session_id == sub.session.id)
+            .order_by(MessageModel.created_at)
+        )
+    ).scalars().all()
+    messages: list[dict] = []
+    for r in rows:
+        meta = dict(r.metadata_ or {})
+        m: dict = {
+            "role": r.role,
+            "content": r.content,
+            "_metadata": meta,
+        }
+        if r.tool_calls:
+            m["tool_calls"] = r.tool_calls
+        if r.tool_call_id:
+            m["tool_call_id"] = r.tool_call_id
+        messages.append(m)
+
+    return SubSessionChatEntry(
+        entry=sub,
+        parent_channel=parent_channel,
+        messages=messages,
+    )
 
 
 def _resolve_audio_native(req: ChatRequest, bot) -> bool:

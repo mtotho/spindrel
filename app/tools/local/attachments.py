@@ -96,7 +96,7 @@ async def get_attachment(attachment_id: str) -> str:
             "required": [],
         },
     },
-})
+}, requires_channel_context=True)
 async def list_attachments(
     channel_id: str | None = None,
     limit: int = 5,
@@ -377,7 +377,7 @@ async def delete_attachment(attachment_id: str) -> str:
             "required": [],
         },
     },
-})
+}, requires_channel_context=True)
 async def delete_recent_attachments(
     max_age_seconds: int = 120,
     type_filter: str | None = None,
@@ -463,7 +463,7 @@ async def delete_recent_attachments(
             "required": ["attachment_id", "path"],
         },
     },
-})
+}, requires_bot_context=True)
 async def save_attachment(attachment_id: str, path: str) -> str:
     from app.agent.context import current_bot_id
     from app.services.attachments import get_attachment_by_id

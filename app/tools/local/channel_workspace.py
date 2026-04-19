@@ -95,7 +95,7 @@ async def _resolve_channel_owner_bot(channel_id: str, caller_bot_id: str):
             "required": ["query"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def search_channel_archive(query: str) -> str:
     """Search archived workspace files for the current channel."""
     bot, ch_id, ws_root, embedding_model = await _get_bot_and_roots()
@@ -169,7 +169,7 @@ async def search_channel_archive(query: str) -> str:
             "required": ["query"],
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def search_channel_workspace(query: str, channel_id: str | None = None) -> str:
     """Search channel workspace files (active + archive)."""
     bot, ch_id, ws_root, embedding_model = await _get_bot_and_roots(channel_id)
@@ -230,7 +230,7 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
             "properties": {},
         },
     },
-})
+}, requires_bot_context=True, requires_channel_context=True)
 async def list_channels() -> str:
     """List all channels the bot belongs to (primary + member)."""
     bot_id = current_bot_id.get()

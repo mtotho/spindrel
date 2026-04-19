@@ -224,14 +224,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     const sendBtnOpacity = canSend || showStop || showMic || recorder.isRecording ? 1 : 0.4;
 
     return (
-      <div style={{
-        flexShrink: 0,
-        boxShadow: "0 -1px 8px rgba(0,0,0,0.06)",
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        backgroundColor: `${t.surface}e6`,
-        paddingBottom: isMobile ? "env(safe-area-inset-bottom)" : undefined,
-      }}>
+      <div style={{ flexShrink: 0, boxShadow: "0 -1px 8px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", backgroundColor: `${t.surface}e6` }}>
         {/* Audio recorder error */}
         {recorder.error && (
           <div style={{ padding: "4px 20px", background: "rgba(239,68,68,0.08)" }}>

@@ -88,6 +88,8 @@ ALL_SCOPES = [
     "bot_hooks:read", "bot_hooks:write",
     # Storage
     "storage:read", "storage:write",
+    # Push notifications
+    "push:send",
 ]
 
 # Scope descriptions (shown in admin UI)
@@ -166,6 +168,7 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "bot_hooks:write": "Create, update, and delete bot hooks",
     "storage:read": "View storage usage statistics",
     "storage:write": "Manage storage (cleanup, purge)",
+    "push:send": "Send Web Push notifications to a user's subscribed devices",
 }
 
 # Grouped scopes for the UI — each group has a description and ordered scope list.
@@ -311,6 +314,10 @@ SCOPE_GROUPS: dict[str, dict] = {
     "Storage": {
         "description": "Storage usage and management",
         "scopes": ["storage:read", "storage:write"],
+    },
+    "Push Notifications": {
+        "description": "Send Web Push notifications to a user's subscribed devices",
+        "scopes": ["push:send"],
     },
 }
 

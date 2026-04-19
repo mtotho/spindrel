@@ -5,7 +5,13 @@ import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, RotateCcw, Check, Sun, Moon } from "lucide-react";
+import { Save, RotateCcw, Check, Sun, Moon, Download, Bell, BellOff } from "lucide-react";
+import { useInstallPromptStore } from "@/src/stores/installPrompt";
+import {
+  disablePush, enablePush, getExistingSubscription,
+  isPushSupported, notificationPermission,
+} from "@/src/lib/pushSubscription";
+import { toast } from "@/src/stores/toast";
 import { MemorySchemeSection } from "@/src/components/settings/MemorySchemeSection";
 import { SettingsPromptField } from "@/src/components/settings/SettingsPromptField";
 import { DreamingManagementSection } from "@/src/components/settings/DreamingManagementSection";
@@ -493,6 +499,149 @@ function AppearanceSection() {
   );
 }
 
+/** Web Push opt-in toggle. Hidden on unsupported platforms (iOS Safari
+ *  browser tab, etc.). On iOS the user must first install the PWA to
+ *  Home Screen — see `isPushSupported`. */
+function NotificationsSection() {
+  const t = useThemeTokens();
+  const [supported, setSupported] = useState<boolean | null>(null);
+  const [subscribed, setSubscribed] = useState(false);
+  const [perm, setPerm] = useState<NotificationPermission>("default");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const ok = isPushSupported();
+    setSupported(ok);
+    if (!ok) return;
+    setPerm(notificationPermission());
+    void getExistingSubscription().then((sub) => setSubscribed(!!sub));
+  }, []);
+
+  if (supported === null) return null;
+  if (!supported) {
+    // iOS Safari in a browser tab: suggest install instead. Skip the
+    // message entirely on desktop browsers that lack Notification API.
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (!isIOS) return null;
+    return (
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: "10px 0" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <BellOff size={16} color={t.textDim} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: t.text }}>Notifications</span>
+          </div>
+          <span style={{ fontSize: 11, color: t.textDim, paddingLeft: 26 }}>
+            Install Spindrel to your Home Screen first (Share → Add to Home Screen). Notifications work only in the installed app on iOS.
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const handleEnable = async () => {
+    setBusy(true);
+    try {
+      const r = await enablePush();
+      if (r.ok) {
+        setSubscribed(true);
+        setPerm(notificationPermission());
+        toast({ kind: "success", message: "Notifications enabled" });
+      } else {
+        const msg =
+          r.reason === "denied" ? "Permission denied in the browser."
+          : r.reason === "server-disabled" ? "Push is not configured on this server."
+          : r.reason === "unsupported" ? "Notifications aren't supported on this device."
+          : `Couldn't enable notifications${r.message ? `: ${r.message}` : ""}.`;
+        toast({ kind: "error", message: msg, durationMs: 5000 });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDisable = async () => {
+    setBusy(true);
+    try {
+      await disablePush();
+      setSubscribed(false);
+      toast({ kind: "info", message: "Notifications disabled" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const denied = perm === "denied";
+  return (
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: "10px 0" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
+          {subscribed ? <Bell size={16} color={t.accent} /> : <BellOff size={16} color={t.textMuted} />}
+          <span style={{ fontSize: 13, fontWeight: 500, color: t.text }}>Push notifications</span>
+        </div>
+        <span style={{ fontSize: 11, color: t.textDim, paddingLeft: 26 }}>
+          {denied
+            ? "Blocked in your browser settings — unblock there and try again."
+            : subscribed
+            ? "This device will receive push notifications from Spindrel bots and tools."
+            : "Let Spindrel wake this device when a bot pushes a notification."}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={subscribed ? handleDisable : handleEnable}
+        disabled={busy || denied}
+        style={{
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
+          background: subscribed ? "transparent" : t.accent,
+          border: subscribed ? `1px solid ${t.surfaceBorder}` : "none",
+          borderRadius: 6, padding: "6px 14px",
+          cursor: busy || denied ? "not-allowed" : "pointer",
+          color: subscribed ? t.text : "#fff",
+          fontSize: 13, fontWeight: 500,
+          opacity: busy || denied ? 0.5 : 1,
+        }}
+      >
+        {subscribed ? "Disable" : "Enable"}
+      </button>
+    </div>
+  );
+}
+
+/** Install-as-app affordance. Only renders when the browser has fired
+ *  `beforeinstallprompt` — Chrome/Edge on desktop and Android. Silent on
+ *  iOS Safari (users install via Share → Add to Home Screen) and when the
+ *  app is already installed (event is cleared in `appinstalled`). */
+function InstallAppSection() {
+  const event = useInstallPromptStore((s) => s.event);
+  const promptInstall = useInstallPromptStore((s) => s.promptInstall);
+  const t = useThemeTokens();
+  if (!event) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: "10px 0" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Download size={16} color={t.textMuted} />
+          <span style={{ fontSize: 13, fontWeight: 500, color: t.text }}>Install Spindrel</span>
+        </div>
+        <span style={{ fontSize: 11, color: t.textDim, paddingLeft: 26 }}>
+          Add to your home screen for a native-app feel.
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={() => { void promptInstall(); }}
+        style={{
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
+          background: t.accent, borderRadius: 6, padding: "6px 14px",
+          border: "none", cursor: "pointer", color: "#fff", fontSize: 13, fontWeight: 500,
+        }}
+      >
+        Install
+      </button>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Settings screen
 // ---------------------------------------------------------------------------
@@ -670,6 +819,8 @@ export default function SettingsScreen() {
           <h2 style={{ fontSize: 18, fontWeight: 600, color: t.text, margin: "0 0 8px 0" }}>{activeGroup}</h2>
 
           {isGlobal && <AppearanceSection />}
+          {isGlobal && <InstallAppSection />}
+          {isGlobal && <NotificationsSection />}
           {isGlobal && (
             <>
               <GlobalSection fbModels={fbModels} onFbChange={handleFbChange} onFbSave={handleFbSave} fbDirty={fbDirty} fbSaving={fbUpdateMut.isPending} fbSaved={fbSaved} fbError={fbUpdateMut.isError} fbLoading={fbQuery.isLoading} />

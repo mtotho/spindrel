@@ -213,7 +213,12 @@ async def _resolve_bot_channel(bot_id: str, db) -> tuple[uuid.UUID | None, str |
     return channel.id, channel.client_id, channel.active_session_id, dispatch_type, dispatch_config
 
 
-@register(_SCHEDULE_TASK_SCHEMA, safety_tier="control_plane")
+@register(
+    _SCHEDULE_TASK_SCHEMA,
+    safety_tier="control_plane",
+    requires_bot_context=True,
+    requires_channel_context=True,
+)
 async def schedule_task(
     prompt: str = "",
     title: str | None = None,

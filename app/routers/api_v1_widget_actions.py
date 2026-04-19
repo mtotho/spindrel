@@ -131,28 +131,38 @@ async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
     result: str | None = None
     error_msg: str | None = None
 
-    if is_local_tool(resolved_name):
-        try:
-            result = await asyncio.wait_for(
-                call_local_tool(resolved_name, args_str),
-                timeout=settings.TOOL_DISPATCH_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            error_msg = f"Tool '{resolved_name}' timed out"
-        except Exception as exc:
-            error_msg = f"Tool '{resolved_name}' failed: {exc}"
-    elif is_mcp_tool(resolved_name):
-        try:
-            result = await asyncio.wait_for(
-                call_mcp_tool(resolved_name, args_str),
-                timeout=settings.TOOL_DISPATCH_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            error_msg = f"MCP tool '{resolved_name}' timed out"
-        except Exception as exc:
-            error_msg = f"MCP tool '{resolved_name}' failed: {exc}"
-    else:
-        return WidgetActionResponse(ok=False, error=f"Unknown tool: {name}")
+    from app.agent.context import current_bot_id, current_channel_id
+
+    bot_token = current_bot_id.set(req.bot_id) if req.bot_id else None
+    channel_token = current_channel_id.set(req.channel_id) if req.channel_id else None
+    try:
+        if is_local_tool(resolved_name):
+            try:
+                result = await asyncio.wait_for(
+                    call_local_tool(resolved_name, args_str),
+                    timeout=settings.TOOL_DISPATCH_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                error_msg = f"Tool '{resolved_name}' timed out"
+            except Exception as exc:
+                error_msg = f"Tool '{resolved_name}' failed: {exc}"
+        elif is_mcp_tool(resolved_name):
+            try:
+                result = await asyncio.wait_for(
+                    call_mcp_tool(resolved_name, args_str),
+                    timeout=settings.TOOL_DISPATCH_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                error_msg = f"MCP tool '{resolved_name}' timed out"
+            except Exception as exc:
+                error_msg = f"MCP tool '{resolved_name}' failed: {exc}"
+        else:
+            return WidgetActionResponse(ok=False, error=f"Unknown tool: {name}")
+    finally:
+        if bot_token is not None:
+            current_bot_id.reset(bot_token)
+        if channel_token is not None:
+            current_channel_id.reset(channel_token)
 
     if error_msg:
         return WidgetActionResponse(ok=False, error=error_msg)
@@ -189,6 +199,8 @@ async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
                 display_label=req.display_label,
                 poll_cfg=poll_cfg,
                 widget_config=req.widget_config,
+                bot_id=req.bot_id,
+                channel_id=req.channel_id,
             )
             if polled is not None:
                 return WidgetActionResponse(ok=True, envelope=polled.compact_dict())
@@ -293,6 +305,8 @@ def invalidate_poll_cache_for(poll_cfg: dict) -> None:
 async def _do_state_poll(
     *, tool_name: str, display_label: str, poll_cfg: dict,
     widget_config: dict | None = None,
+    bot_id: str | None = None,
+    channel_id: uuid.UUID | None = None,
 ) -> ToolResultEnvelope | None:
     """Fetch fresh state via the configured poll tool and render its template.
 
@@ -303,7 +317,14 @@ async def _do_state_poll(
     state_poll args so a toggled flag can change the tool arguments (e.g.
     ``include_daily: "{{config.show_forecast}}"``). Also passed to the
     template engine so the rendered envelope can gate components on it.
+
+    ``bot_id`` / ``channel_id`` — set as ContextVars during the tool call so
+    poll tools that read ``current_bot_id`` / ``current_channel_id`` (e.g.
+    list_api_endpoints, workspace tools) resolve identity from the pinned
+    widget's source instead of returning "No bot context available."
     """
+    from app.agent.context import current_bot_id, current_channel_id
+
     poll_tool = poll_cfg.get("tool")
     if not poll_tool:
         return None
@@ -329,6 +350,8 @@ async def _do_state_poll(
         raw_result: str | None = cached[1]
     else:
         raw_result = None
+        bot_token = current_bot_id.set(bot_id) if bot_id else None
+        channel_token = current_channel_id.set(channel_id) if channel_id else None
         try:
             if is_local_tool(resolved_poll_tool):
                 raw_result = await asyncio.wait_for(
@@ -349,6 +372,11 @@ async def _do_state_poll(
         except Exception:
             logger.warning("Poll tool '%s' failed", resolved_poll_tool, exc_info=True)
             return None
+        finally:
+            if bot_token is not None:
+                current_bot_id.reset(bot_token)
+            if channel_token is not None:
+                current_channel_id.reset(channel_token)
 
         if raw_result is None:
             return None
@@ -387,11 +415,34 @@ async def refresh_widget_state(req: WidgetRefreshRequest):
     if not poll_cfg.get("tool"):
         return WidgetActionResponse(ok=False, error="state_poll missing 'tool' field")
 
+    # If a dashboard pin is named, the pin's source_bot_id / source_channel_id
+    # are authoritative (pin saved at creation time with the bot identity it
+    # should refresh as). Request fields fall back when no pin is named — used
+    # by inline channel widgets that pass their own context.
+    pin_bot_id: str | None = None
+    pin_channel_id: uuid.UUID | None = None
+    if req.dashboard_pin_id is not None:
+        from app.db.engine import async_session
+        from app.db.models import WidgetDashboardPin
+        try:
+            async with async_session() as db:
+                pin_row = await db.get(WidgetDashboardPin, req.dashboard_pin_id)
+                if pin_row is not None:
+                    pin_bot_id = pin_row.source_bot_id
+                    pin_channel_id = pin_row.source_channel_id
+        except Exception:
+            logger.warning(
+                "Dashboard pin lookup for refresh context failed: pin=%s",
+                req.dashboard_pin_id, exc_info=True,
+            )
+
     envelope = await _do_state_poll(
         tool_name=req.tool_name,
         display_label=req.display_label,
         poll_cfg=poll_cfg,
         widget_config=req.widget_config,
+        bot_id=pin_bot_id or req.bot_id,
+        channel_id=pin_channel_id or req.channel_id,
     )
     if envelope is None:
         return WidgetActionResponse(ok=False, error="State poll failed to produce an envelope")
@@ -459,11 +510,21 @@ async def _dispatch_widget_config(req: WidgetActionRequest) -> WidgetActionRespo
         return WidgetActionResponse(ok=True, envelope=None, api_response=patched_pin)
 
     invalidate_poll_cache_for(poll_cfg)
+    pin_bot_id = patched_pin.get("source_bot_id")
+    pin_channel_raw = patched_pin.get("source_channel_id")
+    pin_channel_uuid: uuid.UUID | None = None
+    if pin_channel_raw:
+        try:
+            pin_channel_uuid = uuid.UUID(pin_channel_raw)
+        except (ValueError, TypeError):
+            pin_channel_uuid = None
     envelope = await _do_state_poll(
         tool_name=resolved,
         display_label=req.display_label or (patched_pin.get("envelope") or {}).get("display_label") or "",
         poll_cfg=poll_cfg,
         widget_config=merged_config,
+        bot_id=pin_bot_id,
+        channel_id=pin_channel_uuid,
     )
     if envelope is None:
         return WidgetActionResponse(ok=True, envelope=None, api_response=patched_pin)

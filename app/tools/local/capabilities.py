@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
             "required": ["id"],
         },
     },
-}, safety_tier="mutating")
+}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
 async def activate_capability(id: str, reason: str = "") -> str:
     """Activate a capability for this conversation session.
 

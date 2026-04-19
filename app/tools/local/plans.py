@@ -40,7 +40,7 @@ from app.tools.registry import register
             "required": ["title", "items"],
         },
     },
-}, safety_tier="mutating")
+}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
 async def create_plan(title: str, items: list[str], description: str | None = None) -> str:
     bot_id = current_bot_id.get() or "unknown"
     session_id = current_session_id.get()
@@ -140,7 +140,7 @@ async def get_plan(plan_id: str) -> str:
             "required": [],
         },
     },
-})
+}, requires_bot_context=True)
 async def list_plans(status: str = "active") -> str:
     bot_id = current_bot_id.get() or "unknown"
     session_id = current_session_id.get()

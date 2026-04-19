@@ -172,10 +172,10 @@ export default function WidgetsDashboardPage() {
     mql.addEventListener("change", update);
     return () => mql.removeEventListener("change", update);
   }, []);
-  // Edit gestures only at `lg` — the edit UX (grid guides, column math) is
-  // all sized to `preset.cols.lg`, and committing a narrower breakpoint's
-  // coordinates would corrupt the canonical layout.
-  const layoutEditable = editMode && !isMobile && breakpoint === "lg";
+  // Edit gestures allowed at any non-mobile width. The grid guides and layout
+  // commits are separately gated to `lg` (see render + onLayoutChange) so that
+  // dragging at a narrower breakpoint doesn't corrupt the canonical layout.
+  const layoutEditable = editMode && !isMobile;
 
   const highlightPin = useCallback((pinId: string) => {
     setHighlightPinId(pinId);
@@ -379,7 +379,7 @@ export default function WidgetsDashboardPage() {
         )}
         {!isLoading && !error && pins.length > 0 && (
           <div className="relative">
-            {isChannelScoped && layoutEditable && (
+            {isChannelScoped && layoutEditable && breakpoint === "lg" && (
               <EditModeGridGuides
                 cols={preset.cols.lg}
                 rowHeight={preset.rowHeight}
