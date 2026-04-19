@@ -92,7 +92,11 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
     color: var(--sd-text);
     background: var(--sd-surface-raised);
   }
-  body { padding: 8px 12px; overflow-y: auto; }
+  /* Host wraps the iframe in its own padded card (WidgetCard, PinnedToolWidget,
+     ToolsSandbox). We intentionally sit flush inside that container — widgets
+     that want inner chrome opt in via .sd-card; flatter layouts (image-heavy,
+     chart-heavy) can fill the full tile by not using sd-card. */
+  body { padding: 0; overflow-y: auto; }
   * { box-sizing: border-box; max-width: 100%; }
   img, video { max-width: 100%; height: auto; border-radius: var(--sd-radius-sm); }
   a { color: var(--sd-accent); text-decoration: none; }

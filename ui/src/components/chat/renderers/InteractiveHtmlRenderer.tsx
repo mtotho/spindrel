@@ -853,9 +853,7 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
     <div
       style={{
         borderRadius: 8,
-        border: `1px solid ${t.surfaceBorder}`,
         overflow: "hidden",
-        background: t.surfaceRaised,
         position: "relative",
         // Dashboard grid tiles set an explicit height on their children;
         // flex-column + h-full lets the iframe grow to fill the tile.

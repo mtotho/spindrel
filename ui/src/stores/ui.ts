@@ -30,7 +30,7 @@ interface UIState {
    *  channel navigation. Default = Widgets (the primary reason to open the
    *  rail). The channel page can flip this to "files" via `requestFilesFocus`
    *  when the user hits ⌘⇧B or clicks the header's browse-files icon. */
-  omniPanelTab: "widgets" | "files";
+  omniPanelTab: "widgets" | "files" | "jump";
   /** Bumped whenever the user explicitly asks to focus the files tree (e.g.
    *  ⌘⇧B or the browse-files header button). The FilesTabPanel listens to
    *  this tick and auto-opens + focuses its filter input. */
@@ -57,7 +57,7 @@ interface UIState {
   toggleFileExplorer: () => void;
   setFileExplorerOpen: (open: boolean) => void;
   toggleFileExplorerSplit: () => void;
-  setOmniPanelTab: (tab: "widgets" | "files") => void;
+  setOmniPanelTab: (tab: "widgets" | "files" | "jump") => void;
   /** Open the OmniPanel, switch to the Files tab, and bump filesFocusTick
    *  so FilesTabPanel auto-focuses its search filter. Composite action so
    *  call sites can invoke one thing from a keyboard shortcut / header

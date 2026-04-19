@@ -15,10 +15,11 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
-  LayoutDashboard,
   Layers,
   Plus,
+  Search,
 } from "lucide-react";
+import { CommandPaletteContent } from "@/src/components/layout/CommandPalette";
 import {
   Responsive,
   WidthProvider,
@@ -206,8 +207,7 @@ export function OmniPanel({
     if (!hasWorkspace && tab === "files") setTab("widgets");
   }, [hasWorkspace, tab, setTab]);
 
-  const activeTab = hasWorkspace ? tab : "widgets";
-  const showWidgetsHeaderLink = activeTab === "widgets";
+  const activeTab = hasWorkspace ? tab : tab === "files" ? "widgets" : tab;
 
   return (
     <div
@@ -221,7 +221,7 @@ export function OmniPanel({
       }}
     >
       <div
-        className="flex items-center gap-1 px-2 pt-2 pb-2"
+        className="flex items-center gap-0.5 px-1.5 pt-1.5 pb-1.5"
         style={{ borderBottom: `1px solid ${t.surfaceBorder}55` }}
       >
         <TabButton
@@ -229,6 +229,7 @@ export function OmniPanel({
           active={activeTab === "widgets"}
           onClick={() => setTab("widgets")}
           count={railPins.length}
+          compact
           t={t}
         />
         {hasWorkspace && (
@@ -236,23 +237,26 @@ export function OmniPanel({
             label="Files"
             active={activeTab === "files"}
             onClick={() => setTab("files")}
+            compact
             t={t}
           />
         )}
-        {showWidgetsHeaderLink && (
-          <Link
-            to={dashboardHref}
-            className="ml-auto inline-flex items-center justify-center w-6 h-6 rounded-md transition-colors duration-150 hover:bg-white/[0.06]"
-            aria-label="Edit channel dashboard"
-            title="Edit channel dashboard"
-          >
-            <LayoutDashboard size={12} color={t.textMuted} />
-          </Link>
-        )}
+        <TabButton
+          label="Jump"
+          icon={<Search size={11} />}
+          active={activeTab === "jump"}
+          onClick={() => setTab("jump")}
+          compact
+          t={t}
+        />
       </div>
 
       {activeTab === "files" && hasWorkspace ? (
         <div className="flex-1 min-h-0 overflow-hidden">{filesSection}</div>
+      ) : activeTab === "jump" ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <CommandPaletteContent variant="inline" />
+        </div>
       ) : (
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto px-2 pb-2 pt-2">
           {hasWidgets ? widgetsSection : <EmptyWidgets dashboardHref={dashboardHref} t={t} />}
@@ -419,32 +423,38 @@ function EmptyWidgets({
 
 function TabButton({
   label,
+  icon,
   active,
   onClick,
   count,
+  compact = false,
   t,
 }: {
   label: string;
+  icon?: React.ReactNode;
   active: boolean;
   onClick: () => void;
   count?: number;
+  compact?: boolean;
   t: ReturnType<typeof useThemeTokens>;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-1.5 px-3 rounded-md transition-colors duration-150 bg-transparent border-0 cursor-pointer"
+      className="flex items-center gap-1.5 rounded-md transition-colors duration-150 bg-transparent border-0 cursor-pointer"
       style={{
         color: active ? t.text : t.textMuted,
         backgroundColor: active ? t.surfaceOverlay : "transparent",
-        fontSize: 14,
+        fontSize: compact ? 12 : 14,
         fontWeight: 600,
         letterSpacing: 0.2,
-        minHeight: 40,
+        minHeight: compact ? 30 : 40,
+        padding: compact ? "0 10px" : "0 12px",
       }}
       aria-pressed={active}
     >
+      {icon && <span className="shrink-0 flex items-center">{icon}</span>}
       <span>{label}</span>
       {typeof count === "number" && count > 0 && (
         <span

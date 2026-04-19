@@ -730,11 +730,7 @@ export default function ChatScreen() {
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
               {channelHeaderBlock}
               <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-                <div className="absolute inset-0 flex justify-center overflow-hidden">
-                  <div className="w-full max-w-[820px] h-full relative">
-                    <ChatMessageArea {...messageAreaProps} />
-                  </div>
-                </div>
+                <ChatMessageArea {...messageAreaProps} />
                 {floatingActions.map((h) => (
                   <HudFloatingAction key={h.key} hud={h} />
                 ))}

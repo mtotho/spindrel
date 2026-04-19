@@ -327,7 +327,39 @@ function categoryRank(cat: string): number {
   return idx === -1 ? CATEGORY_ORDER.length : idx;
 }
 
-export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
+// ---------------------------------------------------------------------------
+// CommandPaletteContent — the search+results guts, rendered either inside the
+// modal portal (CommandPalette below) or inline inside the channel OmniPanel's
+// "Jump" tab. No portal / backdrop / container styling of its own — fills the
+// parent.
+//
+// Variant affects behaviour:
+//   "modal"  : onAfterSelect fires after selection (modal closes), Esc fires
+//              onAfterSelect, kbd footer visible on desktop, auto-focuses the
+//              input by default.
+//   "inline" : onAfterSelect fires after selection (caller can no-op), Esc
+//              clears the query instead of closing anything, no kbd footer,
+//              does NOT auto-focus on mount (user is likely typing in chat).
+// ---------------------------------------------------------------------------
+export interface CommandPaletteContentProps {
+  variant: "modal" | "inline";
+  /** Called after a selection fires (modal uses to close; inline can no-op). */
+  onAfterSelect?: () => void;
+  /** Auto-focus the search input on mount. Defaults to true for modal, false for inline. */
+  autoFocus?: boolean;
+  /** Render the close/esc hint in the search bar row. Modal uses this on mobile. */
+  showInlineClose?: boolean;
+  /** Fires when the user hits Escape from inside the input (modal uses for close). */
+  onEscape?: () => void;
+}
+
+export function CommandPaletteContent({
+  variant,
+  onAfterSelect,
+  autoFocus,
+  showInlineClose = false,
+  onEscape,
+}: CommandPaletteContentProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
   const location = useLocation();
@@ -337,30 +369,22 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
+  const shouldAutoFocus = autoFocus ?? (variant === "modal");
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const isKeyboardNav = useRef(false);
 
-  // Animation state
-  const [mounted, setMounted] = useState(false);
-  const [visible, setVisible] = useState(false);
-
   useEffect(() => {
-    if (open) {
-      setMounted(true);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setVisible(true);
-          // Focus immediately once the DOM is there
-          inputRef.current?.focus();
-        });
+    if (shouldAutoFocus) {
+      // Two rAFs to outlast any parent mount animation.
+      const a = requestAnimationFrame(() => {
+        const b = requestAnimationFrame(() => inputRef.current?.focus());
+        return () => cancelAnimationFrame(b);
       });
-    } else {
-      setVisible(false);
-      const timer = setTimeout(() => setMounted(false), 180);
-      return () => clearTimeout(timer);
+      return () => cancelAnimationFrame(a);
     }
-  }, [open]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Data sources
   const { data: channels } = useChannels();
@@ -645,15 +669,6 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     return { groups, totalCount: flatIndex, flat, showMoreToggleIndex };
   }, [scoredResults, showRecentsToggle, isEmpty]);
 
-  // Reset state on open
-  useEffect(() => {
-    if (open) {
-      setQuery("");
-      setSelectedIndex(0);
-      setRecentsExpanded(false);
-    }
-  }, [open]);
-
   // Collapse recents when user starts searching
   useEffect(() => {
     if (query.trim()) setRecentsExpanded(false);
@@ -669,7 +684,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const go = useCallback(
     (href: string) => {
       recordPageVisit(href);
-      onClose();
+      onAfterSelect?.();
       closeMobileSidebar();
       const hashIdx = href.indexOf("#");
       if (hashIdx >= 0) {
@@ -683,22 +698,25 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       } else {
         navigate(href);
       }
+      // After navigating away, clear the inline tab's query so next open is fresh.
+      setQuery("");
+      setSelectedIndex(0);
     },
-    [onClose, closeMobileSidebar, navigate, recordPageVisit],
+    [onAfterSelect, closeMobileSidebar, navigate, recordPageVisit],
   );
 
   // Dispatch selection: fire onSelect for action items, otherwise navigate.
   const selectItem = useCallback(
     (item: PaletteItem) => {
       if (item.onSelect) {
-        onClose();
+        onAfterSelect?.();
         closeMobileSidebar();
         item.onSelect();
         return;
       }
       if (item.href) go(item.href);
     },
-    [go, onClose, closeMobileSidebar],
+    [go, onAfterSelect, closeMobileSidebar],
   );
 
   const totalCount = groupedResults.totalCount;
@@ -707,7 +725,13 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     (e: React.KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        if (variant === "inline" && query) {
+          // Inline tab: clear query instead of closing anything.
+          setQuery("");
+          setSelectedIndex(0);
+        } else {
+          onEscape?.();
+        }
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         isKeyboardNav.current = true;
@@ -726,72 +750,24 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         if (entry) selectItem(entry.item);
       }
     },
-    [onClose, groupedResults, selectedIndex, selectItem, totalCount],
+    [variant, query, onEscape, groupedResults, selectedIndex, selectItem, totalCount],
   );
-
-  if (!mounted || typeof document === "undefined") return null;
 
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
   const modKey = isMac ? "\u2318" : "Ctrl";
 
-  const containerStyle: React.CSSProperties = isMobile
-    ? {
-        position: "fixed",
-        inset: 0,
-        zIndex: 10031,
-        background: t.surface,
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-        opacity: visible ? 1 : 0,
-        transform: visible ? "translateY(0)" : "translateY(8px)",
-        transition: visible
-          ? "opacity 160ms ease-out, transform 160ms ease-out"
-          : "opacity 120ms ease-in, transform 120ms ease-in",
-      }
-    : {
-        position: "fixed",
-        top: "min(20%, 160px)",
-        left: "50%",
-        width: 560,
-        maxWidth: "92vw",
-        maxHeight: "min(70vh, 480px)",
-        zIndex: 10031,
-        background: t.surfaceRaised,
-        border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: 12,
-        boxShadow: "0 16px 48px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.04) inset",
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-        opacity: visible ? 1 : 0,
-        transform: visible
-          ? "translate(-50%, 0) scale(1)"
-          : "translate(-50%, -8px) scale(0.98)",
-        transition: visible
-          ? "opacity 160ms ease-out, transform 160ms ease-out"
-          : "opacity 120ms ease-in, transform 120ms ease-in",
-      };
+  // Both variants render inside a flex column that fills the parent.
+  // Modal wrapper handles the portal + backdrop + position/animation.
+  const containerStyle: React.CSSProperties = {
+    flex: 1,
+    minHeight: 0,
+    background: "transparent",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  };
 
-  return ReactDOM.createPortal(
-    <>
-      {/* Backdrop — desktop only. On mobile the sheet fills the viewport. */}
-      {!isMobile && (
-        <div
-          onClick={onClose}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.5)",
-            backdropFilter: "blur(4px)",
-            WebkitBackdropFilter: "blur(4px)",
-            zIndex: 10030,
-            opacity: visible ? 1 : 0,
-            transition: "opacity 160ms ease-out",
-          }}
-        />
-      )}
-      {/* Palette */}
+  return (
       <div style={containerStyle}>
         {/* Search input */}
         <div
@@ -819,7 +795,6 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}><Search size={isMobile ? 18 : 16} color={t.textDim} /></span>
           <input
             ref={inputRef}
-            autoFocus
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -838,9 +813,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               minWidth: 0,
             }}
           />
-          {isMobile ? (
+          {showInlineClose ? (
             <button
-              onClick={onClose}
+              onClick={() => onEscape?.()}
               aria-label="Close"
               style={{
                 flexShrink: 0,
@@ -860,7 +835,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             >
               <X size={20} color={t.textMuted} />
             </button>
-          ) : (
+          ) : variant === "modal" && !isMobile ? (
             <kbd
               style={{
                 fontSize: 11,
@@ -874,7 +849,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             >
               esc
             </kbd>
-          )}
+          ) : null}
         </div>
 
         {/* Results list */}
@@ -1025,8 +1000,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           ))}
         </div>
 
-        {/* Footer hint — desktop only. On mobile keyboard shortcuts aren't useful. */}
-        {!isMobile && (
+        {/* Footer hint — modal desktop only. Inline tab hides it to save height. */}
+        {variant === "modal" && !isMobile && (
         <div
           style={{
             display: "flex", flexDirection: "row",
@@ -1053,6 +1028,101 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           </span>
         </div>
         )}
+      </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modal wrapper — portal + backdrop + mount/animate + positioning. Renders
+// CommandPaletteContent inside. Triggered via Cmd/Ctrl-K or mobile palette.
+// ---------------------------------------------------------------------------
+
+export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useThemeTokens();
+  const columns = useResponsiveColumns();
+  const isMobile = columns === "single";
+  const [mounted, setMounted] = useState(false);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setVisible(true));
+      });
+    } else {
+      setVisible(false);
+      const timer = setTimeout(() => setMounted(false), 180);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
+
+  if (!mounted || typeof document === "undefined") return null;
+
+  const shellStyle: React.CSSProperties = isMobile
+    ? {
+        position: "fixed",
+        inset: 0,
+        zIndex: 10031,
+        background: t.surface,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0)" : "translateY(8px)",
+        transition: visible
+          ? "opacity 160ms ease-out, transform 160ms ease-out"
+          : "opacity 120ms ease-in, transform 120ms ease-in",
+      }
+    : {
+        position: "fixed",
+        top: "min(20%, 160px)",
+        left: "50%",
+        width: 560,
+        maxWidth: "92vw",
+        maxHeight: "min(70vh, 480px)",
+        zIndex: 10031,
+        background: t.surfaceRaised,
+        border: `1px solid ${t.surfaceBorder}`,
+        borderRadius: 12,
+        boxShadow: "0 16px 48px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.04) inset",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        opacity: visible ? 1 : 0,
+        transform: visible
+          ? "translate(-50%, 0) scale(1)"
+          : "translate(-50%, -8px) scale(0.98)",
+        transition: visible
+          ? "opacity 160ms ease-out, transform 160ms ease-out"
+          : "opacity 120ms ease-in, transform 120ms ease-in",
+      };
+
+  return ReactDOM.createPortal(
+    <>
+      {!isMobile && (
+        <div
+          onClick={onClose}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            zIndex: 10030,
+            opacity: visible ? 1 : 0,
+            transition: "opacity 160ms ease-out",
+          }}
+        />
+      )}
+      <div style={shellStyle}>
+        <CommandPaletteContent
+          variant="modal"
+          autoFocus
+          onAfterSelect={onClose}
+          onEscape={onClose}
+          showInlineClose={isMobile}
+        />
       </div>
     </>,
     document.body,

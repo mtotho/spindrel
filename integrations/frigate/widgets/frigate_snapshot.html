@@ -1,20 +1,16 @@
-<div class="sd-card" id="root">
-  <header class="sd-card-header">
-    <h3 class="sd-title" id="camera">Camera</h3>
-    <span class="sd-meta" id="meta"></span>
-  </header>
-  <div class="sd-frame" id="frame" style="min-height: 120px;">
+<div id="root" style="display: block;">
+  <div class="sd-frame" id="frame" style="min-height: 120px; display: flex; align-items: center; justify-content: center; border-radius: 6px;">
     <div class="sd-frame-overlay" id="overlay">Loading…</div>
   </div>
-  <div class="sd-card-actions">
-    <button class="sd-btn" id="bbox" aria-pressed="true" type="button">Bounding boxes</button>
-    <button class="sd-btn" id="refresh" type="button">Refresh</button>
+  <div class="sd-hstack sd-hstack-sm" id="controls" style="padding: 6px 2px 2px; gap: 6px;">
+    <span class="sd-meta" id="meta" style="flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+    <button class="sd-btn sd-btn-subtle" id="bbox" aria-pressed="true" type="button" style="padding: 3px 8px; font-size: 11px;">Boxes</button>
+    <button class="sd-btn sd-btn-subtle" id="refresh" type="button" style="padding: 3px 8px; font-size: 11px;">Refresh</button>
   </div>
-  <div class="sd-error" id="err" hidden></div>
+  <div class="sd-error" id="err" hidden style="padding: 4px 2px;"></div>
 </div>
 <script>
 (function () {
-  var cameraEl = document.getElementById("camera");
   var metaEl = document.getElementById("meta");
   var frameEl = document.getElementById("frame");
   var overlayEl = document.getElementById("overlay");
@@ -54,10 +50,9 @@
     }
     setError("");
 
-    var cam = cameraFromFilename(data.filename) || "Camera";
-    cameraEl.textContent = cam;
-
+    var cam = cameraFromFilename(data.filename) || "";
     var bits = [];
+    if (cam) bits.push(cam);
     if (data.size_bytes) bits.push(humanSize(data.size_bytes));
     bits.push(new Date().toLocaleTimeString());
     metaEl.textContent = bits.join(" · ");
@@ -75,6 +70,7 @@
 
     var img = document.createElement("img");
     img.alt = cam + " snapshot";
+    img.style.cssText = "width: 100%; height: auto; display: block; border-radius: 6px;";
     img.onerror = function () {
       setError("Image failed to render (attachment bytes were not valid image data)");
     };
@@ -96,13 +92,13 @@
 
   function refresh() {
     refreshBtn.disabled = true;
-    refreshBtn.textContent = "Refreshing…";
+    refreshBtn.textContent = "…";
     window.spindrel
       .api("/api/v1/widget-actions/refresh", {
         method: "POST",
         body: JSON.stringify({
           tool_name: "frigate_snapshot",
-          display_label: cameraEl.textContent || "",
+          display_label: (window.spindrel.toolResult && window.spindrel.toolResult.filename) || "",
           bot_id: window.spindrel.botId,
           channel_id: window.spindrel.channelId,
           widget_config: { show_bbox: bboxBtn.getAttribute("aria-pressed") === "true" },
@@ -131,9 +127,7 @@
   refreshBtn.addEventListener("click", refresh);
 
   // Re-render whenever the host pushes a new tool result via
-  // __setToolResult. This fires on state_poll refreshes AND on the
-  // widget_config dispatch above (because the refresh endpoint returns
-  // the refreshed envelope and the host extracts the preamble).
+  // __setToolResult.
   window.addEventListener("spindrel:toolresult", function (ev) {
     render(ev.detail);
   });

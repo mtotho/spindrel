@@ -233,22 +233,31 @@ export function ChatMessageArea({
           paddingBottom: 8,
         }}
       >
-        {/* DOM first == visual BOTTOM — streaming / processing indicators.
-            Always rendered (even when empty) so the flex child at the visual
-            bottom is stable — removing it causes the browser to lose its
-            layout anchor and scroll position jumps unpredictably. */}
-        <div>
+        {/* Each column-reverse child is centered within the full-width scroll
+            container and capped at 820px. The scroll container itself spans
+            edge-to-edge so the scrollbar sits at the right edge of the chat
+            column, not at the right edge of the 820px content area. */}
+        {/* DOM first == visual BOTTOM — streaming / processing indicators. */}
+        <div className="w-full mx-auto px-4" style={{ maxWidth: 820 }}>
           {pendingApprovalsSlot?.(liveApprovalIds)}
           {turnIndicators}
           {processingIndicator}
         </div>
 
-        {/* Messages in chronological DOM order inside a normal-flow div.
-            Native selection works because DOM order matches visual order
-            within this wrapper; the reverse only applies to the outer
-            container's children. */}
+        {/* Messages in chronological DOM order inside a normal-flow div. */}
         {invertedData.length === 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: isLoading ? "flex-end" : "center", alignItems: isLoading ? "stretch" : "center", padding: isLoading ? "16px 0" : emptyStateComponent ? "20px 0" : "80px 20px", flex: 1 }}>
+          <div
+            className="w-full mx-auto px-4"
+            style={{
+              maxWidth: 820,
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: isLoading ? "flex-end" : "center",
+              alignItems: isLoading ? "stretch" : "center",
+              padding: isLoading ? "16px 0" : emptyStateComponent ? "20px 0" : "80px 20px",
+              flex: 1,
+            }}
+          >
             {isLoading ? (
               <MessageSkeletons />
             ) : emptyStateComponent ? (
@@ -260,7 +269,7 @@ export function ChatMessageArea({
             )}
           </div>
         ) : (
-          <div>
+          <div className="w-full mx-auto px-4" style={{ maxWidth: 820 }}>
             {Array.from({ length: invertedData.length }, (_, i) => {
               const chronIdx = invertedData.length - 1 - i;
               const item = invertedData[chronIdx];
