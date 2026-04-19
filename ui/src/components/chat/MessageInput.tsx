@@ -444,7 +444,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               composerText={text}
               botId={currentBotId}
               onInsertSkillTag={(skillId) => {
-                editorRef.current?.insertText(`@skill:${skillId} `);
+                editorRef.current?.insertMention(`skill:${skillId}`);
               }}
               size={isMobile ? 32 : 36}
               hideWhenEmpty={isMobile}

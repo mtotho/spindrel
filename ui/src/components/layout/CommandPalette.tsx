@@ -262,6 +262,7 @@ const ROUTE_PREFIX_MAP: { prefix: string; meta: RouteMeta }[] = [
   { prefix: "/admin/logs/", meta: { icon: ScrollText, category: "Monitor", fallbackLabel: "Log Trace" } },
   { prefix: "/admin/api-keys/", meta: { icon: Key, category: "Developer", fallbackLabel: "API Key" } },
   { prefix: "/admin/workspaces/", meta: { icon: HardDrive, category: "Configure", fallbackLabel: "Workspace" } },
+  { prefix: "/widgets/", meta: { icon: LayoutDashboard, category: "Widgets", fallbackLabel: "Dashboard" } },
   { prefix: "/channels/", meta: { icon: Hash, category: "Channels", fallbackLabel: "Channel" } },
 ];
 
@@ -530,7 +531,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       // Resolve recent hrefs to PaletteItems, skipping the current page
       const recentItems: ScoredItem[] = [];
       const recentHrefSet = new Set<string>();
-      const recentLimit = recentsExpanded ? 20 : 3;
+      const recentLimit = recentsExpanded ? 20 : 5;
       for (const rp of recentPages) {
         if (recentItems.length >= recentLimit) break;
         if (rp.href === currentHref) continue;
@@ -560,13 +561,13 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     }
     const searchPool = [...allItems, ...syntheticRecents];
 
-    // Build a map of recency bonuses (decaying: 15, 10, 5), skipping current page
+    // Build a map of recency bonuses (decaying across the top 5), skipping current page
     const recencyBonus = new Map<string, number>();
     let bonusSlot = 0;
     for (const rp of recentPages) {
-      if (bonusSlot >= 3) break;
+      if (bonusSlot >= 5) break;
       if (rp.href === currentHref) continue;
-      recencyBonus.set(rp.href, 15 - bonusSlot * 5);
+      recencyBonus.set(rp.href, 15 - bonusSlot * 3);
       bonusSlot++;
     }
 
@@ -599,7 +600,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   }, [recentPages, currentHref, resolveRecent]);
 
   // Whether to show the "show more" toggle in the Recent group
-  const showRecentsToggle = !query.trim() && totalRecents > 3;
+  const showRecentsToggle = !query.trim() && totalRecents > 5;
 
   const isEmpty = !query.trim();
 
@@ -1015,7 +1016,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                         fontWeight: 400,
                       }}
                     >
-                      {recentsExpanded ? "Show less" : `Show more (${totalRecents - 3})`}
+                      {recentsExpanded ? "Show less" : `Show more (${totalRecents - 5})`}
                     </span>
                   </div>
                 );

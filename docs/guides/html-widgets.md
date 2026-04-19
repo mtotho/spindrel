@@ -91,6 +91,7 @@ Regardless of where you pin a widget, it continues to act as the bot that emitte
 
 ## Further reading
 
+- [Widget Dashboards](widget-dashboards.md) — how named dashboards and channel dashboards work, the OmniPanel rail, grid presets, and editing. HTML widgets pin onto the same boards as component widgets.
 - [Widget Templates](../widget-templates.md) — for component-grammar widgets authored from YAML. Different system, complementary use case.
 - [Developer API](api.md) — the endpoints widgets can call (anything your bot's scoped key can hit).
 - [Custom Tools & Extensions](custom-tools.md) — if you want to ship HTML widget skills with your own integration.

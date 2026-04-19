@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
+import { useUIStore } from "@/src/stores/ui";
 import { Check, Info, LayoutDashboard, Move, Plus, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
@@ -118,6 +119,12 @@ export default function WidgetsDashboardPage() {
   // Only fetched when we're on a channel dashboard — gives the breadcrumb the
   // channel's real `name` without colliding with the main channel-chat route.
   const { data: channelRow } = useChannel(channelScopedId ?? undefined);
+  const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
+  const loc = useLocation();
+  useEffect(() => {
+    const name = isChannelScoped ? channelRow?.name : currentDashboard?.name;
+    if (name) enrichRecentPage(loc.pathname, name);
+  }, [currentDashboard?.name, channelRow?.name, isChannelScoped, loc.pathname, enrichRecentPage]);
   const railCount = useMemo(
     () => pins.filter((p) => isRailPin(p, preset.railZoneCols)).length,
     [pins, preset.railZoneCols],

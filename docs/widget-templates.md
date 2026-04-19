@@ -12,6 +12,9 @@ Packages are editable in the admin UI at **Tools → Widget Library**.
 !!! tip "Looking for bot-authored HTML widgets?"
     The template system on this page is for **tool-result component widgets** — declarative YAML bound to a tool. For bot-written HTML (charts, mini-dashboards, anything outside the component grammar), see the [HTML Widgets guide](guides/html-widgets.md). Those run as the emitting bot with short-lived bot-scoped tokens — a different auth model.
 
+!!! tip "Where these widgets live"
+    Both component widgets and HTML widgets pin onto the same dashboards — named user boards and per-channel boards. See [Widget Dashboards](guides/widget-dashboards.md) for dashboard creation, the OmniPanel rail, grid presets, and editing.
+
 ## Package model
 
 A package has three things:

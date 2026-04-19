@@ -96,6 +96,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair with capabilities for domain expertise. |
 | [Self-Improving Agents](guides/bot-skills.md) | Bot-authored skills, the RAG pipeline, skill hygiene, and admin visibility. |
 | [Custom Tools & Extensions](guides/custom-tools.md) | Create custom tools, manage a personal extensions repo, load external capabilities and skills. |
+| [Widget Dashboards](guides/widget-dashboards.md) | Named dashboards, channel dashboards, and the OmniPanel rail. How component widgets and HTML widgets live side-by-side. |
 | [HTML Widgets](guides/html-widgets.md) | Bot-authored live dashboards. How the bot-scoped iframe auth works and how to provision bots that can build them. |
 | [Creating Integrations](integrations/index.md) | Build custom integrations with routers, dispatchers, hooks, and HUD widgets. |
 | [Chat History](guides/chat-history.md) | Conversation archival, searchable sections, and continuity across fresh starts. |

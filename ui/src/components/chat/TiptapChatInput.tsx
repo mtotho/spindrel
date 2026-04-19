@@ -46,8 +46,9 @@ export interface TiptapChatInputHandle {
   focus: () => void;
   clear: () => void;
   getMarkdown: () => string;
-  /** Insert plain text at the current cursor position and move the cursor to the end of the inserted text. */
-  insertText: (text: string) => void;
+  /** Insert a styled @mention node followed by a trailing space. `id` becomes the
+   *  `@${id}` token on send (matches the regex in app/agent/tags.py). */
+  insertMention: (id: string, label?: string) => void;
 }
 
 export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInputProps>(
@@ -442,9 +443,14 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         initialTextRef.current = "";
       },
       getMarkdown: () => (editor?.storage as any)?.markdown?.getMarkdown() ?? "",
-      insertText: (text: string) => {
+      insertMention: (id: string, label?: string) => {
         if (!editor) return;
-        editor.chain().focus().insertContent(text).run();
+        editor.chain().focus()
+          .insertContent([
+            { type: "mention", attrs: { id, label: label ?? id } },
+            { type: "text", text: " " },
+          ])
+          .run();
       },
     }), [editor]);
 
