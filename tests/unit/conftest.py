@@ -68,6 +68,8 @@ async def patched_async_sessions(engine):
     ), patch("app.tools.local.tasks.async_session", factory), patch(
         "app.tools.local.pipelines.async_session", factory
     ), patch(
+        "app.tools.local.sub_sessions.async_session", factory
+    ), patch(
         "app.tools.local.get_trace.async_session", factory
     ), patch(
         "app.tools.local.skills.async_session", factory

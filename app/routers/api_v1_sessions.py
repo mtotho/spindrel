@@ -453,6 +453,79 @@ class ContextDebugOut(BaseModel):
     messages: list[ContextMessage]
 
 
+# ---------------------------------------------------------------------------
+# Real-time session events (SSE) — for channel-less ephemeral sessions
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{session_id}/events")
+async def session_events(
+    session_id: uuid.UUID,
+    since: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    """SSE stream of events for a channel-less ephemeral session.
+
+    Mirrors ``GET /api/v1/channels/{channel_id}/events`` but keyed on
+    session_id. The turn worker publishes to the in-memory bus under
+    ``bus_key = channel_id or session_id``; for ephemeral sessions without
+    a parent channel, the session_id itself is the bus key and this
+    endpoint is the subscriber entry point.
+
+    Reconnect semantics (since, replay_lapsed, keepalive) match the
+    channel-events endpoint exactly.
+    """
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    import asyncio
+    import json
+    from fastapi.responses import StreamingResponse
+    from app.domain.channel_events import ChannelEventKind
+    from app.services.channel_events import (
+        event_to_sse_dict,
+        get_shutdown_event,
+        subscribe,
+    )
+
+    async def _event_stream():
+        shutdown = get_shutdown_event()
+        async_gen = subscribe(session_id, since=since)
+        pending = asyncio.ensure_future(async_gen.__anext__())
+        try:
+            while not shutdown.is_set():
+                try:
+                    event = await asyncio.wait_for(asyncio.shield(pending), timeout=15.0)
+                    if event.kind is ChannelEventKind.SHUTDOWN:
+                        break
+                    payload = event_to_sse_dict(event)
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    pending = asyncio.ensure_future(async_gen.__anext__())
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                except StopAsyncIteration:
+                    break
+        finally:
+            if not pending.done():
+                pending.cancel()
+                try:
+                    await pending
+                except (asyncio.CancelledError, Exception):
+                    pass
+            await async_gen.aclose()
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.get("/{session_id}/context", response_model=ContextDebugOut)
 async def get_session_context(
     session_id: uuid.UUID,

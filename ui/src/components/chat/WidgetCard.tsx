@@ -46,7 +46,9 @@ interface WidgetCardProps {
     envelope: ToolResultEnvelope;
     toolName: string;
     channelId: string;
-    botId: string;
+    /** Null when no bot id could be resolved — the pin persists with
+     * `source_bot_id = null` rather than silently substituting a wrong bot. */
+    botId: string | null;
   }) => void;
 }
 
@@ -328,7 +330,13 @@ export function WidgetCard({
                 envelope: currentEnvelope,
                 toolName,
                 channelId,
-                botId: botId ?? "default",
+                // Prefer the envelope's own source_bot_id (stamped by
+                // emit_html_widget / declarative widget templates at emit
+                // time). The `"default"` literal fallback used to land here
+                // whenever message metadata didn't carry a bot id — and
+                // "default" happens to be a real bot row with no API key,
+                // which poisoned the pin (mint 400 forever, refresh spam).
+                botId: botId ?? currentEnvelope.source_bot_id ?? null,
               });
             }}
             className="p-0.5 rounded hover:bg-white/[0.06] transition-colors duration-150"

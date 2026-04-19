@@ -82,6 +82,13 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
 
   hydrate: async (slug) => {
     const target = slug ?? get().currentSlug;
+    // Flip currentSlug synchronously so pinWidget + any other consumer that
+    // reads get().currentSlug during the fetch sees the new target. Without
+    // this, clicking Pin quickly after switching the dev-panel picker routed
+    // the pin to the previously-loaded dashboard.
+    if (target !== get().currentSlug) {
+      set({ currentSlug: target, pins: [], hasHydrated: false });
+    }
     try {
       const resp = await apiFetch<{ pins: WidgetDashboardPin[] }>(
         `/api/v1/widgets/dashboard?slug=${encodeURIComponent(target)}`,

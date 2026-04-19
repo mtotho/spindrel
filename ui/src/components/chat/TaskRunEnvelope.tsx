@@ -19,6 +19,7 @@ import { InlineApprovalReview } from "./InlineApprovalReview";
 import { MarkdownContent } from "./MarkdownContent";
 import { useTask } from "@/src/api/hooks/useTasks";
 import type { StepState } from "@/src/api/hooks/useTasks";
+import { useSessionMessages } from "@/src/api/hooks/useSessionMessages";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { writeToClipboard } from "@/src/utils/clipboard";
 import { cn } from "@/src/lib/cn";
@@ -301,6 +302,26 @@ const SubSessionAnchor = memo(function SubSessionAnchor({ message }: { message: 
   const stepCount = meta.step_count ?? 0;
   const awaitingCount = meta.awaiting_count ?? 0;
   const taskId = meta.task_id;
+  const runSessionId = meta.run_session_id || undefined;
+  const isTerminal = status === "complete" || status === "failed";
+
+  // Follow-up count: user-role messages posted into the sub-session AFTER
+  // the pipeline terminated — the post-terminal composer chats with the
+  // orchestrator about the run. Pipeline-generated step prompts carry
+  // metadata.sender_type === "pipeline" and are excluded from the count.
+  // Only query once the run is terminal (follow-ups can't exist before).
+  const { data: sessionPages } = useSessionMessages(
+    isTerminal ? runSessionId : undefined,
+  );
+  const followUpCount = sessionPages
+    ? sessionPages.pages.reduce((total, page) => {
+        return total + page.messages.filter((m) => {
+          if (m.role !== "user") return false;
+          const mMeta = (m.metadata ?? {}) as Record<string, unknown>;
+          return mMeta.sender_type !== "pipeline";
+        }).length;
+      }, 0)
+    : 0;
 
   // The channelId isn't on the anchor metadata, so derive it from the
   // current route. TaskRunEnvelope always renders inside a channel view.
@@ -315,7 +336,6 @@ const SubSessionAnchor = memo(function SubSessionAnchor({ message }: { message: 
   const content = typeof message.content === "string" ? message.content : "";
   const lines = content.split("\n");
   const summary = lines.length > 1 ? lines.slice(1).join("\n").trim() : "";
-  const isTerminal = status === "complete" || status === "failed";
   const showSummary = isTerminal && summary.length > 0;
 
   const handleOpen = () => {
@@ -366,6 +386,11 @@ const SubSessionAnchor = memo(function SubSessionAnchor({ message }: { message: 
             <span>{statusLabel}</span>
             {stepCount > 0 && awaitingCount === 0 && (
               <span className="text-text-dim">· {stepCount} steps</span>
+            )}
+            {followUpCount > 0 && awaitingCount === 0 && (
+              <span className="text-text-dim">
+                · {followUpCount} {followUpCount === 1 ? "follow-up" : "follow-ups"}
+              </span>
             )}
           </span>
         </span>

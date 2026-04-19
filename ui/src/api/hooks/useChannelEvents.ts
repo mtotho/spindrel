@@ -29,6 +29,11 @@ export interface UseChannelEventsOptions {
    *  ``channelId``. The modal passes ``runSessionId`` so its turns/messages
    *  land in a separate store namespace from the parent channel's. */
   dispatchChannelId?: string;
+  /** Which SSE endpoint family to subscribe on. Defaults to "channels"
+   *  (``/api/v1/channels/{id}/events``). Set to "sessions" for channel-less
+   *  ephemeral sessions — the id passed as ``channelId`` is then a session_id
+   *  and the hook subscribes to ``/api/v1/sessions/{id}/events``. */
+  subscribePath?: "channels" | "sessions";
 }
 
 export function useChannelEvents(
@@ -38,6 +43,9 @@ export function useChannelEvents(
 ) {
   const sessionFilter = options?.sessionFilter;
   const dispatchChannelId = options?.dispatchChannelId;
+  const subscribePath = options?.subscribePath ?? "channels";
+  const subscribePathRef = useRef(subscribePath);
+  subscribePathRef.current = subscribePath;
   // Keep latest values in refs so reconnect doesn't churn.
   const sessionFilterRef = useRef(sessionFilter);
   sessionFilterRef.current = sessionFilter;
@@ -167,7 +175,7 @@ export function useChannelEvents(
         }
       }
 
-      fetch(`${serverUrl}/api/v1/channels/${channelId}/events${sinceParam}`, {
+      fetch(`${serverUrl}/api/v1/${subscribePathRef.current}/${channelId}/events${sinceParam}`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           Accept: "text/event-stream",

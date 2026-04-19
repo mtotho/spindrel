@@ -90,6 +90,8 @@ async def run_turn(
     """
     channel_id = handle.channel_id
     session_id = handle.session_id
+    bus_key = handle.bus_key  # channel_id if present, else session_id (channel-less ephemeral)
+    has_channel = channel_id is not None
     turn_id = handle.turn_id
     session_scoped = handle.session_scoped
     correlation_id = turn_id  # turn_id IS the correlation_id — threads through SSE→synthetic→DB for reliable dedup
@@ -132,35 +134,41 @@ async def run_turn(
         pre_user_msg_id = await _persist_and_publish_user_message(
             session_id=session_id,
             channel_id=channel_id,
+            bus_key=bus_key,
             text=user_message,
             correlation_id=correlation_id,
             metadata=_meta,
             pre_allocated_id=uuid.UUID(_pre_id_str) if _pre_id_str else None,
-            suppress_outbox=session_scoped,
+            suppress_outbox=session_scoped or not has_channel,
         )
 
         # 2. Publish TURN_STARTED so renderers can post a "thinking…" placeholder.
         #    Session-scoped turns (sub-session follow-ups) tag the payload with
         #    ``session_id`` so the parent-channel UI filter drops it and the
         #    run-view modal's session filter picks it up.
+        # For channel-less ephemeral sessions, stamp session_id on TURN_STARTED
+        # too — there's no "outer" parent chat to filter it out of, but the UI
+        # still keys store state on session_id.
         publish_typed(
-            channel_id,
+            bus_key,
             ChannelEvent(
-                channel_id=channel_id,
+                channel_id=bus_key,
                 kind=ChannelEventKind.TURN_STARTED,
                 payload=TurnStartedPayload(
                     bot_id=bot.id,
                     turn_id=turn_id,
                     reason="user_message",
-                    session_id=session_id if session_scoped else None,
+                    session_id=session_id if (session_scoped or not has_channel) else None,
                 ),
             ),
         )
 
         # 3. Detect parallel multi-bot @-mentions BEFORE the primary bot
         #    starts so the auto-invoked bots run lock-free in parallel.
+        #    Skipped for channel-less sessions — @-mention fanout is a
+        #    channel-scoped feature (requires channel membership resolution).
         _user_mentioned: list[tuple[str, dict]] = []
-        if user_message:
+        if user_message and has_channel:
             _user_mentioned = await _detect_member_mentions(
                 channel_id, bot.id, user_message, _depth=0,
             )
@@ -224,10 +232,10 @@ async def run_turn(
         _vision_fallback: bool = False
         async for event in emit_run_stream_events(
             _run_stream_iter,
-            channel_id=channel_id,
+            channel_id=bus_key,
             bot_id=bot.id,
             turn_id=turn_id,
-            session_id=session_id if session_scoped else None,
+            session_id=session_id if (session_scoped or not has_channel) else None,
         ):
             etype = event.get("type")
 
@@ -273,6 +281,10 @@ async def run_turn(
                 continue
 
             if etype == "delegation_post":
+                # Delegation posts are channel-scoped integration writes —
+                # skip entirely for channel-less ephemeral sessions.
+                if not has_channel:
+                    continue
                 try:
                     await _ds.post_child_response(
                         channel_id=channel_id,
@@ -290,9 +302,9 @@ async def run_turn(
                         event.get("bot_id"),
                     )
                     publish_typed(
-                        channel_id,
+                        bus_key,
                         ChannelEvent(
-                            channel_id=channel_id,
+                            channel_id=bus_key,
                             kind=ChannelEventKind.TURN_STREAM_TOOL_RESULT,
                             payload=TurnStreamToolResultPayload(
                                 bot_id=bot.id,
@@ -372,7 +384,7 @@ async def run_turn(
                     msg_metadata=req.msg_metadata,
                     channel_id=channel_id,
                     pre_user_msg_id=pre_user_msg_id,
-                    suppress_outbox=session_scoped,
+                    suppress_outbox=session_scoped or not has_channel,
                 )
         except Exception:
             logger.exception(
@@ -390,7 +402,9 @@ async def run_turn(
 
         # 7. Bot-to-bot @-mention chain: trigger member bot replies for
         #    bots the primary bot mentioned in its response.
-        if not was_cancelled and response_text:
+        #    Channel-less ephemeral sessions skip — @-mention fanout requires
+        #    channel membership resolution.
+        if not was_cancelled and response_text and has_channel:
             _already_invoked = set(current_invoked_member_bots.get() or ())
             if _user_mentioned:
                 _already_invoked.update(bid for bid, _ in _user_mentioned)
@@ -427,9 +441,9 @@ async def run_turn(
         #    on it to finalize their per-turn state.
         try:
             publish_typed(
-                channel_id,
+                bus_key,
                 ChannelEvent(
-                    channel_id=channel_id,
+                    channel_id=bus_key,
                     kind=ChannelEventKind.TURN_ENDED,
                     payload=TurnEndedPayload(
                         bot_id=bot.id,
@@ -444,7 +458,7 @@ async def run_turn(
                         # and error being independent.
                         error=error_text or None,
                         client_actions=list(response_actions or []),
-                        session_id=session_id if session_scoped else None,
+                        session_id=session_id if (session_scoped or not has_channel) else None,
                         extra_metadata=(
                             {"auto_injected_skills": _auto_injected_skills}
                             if _auto_injected_skills else {}
@@ -465,7 +479,8 @@ async def run_turn(
 async def _persist_and_publish_user_message(
     *,
     session_id: uuid.UUID,
-    channel_id: uuid.UUID,
+    channel_id: uuid.UUID | None,
+    bus_key: uuid.UUID,
     text: str,
     correlation_id: uuid.UUID,
     metadata: dict,
@@ -525,7 +540,7 @@ async def _persist_and_publish_user_message(
                 ),
                 metadata=dict(metadata),
                 correlation_id=correlation_id,
-                channel_id=channel_id,
+                channel_id=channel_id if channel_id is not None else bus_key,
             )
             # NEW_MESSAGE is outbox-durable: enqueue an outbox row so the
             # drainer is the single delivery path to renderers, and call
@@ -533,13 +548,13 @@ async def _persist_and_publish_user_message(
             # event live. The Slack renderer's echo filter then catches
             # this on the outbox path the same way it would on the bus
             # path.
-            if not suppress_outbox:
+            if not suppress_outbox and channel_id is not None:
                 from app.services.outbox_publish import enqueue_new_message_for_channel
                 await enqueue_new_message_for_channel(channel_id, domain_msg)
             publish_typed(
-                channel_id,
+                bus_key,
                 ChannelEvent(
-                    channel_id=channel_id,
+                    channel_id=bus_key,
                     kind=ChannelEventKind.NEW_MESSAGE,
                     payload=MessagePayload(message=domain_msg),
                 ),

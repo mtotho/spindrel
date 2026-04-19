@@ -29,6 +29,7 @@ import { adaptToToolResultEnvelope } from "@/src/components/chat/renderers/resol
 import { JsonTreeRenderer } from "@/src/components/chat/renderers/JsonTreeRenderer";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
+import { channelIdFromSlug, isChannelSlug } from "@/src/stores/dashboards";
 import type { ToolResultEnvelope } from "@/src/types/api";
 import { ToolArgsForm } from "./ToolArgsForm";
 
@@ -601,7 +602,15 @@ export function ToolsSandbox() {
                   pinState={pinState}
                   pinDisabledReason={pinDisabledReason}
                   onPin={handlePin}
-                  onOpenDashboard={() => navigate("/widgets")}
+                  onOpenDashboard={() => {
+                    const slug = useDashboardPinsStore.getState().currentSlug;
+                    if (isChannelSlug(slug)) {
+                      const chId = channelIdFromSlug(slug);
+                      navigate(chId ? `/widgets/channel/${chId}` : "/widgets");
+                    } else {
+                      navigate(`/widgets/${encodeURIComponent(slug)}`);
+                    }
+                  }}
                 />
               </div>
               {pinError && pinState === "error" && (

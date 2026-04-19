@@ -188,7 +188,7 @@ export function EphemeralSession({
     <div className="flex flex-col h-full">
       {header}
       <div className="flex-1 min-h-0 relative">
-        {sessionId && parentChannelId ? (
+        {sessionId ? (
           <SessionChatView
             sessionId={sessionId}
             parentChannelId={parentChannelId}

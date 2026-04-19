@@ -55,7 +55,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   // lands in the right scope — the store re-hydrates lazily on navigation,
   // so from the chat view we may be looking at a different slug.
   const handlePinWidget = useCallback(
-    async (info: { widgetId: string; envelope: ToolResultEnvelope; toolName: string; channelId: string; botId: string }) => {
+    async (info: { widgetId: string; envelope: ToolResultEnvelope; toolName: string; channelId: string; botId: string | null }) => {
       const toolShort = info.toolName.includes("-") ? info.toolName.slice(info.toolName.indexOf("-") + 1) : info.toolName;
       const displayName = info.envelope.display_label || toolShort;
 
@@ -206,7 +206,11 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     );
   }
 
-  const senderBotId = (meta.sender_bot_id as string) ?? undefined;
+  // Message metadata carries the emitting bot as `sender_id: "bot:<id>"`
+  // (stamped by persist_turn + finishTurn). Strip the prefix to get the bare
+  // bot id that WidgetCard / RichToolResult need for pin + mint flows.
+  const senderId = (meta.sender_id as string | undefined) ?? undefined;
+  const senderBotId = senderId?.startsWith("bot:") ? senderId.slice(4) : undefined;
 
   const messageContent = (
     <>

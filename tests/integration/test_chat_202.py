@@ -216,6 +216,50 @@ class TestChatSubSessionFollowUp:
         # start_turn MUST NOT have been invoked for a non-terminal run.
         assert self._mock.await_count == 0
 
+    async def test_channel_less_ephemeral_posts_with_null_channel_id(
+        self, client, db_session,
+    ):
+        """POST /chat against an ephemeral session with no parent channel
+        must succeed (not 400) — start_turn receives channel_id=None and
+        the 202 response body reports channel_id: null. Covers the widget
+        dashboard dock case where the user is on a global dashboard page."""
+        from app.db.models import Session
+
+        ephemeral = Session(
+            id=uuid.uuid4(),
+            client_id="web",
+            bot_id="test-bot",
+            channel_id=None,
+            depth=0,
+            session_type="ephemeral",
+        )
+        db_session.add(ephemeral)
+        await db_session.flush()
+
+        resp = await client.post(
+            "/chat",
+            json={
+                "message": "kick off a widget",
+                "session_id": str(ephemeral.id),
+                "bot_id": "test-bot",
+            },
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 202, resp.text
+        body = resp.json()
+        assert body.get("session_scoped") is True
+        assert body["session_id"] == str(ephemeral.id)
+        # Channel-less — channel_id in the response is null.
+        assert body["channel_id"] is None
+
+        # start_turn invoked with channel_id=None and session_scoped=True.
+        assert self._mock.await_count == 1
+        kwargs = self._mock.await_args.kwargs
+        assert kwargs["session_scoped"] is True
+        assert kwargs["session_id"] == ephemeral.id
+        assert kwargs["channel_id"] is None
+
     async def test_unknown_session_falls_through_to_channel_path(
         self, client, db_session,
     ):

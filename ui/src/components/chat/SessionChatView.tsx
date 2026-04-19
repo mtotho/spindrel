@@ -19,8 +19,10 @@ import { extractDisplayText } from "./MessageBubble";
 export interface SessionChatViewProps {
   /** The session whose Messages we render (the pipeline run's sub-session). */
   sessionId: string;
-  /** The parent channel whose SSE stream carries the sub-session's events. */
-  parentChannelId: string;
+  /** The parent channel whose SSE stream carries the sub-session's events.
+   *  Omit for channel-less ephemeral sessions — the hook falls back to
+   *  ``/sessions/{sessionId}/events``. */
+  parentChannelId?: string;
   /** Optional bot id to seed TURN_STARTED display lookups. */
   botId?: string;
   /** Custom empty-state node (pre-message pane can render description, etc). */

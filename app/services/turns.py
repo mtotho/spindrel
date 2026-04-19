@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from app.services import session_locks
 from app.utils import safe_create_task
@@ -36,20 +36,33 @@ logger = logging.getLogger(__name__)
 class TurnHandle:
     """Identifiers returned to the HTTP client when a turn is enqueued.
 
-    The client subscribes to ``/api/v1/channels/{channel_id}/events?since=N``
+    The client subscribes either to
+    ``/api/v1/channels/{channel_id}/events?since=N`` (channel-scoped) or
+    ``/api/v1/sessions/{session_id}/events?since=N`` (channel-less ephemeral)
     and filters events by ``turn_id`` (carried on every TURN_* payload).
 
     ``session_scoped`` marks a turn whose Messages live on a sub-session
-    (post-pipeline follow-up). The ``channel_id`` on the handle still names
-    the parent channel for bus-routing purposes — the flag only tells the
-    worker to skip outbox writes so external renderers (Slack etc.) don't
-    receive the follow-up.
+    (post-pipeline follow-up). The ``channel_id`` on the handle names the
+    parent channel when one exists; the flag tells the worker to skip
+    outbox writes so external renderers (Slack etc.) don't receive the
+    follow-up.
+
+    ``channel_id`` is ``None`` for channel-less ephemeral sessions (e.g.,
+    the widget dashboard dock on a global page). In that case the worker
+    publishes on ``session_id`` as the bus key and skips outbox / multi-bot
+    / delegation paths entirely.
     """
 
     session_id: uuid.UUID
-    channel_id: uuid.UUID
+    channel_id: Optional[uuid.UUID]
     turn_id: uuid.UUID
     session_scoped: bool = False
+
+    @property
+    def bus_key(self) -> uuid.UUID:
+        """UUID used as the channel-events bus key — channel_id if present,
+        else session_id for channel-less ephemeral sessions."""
+        return self.channel_id if self.channel_id is not None else self.session_id
 
 
 class SessionBusyError(Exception):
@@ -63,7 +76,7 @@ class SessionBusyError(Exception):
 
 async def start_turn(
     *,
-    channel_id: uuid.UUID,
+    channel_id: Optional[uuid.UUID],
     session_id: uuid.UUID,
     bot: BotConfig,
     primary_bot_id: str,
@@ -120,6 +133,6 @@ async def start_turn(
     )
     logger.info(
         "start_turn scheduled: session=%s channel=%s bot=%s turn=%s",
-        session_id, channel_id, bot.id, handle.turn_id,
+        session_id, channel_id or "<none>", bot.id, handle.turn_id,
     )
     return handle
