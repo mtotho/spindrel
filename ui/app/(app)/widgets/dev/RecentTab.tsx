@@ -204,6 +204,7 @@ export function RecentTab() {
       <div className="flex-1 flex flex-col min-w-0">
         {selectedId ? (
           <CallDetail
+            key={selectedId}
             callId={selectedId}
             onImport={(toolName, sample) => {
               setImport({ toolName, samplePayload: sample });
@@ -211,7 +212,7 @@ export function RecentTab() {
                 `/widgets/dev?tool=${encodeURIComponent(toolName)}#templates`,
               );
             }}
-            onPinGeneric={async (toolName, toolArgs, rawResult, label, resolvedEnvelope) => {
+            onPinGeneric={async (toolName, toolArgs, rawResult, label, resolvedEnvelope, channelId, botId) => {
               // Prefer the envelope currently rendered (tool-declared _envelope
               // or widget template); only fall back to generic-render when the
               // resolver produced nothing.
@@ -226,10 +227,13 @@ export function RecentTab() {
                 }
                 envelope = preview.envelope as unknown as ToolResultEnvelope;
               }
+              // Carry the origin call's channel/bot through so pinning to a
+              // channel dashboard satisfies the source_channel_id constraint
+              // and the widget refresh path resolves identity correctly.
               await pinWidget({
-                source_kind: "adhoc",
-                source_bot_id: null,
-                source_channel_id: null,
+                source_kind: channelId ? "channel" : "adhoc",
+                source_bot_id: botId,
+                source_channel_id: channelId,
                 tool_name: toolName,
                 tool_args: toolArgs,
                 widget_config: {
@@ -307,10 +311,12 @@ function CallDetail({
     rawResult: unknown,
     label: string | null,
     resolvedEnvelope: ToolResultEnvelope | null,
+    channelId: string | null,
+    botId: string | null,
   ) => Promise<void>;
 }) {
   const t = useThemeTokens();
-  const { data: detail, isLoading } = useToolCall(callId);
+  const { data: detail, isLoading, isError, error } = useToolCall(callId);
   const [resultTab, setResultTab] = useState<"raw" | "rendered">("rendered");
   const [envelope, setEnvelope] = useState<ToolResultEnvelope | null>(null);
   const [envLoading, setEnvLoading] = useState(false);
@@ -337,10 +343,17 @@ function CallDetail({
       .finally(() => setEnvLoading(false));
   }, [detail, rawResult, resultTab]);
 
-  if (isLoading || !detail) {
+  if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center text-[12px] text-text-muted">
         <Loader2 size={14} className="inline animate-spin mr-1.5" /> Loading…
+      </div>
+    );
+  }
+  if (isError || !detail) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-[12px] text-text-muted">
+        Failed to load call details{error instanceof Error ? `: ${error.message}` : ""}
       </div>
     );
   }
@@ -352,7 +365,15 @@ function CallDetail({
     setPinState("pinning");
     setPinError(null);
     try {
-      await onPinGeneric(cleaned, detail.arguments, rawResult, null, envelope);
+      await onPinGeneric(
+        cleaned,
+        detail.arguments,
+        rawResult,
+        null,
+        envelope,
+        detail.channel_id ?? null,
+        detail.bot_id ?? null,
+      );
       setPinState("success");
       window.setTimeout(() => setPinState("idle"), 2500);
     } catch (err) {

@@ -3,11 +3,10 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { X, CheckCircle2, Wrench, Search, Pin, Clock } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
-import { useChannels } from "@/src/api/hooks/useChannels";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { toast } from "@/src/stores/toast";
-import type { Channel, PinnedWidget, ToolResultEnvelope } from "@/src/types/api";
+import type { ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
 
 interface Props {
   open: boolean;
@@ -36,13 +35,11 @@ interface RecentCall {
   created_at: string | null;
 }
 
-async function fetchChannelDetail(channelId: string): Promise<Channel> {
-  return apiFetch<Channel>(`/api/v1/channels/${channelId}`);
-}
-
-interface ChannelWithPins {
-  channel: Channel;
-  pins: PinnedWidget[];
+interface ChannelPinsGroup {
+  dashboard_slug: string;
+  channel_id: string | null;
+  channel_name: string;
+  pins: WidgetDashboardPin[];
 }
 
 export default function AddFromChannelSheet({
@@ -52,15 +49,22 @@ export default function AddFromChannelSheet({
   onPinned,
   scopeChannelId,
 }: Props) {
-  const [tab, setTab] = useState<Tab>(scopeChannelId ? "recent" : "channel");
+  // "From channel" is the promote-channel-pin-upward tab — only meaningful
+  // on the global (non-channel) dashboard. Inside a channel dashboard it's
+  // redundant (you ARE that channel's board) so the tab hides, and Recent
+  // calls becomes the natural landing.
+  const showChannelTab = !scopeChannelId;
+  const [tab, setTab] = useState<Tab>(
+    scopeChannelId ? "recent" : "channel",
+  );
   const [query, setQuery] = useState("");
-  const { data: channels } = useChannels();
   const pins = useDashboardPinsStore((s) => s.pins);
   const pinWidget = useDashboardPinsStore((s) => s.pinWidget);
 
-  // Parallel-fetch every channel's detail on open so we can prune empties and
-  // show pin counts without per-row expansion cost.
-  const [loaded, setLoaded] = useState<ChannelWithPins[] | null>(null);
+  // Single batch query: channel dashboards with ≥1 pin, grouped and named.
+  // Replaces the old per-channel fan-out against ``channel.config.pinned_widgets``
+  // (migration 213 moved that storage into ``widget_dashboard_pins``).
+  const [loaded, setLoaded] = useState<ChannelPinsGroup[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Recent tool-call envelopes — filtered to scopeChannelId when provided.
@@ -78,28 +82,21 @@ export default function AddFromChannelSheet({
   }, [open, onClose]);
 
   useEffect(() => {
-    if (!open || !channels?.length) return;
+    if (!open || !showChannelTab) return;
     let cancelled = false;
     setLoaded(null);
     setLoadError(null);
-    Promise.all(
-      channels.map(async (ch) => {
-        try {
-          const detail = await fetchChannelDetail(ch.id);
-          return { channel: ch, pins: detail.config?.pinned_widgets ?? [] };
-        } catch {
-          return { channel: ch, pins: [] as PinnedWidget[] };
-        }
-      }),
-    ).then((rows) => {
-      if (cancelled) return;
-      setLoaded(rows);
-    }).catch((e) => {
-      if (cancelled) return;
-      setLoadError(e instanceof Error ? e.message : String(e));
-    });
+    apiFetch<{ channels: ChannelPinsGroup[] }>(
+      "/api/v1/widgets/dashboards/channel-pins",
+    )
+      .then((resp) => {
+        if (!cancelled) setLoaded(resp.channels ?? []);
+      })
+      .catch((e) => {
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
+      });
     return () => { cancelled = true; };
-  }, [open, channels]);
+  }, [open, showChannelTab]);
 
   // Fetch recent widget-producing tool calls, refetched whenever the sheet
   // opens or the channel scope changes.
@@ -132,9 +129,9 @@ export default function AddFromChannelSheet({
       .filter((row) => row.pins.length > 0)
       .filter((row) => {
         if (!q) return true;
-        if (row.channel.name.toLowerCase().includes(q)) return true;
+        if (row.channel_name.toLowerCase().includes(q)) return true;
         return row.pins.some((p) => {
-          const label = (p.envelope?.display_label ?? p.display_name ?? p.tool_name).toLowerCase();
+          const label = (p.envelope?.display_label ?? p.tool_name).toLowerCase();
           return label.includes(q);
         });
       });
@@ -151,9 +148,10 @@ export default function AddFromChannelSheet({
         onClick={onClose}
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
       />
-      {/* Panel */}
-      <div className="relative z-10 flex h-full w-full sm:w-[440px] flex-col border-l border-surface-border bg-surface-raised shadow-2xl">
-        <header className="flex items-center justify-between border-b border-surface-border px-5 py-4">
+      {/* Panel — shadow + surface-raised separates it from the scrim; no
+          border-l needed (chrome lines read as low-polish admin UI). */}
+      <div className="relative z-10 flex h-full w-full sm:w-[440px] flex-col bg-surface-raised shadow-2xl">
+        <header className="flex items-center justify-between px-5 pt-4 pb-3">
           <div>
             <h2 className="text-[14px] font-semibold text-text">Add widget</h2>
             <p className="mt-0.5 text-[11px] text-text-muted">
@@ -171,20 +169,22 @@ export default function AddFromChannelSheet({
           </button>
         </header>
 
-        <div className="flex gap-1 border-b border-surface-border px-4 pt-3 pb-0">
+        <div className="flex gap-1 px-4 pt-3 pb-0">
           <TabButton active={tab === "recent"} onClick={() => setTab("recent")}>
             Recent calls
           </TabButton>
-          <TabButton active={tab === "channel"} onClick={() => setTab("channel")}>
-            From channel
-          </TabButton>
+          {showChannelTab && (
+            <TabButton active={tab === "channel"} onClick={() => setTab("channel")}>
+              From channel
+            </TabButton>
+          )}
           <TabButton active={tab === "build"} onClick={() => setTab("build")}>
             Build new
           </TabButton>
         </div>
 
         {tab === "channel" && (
-          <div className="border-b border-surface-border px-4 py-2.5">
+          <div className="px-4 py-2.5">
             <label className="flex items-center gap-2 rounded-md border border-surface-border bg-surface px-2.5 py-1.5 focus-within:border-accent/60">
               <Search size={13} className="text-text-dim" />
               <input
@@ -244,26 +244,29 @@ export default function AddFromChannelSheet({
               }}
             />
           )}
-          {tab === "channel" && (
+          {tab === "channel" && showChannelTab && (
             <ChannelPinsTab
               loaded={loaded}
               loadError={loadError}
               sections={filteredSections}
               query={query}
               existingIdentities={existingIdentities}
-              onPin={async (ch, pin) => {
+              onPin={async (group, pin) => {
                 const created = await pinWidget({
-                  source_kind: "channel",
-                  source_channel_id: ch.id,
-                  source_bot_id: pin.bot_id,
+                  source_kind: pin.source_channel_id ? "channel" : "adhoc",
+                  source_channel_id: pin.source_channel_id ?? group.channel_id,
+                  source_bot_id: pin.source_bot_id ?? null,
                   tool_name: pin.tool_name,
-                  widget_config: pin.config ?? {},
+                  tool_args: pin.tool_args ?? undefined,
+                  widget_config: pin.widget_config ?? {},
                   envelope: pin.envelope,
                   display_label:
-                    pin.envelope?.display_label ?? pin.display_name ?? null,
+                    pin.display_label ?? pin.envelope?.display_label ?? null,
                 });
                 const label =
-                  pin.envelope?.display_label ?? pin.display_name ?? pin.tool_name;
+                  pin.display_label
+                  ?? pin.envelope?.display_label
+                  ?? pin.tool_name;
                 toast({
                   kind: "success",
                   message: `Added ${label} to ${dashboardName ?? "dashboard"}`,
@@ -314,12 +317,12 @@ function TabButton({
 function ChannelPinsTab({
   loaded, loadError, sections, query, existingIdentities, onPin,
 }: {
-  loaded: ChannelWithPins[] | null;
+  loaded: ChannelPinsGroup[] | null;
   loadError: string | null;
-  sections: ChannelWithPins[];
+  sections: ChannelPinsGroup[];
   query: string;
   existingIdentities: Set<string>;
-  onPin: (channel: Channel, pin: PinnedWidget) => Promise<void>;
+  onPin: (group: ChannelPinsGroup, pin: WidgetDashboardPin) => Promise<void>;
 }) {
   if (loadError) {
     return (
@@ -344,23 +347,22 @@ function ChannelPinsTab({
           <Pin size={16} className="text-text-dim" />
         </div>
         <p className="text-[13px] font-medium text-text">
-          {query ? "No matches" : "No pinned widgets yet"}
+          {query ? "No matches" : "No channel widgets yet"}
         </p>
         <p className="max-w-[260px] text-[11px] text-text-muted">
           {query
             ? "Try a different channel or widget name."
-            : "Pin a widget in any channel's OmniPanel first, then come back here to surface it on your dashboard."}
+            : "Pin a widget on any channel's dashboard first, then come back here to promote it to this dashboard."}
         </p>
       </div>
     );
   }
   return (
     <ul className="divide-y divide-surface-border">
-      {sections.map(({ channel, pins }) => (
+      {sections.map((group) => (
         <ChannelSection
-          key={channel.id}
-          channel={channel}
-          pins={pins}
+          key={group.dashboard_slug}
+          group={group}
           existingIdentities={existingIdentities}
           onPin={onPin}
         />
@@ -370,25 +372,24 @@ function ChannelPinsTab({
 }
 
 function ChannelSection({
-  channel, pins, existingIdentities, onPin,
+  group, existingIdentities, onPin,
 }: {
-  channel: Channel;
-  pins: PinnedWidget[];
+  group: ChannelPinsGroup;
   existingIdentities: Set<string>;
-  onPin: (channel: Channel, pin: PinnedWidget) => Promise<void>;
+  onPin: (group: ChannelPinsGroup, pin: WidgetDashboardPin) => Promise<void>;
 }) {
   return (
     <li className="py-2">
       <div className="flex items-center justify-between px-4 py-1">
         <span className="truncate text-[11px] font-semibold uppercase tracking-wider text-text-dim">
-          {channel.name}
+          {group.channel_name}
         </span>
         <span className="text-[10px] text-text-dim">
-          {pins.length} pin{pins.length === 1 ? "" : "s"}
+          {group.pins.length} pin{group.pins.length === 1 ? "" : "s"}
         </span>
       </div>
       <ul className="mt-1 space-y-1 px-3">
-        {pins.map((p) => {
+        {group.pins.map((p) => {
           const identity = envelopeIdentityKey(p.tool_name, p.envelope);
           const already = existingIdentities.has(identity);
           return (
@@ -396,7 +397,7 @@ function ChannelSection({
               <PinRow
                 pin={p}
                 already={already}
-                onClick={() => onPin(channel, p)}
+                onClick={() => onPin(group, p)}
               />
             </li>
           );
@@ -408,11 +409,11 @@ function ChannelSection({
 
 function PinRow({
   pin, already, onClick,
-}: { pin: PinnedWidget; already: boolean; onClick: () => void | Promise<void> }) {
+}: { pin: WidgetDashboardPin; already: boolean; onClick: () => void | Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const label =
-    pin.envelope?.display_label ?? pin.display_name ?? pin.tool_name;
+    pin.display_label ?? pin.envelope?.display_label ?? pin.tool_name;
   const integration =
     pin.tool_name.includes("-") ? pin.tool_name.split("-")[0] : pin.tool_name;
 

@@ -92,6 +92,65 @@ async def get_redirect_target(db: AsyncSession = Depends(get_db)):
 
 
 @router.get(
+    "/dashboards/channel-pins",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def list_channel_dashboard_pins(db: AsyncSession = Depends(get_db)):
+    """Pins grouped by channel — used by the "Add widget → From channel" tab.
+
+    Returns every ``channel:<uuid>`` dashboard that has ≥1 pin, with the
+    channel's display name resolved from the Channel table. Pin rows use the
+    same shape as ``/dashboard`` for drop-in reuse on the frontend.
+    """
+    from sqlalchemy import select
+    from app.db.models import (
+        Channel,
+        WidgetDashboard,
+        WidgetDashboardPin,
+    )
+
+    # Single query: channel dashboards with their pins + channel metadata.
+    # Outer-join to Channel so pins whose channel got deleted still surface
+    # (client can render "deleted channel" gracefully).
+    stmt = (
+        select(WidgetDashboardPin, WidgetDashboard.slug, Channel.id, Channel.name)
+        .join(
+            WidgetDashboard,
+            WidgetDashboard.slug == WidgetDashboardPin.dashboard_key,
+        )
+        .join(
+            Channel,
+            Channel.id == WidgetDashboardPin.source_channel_id,
+            isouter=True,
+        )
+        .where(WidgetDashboard.slug.like(f"{CHANNEL_SLUG_PREFIX}%"))
+        .order_by(
+            Channel.name.asc().nulls_last(),
+            WidgetDashboardPin.position.asc(),
+        )
+    )
+    rows = (await db.execute(stmt)).all()
+
+    groups: dict[str, dict] = {}
+    for pin, slug, channel_id, channel_name in rows:
+        key = slug
+        if key not in groups:
+            groups[key] = {
+                "dashboard_slug": slug,
+                "channel_id": str(channel_id) if channel_id else None,
+                "channel_name": channel_name or "(deleted channel)",
+                "pins": [],
+            }
+        groups[key]["pins"].append(serialize_pin(pin))
+
+    # Skip dashboards with zero pins (shouldn't appear in the query, but
+    # guard defensively) and sort by channel name for stable display.
+    out = [g for g in groups.values() if g["pins"]]
+    out.sort(key=lambda g: (g["channel_name"].lower(), g["dashboard_slug"]))
+    return {"channels": out}
+
+
+@router.get(
     "/dashboards/{slug}",
     dependencies=[Depends(require_scopes("channels:read"))],
 )

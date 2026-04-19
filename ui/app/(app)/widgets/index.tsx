@@ -312,9 +312,11 @@ export default function WidgetsDashboardPage() {
         <Plus size={13} />
         <span className="hidden md:inline">Add widget</span>
       </button>
-      {/* Developer panel — not a mobile action; hide to keep the top bar clean. */}
+      {/* Developer panel — not a mobile action; hide to keep the top bar clean.
+          Carry the active dashboard slug via ?from= so the dev-panel's Pin
+          target picker can seed to the board the user came from. */}
       <Link
-        to="/widgets/dev"
+        to={`/widgets/dev?from=${encodeURIComponent(slug)}`}
         className="hidden sm:inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
         aria-label="Developer panel"
         title="Developer panel"

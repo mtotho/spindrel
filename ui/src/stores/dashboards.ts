@@ -69,8 +69,12 @@ export const useDashboardsStore = create<DashboardsState>()((set, get) => ({
 
   hydrate: async () => {
     try {
+      // Fetch all scopes — channel dashboards are needed by the widget dev
+      // panel picker so users can target a specific channel board without
+      // navigating to that dashboard first. Tab-bar consumers still use the
+      // filtered ``list`` slice.
       const resp = await apiFetch<{ dashboards: Dashboard[] }>(
-        "/api/v1/widgets/dashboards",
+        "/api/v1/widgets/dashboards?scope=all",
       );
       set({ list: resp.dashboards ?? [], hasHydrated: true, loadError: null });
     } catch (err) {

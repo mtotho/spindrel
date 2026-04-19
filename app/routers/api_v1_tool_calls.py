@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ToolCall
+from app.db.models import Session as SessionModel, ToolCall
 from app.dependencies import get_db, require_scopes
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ router = APIRouter(prefix="/tool-calls", tags=["Tool Audit"])
 class ToolCallOut(BaseModel):
     id: uuid.UUID
     session_id: Optional[uuid.UUID] = None
+    channel_id: Optional[uuid.UUID] = None
     bot_id: Optional[str] = None
     client_id: Optional[str] = None
     tool_name: str
@@ -76,7 +77,11 @@ async def list_tool_calls(
     _auth=Depends(require_scopes("logs:read")),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(ToolCall).order_by(ToolCall.created_at.desc())
+    stmt = (
+        select(ToolCall, SessionModel.channel_id)
+        .join(SessionModel, SessionModel.id == ToolCall.session_id, isouter=True)
+        .order_by(ToolCall.created_at.desc())
+    )
     if bot_id:
         stmt = stmt.where(ToolCall.bot_id == bot_id)
     if tool_name:
@@ -93,11 +98,12 @@ async def list_tool_calls(
         stmt = stmt.where(ToolCall.created_at <= until)
     stmt = stmt.offset(offset).limit(limit)
 
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(stmt)).all()
     # Truncate result for list view
     out = []
-    for row in rows:
+    for row, row_channel_id in rows:
         d = ToolCallOut.model_validate(row)
+        d.channel_id = row_channel_id
         if d.result and len(d.result) > 500:
             d.result = d.result[:500] + "…"
         out.append(d)
@@ -158,7 +164,15 @@ async def get_tool_call(
     _auth=Depends(require_scopes("logs:read")),
     db: AsyncSession = Depends(get_db),
 ):
-    row = await db.get(ToolCall, tool_call_id)
-    if not row:
+    stmt = (
+        select(ToolCall, SessionModel.channel_id)
+        .join(SessionModel, SessionModel.id == ToolCall.session_id, isouter=True)
+        .where(ToolCall.id == tool_call_id)
+    )
+    pair = (await db.execute(stmt)).first()
+    if not pair:
         raise HTTPException(status_code=404, detail="Tool call not found")
-    return ToolCallDetail.model_validate(row)
+    row, row_channel_id = pair
+    detail = ToolCallDetail.model_validate(row)
+    detail.channel_id = row_channel_id
+    return detail

@@ -4,6 +4,7 @@ import { apiFetch } from "../client";
 export interface ToolCallItem {
   id: string;
   session_id: string | null;
+  channel_id: string | null;
   bot_id: string | null;
   client_id: string | null;
   tool_name: string;

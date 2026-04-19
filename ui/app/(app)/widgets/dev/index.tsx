@@ -7,6 +7,7 @@ import { ToolsSandbox } from "./ToolsSandbox";
 import { TemplatesTab } from "./TemplatesTab";
 import { LibraryTab } from "./LibraryTab";
 import { RecentTab } from "./RecentTab";
+import { DashboardTargetPicker } from "./DashboardTargetPicker";
 
 type DevTab = "library" | "templates" | "tools" | "recent";
 const TABS: readonly DevTab[] = ["library", "templates", "tools", "recent"] as const;
@@ -55,6 +56,7 @@ export default function WidgetDevPanelPage() {
             </button>
           ))}
         </div>
+        <DashboardTargetPicker />
         <button
           type="button"
           onClick={() => setDocsOpen(true)}

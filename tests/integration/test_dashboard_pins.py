@@ -323,3 +323,91 @@ class TestRefresh:
         )
         # No state_poll registered for a made-up tool → 400.
         assert r.status_code == 400
+
+
+class TestChannelPinsBatchEndpoint:
+    """``GET /api/v1/widgets/dashboards/channel-pins`` — powers the
+    "Add widget → From channel" tab on the global dashboard."""
+
+    @pytest.mark.asyncio
+    async def test_empty(self, client):
+        r = await client.get(
+            "/api/v1/widgets/dashboards/channel-pins", headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == {"channels": []}
+
+    @pytest.mark.asyncio
+    async def test_groups_and_names_channels(self, client, db_session):
+        from app.db.models import Channel
+
+        ch_a = Channel(id=uuid.uuid4(), name="Bravo Channel", bot_id="test-bot")
+        ch_b = Channel(id=uuid.uuid4(), name="Alpha Channel", bot_id="test-bot")
+        db_session.add_all([ch_a, ch_b])
+        await db_session.commit()
+
+        # Seed the channel dashboards by pinning to their slugs.
+        for ch in (ch_a, ch_b):
+            r = await client.post(
+                "/api/v1/widgets/dashboard/pins?",
+                params={"slug": f"channel:{ch.id}"},
+                json={
+                    "source_kind": "channel",
+                    "source_channel_id": str(ch.id),
+                    "tool_name": "HassTurnOn",
+                    "envelope": _make_envelope(f"{ch.name} pin"),
+                    "dashboard_key": f"channel:{ch.id}",
+                },
+                headers=AUTH_HEADERS,
+            )
+            assert r.status_code == 200, r.text
+
+        r = await client.get(
+            "/api/v1/widgets/dashboards/channel-pins", headers=AUTH_HEADERS,
+        )
+        data = r.json()
+        assert len(data["channels"]) == 2
+        # Alpha sorts before Bravo case-insensitively.
+        assert data["channels"][0]["channel_name"] == "Alpha Channel"
+        assert data["channels"][1]["channel_name"] == "Bravo Channel"
+        assert data["channels"][0]["dashboard_slug"] == f"channel:{ch_b.id}"
+        assert len(data["channels"][0]["pins"]) == 1
+        assert data["channels"][0]["pins"][0]["tool_name"] == "HassTurnOn"
+
+    @pytest.mark.asyncio
+    async def test_excludes_empty_channel_dashboards(self, client, db_session):
+        from app.db.models import Channel
+        from app.services.dashboards import ensure_channel_dashboard
+
+        ch = Channel(id=uuid.uuid4(), name="Empty Channel", bot_id="test-bot")
+        db_session.add(ch)
+        await db_session.commit()
+        # Create the dashboard row but no pins on it.
+        await ensure_channel_dashboard(db_session, str(ch.id))
+        await db_session.commit()
+
+        r = await client.get(
+            "/api/v1/widgets/dashboards/channel-pins", headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200
+        assert r.json() == {"channels": []}
+
+    @pytest.mark.asyncio
+    async def test_excludes_user_dashboards(self, client):
+        # Pin to the default (non-channel) dashboard — the batch endpoint
+        # must filter it out.
+        r = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "HassTurnOn",
+                "envelope": _make_envelope("default pin"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200
+
+        r = await client.get(
+            "/api/v1/widgets/dashboards/channel-pins", headers=AUTH_HEADERS,
+        )
+        assert r.json() == {"channels": []}
