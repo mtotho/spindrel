@@ -68,6 +68,25 @@ class TestInlineMode:
             current_channel_id.reset(ctx)
 
     @pytest.mark.asyncio
+    async def test_inline_mode_bakes_source_bot_id(self):
+        # source_bot_id drives the widget-auth mint so the iframe runs with
+        # the emitting bot's scopes — missing it = widget can't auth.
+        ctx = current_bot_id.set("crumb")
+        try:
+            result = await emit_html_widget(html="<p>x</p>")
+            env = _envelope(result)
+            assert env["source_bot_id"] == "crumb"
+        finally:
+            current_bot_id.reset(ctx)
+
+    @pytest.mark.asyncio
+    async def test_inline_mode_omits_source_bot_id_without_context(self):
+        # Absent bot context → field omitted (not stamped as "None").
+        result = await emit_html_widget(html="<p>x</p>")
+        env = _envelope(result)
+        assert "source_bot_id" not in env
+
+    @pytest.mark.asyncio
     async def test_html_with_js_and_css(self):
         result = await emit_html_widget(
             html="<div id=x></div>",
@@ -150,6 +169,7 @@ class TestPathMode:
             assert env["body"] == ""
             assert env["source_path"] == "dashboards/cpu.html"
             assert env["source_channel_id"] == str(channel_id)
+            assert env["source_bot_id"] == "bot-abc"
             # Freshness is owned by the renderer's useQuery poll, not the
             # WidgetCard state_poll machinery — envelope deliberately omits
             # `refreshable`. See emit_html_widget path-mode comment.

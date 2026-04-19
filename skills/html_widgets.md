@@ -72,24 +72,37 @@ After pinning, further edits to `dashboards/server-stats.html` make the pinned w
 
 The widget runs in an iframe with `sandbox="allow-scripts allow-same-origin"` and a tight CSP:
 
-- **Allowed**: inline `<script>` / `<style>`, `fetch("/api/v1/...")` (carries session cookie), `data:` / `blob:` images.
+- **Allowed**: inline `<script>` / `<style>`, same-origin `fetch("/api/v1/...")`, `data:` / `blob:` images.
 - **Blocked**: cross-origin network (`fetch("https://example.com/...")` will fail), popups, form submissions that navigate, top-level navigation.
 
 If you need external data, have a prior tool call fetch it and inline the JSON into the widget.
+
+## Auth — widgets run as YOU (the bot), not as the viewer
+
+When you emit a widget, the envelope captures your bot id. At render time the host mints a **short-lived (15 min) bearer token scoped to your bot's API key** and injects it into `window.spindrel.api()`. Consequences:
+
+- **Use `window.spindrel.api(path)`**, not raw `fetch(path)`. Only `api()` attaches the bearer — a bare `fetch` will come back 422 (missing Authorization header) or 401.
+- **Your bot's scopes are the ceiling.** If your bot's API key doesn't have `channels:read`, your widget can't call channel endpoints. Ask the user to broaden scopes via the admin UI; don't try to work around it.
+- **You inherit nothing from the viewing user.** An admin looking at your widget does NOT lend you their admin scopes. Designed that way — this is how bot-authored JS is prevented from issuing privileged calls in someone else's session.
+- **The widget chrome shows `@your-bot-name`** in the bottom-left of the rendered card. That's the user's cue that your widget is acting with your credentials.
+
+If your bot has no API key configured, the widget renders but `api()` calls will surface a clear "Widget auth failed" banner — the user needs to provision a key before the widget works.
 
 ## The `window.spindrel` Helper
 
 Every widget gets a small helper injected automatically. No imports, no setup:
 
 ```js
-window.spindrel.channelId                  // current channel UUID, or null
-window.spindrel.api(path, options?)        // fetch any /api/v1/... endpoint, returns parsed body
+window.spindrel.channelId                  // emitting channel UUID, or null
+window.spindrel.botId                      // your bot id (the one running this)
+window.spindrel.botName                    // display name, e.g. "crumb"
+window.spindrel.api(path, options?)        // authed fetch to /api/v1/..., returns parsed body
 window.spindrel.readWorkspaceFile(path)    // returns file content as a string
 window.spindrel.writeWorkspaceFile(path, content)   // PUT
 window.spindrel.listWorkspaceFiles({include_archive?, include_data?, data_prefix?})
 ```
 
-`api(path, options)` is a thin `fetch` wrapper — it sets `Content-Type: application/json` by default, parses JSON responses, and throws on non-2xx so you can `try/catch`.
+`api(path, options)` is a thin `fetch` wrapper — attaches `Authorization: Bearer <short-lived bot token>`, sets `Content-Type: application/json`, parses JSON responses, and throws on non-2xx so you can `try/catch`. **Always use this instead of raw `fetch()`**; raw fetch won't be authenticated.
 
 ## JavaScript Cookbook
 

@@ -101,6 +101,21 @@ async def verify_auth_or_user(
     except _jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid API key or token")
 
+    # Widget-scoped JWTs (minted by POST /api/v1/widget-auth/mint) authenticate
+    # interactive HTML widget iframes as the bot that authored them. They carry
+    # the bot's scopes inline so we don't need a DB round-trip per request.
+    if payload.get("kind") == "widget":
+        bot_id = payload.get("bot_id") or payload.get("sub")
+        scopes = payload.get("scopes") or []
+        api_key_id_raw = payload.get("api_key_id")
+        try:
+            key_id = UUID(api_key_id_raw) if api_key_id_raw else UUID("00000000-0000-0000-0000-000000000000")
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=401, detail="Invalid widget token")
+        if not bot_id:
+            raise HTTPException(status_code=401, detail="Invalid widget token")
+        return ApiKeyAuth(key_id=key_id, scopes=list(scopes), name=f"widget:{bot_id}")
+
     user_id = UUID(payload["sub"])
     user = await get_user_by_id(db, user_id)
     if not user or not user.is_active:

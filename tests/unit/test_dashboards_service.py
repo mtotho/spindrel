@@ -247,9 +247,10 @@ async def test_channel_dashboard_pin_requires_source_channel_id(db_session):
 
 
 @pytest.mark.asyncio
-async def test_channel_dashboard_pin_defaults_to_rail_shape(db_session):
-    """Chat-pinned widgets must land in the leftmost rail so the OmniPanel's
-    ``isRailPin`` filter surfaces them without a dashboard-editor detour."""
+async def test_channel_dashboard_pin_stacks_in_rail_zone(db_session):
+    """Chat-pinned widgets stack vertically at ``x=0`` so the OmniPanel's
+    rail-zone filter (``x < railZoneCols``) surfaces them on first pin —
+    no dashboard-editor detour required. Width matches the standard tile."""
     ch = _make_channel(db_session)
     await db_session.commit()
     slug = channel_slug(ch.id)
@@ -263,24 +264,26 @@ async def test_channel_dashboard_pin_defaults_to_rail_shape(db_session):
         source_channel_id=ch.id, dashboard_key=slug,
     )
 
-    # x=0 + narrow w so `isRailPin(pin, railMaxWidth=2)` is true. Each
-    # subsequent pin stacks vertically (y increments by h).
-    assert a.grid_layout == {"x": 0, "y": 0, "w": 2, "h": 6}
-    assert b.grid_layout == {"x": 0, "y": 6, "w": 2, "h": 6}
+    assert a.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 6}
+    assert b.grid_layout == {"x": 0, "y": 6, "w": 6, "h": 6}
 
 
 @pytest.mark.asyncio
-async def test_user_dashboard_pin_does_not_use_rail_shape(db_session):
-    """Pins on user dashboards keep the original tile layout — only channel
-    dashboards default to the rail shape."""
+async def test_user_dashboard_pin_uses_alternating_columns(db_session):
+    """User dashboards keep the original 2-column-pack tile layout —
+    only channel dashboards stack at x=0."""
     await create_dashboard(db_session, slug="home", name="Home")
-    pin = await create_pin(
-        db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
+    a = await create_pin(
+        db_session, source_kind="adhoc", tool_name="a", envelope=_env(),
         dashboard_key="home",
     )
-    # Original formula: {x:(pos%2)*6, y:(pos//2)*6, w:6, h:6}. For position 0
-    # that's a 6-wide tile, NOT the narrow rail shape.
-    assert pin.grid_layout["w"] == 6
+    b = await create_pin(
+        db_session, source_kind="adhoc", tool_name="b", envelope=_env(),
+        dashboard_key="home",
+    )
+    # Position 0 → (x=0, y=0); position 1 → (x=6, y=0). Alternating.
+    assert a.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 6}
+    assert b.grid_layout == {"x": 6, "y": 0, "w": 6, "h": 6}
 
 
 @pytest.mark.asyncio

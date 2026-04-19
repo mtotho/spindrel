@@ -657,6 +657,10 @@ export interface ToolResultEnvelope {
   source_path?: string | null;
   /** Channel id scoping `source_path` to its channel workspace. */
   source_channel_id?: string | null;
+  /** Bot that emitted the envelope. Drives the widget-auth mint so
+   *  interactive HTML widgets authenticate as this bot, not as the
+   *  viewing user. */
+  source_bot_id?: string | null;
 }
 
 /** Action definition for interactive widget components (toggle, button, select, etc.) */

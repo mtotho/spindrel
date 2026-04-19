@@ -1,18 +1,17 @@
-"""Backfill rail-shape ``grid_layout`` on existing channel dashboard pins.
+"""Backfill default ``grid_layout`` on existing channel dashboard pins.
 
 Migration 213 moved ``channels.config.pinned_widgets`` rows into
 ``widget_dashboard_pins`` but wrote ``grid_layout={}`` for each one. The
-frontend's ``isRailPin`` filter requires ``x=0 && w<=railMaxWidth``, so
-those migrated pins never surfaced in the OmniPanel — the surface the
-legacy pinned_widgets list was supposed to drive.
+frontend's rail-zone rule (``x < railZoneCols``) needs an actual ``x``
+to decide whether a pin surfaces in the OmniPanel sidebar.
 
-This one-shot assigns a rail-docked slot (``{x:0, y:position*6, w:2,
-h:6}``) to any channel-dashboard pin whose ``grid_layout`` is missing or
-empty. Pins already laid out on the grid are left untouched.
+This one-shot assigns ``{x:0, y:position*6, w:6, h:6}`` to any
+channel-dashboard pin whose ``grid_layout`` is missing or empty —
+stacks them vertically at the leftmost column so they all land in the
+rail zone. Pins already laid out on the grid are left untouched.
 
-New pins created after this release get the rail shape automatically via
-``app.services.dashboard_pins._default_grid_layout(rail=True)`` for
-channel dashboards.
+New pins created after this release get the same default for channel
+dashboards via ``app.services.dashboard_pins._default_grid_layout(channel=True)``.
 
 Revision ID: 215
 Revises: 214
@@ -52,16 +51,16 @@ def upgrade() -> None:
         # an x coordinate (JSON object vs. empty/null).
         if isinstance(gl, dict) and gl and "x" in gl:
             continue
-        layout = {"x": 0, "y": int(position or 0) * 6, "w": 2, "h": 6}
+        layout = {"x": 0, "y": int(position or 0) * 6, "w": 6, "h": 6}
         conn.execute(
             sa.update(pins).where(pins.c.id == pid).values(grid_layout=layout)
         )
 
 
 def downgrade() -> None:
-    """Best-effort reverse: re-empty the rail-shape layouts we wrote.
+    """Best-effort reverse: re-empty the layouts we wrote.
 
-    We can only identify our own writes heuristically (x=0, w=2, h=6, y a
+    We can only identify our own writes heuristically (x=0, w=6, h=6, y a
     multiple of 6). Good enough for test parity — this migration is
     one-shot in production.
     """
@@ -82,7 +81,7 @@ def downgrade() -> None:
     for pid, gl in rows:
         if not isinstance(gl, dict):
             continue
-        if gl.get("x") == 0 and gl.get("w") == 2 and gl.get("h") == 6:
+        if gl.get("x") == 0 and gl.get("w") == 6 and gl.get("h") == 6:
             y = gl.get("y", 0)
             if isinstance(y, int) and y % 6 == 0:
                 conn.execute(

@@ -26,8 +26,11 @@ export interface GridPreset {
   rowHeight: number;
   defaultTile: { w: number; h: number };
   minTile: { w: number; h: number };
-  /** Width cutoff for a pin to count as rail-docked (x=0 && w<=railMaxWidth). */
-  railMaxWidth: number;
+  /** Column count of the leftmost "rail zone" — pins whose left edge sits
+   *  inside this band (`grid_layout.x < railZoneCols`) surface in the
+   *  channel's OmniPanel sidebar. Half the grid by design: gives the user a
+   *  meaningful left-canvas to compose sidebar widgets in. */
+  railZoneCols: number;
 }
 
 export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
@@ -39,7 +42,7 @@ export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
     rowHeight: 30,
     defaultTile: { w: 6, h: 6 },
     minTile: { w: 2, h: 3 },
-    railMaxWidth: 2,
+    railZoneCols: 6,
   },
   fine: {
     id: "fine",
@@ -50,7 +53,7 @@ export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
     rowHeight: 15,
     defaultTile: { w: 12, h: 12 },
     minTile: { w: 4, h: 6 },
-    railMaxWidth: 4,
+    railZoneCols: 12,
   },
 };
 

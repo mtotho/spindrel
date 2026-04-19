@@ -32,9 +32,20 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Bot as BotIcon } from "lucide-react";
 import { apiFetch } from "../../../api/client";
 import type { ToolResultEnvelope } from "../../../types/api";
 import type { ThemeTokens } from "../../../theme/tokens";
+
+interface WidgetTokenResponse {
+  token: string;
+  expires_at: string;
+  expires_in: number;
+  bot_id: string;
+  bot_name: string;
+  bot_avatar_url: string | null;
+  scopes: string[];
+}
 
 interface Props {
   envelope: ToolResultEnvelope;
@@ -62,15 +73,31 @@ function jsonForScript(value: string | null | undefined): string {
 
 /** Build the host-page helper script that gets injected into every widget.
  *  Exposes `window.spindrel` with channel_id + small conveniences so bot
- *  JS doesn't have to reconstruct URLs or JSON headers. */
-function spindrelBootstrap(channelId: string | null): string {
+ *  JS doesn't have to reconstruct URLs or JSON headers.
+ *
+ *  ``widgetToken`` authenticates every ``api()`` call as the bot that
+ *  emitted the widget (``envelope.source_bot_id``). The host re-mints
+ *  before expiry and overwrites ``window.spindrel.__token`` in-place so
+ *  long-lived widgets keep a fresh bearer without reloading.
+ */
+function spindrelBootstrap(
+  channelId: string | null,
+  botId: string | null,
+  botName: string | null,
+  widgetToken: string | null,
+): string {
   return `<script>
 (function () {
   const channelId = ${jsonForScript(channelId)};
+  const botId = ${jsonForScript(botId)};
+  const botName = ${jsonForScript(botName)};
+  // Token mutated in-place by the host on re-mint — read fresh per call.
+  const state = { token: ${jsonForScript(widgetToken)} };
   async function api(path, options) {
     const opts = options || {};
     const headers = Object.assign(
       { "Content-Type": "application/json" },
+      state.token ? { "Authorization": "Bearer " + state.token } : {},
       opts.headers || {}
     );
     const resp = await fetch(path, Object.assign({}, opts, { headers }));
@@ -110,16 +137,27 @@ function spindrelBootstrap(channelId: string | null): string {
       "/workspace/files" + (qs.toString() ? "?" + qs.toString() : "");
     return api(url);
   }
-  window.spindrel = { channelId: channelId, api: api,
+  window.spindrel = {
+    channelId: channelId,
+    botId: botId,
+    botName: botName,
+    api: api,
     readWorkspaceFile: readWorkspaceFile,
     writeWorkspaceFile: writeWorkspaceFile,
-    listWorkspaceFiles: listWorkspaceFiles
+    listWorkspaceFiles: listWorkspaceFiles,
+    __setToken: function (t) { state.token = t || null; }
   };
 })();
 </script>`;
 }
 
-function wrapHtml(body: string, channelId: string | null): string {
+function wrapHtml(
+  body: string,
+  channelId: string | null,
+  botId: string | null,
+  botName: string | null,
+  widgetToken: string | null,
+): string {
   return `<!doctype html>
 <html>
 <head>
@@ -147,7 +185,7 @@ function wrapHtml(body: string, channelId: string | null): string {
      against the ResizeObserver). */
   #__sd_root { display: block; }
 </style>
-${spindrelBootstrap(channelId)}
+${spindrelBootstrap(channelId, botId, botName, widgetToken)}
 </head>
 <body>
 <div id="__sd_root">
@@ -174,8 +212,46 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
 
   const sourcePath = envelope.source_path || null;
   const sourceChannelId = envelope.source_channel_id || null;
+  const sourceBotId = envelope.source_bot_id || null;
   const pathMode = !!sourcePath && !!sourceChannelId;
   const effectiveChannelId = channelId ?? sourceChannelId;
+
+  // Mint a bot-scoped bearer token so widget JS authenticates as the
+  // emitting bot — not as the viewing user. We re-mint before expiry and
+  // push the new value into the iframe via `window.spindrel.__setToken`
+  // so the srcDoc doesn't reload (which would reset the widget's state).
+  const tokenQuery = useQuery({
+    queryKey: ["widget-auth-mint", sourceBotId],
+    queryFn: () =>
+      apiFetch<WidgetTokenResponse>("/api/v1/widget-auth/mint", {
+        method: "POST",
+        body: JSON.stringify({ source_bot_id: sourceBotId }),
+      }),
+    enabled: !!sourceBotId,
+    // 15-minute server TTL; re-mint at 12 min so the widget never sees a
+    // 401 mid-call. Short TTL = short screenshot exposure.
+    refetchInterval: 12 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+  const widgetToken = tokenQuery.data?.token ?? null;
+  const botName = tokenQuery.data?.bot_name ?? null;
+
+  // Push fresh tokens into the live iframe without reloading srcDoc.
+  useEffect(() => {
+    if (!widgetToken) return;
+    try {
+      const w = iframeRef.current?.contentWindow as
+        | (Window & { spindrel?: { __setToken?: (t: string) => void } })
+        | null
+        | undefined;
+      w?.spindrel?.__setToken?.(widgetToken);
+    } catch {
+      // Cross-origin edge case — srcDoc should be same-origin under
+      // allow-same-origin, but if the iframe is mid-navigation the access
+      // throws. The next mint tick picks it up.
+    }
+  }, [widgetToken]);
 
   const fileQuery = useQuery({
     queryKey: [
@@ -273,6 +349,15 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
       </div>
     ) : null;
 
+  // Widget auth error — surface so the user understands why fetches fail.
+  // Common cause: bot has no API key configured. Actionable hint beats a
+  // silent iframe showing 401s in devtools.
+  const authError = sourceBotId && tokenQuery.error
+    ? tokenQuery.error instanceof Error
+      ? tokenQuery.error.message
+      : "unknown error"
+    : null;
+
   return (
     <div
       style={{
@@ -284,6 +369,47 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
       }}
     >
       {errorOverlay}
+      {authError && (
+        <div
+          style={{
+            padding: "6px 10px",
+            fontSize: 11,
+            color: t.danger,
+            borderBottom: `1px solid ${t.surfaceBorder}`,
+          }}
+        >
+          Widget auth failed: {authError}. API calls from this widget will
+          be unauthenticated.
+        </div>
+      )}
+      {/* Subtle bot-origin chip — bottom-left so it doesn't collide with
+          the "updated Xm ago" indicator (top-right). Signals to the user
+          that whatever this widget's JS does, it runs with THIS bot's
+          permissions, not theirs. */}
+      {botName && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 6,
+            left: 8,
+            fontSize: 10,
+            padding: "2px 6px",
+            borderRadius: 4,
+            background: t.overlayLight,
+            color: t.textMuted,
+            pointerEvents: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            opacity: 0.75,
+            zIndex: 1,
+          }}
+          title={`Widget runs as @${botName}. API calls use this bot's permissions, not yours.`}
+        >
+          <BotIcon size={10} />
+          <span>@{botName}</span>
+        </div>
+      )}
       {pathMode && lastUpdated && (
         <div
           aria-hidden
@@ -305,7 +431,13 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
       )}
       <iframe
         ref={iframeRef}
-        srcDoc={wrapHtml(body, effectiveChannelId)}
+        srcDoc={wrapHtml(
+          body,
+          effectiveChannelId,
+          sourceBotId,
+          botName,
+          widgetToken,
+        )}
         sandbox="allow-scripts allow-same-origin"
         title={envelope.display_label || "Interactive HTML widget"}
         style={{

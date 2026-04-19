@@ -77,6 +77,12 @@ class ToolResultEnvelope:
     # and re-polls so workspace edits propagate to the rendered widget.
     source_path: str | None = None
     source_channel_id: str | None = None
+    # Bot that emitted this envelope. Persisted so interactive HTML widgets
+    # can mint a short-lived bearer token scoped to the bot's own API key
+    # (see ``POST /api/v1/widget-auth/mint``) instead of piggy-backing on the
+    # viewing user's session — an admin looking at a pinned widget should
+    # not be unwittingly lending their credentials to bot-authored JS.
+    source_bot_id: str | None = None
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -106,6 +112,8 @@ class ToolResultEnvelope:
             d["source_path"] = self.source_path
         if self.source_channel_id:
             d["source_channel_id"] = self.source_channel_id
+        if self.source_bot_id:
+            d["source_bot_id"] = self.source_bot_id
         return d
 
 
@@ -235,6 +243,7 @@ def _build_envelope_from_optin(envelope_data: dict, raw_text: str) -> ToolResult
 
     source_path = envelope_data.get("source_path")
     source_channel_id = envelope_data.get("source_channel_id")
+    source_bot_id = envelope_data.get("source_bot_id")
     display_label = envelope_data.get("display_label")
     refreshable = bool(envelope_data.get("refreshable"))
     refresh_interval_seconds = envelope_data.get("refresh_interval_seconds")
@@ -251,6 +260,7 @@ def _build_envelope_from_optin(envelope_data: dict, raw_text: str) -> ToolResult
         refresh_interval_seconds=int(refresh_interval_seconds) if refresh_interval_seconds else None,
         source_path=str(source_path) if source_path else None,
         source_channel_id=str(source_channel_id) if source_channel_id else None,
+        source_bot_id=str(source_bot_id) if source_bot_id else None,
     )
 
 

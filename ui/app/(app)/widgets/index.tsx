@@ -26,7 +26,7 @@ import { DashboardTabs } from "./DashboardTabs";
 import { CreateDashboardSheet } from "./CreateDashboardSheet";
 import { EditDashboardDrawer } from "./EditDashboardDrawer";
 import { ChannelDashboardBreadcrumb } from "./ChannelDashboardBreadcrumb";
-import { SidebarRailOverlay } from "./SidebarRailOverlay";
+import { EditModeGridGuides } from "./EditModeGridGuides";
 import {
   channelIdFromSlug,
   channelSlug,
@@ -35,17 +35,21 @@ import {
 } from "@/src/stores/dashboards";
 import { resolvePreset, type GridPreset } from "@/src/lib/dashboardGrid";
 
-/** A pin lives in the sidebar rail when it's anchored at the leftmost column
- *  (x === 0) and is narrow enough to fit. The width cutoff depends on the
- *  active dashboard's grid preset (2 units in standard, 4 in fine). */
-export function isRailPin(pin: WidgetDashboardPin, railMaxWidth = 2): boolean {
+/** A pin lives in the sidebar "rail zone" when its left edge sits inside the
+ *  leftmost band of the dashboard grid. Width and right-edge are intentionally
+ *  ignored — placement is the gesture, not size. The zone width depends on
+ *  the active preset (6 of 12 cols in standard, 12 of 24 in fine).
+ *
+ *  Pins with a missing/empty `grid_layout` (legacy rows that bypass the
+ *  Alembic backfill) don't qualify — they need a real coordinate before we
+ *  can decide. */
+export function isRailPin(pin: WidgetDashboardPin, railZoneCols = 6): boolean {
   const gl = pin.grid_layout as GridLayoutItem | undefined;
   return (
     !!gl
     && typeof gl === "object"
-    && gl.x === 0
-    && typeof gl.w === "number"
-    && gl.w <= railMaxWidth
+    && typeof gl.x === "number"
+    && gl.x < railZoneCols
   );
 }
 
@@ -115,9 +119,14 @@ export default function WidgetsDashboardPage() {
   // channel's real `name` without colliding with the main channel-chat route.
   const { data: channelRow } = useChannel(channelScopedId ?? undefined);
   const railCount = useMemo(
-    () => pins.filter((p) => isRailPin(p, preset.railMaxWidth)).length,
-    [pins, preset.railMaxWidth],
+    () => pins.filter((p) => isRailPin(p, preset.railZoneCols)).length,
+    [pins, preset.railZoneCols],
   );
+  /** While a widget is being dragged in edit mode, this tracks the dragging
+   *  item's `x`. Drives the rail-divider's "you're entering the rail zone"
+   *  active state in `EditModeGridGuides`. Cleared on drag stop. */
+  const [dragX, setDragX] = useState<number | null>(null);
+  const dragXInRail = dragX !== null && dragX < preset.railZoneCols;
   const gridRowCount = useMemo(() => {
     let max = 0;
     for (const p of pins) {
@@ -287,7 +296,12 @@ export default function WidgetsDashboardPage() {
         />
       )}
 
-      <div className="relative flex-1 overflow-auto p-2 sm:p-4 md:p-6">
+      <div
+        className={
+          "relative flex-1 overflow-auto p-2 sm:p-4 md:p-6 "
+          + (layoutEditable ? "pb-[40vh]" : "")
+        }
+      >
         {layoutError && (
           <div
             className="mx-auto mb-3 flex max-w-2xl items-center justify-between gap-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 text-[12px] text-danger"
@@ -324,11 +338,13 @@ export default function WidgetsDashboardPage() {
         {!isLoading && !error && pins.length > 0 && (
           <div className="relative">
             {isChannelScoped && layoutEditable && (
-              <SidebarRailOverlay
-                rowCount={Math.max(gridRowCount, 6)}
+              <EditModeGridGuides
+                cols={preset.cols.lg}
                 rowHeight={preset.rowHeight}
                 rowGap={GRID_MARGIN[1]}
-                railCount={railCount}
+                railZoneCols={preset.railZoneCols}
+                gridRowCount={Math.max(gridRowCount, 6)}
+                dragXInRail={dragXInRail}
               />
             )}
             <ResponsiveGridLayout
@@ -343,6 +359,10 @@ export default function WidgetsDashboardPage() {
               draggableHandle=".widget-drag-handle"
               compactType="vertical"
               preventCollision={false}
+              onDrag={(_layout, _oldItem, newItem) => {
+                if (newItem) setDragX(newItem.x);
+              }}
+              onDragStop={() => setDragX(null)}
               onLayoutChange={(current) => {
                 if (layoutEditable) scheduleCommit(current);
               }}

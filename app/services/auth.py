@@ -79,6 +79,45 @@ def decode_access_token(token: str) -> dict:
     return jwt.decode(token, _jwt_secret, algorithms=["HS256"])
 
 
+# Short-lived tokens injected into interactive HTML widget iframes so their
+# JS can call /api/v1/... as the bot that authored them — not as the
+# viewing user. TTL is deliberately short so screenshots / devtools
+# snapshots expire quickly; the renderer re-mints before expiry.
+WIDGET_TOKEN_TTL_SECONDS = 900  # 15 minutes
+
+
+def create_widget_token(
+    *,
+    bot_id: str,
+    scopes: list[str],
+    api_key_id: UUID,
+    pin_id: UUID | str | None = None,
+) -> tuple[str, datetime]:
+    """Mint a short-lived widget bearer. ``kind: "widget"`` in the payload
+    is how ``verify_auth_or_user`` tells this apart from a user JWT.
+
+    Scopes are copied from the bot's own API key at mint time — not looked
+    up again on each request — so revoking the bot's key doesn't
+    immediately invalidate in-flight widget tokens (they expire on their
+    own within ``WIDGET_TOKEN_TTL_SECONDS``). Acceptable trade-off for
+    simpler verification.
+    """
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=WIDGET_TOKEN_TTL_SECONDS)
+    payload = {
+        "kind": "widget",
+        "sub": bot_id,
+        "bot_id": bot_id,
+        "scopes": list(scopes),
+        "api_key_id": str(api_key_id),
+        "iat": now,
+        "exp": expires_at,
+    }
+    if pin_id is not None:
+        payload["pin_id"] = str(pin_id)
+    return jwt.encode(payload, _jwt_secret, algorithm="HS256"), expires_at
+
+
 async def validate_refresh_token(raw_token: str, db: AsyncSession) -> RefreshToken | None:
     """Look up a refresh token by hash and check expiry. Returns the row or None."""
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()

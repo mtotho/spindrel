@@ -3,14 +3,14 @@
  *
  *   Top:    File explorer (collapsible, only when a workspace exists)
  *   Divider
- *   Bottom: Widgets rail — a compact vertical strip of the channel's
- *           dashboard pins anchored to the leftmost grid column. Users
- *           curate which pins appear here by placing them in the "sidebar
- *           rail" band on the full channel dashboard (`/widgets/channel/:id`).
+ *   Bottom: Widgets — a scaled view onto the leftmost half ("rail zone")
+ *           of the channel's full dashboard. Pins keep their dashboard grid
+ *           coordinates; we render them in a CSS-Grid templated to
+ *           `railZoneCols` columns so relative position and size round-trip
+ *           between the dashboard and the sidebar.
  *
- * The full dashboard page is the single source of truth for channel
- * widgets; the OmniPanel is a view onto its rail subset. No separate
- * storage.
+ * Editing happens on the full dashboard page (`/widgets/channel/:id`).
+ * The OmniPanel is read-only; one source of truth.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -23,19 +23,6 @@ import {
   Pin,
   Plus,
 } from "lucide-react";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { ChannelFileExplorer } from "./ChannelFileExplorer";
 import { PinnedToolWidget } from "./PinnedToolWidget";
@@ -43,7 +30,7 @@ import { usePinnedWidgetsStore } from "@/src/stores/pinnedWidgets";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useDashboards, channelSlug } from "@/src/stores/dashboards";
-import { resolvePreset } from "@/src/lib/dashboardGrid";
+import { resolvePreset, type GridPreset } from "@/src/lib/dashboardGrid";
 import { isRailPin } from "@/app/(app)/widgets/index";
 import type {
   GridLayoutItem,
@@ -67,8 +54,7 @@ interface OmniPanelProps {
 
 /** Adapt a dashboard pin row to the PinnedWidget shape `PinnedToolWidget`
  *  accepts. Using dashboard scope inside OmniPanel means the widget shares
- *  storage + broadcast pipeline with the full channel dashboard page.
- */
+ *  storage + broadcast pipeline with the full channel dashboard page. */
 function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
   return {
     id: pin.id,
@@ -82,14 +68,37 @@ function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
   };
 }
 
-/** Compare-by-grid sort: top-to-bottom on the dashboard → top-to-bottom in
- *  the rail. Falls back to `position` for pins that haven't been placed on
- *  the grid yet. */
-function sortByGridY(a: WidgetDashboardPin, b: WidgetDashboardPin): number {
-  const ay = (a.grid_layout as GridLayoutItem | undefined)?.y ?? a.position;
-  const by = (b.grid_layout as GridLayoutItem | undefined)?.y ?? b.position;
+/** Top-to-bottom, then left-to-right — matches the visual scan order of the
+ *  dashboard's left half so the mini-grid reads the same way. */
+function sortByGridYX(a: WidgetDashboardPin, b: WidgetDashboardPin): number {
+  const al = a.grid_layout as GridLayoutItem | undefined;
+  const bl = b.grid_layout as GridLayoutItem | undefined;
+  const ay = al?.y ?? a.position;
+  const by = bl?.y ?? b.position;
   if (ay !== by) return ay - by;
+  const ax = al?.x ?? 0;
+  const bx = bl?.x ?? 0;
+  if (ax !== bx) return ax - bx;
   return a.position - b.position;
+}
+
+/** Translate a pin's dashboard coords into CSS-Grid placement within the
+ *  rail-zone mini-grid. Pins that overhang past the zone right edge are
+ *  clipped (loose inclusion rule per the design spec). */
+function gridPlacement(
+  pin: WidgetDashboardPin,
+  railZoneCols: number,
+): { gridColumn: string; gridRow: string } {
+  const gl = pin.grid_layout as GridLayoutItem | undefined;
+  const x = Math.max(0, gl?.x ?? 0);
+  const y = Math.max(0, gl?.y ?? 0);
+  const w = Math.max(1, gl?.w ?? 1);
+  const h = Math.max(1, gl?.h ?? 1);
+  const span = Math.max(1, Math.min(w, railZoneCols - x));
+  return {
+    gridColumn: `${x + 1} / span ${span}`,
+    gridRow: `${y + 1} / span ${h}`,
+  };
 }
 
 export function OmniPanel({
@@ -99,7 +108,7 @@ export function OmniPanel({
   onSelectFile,
   onBrowseFiles,
   onClose: _onClose,
-  width = 260,
+  width = 300,
   fullWidth = false,
   mobileTabs = false,
 }: OmniPanelProps) {
@@ -115,8 +124,8 @@ export function OmniPanel({
   const updateDashboardEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
   const dashboardCurrentSlug = useDashboardPinsStore((s) => s.currentSlug);
 
-  // Resolve the grid preset so the rail width cutoff matches whatever the
-  // user picked on the dashboard page.
+  // Resolve the grid preset so the mini-grid uses the same column count and
+  // proportions as whatever the user picked on the dashboard page.
   const { list: dashboards } = useDashboards();
   const dashboardRow = dashboards.find((d) => d.slug === slug);
   const preset = useMemo(
@@ -124,17 +133,16 @@ export function OmniPanel({
     [dashboardRow?.grid_config],
   );
 
-  // The rail subset: pins anchored to column 0 within the preset's width cap.
-  // Sorted top-to-bottom so the OmniPanel reads like a vertical scan of the
-  // dashboard's left edge.
+  // The rail subset: any pin whose left edge sits in the leftmost
+  // `railZoneCols` columns. Pins overhanging past the zone get visually
+  // clipped on render (loose inclusion).
   const railPins = useMemo(
     () =>
       pins
-        .filter((p) => isRailPin(p, preset.railMaxWidth))
-        .sort(sortByGridY),
-    [pins, preset.railMaxWidth],
+        .filter((p) => isRailPin(p, preset.railZoneCols))
+        .sort(sortByGridYX),
+    [pins, preset.railZoneCols],
   );
-  const railIds = useMemo(() => railPins.map((p) => p.id), [railPins]);
 
   // Auto-hydrate when the slug we want differs from the one the store is
   // currently showing (e.g. after user bounced through /widgets/default).
@@ -161,22 +169,6 @@ export function OmniPanel({
     [updateDashboardEnvelope],
   );
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor),
-  );
-
-  // Rail drag-reorder is informational only — the dashboard grid's y-order
-  // is authoritative (the rail reads sorted-by-y). We keep drag-and-drop
-  // for discoverability, but it's a no-op today. Future: rewrite the grid
-  // layout to swap y coords.
-  const handleDragEnd = useCallback(
-    (_event: DragEndEvent) => {
-      // No-op: see comment above.
-    },
-    [],
-  );
-
   const hasWorkspace = !!workspaceId;
   const hasWidgets = railPins.length > 0;
   const dashboardHref = `/widgets/channel/${encodeURIComponent(channelId)}`;
@@ -184,10 +176,8 @@ export function OmniPanel({
   const widgetsSection = (
     <WidgetsSection
       railPins={railPins}
-      railIds={railIds}
       hasWidgets={hasWidgets}
-      sensors={sensors}
-      handleDragEnd={handleDragEnd}
+      preset={preset}
       handleUnpin={handleUnpin}
       handleEnvelopeUpdate={handleEnvelopeUpdate}
       dashboardHref={dashboardHref}
@@ -335,8 +325,8 @@ export function OmniPanel({
           <Link
             to={dashboardHref}
             className="inline-flex items-center justify-center w-6 h-6 rounded-md transition-colors duration-150 hover:bg-white/[0.06]"
-            aria-label="Open channel dashboard"
-            title="Open channel dashboard"
+            aria-label="Edit channel dashboard"
+            title="Edit channel dashboard"
           >
             <LayoutDashboard size={12} color={t.textMuted} />
           </Link>
@@ -344,45 +334,11 @@ export function OmniPanel({
 
         {showWidgetsSection && (
           hasWidgets ? (
-            <div id="omni-widgets-body" className="flex-1 overflow-y-auto px-2 pb-2 space-y-1.5">
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext items={railIds} strategy={verticalListSortingStrategy}>
-                  {railPins.map((pin) => (
-                    <PinnedToolWidget
-                      key={pin.id}
-                      widget={asPinnedWidget(pin)}
-                      scope={{ kind: "dashboard" }}
-                      onUnpin={handleUnpin}
-                      onEnvelopeUpdate={handleEnvelopeUpdate}
-                    />
-                  ))}
-                </SortableContext>
-              </DndContext>
+            <div id="omni-widgets-body" className="flex-1 overflow-y-auto px-2 pb-2">
+              {widgetsSection}
             </div>
           ) : (
-            <div
-              id="omni-widgets-body"
-              className="flex-1 flex flex-col items-center justify-center px-4 py-8 gap-3"
-            >
-              <Layers size={22} style={{ color: t.textMuted, opacity: 0.3 }} />
-              <span
-                className="text-center text-xs leading-relaxed"
-                style={{ color: t.textMuted, opacity: 0.6 }}
-              >
-                Drop widgets into the left rail on the channel dashboard to surface them here.
-              </span>
-              <Link
-                to={dashboardHref}
-                className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2.5 py-1 text-[11px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
-              >
-                <Plus size={11} />
-                Open channel dashboard
-              </Link>
-            </div>
+            <EmptyWidgets dashboardHref={dashboardHref} t={t} />
           )
         )}
       </div>
@@ -392,10 +348,8 @@ export function OmniPanel({
 
 interface WidgetsSectionProps {
   railPins: WidgetDashboardPin[];
-  railIds: string[];
   hasWidgets: boolean;
-  sensors: ReturnType<typeof useSensors>;
-  handleDragEnd: (ev: DragEndEvent) => void;
+  preset: GridPreset;
   handleUnpin: (id: string) => void;
   handleEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
   dashboardHref: string;
@@ -404,84 +358,70 @@ interface WidgetsSectionProps {
 
 function WidgetsSection({
   railPins,
-  railIds,
   hasWidgets,
-  sensors,
-  handleDragEnd,
+  preset,
   handleUnpin,
   handleEnvelopeUpdate,
   dashboardHref,
   t,
 }: WidgetsSectionProps) {
+  if (!hasWidgets) {
+    return <EmptyWidgets dashboardHref={dashboardHref} t={t} />;
+  }
+  // Mini-grid: same column count as the dashboard's rail zone, scaled to the
+  // panel's actual width via 1fr columns. Row height is a proportion of the
+  // dashboard's rowHeight so wide tiles don't get squished into a single line.
+  // 0.7× keeps two-row controls (toggle + slider) readable in the narrow
+  // panel while still letting the user fit several pins above the fold.
+  const miniRowHeight = Math.max(16, Math.round(preset.rowHeight * 0.7));
   return (
-    <>
-      <div className="flex items-center gap-1 px-2.5 h-8 shrink-0">
-        <Pin size={12} color={t.textMuted} />
-        <span
-          className="flex-1 uppercase tracking-wider"
-          style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}
+    <div
+      className="grid w-full"
+      style={{
+        gridTemplateColumns: `repeat(${preset.railZoneCols}, minmax(0, 1fr))`,
+        gridAutoRows: `${miniRowHeight}px`,
+        gap: 8,
+      }}
+    >
+      {railPins.map((pin) => (
+        <div
+          key={pin.id}
+          style={gridPlacement(pin, preset.railZoneCols)}
+          className="min-w-0 min-h-0"
         >
-          Widgets
-        </span>
-        {hasWidgets && (
-          <span
-            className="text-[10px] tabular-nums rounded-full px-1.5 py-0.5"
-            style={{
-              color: t.textMuted,
-              backgroundColor: `${t.textMuted}18`,
-            }}
-          >
-            {railPins.length}
-          </span>
-        )}
-        <Link
-          to={dashboardHref}
-          className="inline-flex items-center justify-center w-6 h-6 rounded-md transition-colors duration-150 hover:bg-white/[0.06]"
-          aria-label="Open channel dashboard"
-          title="Open channel dashboard"
-        >
-          <LayoutDashboard size={12} color={t.textMuted} />
-        </Link>
-      </div>
-      {hasWidgets ? (
-        <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-1.5">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext items={railIds} strategy={verticalListSortingStrategy}>
-              {railPins.map((pin) => (
-                <PinnedToolWidget
-                  key={pin.id}
-                  widget={asPinnedWidget(pin)}
-                  scope={{ kind: "dashboard" }}
-                  onUnpin={handleUnpin}
-                  onEnvelopeUpdate={handleEnvelopeUpdate}
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
+          <PinnedToolWidget
+            widget={asPinnedWidget(pin)}
+            scope={{ kind: "dashboard" }}
+            onUnpin={handleUnpin}
+            onEnvelopeUpdate={handleEnvelopeUpdate}
+          />
         </div>
-      ) : (
-        <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 gap-3">
-          <Layers size={24} style={{ color: t.textMuted, opacity: 0.3 }} />
-          <span
-            className="text-center text-xs leading-relaxed"
-            style={{ color: t.textMuted, opacity: 0.6 }}
-          >
-            Drop widgets into the left rail on the channel dashboard to surface them here.
-          </span>
-          <Link
-            to={dashboardHref}
-            className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2.5 py-1 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
-          >
-            <LayoutDashboard size={12} />
-            Open channel dashboard
-          </Link>
-        </div>
-      )}
-    </>
+      ))}
+    </div>
+  );
+}
+
+function EmptyWidgets({
+  dashboardHref,
+  t: _t,
+}: {
+  dashboardHref: string;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 gap-3">
+      <Layers size={22} className="text-text-muted opacity-30" />
+      <span className="text-center text-xs leading-relaxed text-text-muted/70">
+        Drop widgets into the left half of the channel dashboard to surface them here.
+      </span>
+      <Link
+        to={dashboardHref}
+        className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2.5 py-1 text-[11px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
+      >
+        <Plus size={11} />
+        Open channel dashboard
+      </Link>
+    </div>
   );
 }
 

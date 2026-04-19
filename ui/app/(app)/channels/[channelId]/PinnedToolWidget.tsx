@@ -176,21 +176,33 @@ export function PinnedToolWidget({
   // Initial refresh on mount / re-pin.
   const refreshedForRef = useRef<string | null>(null);
   const [hasCompletedInitialRefresh, setHasCompletedInitialRefresh] = useState(false);
+  // HTML widgets own their own freshness: inline envelopes are static
+  // snapshots, path-mode envelopes are polled by the renderer against the
+  // workspace file. Calling /widget-actions/refresh for them returns an
+  // empty-envelope error and — worse — overwrites `source_channel_id` /
+  // `source_bot_id` on the current envelope, breaking `window.spindrel`.
+  const isHtmlWidget = currentEnvelope?.content_type
+    === "application/vnd.spindrel.html+interactive";
   useEffect(() => {
     if (refreshedForRef.current === widget.id) return;
     refreshedForRef.current = widget.id;
+    if (isHtmlWidget) {
+      setHasCompletedInitialRefresh(true);
+      return;
+    }
     refreshState().finally(() => setHasCompletedInitialRefresh(true));
-  }, [widget.id, refreshState]);
+  }, [widget.id, refreshState, isHtmlWidget]);
 
   // Automatic interval refresh — driven by envelope.refresh_interval_seconds.
   // The template engine sets this from state_poll.refresh_interval_seconds in
   // the integration's widget YAML (e.g. OpenWeather uses 3600 for hourly).
   const intervalSec = currentEnvelope?.refresh_interval_seconds;
   useEffect(() => {
+    if (isHtmlWidget) return;
     if (!intervalSec || intervalSec <= 0) return;
     const handle = setInterval(refreshState, intervalSec * 1000);
     return () => clearInterval(handle);
-  }, [intervalSec, refreshState]);
+  }, [intervalSec, refreshState, isHtmlWidget]);
 
   // React to external envelope updates (chat broadcasts, other pinned widgets).
   // Two cases:

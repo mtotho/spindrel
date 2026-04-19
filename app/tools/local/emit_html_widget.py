@@ -147,13 +147,16 @@ async def emit_html_widget(
 
     label = display_label.strip() or None
 
-    # Channel context at emit time. Persisted on the envelope so the
+    # Channel + bot context at emit time. Persisted on the envelope so the
     # widget's JS can keep calling channel-scoped APIs after the pin is
     # rendered on the dashboard (where the host page has no channel
-    # context of its own). Best-effort — inline-mode still works without
-    # it, the widget's `window.spindrel.channelId` just becomes null.
+    # context of its own). ``source_bot_id`` drives the widget-auth mint:
+    # the iframe authenticates as THIS bot, with THIS bot's scopes — not
+    # as the viewing user. Best-effort — inline-mode still works without
+    # it, the widget's `window.spindrel` just can't authenticate.
     emit_channel = current_channel_id.get()
     emit_channel_id = str(emit_channel) if emit_channel else None
+    emit_bot_id = current_bot_id.get()
 
     if html_set:
         body = _assemble_inline_body(html, js or "", css or "")
@@ -167,6 +170,8 @@ async def emit_html_widget(
         }
         if emit_channel_id:
             envelope["source_channel_id"] = emit_channel_id
+        if emit_bot_id:
+            envelope["source_bot_id"] = emit_bot_id
         if label:
             envelope["display_label"] = label
         return json.dumps(
@@ -205,6 +210,7 @@ async def emit_html_widget(
         "body": "",
         "source_path": path,
         "source_channel_id": str(channel_id),
+        "source_bot_id": bot_id,
         "plain_body": _derive_plain_body(
             display_label=label, path=path, body_len=0
         ),
