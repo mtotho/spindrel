@@ -140,28 +140,42 @@ async def _ensure_openai_subscription_models(
     if not sub_ids:
         return
 
-    existing = (
+    existing_rows = (
         await db.execute(
-            select(ProviderModel.provider_id, ProviderModel.model_id).where(
+            select(ProviderModel).where(
                 ProviderModel.provider_id.in_(sub_ids)
             )
         )
-    ).all()
-    have: set[tuple[str, str]] = {(pid, mid) for pid, mid in existing}
+    ).scalars().all()
+    have: set[tuple[str, str]] = {(r.provider_id, r.model_id) for r in existing_rows}
+
+    # Prune autoseeded rows for models no longer in the allowlist. A row is
+    # considered autoseeded only if display_name == model_id (our default) and
+    # no pricing has been filled in — so user edits are preserved.
+    allowlist = set(OAUTH_MODELS)
+    removed = 0
+    for row in existing_rows:
+        if row.model_id in allowlist:
+            continue
+        is_default = (
+            (row.display_name == row.model_id or not row.display_name)
+            and not row.input_cost_per_1m
+            and not row.output_cost_per_1m
+        )
+        if is_default:
+            await db.delete(row)
+            removed += 1
+    if removed:
+        logger.info("Pruned %d stale autoseeded openai-subscription ProviderModel rows", removed)
 
     # Max-tokens hints for the Codex-accessible models. Conservative values
     # when OpenAI hasn't published a specific number for the OAuth variant.
     _CONTEXT_HINTS = {
         "gpt-5.4": 272_000,
-        "gpt-5.4-pro": 272_000,
+        "gpt-5.4-mini": 272_000,
         "gpt-5.3-codex": 272_000,
         "gpt-5.3-codex-spark": 272_000,
-        "gpt-5.3-instant": 272_000,
-        "gpt-5.3-chat-latest": 272_000,
-        "gpt-5-codex": 272_000,
-        "gpt-5": 272_000,
-        "gpt-5-mini": 272_000,
-        "o4-mini": 200_000,
+        "gpt-5.2": 272_000,
     }
 
     inserted = 0

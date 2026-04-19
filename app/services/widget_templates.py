@@ -508,7 +508,7 @@ def apply_widget_template(
         channel_val = current_channel_id.get()
         channel_str = str(channel_val) if channel_val else None
 
-        body = _build_html_widget_body(tmpl["html_template_body"], data)
+        body = _build_html_widget_body(tmpl["html_template_body"], data_with_config)
         return ToolResultEnvelope(
             content_type=tmpl.get(
                 "content_type", "application/vnd.spindrel.html+interactive",
@@ -636,9 +636,11 @@ def apply_state_poll(
 
     # HTML mode: rebuild body with fresh toolResult preamble. The iframe
     # renderer extracts the new JSON and pushes it in via
-    # window.spindrel.__setToolResult without reloading srcDoc.
+    # window.spindrel.__setToolResult without reloading srcDoc. The merged
+    # pin config rides along under ``toolResult.config`` so widgets can
+    # gate rendering on user-toggled state (e.g. starred URLs, units).
     if is_html_mode:
-        body = _build_html_widget_body(owner_tmpl["html_template_body"], data)
+        body = _build_html_widget_body(owner_tmpl["html_template_body"], data_with_config)
         return ToolResultEnvelope(
             content_type="application/vnd.spindrel.html+interactive",
             body=body,

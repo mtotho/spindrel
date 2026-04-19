@@ -50,10 +50,14 @@ interface Props {
   /** Pre-built dispatcher. Surfaces that need a non-channel-scoped dispatcher
    *  (pinned widgets, dev panel with NOOP) pass this instead of channelId+botId. */
   dispatcher?: WidgetActionDispatcher;
+  /** When true, interactive HTML widgets fill their container height instead
+   *  of measuring their inner content. Dashboard grid tiles opt in so a
+   *  user-resized tile actually renders the widget at the tile's size. */
+  fillHeight?: boolean;
   t: ThemeTokens;
 }
 
-export function RichToolResult({ envelope, sessionId, channelId, botId, dispatcher, t }: Props) {
+export function RichToolResult({ envelope, sessionId, channelId, botId, dispatcher, fillHeight, t }: Props) {
   const [fetched, setFetched] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -159,7 +163,14 @@ export function RichToolResult({ envelope, sessionId, channelId, botId, dispatch
         content = <SandboxedHtmlRenderer body={body} t={t} />;
         break;
       case "application/vnd.spindrel.html+interactive":
-        content = <InteractiveHtmlRenderer envelope={envelope} channelId={channelId} t={t} />;
+        content = (
+          <InteractiveHtmlRenderer
+            envelope={envelope}
+            channelId={channelId}
+            fillHeight={fillHeight}
+            t={t}
+          />
+        );
         break;
       case "application/vnd.spindrel.diff+text":
         content = <DiffRenderer body={body} t={t} />;

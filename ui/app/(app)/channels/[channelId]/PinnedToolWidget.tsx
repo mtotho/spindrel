@@ -462,7 +462,12 @@ export function PinnedToolWidget({
             : "px-2 pb-2 max-h-[350px] overflow-y-auto"
         }
       >
-        <RichToolResult envelope={currentEnvelope} dispatcher={dispatcher} t={t} />
+        <RichToolResult
+          envelope={currentEnvelope}
+          dispatcher={dispatcher}
+          fillHeight={isDashboard}
+          t={t}
+        />
       </div>
     </div>
   );

@@ -61,6 +61,11 @@ interface Props {
    *  `window.spindrel` helper so bot JS can call channel-scoped APIs.
    *  Falls back to `envelope.source_channel_id` when omitted. */
   channelId?: string;
+  /** When true, the iframe fills its container's height (100%) instead of
+   *  measuring the inner content. Used by dashboard grid tiles where the
+   *  parent dictates the available height and the user expects the tile to
+   *  fill the space they resized it to — not collapse to content size. */
+  fillHeight?: boolean;
   t: ThemeTokens;
 }
 
@@ -261,7 +266,7 @@ function formatRelative(ts: number | null): string {
   return `${hrs}h ago`;
 }
 
-export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
+export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, t }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
   const themeMode = useThemeStore((s) => s.mode);
@@ -489,6 +494,11 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
         overflow: "hidden",
         background: t.surfaceRaised,
         position: "relative",
+        // Dashboard grid tiles set an explicit height on their children;
+        // flex-column + h-full lets the iframe grow to fill the tile.
+        ...(fillHeight
+          ? { height: "100%", display: "flex", flexDirection: "column" as const }
+          : null),
       }}
     >
       {errorOverlay}
@@ -594,7 +604,10 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
         title={envelope.display_label || "Interactive HTML widget"}
         style={{
           width: "100%",
-          height,
+          // Dashboard tiles: fill parent height (resize-aware). Chat messages:
+          // content-measured height capped at MAX_IFRAME_HEIGHT.
+          height: fillHeight ? "100%" : height,
+          flex: fillHeight ? 1 : undefined,
           border: "none",
           display: "block",
         }}
