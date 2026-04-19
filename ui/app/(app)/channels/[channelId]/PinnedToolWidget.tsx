@@ -420,12 +420,14 @@ export function PinnedToolWidget({
       </div>
 
       {/* Body: component content. Dashboard scope fills the tile; channel
-          scope retains the fixed cap so the OmniPanel column stays compact. */}
+          scope retains the fixed cap so the OmniPanel column stays compact.
+          `pb-3` gives range-slider thumbs (which render outside the input's
+          box) room to escape the overflow clip. */}
       <div
         className={
           isDashboard
-            ? "px-2 pb-1 flex-1 min-h-0 overflow-y-auto"
-            : "px-2 pb-1 max-h-[350px] overflow-y-auto"
+            ? "px-2 pb-3 flex-1 min-h-0 overflow-y-auto"
+            : "px-2 pb-3 max-h-[350px] overflow-y-auto"
         }
       >
         <WidgetActionContext.Provider value={actionCtx}>

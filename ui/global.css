@@ -125,27 +125,54 @@ body {
 /* ── Scrollbars ─────────────────────────────────────────── */
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px !important;
+  height: 10px !important;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: transparent !important;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--color-surface-border));
-  border-radius: 3px;
+  background: rgba(140, 140, 140, 0.7) !important;
+  border-radius: 5px !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(180, 180, 180, 0.55) !important;
+  background-clip: padding-box !important;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--color-text-dim));
+  background: rgba(140, 140, 140, 1) !important;
+  background-clip: padding-box !important;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(220, 220, 220, 0.9) !important;
+  background-clip: padding-box !important;
+}
+
+::-webkit-scrollbar-button {
+  display: none !important;
+  height: 0 !important;
+  width: 0 !important;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent !important;
 }
 
 /* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgb(var(--color-surface-border)) transparent;
+  scrollbar-color: rgba(140, 140, 140, 0.7) transparent;
+}
+
+html.dark * {
+  scrollbar-color: rgba(180, 180, 180, 0.55) transparent;
 }
 
 /* Hide scrollbar for horizontal scroll containers */

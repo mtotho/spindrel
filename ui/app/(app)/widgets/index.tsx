@@ -205,7 +205,7 @@ export default function WidgetsDashboardPage() {
         onOpenManage={() => setManageSlug(slug)}
       />
 
-      <div className="flex-1 overflow-auto p-4 md:p-6">
+      <div className="flex-1 overflow-auto p-2 sm:p-4 md:p-6">
         {layoutError && (
           <div
             className="mx-auto mb-3 flex max-w-2xl items-center justify-between gap-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 text-[12px] text-danger"
@@ -240,44 +240,35 @@ export default function WidgetsDashboardPage() {
           <EmptyState onAddClick={() => setSheetOpen(true)} />
         )}
         {!isLoading && !error && pins.length > 0 && (
-          <div
-            className={
-              "transition-colors " +
-              (layoutEditable
-                ? "rounded-lg border border-dashed border-accent/40 bg-accent/[0.03] p-2"
-                : "")
-            }
+          <ResponsiveGridLayout
+            className={layoutEditable ? "rgl-edit-mode" : ""}
+            layouts={layouts}
+            breakpoints={BREAKPOINTS}
+            cols={COLS}
+            rowHeight={ROW_HEIGHT}
+            margin={GRID_MARGIN}
+            isDraggable={layoutEditable}
+            isResizable={layoutEditable}
+            draggableHandle=".widget-drag-handle"
+            compactType="vertical"
+            preventCollision={false}
+            onLayoutChange={(current) => {
+              if (layoutEditable) scheduleCommit(current);
+            }}
           >
-            <ResponsiveGridLayout
-              className={layoutEditable ? "rgl-edit-mode" : ""}
-              layouts={layouts}
-              breakpoints={BREAKPOINTS}
-              cols={COLS}
-              rowHeight={ROW_HEIGHT}
-              margin={GRID_MARGIN}
-              isDraggable={layoutEditable}
-              isResizable={layoutEditable}
-              draggableHandle=".widget-drag-handle"
-              compactType="vertical"
-              preventCollision={false}
-              onLayoutChange={(current) => {
-                if (layoutEditable) scheduleCommit(current);
-              }}
-            >
-              {pins.map((p) => (
-                <div key={p.id} className="min-w-0">
-                  <PinnedToolWidget
-                    widget={asPinnedWidget(p)}
-                    scope={{ kind: "dashboard" }}
-                    onUnpin={handleUnpin}
-                    onEnvelopeUpdate={handleEnvelopeUpdate}
-                    editMode={layoutEditable}
-                    onEdit={() => setEditingPinId(p.id)}
-                  />
-                </div>
-              ))}
-            </ResponsiveGridLayout>
-          </div>
+            {pins.map((p) => (
+              <div key={p.id} className="min-w-0">
+                <PinnedToolWidget
+                  widget={asPinnedWidget(p)}
+                  scope={{ kind: "dashboard" }}
+                  onUnpin={handleUnpin}
+                  onEnvelopeUpdate={handleEnvelopeUpdate}
+                  editMode={layoutEditable}
+                  onEdit={() => setEditingPinId(p.id)}
+                />
+              </div>
+            ))}
+          </ResponsiveGridLayout>
         )}
       </div>
 
