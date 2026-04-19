@@ -126,7 +126,7 @@ class TestStartDeviceFlow:
 
         assert result["user_code"] == "ABCD-1234"
         assert result["interval"] == 3
-        assert result["verification_uri"].startswith("https://chatgpt.com/auth/device")
+        assert result["verification_uri"] == "https://auth.openai.com/codex/device"
         assert "user_code=ABCD-1234" in result["verification_uri_complete"]
         # State stashed for later polls.
         assert oa._pending["prov_a"]["device_auth_id"] == "dev_1"

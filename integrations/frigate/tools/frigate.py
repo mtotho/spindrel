@@ -339,19 +339,15 @@ async def _download_media(
     orphan-linking attaches it to the assistant message automatically.
     A client_action is included for immediate Slack display.
 
-    ``tool_name`` — when the calling tool has a registered HTML widget
-    AND we're dispatching to the web UI, we suppress the inline-in-chat
-    display: the attachment is created channel-less (so orphan-linking
-    skips it) and no client_action fires. The widget renders the image
-    via attachment_id, and the chat message body stays clean. Without
-    this, the web user sees the image twice — once as a message
-    attachment, once in the widget.
-
-    Non-web integrations (Slack, Discord, BlueBubbles, etc.) do NOT
-    render widgets, so for them the `client_action` + orphan-linking
-    path is the ONLY way the image gets into the conversation. We keep
-    the old behavior for those — the widget-suppression is strictly a
-    web-UI concern.
+    ``tool_name`` — when the calling tool has a registered HTML widget,
+    we skip ONLY the web orphan-linking path: the attachment is created
+    channel-less so persist_turn doesn't auto-attach it to the assistant
+    message (which is what makes web render it inline). Everything else
+    — `client_action` (which Slack/Discord/BlueBubbles consume to post
+    the image to their own surfaces) — stays ON, because those paths are
+    orthogonal to web's inline-attachment rendering. The widget renders
+    the image in web via `attachment_id`, the integrations post it via
+    `client_action`, and nobody shows it twice.
     """
     from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
     from app.services.attachments import create_attachment
@@ -368,18 +364,16 @@ async def _download_media(
     source = current_dispatch_type.get() or "web"
     is_image = mime_type.startswith("image/")
 
-    # Only the web renderer runs HTML widgets. Other integrations need
-    # the inline attachment/client_action path as their sole rendering route.
-    widget_owns_display = bool(
-        tool_name and get_widget_template(tool_name) and source == "web"
-    )
+    # Web renders inline via Attachment.message_id (orphan-linking in
+    # persist_turn). Orphan-linking filters by channel_id, so creating
+    # the attachment with channel_id=None opts it out of the web inline
+    # path. The widget still fetches it by attachment_id. client_action
+    # is a separate channel (Slack/Discord renderers) — don't touch it.
+    widget_handles_web = bool(tool_name and get_widget_template(tool_name))
 
     att = await create_attachment(
         message_id=None,
-        # channel_id=None when a widget renders this — orphan-linking in
-        # persist_turn filters by channel_id, so this effectively opts the
-        # attachment out of auto-attaching to the assistant message.
-        channel_id=None if widget_owns_display else channel_id,
+        channel_id=None if widget_handles_web else channel_id,
         filename=filename,
         mime_type=mime_type,
         size_bytes=len(data),
@@ -397,13 +391,12 @@ async def _download_media(
     }
 
     # Include client_action for immediate Slack/streaming display.
-    # When client_action is present, the LLM only sees the "message" field,
-    # so we include the attachment_id there for follow-up analysis.
-    # Only for images — video clips can be 50MB+ and shouldn't be base64'd.
-    # Skip entirely when a widget will render: the widget fetches the image
-    # via attachment_id and shows it there, so duplicating it as a client_
-    # action upload would produce two copies in chat.
-    if is_image and not widget_owns_display:
+    # This fires regardless of widget registration — Slack/Discord
+    # consume this to post the image; they don't render widgets and
+    # can't see the widget's attachment fetch. client_action is their
+    # only rendering path. Only images — video clips can be 50MB+ and
+    # shouldn't be base64'd.
+    if is_image:
         import base64
         result["client_action"] = {
             "type": "upload_image",

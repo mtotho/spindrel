@@ -54,9 +54,13 @@ logger = logging.getLogger(__name__)
 
 
 # OAuth endpoint paths off the CODEX_OAUTH_ISSUER base.
-_DEVICEAUTH_USERCODE_PATH = "/deviceauth/usercode"
-_DEVICEAUTH_TOKEN_PATH = "/deviceauth/token"
+# Device-code endpoints live under /api/accounts/; callback + verification
+# landing page live at the bare issuer root. This mirrors the Codex CLI's
+# layout in codex-rs/login/src/device_code_auth.rs.
+_DEVICEAUTH_USERCODE_PATH = "/api/accounts/deviceauth/usercode"
+_DEVICEAUTH_TOKEN_PATH = "/api/accounts/deviceauth/token"
 _DEVICEAUTH_CALLBACK_PATH = "/deviceauth/callback"
+_VERIFICATION_URI_PATH = "/codex/device"
 _OAUTH_TOKEN_PATH = "/oauth/token"
 
 # id_token claim that carries the ChatGPT account identifier used in the
@@ -181,9 +185,10 @@ async def start_device_flow(provider_id: str) -> dict:
     if not device_auth_id or not user_code:
         raise RuntimeError(f"Device code response missing required fields: {data}")
 
-    # Verification URI the user visits to approve the code. The canonical
-    # URL shape matches what the official CLI prints.
-    verification_uri = f"https://chatgpt.com/auth/device"
+    # Verification URI the user visits to approve the code. Matches what
+    # the Codex CLI prints (it builds `{issuer}/codex/device`, not a
+    # chatgpt.com route).
+    verification_uri = f"{CODEX_OAUTH_ISSUER}{_VERIFICATION_URI_PATH}"
     verification_uri_complete = f"{verification_uri}?user_code={user_code}"
 
     _pending[provider_id] = {

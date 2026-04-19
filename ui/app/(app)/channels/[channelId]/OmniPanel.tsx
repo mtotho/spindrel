@@ -281,33 +281,31 @@ function WidgetsSection({
   if (!hasWidgets) {
     return <EmptyWidgets dashboardHref={dashboardHref} t={t} />;
   }
-  // Mini-grid: columns flex to fill the sidebar width; row height matches
-  // the dashboard's `rowHeight` 1:1 so widget content renders at its normal
-  // CSS size (text legible, buttons tappable). The layout still honors each
-  // pin's `grid_layout.x/y/w/h` — only the column width adapts.
+  // Sidebar is its own layout space. Widgets stack vertically, each taking
+  // the full sidebar width — we don't honor dashboard column spans here
+  // (those are tuned for the wider rail zone on /widgets/channel/:id).
+  // Height is driven by dashboard `grid_layout.h × rowHeight` so tall widgets
+  // stay tall; order follows dashboard top-to-bottom scan (sortByGridYX).
   return (
-    <div
-      className="grid w-full"
-      style={{
-        gridTemplateColumns: `repeat(${preset.railZoneCols}, minmax(0, 1fr))`,
-        gridAutoRows: `${preset.rowHeight}px`,
-        gap: 12,
-      }}
-    >
-      {railPins.map((pin) => (
-        <div
-          key={pin.id}
-          style={gridPlacement(pin, preset.railZoneCols)}
-          className="min-w-0 min-h-0"
-        >
-          <PinnedToolWidget
-            widget={asPinnedWidget(pin)}
-            scope={{ kind: "dashboard" }}
-            onUnpin={handleUnpin}
-            onEnvelopeUpdate={handleEnvelopeUpdate}
-          />
-        </div>
-      ))}
+    <div className="flex flex-col gap-3 w-full">
+      {railPins.map((pin) => {
+        const gl = pin.grid_layout as GridLayoutItem | undefined;
+        const h = Math.max(1, gl?.h ?? 6);
+        return (
+          <div
+            key={pin.id}
+            className="min-w-0"
+            style={{ height: h * preset.rowHeight + (h - 1) * 12 }}
+          >
+            <PinnedToolWidget
+              widget={asPinnedWidget(pin)}
+              scope={{ kind: "dashboard" }}
+              onUnpin={handleUnpin}
+              onEnvelopeUpdate={handleEnvelopeUpdate}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
