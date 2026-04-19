@@ -29,6 +29,7 @@ from app.services.auth import (
     WIDGET_TOKEN_TTL_SECONDS,
     create_widget_token,
 )
+from app.services.bots_visibility import can_user_use_bot
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +58,12 @@ def _is_admin(auth: object) -> bool:
     return bool(getattr(auth, "is_admin", False))
 
 
-async def _caller_may_use_bot(auth: object, bot: Bot) -> bool:
-    """Admin bypass, otherwise the user that owns the bot."""
+async def _caller_may_use_bot(db: AsyncSession, auth: object, bot: Bot) -> bool:
+    """Admin bypass, bot owner bypass, else a ``bot_grants`` row is required."""
     if _is_admin(auth):
         return True
     if isinstance(auth, User):
-        return bot.user_id is not None and bot.user_id == auth.id
+        return await can_user_use_bot(db, auth, bot)
     return False
 
 
@@ -76,10 +77,23 @@ async def mint_widget_token(
     if bot is None:
         raise HTTPException(404, f"Bot {body.source_bot_id} not found")
 
-    if not await _caller_may_use_bot(auth, bot):
-        raise HTTPException(403, "Not allowed to mint a token for this bot")
-
     bot_label = bot.display_name or bot.name or str(bot.id)
+
+    if not await _caller_may_use_bot(db, auth, bot):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": (
+                    f"You don't have access to bot '{bot_label}'. "
+                    "Ask an admin to grant you access under "
+                    f"Admin → Bots → {bot_label} → Grants."
+                ),
+                "reason": "bot_access_denied",
+                "bot_id": bot.id,
+                "bot_name": bot_label,
+                "pin_id": body.pin_id,
+            },
+        )
 
     if bot.api_key_id is None:
         raise HTTPException(

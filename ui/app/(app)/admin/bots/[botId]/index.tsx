@@ -30,6 +30,7 @@ import { SkillsSection } from "./SkillsSection";
 import { LearningSection } from "./LearningSection";
 import { WorkspaceSection } from "./WorkspaceSection";
 import { BotPermissionsSection } from "./BotPermissionsSection";
+import { GrantsSection } from "./GrantsSection";
 import { BotToolPoliciesSection } from "./BotToolPoliciesSection";
 import { BotHooksSection } from "./BotHooksSection";
 import { HistoryModeSection } from "./HistoryModeSection";
@@ -146,6 +147,7 @@ export default function BotEditorScreen() {
       workspace: ["workspace", "docker", "host", "exec", "sandbox", "index", "command", "port", "mount"],
       delegation: ["delegat", "bot"],
       permissions: ["permission", "scope", "api", "key", "access"],
+      grants: ["grant", "user", "access", "share", "allow", "viewer"],
       tool_policies: ["tool", "policy", "policies", "allow", "deny", "approval"],
       hooks: ["hook", "trigger", "before", "after", "path", "cooldown"],
       display: ["display", "avatar", "icon", "slack", "emoji"],
@@ -630,6 +632,10 @@ export default function BotEditorScreen() {
               permissions={draft.api_permissions || []}
               onChange={(p) => update({ api_permissions: p })}
             />
+          )}
+
+          {activeSection === "grants" && (
+            <GrantsSection botId={isNew ? undefined : draft.id} ownerUserId={draft.user_id} />
           )}
 
           {activeSection === "tool_policies" && draft.id && (

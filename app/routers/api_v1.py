@@ -26,6 +26,7 @@ from app.routers.api_v1_widget_auth import router as widget_auth_router
 from app.routers.api_v1_dashboard import router as dashboard_router
 from app.routers.api_v1_push import router as push_router, presence_router
 from app.routers.api_v1_favicon import router as favicon_router
+from app.routers.api_v1_internal_tools import router as internal_tools_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(admin_router)
@@ -54,3 +55,4 @@ router.include_router(dashboard_router)
 router.include_router(push_router)
 router.include_router(presence_router)
 router.include_router(favicon_router)
+router.include_router(internal_tools_router)

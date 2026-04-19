@@ -40,8 +40,7 @@ import { ContextMenu, type ContextMenuItem, estimateTokens } from "./ChannelFile
 import {
   ScopeStrip,
   Breadcrumb,
-  TreeFolderRow,
-  TreeFileRow,
+  TreeBranch,
   NewItemRow,
   stripSlashes,
 } from "./ChannelFileExplorerParts";
@@ -76,6 +75,9 @@ interface FilesTabPanelProps {
   botId: string | undefined;
   workspaceId: string | undefined;
   channelDisplayName?: string | null;
+  /** Workspace-relative path of the file currently open in the editor; used
+   *  to highlight the row in the tree. Null when no file is open. */
+  activeFile?: string | null;
   onSelectFile: (workspaceRelativePath: string) => void;
   /** When true the search filter opens focused on mount — wired to the
    *  Cmd+Shift+B global shortcut so "browse files" lands on search-ready. */
@@ -87,6 +89,7 @@ export function FilesTabPanel({
   botId,
   workspaceId,
   channelDisplayName,
+  activeFile,
   onSelectFile,
   focusSearchOnMount = false,
 }: FilesTabPanelProps) {
@@ -117,12 +120,20 @@ export function FilesTabPanel({
   const channelTarget = `/channels/${channelId}`;
 
   const setRemembered = useFileBrowserStore((s) => s.setChannelExplorerPath);
+  const expandDir = useFileBrowserStore((s) => s.expandDir);
   const [currentPath, setCurrentPathRaw] = useState<string>(() =>
     pickInitialPath({
       channelId,
       remembered: useFileBrowserStore.getState().channelExplorerPaths[channelId],
     }),
   );
+
+  // Auto-expand the Knowledge Base folder for the current channel scope on
+  // mount so the auto-indexed convention is visible without an extra click.
+  // Idempotent — `expandDir` no-ops when already expanded.
+  useEffect(() => {
+    expandDir(`channels/${channelId}/knowledge-base`);
+  }, [channelId, expandDir]);
   const setCurrentPath = useCallback(
     (p: string) => {
       setCurrentPathRaw(p);
@@ -772,67 +783,47 @@ export function FilesTabPanel({
                 onCancel={() => setNewItem(null)}
               />
             )}
-            {folders.map((entry) => {
-              const displayLabel = entry.display_name || (channelNameMap[entry.name] ?? null);
-              const folderPath = "/" + stripSlashes(entry.path);
-              return (
-                <TreeFolderRow
-                  key={entry.path}
-                  name={entry.name}
-                  displayLabel={displayLabel}
-                  fullPath={folderPath}
-                  multiSelected={selectedPaths.has(folderPath)}
-                  onNavigate={(path, e) => {
-                    if (e?.ctrlKey || e?.metaKey || e?.shiftKey) {
-                      handleMultiSelect(path, e);
-                      return;
-                    }
-                    setSelectedPaths(new Set());
-                    setCurrentPath(path);
-                  }}
-                  onContextMenu={(e) => {
-                    if (selectedPaths.has(folderPath) && selectedPaths.size > 1) {
-                      openBulkContextMenu(e);
-                    } else {
-                      openFolderContextMenu(e, entry);
-                    }
-                  }}
-                  onMoveDrop={(srcPath) => handleMoveDrop(srcPath, entry.path)}
-                />
-              );
-            })}
-            {files.map((entry, i) => {
-              const filePath = stripSlashes(entry.path);
-              return (
-                <TreeFileRow
-                  key={entry.path}
-                  name={entry.name}
-                  fullPath={filePath}
-                  size={entry.size}
-                  modifiedAt={entry.modified_at}
-                  selected={false}
-                  multiSelected={selectedPaths.has(filePath)}
-                  focused={focusedIndex === i}
-                  onSelect={(e) => {
-                    if (e?.ctrlKey || e?.metaKey || e?.shiftKey) {
-                      handleMultiSelect(filePath, e);
-                      return;
-                    }
-                    setSelectedPaths(new Set());
-                    onSelectFile(filePath);
-                  }}
-                  onDelete={() => deleteEntry(entry.name, entry.path, false)}
-                  onContextMenu={(e) => {
-                    if (selectedPaths.has(filePath) && selectedPaths.size > 1) {
-                      openBulkContextMenu(e);
-                    } else {
-                      openFileContextMenu(e, entry);
-                    }
-                  }}
-                />
-              );
-            })}
-            {filtered.length === 0 && !newItem && (
+            <TreeBranch
+              workspaceId={workspaceId}
+              folderPath={stripSlashes(currentPath)}
+              folderName={stripSlashes(currentPath).split("/").pop() || "/"}
+              isRoot
+              depth={0}
+              selectedPaths={selectedPaths}
+              activeFilePath={activeFile ?? null}
+              childDisplayLabels={channelNameMap}
+              callbacks={{
+                onSelectFile: (filePath, e) => {
+                  if (e?.ctrlKey || e?.metaKey || e?.shiftKey) {
+                    handleMultiSelect(filePath, e);
+                    return;
+                  }
+                  setSelectedPaths(new Set());
+                  onSelectFile(filePath);
+                },
+                onFileContextMenu: (e, entry) => {
+                  const filePath = stripSlashes(entry.path);
+                  if (selectedPaths.has(filePath) && selectedPaths.size > 1) {
+                    openBulkContextMenu(e);
+                  } else {
+                    openFileContextMenu(e, entry);
+                  }
+                },
+                onFolderContextMenu: (e, entry) => {
+                  const folderPath = "/" + stripSlashes(entry.path);
+                  if (selectedPaths.has(folderPath) && selectedPaths.size > 1) {
+                    openBulkContextMenu(e);
+                  } else {
+                    openFolderContextMenu(e, entry);
+                  }
+                },
+                onMoveDrop: (srcPath, dstFolderPath) => {
+                  void handleMoveDrop(srcPath, dstFolderPath);
+                },
+                onDeleteFile: (name, path) => deleteEntry(name, path, false),
+              }}
+            />
+            {!treeLoading && (treeData?.entries ?? []).length === 0 && !newItem && (
               <div
                 className="italic text-center p-3"
                 style={{ color: t.textDim, fontSize: 11 }}

@@ -456,6 +456,11 @@ read_conversation_history(section='tool:<id>').
 - If a tool's schema is not fully in context, call `get_tool_info(tool_name="...")` first.
 - After a tool error: diagnose, fix, retry once. After a second failure: stop and report.
 - Never guess tool names or parameters — if unsure, check first.
+- For multi-step tool work — "for each X, get Y" loops, filtering across lists, joining \
+results from two tools — prefer `run_script` over a chain of individual tool calls. It runs \
+Python in your workspace with `tools.NAME(**args)` bindings, returns just what you `print()`, \
+and keeps intermediate data out of context. Call `list_tool_signatures()` first if you don't \
+know what's composable or what each tool returns.
 
 ## Confidence
 

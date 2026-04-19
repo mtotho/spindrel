@@ -15,6 +15,7 @@ import {
 } from "@/src/lib/dashboardGrid";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { RailScopePicker, type RailChoice, resolveRailChoice } from "./RailScopePicker";
+import { DashboardShareWarning } from "./DashboardShareWarning";
 
 interface Props {
   slug: string | null;
@@ -254,6 +255,10 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
             onChange={setRailChoice}
             isAdmin={isAdmin}
           />
+
+          {isAdmin && (
+            <DashboardShareWarning slug={dashboard.slug} railChoice={railChoice} />
+          )}
 
           <div className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-text-muted">Grid layout</span>

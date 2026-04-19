@@ -31,7 +31,17 @@ logger = logging.getLogger(__name__)
             "required": ["tool_name"],
         },
     },
-}, requires_bot_context=True)
+}, requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "schema": {"type": "object", "description": "OpenAI function-call input schema"},
+        "output_schema": {"type": ["object", "null"], "description": "JSON Schema for the tool's return shape (when declared)"},
+        "safety_tier": {"type": "string"},
+        "tool_name": {"type": "string"},
+        "server_name": {"type": "string", "description": "Set for MCP tools"},
+        "error": {"type": "string"},
+    },
+})
 async def get_tool_info(tool_name: str) -> str:
     """Return the full OpenAI function schema for a tool, enroll it, and activate it.
 
@@ -49,7 +59,15 @@ async def get_tool_info(tool_name: str) -> str:
     entry = _tools.get(tool_name)
     if entry is not None:
         schema_for_activation = entry["schema"]
-        response_json = json.dumps(schema_for_activation, indent=2, ensure_ascii=False)
+        # Include the declared return schema (if any) so the model knows what
+        # field names to access in the parsed result. Load-bearing for
+        # programmatic tool composition via run_script.
+        payload = {
+            "schema": schema_for_activation,
+            "output_schema": entry.get("returns"),
+            "safety_tier": entry.get("safety_tier"),
+        }
+        response_json = json.dumps(payload, indent=2, ensure_ascii=False)
     else:
         # Also check tool_embeddings DB for MCP tools
         from app.db.engine import async_session
@@ -190,6 +208,25 @@ async def prune_enrolled_tools(tool_names: list[str]) -> str:
             "required": ["query"],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "query": {"type": "string"},
+        "matches": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "similarity": {"type": "number"},
+                },
+                "required": ["name", "description", "similarity"],
+            },
+        },
+        "hint": {"type": "string"},
+        "error": {"type": "string"},
+    },
 })
 async def search_tools(query: str, limit: int = 10) -> str:
     """Semantic search across the full tool pool.
@@ -239,4 +276,134 @@ async def search_tools(query: str, limit: int = 10) -> str:
             "Call get_tool_info(tool_name=<name>) to load a match's full schema; "
             "it will become callable on the next turn."
         ) if matches else "No tools matched above the loose similarity floor (0.2).",
+    }, ensure_ascii=False, indent=2)
+
+
+def _summarize_returns(returns: dict | None) -> str:
+    """Render a one-line summary of a tool's return shape for catalog browsing."""
+    if not isinstance(returns, dict):
+        return "?"
+    t = returns.get("type")
+    if t == "object":
+        props = returns.get("properties") or {}
+        if not props:
+            return "{}"
+        keys = list(props.keys())[:6]
+        more = "" if len(props) <= 6 else f", +{len(props) - 6} more"
+        return "{" + ", ".join(keys) + more + "}"
+    if t == "array":
+        items = returns.get("items") or {}
+        return f"[{_summarize_returns(items)}]"
+    if isinstance(t, list):
+        return "|".join(t)
+    return str(t or "?")
+
+
+def _summarize_params(parameters: dict | None) -> str:
+    """Render a compact ``required, [optional]`` parameter summary."""
+    if not isinstance(parameters, dict):
+        return ""
+    props = parameters.get("properties") or {}
+    required = set(parameters.get("required") or [])
+    parts: list[str] = []
+    for name in props.keys():
+        parts.append(name if name in required else f"[{name}]")
+    return ", ".join(parts)
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "list_tool_signatures",
+        "description": (
+            "Browse the catalog of tools you can call programmatically — returns "
+            "compact `name(params) -> {return shape}` lines. Use this BEFORE "
+            "writing a run_script body so you know what fields each tool returns. "
+            "Filter by category (substring match against tool name or source "
+            "integration). Cheaper than calling get_tool_info on every candidate. "
+            "Only tools with a declared return schema are listed — those are the "
+            "ones safe to compose programmatically."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": (
+                        "Optional substring filter — matches against tool name "
+                        "OR source integration id. Example: 'channel', 'slack', "
+                        "'search'. Omit to list all composable tools."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max signatures to return (default 50, max 200).",
+                },
+            },
+            "required": [],
+        },
+    },
+}, returns={
+    "type": "object",
+    "properties": {
+        "category": {"type": ["string", "null"]},
+        "count": {"type": "integer"},
+        "signatures": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "params": {"type": "string"},
+                    "returns": {"type": "string"},
+                    "description": {"type": "string"},
+                    "safety_tier": {"type": "string"},
+                    "source_integration": {"type": ["string", "null"]},
+                },
+                "required": ["name", "params", "returns"],
+            },
+        },
+        "hint": {"type": "string"},
+    },
+    "required": ["count", "signatures"],
+})
+async def list_tool_signatures(category: str | None = None, limit: int = 50) -> str:
+    """Compact catalog of tools that declare a return schema."""
+    try:
+        n = max(1, min(int(limit or 50), 200))
+    except (TypeError, ValueError):
+        n = 50
+
+    needle = (category or "").strip().lower()
+    out: list[dict] = []
+    for name, entry in _tools.items():
+        returns = entry.get("returns")
+        if not returns:
+            continue  # only composable tools — others have unknown shapes
+        integration = entry.get("source_integration") or ""
+        if needle:
+            if needle not in name.lower() and needle not in integration.lower():
+                continue
+        schema = entry.get("schema") or {}
+        fn = (schema.get("function") or {})
+        out.append({
+            "name": name,
+            "params": _summarize_params(fn.get("parameters")),
+            "returns": _summarize_returns(returns),
+            "description": (fn.get("description") or "").strip().split("\n", 1)[0][:160],
+            "safety_tier": entry.get("safety_tier", "readonly"),
+            "source_integration": entry.get("source_integration"),
+        })
+        if len(out) >= n:
+            break
+
+    return json.dumps({
+        "category": category,
+        "count": len(out),
+        "signatures": out,
+        "hint": (
+            "Call get_tool_info(tool_name=<name>) for the full input/output JSON "
+            "Schema. To compose multiple tools in one round-trip, use run_script "
+            "and call them as `tools.NAME(**kwargs)` from Python."
+        ),
     }, ensure_ascii=False, indent=2)

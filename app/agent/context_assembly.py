@@ -1644,6 +1644,15 @@ async def assemble_context(
         if bot.tool_discovery and "search_tools" not in by_name:
             for _st in get_local_tool_schemas(["search_tools"]):
                 by_name[_st["function"]["name"]] = _st
+        # list_tool_signatures + run_script — programmatic tool composition.
+        # Only useful with discovery (the bot needs the catalog to script
+        # against). run_script is exec_capable so the policy gate still applies
+        # per call; auto-injecting the SCHEMA just makes the tool callable.
+        if bot.tool_discovery:
+            for _name in ("list_tool_signatures", "run_script"):
+                if _name not in by_name:
+                    for _sch in get_local_tool_schemas([_name]):
+                        by_name[_sch["function"]["name"]] = _sch
         # Auto-inject get_skill + get_skill_list — skills are shared documents any bot can access
         for _sk_name in ("get_skill", "get_skill_list"):
             if _sk_name not in by_name:
@@ -1714,6 +1723,8 @@ async def assemble_context(
             _effective_pinned = list(bot.pinned_tools or []) + _tagged_tool_names + ["get_tool_info"]
             if bot.tool_discovery:
                 _effective_pinned.append("search_tools")
+                _effective_pinned.append("list_tool_signatures")
+                _effective_pinned.append("run_script")
             if _enrolled_tool_names:
                 _effective_pinned += _enrolled_tool_names
             if bot.skills:

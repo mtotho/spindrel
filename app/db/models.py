@@ -785,6 +785,45 @@ class Bot(Base):
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
 
+class BotGrant(Base):
+    """User-level access grant for a bot (mirrors `ChannelMember` shape).
+
+    Admin bypasses; bot owner (`bots.user_id == user.id`) bypasses; otherwise a
+    row here is what authorizes a user to use a bot via widgets and the
+    channel bot picker. Role is kept as a column for forward-compat (today the
+    only accepted value is `'view'`).
+    """
+
+    __tablename__ = "bot_grants"
+
+    bot_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("bots.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'view'"), default="view")
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()")
+    )
+
+    __table_args__ = (
+        Index("ix_bot_grants_user_id", "user_id"),
+        Index("ix_bot_grants_bot_id", "bot_id"),
+    )
+
+
 class Carapace(Base):
     __tablename__ = "carapaces"
 

@@ -37,12 +37,14 @@
  * rest of the app and pick up dark mode automatically.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Bot as BotIcon, RefreshCw } from "lucide-react";
 import { apiFetch, ApiError } from "../../../api/client";
 import type { ToolResultEnvelope } from "../../../types/api";
 import type { ThemeTokens } from "../../../theme/tokens";
 import { useThemeStore } from "../../../stores/theme";
+import { useIsAdmin } from "../../../hooks/useScope";
 import { buildWidgetThemeCss, buildWidgetThemeObject } from "./widgetTheme";
 
 interface WidgetTokenResponse {
@@ -936,13 +938,37 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
   // `detail` field (FastAPI's user-facing message) over the generic "API
   // error 400: Bad Request" so the user sees actionable guidance (where
   // to provision scopes) directly in the widget chrome.
-  const authError = (() => {
+  const isAdmin = useIsAdmin();
+  const authErrorInfo = (() => {
     if (!shouldMint || !tokenQuery.error) return null;
     const err = tokenQuery.error;
-    if (err instanceof ApiError && err.detail) return err.detail;
-    if (err instanceof Error) return err.message;
-    return "unknown error";
+    let reason: string | null = null;
+    let detailBotId: string | null = null;
+    let detailBotName: string | null = null;
+    let message: string;
+    if (err instanceof ApiError) {
+      if (typeof err.body === "string") {
+        try {
+          const parsed = JSON.parse(err.body);
+          const d = parsed?.detail;
+          if (d && typeof d === "object") {
+            if (typeof d.reason === "string") reason = d.reason;
+            if (typeof d.bot_id === "string") detailBotId = d.bot_id;
+            if (typeof d.bot_name === "string") detailBotName = d.bot_name;
+          }
+        } catch {
+          // fall through to .detail getter
+        }
+      }
+      message = err.detail ?? err.message;
+    } else if (err instanceof Error) {
+      message = err.message;
+    } else {
+      message = "unknown error";
+    }
+    return { reason, message, bot_id: detailBotId, bot_name: detailBotName };
   })();
+  const authError = authErrorInfo?.message ?? null;
 
   return (
     <div
@@ -958,44 +984,82 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
       }}
     >
       {errorOverlay}
-      {authError && (
-        <div
-          style={{
-            padding: "6px 10px",
-            fontSize: 11,
-            color: t.danger,
-            background: t.dangerSubtle,
-            borderBottom: `1px solid ${t.surfaceBorder}`,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
-          <span style={{ flex: 1 }}>{authError}</span>
-          <button
-            type="button"
-            onClick={() => tokenQuery.refetch()}
-            disabled={tokenQuery.isFetching}
+      {authError && authErrorInfo && (() => {
+        const isAccessDenied = authErrorInfo.reason === "bot_access_denied";
+        // Access-denied is softer than a bot_missing_api_key: it's a
+        // permissions gap, not a misconfig. Tone it down to amber + give the
+        // right CTA for the viewer role.
+        const tone = isAccessDenied
+          ? { fg: t.accent, bg: t.accentSubtle }
+          : { fg: t.danger, bg: t.dangerSubtle };
+        const grantHref = authErrorInfo.bot_id
+          ? `/admin/bots/${encodeURIComponent(authErrorInfo.bot_id)}#grants`
+          : null;
+        const displayMsg = isAccessDenied
+          ? (isAdmin && authErrorInfo.bot_name
+              ? `Viewers can't use '${authErrorInfo.bot_name}' yet — grant access to make this widget work for them.`
+              : authErrorInfo.bot_name
+                ? `Ask an admin for access to '${authErrorInfo.bot_name}' so this widget can load.`
+                : authError)
+          : authError;
+        return (
+          <div
             style={{
-              appearance: "none",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "2px 8px",
+              padding: "6px 10px",
               fontSize: 11,
-              color: t.text,
-              background: t.surfaceOverlay,
-              border: `1px solid ${t.surfaceBorder}`,
-              borderRadius: 4,
-              cursor: tokenQuery.isFetching ? "wait" : "pointer",
-              fontFamily: "inherit",
+              color: tone.fg,
+              background: tone.bg,
+              borderBottom: `1px solid ${t.surfaceBorder}`,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
             }}
           >
-            <RefreshCw size={10} />
-            {tokenQuery.isFetching ? "Retrying…" : "Retry"}
-          </button>
-        </div>
-      )}
+            <span style={{ flex: 1 }}>{displayMsg}</span>
+            {isAccessDenied && isAdmin && grantHref && (
+              <Link
+                to={grantHref}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "2px 8px",
+                  fontSize: 11,
+                  color: t.text,
+                  background: t.surfaceOverlay,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  borderRadius: 4,
+                  textDecoration: "none",
+                  fontFamily: "inherit",
+                }}
+              >
+                Grant access
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={() => tokenQuery.refetch()}
+              disabled={tokenQuery.isFetching}
+              style={{
+                appearance: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "2px 8px",
+                fontSize: 11,
+                color: t.text,
+                background: t.surfaceOverlay,
+                border: `1px solid ${t.surfaceBorder}`,
+                borderRadius: 4,
+                cursor: tokenQuery.isFetching ? "wait" : "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              <RefreshCw size={10} />
+              {tokenQuery.isFetching ? "Retrying…" : "Retry"}
+            </button>
+          </div>
+        );
+      })()}
       {/* Subtle bot-origin chip — bottom-left so it doesn't collide with
           the "updated Xm ago" indicator (top-right). Signals to the user
           that whatever this widget's JS does, it runs with THIS bot's

@@ -11,6 +11,7 @@ export const SECTIONS = [
   { key: "workspace", label: "Workspace" },
   { key: "delegation", label: "Delegation" },
   { key: "permissions", label: "Permissions" },
+  { key: "grants", label: "Grants" },
   { key: "tool_policies", label: "Tool Policies" },
   { key: "hooks", label: "Hooks" },
   { key: "display", label: "Display" },

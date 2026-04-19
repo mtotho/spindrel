@@ -88,6 +88,31 @@ async def _resolve_pipeline_id(raw: str, db) -> uuid.UUID | None:
             "required": [],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer"},
+        "pipelines": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Pipeline definition UUID"},
+                    "title": {"type": "string"},
+                    "source": {"type": "string", "enum": ["system", "user"]},
+                    "bot_id": {"type": ["string", "null"]},
+                    "description": {"type": "string"},
+                    "params_schema": {"type": "object"},
+                    "requires_channel": {"type": "boolean"},
+                    "requires_bot": {"type": "boolean"},
+                    "step_count": {"type": "integer"},
+                    "hint": {"type": "string"},
+                },
+                "required": ["id", "title", "source"],
+            },
+        },
+    },
+    "required": ["count", "pipelines"],
 })
 async def list_pipelines(source: str | None = None) -> str:
     async with async_session() as db:

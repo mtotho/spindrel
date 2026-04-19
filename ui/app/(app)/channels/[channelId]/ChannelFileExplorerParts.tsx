@@ -4,14 +4,30 @@
  * NewItemRow) plus the DRAG_MIME / stripSlashes helpers.
  */
 import { useState } from "react";
-import { ChevronRight, Folder, Plus, Trash2 } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronRight, Folder, FolderOpen, Plus, Trash2 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useWorkspaceFiles } from "@/src/api/hooks/useWorkspaces";
+import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import {
   formatRelativeTime,
   formatSize,
   getFileIcon,
   getArchiveIcon,
 } from "./ChannelFileExplorerData";
+
+// ---------------------------------------------------------------------------
+// Knowledge-base detection — the auto-indexed convention folder gets a
+// first-class visual treatment everywhere in the tree (icon, label, tint).
+// ---------------------------------------------------------------------------
+export function isKnowledgeBaseFolder(name: string, fullPath: string): boolean {
+  if (name === "knowledge-base") return true;
+  return fullPath.endsWith("/knowledge-base") || fullPath === "/knowledge-base";
+}
+
+const INDENT_PX = 14;
+/** Folder yellow used across the explorer. Kept hardcoded so it stays
+ *  identical in light + dark; the rest of the row honors theme tokens. */
+const FOLDER_YELLOW = "#dcb67a";
 
 // ---------------------------------------------------------------------------
 // Path helper used by multiple components
@@ -159,16 +175,20 @@ export function Breadcrumb({
 // ---------------------------------------------------------------------------
 
 export function TreeFolderRow({
-  name, displayLabel, fullPath, onNavigate, onContextMenu, onMoveDrop, focused, multiSelected,
+  name, displayLabel, fullPath, expanded, depth = 0, onToggle, onContextMenu, onMoveDrop, focused, multiSelected,
 }: {
   name: string; displayLabel?: string | null; fullPath: string;
-  onNavigate: (p: string, e?: React.MouseEvent) => void; onContextMenu?: (e: any) => void;
+  expanded: boolean; depth?: number;
+  onToggle: (p: string, e?: React.MouseEvent) => void; onContextMenu?: (e: any) => void;
   onMoveDrop?: (sourcePath: string) => void; focused?: boolean; multiSelected?: boolean;
 }) {
   const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const label = displayLabel || name;
+  const isKB = isKnowledgeBaseFolder(name, fullPath);
+  // Use the proper "Knowledge Base" label for KB; the literal slug lives in
+  // the title attribute for power users who want to copy the real name.
+  const label = isKB ? "Knowledge Base" : (displayLabel || name);
 
   const dropProps = onMoveDrop ? {
     onDragOver: (e: any) => {
@@ -192,39 +212,64 @@ export function TreeFolderRow({
     },
   } : {};
 
+  // Background priority: drag-over > multi-select > KB tint > hover/focus.
+  const bg = dragOver
+    ? `${t.accent}25`
+    : multiSelected
+      ? t.accentSubtle
+      : isKB
+        ? `${t.accent}12`
+        : (hovered || focused)
+          ? `${t.text}08`
+          : "transparent";
+
+  const FolderIcon = isKB ? BookOpen : (expanded ? FolderOpen : Folder);
+  const folderColor = isKB ? t.accent : (dragOver ? t.accent : FOLDER_YELLOW);
+
   return (
-    <button type="button" onClick={(e) => onNavigate(fullPath, e)}
+    <button type="button" onClick={(e) => onToggle(fullPath, e)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         display: "flex", flexDirection: "row", alignItems: "center",
-        height: 22, paddingLeft: 12, paddingRight: 8, gap: 6, width: "100%",
-        background: multiSelected ? t.accentSubtle : dragOver ? `${t.accent}25` : hovered || focused ? `${t.text}08` : "transparent",
+        height: 22, paddingLeft: depth * INDENT_PX + 6, paddingRight: 8, gap: 4, width: "100%",
+        background: bg,
         outline: dragOver ? `1px solid ${t.accent}` : focused ? `1px dotted ${t.textDim}` : "none",
         outlineOffset: -1, cursor: "pointer", border: "none",
       }}
       {...(onContextMenu ? { onContextMenu } : {})}
-      {...(displayLabel ? { title: name } : {})}
+      title={isKB ? `${name} — auto-indexed knowledge base` : (displayLabel ? name : undefined)}
       {...dropProps}
     >
-      <Folder size={13} color={dragOver ? t.accent : "#dcb67a"} />
+      {expanded ? <ChevronDown size={11} color={t.textDim} /> : <ChevronRight size={11} color={t.textDim} />}
+      <FolderIcon size={13} color={folderColor} />
       <span style={{
-        flex: 1, color: t.text, fontSize: 12, lineHeight: "22px", minWidth: 0,
+        flex: 1, color: isKB ? t.text : t.text, fontSize: 12, lineHeight: "22px", minWidth: 0,
+        fontWeight: isKB ? 600 : 400,
         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left",
       }}>
         {label}
       </span>
-      <ChevronRight size={11} color={t.textDim} />
+      {isKB && (
+        <span style={{
+          fontSize: 8.5, color: t.accent, opacity: 0.85,
+          textTransform: "uppercase", letterSpacing: "0.06em",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+          flexShrink: 0,
+        }}>
+          auto
+        </span>
+      )}
     </button>
   );
 }
 
 export function TreeFileRow({
-  name, fullPath, size, modifiedAt, selected, focused, multiSelected, onSelect, onContextMenu, onDelete, draggable = true,
+  name, fullPath, size, modifiedAt, selected, focused, multiSelected, depth = 0, onSelect, onContextMenu, onDelete, draggable = true,
 }: {
   name: string; fullPath: string; size: number | null | undefined;
   modifiedAt: number | null | undefined; selected: boolean; focused?: boolean;
-  multiSelected?: boolean;
+  multiSelected?: boolean; depth?: number;
   onSelect: (e?: React.MouseEvent) => void; onContextMenu?: (e: any) => void; onDelete: () => void;
   draggable?: boolean;
 }) {
@@ -232,7 +277,7 @@ export function TreeFileRow({
   const [hovered, setHovered] = useState(false);
   const [dragging, setDragging] = useState(false);
   const icon = name === "MEMORY.md" || fullPath.endsWith("/archive")
-    ? getArchiveIcon(t.textDim) : getFileIcon(name, null, t.textDim);
+    ? getArchiveIcon(t.textMuted) : getFileIcon(name, null, t.textMuted);
   const sizeStr = formatSize(size);
   const modified = formatRelativeTime(modifiedAt);
 
@@ -245,14 +290,20 @@ export function TreeFileRow({
     onDragEnd: () => setDragging(false),
   } : {};
 
+  // Selected gets an inset accent left bar (2px) on top of the subtle bg.
+  const bg = multiSelected || selected
+    ? t.accentSubtle
+    : (hovered || focused) ? `${t.text}06` : "transparent";
+
   return (
     <button type="button" onClick={(e) => onSelect(e)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         display: "flex", flexDirection: "row", alignItems: "center",
-        height: 22, paddingLeft: 12, paddingRight: 8, gap: 6, width: "100%",
-        background: multiSelected ? t.accentSubtle : selected ? t.accentSubtle : hovered || focused ? `${t.text}08` : "transparent",
+        position: "relative",
+        height: 22, paddingLeft: depth * INDENT_PX + 6 + 11 + 4 /* chevron-slot + gap */, paddingRight: 8, gap: 6, width: "100%",
+        background: bg,
         outline: focused && !selected ? `1px dotted ${t.textDim}` : "none",
         outlineOffset: -1, cursor: dragging ? "grabbing" : "pointer",
         opacity: dragging ? 0.5 : 1, border: "none",
@@ -260,6 +311,12 @@ export function TreeFileRow({
       {...(onContextMenu ? { onContextMenu } : {})}
       {...dragProps}
     >
+      {selected && (
+        <span style={{
+          position: "absolute", left: 0, top: 2, bottom: 2,
+          width: 2, background: t.accent, borderRadius: 1,
+        }} />
+      )}
       {icon}
       <span style={{
         flex: 1, color: t.text, fontSize: 12, lineHeight: "22px", minWidth: 0,
@@ -276,11 +333,150 @@ export function TreeFileRow({
           <Trash2 size={11} color={t.textMuted} />
         </button>
       ) : (
-        <span style={{ color: t.textDim, fontSize: 9, flexShrink: 0 }}>
+        <span style={{ color: t.textDim, fontSize: 9, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
           {modified || sizeStr}
         </span>
       )}
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TreeBranch -- recursive folder/file render with lazy-loaded children
+// ---------------------------------------------------------------------------
+
+export interface TreeBranchCallbacks {
+  onSelectFile: (fullPath: string, e?: React.MouseEvent) => void;
+  onFileContextMenu: (e: React.MouseEvent, entry: { name: string; path: string }) => void;
+  onFolderContextMenu: (e: React.MouseEvent, entry: { name: string; path: string }) => void;
+  onMoveDrop: (srcPath: string, destFolderPath: string) => void;
+  onDeleteFile: (name: string, path: string) => void;
+}
+
+interface TreeBranchProps {
+  workspaceId: string | undefined;
+  /** Workspace-relative entry path for THIS folder (no leading slash). */
+  folderPath: string;
+  /** Display name for the breadcrumb tooltip; usually the entry's name. */
+  folderName: string;
+  /** Folder display label override (e.g. channel display names). */
+  folderDisplayLabel?: string | null;
+  /** When this is the synthetic root, skip rendering the folder row itself. */
+  isRoot?: boolean;
+  depth: number;
+  selectedPaths: Set<string>;
+  activeFilePath?: string | null;
+  /** Map of child folder name -> displayLabel (used for channel name overrides). */
+  childDisplayLabels?: Record<string, string | undefined>;
+  callbacks: TreeBranchCallbacks;
+}
+
+export function TreeBranch({
+  workspaceId, folderPath, folderName, folderDisplayLabel, isRoot,
+  depth, selectedPaths, activeFilePath, childDisplayLabels, callbacks,
+}: TreeBranchProps) {
+  const t = useThemeTokens();
+  // Root is implicitly always-expanded; non-root folders use the shared store.
+  const expanded = useFileBrowserStore((s) => isRoot ? true : !!s.expandedDirs[folderPath]);
+  const toggleDir = useFileBrowserStore((s) => s.toggleDir);
+
+  // Lazy-fetch children only when expanded. React-query dedupes per (wsId, path)
+  // so re-collapsing + re-expanding hits the cache.
+  const apiPath = folderPath ? "/" + stripSlashes(folderPath) : "/";
+  const { data, isLoading } = useWorkspaceFiles(expanded ? workspaceId : undefined, apiPath);
+
+  const sortedChildren = (() => {
+    const entries = data?.entries ?? [];
+    return [...entries].sort((a, b) => {
+      // Knowledge Base folder always first.
+      const aIsKB = a.is_dir && isKnowledgeBaseFolder(a.name, "/" + stripSlashes(a.path));
+      const bIsKB = b.is_dir && isKnowledgeBaseFolder(b.name, "/" + stripSlashes(b.path));
+      if (aIsKB !== bIsKB) return aIsKB ? -1 : 1;
+      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  })();
+
+  const folderRow = !isRoot ? (
+    <TreeFolderRow
+      name={folderName}
+      displayLabel={folderDisplayLabel}
+      fullPath={"/" + stripSlashes(folderPath)}
+      expanded={expanded}
+      depth={depth}
+      multiSelected={selectedPaths.has("/" + stripSlashes(folderPath))}
+      onToggle={(_p, e) => {
+        if (e?.ctrlKey || e?.metaKey || e?.shiftKey) return; // multi-select handled by parent if it wants
+        toggleDir(folderPath);
+      }}
+      onContextMenu={(e) => callbacks.onFolderContextMenu(e, { name: folderName, path: folderPath })}
+      onMoveDrop={(src) => callbacks.onMoveDrop(src, folderPath)}
+    />
+  ) : null;
+
+  return (
+    <div>
+      {folderRow}
+      {expanded && (
+        <div style={{ position: "relative" }}>
+          {/* Indent guide — vertical 1px line at each non-root depth. */}
+          {!isRoot && (
+            <span style={{
+              position: "absolute",
+              left: depth * INDENT_PX + 6 + 5 /* chevron center */,
+              top: 0, bottom: 0, width: 1,
+              background: `${t.surfaceBorder}80`,
+              pointerEvents: "none",
+            }} />
+          )}
+          {isLoading && (
+            <div style={{ paddingLeft: (depth + 1) * INDENT_PX + 6 + 11 + 4, color: t.textDim, fontSize: 11, height: 22, lineHeight: "22px" }}>
+              loading…
+            </div>
+          )}
+          {!isLoading && sortedChildren.length === 0 && (
+            <div style={{ paddingLeft: (depth + 1) * INDENT_PX + 6 + 11 + 4, color: t.textDim, fontSize: 10, fontStyle: "italic", height: 20, lineHeight: "20px" }}>
+              empty
+            </div>
+          )}
+          {sortedChildren.map((entry) => {
+            const stripped = stripSlashes(entry.path);
+            if (entry.is_dir) {
+              const childLabel = entry.display_name || childDisplayLabels?.[entry.name] || null;
+              return (
+                <TreeBranch
+                  key={entry.path}
+                  workspaceId={workspaceId}
+                  folderPath={stripped}
+                  folderName={entry.name}
+                  folderDisplayLabel={childLabel}
+                  depth={depth + 1}
+                  selectedPaths={selectedPaths}
+                  activeFilePath={activeFilePath}
+                  childDisplayLabels={childDisplayLabels}
+                  callbacks={callbacks}
+                />
+              );
+            }
+            return (
+              <TreeFileRow
+                key={entry.path}
+                name={entry.name}
+                fullPath={stripped}
+                size={entry.size}
+                modifiedAt={entry.modified_at}
+                selected={activeFilePath === stripped}
+                multiSelected={selectedPaths.has(stripped)}
+                depth={depth + 1}
+                onSelect={(e) => callbacks.onSelectFile(stripped, e)}
+                onContextMenu={(e) => callbacks.onFileContextMenu(e, { name: entry.name, path: entry.path })}
+                onDelete={() => callbacks.onDeleteFile(entry.name, entry.path)}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -118,7 +118,28 @@ def _serialize_messages(messages):
             "required": []
         }
     }
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer"},
+        "messages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "session_id": {"type": "string"},
+                    "role": {"type": "string", "enum": ["user", "assistant"]},
+                    "content_preview": {"type": "string", "description": f"First {PREVIEW_LENGTH} chars of message content"},
+                    "created_at": {"type": ["string", "null"], "description": "ISO 8601 timestamp"},
+                },
+                "required": ["id", "session_id", "role", "content_preview"],
+            },
+        },
+        "error": {"type": "string"},
+    },
+    "required": ["count", "messages"],
+})
 async def search_history(
     query: str | None = None,
     start_date: str | None = None,
@@ -128,7 +149,7 @@ async def search_history(
 ) -> str:
     bot_id, channel_id, err = _get_scope()
     if err:
-        return err
+        return json.dumps({"count": 0, "messages": [], "error": err}, ensure_ascii=False)
 
     limit = max(1, min(limit, 100))
 
@@ -145,7 +166,5 @@ async def search_history(
     async with async_session() as db:
         messages = (await db.execute(stmt)).scalars().all()
 
-    if not messages:
-        return "No messages found."
-
-    return json.dumps(_serialize_messages(messages), ensure_ascii=False)
+    serialized = _serialize_messages(messages)
+    return json.dumps({"count": len(serialized), "messages": serialized}, ensure_ascii=False)

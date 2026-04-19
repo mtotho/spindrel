@@ -1,4 +1,5 @@
-import { useSearchParams } from "react-router-dom";
+import { Plus } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { WidgetLibraryTab } from "@/app/(app)/admin/tools/library/WidgetLibraryTab";
 import { HtmlWidgetsLibrarySection } from "./HtmlWidgetsLibrarySection";
@@ -20,12 +21,13 @@ import { HtmlWidgetsLibrarySection } from "./HtmlWidgetsLibrarySection";
  *  conflate them. */
 export function LibraryTab() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const initialToolFilter = searchParams.get("tool") ?? "";
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto">
       <div className="mx-auto w-full max-w-6xl px-4 pt-4 md:px-6">
-        <div className="rounded-lg border border-surface-border bg-surface-raised p-4">
+        <div className="rounded-lg bg-surface-raised p-4">
           <h2 className="text-[14px] font-semibold text-text">Widget library</h2>
           <p className="mt-1 text-[12px] text-text-muted">
             Two kinds of widgets live in the product.
@@ -36,13 +38,23 @@ export function LibraryTab() {
       </div>
 
       <section className="mx-auto w-full max-w-6xl px-4 pt-4 md:px-6">
-        <div className="mb-2 flex items-end justify-between">
-          <div>
+        <div className="mb-2 flex items-end justify-between gap-3">
+          <div className="min-w-0">
             <h3 className="text-[13px] font-semibold text-text">Tool renderers</h3>
             <p className="text-[11px] text-text-muted">
               Render the output of a specific tool. Authored in <span className="font-mono">*.widgets.yaml</span>.
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => navigate("/widgets/dev#templates")}
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-md bg-accent text-white text-[12px] font-semibold px-3 py-1.5 hover:opacity-90 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            aria-label="Create a new widget template"
+            title="Create a new widget template"
+          >
+            <Plus size={12} />
+            <span className="hidden sm:inline">New template</span>
+          </button>
         </div>
       </section>
 

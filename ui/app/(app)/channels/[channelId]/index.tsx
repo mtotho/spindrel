@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { OmniPanel } from "./OmniPanel";
 import { MobileOmniSheet } from "./MobileOmniSheet";
 import { ChannelFileViewer } from "./ChannelFileViewer";
+import { MobileFileViewerSlide } from "./MobileFileViewerSlide";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
 import { MessageInput } from "@/src/components/chat/MessageInput";
@@ -645,66 +646,70 @@ export default function ChatScreen() {
       {/* Content area — mobile stack or desktop side-by-side */}
       {isMobile ? (
         /* ---- Mobile: chat + bottom sheet OmniPanel ---- */
-        showFileViewer ? (
-          <ChannelFileViewer
+        /* Chat stays mounted underneath; file viewer slides in from the right
+           as an overlay. Preserves chat scroll position + avoids the jarring
+           full-screen swap. */
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", minHeight: 0 }}>
+          <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+            <ChatMessageArea {...messageAreaProps} scrollPaddingBottom={inputOverlayHeight + (isMobile ? 32 : 48)} />
+            {floatingActions.map((h) => (
+              <HudFloatingAction key={h.key} hud={h} />
+            ))}
+            {/* Composer overlay — messages scroll behind the frosted input. */}
+            <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
+              {chatState.error && (
+                <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
+              )}
+              {chatState.secretWarning && (
+                <SecretWarningBanner
+                  patterns={chatState.secretWarning.patterns}
+                  onDismiss={() => channelId && useChatStore.setState((s) => ({
+                    channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
+                  }))}
+                />
+              )}
+              <ActiveWorkflowStrip channelId={channelId!} />
+              {inputBars.map((h) => (
+                <HudInputBar key={h.key} hud={h} />
+              ))}
+              <MessageInput {...messageInputProps} />
+            </div>
+          </div>
+          {/* Mobile participants overlay */}
+          {participantsPanelOpen && channelId && (
+            <ParticipantsPanel
+              channelId={channelId}
+              primaryBotId={channel?.bot_id ?? ""}
+              primaryBotName={bot?.name}
+              onClose={() => setParticipantsPanelOpen(false)}
+              mobile
+            />
+          )}
+          {/* Mobile OmniPanel bottom sheet — hidden on system channels. */}
+          {channelId && !isSystemChannel && (
+            <MobileOmniSheet
+              open={showExplorer}
+              onClose={handleCloseExplorer}
+              channelId={channelId}
+              workspaceId={workspaceId ?? undefined}
+              botId={channel?.bot_id}
+              channelDisplayName={channel?.display_name || channel?.name}
+              activeFile={activeFile}
+              onSelectFile={handleSelectFile}
+            />
+          )}
+          {/* Mobile file viewer — slides in over the chat, chat stays mounted. */}
+          <MobileFileViewerSlide
+            open={showFileViewer}
             channelId={channelId!}
             workspaceId={workspaceId ?? undefined}
-            filePath={activeFile!}
+            filePath={activeFile}
+            channelName={channel?.display_name || channel?.name || null}
+            channelPrivate={!!channel?.private}
             onBack={handleMobileBack}
             onDirtyChange={handleDirtyChange}
           />
-        ) : (
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", minHeight: 0 }}>
-            <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-              <ChatMessageArea {...messageAreaProps} scrollPaddingBottom={inputOverlayHeight + 48} />
-              {floatingActions.map((h) => (
-                <HudFloatingAction key={h.key} hud={h} />
-              ))}
-              {/* Composer overlay — messages scroll behind the frosted input. */}
-              <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
-                {chatState.error && (
-                  <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
-                )}
-                {chatState.secretWarning && (
-                  <SecretWarningBanner
-                    patterns={chatState.secretWarning.patterns}
-                    onDismiss={() => channelId && useChatStore.setState((s) => ({
-                      channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
-                    }))}
-                  />
-                )}
-                <ActiveWorkflowStrip channelId={channelId!} />
-                {inputBars.map((h) => (
-                  <HudInputBar key={h.key} hud={h} />
-                ))}
-                <MessageInput {...messageInputProps} />
-              </div>
-            </div>
-            {/* Mobile participants overlay */}
-            {participantsPanelOpen && channelId && (
-              <ParticipantsPanel
-                channelId={channelId}
-                primaryBotId={channel?.bot_id ?? ""}
-                primaryBotName={bot?.name}
-                onClose={() => setParticipantsPanelOpen(false)}
-                mobile
-              />
-            )}
-            {/* Mobile OmniPanel bottom sheet — hidden on system channels. */}
-            {channelId && !isSystemChannel && (
-              <MobileOmniSheet
-                open={showExplorer}
-                onClose={handleCloseExplorer}
-                channelId={channelId}
-                workspaceId={workspaceId ?? undefined}
-                botId={channel?.bot_id}
-                channelDisplayName={channel?.display_name || channel?.name}
-                activeFile={activeFile}
-                onSelectFile={handleSelectFile}
-              />
-            )}
-          </div>
-        )
+        </div>
       ) : (
         /* ---- Desktop/tablet: side-by-side layout ----
            OmniPanel runs floor-to-ceiling (it owns its own header); the channel

@@ -27,8 +27,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.bots import get_bot, list_bots
 from app.agent.pending import resolve_pending
 from app.config import settings as _settings
-from app.db.models import Message as MessageModel, Task as TaskModel
+from app.db.models import Bot as BotRow, Message as MessageModel, Task as TaskModel, User
 from app.dependencies import get_db, require_scopes
+from app.services.bots_visibility import apply_bot_visibility
 from app.services import session_locks
 from app.services.channel_throttle import is_throttled as _channel_throttled, record_run as _record_channel_run
 from app.services.sessions import (
@@ -76,9 +77,26 @@ async def check_secrets(body: SecretCheckRequest, _auth=Depends(require_scopes("
 
 
 @router.get("/bots")
-async def bots(_auth=Depends(require_scopes("bots:read"))):
+async def bots(
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(require_scopes("bots:read")),
+):
+    all_bots = list_bots()
+
+    # Non-admin users see only bots they own or have been granted. API-key
+    # principals and admins see everything.
+    visible_ids: set[str] | None = None
+    user = auth if isinstance(auth, User) else None
+    if user is not None and not user.is_admin:
+        from sqlalchemy import select as _select
+        stmt = apply_bot_visibility(_select(BotRow.id), user)
+        rows = await db.execute(stmt)
+        visible_ids = {row[0] for row in rows.all()}
+
     result = []
-    for b in list_bots():
+    for b in all_bots:
+        if visible_ids is not None and b.id not in visible_ids:
+            continue
         entry: dict = {"id": b.id, "name": b.name, "model": b.model}
         if b.audio_input != "transcribe":
             entry["audio_input"] = b.audio_input

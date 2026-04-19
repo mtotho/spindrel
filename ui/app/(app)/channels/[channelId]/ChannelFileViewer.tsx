@@ -1,6 +1,6 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ArrowLeft, X, Save, RotateCw, Columns2, ChevronRight, History as HistoryIcon } from "lucide-react";
+import { ArrowLeft, X, Save, RotateCw, Columns2, ChevronRight, History as HistoryIcon, Hash, Lock } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelWorkspaceFileContent,
@@ -40,9 +40,13 @@ interface ChannelFileViewerProps {
   onToggleSplit?: () => void;
   /** Called whenever dirty state changes so parent can gate navigation */
   onDirtyChange?: (dirty: boolean) => void;
+  /** When provided, the header renders a "channel chip" so the user sees they
+   *  are still in the same channel, just looking at one of its files. */
+  channelDisplayName?: string | null;
+  channelPrivate?: boolean;
 }
 
-export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, splitMode, onToggleSplit, onDirtyChange }: ChannelFileViewerProps) {
+export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, splitMode, onToggleSplit, onDirtyChange, channelDisplayName, channelPrivate }: ChannelFileViewerProps) {
   const t = useThemeTokens();
   const isImage = isImageFile(filePath);
   const { confirm, ConfirmDialogSlot } = useConfirm();
@@ -175,11 +179,23 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
   }, [isDirty, onBack, confirm]);
 
   const fileName = filePath.split("/").pop() ?? filePath;
-  const pathSegments = filePath.split("/");
+  // Trim a leading channels/<id>/ from the breadcrumb when we have a channel
+  // chip — the chip already carries the channel identity, so showing the raw
+  // UUID path next to it is noise. (channelPrefix is already declared above
+  // for the API routing decision; reuse it.)
+  const breadcrumbPath = channelDisplayName && filePath.startsWith(channelPrefix)
+    ? filePath.slice(channelPrefix.length)
+    : filePath;
+  const pathSegments = breadcrumbPath.split("/");
+
+  // Channel chip mirrors ChannelHeader's Hash/Lock convention — viewer reads
+  // as a side surface inside the same channel, not a different page.
+  const ChannelGlyph = channelPrivate ? Lock : Hash;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", backgroundColor: t.surface, minHeight: 0 }}>
-      {/* Header */}
+      {/* Header — echoes ChannelHeader's visual contract: same blur+bg, same
+          height, same chip styling. Reads as "still in this channel". */}
       <div
         style={{
           display: "flex",
@@ -188,8 +204,10 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
           gap: 8,
           paddingLeft: 12, paddingRight: 12,
           paddingTop: 8, paddingBottom: 8,
-          borderBottom: `1px solid ${t.surfaceBorder}`,
           minHeight: 42,
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          backgroundColor: `${t.surface}cc`,
         }}
       >
         <button type="button"
@@ -200,6 +218,26 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
         >
           {splitMode ? <X size={16} color={t.textMuted} /> : <ArrowLeft size={16} color={t.textMuted} />}
         </button>
+
+        {/* Channel chip — only when we know the channel display name (mobile
+            slide-in passes it; desktop split mode does not, since the channel
+            header is already visible directly above). */}
+        {channelDisplayName && (
+          <div style={{
+            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
+            paddingLeft: 6, paddingRight: 8, height: 22, borderRadius: 11,
+            backgroundColor: t.surfaceRaised,
+            flexShrink: 0,
+          }}>
+            <ChannelGlyph size={11} color={t.textMuted} />
+            <span style={{
+              color: t.text, fontSize: 11, fontWeight: 600,
+              maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {channelDisplayName}
+            </span>
+          </div>
+        )}
 
         {/* Breadcrumb path */}
         <div style={{ flex: 1, minWidth: 0 }}>

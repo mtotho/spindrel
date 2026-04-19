@@ -61,6 +61,7 @@ def register(
     required_integrations: "frozenset[str] | None" = None,
     requires_bot_context: bool = False,
     requires_channel_context: bool = False,
+    returns: dict | None = None,
 ):
     """Decorator that registers a local tool function with its OpenAI function schema.
 
@@ -82,6 +83,13 @@ def register(
             ``slack_add_bookmark``, ``slack_schedule_message``) use this
             to stay hidden on non-Slack channels rather than erroring at
             invocation time. None = unrestricted.
+        returns: Optional JSON Schema describing the tool's return shape
+            (the parsed-JSON structure of the string the tool returns).
+            Surfaced via ``get_tool_info`` and ``list_tool_signatures``,
+            and consumed by ``run_script`` to generate Python helper
+            docstrings so a script can compose tool calls without
+            guessing field names. Required for new readonly tools (lint
+            pin in tests/unit/test_tool_returns_schema_coverage.py).
     """
 
     def decorator(func: Callable):
@@ -99,11 +107,18 @@ def register(
             "required_integrations": required_integrations,
             "requires_bot_context": requires_bot_context,
             "requires_channel_context": requires_channel_context,
+            "returns": returns,
         }
         logger.info("Registered local tool: %s (tier=%s)", name, safety_tier)
         return func
 
     return decorator
+
+
+def get_tool_returns_schema(name: str) -> dict | None:
+    """Return the declared ``returns`` JSON Schema for a tool, or None if undeclared."""
+    entry = _tools.get(name)
+    return entry.get("returns") if entry else None
 
 
 def get_tool_capability_requirements(name: str) -> tuple["frozenset | None", "frozenset[str] | None"]:

@@ -130,6 +130,30 @@ class TestMint:
 
         resp = await _post_mint(app, {"source_bot_id": bot.id})
         assert resp.status_code == 403
+        detail = resp.json()["detail"]
+        assert isinstance(detail, dict)
+        assert detail["reason"] == "bot_access_denied"
+        assert detail["bot_id"] == bot.id
+        # The bot label is carried so viewer-side can name it in the banner.
+        assert detail["bot_name"]
+
+    async def test_grantee_user_can_mint_for_granted_bot(
+        self, client_factory, db_session
+    ):
+        from app.db.models import BotGrant
+
+        owner = await _make_user(db_session, is_admin=False)
+        grantee = await _make_user(db_session, is_admin=False)
+        bot, _ = await _make_bot_with_key(
+            db_session, ["chat"], owner_id=owner.id
+        )
+        db_session.add(BotGrant(bot_id=bot.id, user_id=grantee.id, role="view"))
+        await db_session.commit()
+
+        app = client_factory(grantee)
+        resp = await _post_mint(app, {"source_bot_id": bot.id})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["bot_id"] == bot.id
 
     async def test_bot_without_api_key_400(self, client_factory, db_session):
         admin = await _make_user(db_session, is_admin=True)

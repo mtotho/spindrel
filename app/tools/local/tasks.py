@@ -440,6 +440,59 @@ async def schedule_task(
             "required": [],
         },
     },
+}, returns={
+    "oneOf": [
+        {
+            "type": "object",
+            "description": "List mode (no task_id, no parent_task_id).",
+            "properties": {
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "status": {"type": "string"},
+                            "task_type": {"type": "string"},
+                            "bot_id": {"type": ["string", "null"]},
+                            "title": {"type": ["string", "null"]},
+                        },
+                    },
+                },
+                "message": {"type": "string"},
+            },
+        },
+        {
+            "type": "object",
+            "description": "Detail mode (task_id set).",
+            "properties": {
+                "id": {"type": "string"},
+                "status": {"type": "string"},
+                "task_type": {"type": "string"},
+                "bot_id": {"type": ["string", "null"]},
+                "title": {"type": ["string", "null"]},
+                "prompt": {"type": ["string", "null"]},
+                "result": {"type": ["string", "null"]},
+                "error": {"type": ["string", "null"]},
+                "step_count": {"type": "integer"},
+            },
+        },
+        {
+            "type": "object",
+            "description": "Run history mode (parent_task_id set).",
+            "properties": {
+                "definition_id": {"type": "string"},
+                "count": {"type": "integer"},
+                "runs": {"type": "array", "items": {"type": "object"}},
+            },
+        },
+        {
+            "type": "object",
+            "description": "Error.",
+            "properties": {"error": {"type": "string"}},
+            "required": ["error"],
+        },
+    ],
 })
 async def list_tasks(task_id: str | None = None, bot_id: str | None = None, include_completed: bool = False, include_internal: bool = False, parent_task_id: str | None = None) -> str:
     # Detail mode: single task lookup

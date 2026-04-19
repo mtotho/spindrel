@@ -375,10 +375,12 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
         <div
           style={{
-            padding: isMobile ? "0 16px 16px" : "0 16px 14px",
+            padding: isMobile ? "0 12px 12px" : "0 16px 14px",
           }}
         >
-          {/* One card. Editor on top (flat — no inner border/bg), actions on bottom. */}
+          {/* One card. Editor on top (flat — no inner border/bg), actions on bottom.
+              Constant 20px radius (no pill morph) + outer drop-shadow elevation
+              so the composer reads as a lifted surface above the chat. */}
           <div
             ref={editorWrapperRef}
             onFocusCapture={() => setIsFocused(true)}
@@ -400,10 +402,12 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               background: `${t.surfaceRaised}d9`,
               backdropFilter: "blur(14px)",
               WebkitBackdropFilter: "blur(14px)",
-              borderRadius: collapsed ? 999 : 20,
-              boxShadow: `inset 0 0 0 1px ${isFocused ? t.overlayBorder : t.overlayLight}`,
+              borderRadius: 20,
+              boxShadow: isFocused
+                ? `inset 0 0 0 1px ${t.accentBorder}, inset 0 1px 0 ${t.overlayLight}, 0 0 0 3px ${t.accent}1a, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`
+                : `inset 0 1px 0 ${t.overlayLight}, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`,
               overflow: "hidden",
-              transition: "box-shadow 0.15s, border-radius 0.15s",
+              transition: "box-shadow 0.15s",
             }}
           >
             {/* Editor area — no own border/background; inherits the card.

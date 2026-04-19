@@ -178,16 +178,13 @@ export function OmniPanel({
     />
   );
 
-  // Squelch unused-prop lint — kept for backward compatibility with the
-  // surrounding channel page's active-file state machine.
-  void activeFile;
-
   const filesSection = hasWorkspace ? (
     <FilesTabPanel
       channelId={channelId}
       botId={botId}
       workspaceId={workspaceId}
       channelDisplayName={channelDisplayName}
+      activeFile={activeFile}
       onSelectFile={onSelectFile}
       focusSearchOnMount={false}
     />

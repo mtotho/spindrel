@@ -3,9 +3,7 @@ import { Link } from "react-router-dom";
 
 import { useWidgetPackages, type WidgetPackageListItem } from "@/src/api/hooks/useWidgetPackages";
 import { Spinner } from "@/src/components/shared/Spinner";
-import { useThemeTokens } from "@/src/theme/tokens";
 
-import { LibraryHero } from "./LibraryHero";
 import { LibraryFilterBar, type LibraryFilters } from "./LibraryFilterBar";
 import { ToolGroup } from "./ToolGroup";
 
@@ -14,7 +12,6 @@ interface Props {
 }
 
 export function WidgetLibraryTab({ initialToolFilter = "" }: Props) {
-  const t = useThemeTokens();
   const { data: packages, isLoading } = useWidgetPackages();
   const [filters, setFilters] = useState<LibraryFilters>({
     search: "",
@@ -56,7 +53,6 @@ export function WidgetLibraryTab({ initialToolFilter = "" }: Props) {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <LibraryHero />
       <LibraryFilterBar filters={filters} onChange={setFilters} />
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">

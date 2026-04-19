@@ -83,8 +83,8 @@ class TestSearchHistory:
             result = await search_history()
 
         data = json.loads(result)
-        assert len(data) == 1
-        assert data[0]["content_preview"] == "Recent chat"
+        assert data["count"] == 1
+        assert data["messages"][0]["content_preview"] == "Recent chat"
 
     async def test_search_by_keyword(self):
         from app.tools.local.search_history import search_history
@@ -96,8 +96,8 @@ class TestSearchHistory:
             result = await search_history(query="deploy")
 
         data = json.loads(result)
-        assert len(data) == 1
-        assert "Deploy" in data[0]["content_preview"]
+        assert data["count"] == 1
+        assert "Deploy" in data["messages"][0]["content_preview"]
 
     async def test_search_by_date_range(self):
         from app.tools.local.search_history import search_history
@@ -109,7 +109,7 @@ class TestSearchHistory:
             result = await search_history(start_date="2026-03-01", end_date="2026-03-22")
 
         data = json.loads(result)
-        assert len(data) == 1
+        assert data["count"] == 1
 
     async def test_search_role_filter(self):
         from app.tools.local.search_history import search_history
@@ -121,8 +121,8 @@ class TestSearchHistory:
             result = await search_history(role="user")
 
         data = json.loads(result)
-        assert len(data) == 1
-        assert data[0]["role"] == "user"
+        assert data["count"] == 1
+        assert data["messages"][0]["role"] == "user"
 
     async def test_search_limit_clamped(self):
         from app.tools.local.search_history import search_history
@@ -132,7 +132,9 @@ class TestSearchHistory:
         with p_bot, p_ch, patch("app.tools.local.search_history.async_session", return_value=session):
             result = await search_history(limit=999)
 
-        assert result == "No messages found."
+        data = json.loads(result)
+        assert data["count"] == 0
+        assert data["messages"] == []
 
     async def test_search_no_channel_id(self):
         from app.tools.local.search_history import search_history
@@ -142,7 +144,8 @@ class TestSearchHistory:
             patch("app.tools.local.search_history.current_channel_id", MagicMock(get=MagicMock(return_value=None))),
         ):
             result = await search_history()
-        assert "Error" in result
+        data = json.loads(result)
+        assert "error" in data and "channel_id" in data["error"]
 
     async def test_search_empty_results(self):
         from app.tools.local.search_history import search_history
@@ -152,7 +155,8 @@ class TestSearchHistory:
         with p_bot, p_ch, patch("app.tools.local.search_history.async_session", return_value=session):
             result = await search_history(query="nonexistent")
 
-        assert result == "No messages found."
+        data = json.loads(result)
+        assert data["count"] == 0
 
     async def test_wildcard_escaping(self):
         """Verify that % and _ in query are escaped for ILIKE."""
@@ -180,7 +184,7 @@ class TestSearchHistory:
             result = await search_history()
 
         data = json.loads(result)
-        assert len(data[0]["content_preview"]) == 300
+        assert len(data["messages"][0]["content_preview"]) == 300
 
     async def test_no_bot_id(self):
         from app.tools.local.search_history import search_history
@@ -190,4 +194,5 @@ class TestSearchHistory:
             patch("app.tools.local.search_history.current_channel_id", MagicMock(get=MagicMock(return_value=uuid.uuid4()))),
         ):
             result = await search_history()
-        assert "Error" in result
+        data = json.loads(result)
+        assert "error" in data and "bot_id" in data["error"]
