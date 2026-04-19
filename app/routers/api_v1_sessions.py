@@ -526,6 +526,102 @@ async def session_events(
     )
 
 
+@router.get("/{session_id}/config-overhead")
+async def session_config_overhead(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    """Overhead estimate (tools + skills + system prompt) for a session.
+
+    Mirrors ``GET /api/v1/admin/channels/{id}/config-overhead`` for ephemeral
+    and sub-sessions so the dock can show the same yellow/red indicator.
+    Applies the parent channel's overrides when present so the estimate
+    matches what the LLM actually sees at turn time.
+    """
+    from dataclasses import asdict
+    from app.agent.bots import get_bot
+    from app.agent.context_budget import get_model_context_window
+    from app.db.models import Channel
+    from app.services.context_estimate import estimate_bot_context
+    from app.services.widget_context import fetch_channel_pin_dicts
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    bot = get_bot(session.bot_id)
+
+    # Inherit overrides from the parent channel when the session is
+    # channel-scoped. Channel-less ephemeral sessions use the bot defaults.
+    channel = None
+    if session.channel_id is not None:
+        channel = (await db.execute(
+            select(Channel).where(Channel.id == session.channel_id)
+        )).scalar_one_or_none()
+
+    local_tools = list(bot.local_tools)
+    mcp_servers = list(bot.mcp_servers)
+    client_tools = list(bot.client_tools or [])
+    skills = [{"id": s.id, "mode": s.mode or "on_demand"} for s in bot.skills]
+
+    channel_pinned_widgets: list[dict] = []
+    effective_model = bot.model
+    if channel is not None:
+        disabled_local = set(channel.local_tools_disabled or [])
+        disabled_mcp = set(channel.mcp_servers_disabled or [])
+        disabled_client = set(channel.client_tools_disabled or [])
+        if disabled_local:
+            local_tools = [t for t in local_tools if t not in disabled_local]
+        if disabled_mcp:
+            mcp_servers = [s for s in mcp_servers if s not in disabled_mcp]
+        if disabled_client:
+            client_tools = [t for t in client_tools if t not in disabled_client]
+        channel_pinned_widgets = await fetch_channel_pin_dicts(db, channel.id)
+        effective_model = channel.model_override or bot.model
+
+    draft: dict = {
+        "name": bot.name,
+        "model": effective_model,
+        "system_prompt": bot.system_prompt or "",
+        "persona": bool(bot.persona),
+        "persona_content": "",
+        "local_tools": local_tools,
+        "mcp_servers": mcp_servers,
+        "client_tools": client_tools,
+        "pinned_tools": list(bot.pinned_tools or []),
+        "skills": skills,
+        "tool_retrieval": bot.tool_retrieval if bot.tool_retrieval is not None else True,
+        "tool_similarity_threshold": bot.tool_similarity_threshold,
+        "memory_enabled": bot.memory.enabled if bot.memory else False,
+        "memory_similarity_threshold": getattr(bot.memory, "similarity_threshold", None),
+        "memory_max_inject_chars": getattr(bot.memory, "max_inject_chars", None),
+        "filesystem_indexes": bot.filesystem_indexes or [],
+        "delegation_config": {"delegate_bots": list(bot.delegate_bots)} if bot.delegate_bots else {},
+        "history_mode": bot.history_mode,
+        "context_pruning": bot.context_pruning,
+        "audio_input": bot.audio_input or "transcribe",
+        "base_prompt": bot.base_prompt if bot.base_prompt is not None else True,
+        "pinned_widgets": channel_pinned_widgets,
+    }
+
+    result = await estimate_bot_context(draft=draft, bot_id=bot.id)
+
+    provider_id = None
+    if "/" in effective_model:
+        provider_id, _ = effective_model.split("/", 1)
+    context_window = get_model_context_window(effective_model, provider_id)
+
+    return {
+        "lines": [asdict(line) for line in result.lines],
+        "total_chars": result.total_chars,
+        "approx_tokens": result.approx_tokens,
+        "context_window": context_window,
+        "overhead_pct": round(result.approx_tokens / context_window, 4) if context_window else None,
+        "disclaimer": result.disclaimer,
+    }
+
+
 @router.get("/{session_id}/context", response_model=ContextDebugOut)
 async def get_session_context(
     session_id: uuid.UUID,

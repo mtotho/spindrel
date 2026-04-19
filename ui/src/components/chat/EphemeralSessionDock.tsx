@@ -1,9 +1,12 @@
-import { useEffect, useState } from "react";
-import { MessageSquare, X } from "lucide-react";
+import { useEffect } from "react";
+import { MessageSquare } from "lucide-react";
 
 interface EphemeralSessionDockProps {
   open: boolean;
-  onClose: () => void;
+  /** Controlled expansion — FAB vs panel. Lifted so the controller's
+      header X button can collapse back to FAB. */
+  expanded: boolean;
+  onExpandedChange: (next: boolean) => void;
   title: string;
   children: React.ReactNode;
 }
@@ -12,32 +15,29 @@ interface EphemeralSessionDockProps {
  * Bottom-right FAB dock shell for ephemeral sessions.
  *
  * open=false → hidden entirely.
- * open=true  → FAB (collapsed) or expanded panel (user-controlled).
- * onClose collapses to FAB; parent sets open=false to hide entirely.
+ * open=true  → FAB (``expanded=false``) or expanded panel (``expanded=true``).
+ * The controller owns ``expanded`` so its header controls can collapse.
  */
-export function EphemeralSessionDock({ open, onClose, title, children }: EphemeralSessionDockProps) {
-  const [expanded, setExpanded] = useState(false);
-
+export function EphemeralSessionDock({ open, expanded, onExpandedChange, title, children }: EphemeralSessionDockProps) {
   useEffect(() => {
     if (!expanded) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setExpanded(false);
+      if (e.key === "Escape") onExpandedChange(false);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [expanded]);
+  }, [expanded, onExpandedChange]);
 
-  // Collapse when parent hides the dock
   useEffect(() => {
-    if (!open) setExpanded(false);
-  }, [open]);
+    if (!open && expanded) onExpandedChange(false);
+  }, [open, expanded, onExpandedChange]);
 
   if (!open) return null;
 
   if (!expanded) {
     return (
       <button
-        onClick={() => setExpanded(true)}
+        onClick={() => onExpandedChange(true)}
         aria-label={`Open ${title}`}
         className="fixed bottom-4 right-4 z-[9990] w-14 h-14 rounded-full
                    bg-accent text-white shadow-[0_4px_16px_rgba(0,0,0,0.35)]
@@ -51,10 +51,10 @@ export function EphemeralSessionDock({ open, onClose, title, children }: Ephemer
 
   return (
     <>
-      {/* Invisible scrim — click outside collapses */}
+      {/* Invisible scrim — click outside collapses to FAB */}
       <div
         className="fixed inset-0 z-[9990]"
-        onClick={() => setExpanded(false)}
+        onClick={() => onExpandedChange(false)}
         aria-hidden="true"
       />
 
@@ -73,17 +73,6 @@ export function EphemeralSessionDock({ open, onClose, title, children }: Ephemer
                    md:w-[380px] md:h-[560px]
                    md:rounded-xl"
       >
-        {/* Close button overlaid on top-right so children (header) own the rest */}
-        <button
-          onClick={() => { setExpanded(false); onClose(); }}
-          aria-label="Close chat"
-          className="absolute top-2 right-2 z-10 p-1.5 rounded
-                     text-text-dim hover:text-text hover:bg-white/5
-                     transition-colors"
-        >
-          <X size={14} />
-        </button>
-
         {children}
       </div>
     </>

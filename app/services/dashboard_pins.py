@@ -7,6 +7,7 @@ config-patch helper without importing the router module (mirrors
 from __future__ import annotations
 
 import copy
+import logging
 import uuid
 from typing import Any
 
@@ -15,10 +16,17 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.db.models import WidgetDashboardPin
+from app.db.models import ApiKey, Bot, WidgetDashboardPin
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_DASHBOARD_KEY = "default"
+
+# Envelope content_type that renders inside the bot-authenticated iframe.
+# Pins of this type need a resolvable bot with an active API key; any other
+# content_type renders without needing ``/widget-auth/mint``.
+_HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive"
 
 
 _VALID_LAYOUT_KEYS = {"x", "y", "w", "h"}
@@ -105,6 +113,46 @@ async def create_pin(
         raise HTTPException(400, "tool_name is required")
     if not isinstance(envelope, dict) or not envelope:
         raise HTTPException(400, "envelope must be a non-empty object")
+
+    # Pin identity rule: the envelope's source_bot_id is stamped from
+    # current_bot_id at emission time — that's the authoritative bot. Any
+    # source_bot_id arg passed separately is a UI signal that can lag
+    # behind (stale store, missing field, fallback literal). Prefer the
+    # envelope; warn on mismatch so future UI drift is visible in logs.
+    envelope_bot_id = envelope.get("source_bot_id")
+    if envelope_bot_id and source_bot_id and envelope_bot_id != source_bot_id:
+        logger.warning(
+            "create_pin source_bot_id mismatch: envelope=%s body=%s — using envelope",
+            envelope_bot_id, source_bot_id,
+        )
+    resolved_bot_id: str | None = envelope_bot_id or source_bot_id
+
+    # Validate the bot. NULL is allowed (pin without iframe auth needs). A
+    # non-null value must resolve to a real bot; interactive-HTML pins also
+    # require an active API key (otherwise /widget-auth/mint 400s on every
+    # refresh forever — silent-persist of a permanently broken pin).
+    if resolved_bot_id is not None:
+        bot = await db.get(Bot, resolved_bot_id)
+        if bot is None:
+            raise HTTPException(400, f"Unknown source_bot_id: {resolved_bot_id!r}")
+        if envelope.get("content_type") == _HTML_INTERACTIVE_CT:
+            bot_label = bot.display_name or bot.name or bot.id
+            if bot.api_key_id is None:
+                raise HTTPException(
+                    400,
+                    f"Bot '{bot_label}' has no API permissions — interactive "
+                    "widgets need an API key to mint iframe tokens. Grant "
+                    f"scopes under Admin → Bots → {bot_label} → Permissions.",
+                )
+            api_key = await db.get(ApiKey, bot.api_key_id)
+            if api_key is None or not api_key.is_active:
+                raise HTTPException(
+                    400,
+                    f"Bot '{bot_label}' has an inactive API key — interactive "
+                    "widgets need one to mint iframe tokens. Re-enable under "
+                    f"Admin → Bots → {bot_label} → Permissions.",
+                )
+    source_bot_id = resolved_bot_id
 
     # Validate dashboard exists so we get a clean 404 (not an FK violation).
     # Imported lazily to avoid a module-level cycle with app.services.dashboards

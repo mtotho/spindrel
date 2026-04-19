@@ -1,7 +1,7 @@
 ---
 name: HTML Widgets
-description: How to build interactive HTML widgets with emit_html_widget — inline vs workspace-backed, same-origin API access, when to pick this over component widgets
-triggers: emit_html_widget, html widget, interactive widget, custom widget, build a widget, chart widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui
+description: How to build interactive HTML widgets and bot-authored dashboards with emit_html_widget — inline vs workspace-backed, bundle layout, state.json pattern, tool dispatch via /widget-actions, sd-* design vocabulary, when to pick this over component widgets
+triggers: emit_html_widget, html widget, interactive widget, custom widget, build a widget, chart widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui, project status dashboard, status board, tool control panel
 category: core
 ---
 
@@ -13,7 +13,11 @@ Unlike any string you might return as Markdown, an HTML widget can:
 
 - Run JavaScript (fetch app data, handle clicks, update itself)
 - Call the app's own API at `/api/v1/...` (same-origin — auth comes along for free)
+- **Trigger backend tools** via `POST /api/v1/widget-actions` (run `fetch_url`, `generate_image`, whatever — the fresh result flows back as a new envelope)
 - Re-render automatically when a workspace file changes (path mode)
+- Persist state to a workspace JSON file and read it back next time
+
+This skill teaches you to build **real dashboards** — not one-off fetches. The default shape is a folder on disk that you iterate on: `index.html` + `state.json` + optional assets, path-moded as the widget target, living in a well-known location the user can find.
 
 ## When to Use Which Widget
 
@@ -23,16 +27,53 @@ Unlike any string you might return as Markdown, an HTML widget can:
 | Chart, table, free-form layout, or anything not in the grammar | `emit_html_widget` |
 | User says "make me a custom widget for X" | `emit_html_widget` |
 | User says "show me X live / as a dashboard" | `emit_html_widget` (usually path mode) |
+| User says "build a status board / project dashboard / control panel" | `emit_html_widget` + a bundle (see below) |
 | One-off inline result | Normal text/Markdown reply (no widget needed) |
 
 Default to component widgets when a template exists; reach for HTML when the component grammar doesn't cover it.
+
+## Widget Bundles — Where to Put Your Files
+
+A widget is a **folder**, not a single HTML file. Put everything the widget needs in one directory and path-mode the `index.html` inside it.
+
+```
+<widget-root>/<widget-slug>/
+├── index.html          ← the widget itself (emit_html_widget path target)
+├── state.json          ← mutable state the widget reads/writes (optional)
+├── data.json           ← static bundled data (optional)
+├── README.md           ← your own notes about what this widget does (optional)
+├── styles.css          ← extra styles beyond the sd-* vocabulary (optional)
+└── assets/             ← images, icons, sub-data files (optional)
+```
+
+Pick `<widget-root>` based on scope:
+
+| Scope | Root | Status |
+|---|---|---|
+| **Channel-specific** — tied to this channel's data or project | `data/widgets/<slug>/` (channel-workspace-relative) | **Default.** Works today. When emitted from a channel chat (or a widget-dashboard ephemeral session inheriting a parent channel), files live under that channel's workspace and `widgetPath` resolves correctly. |
+| **Non-channel-scoped** — reusable across channels | `/workspace/widgets/<slug>/` | **Queued (DX-5b).** Not yet resolvable; passing a `/workspace/...` path to `emit_html_widget` or the helpers currently fails with a clear error. Stick to channel-scoped for now. |
+
+Conventions:
+
+- **Slug is kebab-case**: `project-status`, `sprint-burndown`, `sonarr-queue`, `home-control`.
+- **Always path-mode** for anything you want to iterate on — inline mode is for one-off snapshots. Path mode hot-reloads within ~3 s of a file edit, which is the entire iteration loop.
+- **Relative paths work** inside the bundle — `./state.json`, `../shared/config.json`, `./assets/logo.svg` resolve against the directory holding `index.html`. See "Relative paths" below.
+- **One folder per widget.** Don't dump loose files at the workspace root. A bundle can then be renamed/moved/deleted atomically.
+
+Discover the current channel id at runtime:
+
+```js
+window.spindrel.channelId   // the emitting channel's UUID, or null if unbound
+```
+
+If you're building inside an ephemeral widget-dashboard session: you inherit the parent channel's workspace as well as channel context, so `data/widgets/<slug>/` under that channel is the working root. (Non-channel roots arrive with DX-5b.)
 
 ## The Two Modes
 
 | Mode | Signature | When | Auto-updates |
 |---|---|---|---|
 | **Inline** | `emit_html_widget(html=..., js?, css?, display_label?)` | One-off snapshot. You assemble the widget from data you already have. | No — static snapshot |
-| **Path** | `emit_html_widget(path="dashboards/foo.html", display_label?)` | You wrote (or will iterate on) a workspace file. The widget re-renders when the file changes. | Yes — polls the file every 3 s |
+| **Path** | `emit_html_widget(path="data/widgets/foo/index.html", display_label?)` | You wrote (or will iterate on) a workspace file. The widget re-renders when the file changes. | Yes — polls the file every 3 s |
 
 Exactly one of `html` / `path` is required.
 
@@ -43,14 +84,13 @@ emit_html_widget(
   html='''
   <h3 style="margin:0 0 8px">Channels</h3>
   <ul id="list"><li>loading…</li></ul>
-  <button id="refresh">Refresh</button>
+  <button id="refresh" class="sd-btn">Refresh</button>
   ''',
   js='''
   async function load() {
-    const r = await fetch("/api/v1/channels");
-    const data = await r.json();
-    const ul = document.getElementById("list");
-    ul.innerHTML = data.map(c => `<li>${c.name}</li>`).join("");
+    const data = await window.spindrel.api("/api/v1/channels");
+    document.getElementById("list").innerHTML =
+      data.map(c => `<li>${c.name}</li>`).join("");
   }
   document.getElementById("refresh").addEventListener("click", load);
   load();
@@ -59,14 +99,15 @@ emit_html_widget(
 )
 ```
 
-### Path Example (recommended for dashboards the user will tweak)
+### Path Example (the default for dashboards)
 
 ```
-1. file(create, path="dashboards/server-stats.html", content="<html>… full doc …</html>")
-2. emit_html_widget(path="dashboards/server-stats.html", display_label="Server stats")
+1. file(create, path="data/widgets/project-status/index.html", content="<html>… full doc …</html>")
+2. file(create, path="data/widgets/project-status/state.json", content='{"phase":"Planning","progress":0}')
+3. emit_html_widget(path="data/widgets/project-status/index.html", display_label="Project status")
 ```
 
-After pinning, further edits to `dashboards/server-stats.html` make the pinned widget refresh within ~3 seconds. Iterate on the file; no need to re-emit.
+After pinning, further edits to files in that bundle refresh the pinned widget within ~3 seconds. Iterate on the folder; no need to re-emit.
 
 ## What the Sandbox Allows
 
@@ -75,7 +116,7 @@ The widget runs in an iframe with `sandbox="allow-scripts allow-same-origin"` an
 - **Allowed**: inline `<script>` / `<style>`, same-origin `fetch("/api/v1/...")`, `data:` / `blob:` images.
 - **Blocked**: cross-origin network (`fetch("https://example.com/...")` will fail), popups, form submissions that navigate, top-level navigation.
 
-If you need external data, have a prior tool call fetch it and inline the JSON into the widget.
+If you need external data, have a prior tool call fetch it and inline the JSON into the widget — or trigger `fetch_url` from the widget via the tool dispatcher (see below).
 
 ## Auth — widgets run as YOU (the bot), not as the viewer
 
@@ -83,30 +124,126 @@ When you emit a widget, the envelope captures your bot id. At render time the ho
 
 - **Use `window.spindrel.api(path)`**, not raw `fetch(path)`. Only `api()` attaches the bearer — a bare `fetch` will come back 422 (missing Authorization header) or 401.
 - **Your bot's scopes are the ceiling.** If your bot's API key doesn't have `channels:read`, your widget can't call channel endpoints. Ask the user to broaden scopes via the admin UI; don't try to work around it.
-- **You inherit nothing from the viewing user.** An admin looking at your widget does NOT lend you their admin scopes. Designed that way — this is how bot-authored JS is prevented from issuing privileged calls in someone else's session.
+- **You inherit nothing from the viewing user.** An admin looking at your widget does NOT lend you their admin scopes. This is how bot-authored JS is prevented from issuing privileged calls in someone else's session.
 - **The widget chrome shows `@your-bot-name`** in the bottom-left of the rendered card. That's the user's cue that your widget is acting with your credentials.
 
 If your bot has no API key configured, the widget renders but `api()` calls will surface a clear "Widget auth failed" banner — the user needs to provision a key before the widget works.
 
 ## The `window.spindrel` Helper
 
-Every widget gets a small helper injected automatically. No imports, no setup:
+Every widget gets a helper object injected automatically. No imports, no setup:
 
 ```js
+// Identity
 window.spindrel.channelId                  // emitting channel UUID, or null
 window.spindrel.botId                      // your bot id (the one running this)
 window.spindrel.botName                    // display name, e.g. "crumb"
+window.spindrel.dashboardPinId             // UUID when pinned to a dashboard, else undefined
+window.spindrel.widgetPath                 // absolute-within-channel path of this widget's HTML (e.g. "data/widgets/x/index.html"), null for inline widgets
+window.spindrel.resolvePath(input)         // resolve a relative path (./ or ../) against widgetPath's directory (see "Relative paths" below)
+
+// Authenticated network
 window.spindrel.api(path, options?)        // authed fetch → parsed body (JSON/text), throws on !ok
 window.spindrel.apiFetch(path, options?)   // authed fetch → raw Response (for blobs, streams, binary)
-window.spindrel.toolResult                 // only set for declarative html_template widgets
-window.spindrel.readWorkspaceFile(path)    // returns file content as a string
-window.spindrel.writeWorkspaceFile(path, content)   // PUT
+
+// Workspace files (text)
+window.spindrel.readWorkspaceFile(path)           // string contents, throws if missing
+window.spindrel.writeWorkspaceFile(path, content) // PUT, overwrite
 window.spindrel.listWorkspaceFiles({include_archive?, include_data?, data_prefix?})
+
+// Workspace assets (binary — images, icons, PDFs, audio, video)
+window.spindrel.loadAsset(path)                   // → object URL (blob:) ready for <img src>, <video src>, etc.
+window.spindrel.revokeAsset(url)                  // free the object URL (optional; iframe teardown frees everything)
+
+// Rendering helpers
+window.spindrel.renderMarkdown(text)       // HTML-safe Markdown → HTML string (see "Markdown Rendering" below)
+
+// Tool dispatch
+window.spindrel.callTool(name, args, opts?) // run a backend tool; returns fresh envelope, throws on failure (see "Tool Dispatch" below)
+
+// JSON state — read/merge/write over workspace files, deep-merge semantics
+window.spindrel.data.load(path, defaults?)   // parsed object (defaults deep-merged underneath); returns defaults if file missing
+window.spindrel.data.patch(path, patch, defaults?) // RMW atomically; returns the new state
+window.spindrel.data.save(path, object)      // overwrite (escape hatch)
+
+// Event subscriptions — return an unsubscribe function
+window.spindrel.onToolResult(cb)   // fires whenever the envelope is refreshed (state_poll, callTool result, etc.)
+window.spindrel.onConfig(cb)       // fires when this pin's widget_config changes (debounced — only on actual change)
+window.spindrel.onTheme(cb)        // fires when the app switches light/dark mode
+
+// Tool result / config
+window.spindrel.toolResult                 // current envelope payload (see declarative widgets)
+window.spindrel.theme                      // resolved design tokens (see Styling)
 ```
 
-`api(path, options)` is a thin `fetch` wrapper — attaches `Authorization: Bearer <short-lived bot token>`, sets `Content-Type: application/json`, parses JSON responses, and throws on non-2xx so you can `try/catch`. **Always use this or `apiFetch` instead of raw `fetch()`**; raw fetch won't be authenticated.
+### Reacting to live updates
 
-`apiFetch(path, options)` is the same auth but returns the raw `Response` object. Reach for it when you need a blob (images, video, downloads), headers, or streaming — anywhere `api()`'s auto-parsing gets in the way:
+The host pushes fresh data into the iframe without reloading — after a `state_poll` refresh, after a `callTool` result, or when the app switches dark mode. Use the subscription helpers:
+
+```js
+// Re-render whenever the envelope is refreshed
+const off = window.spindrel.onToolResult((envelope) => render(envelope));
+
+// React to config changes (e.g. user toggled a pin setting from the EditPinDrawer)
+window.spindrel.onConfig((config) => {
+  applyConfig(config);  // fires only when config actually changes
+});
+
+// Re-theme SVG/canvas widgets on light/dark switch
+window.spindrel.onTheme((theme) => {
+  redraw(theme.accent, theme.isDark);
+});
+
+// Each helper returns an unsubscribe function
+off();
+```
+
+Under the hood these attach to the `spindrel:toolresult` and `spindrel:theme` DOM events on `window`. `onConfig` is sugar over `toolresult` that debounces — your callback only fires when `toolResult.config` actually changed, not on every envelope refresh.
+
+### Bundled assets (images, icons, media)
+
+The sandbox blocks cross-origin network but allows `data:` / `blob:` / same-origin images. Since `<img src>` can't carry a bearer token (and workspace files are bearer-authed), use **`window.spindrel.loadAsset(path)`** to fetch a binary file with auth and get back a `blob:` object URL you can drop into any `src` attribute:
+
+```js
+// widget emitted from data/widgets/home-control/index.html
+const logoUrl = await window.spindrel.loadAsset("./assets/logo.svg");
+document.getElementById("logo").src = logoUrl;
+
+// Works for <video>, <audio>, <a download>, anything that takes a same-origin URL
+document.getElementById("clip").src = await window.spindrel.loadAsset("./media/intro.mp4");
+```
+
+The object URLs stay valid for the lifetime of the iframe. If you're loading many large assets and want to free memory explicitly, call `window.spindrel.revokeAsset(url)`.
+
+Supported MIME types are whatever the workspace `/files/raw` endpoint serves — common image formats, PDFs, SVG, short audio/video clips.
+
+### Relative paths
+
+Inside a path-mode widget, you know where your bundle lives but you don't want to hard-code it. `readWorkspaceFile`, `writeWorkspaceFile`, and all `data.*` helpers accept **relative paths** that resolve against `dirname(widgetPath)`:
+
+```js
+// widget emitted from data/widgets/project-status/index.html
+const state = await window.spindrel.data.load("./state.json");
+// → reads data/widgets/project-status/state.json
+
+const sibling = await window.spindrel.readWorkspaceFile("../shared/config.json");
+// → reads data/widgets/shared/config.json
+```
+
+Rules:
+
+- `./foo` and `../foo` — resolved against the widget's directory. Requires path mode (`widgetPath` is null for inline widgets).
+- `foo/bar` with no leading `./` or `/` — treated as channel-workspace-absolute as-is (current default). `data.load("data/widgets/other/state.json")` works unchanged.
+- `/workspace/...` (leading slash) — **reserved for DX-5b** and currently throws. When that ships, it will let widgets target non-channel bundles and explicit channel roots.
+- `..` that escapes the workspace root throws before hitting the backend.
+
+Use `window.spindrel.resolvePath(input)` directly if you need the resolved string for your own bookkeeping (e.g. logging, debugging).
+
+### api() vs apiFetch()
+
+`api(path, options)` is a thin `fetch` wrapper — attaches `Authorization: Bearer <short-lived bot token>`, sets `Content-Type: application/json`, parses JSON responses, and throws on non-2xx. **Always use this or `apiFetch` instead of raw `fetch()`**; raw fetch won't be authenticated.
+
+`apiFetch(path, options)` is the same auth but returns the raw `Response` object. Reach for it when you need a blob (images, video, downloads), headers, or streaming:
 
 ```js
 const r = await window.spindrel.apiFetch("/api/v1/attachments/" + id,
@@ -115,9 +252,66 @@ if (!r.ok) throw new Error("HTTP " + r.status);
 img.src = URL.createObjectURL(await r.blob());
 ```
 
+## Tool Dispatch — Making Things Happen
+
+Dashboards aren't just read surfaces. You trigger work from a widget by dispatching a **tool call** through the host, which runs the tool under your bot's scopes and pushes the fresh result back into the widget.
+
+The endpoint is `POST /api/v1/widget-actions`. Three dispatch types:
+
+| `dispatch` | Purpose |
+|---|---|
+| `"tool"` | Run a named tool (any tool your bot can call) |
+| `"api"` | Call a whitelisted admin/channel endpoint (`/api/v1/admin/tasks` or `/api/v1/channels/*`) |
+| `"widget_config"` | Patch this pin's `widget_config` (for declarative html_template widgets) |
+
+### The tool-dispatch pattern
+
+Use `window.spindrel.callTool(name, args, opts?)` — it wraps the endpoint, auto-fills `bot_id` + `channel_id`, and throws on failure so you can `try/catch` cleanly:
+
+```js
+document.getElementById("run").addEventListener("click", async () => {
+  try {
+    const env = await window.spindrel.callTool("fetch_url", {
+      url: "https://example.com",
+    });
+    document.getElementById("out").textContent = env.body_text;
+  } catch (e) {
+    document.getElementById("out").textContent = "Failed: " + e.message;
+  }
+});
+```
+
+Returns the fresh envelope (same shape as `window.spindrel.toolResult`) on success, or `null` if the tool produced no envelope. Throws with the server's error message on non-ok response.
+
+**`opts.extra`** passes through additional widget-actions fields when you need them:
+
+```js
+await window.spindrel.callTool("web_search", { query: "docs" }, {
+  extra: {
+    display_label: "Docs search",        // lets state_poll fetch fresh state after
+    widget_config: { starred: [...] },   // current pin config for {{config.*}} substitution
+    dashboard_pin_id: window.spindrel.dashboardPinId,
+    source_record_id: someRecordId,
+  }
+});
+```
+
+**Working exemplars in-tree** — read these before writing yours:
+
+- `integrations/web_search/widgets/web_search.html` — Summarize button dispatches `fetch_url`.
+- `app/tools/local/widgets/image.html` — regen buttons dispatch `generate_image` with mutated prompts.
+
+(These were written before `callTool` shipped; they build the body by hand. The behavior is identical — `callTool` is the shorter way.)
+
+### Constraints
+
+- Tool runs under your bot's scopes. If the tool needs a capability your bot doesn't have, the dispatch fails cleanly — don't try to work around it.
+- The `state_poll` cache (for declarative widgets) has a 30 s TTL keyed by `(tool, args)`; mutations invalidate it.
+- `dispatch:"api"` is **whitelisted** to `/api/v1/admin/tasks` and `/api/v1/channels/*`. For any other endpoint, use `spindrel.api()` directly. `callTool` is only for tool dispatch — for `dispatch:"api"` or `dispatch:"widget_config"`, use `spindrel.api("/api/v1/widget-actions", ...)` directly.
+
 ## Discovering what endpoints your widget can hit
 
-Don't guess URLs or copy examples blindly — **call `list_api_endpoints` BEFORE writing the widget** and use the result as your ground truth. It returns only the endpoints your bot's scoped API key can hit, so you never paste in a call that will 403 inside the iframe.
+Don't guess URLs or copy examples blindly — **call `list_api_endpoints` BEFORE writing the widget** and use the result as ground truth. It returns only the endpoints your bot's scoped API key can hit.
 
 ```
 list_api_endpoints(scope="channels")   # → all channel endpoints in your scope
@@ -128,138 +322,204 @@ list_api_endpoints()                    # → everything your bot can touch
 Then inside the widget, use those exact paths with `window.spindrel.api()`:
 
 ```js
-// list_api_endpoints told you about GET /api/v1/channels/{channel_id}/state
 const state = await window.spindrel.api(
   "/api/v1/channels/" + window.spindrel.channelId + "/state"
 );
 ```
 
-The symmetry is intentional: `call_api` (server-side) and `window.spindrel.api` (widget-side) both use the same bot-scoped API key. If `call_api` works from your tool, `spindrel.api` works from the widget — same scopes, same endpoints, same responses.
+Note the division of labor:
 
-## JavaScript Cookbook
+- **`spindrel.api()`** = read state, call regular endpoints.
+- **`/api/v1/widget-actions` (dispatch:"tool")** = trigger a tool. Use this when you'd otherwise be wishing for a REST endpoint that "runs X for me".
 
-Concrete patterns that work in the sandbox. Use these directly.
+## The `state.json` Pattern — Dashboards That Remember
 
-### Read + display a workspace file
+Most real dashboards keep a little state that outlives the current render: which phase a project is in, which items are starred, what the user's last filter was. Put it in a JSON file in the widget's bundle and use `window.spindrel.data` to read/merge/write it:
 
-```js
-async function loadNotes() {
-  try {
-    const text = await window.spindrel.readWorkspaceFile("notes/today.md");
-    document.getElementById("notes").textContent = text;
-  } catch (e) {
-    document.getElementById("notes").textContent = "Couldn't load: " + e.message;
-  }
+```html
+<!-- data/widgets/project-status/index.html (emitted from a channel chat) -->
+<div class="sd-card">
+  <header class="sd-card-header">
+    <h3 class="sd-title" id="title">Project status</h3>
+    <span class="sd-meta" id="updated"></span>
+  </header>
+  <div class="sd-card-body sd-stack">
+    <div class="sd-mono" id="phase-line"></div>
+    <div class="sd-progress" id="prog" style="--p: 0"></div>
+    <ul id="milestones" class="sd-stack-sm"></ul>
+  </div>
+  <div class="sd-card-actions">
+    <button class="sd-btn" id="refresh">Refresh</button>
+    <button class="sd-btn sd-btn-primary" id="advance">Advance phase</button>
+  </div>
+</div>
+
+<script>
+const FILE = "./state.json";  // relative to this widget's directory
+const DEFAULTS = {
+  title: "Untitled",
+  phase: "Planning",
+  progress: 0,
+  milestones: [],
+  updated_at: null,
+};
+
+async function refresh() {
+  render(await window.spindrel.data.load(FILE, DEFAULTS));
 }
-loadNotes();
+
+async function advance(next) {
+  const state = await window.spindrel.data.patch(FILE, {
+    phase: next,
+    updated_at: new Date().toISOString(),
+  }, DEFAULTS);
+  render(state);
+}
+
+function render(s) {
+  document.getElementById("title").textContent = s.title;
+  document.getElementById("phase-line").textContent = `Phase: ${s.phase}`;
+  document.getElementById("prog").style.setProperty("--p", s.progress);
+  document.getElementById("updated").textContent = s.updated_at
+    ? `Updated ${new Date(s.updated_at).toLocaleString()}`
+    : "";
+  document.getElementById("milestones").innerHTML = s.milestones
+    .map(m => `<li>${m.done ? "✓" : "◯"} ${m.text}</li>`)
+    .join("");
+}
+
+document.getElementById("refresh").addEventListener("click", refresh);
+document.getElementById("advance").addEventListener("click", () =>
+  advance(prompt("Next phase?") || "Planning")
+);
+refresh();
+</script>
 ```
 
-### Write workspace file from a form submit
+### `spindrel.data` semantics
 
-```js
-document.getElementById("save").addEventListener("click", async () => {
-  const content = document.getElementById("editor").value;
-  await window.spindrel.writeWorkspaceFile("notes/today.md", content);
-  document.getElementById("status").textContent = "Saved " + new Date().toLocaleTimeString();
-});
-```
+- **`load(path, defaults?)`** — reads the file, parses JSON, and deep-merges it on top of `defaults`. If the file is missing or empty, returns a deep clone of `defaults`. Without `defaults`, returns the raw parsed object. Throws on invalid JSON.
+- **`patch(path, patch, defaults?)`** — load → deep-merge `patch` on top → save → return. Objects are merged recursively; **arrays are replaced, not concatenated**. If you need append semantics, do `data.patch(path, { items: [...old.items, newItem] })` explicitly.
+- **`save(path, object)`** — blind overwrite. Use for full-document replacement; prefer `patch` when you only know a few fields.
 
-### Poll recent messages
+**Why RMW matters**: if two copies of the widget are open, naive `save(patch)` loses concurrent edits. `patch` reads fresh each time, so two copies stay coherent. This is the same pattern `web_search.html` uses for its `starred[]` list (hand-rolled, pre-`data` helper).
 
-There is no `GET /channels/{id}/messages`. Use the search endpoint with no
-query — it returns the most recent rows in the channel ordered by date:
+**First-run safety**: the file doesn't have to exist. `load` returns defaults on miss; `patch` creates it.
+
+## Dashboard Archetypes
+
+Four shapes to recognize. They compose — a real dashboard is usually a mix.
+
+### A. Live Project Status (RMW state)
+
+You want to show where a project stands and let the user advance it. See the `state.json` example above. Use when the user says *"build me a status dashboard for <project>"* or *"I want a live view of where we are on <thing>"*.
+
+Key moves:
+- Bundle under `data/widgets/<project>-status/` (channel-scoped). Non-channel roots arrive with DX-5b.
+- `state.json` holds the single source of truth. Never duplicate into the HTML.
+- Buttons save patches; `state_poll` not needed because the file drives everything.
+
+### B. Recent-Activity Feed (poll the API)
+
+Stream the last N messages / tasks / events for a channel as live-updating cards.
 
 ```js
 async function refresh() {
   const cid = window.spindrel.channelId;
   const messages = await window.spindrel.api(
-    "/api/v1/channels/" + cid + "/messages/search?limit=20"
+    `/api/v1/channels/${cid}/messages/search?limit=20`
   );
-  const ul = document.getElementById("messages");
-  ul.innerHTML = messages
-    .map(m => `<li><b>${m.role}:</b> ${m.content}</li>`)
+  document.getElementById("feed").innerHTML = messages
+    .map(m => `
+      <div class="sd-card">
+        <div class="sd-card-body">
+          <div class="sd-meta">${m.role} · ${new Date(m.created_at).toLocaleTimeString()}</div>
+          <div>${m.content}</div>
+        </div>
+      </div>
+    `)
     .join("");
 }
 setInterval(refresh, 5000);
 refresh();
 ```
 
-### List tasks + their latest status
+Use when: *"what's been going on in this channel"*, *"show me recent X"*, *"live feed of Y"*. Prefer a 5–10 s poll interval; anything faster hammers the bot's rate limits.
 
-The tasks list lives under `/admin/tasks`. Filter by `channel_id` to scope
-to the current chat:
+### C. Tool-Trigger Control Panel (one-click actions)
 
-```js
-async function loadTasks() {
-  const cid = window.spindrel.channelId;
-  const data = await window.spindrel.api(
-    "/api/v1/admin/tasks?channel_id=" + cid + "&limit=20"
-  );
-  const rows = (data.tasks || []).map(t => `
-    <tr>
-      <td>${t.prompt?.slice(0, 60) ?? t.id}</td>
-      <td>${t.status}</td>
-      <td>${t.scheduled_at ?? "—"}</td>
-    </tr>
-  `).join("");
-  document.getElementById("tasks").innerHTML = rows;
-}
-loadTasks();
+Buttons that run backend tools on click. No state needed; the tool does the work.
+
+```html
+<div class="sd-card">
+  <header class="sd-card-header"><h3 class="sd-title">Quick actions</h3></header>
+  <div class="sd-card-actions sd-hstack">
+    <button class="sd-btn sd-btn-primary" data-tool="run_backup">Run backup</button>
+    <button class="sd-btn" data-tool="sync_inbox">Sync inbox</button>
+    <button class="sd-btn sd-btn-danger" data-tool="flush_cache">Flush cache</button>
+  </div>
+  <div id="status" class="sd-meta"></div>
+</div>
+<script>
+document.querySelectorAll("button[data-tool]").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = "…";
+    try {
+      await window.spindrel.callTool(btn.dataset.tool, {});
+      document.getElementById("status").textContent = `✓ ${btn.dataset.tool} ran`;
+    } catch (e) {
+      document.getElementById("status").textContent = `✗ ${e.message}`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+});
+</script>
 ```
 
-### Render a chart from a tool result
+Use when: *"give me one-click access to X"*, *"I want buttons for my common Y"*. Pair with optimistic-update patterns (disable → "…" → show result).
 
-For charts, inline a library like Chart.js by having a prior `file(create, ...)` write the full page (including a CDN script tag won't work — CSP blocks cross-origin — but you can write the library's source into the workspace and path-mode the widget, OR ship a tiny bespoke SVG renderer in your JS). The simpler path is SVG:
+### D. Embedded Knowledge-Base Reader
 
-```js
-async function drawBar() {
-  const data = await window.spindrel.api("/api/v1/admin/tool-calls/recent?limit=20");
-  const counts = {};
-  for (const tc of data) counts[tc.tool_name] = (counts[tc.tool_name] ?? 0) + 1;
-  const max = Math.max(...Object.values(counts), 1);
-  const bars = Object.entries(counts).map(([name, n], i) => `
-    <rect x="${i*40}" y="${100 - (n/max)*100}" width="30" height="${(n/max)*100}" fill="#58a6ff" />
-    <text x="${i*40 + 15}" y="115" text-anchor="middle" font-size="9">${name.slice(0,6)}</text>
-  `).join("");
-  document.getElementById("chart").innerHTML = `<svg viewBox="0 0 ${Object.keys(counts).length*40} 120" width="100%">${bars}</svg>`;
-}
-drawBar();
-```
-
-### Optimistic update pattern
+Read markdown files from the workspace and render them via the bundled renderer:
 
 ```js
-async function togglePin(id, btn) {
-  btn.disabled = true;
-  const original = btn.textContent;
-  btn.textContent = "…";
-  try {
-    await window.spindrel.api("/api/v1/widget-pins/" + id, {
-      method: "PATCH",
-      body: JSON.stringify({ pinned: true }),
-    });
-    btn.textContent = "Pinned";
-  } catch (e) {
-    btn.textContent = original;
-    alert(e.message);
-  } finally {
-    btn.disabled = false;
-  }
+async function loadNote(path) {
+  const md = await window.spindrel.readWorkspaceFile(path);
+  document.getElementById("doc").innerHTML = window.spindrel.renderMarkdown(md);
 }
 ```
 
-### Handling errors
+Pair with a file picker (`listWorkspaceFiles` + a `<select>`) to browse a whole `notes/` folder. Use when: *"let me browse project notes"*, *"show me the README as a dashboard"*, *"embed this doc alongside the live data"*.
 
-`api()` throws on non-2xx. Don't swallow — show the error to the user so they know something's wrong:
+## Markdown Rendering
+
+Use **`window.spindrel.renderMarkdown(text)`** — HTML-escapes the source first, then transforms. Safe to `innerHTML` bot-authored prose.
+
+Supported: headings (`#` through `####`), bold (`**x**`), italic (`*x*`), inline code (`` `x` ``), fenced code blocks (```` ```lang ... ``` ````), unordered + ordered lists (`-` / `1.`), blockquotes (`>`), links (`[text](url)`), paragraphs.
+
+Not supported: tables, footnotes, inline HTML passthrough, definition lists, images (use `<img>` directly — CSP allows `data:` + `blob:` + same-origin). If you need more, inline `marked.min.js` into the widget bundle and reference it as `<script src="marked.min.js"></script>` in path-mode — the CDN path is CSP-blocked but same-bundle JS works.
 
 ```js
-try {
-  const data = await window.spindrel.api("/api/v1/whatever");
-  // …
-} catch (e) {
-  document.getElementById("error").textContent = e.message;
-}
+const html = window.spindrel.renderMarkdown("# Hello\n\nSome **bold** text.");
+document.getElementById("out").innerHTML = html;
 ```
+
+Returns `""` for `null` / `undefined` input.
+
+## When to Use `/widget-actions` vs `spindrel.api()`
+
+| Need | Use |
+|---|---|
+| Read state (`GET /api/v1/...`) | `spindrel.api()` directly |
+| Trigger a tool / mutate through a tool | `spindrel.callTool(name, args)` — returns fresh envelope |
+| Patch this pin's `widget_config` | `POST /api/v1/widget-actions` with `dispatch:"widget_config"` |
+| Hit one of the whitelisted admin endpoints | Either works; `dispatch:"api"` keeps scopes tight |
+| Raw response (blob, stream, binary) | `spindrel.apiFetch()` |
+| Read/write a workspace file | `spindrel.readWorkspaceFile` / `writeWorkspaceFile` |
 
 ## Scroll Behavior
 
@@ -278,18 +538,17 @@ The iframe auto-sizes to content height, capped at 800px. Taller content scrolls
 | `GET /api/v1/admin/tasks?channel_id=...` | Tasks (filter by channel/status/bot) |
 | `GET /api/v1/admin/tool-calls/recent` | Recent tool-call envelopes |
 | `GET /api/v1/bots/me` | Bot's own config |
+| `POST /api/v1/widget-actions` | **Dispatch a tool / API call / config patch (see above)** |
 
-Writes (POST/PUT/PATCH/DELETE) work the same way. Think of it as **your own scoped API key running in a browser tab** — because that's exactly what it is.
-
-For the exhaustive filtered-by-your-scopes list, call `list_api_endpoints()`. That's always more authoritative than this table.
+For the exhaustive list filtered by your scopes, call `list_api_endpoints()`.
 
 ## Styling — Use the `sd-*` Vocabulary
 
-Every widget iframe auto-inherits the app's design language: colors, spacing, typography, and a small set of component classes. **Use these instead of inline hex colors or bespoke CSS.** Widgets that lean on the vocabulary look like part of the app, stay correct in both light and dark mode, and survive future theme changes.
+Every widget iframe auto-inherits the app's design language: colors, spacing, typography, and component classes. **Use these instead of inline hex colors or bespoke CSS.** Widgets that lean on the vocabulary look like part of the app, stay correct in both light and dark mode, and survive future theme changes.
 
 ### CSS variables
 
-Every token from the host theme is available as a CSS variable. Reach for these any time you need a color:
+Every token from the host theme is available as a CSS variable:
 
 ```
 --sd-surface              --sd-text           --sd-accent          --sd-success
@@ -308,7 +567,7 @@ Plus subtle/border variants for status colors (`--sd-success-subtle`, `--sd-dang
 
 ### Utility / component classes
 
-Prefer these over hand-rolled CSS — they compose the same way Tailwind does and stay consistent across widgets:
+Prefer these over hand-rolled CSS:
 
 | Purpose | Class |
 |---|---|
@@ -325,7 +584,7 @@ Prefer these over hand-rolled CSS — they compose the same way Tailwind does an
 | Progress bar | `sd-progress` (+ `style="--p: 60"` for 60%) + color variants |
 | Feedback | `sd-error`, `sd-empty`, `sd-skeleton`, `sd-spinner`, `sd-divider` |
 
-Toggle buttons work via `aria-pressed="true"` — the base `.sd-btn` handles the pressed styling. Example:
+Toggle buttons work via `aria-pressed="true"` — the base `.sd-btn` handles the pressed styling:
 
 ```html
 <div class="sd-card">
@@ -343,10 +602,10 @@ Toggle buttons work via `aria-pressed="true"` — the base `.sd-btn` handles the
 
 ### `window.spindrel.theme` (for SVG / canvas widgets)
 
-When you're drawing programmatically — SVG chart fills, canvas strokes, animated gradients — use `window.spindrel.theme` instead of hard-coded hex:
+When you're drawing programmatically — SVG chart fills, canvas strokes — use `window.spindrel.theme` instead of hard-coded hex:
 
 ```js
-const accent = window.spindrel.theme.accent;   // resolved hex for the current mode
+const accent = window.spindrel.theme.accent;
 const isDark = window.spindrel.theme.isDark;
 svg.innerHTML = `<rect fill="${accent}" .../>`;
 ```
@@ -383,34 +642,78 @@ Always set `display_label` — it appears on the dashboard card header, in the "
 | Wrong | Right | Why |
 |---|---|---|
 | Returning HTML as Markdown or a code fence | `emit_html_widget(html=...)` | Only this tool gets you interactivity + pin-to-dashboard |
-| `fetch("/api/v1/...")` inside the widget | `window.spindrel.api("/api/v1/...")` | Only `spindrel.api` attaches the bearer. Raw `fetch` → 422 (missing Authorization). |
-| `fetch("https://api.example.com/...")` from widget JS | Prior tool call fetches it; inline the data | CSP blocks cross-origin; iframe can only hit same-origin |
+| `fetch("/api/v1/...")` inside the widget | `window.spindrel.api("/api/v1/...")` | Only `spindrel.api` attaches the bearer. Raw `fetch` → 422. |
+| `fetch("https://api.example.com/...")` from widget JS | Prior tool call fetches it; inline the data OR dispatch `fetch_url` | CSP blocks cross-origin; iframe can only hit same-origin |
 | Guessing API paths | `list_api_endpoints()` first, copy the exact path | You only see endpoints your scopes cover. Saves a roundtrip of 403s. |
+| Hitting REST endpoints to "run a tool" | `window.spindrel.callTool(name, args)` | Tools don't have REST endpoints; `callTool` is the dispatcher shortcut. |
+| Hand-rolling the 15-line `/api/v1/widget-actions` fetch | `window.spindrel.callTool(name, args)` | One line, auto-fills `bot_id`/`channel_id`, throws on error. |
 | Inline hex colors (`#fff`, `#1f2937`, `rgb(59,130,246)`) | `var(--sd-*)` variables or `sd-*` classes | Hex drifts from the theme and breaks dark mode. |
-| Hand-rolled `.card { border: 1px solid #e5e7eb; ... }` | `class="sd-card"` | The vocabulary already covers this — on-brand, consistent, dark-mode correct. |
+| Hand-rolled `.card { border: 1px solid #e5e7eb; ... }` | `class="sd-card"` | The vocabulary already covers this. |
 | `html=...` + `path=...` together | Exactly one | Tool errors — pick inline OR path |
 | Path mode pointing at a non-existent file | Create the file first with `file(create, ...)` | Tool refuses if the path doesn't resolve |
-| `emit_html_widget(html="<script>...</script>")` with no HTML body | Put JS in `js=...`, not inside `html=...` | Cleaner; the tool stitches them correctly |
-| Bare style tags in `html` | Use `css=...` | Same — cleaner separation, avoids duplicates |
+| Dumping loose `.html` at the workspace root | Put each widget in its own bundle folder | Bundles move/rename/delete atomically; the root stays legible |
+| Blind-overwriting `state.json` | Read-merge-write | Two open copies stay coherent; no silent data loss |
 | Skipping `display_label` | Always supply one | Blank headers on the dashboard are ugly + fail the pinned-widget context hint |
-| Asking the user to "broaden your admin key" so your widget works | Ask them to broaden YOUR BOT's scopes via admin UI | The widget uses your bot's key, not the user's session. Scope the bot, not the user. |
+| Asking the user to "broaden your admin key" so your widget works | Ask them to broaden YOUR BOT's scopes via admin UI | The widget uses your bot's key, not the user's session. |
 
 ## When NOT to Use This
 
 - Simple text / Markdown reply → just reply normally.
 - Entity detail the existing `tool_widgets:` templates already cover → component widget is nicer.
 - A link or file the user wants to open → `send_file` or a plain URL.
-- Reusable parameterized widget across many channels → defer to the user, no library path for HTML templates yet (v1 is ephemeral output).
+- Reusable parameterized widget across many channels → defer to the user; the non-channel `/workspace/widgets/<slug>/` root is queued (DX-5b) and not yet resolvable, so the current answer is "emit it per-channel for now".
 
 ## Workflow — Build an Evolving Dashboard
 
 When the user says "build me a dashboard for X":
 
-1. **Discover**: `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had.
-2. **Plan** what panels / what data sources you need. If a data source you want isn't in the endpoint list, ask the user to broaden your bot's scopes (admin UI → Bots → this bot → API permissions) — don't work around it.
-3. `file(create, path="dashboards/<slug>.html", content=<full HTML doc>)` — one-shot the first cut. Use `window.spindrel.api()` for every call; hard-code the literal endpoint paths you discovered in step 1.
-4. `emit_html_widget(path="dashboards/<slug>.html", display_label="<Slug>")` — renders; user pins it to the dashboard.
-5. User asks for tweaks → `file(edit, path="dashboards/<slug>.html", find=..., replace=...)` — the pinned widget updates within a few seconds.
-6. Keep iterating on the file. No need to re-emit the widget.
+1. **Discover** — `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had.
+2. **Pick a root** — channel-scoped `data/widgets/<slug>/` (the default, works today). Non-channel roots arrive with DX-5b.
+3. **Pick an archetype** — status (RMW `state.json`), feed (poll API), control panel (dispatch tools), KB reader (workspace files + markdown). Most real dashboards mix two.
+4. **One-shot the bundle** — `file(create, path="<root>/index.html", content=<full doc>)` plus any `state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `dispatch:"tool"` for triggering work.
+5. **Emit** — `emit_html_widget(path="<root>/index.html", display_label="<Slug>")`. User pins it to the dashboard.
+6. **Iterate** — user requests tweaks → `file(edit, path="<root>/index.html", find=..., replace=...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
 
-This is the highest-leverage pattern: path mode + the `file` tool turns "build me a widget" into a live, iteratively-editable surface for the user.
+This is the highest-leverage pattern: path mode + a bundle folder + the `file` tool turns "build me a widget" into a live, iteratively-editable surface.
+
+---
+
+## DX Roadmap — What's Coming
+
+These helpers **don't exist yet**. The skill examples above deliberately avoid them so you don't ship widgets that reference APIs that aren't there. Each item below is a scoped proposal that could land in a follow-up session.
+
+### ~~DX-1 — `window.spindrel.renderMarkdown`~~ — shipped
+
+Now live. See the **Markdown Rendering** section above.
+
+### ~~DX-2 — `window.spindrel.callTool`~~ — shipped
+
+Now live. See the **Tool Dispatch** section above. Passes extras through `opts.extra`.
+
+### ~~DX-3 — `window.spindrel.data`~~ — shipped
+
+Now live. See the **`state.json` Pattern** section above. Arrays replaced, not concatenated; first-run safe; throws on invalid JSON. Will be the entry point for DX-5 relative-path resolution when that lands.
+
+### ~~DX-4 — event subscription wrappers~~ — shipped
+
+Now live. See the **Reacting to live updates** section above. `onConfig` debounces on actual config change so it's cheap to call from layout-sensitive code.
+
+### DX-5 — Relative paths + bundled assets + non-channel-scoped root
+
+Shipping in slices.
+
+**~~DX-5a — Relative-path resolution in helpers~~ — shipped**
+
+`window.spindrel.widgetPath` is set to the widget's `source_path` (null for inline). `readWorkspaceFile`, `writeWorkspaceFile`, and `data.*` accept `./foo` and `../foo` and resolve against `dirname(widgetPath)`. `/workspace/...` absolute paths are reserved for DX-5b and currently throw with a clear error. See the **Relative paths** section above.
+
+**DX-5b — Non-channel workspace root** — queued. Adds `{ws_root}/widgets/<slug>/` as a sibling of `channels/`, bot-scoped but channel-agnostic. Extends `emit_html_widget(path=...)` to accept `"/workspace/widgets/<slug>/index.html"` and `"/workspace/channels/<id>/..."` forms. Needs: backend path resolver (`app/services/workspace.py` + `app/tools/local/emit_html_widget.py`), a non-channel-scoped workspace-file endpoint, and extending the `resolvePath` grammar in the iframe bootstrap to accept the absolute forms.
+
+**~~DX-5c — bundled asset loading via `loadAsset`~~ — shipped**
+
+Now live. `window.spindrel.loadAsset(path)` fetches a workspace file with the bot's bearer, blobs it, and returns a `blob:` object URL safe to drop into any `src` attribute. Paired with `revokeAsset(url)` for explicit cleanup. See the **Bundled assets** section above. No CSP changes — object URLs are same-origin by construction.
+
+**DX-5c-full — `<base href>` native asset loading** — queued. The full "just drop `<img src="assets/logo.svg" />` in your HTML and have it work" shape needs either a signed-URL token pattern (bearer in query string), a service worker to inject `Authorization` headers on browser-native loads, or a public no-auth asset endpoint — all three need a security design call. `loadAsset` shipped instead as the pragmatic unlock that doesn't commit us to a security stance.
+
+---
+
+*If one of these ships, this skill is updated the same session. Until then: build with the primitives above.*

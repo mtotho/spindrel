@@ -350,6 +350,9 @@ export function useChannelEvents(
           const turnId = payload?.turn_id as string | undefined;
           if (!turnId) return;
           if (!store.getChannel(storeKey).turns[turnId]) return;
+          // Any alive-proof event resets the 60s observer so long
+          // generations / slow tools don't get force-finished.
+          startObserverTimeout(chId, turnId);
           if (!pendingDeltasRef.current[turnId]) {
             pendingDeltasRef.current[turnId] = { text: "", think: "" };
           }
@@ -370,6 +373,7 @@ export function useChannelEvents(
             flushDeltas(chId);
           }
           if (!store.getChannel(storeKey).turns[turnId]) return;
+          startObserverTimeout(chId, turnId);
           const argsStr =
             payload?.arguments && Object.keys(payload.arguments).length > 0
               ? JSON.stringify(payload.arguments)
@@ -390,13 +394,12 @@ export function useChannelEvents(
             flushDeltas(chId);
           }
           if (!store.getChannel(storeKey).turns[turnId]) return;
+          startObserverTimeout(chId, turnId);
           store.handleTurnEvent(storeKey, turnId, {
             event: "tool_result",
             data: {
               tool: payload?.tool_name,
               is_error: !!payload?.is_error,
-              // envelope is the rendered ToolResultEnvelope dict from
-              // tool_dispatch.py — drives the mimetype-keyed renderer.
               envelope: payload?.envelope,
             } as any,
           });
@@ -425,6 +428,7 @@ export function useChannelEvents(
             cancelAnimationFrame(rafRef.current);
             flushDeltas(chId);
           }
+          startObserverTimeout(chId, targetTurnId);
           store.handleTurnEvent(storeKey, targetTurnId, {
             event: "approval_request",
             data: {
@@ -446,6 +450,7 @@ export function useChannelEvents(
           // Find the turn that has the matching approval id and dispatch.
           for (const [turnId, turn] of Object.entries(ch.turns)) {
             if (turn.toolCalls.some((tc) => tc.approvalId === payload?.approval_id)) {
+              startObserverTimeout(chId, turnId);
               store.handleTurnEvent(storeKey, turnId, {
                 event: "approval_resolved",
                 data: {
@@ -465,6 +470,7 @@ export function useChannelEvents(
           const turnId = payload?.turn_id as string | undefined;
           if (!turnId) return;
           if (!store.getChannel(storeKey).turns[turnId]) return;
+          startObserverTimeout(chId, turnId);
           store.handleTurnEvent(storeKey, turnId, {
             event: "skill_auto_inject",
             data: {

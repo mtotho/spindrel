@@ -83,18 +83,32 @@ async def mint_widget_token(
 
     if bot.api_key_id is None:
         raise HTTPException(
-            400,
-            f"Bot '{bot_label}' has no API permissions yet. "
-            "Grant the widget the scopes it needs (e.g. attachments:read) "
-            f"under Admin → Bots → {bot_label} → Permissions, then retry.",
+            status_code=400,
+            detail={
+                "message": (
+                    f"Bot '{bot_label}' has no API permissions yet. "
+                    "Grant the widget the scopes it needs (e.g. attachments:read) "
+                    f"under Admin → Bots → {bot_label} → Permissions, then retry."
+                ),
+                "reason": "bot_missing_api_key",
+                "bot_id": bot.id,
+                "pin_id": body.pin_id,
+            },
         )
 
     api_key = await db.get(ApiKey, bot.api_key_id)
     if api_key is None or not api_key.is_active:
         raise HTTPException(
-            400,
-            f"Bot '{bot_label}' has an inactive API key. "
-            "Re-enable it under Admin → Bots → Permissions, then retry.",
+            status_code=400,
+            detail={
+                "message": (
+                    f"Bot '{bot_label}' has an inactive API key. "
+                    "Re-enable it under Admin → Bots → Permissions, then retry."
+                ),
+                "reason": "bot_api_key_inactive",
+                "bot_id": bot.id,
+                "pin_id": body.pin_id,
+            },
         )
 
     scopes = list(api_key.scopes or [])

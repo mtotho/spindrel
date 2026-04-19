@@ -356,7 +356,14 @@ class TestInactiveBotApiKey:
         resp = await _post_mint(app, {"source_bot_id": bot.id})
 
         assert resp.status_code == 400, resp.text
-        assert "inactive" in resp.json()["detail"].lower() or "missing" in resp.json()["detail"].lower()
+        detail = resp.json()["detail"]
+        # Mint detail is a structured payload — message carries the human
+        # text, reason identifies the failure mode programmatically.
+        assert isinstance(detail, dict)
+        message = detail["message"].lower()
+        assert "inactive" in message or "missing" in message
+        assert detail["reason"] in {"bot_api_key_inactive", "bot_missing_api_key"}
+        assert detail["bot_id"] == bot.id
 
     async def test_active_key_returns_200(self, client_factory, db_session):
         """Baseline: active key → 200.  Ensures the inactive test is meaningful."""

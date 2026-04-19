@@ -103,7 +103,10 @@ tool_widgets:
   frigate_snapshot:
     content_type: application/vnd.spindrel.html+interactive
     display: inline
-    display_label: "Frigate snapshot"
+    # display_label resolves to the camera name so state_poll's
+    # {{display_label}} substitution carries the right arg on auto-refresh.
+    # The tool adds "camera" to its result dict for this purpose.
+    display_label: "{{camera}}"
     html_template:
       path: widgets/frigate_snapshot.html
     default_config:
@@ -111,10 +114,6 @@ tool_widgets:
     state_poll:
       tool: frigate_snapshot
       args:
-        # The widget's in-iframe refresh button hands us the user-selected
-        # camera via display_label; when called automatically on the dashboard
-        # it uses the pinned display_label. Missing display_label = the poll
-        # no-ops silently (the tool will return an error for an empty camera).
         camera: "{{display_label}}"
         bounding_box: "{{config.show_bbox}}"
       refresh_interval_seconds: 60
@@ -122,6 +121,7 @@ tool_widgets:
       attachment_id: "00000000-0000-0000-0000-000000000000"
       filename: "driveway_snapshot.jpg"
       size_bytes: 84210
+      camera: "driveway"
 
   frigate_get_events:
     content_type: application/vnd.spindrel.html+interactive

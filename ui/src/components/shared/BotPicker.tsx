@@ -15,13 +15,15 @@ function shortModel(model: string): string {
   return parts[parts.length - 1];
 }
 
-export function BotPicker({ value, onChange, bots, allowNone, placeholder, disabled }: {
+export function BotPicker({ value, onChange, bots, allowNone, placeholder, disabled, compact }: {
   value: string;
   onChange: (botId: string) => void;
   bots: BotConfig[];
   allowNone?: boolean;
   placeholder?: string;
   disabled?: boolean;
+  /** Smaller trigger for tight header contexts (ephemeral dock, etc.). */
+  compact?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -97,29 +99,35 @@ export function BotPicker({ value, onChange, bots, allowNone, placeholder, disab
       <button
         ref={triggerRef}
         onClick={openDropdown}
-        className={`flex flex-row items-center gap-2 w-full px-2.5 py-1.5 text-[13px] rounded-lg border cursor-pointer text-left transition-colors ${
-          disabled ? "opacity-50 pointer-events-none" : ""
-        } ${
-          open ? "border-accent bg-surface" : "border-surface-border bg-input hover:border-accent/50"
-        }`}
+        className={`flex flex-row items-center gap-2 w-full rounded-lg cursor-pointer text-left transition-colors ${
+          compact
+            ? "gap-1.5 px-2 py-1 text-[11px] border-0 hover:bg-white/5"
+            : `gap-2 px-2.5 py-1.5 text-[13px] border ${
+                open ? "border-accent bg-surface" : "border-surface-border bg-input hover:border-accent/50"
+              }`
+        } ${disabled ? "opacity-50 pointer-events-none" : ""}`}
       >
         {selected ? (
           <>
-            {renderAvatar(selected, 20)}
-            <span className="flex-1 truncate text-text">{selected.name}</span>
-            <span className="text-[10px] text-text-dim px-1.5 py-0.5 rounded bg-surface-overlay shrink-0 truncate max-w-[120px]">
-              {shortModel(selected.model)}
+            {renderAvatar(selected, compact ? 14 : 20)}
+            <span className={`flex-1 truncate text-text ${compact ? "font-medium" : ""}`}>
+              {selected.name}
             </span>
+            {!compact && (
+              <span className="text-[10px] text-text-dim px-1.5 py-0.5 rounded bg-surface-overlay shrink-0 truncate max-w-[120px]">
+                {shortModel(selected.model)}
+              </span>
+            )}
           </>
         ) : (
           <>
-            <Bot size={14} className="text-text-dim shrink-0" />
+            <Bot size={compact ? 12 : 14} className="text-text-dim shrink-0" />
             <span className="flex-1 truncate text-text-dim">
               {placeholder ?? "Select bot..."}
             </span>
           </>
         )}
-        <ChevronDown size={12} className="text-text-dim shrink-0" />
+        <ChevronDown size={compact ? 10 : 12} className="text-text-dim shrink-0" />
       </button>
 
       {open && ReactDOM.createPortal(

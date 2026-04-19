@@ -129,6 +129,129 @@ class TestCRUD:
         assert r.status_code == 404
 
 
+def _html_envelope(source_bot_id: str | None = None) -> dict:
+    env = {
+        "content_type": "application/vnd.spindrel.html+interactive",
+        "body": "<div>hi</div>",
+        "plain_body": "hi",
+        "display": "inline",
+        "truncated": False,
+        "record_id": None,
+        "byte_size": 12,
+        "display_label": "HTML widget",
+        "refreshable": True,
+    }
+    if source_bot_id is not None:
+        env["source_bot_id"] = source_bot_id
+    return env
+
+
+async def _seed_bot(db_session, *, bot_id: str, with_api_key: bool = True, scopes=None):
+    """Insert a minimal Bot row (+ ApiKey) for pin-identity tests."""
+    from app.db.models import ApiKey, Bot
+    key_id = None
+    if with_api_key:
+        from app.services.api_keys import create_api_key
+        key, _ = await create_api_key(
+            db_session,
+            name=f"{bot_id}-key",
+            scopes=list(scopes or ["chat"]),
+            store_key_value=True,
+        )
+        key_id = key.id
+    bot = Bot(
+        id=bot_id,
+        name=bot_id,
+        display_name=bot_id,
+        model="test/model",
+        system_prompt="",
+        api_key_id=key_id,
+    )
+    db_session.add(bot)
+    await db_session.commit()
+    await db_session.refresh(bot)
+    return bot
+
+
+class TestPinIdentityValidation:
+    """Create-time guards on source_bot_id. Pin identity is write-once;
+    create must validate, refresh must not mutate (see
+    ``test_widget_actions_state_poll.TestRefreshIdentityGuard``)."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_unknown_bot_id(self, client):
+        r = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "t",
+                "envelope": _html_envelope(source_bot_id="ghost-bot"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 400, r.text
+        assert "ghost-bot" in r.text
+
+    @pytest.mark.asyncio
+    async def test_rejects_html_pin_for_bot_without_api_key(
+        self, client, db_session,
+    ):
+        await _seed_bot(db_session, bot_id="keyless-bot", with_api_key=False)
+        r = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "t",
+                "envelope": _html_envelope(source_bot_id="keyless-bot"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 400, r.text
+        assert "no API permissions" in r.text
+
+    @pytest.mark.asyncio
+    async def test_envelope_source_bot_id_wins_over_body(
+        self, client, db_session, caplog,
+    ):
+        import logging
+        await _seed_bot(db_session, bot_id="body-bot", with_api_key=True)
+        await _seed_bot(db_session, bot_id="envelope-bot", with_api_key=True)
+        caplog.set_level(logging.WARNING, logger="app.services.dashboard_pins")
+        r = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "t",
+                "source_bot_id": "body-bot",
+                "envelope": _html_envelope(source_bot_id="envelope-bot"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["source_bot_id"] == "envelope-bot"
+        assert any(
+            "source_bot_id mismatch" in rec.message
+            for rec in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_allows_null_source_bot_id(self, client):
+        """Non-interactive pins without a bot identity stay allowed —
+        matches the handoff decision that NULL is legitimate (pin with
+        no iframe auth needs)."""
+        r = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "t",
+                "envelope": _make_envelope("no-bot"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["source_bot_id"] is None
+
+
 class TestConfigPatch:
     @pytest.mark.asyncio
     async def test_merges_config(self, client):

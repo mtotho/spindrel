@@ -128,6 +128,50 @@ class TestFrigateListCamerasWidget:
         assert tmpl["state_poll"]["refresh_interval_seconds"] == 300
 
 
+class TestFrigateSnapshotWidgetCarriesCamera:
+    """Regression: state_poll args.camera = ``{{display_label}}``, so the
+    envelope's display_label must resolve to the actual camera name — not
+    the widget's static label — or every auto-refresh hits Frigate with a
+    bogus camera id and 404s. Fixed 2026-04-19 by adding ``camera`` to the
+    tool's result and templating ``display_label: "{{camera}}"``.
+    """
+
+    def test_display_label_resolves_to_camera_from_result(self):
+        raw, base = _load_integration_manifest("frigate")
+        _register_widgets("integration:frigate", raw["tool_widgets"], base_dir=base)
+        result = json.dumps({
+            "attachment_id": "00000000-0000-0000-0000-000000000000",
+            "filename": "driveway_snapshot.jpg",
+            "size_bytes": 12345,
+            "camera": "driveway",
+        })
+        env = apply_widget_template("frigate_snapshot", result)
+        assert env is not None
+        assert env.display_label == "driveway"
+
+    def test_sample_payload_has_camera(self):
+        raw, _ = _load_integration_manifest("frigate")
+        sample = raw["tool_widgets"]["frigate_snapshot"]["sample_payload"]
+        assert sample.get("camera"), "sample_payload needs camera for dev preview"
+
+    def test_state_poll_args_substitute_camera_from_display_label(self):
+        from app.services.widget_templates import substitute_vars
+
+        raw, base = _load_integration_manifest("frigate")
+        _register_widgets("integration:frigate", raw["tool_widgets"], base_dir=base)
+        poll = _widget_templates["frigate_snapshot"]["state_poll"]
+        # Simulate _do_state_poll's widget_meta for a pinned widget. The pin's
+        # display_label is the camera name (captured at pin creation from the
+        # envelope's {{camera}}-substituted display_label).
+        widget_meta = {
+            "display_label": "driveway",
+            "config": {"show_bbox": True},
+        }
+        args = substitute_vars(poll["args"], widget_meta)
+        assert args["camera"] == "driveway"
+        assert args["bounding_box"] is True
+
+
 class TestExcalidrawWidget:
     def test_registers_both_tools_with_shared_template(self):
         raw, base = _load_integration_manifest("excalidraw")

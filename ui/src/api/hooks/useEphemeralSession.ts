@@ -40,6 +40,10 @@ const STORAGE_PREFIX = "spindrel:ephemeral:";
 export interface StoredEphemeralState {
   sessionId: string;
   botId: string;
+  /** Per-turn model override. Persisted so reloads keep the choice. */
+  modelOverride?: string | null;
+  /** Provider id that backs ``modelOverride`` (nullable when auto-routed). */
+  modelProviderId?: string | null;
 }
 
 export function loadEphemeralState(storageKey: string): StoredEphemeralState | null {

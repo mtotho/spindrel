@@ -332,6 +332,7 @@ async def _download_media(
     max_bytes: int | None = None,
     timeout: float = 30.0,
     tool_name: str | None = None,
+    extra_result: dict | None = None,
 ) -> str:
     """Download binary from Frigate → persist as attachment → return attachment_id.
 
@@ -377,6 +378,8 @@ async def _download_media(
         "filename": filename,
         "size_bytes": len(data),
     }
+    if extra_result:
+        result.update(extra_result)
 
     # Include client_action for immediate Slack/streaming display.
     # This fires regardless of widget registration — Slack/Discord
@@ -452,6 +455,7 @@ async def frigate_snapshot(
             filename=f"{camera}_snapshot.jpg",
             mime_type="image/jpeg",
             tool_name="frigate_snapshot",
+            extra_result={"camera": camera},
         )
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")

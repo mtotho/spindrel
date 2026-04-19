@@ -274,3 +274,33 @@ class TestCreateEphemeralSession:
         assert session.session_type == "ephemeral"
         assert session.channel_id is None
         assert session.source_task_id is None
+
+
+class TestSessionConfigOverhead:
+    async def test_config_overhead_happy_path(self, client):
+        spawn = await client.post(
+            "/api/v1/sessions/ephemeral",
+            json={"bot_id": "test-bot"},
+            headers=CHAT_HEADERS,
+        )
+        session_id = spawn.json()["session_id"]
+
+        resp = await client.get(
+            f"/api/v1/sessions/{session_id}/config-overhead",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # Shape mirrors the channel endpoint so the existing UI contract is reusable.
+        assert "lines" in body
+        assert "total_chars" in body
+        assert "approx_tokens" in body
+        assert "context_window" in body
+        assert "overhead_pct" in body
+
+    async def test_config_overhead_missing_session(self, client):
+        resp = await client.get(
+            f"/api/v1/sessions/{uuid.uuid4()}/config-overhead",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404

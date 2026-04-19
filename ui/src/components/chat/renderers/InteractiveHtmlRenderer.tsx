@@ -113,6 +113,7 @@ function spindrelBootstrap(
   initialToolResultJson: string | null,
   themeJson: string,
   dashboardPinId: string | null,
+  widgetPath: string | null,
 ): string {
   return `<script>
 (function () {
@@ -120,6 +121,59 @@ function spindrelBootstrap(
   const botId = ${jsonForScript(botId)};
   const botName = ${jsonForScript(botName)};
   const dashboardPinId = ${jsonForScript(dashboardPinId)};
+  const widgetPath = ${jsonForScript(widgetPath)};
+  // Normalise a workspace-relative path. Strips "./" segments, collapses
+  // "a/b/../c" to "a/c", rejects escapes above the bundle root when the
+  // input started with "../". Backend also re-validates; this is just
+  // cosmetic + fail-fast for obvious mistakes.
+  function normalizePath(p) {
+    const parts = p.split("/");
+    const out = [];
+    for (const seg of parts) {
+      if (seg === "" || seg === ".") continue;
+      if (seg === "..") {
+        if (out.length === 0) {
+          throw new Error("spindrel: path escapes widget root: " + p);
+        }
+        out.pop();
+      } else {
+        out.push(seg);
+      }
+    }
+    return out.join("/");
+  }
+  // Resolve a user-facing path string for a workspace API call.
+  //  - "./foo" / "../foo" → resolved against the directory of widgetPath
+  //    (the bundle root). Only works for path-mode widgets; throws otherwise.
+  //  - "foo/bar" / "data/x.json" → treated as a channel-workspace-relative
+  //    path as-is (current default). No magic.
+  //  - Leading "/" → hard error for now; reserved for future absolute
+  //    /workspace/channels/<id>/... and /workspace/widgets/<slug>/... grammar
+  //    (DX-5b, not shipped).
+  function resolvePath(input) {
+    if (typeof input !== "string" || !input) {
+      throw new Error("spindrel: path must be a non-empty string");
+    }
+    if (input.startsWith("/")) {
+      throw new Error(
+        "spindrel: absolute /workspace/... paths not yet supported — " +
+        "pass a channel-workspace-relative path (e.g. 'data/widgets/x/foo.json') " +
+        "or './foo.json' / '../x/foo.json' to resolve against the widget bundle"
+      );
+    }
+    if (input.startsWith("./") || input.startsWith("../") || input === "." || input === "..") {
+      if (!widgetPath) {
+        throw new Error(
+          "spindrel: relative paths require path-mode (widgetPath is null; inline widgets can't use ./ or ../)"
+        );
+      }
+      const dir = widgetPath.includes("/")
+        ? widgetPath.slice(0, widgetPath.lastIndexOf("/"))
+        : "";
+      return normalizePath((dir ? dir + "/" : "") + input);
+    }
+    return normalizePath(input);
+  }
   // Token mutated in-place by the host on re-mint — read fresh per call.
   const state = { token: ${jsonForScript(widgetToken)} };
   const initialToolResult = ${initialToolResultJson ?? "null"};
@@ -171,15 +225,17 @@ function spindrelBootstrap(
   }
   async function readWorkspaceFile(path) {
     const cid = requireChannel();
+    const resolved = resolvePath(path);
     const url = "/api/v1/channels/" + encodeURIComponent(cid) +
-      "/workspace/files/content?path=" + encodeURIComponent(path);
+      "/workspace/files/content?path=" + encodeURIComponent(resolved);
     const data = await api(url);
     return data.content;
   }
   async function writeWorkspaceFile(path, content) {
     const cid = requireChannel();
+    const resolved = resolvePath(path);
     const url = "/api/v1/channels/" + encodeURIComponent(cid) +
-      "/workspace/files/content?path=" + encodeURIComponent(path);
+      "/workspace/files/content?path=" + encodeURIComponent(resolved);
     return api(url, { method: "PUT", body: JSON.stringify({ content: content }) });
   }
   async function listWorkspaceFiles(opts) {
@@ -193,16 +249,269 @@ function spindrelBootstrap(
       "/workspace/files" + (qs.toString() ? "?" + qs.toString() : "");
     return api(url);
   }
+  // Minimal CommonMark-ish renderer. Supports headings (#, ##, ###, ####),
+  // bold (**x**), italic (*x*), inline code (\`x\`), fenced code blocks
+  // (\`\`\`lang\\n...\\n\`\`\`), unordered + ordered lists (- / 1.),
+  // blockquotes (>), links, and paragraphs. HTML-escapes all source first,
+  // then applies inline transformations — safe to \`innerHTML\` bot-authored
+  // prose. Not a full CommonMark parser; no tables, footnotes, HTML
+  // passthrough. If a widget needs more than this, inline marked.js into
+  // the bundle. Keep in sync with the skill's Markdown Rendering section.
+  function renderMarkdown(src) {
+    if (src == null) return "";
+    const text = String(src);
+    function escapeHtml(s) {
+      return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+    // Pull fenced code blocks out first so their contents aren't mangled
+    // by inline rules. Replace with sentinels, restore at the end.
+    const fences = [];
+    let buf = text.replace(/\`\`\`([^\\n\`]*)\\n([\\s\\S]*?)\`\`\`/g, function (_m, lang, code) {
+      const i = fences.push({ lang: lang.trim(), code: code }) - 1;
+      return "\\x00FENCE" + i + "\\x00";
+    });
+    buf = escapeHtml(buf);
+    // Block-level, line-oriented.
+    const lines = buf.split(/\\n/);
+    const out = [];
+    let para = [];
+    let list = null; // {type: 'ul'|'ol', items: [[...lines]]}
+    let quote = [];
+    function flushPara() {
+      if (para.length) { out.push("<p>" + inline(para.join(" ")) + "</p>"); para = []; }
+    }
+    function flushList() {
+      if (!list) return;
+      const tag = list.type;
+      out.push("<" + tag + ">" +
+        list.items.map(function (item) {
+          return "<li>" + inline(item.join(" ")) + "</li>";
+        }).join("") +
+        "</" + tag + ">");
+      list = null;
+    }
+    function flushQuote() {
+      if (!quote.length) return;
+      out.push("<blockquote>" + inline(quote.join(" ")) + "</blockquote>");
+      quote = [];
+    }
+    function flushAll() { flushPara(); flushList(); flushQuote(); }
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      let m;
+      if (!line.trim()) { flushAll(); continue; }
+      if ((m = /^(#{1,4})\\s+(.*)$/.exec(line))) {
+        flushAll();
+        out.push("<h" + m[1].length + ">" + inline(m[2]) + "</h" + m[1].length + ">");
+        continue;
+      }
+      if ((m = /^\\s*[-*+]\\s+(.*)$/.exec(line))) {
+        flushPara(); flushQuote();
+        if (!list || list.type !== "ul") { flushList(); list = { type: "ul", items: [] }; }
+        list.items.push([m[1]]);
+        continue;
+      }
+      if ((m = /^\\s*\\d+\\.\\s+(.*)$/.exec(line))) {
+        flushPara(); flushQuote();
+        if (!list || list.type !== "ol") { flushList(); list = { type: "ol", items: [] }; }
+        list.items.push([m[1]]);
+        continue;
+      }
+      if ((m = /^&gt;\\s?(.*)$/.exec(line))) {
+        flushPara(); flushList();
+        quote.push(m[1]);
+        continue;
+      }
+      // Continuation of previous block: if we're in a list, append to last
+      // item; otherwise accumulate into the current paragraph.
+      if (list) { list.items[list.items.length - 1].push(line.replace(/^\\s+/, "")); continue; }
+      if (quote.length) { quote.push(line); continue; }
+      para.push(line);
+    }
+    flushAll();
+    function inline(s) {
+      return s
+        .replace(/\`([^\`]+?)\`/g, "<code>$1</code>")
+        .replace(/\\*\\*([^*]+?)\\*\\*/g, "<strong>$1</strong>")
+        .replace(/(^|[^*])\\*([^*\\n]+?)\\*(?!\\*)/g, "$1<em>$2</em>")
+        .replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, function (_m, txt, href) {
+          // href already HTML-escaped; further strip quotes defensively.
+          return '<a href="' + href.replace(/"/g, "") + '" target="_blank" rel="noopener noreferrer">' + txt + "</a>";
+        });
+    }
+    let html = out.join("");
+    html = html.replace(/\\x00FENCE(\\d+)\\x00/g, function (_m, i) {
+      const f = fences[Number(i)];
+      const cls = f.lang ? ' class="language-' + escapeHtml(f.lang) + '"' : "";
+      return "<pre><code" + cls + ">" + escapeHtml(f.code) + "</code></pre>";
+    });
+    return html;
+  }
+  // Fetch a workspace file as an object URL — for <img src> / <video src> /
+  // <a href download>. Bridges the Authorization-header gap: <img> elements
+  // can't carry a bearer, so we fetch-with-auth, blob it, URL.createObjectURL
+  // the result, and hand back a same-origin URL the browser will load without
+  // a second round-trip. Supports the same relative-path grammar as the
+  // workspace-file helpers. The object URL lives until revokeAsset(url) is
+  // called or the iframe is torn down — fine to ignore for short-lived
+  // widgets; revoke explicitly if you're loading many large assets.
+  const __assetRegistry = new Set();
+  async function loadAsset(path) {
+    const cid = requireChannel();
+    const resolved = resolvePath(path);
+    const url = "/api/v1/channels/" + encodeURIComponent(cid) +
+      "/workspace/files/raw?path=" + encodeURIComponent(resolved);
+    const resp = await apiFetch(url);
+    if (!resp.ok) {
+      throw new Error("loadAsset '" + path + "': HTTP " + resp.status);
+    }
+    const blob = await resp.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    __assetRegistry.add(objectUrl);
+    return objectUrl;
+  }
+  function revokeAsset(url) {
+    if (__assetRegistry.has(url)) {
+      URL.revokeObjectURL(url);
+      __assetRegistry.delete(url);
+    }
+  }
+  // Event subscription sugar — returns an unsubscribe function so widgets
+  // don't have to hold a reference to the bound handler just to remove it.
+  function subscribe(eventName, cb) {
+    if (typeof cb !== "function") throw new Error("subscribe: callback required");
+    const handler = function (e) { cb(e.detail, e); };
+    window.addEventListener(eventName, handler);
+    return function () { window.removeEventListener(eventName, handler); };
+  }
+  function onToolResult(cb) { return subscribe("spindrel:toolresult", cb); }
+  function onTheme(cb) { return subscribe("spindrel:theme", cb); }
+  // onConfig is sugar: widget_config now rides in toolResult.config, so we
+  // subscribe to toolresult and only fire when config actually changes.
+  function onConfig(cb) {
+    if (typeof cb !== "function") throw new Error("onConfig: callback required");
+    let last = (window.spindrel && window.spindrel.toolResult && window.spindrel.toolResult.config) || null;
+    let lastJson;
+    try { lastJson = JSON.stringify(last); } catch (_) { lastJson = null; }
+    const handler = function (e) {
+      const cfg = (e.detail && e.detail.config) || null;
+      let cfgJson;
+      try { cfgJson = JSON.stringify(cfg); } catch (_) { cfgJson = null; }
+      if (cfgJson !== lastJson) {
+        lastJson = cfgJson;
+        last = cfg;
+        cb(cfg, e);
+      }
+    };
+    window.addEventListener("spindrel:toolresult", handler);
+    return function () { window.removeEventListener("spindrel:toolresult", handler); };
+  }
+  // JSON state helper — load / patch / save over workspace files with
+  // deep-merge RMW semantics. Collapses the status-dashboard boilerplate
+  // (read → JSON.parse → merge defaults → JSON.stringify → write) into
+  // three methods. Arrays are replaced, not concatenated — if you want
+  // append semantics, spread the old array in your patch.
+  function isPlainObject(v) {
+    return v !== null && typeof v === "object" && !Array.isArray(v);
+  }
+  function deepMerge(a, b) {
+    if (!isPlainObject(a) || !isPlainObject(b)) return b === undefined ? a : b;
+    const out = Object.assign({}, a);
+    for (const k of Object.keys(b)) {
+      out[k] = isPlainObject(a[k]) && isPlainObject(b[k])
+        ? deepMerge(a[k], b[k])
+        : b[k];
+    }
+    return out;
+  }
+  function deepClone(v) {
+    if (v == null || typeof v !== "object") return v;
+    try { return JSON.parse(JSON.stringify(v)); } catch (_) { return v; }
+  }
+  async function dataLoad(path, defaults) {
+    const base = defaults !== undefined ? deepClone(defaults) : {};
+    let raw;
+    try {
+      raw = await readWorkspaceFile(path);
+    } catch (_) {
+      return base; // file doesn't exist yet
+    }
+    if (!raw || !raw.trim()) return base;
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (e) {
+      throw new Error("spindrel.data.load: invalid JSON in " + path + ": " + e.message);
+    }
+    if (defaults === undefined) return parsed;
+    return isPlainObject(parsed) ? deepMerge(base, parsed) : parsed;
+  }
+  async function dataSave(path, object) {
+    await writeWorkspaceFile(path, JSON.stringify(object, null, 2));
+    return object;
+  }
+  async function dataPatch(path, patch, defaults) {
+    const current = await dataLoad(path, defaults);
+    const next = isPlainObject(current) && isPlainObject(patch)
+      ? deepMerge(current, patch)
+      : (patch !== undefined ? patch : current);
+    await dataSave(path, next);
+    return next;
+  }
+  // One-line tool-dispatch helper. Wraps POST /api/v1/widget-actions so bots
+  // don't re-write the same 15-line dance in every widget. Fills bot_id +
+  // channel_id from the helper context; extras (display_label, widget_config,
+  // source_record_id, dashboard_pin_id) flow through via opts.extra. Returns
+  // the fresh envelope on success, throws with the server error on failure.
+  async function callTool(name, args, opts) {
+    if (!name) throw new Error("callTool: tool name is required");
+    const o = opts || {};
+    const body = Object.assign(
+      {
+        dispatch: "tool",
+        tool: name,
+        args: args || {},
+        bot_id: botId,
+        channel_id: channelId,
+      },
+      o.extra || {}
+    );
+    const resp = await api("/api/v1/widget-actions", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    if (!resp || resp.ok !== true) {
+      throw new Error((resp && resp.error) || "callTool '" + name + "' failed");
+    }
+    return resp.envelope || null;
+  }
   window.spindrel = {
     channelId: channelId,
     botId: botId,
     botName: botName,
     dashboardPinId: dashboardPinId,
+    widgetPath: widgetPath,
+    resolvePath: resolvePath,
     api: api,
     apiFetch: apiFetch,
     readWorkspaceFile: readWorkspaceFile,
     writeWorkspaceFile: writeWorkspaceFile,
     listWorkspaceFiles: listWorkspaceFiles,
+    loadAsset: loadAsset,
+    revokeAsset: revokeAsset,
+    renderMarkdown: renderMarkdown,
+    callTool: callTool,
+    data: {
+      load: dataLoad,
+      save: dataSave,
+      patch: dataPatch,
+    },
+    onToolResult: onToolResult,
+    onConfig: onConfig,
+    onTheme: onTheme,
     toolResult: initialToolResult,
     theme: initialTheme,
     __setToken: function (t) {
@@ -282,6 +591,7 @@ function wrapHtml(
   themeJson: string,
   isDark: boolean,
   dashboardPinId: string | null,
+  widgetPath: string | null,
 ): string {
   return `<!doctype html>
 <html${isDark ? ' class="dark"' : ""}>
@@ -289,7 +599,7 @@ function wrapHtml(
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${CSP}" />
 <style id="__spindrel_theme">${themeCss}</style>
-${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson, dashboardPinId)}
+${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath)}
 </head>
 <body>
 <div id="__sd_root">
@@ -653,6 +963,7 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
           themeJson,
           isDark,
           dashboardPinId ?? null,
+          sourcePath,
         )}
         sandbox="allow-scripts allow-same-origin"
         title={envelope.display_label || "Interactive HTML widget"}

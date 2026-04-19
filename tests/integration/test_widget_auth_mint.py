@@ -146,7 +146,11 @@ class TestMint:
 
         resp = await _post_mint(app, {"source_bot_id": bot.id})
         assert resp.status_code == 400
-        assert "no API permissions" in resp.json()["detail"]
+        detail = resp.json()["detail"]
+        assert isinstance(detail, dict)
+        assert "no API permissions" in detail["message"]
+        assert detail["reason"] == "bot_missing_api_key"
+        assert detail["bot_id"] == bot.id
 
     async def test_missing_bot_404(self, client_factory, db_session):
         admin = await _make_user(db_session, is_admin=True)

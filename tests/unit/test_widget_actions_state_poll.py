@@ -367,3 +367,151 @@ class TestDispatchWidgetConfig:
         # The poll tool was called with the patched config flag (include_daily=True).
         sent = json.loads(tool_stub.await_args.args[1])
         assert sent["include_daily"] is True
+
+
+class TestRefreshIdentityGuard:
+    """The pin row owns ``source_bot_id`` / ``source_channel_id``. Refresh
+    must force-overwrite the re-polled envelope's identity fields from the
+    pin row — otherwise a pin that ever held a bad bot_id would re-stamp
+    itself forever (self-amplifying loop → mint 400 spam)."""
+
+    @pytest.mark.asyncio
+    async def test_refresh_does_not_rewrite_pin_source_bot_id_from_envelope(self):
+        from app.services import dashboard_pins as pins_mod
+
+        # Register a widget whose state_poll returns an envelope trying to
+        # claim source_bot_id="default" (the self-amplifying poison value).
+        _widget_templates["poisoned_tool"] = {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "template": {"v": 1, "components": []},
+            "state_poll": {
+                "tool": "poisoned_tool",
+                "args": {},
+                "template": {"v": 1, "components": []},
+            },
+            "source": "test",
+        }
+        poll_cfg = _widget_templates["poisoned_tool"]["state_poll"]
+
+        pin_id = uuid.uuid4()
+        pin_channel = uuid.uuid4()
+
+        class _FakePin:
+            source_bot_id = "qa-bot"
+            source_channel_id = pin_channel
+
+        class _FakeSession:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return None
+            async def get(self, _model, _id): return _FakePin()
+
+        captured: dict = {}
+
+        async def _fake_update_pin_envelope(_db, _pin_id, env_dict):
+            captured["env_dict"] = env_dict
+            return None
+
+        # Poll tool returns an envelope that TRIES to rewrite identity.
+        poisoned_body = {
+            "content_type": "application/vnd.spindrel.html+interactive",
+            "body": "<div>x</div>",
+            "display_label": "x",
+            "source_bot_id": "default",
+            "source_channel_id": str(uuid.uuid4()),
+        }
+        tool_stub = AsyncMock(return_value=json.dumps(poisoned_body))
+
+        req = router_mod.WidgetRefreshRequest(
+            tool_name="poisoned_tool",
+            display_label="x",
+            dashboard_pin_id=pin_id,
+        )
+
+        with patch.object(router_mod, "get_state_poll_config", return_value=poll_cfg), \
+             patch("app.db.engine.async_session", lambda: _FakeSession()), \
+             patch.object(pins_mod, "update_pin_envelope", side_effect=_fake_update_pin_envelope), \
+             patch.object(router_mod, "is_local_tool", return_value=True), \
+             patch.object(router_mod, "call_local_tool", tool_stub), \
+             patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n):
+            # apply_state_poll's default path: register a template that
+            # renders the incoming payload through — but the poll returns
+            # HTML content, so apply_state_poll delegates through
+            # apply_widget_template. The returned envelope still carries
+            # whatever source_bot_id the HTML payload declared — which is
+            # exactly the circular loop we're testing the guard against.
+            resp = await router_mod.refresh_widget_state(req)
+
+        # Refresh overwrote env_dict with the PIN row's identity before
+        # persisting — regardless of what the poll envelope claimed.
+        assert resp.ok is True
+        assert "env_dict" in captured, "update_pin_envelope was never called"
+        assert captured["env_dict"]["source_bot_id"] == "qa-bot"
+        assert captured["env_dict"]["source_channel_id"] == str(pin_channel)
+        # Returned envelope has the same correction so the UI sees the
+        # correct bot identity on the wire too.
+        assert resp.envelope["source_bot_id"] == "qa-bot"
+        assert resp.envelope["source_channel_id"] == str(pin_channel)
+
+    @pytest.mark.asyncio
+    async def test_refresh_strips_identity_when_pin_has_null_bot(self):
+        """If the pin row has source_bot_id=None, refresh strips the field
+        from the persisted envelope rather than letting a polled value
+        silently populate it."""
+        from app.services import dashboard_pins as pins_mod
+
+        _widget_templates["null_bot_tool"] = {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "template": {"v": 1, "components": []},
+            "state_poll": {
+                "tool": "null_bot_tool",
+                "args": {},
+                "template": {"v": 1, "components": []},
+            },
+            "source": "test",
+        }
+        poll_cfg = _widget_templates["null_bot_tool"]["state_poll"]
+
+        pin_id = uuid.uuid4()
+
+        class _FakePin:
+            source_bot_id = None
+            source_channel_id = None
+
+        class _FakeSession:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return None
+            async def get(self, _model, _id): return _FakePin()
+
+        captured: dict = {}
+
+        async def _fake_update_pin_envelope(_db, _pin_id, env_dict):
+            captured["env_dict"] = env_dict
+            return None
+
+        # Poll tool tries to inject a bot id; refresh must strip it.
+        tool_stub = AsyncMock(return_value=json.dumps({
+            "content_type": "application/vnd.spindrel.html+interactive",
+            "body": "<div>x</div>",
+            "display_label": "x",
+            "source_bot_id": "sneaky-bot",
+        }))
+
+        req = router_mod.WidgetRefreshRequest(
+            tool_name="null_bot_tool",
+            display_label="x",
+            dashboard_pin_id=pin_id,
+        )
+
+        with patch.object(router_mod, "get_state_poll_config", return_value=poll_cfg), \
+             patch("app.db.engine.async_session", lambda: _FakeSession()), \
+             patch.object(pins_mod, "update_pin_envelope", side_effect=_fake_update_pin_envelope), \
+             patch.object(router_mod, "is_local_tool", return_value=True), \
+             patch.object(router_mod, "call_local_tool", tool_stub), \
+             patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n):
+            resp = await router_mod.refresh_widget_state(req)
+
+        assert resp.ok is True
+        assert "source_bot_id" not in captured["env_dict"]
+        assert "source_channel_id" not in captured["env_dict"]

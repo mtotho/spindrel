@@ -10,12 +10,23 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 
-  /** FastAPI-style `{"detail": "..."}` body — extract the human message. */
+  /** FastAPI-style `{"detail": "..."}` body — extract the human message.
+   *  Also handles `{"detail": {"message": "...", ...}}` where endpoints
+   *  return a structured error payload (e.g. widget-auth mint carries
+   *  ``reason``/``bot_id``/``pin_id`` alongside the message). */
   get detail(): string | null {
     if (typeof this.body !== "string") return null;
     try {
       const parsed = JSON.parse(this.body);
       if (parsed && typeof parsed.detail === "string") return parsed.detail;
+      if (
+        parsed &&
+        typeof parsed.detail === "object" &&
+        parsed.detail !== null &&
+        typeof parsed.detail.message === "string"
+      ) {
+        return parsed.detail.message;
+      }
     } catch {
       // Not JSON — return the raw text if it's short enough to be a message
       if (this.body.length < 500) return this.body;

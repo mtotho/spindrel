@@ -462,6 +462,20 @@ async def refresh_widget_state(req: WidgetRefreshRequest):
 
     env_dict = envelope.compact_dict()
 
+    # Pin identity is write-once at create, never mutated by refresh. The pin
+    # row owns source_bot_id / source_channel_id; the envelope's copy is a
+    # cache. Without this, a pin that ever held a bad bot id would re-stamp
+    # itself on every refresh (self-amplifying loop).
+    if req.dashboard_pin_id is not None:
+        if pin_bot_id is not None:
+            env_dict["source_bot_id"] = pin_bot_id
+        else:
+            env_dict.pop("source_bot_id", None)
+        if pin_channel_id is not None:
+            env_dict["source_channel_id"] = str(pin_channel_id)
+        else:
+            env_dict.pop("source_channel_id", None)
+
     # Persist dashboard-pin refreshes back to the table so reloads see fresh
     # state. Channel pins already get written back through the OmniPanel's
     # envelope-update store → POST /widget-pins flow; dashboard pins have no
