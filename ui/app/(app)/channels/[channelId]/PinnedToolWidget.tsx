@@ -43,6 +43,11 @@ interface PinnedToolWidgetProps {
   editMode?: boolean;
   /** Dashboard-scope only: opens the EditPinDrawer for this pin. */
   onEdit?: (pinId: string) => void;
+  /** OmniPanel rail variant: expose the drag handle with hover-only opacity
+   *  (so react-grid-layout can pick it up via `.widget-drag-handle`) without
+   *  revealing the full edit chrome (pencil / unpin). The rail uses RGL for
+   *  in-place reorder + resize; everything else stays calm. */
+  railMode?: boolean;
 }
 
 export function PinnedToolWidget({
@@ -52,6 +57,7 @@ export function PinnedToolWidget({
   onEnvelopeUpdate,
   editMode = false,
   onEdit,
+  railMode = false,
 }: PinnedToolWidgetProps) {
   const isDashboard = scope.kind === "dashboard";
   const channelId = scope.kind === "channel" ? scope.channelId : null;
@@ -392,8 +398,9 @@ export function PinnedToolWidget({
       <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-0.5">
         {/* In dashboard scope the handle is gated by editMode so view mode
             stays calm; channel scope always shows it (the OmniPanel dnd-kit
-            reorder flow relies on it). */}
-        {(!isDashboard || editMode) && (
+            reorder flow relies on it). Rail mode reveals the handle too, but
+            hover-only so the tile stays calm at rest. */}
+        {(!isDashboard || editMode || railMode) && (
           <GripVertical
             size={ctrlIconSize}
             className={

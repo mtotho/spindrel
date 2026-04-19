@@ -231,15 +231,15 @@ export function ChannelHeader({
             <Columns2 size={16} color={splitMode ? t.accent : t.textDim} />
           </button>
         )}
-        {/* Browse files — opens the BrowseFilesModal with scope strip + tree.
-            Gated on channel workspace being enabled (no tree to browse
-            otherwise). */}
+        {/* Browse files — opens the OmniPanel on the Files tab and focuses
+            its filter input. Gated on channel workspace being enabled (no
+            tree to browse otherwise). */}
         {workspaceEnabled && workspaceId && !isMobile && (
           <button
             className="header-icon-btn"
             style={{ width: 36, height: 36 }}
             onClick={onBrowseWorkspace}
-            title="Browse files (⌘⇧O)"
+            title="Browse files (⌘⇧B)"
           >
             <FolderOpen size={16} color={t.textDim} />
           </button>

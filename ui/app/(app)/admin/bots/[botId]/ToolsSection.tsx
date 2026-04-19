@@ -13,6 +13,7 @@ import { ResolvedSummary } from "./ResolvedSummary";
 import { MOBILE_NAV_BREAKPOINT } from "./constants";
 import { ToolSchemaModal } from "./ToolSchemaModal";
 import { EnrolledToolsPanel } from "./EnrolledToolsPanel";
+import { useEnrolledTools } from "@/src/api/hooks/useEnrolledTools";
 
 // ---------------------------------------------------------------------------
 // Pinned Tools picker (default view)
@@ -287,6 +288,15 @@ function FullToolList({
   const pinnedTools = draft.pinned_tools || [];
   const excludeTools: string[] = (draft.tool_result_config as any)?.exclude_tools || [];
 
+  // Runtime-enrolled tools — accrued via successful tool calls / get_tool_info.
+  // Tools present here but NOT in draft.local_tools are effectively pinned at
+  // runtime but would otherwise render as "discoverable" in the list below.
+  const { data: enrolledList } = useEnrolledTools(draft.id);
+  const enrolledSet = useMemo(
+    () => new Set((enrolledList || []).map((e) => e.tool_name)),
+    [enrolledList],
+  );
+
   const autoInjectedTools = new Set<string>();
   if (draft.memory_scheme === "workspace-files") {
     autoInjectedTools.add("search_memory");
@@ -343,7 +353,9 @@ function FullToolList({
     update({ tool_result_config: { ...draft.tool_result_config, exclude_tools: next } });
   };
 
-  // Discovery mode: cycle through discoverable → included → pinned → discoverable
+  // Discovery mode: cycle through discoverable → included → pinned → discoverable.
+  // `enrolled` (runtime working-set) collapses into the same promotion path as
+  // `discoverable`: clicking promotes it to `included` in the declared config.
   const cycleToolState = (name: string) => {
     const isPinned = pinnedTools.includes(name);
     const isIncluded = localTools.includes(name);
@@ -357,7 +369,7 @@ function FullToolList({
       // included → pinned
       update({ pinned_tools: [...pinnedTools, name] });
     } else {
-      // discoverable → included
+      // discoverable / enrolled → included
       update({ local_tools: [...localTools, name] });
     }
   };
@@ -442,6 +454,13 @@ function FullToolList({
               background: t.warningSubtle, border: `1px solid ${t.warningBorder}`, color: t.warningMuted,
             }}><Pin size={7} style={{ display: "inline", verticalAlign: "middle", marginRight: 2 }} />pinned</span>
             <span style={{ color: t.textDim }}>{"\u2192 \u2026"}</span>
+            <span style={{
+              padding: "1px 6px", borderRadius: 8, fontSize: 9, fontWeight: 600,
+              background: (t.successSubtle ?? t.accentSubtle),
+              border: `1px solid ${t.successBorder ?? t.accentBorder}`,
+              color: (t.success ?? t.accent),
+            }}>enrolled</span>
+            <span style={{ color: t.textDim }}>= accreted at runtime</span>
           </>
         ) : (
           <>
@@ -629,16 +648,29 @@ function FullToolList({
                         const isIncluded = localTools.includes(tool.name);
                         const enabled = isIncluded || autoInj;
                         const pinned = pinnedTools.includes(tool.name);
+                        const isEnrolled = enrolledSet.has(tool.name);
                         const noSum = excludeTools.includes(tool.name);
 
-                        // Discovery mode: 4 visual states
+                        // Discovery mode: 5 visual states. `enrolled` means the
+                        // bot has accreted this tool into its working set at
+                        // runtime (via get_tool_info or a successful call), but
+                        // it's not in the declared local_tools list.
                         const toolState = discovery
-                          ? (autoInj ? "auto" : pinned ? "pinned" : isIncluded ? "included" : "discoverable")
+                          ? (autoInj
+                              ? "auto"
+                              : pinned
+                                ? "pinned"
+                                : isIncluded
+                                  ? "included"
+                                  : isEnrolled
+                                    ? "enrolled"
+                                    : "discoverable")
                           : null;
 
                         const stateStyles: Record<string, { bg: string; border: string; color: string }> = {
                           pinned:       { bg: t.warningSubtle, border: t.warningBorder, color: t.warningMuted },
                           included:     { bg: t.accentSubtle,  border: t.accentBorder,  color: t.accent },
+                          enrolled:     { bg: t.successSubtle ?? t.accentSubtle, border: t.successBorder ?? t.accentBorder, color: t.success ?? t.accent },
                           discoverable: { bg: "transparent",   border: "transparent",   color: t.textDim },
                           auto:         { bg: t.purpleSubtle,  border: t.purpleBorder,  color: t.purple },
                         };
@@ -656,6 +688,7 @@ function FullToolList({
                         const badgeTooltips: Record<string, string> = {
                           pinned: "Always in context \u2014 click to make discoverable",
                           included: "Priority in search \u2014 click to pin",
+                          enrolled: "Accreted at runtime (working set) \u2014 click to make it a declared inclusion",
                           discoverable: "Found via auto-discovery \u2014 click to include",
                           auto: "Injected automatically based on bot config",
                         };

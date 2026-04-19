@@ -12,19 +12,27 @@
  * Editing happens on the full dashboard page (`/widgets/channel/:id`).
  * The OmniPanel is read-only; one source of truth.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   LayoutDashboard,
   Layers,
   Plus,
 } from "lucide-react";
+import {
+  Responsive,
+  WidthProvider,
+  type Layout,
+  type LayoutItem,
+} from "react-grid-layout/legacy";
+import "react-grid-layout/css/styles.css";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { ChannelFileExplorer } from "./ChannelFileExplorer";
+import { FilesTabPanel } from "./FilesTabPanel";
 import { PinnedToolWidget } from "./PinnedToolWidget";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useDashboards, channelSlug } from "@/src/stores/dashboards";
+import { useUIStore } from "@/src/stores/ui";
 import { resolvePreset, type GridPreset } from "@/src/lib/dashboardGrid";
 import { isRailPin } from "@/app/(app)/widgets/index";
 import type {
@@ -34,12 +42,22 @@ import type {
   WidgetDashboardPin,
 } from "@/src/types/api";
 
+const ResponsiveGridLayout = WidthProvider(Responsive);
+const RAIL_BREAKPOINTS = { lg: 0 } as const;
+const RAIL_MARGIN: [number, number] = [0, 12];
+
 interface OmniPanelProps {
   channelId: string;
   workspaceId: string | undefined;
+  /** Channel's bot id — threaded into FilesTabPanel so the Memory scope
+   *  target resolves to the right bot's memory directory. */
+  botId: string | undefined;
+  /** Channel display name — fuels the Breadcrumb humanizer. */
+  channelDisplayName?: string | null;
+  /** Whether this channel has a workspace directory (`/channels/:id/`). */
+  channelWorkspaceEnabled: boolean;
   activeFile: string | null;
   onSelectFile: (path: string) => void;
-  onBrowseFiles: () => void;
   onClose: () => void;
   width?: number;
   fullWidth?: boolean;
@@ -77,35 +95,18 @@ function sortByGridYX(a: WidgetDashboardPin, b: WidgetDashboardPin): number {
   return a.position - b.position;
 }
 
-/** Translate a pin's dashboard coords into CSS-Grid placement within the
- *  rail-zone mini-grid. Pins that overhang past the zone right edge are
- *  clipped (loose inclusion rule per the design spec). */
-function gridPlacement(
-  pin: WidgetDashboardPin,
-  railZoneCols: number,
-): { gridColumn: string; gridRow: string } {
-  const gl = pin.grid_layout as GridLayoutItem | undefined;
-  const x = Math.max(0, gl?.x ?? 0);
-  const y = Math.max(0, gl?.y ?? 0);
-  const w = Math.max(1, gl?.w ?? 1);
-  const h = Math.max(1, gl?.h ?? 1);
-  const span = Math.max(1, Math.min(w, railZoneCols - x));
-  return {
-    gridColumn: `${x + 1} / span ${span}`,
-    gridRow: `${y + 1} / span ${h}`,
-  };
-}
-
 export function OmniPanel({
   channelId,
   workspaceId,
+  botId,
+  channelDisplayName,
+  channelWorkspaceEnabled,
   activeFile,
   onSelectFile,
-  onBrowseFiles,
   onClose: _onClose,
   width = 300,
   fullWidth = false,
-  mobileTabs = false,
+  mobileTabs: _mobileTabs = false,
 }: OmniPanelProps) {
   const t = useThemeTokens();
 
@@ -164,6 +165,7 @@ export function OmniPanel({
   const hasWidgets = railPins.length > 0;
   const dashboardHref = `/widgets/channel/${encodeURIComponent(channelId)}`;
 
+  const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
   const widgetsSection = (
     <WidgetsSection
       railPins={railPins}
@@ -171,37 +173,35 @@ export function OmniPanel({
       preset={preset}
       handleUnpin={handleUnpin}
       handleEnvelopeUpdate={handleEnvelopeUpdate}
+      applyLayout={applyLayout}
       dashboardHref={dashboardHref}
       t={t}
     />
   );
 
+  // Squelch unused-prop lint — kept for backward compatibility with the
+  // surrounding channel page's active-file state machine.
+  void activeFile;
+
   const filesSection = hasWorkspace ? (
-    <ChannelFileExplorer
+    <FilesTabPanel
       channelId={channelId}
-      activeFile={activeFile}
+      botId={botId}
+      workspaceId={workspaceId}
+      channelDisplayName={channelDisplayName}
+      channelWorkspaceEnabled={channelWorkspaceEnabled}
       onSelectFile={onSelectFile}
-      onBrowseFiles={onBrowseFiles}
+      focusSearchOnMount={false}
     />
   ) : null;
 
   // Single unified tabbed layout (desktop + mobile bottom sheet both use it).
   // Widgets/Files segmented, one section visible at a time. Default tab =
-  // Widgets — it's the primary reason to open this panel. Last selection
-  // persisted in localStorage so opens remember the user's choice globally.
-  const [tab, setTabState] = useState<"widgets" | "files">(() => {
-    if (typeof window === "undefined") return "widgets";
-    const stored = window.localStorage.getItem("spindrel:omniSheetTab");
-    return stored === "files" ? "files" : "widgets";
-  });
-  const setTab = useCallback((next: "widgets" | "files") => {
-    setTabState(next);
-    try {
-      window.localStorage.setItem("spindrel:omniSheetTab", next);
-    } catch {
-      // Private-browsing / quota exceeded — not actionable, drop silently.
-    }
-  }, []);
+  // Widgets — primary reason to open this panel. Persisted via the UIStore
+  // so the last-used tab sticks + external actions (⌘⇧B, header browse
+  // button) can flip the tab via `setOmniPanelTab`/`requestFilesFocus`.
+  const tab = useUIStore((s) => s.omniPanelTab);
+  const setTab = useUIStore((s) => s.setOmniPanelTab);
   useEffect(() => {
     if (!hasWorkspace && tab === "files") setTab("widgets");
   }, [hasWorkspace, tab, setTab]);
@@ -265,6 +265,9 @@ interface WidgetsSectionProps {
   preset: GridPreset;
   handleUnpin: (id: string) => void;
   handleEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
+  applyLayout: (
+    items: Array<{ id: string; x: number; y: number; w: number; h: number }>,
+  ) => Promise<void>;
   dashboardHref: string;
   t: ReturnType<typeof useThemeTokens>;
 }
@@ -275,37 +278,114 @@ function WidgetsSection({
   preset,
   handleUnpin,
   handleEnvelopeUpdate,
+  applyLayout,
   dashboardHref,
   t,
 }: WidgetsSectionProps) {
+  // Debounced commit — reused for both resize (height change) and reorder
+  // (y-order change). Uses the pin's stored dashboard x/w so the dashboard's
+  // multi-column layout is preserved when the rail writes back. y comes from
+  // RGL's compacted layout — in a single-column grid with compactType:vertical,
+  // y is already the sequential stacking coordinate, so writing it straight
+  // through as the dashboard y is correct.
+  const pendingTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (pendingTimer.current) window.clearTimeout(pendingTimer.current);
+    },
+    [],
+  );
+  const railPinsRef = useRef(railPins);
+  railPinsRef.current = railPins;
+
+  const scheduleCommit = useCallback(
+    (layout: Layout) => {
+      if (pendingTimer.current) window.clearTimeout(pendingTimer.current);
+      pendingTimer.current = window.setTimeout(() => {
+        const byId = new Map(railPinsRef.current.map((p) => [p.id, p]));
+        const updates: Array<{ id: string; x: number; y: number; w: number; h: number }> = [];
+        for (const item of layout) {
+          const pin = byId.get(item.i);
+          if (!pin) continue;
+          const gl = pin.grid_layout as GridLayoutItem | undefined;
+          const origX = gl?.x ?? 0;
+          const origW = Math.max(1, gl?.w ?? 1);
+          updates.push({
+            id: item.i,
+            x: origX,
+            y: item.y,
+            w: origW,
+            h: item.h,
+          });
+        }
+        if (updates.length === 0) return;
+        void applyLayout(updates).catch((err) => {
+          console.error("Failed to persist rail layout:", err);
+        });
+      }, 400);
+    },
+    [applyLayout],
+  );
+
+  const layout: LayoutItem[] = useMemo(() => {
+    let y = 0;
+    return railPins.map((pin) => {
+      const gl = pin.grid_layout as GridLayoutItem | undefined;
+      const h = Math.max(2, gl?.h ?? preset.defaultTile.h);
+      const item: LayoutItem = {
+        i: pin.id,
+        x: 0,
+        y,
+        w: 1,
+        h,
+        minW: 1,
+        maxW: 1,
+        minH: 2,
+      };
+      y += h;
+      return item;
+    });
+  }, [railPins, preset]);
+
   if (!hasWidgets) {
     return <EmptyWidgets dashboardHref={dashboardHref} t={t} />;
   }
-  // Sidebar is its own layout space. Widgets stack vertically, each taking
-  // the full sidebar width — we don't honor dashboard column spans here
-  // (those are tuned for the wider rail zone on /widgets/channel/:id).
-  // Height is driven by dashboard `grid_layout.h × rowHeight` so tall widgets
-  // stay tall; order follows dashboard top-to-bottom scan (sortByGridYX).
+
+  // Single-column RGL grid. Drag via hover-revealed `.widget-drag-handle`
+  // (supplied by PinnedToolWidget's railMode), resize via the bottom-right
+  // SE handle. Width is locked (minW=maxW=1) — size on the dashboard grid
+  // is the source of truth for horizontal span; here we only tweak h + y.
+  // Commit is gated on explicit drag/resize stop so the initial mount's
+  // layout callback doesn't overwrite the dashboard's saved y values.
   return (
-    <div className="flex flex-col gap-3 w-full">
-      {railPins.map((pin) => {
-        const gl = pin.grid_layout as GridLayoutItem | undefined;
-        const h = Math.max(1, gl?.h ?? 6);
-        return (
-          <div
-            key={pin.id}
-            className="min-w-0"
-            style={{ height: h * preset.rowHeight + (h - 1) * 12 }}
-          >
+    <div className="w-full omni-panel-grid">
+      <ResponsiveGridLayout
+        layouts={{ lg: layout }}
+        breakpoints={RAIL_BREAKPOINTS}
+        cols={{ lg: 1 }}
+        rowHeight={preset.rowHeight}
+        margin={RAIL_MARGIN}
+        isDraggable={true}
+        isResizable={true}
+        draggableHandle=".widget-drag-handle"
+        resizeHandles={["se"]}
+        compactType="vertical"
+        preventCollision={false}
+        onDragStop={(current) => scheduleCommit(current)}
+        onResizeStop={(current) => scheduleCommit(current)}
+      >
+        {railPins.map((pin) => (
+          <div key={pin.id} data-pin-id={pin.id} className="min-w-0">
             <PinnedToolWidget
               widget={asPinnedWidget(pin)}
               scope={{ kind: "dashboard" }}
               onUnpin={handleUnpin}
               onEnvelopeUpdate={handleEnvelopeUpdate}
+              railMode
             />
           </div>
-        );
-      })}
+        ))}
+      </ResponsiveGridLayout>
     </div>
   );
 }

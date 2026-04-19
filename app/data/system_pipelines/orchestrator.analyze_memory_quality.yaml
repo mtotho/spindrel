@@ -1,8 +1,20 @@
 # System pipeline: orchestrator — memory & compaction audit for one bot.
 #
-# Reads recent compaction trace events and proposes compaction interval
-# or memory-hygiene tuning. Separate from analyze_discovery (tool RAG)
-# and analyze_skill_quality (skill content).
+# Audits a bot's *memory quality* end-to-end. "Memory quality" is not a
+# single signal — it's the interaction of four things: what's actually
+# stored, how often it gets curated (hygiene), how often history gets
+# compacted, and whether the bot is being used enough to generate signal.
+# Any one of those in isolation gives a misleading picture.
+#
+# Data sources:
+#   1. fetch_bot              — settings (intervals, caps, scheme)
+#   2. fetch_memory_inventory — what's actually in memory (diagnostics)
+#   3. fetch_hygiene_runs     — recent memory_hygiene Task rows
+#   4. fetch_compaction       — compaction_done TraceEvent rows
+#   5. fetch_activity         — recent per-bot tasks (are we even busy?)
+#
+# Separate from analyze_discovery (tool RAG) and analyze_skill_quality
+# (skill content).
 id: orchestrator.analyze_memory_quality
 bot_id: orchestrator
 title: Analyze Memory Quality
@@ -11,31 +23,17 @@ prompt: "[System pipeline: analyze memory quality]"
 execution_config:
   featured: true
   description: >-
-    Audit a bot's compaction cadence and memory hygiene — is compaction
-    thrashing, overdue, or producing low-value diffs? Propose interval
-    or hygiene-prompt changes.
+    Audit a bot's memory — what's stored, how often it gets curated,
+    how compaction is running, and whether the bot has enough traffic
+    to generate signal. Proposes tuning for compaction, hygiene, or
+    memory-injection budget.
   requires_channel: true
   params_schema:
     - name: bot_id
       required: true
-      description: Bot whose memory/compaction behavior should be audited.
+      description: Bot whose memory quality should be audited.
 steps:
-  - id: fetch_compaction
-    type: tool
-    tool_name: get_trace
-    tool_args:
-      event_type: compaction
-      bot_id: "{{params.bot_id}}"
-      limit: 100
-
-  - id: fetch_hygiene
-    type: tool
-    tool_name: get_trace
-    tool_args:
-      event_type: memory_hygiene
-      bot_id: "{{params.bot_id}}"
-      limit: 50
-
+  # Settings first — everything else is read against these values.
   - id: fetch_bot
     type: tool
     tool_name: call_api
@@ -43,22 +41,100 @@ steps:
       method: GET
       path: "/api/v1/admin/bots/{{params.bot_id}}"
 
+  # Actual memory inventory: chunk counts, distinct file paths,
+  # embedding/tsv coverage. This is what `search_memory` sees.
+  - id: fetch_memory_inventory
+    type: tool
+    tool_name: call_api
+    tool_args:
+      method: GET
+      path: "/api/v1/admin/diagnostics/memory-search/{{params.bot_id}}?query=memory"
+
+  # Recent memory hygiene runs. Hygiene is a Task
+  # (task_type=memory_hygiene), NOT a TraceEvent — so this is a tasks
+  # query, not a get_trace call.
+  - id: fetch_hygiene_runs
+    type: tool
+    tool_name: call_api
+    tool_args:
+      method: GET
+      path: "/api/v1/admin/tasks?task_type=memory_hygiene&bot_id={{params.bot_id}}&limit=50"
+
+  # Compaction events. The emitted event_type is "compaction_done"
+  # (see app/services/compaction.py); the older name "compaction"
+  # never existed in the trace stream.
+  - id: fetch_compaction
+    type: tool
+    tool_name: get_trace
+    tool_args:
+      event_type: compaction_done
+      bot_id: "{{params.bot_id}}"
+      limit: 100
+
+  # Recent bot activity. If the bot has ~0 turns in the last week,
+  # empty compaction/hygiene data is not evidence of a problem — it's
+  # evidence of low traffic. Without this the analyzer can't tell the
+  # two apart.
+  - id: fetch_activity
+    type: tool
+    tool_name: call_api
+    tool_args:
+      method: GET
+      path: "/api/v1/admin/tasks?bot_id={{params.bot_id}}&limit=50"
+
   - id: analyze
     type: agent
     prompt: |
-      Audit memory & compaction behavior for bot `{{params.bot_id}}`.
+      Audit memory quality for bot `{{params.bot_id}}`.
 
-      Prior step `fetch_compaction` is a JSON array of recent compaction
-      events — one per compaction trigger. Each entry's `data` typically
-      includes input/output token counts, kept-turn counts, and the
-      trigger reason.
-      Prior step `fetch_hygiene` is the recent `memory_hygiene` trace
-      events — one per hygiene run.
-      Prior step `fetch_bot` shows the current values of compaction_*,
-      memory_*, and memory_hygiene_* fields so you can read before
-      proposing.
+      Prior steps gave you five angles on the same question. Read them
+      all before proposing — any single one in isolation will mislead.
 
-      Look for these patterns. Emit nothing outside these shapes.
+      `fetch_bot` — current settings. Keys you may propose to change:
+        - `compaction_interval`
+        - `compaction_keep_turns`
+        - `memory_max_inject_chars`
+        - `memory_hygiene_interval_hours`
+      Also note: `memory_scheme`, `memory_hygiene_enabled`,
+      `next_hygiene_run_at`, `last_hygiene_run_at`.
+
+      `fetch_memory_inventory` — actual memory content. Shape:
+        `{bot_id, query, result_count, results: [...],
+          diagnostics: {total_chunks_in_table, matching_bot_id,
+            matching_bot_and_root, matching_bot_root_path,
+            with_embedding, with_tsv, sample_files, all_roots_for_bot}}`
+      Use this to answer: does the bot actually have memory? Are
+      chunks embedded? Are files scattered across roots?
+
+      `fetch_hygiene_runs` — `/api/v1/admin/tasks` response. Tasks at
+      `body.tasks[]`; each has `status`, `created_at`, `duration_ms`
+      or `duration_seconds`, `error`, `result`. Use to answer: is
+      hygiene running on schedule, succeeding, and producing real
+      diffs (non-empty result)?
+
+      `fetch_compaction` — recent `compaction_done` trace events as a
+      JSON array; each entry's `data` has input/output token counts,
+      kept-turn counts, trigger reason. Use to answer: is compaction
+      firing, thrashing, or falling behind?
+
+      `fetch_activity` — `/api/v1/admin/tasks` for the bot (any
+      task_type). Use to establish baseline traffic. If `body.total`
+      shows <10 tasks in the last 7 days, the bot is dormant — empty
+      compaction/hygiene data is expected, NOT a problem.
+
+      ─────────────────────────────────────────────────────────────────
+      Triage gate — apply FIRST
+      ─────────────────────────────────────────────────────────────────
+      If `fetch_activity.body.total` is low (<10 recent tasks) AND
+      `fetch_compaction` is empty AND `fetch_memory_inventory.
+      diagnostics.matching_bot_root_path` is 0:
+        → bot is dormant / unconfigured. Return `{"proposals": []}`
+          and note this in your analysis (not as a proposal — as
+          prose context so the reviewer understands WHY there are no
+          proposals).
+
+      Otherwise look for these patterns. Emit nothing outside these
+      shapes.
 
       ─────────────────────────────────────────────────────────────────
       Pattern 1: COMPACTION CADENCE (too aggressive or too lax)
@@ -83,6 +159,10 @@ steps:
       Signal: memory context is truncated in ≥30% of turns (trace will
       show a `skipped_budget` or similar hint) — the cap is too low for
       this bot's usage pattern.
+      Signal (alt): `fetch_memory_inventory.diagnostics.
+      matching_bot_root_path` is very large (>5000) but
+      `memory_max_inject_chars` is still at default — we're wasting
+      corpus size by never pulling much of it.
 
       Proposal shape:
         target_kind: "bots"
@@ -90,11 +170,16 @@ steps:
         patch_body: {"memory_max_inject_chars": <int>}
 
       ─────────────────────────────────────────────────────────────────
-      Pattern 3: HYGIENE INTERVAL
+      Pattern 3: HYGIENE INTERVAL / HEALTH
       ─────────────────────────────────────────────────────────────────
-      Signal: hygiene runs produce empty or near-empty diffs consistently
-      (interval too frequent), OR runs produce large backlogs of unsorted
-      memory each cycle (interval too slow).
+      Signal (too frequent): ≥3 consecutive hygiene runs have empty or
+      trivial `result`. Interval too low.
+      Signal (too slow): hygiene runs produce large diffs every time
+      AND are >24h apart. Interval too high.
+      Signal (broken): hygiene has `status="failed"` in the last ≥2
+      runs, OR `last_hygiene_run_at` is stale relative to the interval.
+      This is a RED FLAG — call it out in the proposal rationale even
+      if the patch is just to nudge the interval.
 
       Proposal shape:
         target_kind: "bots"
@@ -108,10 +193,12 @@ steps:
       ─────────────────────────────────────────────────────────────────
       Evidence rule
       ─────────────────────────────────────────────────────────────────
-      Every proposal MUST cite at least 2 real `correlation_id` values
-      from `fetch_compaction` or `fetch_hygiene`. Each `signal` must
-      quote a concrete token count, frequency, or diff size. If you
-      cannot cite 2 traces, do NOT emit the proposal.
+      Every proposal MUST cite at least 2 real data points —
+      `correlation_id` values from `fetch_compaction`, Task ids from
+      `fetch_hygiene_runs`, or concrete numbers from
+      `fetch_memory_inventory.diagnostics`. Each `signal` must quote a
+      concrete token count, frequency, diff size, or chunk count. If
+      you cannot cite 2 data points, do NOT emit the proposal.
 
       Return ONLY valid JSON:
 
@@ -129,15 +216,16 @@ steps:
             "patch_body": { ... },
             "rationale": "<one sentence>",
             "evidence": [
-              {"correlation_id": "<uuid>", "bot_id": "{{params.bot_id}}", "signal": "<concrete observation>"},
-              {"correlation_id": "<uuid>", "bot_id": "{{params.bot_id}}", "signal": "<concrete observation>"}
+              {"ref": "<correlation_id or task_id or diagnostics.key>", "bot_id": "{{params.bot_id}}", "signal": "<concrete observation>"},
+              {"ref": "<correlation_id or task_id or diagnostics.key>", "bot_id": "{{params.bot_id}}", "signal": "<concrete observation>"}
             ],
             "diff_preview": "before: ... / after: ..."
           }
         ]
       }
 
-      If memory/compaction looks healthy, return {"proposals": []}.
+      If memory/compaction looks healthy OR the bot is dormant, return
+      {"proposals": []} and explain in prose above the JSON block why.
     result_max_chars: 10000
 
   - id: review

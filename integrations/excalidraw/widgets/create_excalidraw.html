@@ -83,7 +83,7 @@
     if (data.mime_type) bits.push(data.mime_type.replace("image/", "").toUpperCase());
     metaEl.textContent = bits.join(" · ");
 
-    var nextUrl = "/api/v1/attachments/" + encodeURIComponent(attId);
+    var nextUrl = "/api/v1/attachments/" + encodeURIComponent(attId) + "/file";
     // Guard against swap-in loops: only re-fetch when the attachment id changes.
     if (frameEl.dataset.attId === attId) return;
     frameEl.dataset.attId = attId;

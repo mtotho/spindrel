@@ -190,6 +190,65 @@ class TestPruneTool:
 
 
 # ---------------------------------------------------------------------------
+# Tool: get_tool_info enrollment
+# ---------------------------------------------------------------------------
+
+class TestGetToolInfoEnrollment:
+    """get_tool_info should enroll the looked-up tool into the working set.
+
+    This is the ``get_skill``-parity behavior: asking for the schema is a
+    strong signal the bot intends to use the tool, so it persists in
+    ``bot_tool_enrollment`` without needing the follow-up call to succeed.
+    Prevents the "call get_tool_info every turn" spiral.
+    """
+
+    async def test_get_tool_info_enrolls_local_tool(
+        self, patched_session, db_session,
+    ):
+        from app.agent.context import current_bot_id, current_activated_tools
+        from app.services.tool_enrollment import (
+            get_enrolled_tool_names, invalidate_enrolled_cache,
+        )
+        from app.tools.local.discovery import get_tool_info
+
+        await _create_bot(db_session, "gti-bot")
+        invalidate_enrolled_cache()
+
+        tok_bot = current_bot_id.set("gti-bot")
+        tok_active = current_activated_tools.set([])
+        try:
+            # get_current_local_time is a canonical always-registered local tool
+            result = await get_tool_info("get_current_local_time")
+        finally:
+            current_activated_tools.reset(tok_active)
+            current_bot_id.reset(tok_bot)
+
+        # Schema returned (not an error payload)
+        assert '"error"' not in result or '"error": ' not in result
+        invalidate_enrolled_cache()
+        names = await get_enrolled_tool_names("gti-bot")
+        assert "get_current_local_time" in names, (
+            f"get_tool_info should enroll the tool; got working set {names!r}"
+        )
+
+    async def test_get_tool_info_without_bot_context_does_not_error(
+        self, patched_session, db_session,
+    ):
+        """No bot context (e.g. sandbox/dev-panel invocation) must not raise."""
+        from app.agent.context import current_activated_tools
+        from app.tools.local.discovery import get_tool_info
+
+        tok_active = current_activated_tools.set([])
+        try:
+            # Should still return the schema even if enrollment is skipped
+            result = await get_tool_info("get_current_local_time")
+        finally:
+            current_activated_tools.reset(tok_active)
+
+        assert "get_current_local_time" in result
+
+
+# ---------------------------------------------------------------------------
 # Cascade on bot delete (schema-level verification)
 # ---------------------------------------------------------------------------
 

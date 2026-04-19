@@ -59,6 +59,23 @@ class TestDefaultEnvelope:
         # byte_size reflects the FULL underlying text, not the (None) inline body
         assert env.byte_size == INLINE_BODY_CAP_BYTES + 100
 
+    def test_truncated_json_still_detected_as_json(self):
+        # `_run_tool_step` appends "... [truncated]" past its result cap,
+        # which makes the tail of the string invalid JSON. Without the
+        # suffix-aware detector, the envelope fell through to markdown
+        # rendering — and the bot system prompts embedded inside the
+        # response body contain `---` separators and `**bold**` that
+        # the markdown renderer then mis-rendered.
+        body = '{"status": 200, "body": {"id": "qa-bot", "system_prompt": "Hello ---\\n**bold**"}... [truncated]'
+        env = _build_default_envelope(body)
+        assert env.content_type == "application/json"
+
+    def test_plain_text_with_truncated_suffix_stays_plain(self):
+        # The suffix check only upgrades text that *starts* with { or [.
+        body = "plain text that happens to end ... [truncated]"
+        env = _build_default_envelope(body)
+        assert env.content_type == "text/plain"
+
 
 class TestOptInEnvelope:
     def test_basic_optin(self):

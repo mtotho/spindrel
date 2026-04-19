@@ -1,21 +1,14 @@
 /**
- * Visual subcomponents for ChannelFileExplorer.
- * Extracted to keep the main file under the 1000-line split rule.
+ * Visual subcomponents for the OmniPanel Files tab (FilesTabPanel).
+ * Shared row primitives (ScopeStrip, Breadcrumb, TreeFolderRow, TreeFileRow,
+ * NewItemRow) plus the DRAG_MIME / stripSlashes helpers.
  */
-import { useState, useEffect, useMemo } from "react";
-import { Plus, Trash2, Archive, ChevronRight, Folder } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { ChevronRight, Folder, Plus, Trash2 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
-import {
-  useChannelWorkspaceFiles,
-  useWriteChannelWorkspaceFile,
-  type ChannelWorkspaceFile,
-} from "@/src/api/hooks/useChannels";
-import { useChatStore } from "@/src/stores/chat";
 import {
   formatRelativeTime,
   formatSize,
-  estimateTokens,
   getFileIcon,
   getArchiveIcon,
 } from "./ChannelFileExplorerData";
@@ -34,245 +27,13 @@ export function stripSlashes(p: string): string {
 export const DRAG_MIME = "application/x-spindrel-move-path";
 
 // ---------------------------------------------------------------------------
-// IN CONTEXT card -- pinned active section
-// ---------------------------------------------------------------------------
-
-const TOKEN_BUDGET = 8000;
-
-export function InContextCard({
-  channelId,
-  activeFile,
-  onSelectFile,
-  onArchive,
-  onDelete,
-}: {
-  channelId: string;
-  activeFile: string | null;
-  onSelectFile: (workspaceRelativePath: string) => void;
-  onArchive: (file: ChannelWorkspaceFile) => void;
-  onDelete: (file: ChannelWorkspaceFile) => void;
-}) {
-  const t = useThemeTokens();
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
-  const writeMutation = useWriteChannelWorkspaceFile(channelId);
-
-  const { data: filesData, isLoading } = useChannelWorkspaceFiles(channelId, {
-    includeArchive: false,
-    includeData: false,
-  });
-
-  const queryClient = useQueryClient();
-  const isStreaming = useChatStore((s) => Object.keys(s.getChannel(channelId).turns).length > 0);
-  useEffect(() => {
-    if (!isStreaming) return;
-    const interval = setInterval(() => {
-      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [isStreaming, channelId, queryClient]);
-
-  const activeFiles = useMemo(
-    () => (filesData?.files ?? []).filter((f) => f.section === "active" && f.type !== "folder"),
-    [filesData],
-  );
-
-  const totalSize = activeFiles.reduce((s, f) => s + (f.size || 0), 0);
-  const tokenStr = estimateTokens(totalSize);
-  const tokenNum = Math.round(totalSize / 4);
-  const tokenPct = Math.min(1, tokenNum / TOKEN_BUDGET);
-  const tokenColor =
-    tokenPct > 0.85 ? t.danger : tokenPct > 0.6 ? t.warning : t.textDim;
-
-  const channelPathFor = (f: ChannelWorkspaceFile) => `channels/${channelId}/${f.path}`;
-
-  const handleCreate = () => {
-    let filename = newName.trim();
-    if (!filename) {
-      setCreating(false);
-      return;
-    }
-    if (!filename.endsWith(".md")) filename += ".md";
-    writeMutation.mutate(
-      { path: filename, content: `# ${filename.replace(/\.md$/, "")}\n` },
-      {
-        onSuccess: () => {
-          onSelectFile(`channels/${channelId}/${filename}`);
-          setCreating(false);
-          setNewName("");
-        },
-      },
-    );
-  };
-
-  return (
-    <div style={{ flexShrink: 0 }}>
-      {/* Section header with token gauge */}
-      <div
-        className="flex items-center gap-1 pl-2 pr-2"
-        style={{ height: 22 }}
-      >
-        <span
-          className="flex-1 uppercase tracking-wider text-left"
-          style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}
-        >
-          In Context
-        </span>
-        {/* Token gauge — fill behind the text like a battery indicator */}
-        <span
-          className="relative overflow-hidden rounded"
-          style={{
-            padding: "1px 6px",
-            fontSize: 10,
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-            color: tokenColor,
-            backgroundColor: `${t.text}06`,
-            flexShrink: 0,
-          }}
-        >
-          <span
-            className="absolute left-0 top-0 bottom-0 rounded"
-            style={{
-              width: `${Math.round(tokenPct * 100)}%`,
-              backgroundColor: tokenColor,
-              opacity: 0.12,
-              transition: "width 0.3s ease, background-color 0.3s ease",
-            }}
-          />
-          <span className="relative">~{tokenStr} tok</span>
-        </span>
-      </div>
-
-      <div>
-        {activeFiles.length === 0 && !creating && (
-          <span
-            className="block italic"
-            style={{ color: t.textDim, fontSize: 11, padding: "4px 12px" }}
-          >
-            {isLoading ? "Loading\u2026" : "No active files yet"}
-          </span>
-        )}
-        {activeFiles.map((f) => (
-          <ActiveFileRow
-            key={f.path}
-            file={f}
-            selected={activeFile === channelPathFor(f)}
-            onSelect={() => onSelectFile(channelPathFor(f))}
-            onArchive={() => onArchive(f)}
-            onDelete={() => onDelete(f)}
-          />
-        ))}
-        {creating ? (
-          <div style={{ padding: "2px 12px" }}>
-            <input
-              autoFocus
-              value={newName}
-              onChange={(e: any) => setNewName(e.target.value)}
-              onKeyDown={(e: any) => {
-                if (e.key === "Enter") handleCreate();
-                if (e.key === "Escape") { setCreating(false); setNewName(""); }
-              }}
-              onBlur={() => {
-                if (!newName.trim()) { setCreating(false); setNewName(""); }
-              }}
-              placeholder="filename.md"
-              className="w-full rounded"
-              style={{
-                background: t.surfaceOverlay,
-                border: `1px solid ${t.surfaceBorder}`,
-                padding: "1px 6px",
-                fontSize: 11,
-                color: t.text,
-                outline: "none",
-                height: 20,
-                fontFamily: "inherit",
-              }}
-            />
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="flex items-center gap-1 opacity-40 hover:opacity-80 cursor-pointer bg-transparent border-0"
-            style={{ padding: "3px 12px" }}
-          >
-            <Plus size={10} color={t.textMuted} />
-            <span style={{ color: t.textMuted, fontSize: 10 }}>Add active file</span>
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ActiveFileRow({
-  file, selected, onSelect, onArchive, onDelete,
-}: {
-  file: ChannelWorkspaceFile; selected: boolean; onSelect: () => void;
-  onArchive: () => void; onDelete: () => void;
-}) {
-  const t = useThemeTokens();
-  const [hovered, setHovered] = useState(false);
-  const displayName = file.name.includes("/")
-    ? file.name.substring(file.name.lastIndexOf("/") + 1) : file.name;
-  const icon = getFileIcon(displayName, null, t.textDim);
-  const modified = formatRelativeTime(file.modified_at);
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: "flex", flexDirection: "row", alignItems: "center",
-        height: 22, paddingLeft: 12, paddingRight: 8, gap: 6, width: "100%",
-        background: selected ? t.accentSubtle : hovered ? `${t.text}08` : "transparent",
-        cursor: "pointer",
-      }}
-    >
-      {icon}
-      <span style={{
-        flex: 1, color: t.text, fontSize: 12,
-        lineHeight: "22px", minWidth: 0, overflow: "hidden",
-        textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left",
-      }}>
-        {displayName}
-      </span>
-      {hovered ? (
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 2 }}>
-          <button type="button"
-            onClick={(e) => { e.stopPropagation(); onArchive(); }}
-            style={{ padding: 2, opacity: 0.6, background: "none", border: "none", cursor: "pointer" }}
-            title="Archive"
-          >
-            <Archive size={11} color={t.textDim} />
-          </button>
-          <button type="button"
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            style={{ padding: 2, opacity: 0.6, background: "none", border: "none", cursor: "pointer" }}
-            title="Delete"
-          >
-            <Trash2 size={11} color={t.textDim} />
-          </button>
-        </div>
-      ) : modified ? (
-        <span style={{ color: t.textDim, fontSize: 9, flexShrink: 0 }}>{modified}</span>
-      ) : null}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Breadcrumb -- clickable path segments
 // ---------------------------------------------------------------------------
+
+// (InContextCard + ActiveFileRow — removed. The token gauge now lives inline
+// on the FilesTabPanel action row; active-file ops are accessible via the
+// shared tree row context menu.)
+
 
 /** Scope targets for the breadcrumb scope chips. */
 export interface ScopeTarget {

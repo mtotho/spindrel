@@ -161,7 +161,7 @@
         if (!m) return;
         var data = JSON.parse(m[1].replace(/<\\\//g, "</"));
         if (!data || !data.attachment_id) return;
-        var url = "/api/v1/attachments/" + encodeURIComponent(data.attachment_id);
+        var url = "/api/v1/attachments/" + encodeURIComponent(data.attachment_id) + "/file";
         if (url === entry.lastAttachmentUrl) return;
         return window.spindrel
           .apiFetch(url, { headers: { Accept: "image/*" } })

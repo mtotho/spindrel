@@ -1165,6 +1165,27 @@ async def run_task(task: Task) -> None:
                             _task_meta["delegation_child_display"] = _child_bot.display_name or _child_bot.name
                         except Exception:
                             pass
+        elif (task.callback_config or {}).get("pipeline_task_id"):
+            # Pipeline agent-step child: the "user" message is the rendered
+            # step prompt emitted by the pipeline, not a human. Label it
+            # with the parent pipeline's title so the sub-session modal
+            # doesn't render "You" for an automated step.
+            _pipeline_task_id = (task.callback_config or {}).get("pipeline_task_id")
+            _pipeline_title = "Pipeline step"
+            try:
+                async with async_session() as _pp_db:
+                    _pp_parent = await _pp_db.get(Task, uuid.UUID(_pipeline_task_id))
+                    if _pp_parent and _pp_parent.title:
+                        _pipeline_title = _pp_parent.title
+            except Exception:
+                pass
+            _task_meta = {
+                "trigger": "pipeline_step",
+                "sender_type": "pipeline",
+                "sender_display_name": _pipeline_title,
+                "pipeline_task_id": _pipeline_task_id,
+                "pipeline_step_index": (task.callback_config or {}).get("pipeline_step_index"),
+            }
         # If the inbound path pre-persisted the user message via
         # ``store_passive_message`` (the inject_message → Task flow used by
         # BlueBubbles, GitHub, /api/v1/sessions/{id}/messages, and

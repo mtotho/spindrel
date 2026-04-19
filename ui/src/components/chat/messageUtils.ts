@@ -93,6 +93,19 @@ export function resolveDisplay(message: Message, botName?: string): DisplayInfo 
     return { ...base, name: meta.sender_display_name || "Bot", isCurrentUser: false, sourceLabel: null };
   }
 
+  // --- Pipeline step user prompts (emitted by the pipeline, not a human) ---
+  // The rendered step prompt goes through persist_turn as a user-role
+  // Message; without this branch the sub-session modal would label it
+  // "You" — visually indistinguishable from a real human follow-up.
+  if (meta.sender_type === "pipeline") {
+    return {
+      ...base,
+      name: meta.sender_display_name || "Pipeline step",
+      isCurrentUser: false,
+      sourceLabel: null,
+    };
+  }
+
   // --- Integration messages (any source with metadata) ---
   // BlueBubbles "is_from_me" means the local user sent via iMessage
   if (meta.is_from_me === true) {

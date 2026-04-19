@@ -1,13 +1,19 @@
 /**
- * BrowseFilesModal — full-width file manager for a channel's workspace.
+ * FilesTabPanel — inline channel-scope file browser for the OmniPanel's
+ * Files tab. Ports the body of the former BrowseFilesModal (minus the
+ * portal, backdrop, and close button) into a rail-sized surface:
  *
- * Evicted from the cramped left-rail tree into a proper modal where
- * scope strip + breadcrumb + folder rows can breathe. Desktop renders
- * centered (~760×560); mobile takes the full screen.
+ *   [ + ] [ 📁+ ] [ 🔎 ] [ ⟳ ]                          ~Ntok
+ *   Channel · Workspace · Memory
+ *   /ws › channels › #home-assistant
+ *   [ tree: folders + files, drag-drop upload, context menus, bulk select ]
+ *
+ * All file ops from the modal are preserved (create, rename, delete, move,
+ * upload, bulk select + delete, pin-to-channel context menu item). The
+ * IN CONTEXT card has been dropped; the token gauge lives in the action row.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { X, Plus, FolderPlus, Search, Upload, RefreshCw } from "lucide-react";
+import { Plus, FolderPlus, Search, Upload, RefreshCw, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
@@ -16,6 +22,7 @@ import { apiFetch } from "@/src/api/client";
 import {
   useChannel,
   useChannels,
+  useChannelWorkspaceFiles,
   useMoveChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
 import {
@@ -28,7 +35,8 @@ import {
 } from "@/src/api/hooks/useWorkspaces";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
-import { ContextMenu, type ContextMenuItem } from "./ChannelFileExplorerData";
+import { useUIStore } from "@/src/stores/ui";
+import { ContextMenu, type ContextMenuItem, estimateTokens } from "./ChannelFileExplorerData";
 import {
   ScopeStrip,
   Breadcrumb,
@@ -37,6 +45,10 @@ import {
   NewItemRow,
   stripSlashes,
 } from "./ChannelFileExplorerParts";
+
+// Matches the old InContextCard budget. Shared between the "~Ntok" pill here
+// and the channel header's context-budget chip so the two read consistent.
+const TOKEN_BUDGET = 8000;
 
 function joinPath(...parts: string[]): string {
   return parts.map((p) => stripSlashes(p)).filter(Boolean).join("/");
@@ -64,27 +76,27 @@ function pickInitialPath(opts: {
   return "/";
 }
 
-interface BrowseFilesModalProps {
-  open: boolean;
+interface FilesTabPanelProps {
   channelId: string;
   botId: string | undefined;
   workspaceId: string | undefined;
   channelDisplayName?: string | null;
   channelWorkspaceEnabled: boolean;
   onSelectFile: (workspaceRelativePath: string) => void;
-  onClose: () => void;
+  /** When true the search filter opens focused on mount — wired to the
+   *  Cmd+Shift+B global shortcut so "browse files" lands on search-ready. */
+  focusSearchOnMount?: boolean;
 }
 
-export function BrowseFilesModal({
-  open,
+export function FilesTabPanel({
   channelId,
   botId,
   workspaceId,
   channelDisplayName,
   channelWorkspaceEnabled,
   onSelectFile,
-  onClose,
-}: BrowseFilesModalProps) {
+  focusSearchOnMount = false,
+}: FilesTabPanelProps) {
   const t = useThemeTokens();
   const queryClient = useQueryClient();
   const { confirm, ConfirmDialogSlot } = useConfirm();
@@ -129,9 +141,9 @@ export function BrowseFilesModal({
     [channelId, setRemembered],
   );
 
-  // Reset path when (re)opening against a different channel
+  // Reset path when switching channels (panel is mounted per-channel in the
+  // OmniPanel's tab pane; channelId may change when user navigates channels).
   useEffect(() => {
-    if (!open) return;
     setCurrentPathRaw(
       pickInitialPath({
         channelId,
@@ -141,11 +153,34 @@ export function BrowseFilesModal({
         remembered: useFileBrowserStore.getState().channelExplorerPaths[channelId],
       }),
     );
-  }, [open, channelId, channelWorkspaceEnabled, botId, sharedWorkspace]);
+  }, [channelId, channelWorkspaceEnabled, botId, sharedWorkspace]);
 
   const [showFilter, setShowFilter] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // Popped-in from Cmd+Shift+B — auto-open the filter input on that gesture.
+  useEffect(() => {
+    if (focusSearchOnMount) {
+      setShowFilter(true);
+      setTimeout(() => searchRef.current?.focus(), 0);
+    }
+  }, [focusSearchOnMount]);
+
+  // External "focus files tree" request — fires on each ⌘⇧B / header button
+  // click. Opens the filter so the user can start typing immediately; a
+  // second tap focuses it. We skip the initial render's tick to avoid
+  // auto-opening the filter on first mount.
+  const filesFocusTick = useUIStore((s) => s.filesFocusTick);
+  const firstTickRef = useRef(true);
+  useEffect(() => {
+    if (firstTickRef.current) {
+      firstTickRef.current = false;
+      return;
+    }
+    setShowFilter(true);
+    setTimeout(() => searchRef.current?.focus(), 0);
+  }, [filesFocusTick]);
 
   const { data: treeData, isLoading: treeLoading, refetch: refetchTree } =
     useWorkspaceFiles(workspaceId, dirForApi(currentPath));
@@ -230,16 +265,14 @@ export function BrowseFilesModal({
     setSelectedPaths(new Set());
   }, [currentPath, searchQuery]);
 
-  // Keyboard: Esc closes, Arrow/Enter/n/` standard tree navigation
+  // Keyboard: Arrow navigation + Enter to open + `n` to add + `/` to filter.
+  // Esc here unfocuses filter (no modal to close); it does NOT propagate
+  // into the channel page's own Esc handling, since the panel is inlined.
   useEffect(() => {
-    if (!open) return;
+    const el = rootRef.current;
+    if (!el) return;
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
-      if (e.key === "Escape") {
-        if (tag === "INPUT" || tag === "TEXTAREA") return;
-        onClose();
-        return;
-      }
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       const len = focusableFiles.length;
       if (e.key === "ArrowDown") {
@@ -251,7 +284,6 @@ export function BrowseFilesModal({
       } else if (e.key === "Enter" && focusedFile) {
         const p = stripSlashes(focusedFile.path);
         onSelectFile(p);
-        onClose();
       } else if (e.key === "n") {
         setNewItem("file");
       } else if (e.key === "/") {
@@ -260,16 +292,16 @@ export function BrowseFilesModal({
         setTimeout(() => searchRef.current?.focus(), 0);
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, focusableFiles, focusedFile, onSelectFile, onClose]);
+    el.addEventListener("keydown", handler);
+    return () => el.removeEventListener("keydown", handler);
+  }, [focusableFiles, focusedFile, onSelectFile]);
 
   // OS file upload into currentPath
   const [osDragging, setOsDragging] = useState(false);
   const dragCounter = useRef(0);
   const [uploadStatus, setUploadStatus] = useState<{ current: number; total: number } | null>(null);
 
-  const handleDragEnter = useCallback((e: any) => {
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.dataTransfer?.types?.includes("Files")) {
@@ -277,7 +309,7 @@ export function BrowseFilesModal({
       setOsDragging(true);
     }
   }, []);
-  const handleDragLeave = useCallback((e: any) => {
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current--;
@@ -286,14 +318,14 @@ export function BrowseFilesModal({
       setOsDragging(false);
     }
   }, []);
-  const handleDragOver = useCallback((e: any) => {
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     if (e.dataTransfer?.types?.includes("Files")) {
       e.dataTransfer.dropEffect = "copy";
     }
   }, []);
   const handleDrop = useCallback(
-    async (e: any) => {
+    async (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       dragCounter.current = 0;
@@ -326,14 +358,13 @@ export function BrowseFilesModal({
         {
           onSuccess: () => {
             onSelectFile(fullPath);
-            onClose();
             setNewItem(null);
             refetchTree();
           },
         },
       );
     },
-    [currentPath, writeWorkspace, refetchTree, onSelectFile, onClose],
+    [currentPath, writeWorkspace, refetchTree, onSelectFile],
   );
 
   const createFolder = useCallback(
@@ -385,7 +416,7 @@ export function BrowseFilesModal({
   );
 
   const openFileContextMenu = useCallback(
-    (e: any, entry: { name: string; path: string }) => {
+    (e: React.MouseEvent, entry: { name: string; path: string }) => {
       e.preventDefault();
       e.stopPropagation();
       const stripped = stripSlashes(entry.path);
@@ -394,7 +425,6 @@ export function BrowseFilesModal({
           label: "Open",
           action: () => {
             onSelectFile(stripped);
-            onClose();
             setContextMenu(null);
           },
         },
@@ -474,11 +504,11 @@ export function BrowseFilesModal({
 
       setContextMenu({ x: e.clientX, y: e.clientY, items });
     },
-    [channelWorkspaceEnabled, channelId, moveChannel, onSelectFile, onClose, deleteEntry, pinnedPaths, queryClient, confirm],
+    [channelWorkspaceEnabled, channelId, moveChannel, onSelectFile, deleteEntry, pinnedPaths, queryClient, confirm],
   );
 
   const openFolderContextMenu = useCallback(
-    (e: any, entry: { name: string; path: string }) => {
+    (e: React.MouseEvent, entry: { name: string; path: string }) => {
       e.preventDefault();
       e.stopPropagation();
       const stripped = stripSlashes(entry.path);
@@ -530,7 +560,7 @@ export function BrowseFilesModal({
   );
 
   const openBackgroundContextMenu = useCallback(
-    (e: any) => {
+    (e: React.MouseEvent) => {
       if (e.defaultPrevented) return;
       e.preventDefault();
       const items: ContextMenuItem[] = [
@@ -544,7 +574,7 @@ export function BrowseFilesModal({
   );
 
   const openBulkContextMenu = useCallback(
-    (e: any) => {
+    (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const count = selectedPaths.size;
@@ -563,7 +593,7 @@ export function BrowseFilesModal({
               return;
             }
             for (const p of selectedPaths) {
-              try { await deleteWorkspace.mutateAsync(stripSlashes(p)); } catch {}
+              try { await deleteWorkspace.mutateAsync(stripSlashes(p)); } catch {/* empty */}
             }
             setSelectedPaths(new Set());
             setContextMenu(null);
@@ -576,283 +606,291 @@ export function BrowseFilesModal({
     [selectedPaths, deleteWorkspace, refetchTree, confirm],
   );
 
-  if (!open || typeof document === "undefined") return null;
+  // Token gauge — counts active-section channel files only, matching the
+  // former IN CONTEXT card's computation. Shows as a compact pill in the
+  // action row; tooltip lists active filenames so the details aren't lost.
+  const { data: activeFilesData } = useChannelWorkspaceFiles(channelId, {
+    includeArchive: false,
+    includeData: false,
+  });
+  const activeFiles = useMemo(
+    () => (activeFilesData?.files ?? []).filter((f) => f.section === "active" && f.type !== "folder"),
+    [activeFilesData],
+  );
+  const totalSize = activeFiles.reduce((s, f) => s + (f.size || 0), 0);
+  const tokenStr = estimateTokens(totalSize);
+  const tokenNum = Math.round(totalSize / 4);
+  const tokenPct = Math.min(1, tokenNum / TOKEN_BUDGET);
+  const tokenColor =
+    tokenPct > 0.85 ? t.danger : tokenPct > 0.6 ? t.warning : t.textDim;
+  const tokenTitle = activeFiles.length
+    ? `Active files in context:\n${activeFiles.map((f) => f.name).join("\n")}`
+    : "No active files in context";
 
-  return createPortal(
-    <>
-      {/* Backdrop */}
+  return (
+    <div
+      ref={rootRef}
+      tabIndex={0}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      className="flex flex-col h-full min-h-0 overflow-hidden outline-none relative"
+      style={{ background: t.surfaceRaised }}
+    >
+      {/* Action row — create / filter / refresh + token gauge */}
       <div
-        className="fixed inset-0 z-[10050]"
-        style={{ background: "rgba(0,0,0,0.45)" }}
-        onClick={onClose}
-      />
-
-      {/* Dialog: centered on desktop, full-screen on mobile */}
-      <div
-        ref={rootRef}
-        tabIndex={0}
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        className="fixed z-[10051] flex flex-col overflow-hidden outline-none
-                   inset-0
-                   sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
-                   sm:inset-auto sm:w-[min(760px,92vw)] sm:h-[min(560px,80vh)]
-                   sm:rounded-lg sm:border"
-        style={{
-          background: t.surfaceRaised,
-          borderColor: t.surfaceBorder,
-          boxShadow: "0 16px 48px rgba(0,0,0,0.4)",
-        }}
+        className="flex items-center gap-0.5 px-2 h-8 shrink-0 border-b"
+        style={{ borderColor: `${t.surfaceBorder}55` }}
       >
-        {/* Header */}
-        <div
-          className="flex items-center px-3 h-11 gap-1 border-b shrink-0"
-          style={{ borderColor: t.surfaceBorder }}
+        <button
+          type="button"
+          className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
+          onClick={() => setNewItem("file")}
+          title="New file in current folder"
+        >
+          <Plus size={14} color={t.textDim} />
+        </button>
+        <button
+          type="button"
+          className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
+          onClick={() => setNewItem("folder")}
+          title="New folder in current folder"
+        >
+          <FolderPlus size={14} color={t.textDim} />
+        </button>
+        <button
+          type="button"
+          className="header-icon-btn p-1.5 rounded cursor-pointer border-0"
+          onClick={() => {
+            setShowFilter((v) => !v);
+            if (!showFilter) setTimeout(() => searchRef.current?.focus(), 0);
+          }}
+          style={{ background: showFilter ? t.surfaceOverlay : "transparent" }}
+          title="Filter files ( / )"
+        >
+          <Search size={13} color={showFilter ? t.accent : t.textDim} />
+        </button>
+        <button
+          type="button"
+          className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
+          onClick={refreshAll}
+          title="Refresh"
+        >
+          <RefreshCw size={13} color={t.textDim} />
+        </button>
+        <span
+          className="ml-auto relative overflow-hidden rounded"
+          title={tokenTitle}
+          style={{
+            padding: "1px 6px",
+            fontSize: 10,
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            color: tokenColor,
+            backgroundColor: `${t.text}06`,
+            flexShrink: 0,
+          }}
         >
           <span
-            className="flex-1 uppercase tracking-wider"
-            style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}
-          >
-            Browse files
-          </span>
-          <button
-            type="button"
-            className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
-            onClick={() => setNewItem("file")}
-            title="New file in current folder"
-          >
-            <Plus size={14} color={t.textDim} />
-          </button>
-          <button
-            type="button"
-            className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
-            onClick={() => setNewItem("folder")}
-            title="New folder in current folder"
-          >
-            <FolderPlus size={14} color={t.textDim} />
-          </button>
-          <button
-            type="button"
-            className="header-icon-btn p-1.5 rounded cursor-pointer border-0"
-            onClick={() => {
-              setShowFilter((v) => !v);
-              if (!showFilter) setTimeout(() => searchRef.current?.focus(), 0);
-            }}
-            style={{ background: showFilter ? t.surfaceOverlay : "transparent" }}
-            title="Filter files ( / )"
-          >
-            <Search size={13} color={showFilter ? t.accent : t.textDim} />
-          </button>
-          <button
-            type="button"
-            className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
-            onClick={refreshAll}
-            title="Refresh"
-          >
-            <RefreshCw size={13} color={t.textDim} />
-          </button>
-          <button
-            type="button"
-            className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
-            onClick={onClose}
-            title="Close ( Esc )"
-          >
-            <X size={14} color={t.textDim} />
-          </button>
-        </div>
-
-        {/* Filter */}
-        {showFilter && (
-          <div className="px-3 py-2 border-b shrink-0" style={{ borderColor: t.surfaceBorder }}>
-            <div
-              className="flex items-center gap-2 rounded px-2 h-7 border"
-              style={{ background: t.inputBg, borderColor: t.surfaceBorder }}
-            >
-              <Search size={12} color={t.textDim} className="shrink-0" />
-              <input
-                ref={searchRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e: any) => setSearchQuery(e.target.value)}
-                onKeyDown={(e: any) => {
-                  if (e.key === "Escape") {
-                    e.stopPropagation();
-                    setSearchQuery("");
-                    setShowFilter(false);
-                  }
-                }}
-                placeholder="Filter files…"
-                autoFocus
-                className="flex-1 bg-transparent border-0 outline-none text-xs p-0 min-w-0"
-                style={{ color: t.text }}
-              />
-              {searchQuery && (
-                <X
-                  size={12}
-                  color={t.textDim}
-                  className="cursor-pointer shrink-0"
-                  onClick={() => {
-                    setSearchQuery("");
-                    searchRef.current?.focus();
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Scope strip */}
-        <ScopeStrip
-          currentPath={currentPath}
-          scopeTargets={[
-            ...(channelTarget ? [{ label: "Channel", path: channelTarget }] : []),
-            ...(memoryTarget ? [{ label: "Memory", path: memoryTarget }] : []),
-            { label: "Workspace", path: "/" },
-          ]}
-          onJump={setCurrentPath}
-        />
-
-        {/* Breadcrumb */}
-        <Breadcrumb
-          path={currentPath}
-          channelId={channelId}
-          channelDisplayName={channelDisplayName}
-          channelNameMap={channelNameMap}
-          onNavigate={setCurrentPath}
-        />
-
-        {/* Tree */}
-        <div
-          className="flex-1 overflow-auto"
-          onContextMenu={openBackgroundContextMenu}
-        >
-          {treeLoading ? (
-            <div className="flex justify-center p-4">
-              <Spinner color={t.accent} />
-            </div>
-          ) : (
-            <>
-              {newItem && (
-                <NewItemRow
-                  kind={newItem}
-                  onSubmit={(name) => {
-                    if (newItem === "file") writeNewFile(name);
-                    else createFolder(name);
-                  }}
-                  onCancel={() => setNewItem(null)}
-                />
-              )}
-              {folders.map((entry) => {
-                const displayLabel = entry.display_name || (channelNameMap[entry.name] ?? null);
-                const folderPath = "/" + stripSlashes(entry.path);
-                return (
-                  <TreeFolderRow
-                    key={entry.path}
-                    name={entry.name}
-                    displayLabel={displayLabel}
-                    fullPath={folderPath}
-                    multiSelected={selectedPaths.has(folderPath)}
-                    onNavigate={(path, e) => {
-                      if (e?.ctrlKey || e?.metaKey || e?.shiftKey) {
-                        handleMultiSelect(path, e);
-                        return;
-                      }
-                      setSelectedPaths(new Set());
-                      setCurrentPath(path);
-                    }}
-                    onContextMenu={(e) => {
-                      if (selectedPaths.has(folderPath) && selectedPaths.size > 1) {
-                        openBulkContextMenu(e);
-                      } else {
-                        openFolderContextMenu(e, entry);
-                      }
-                    }}
-                    onMoveDrop={(srcPath) => handleMoveDrop(srcPath, entry.path)}
-                  />
-                );
-              })}
-              {files.map((entry, i) => {
-                const filePath = stripSlashes(entry.path);
-                return (
-                  <TreeFileRow
-                    key={entry.path}
-                    name={entry.name}
-                    fullPath={filePath}
-                    size={entry.size}
-                    modifiedAt={entry.modified_at}
-                    selected={false}
-                    multiSelected={selectedPaths.has(filePath)}
-                    focused={focusedIndex === i}
-                    onSelect={(e) => {
-                      if (e?.ctrlKey || e?.metaKey || e?.shiftKey) {
-                        handleMultiSelect(filePath, e);
-                        return;
-                      }
-                      setSelectedPaths(new Set());
-                      onSelectFile(filePath);
-                      onClose();
-                    }}
-                    onDelete={() => deleteEntry(entry.name, entry.path, false)}
-                    onContextMenu={(e) => {
-                      if (selectedPaths.has(filePath) && selectedPaths.size > 1) {
-                        openBulkContextMenu(e);
-                      } else {
-                        openFileContextMenu(e, entry);
-                      }
-                    }}
-                  />
-                );
-              })}
-              {filtered.length === 0 && !newItem && (
-                <div
-                  className="italic text-center p-3"
-                  style={{ color: t.textDim, fontSize: 11 }}
-                >
-                  {searchQuery ? "No matching files" : "Empty directory"}
-                </div>
-              )}
-              {uploadStatus && (
-                <div className="flex items-center gap-2 p-2">
-                  <Spinner color={t.accent} size={14} />
-                  <span style={{ color: t.textMuted, fontSize: 11 }}>
-                    Uploading {uploadStatus.current}/{uploadStatus.total}…
-                  </span>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* OS drag overlay */}
-        {osDragging && (
-          <div
-            className="absolute inset-1 flex items-center justify-center rounded pointer-events-none gap-2"
+            className="absolute left-0 top-0 bottom-0 rounded"
             style={{
-              border: `2px dashed ${t.accent}`,
-              backgroundColor: `${t.accent}15`,
+              width: `${Math.round(tokenPct * 100)}%`,
+              backgroundColor: tokenColor,
+              opacity: 0.12,
+              transition: "width 0.3s ease, background-color 0.3s ease",
             }}
-          >
-            <Upload size={14} color={t.accent} />
-            <span style={{ color: t.accent, fontSize: 12, fontWeight: 600 }}>
-              Drop to upload to {currentPath}
-            </span>
-          </div>
-        )}
-
-        {contextMenu && (
-          <ContextMenu
-            x={contextMenu.x}
-            y={contextMenu.y}
-            items={contextMenu.items}
-            onClose={() => setContextMenu(null)}
           />
-        )}
-
-        <ConfirmDialogSlot />
+          <span className="relative">~{tokenStr} tok</span>
+        </span>
       </div>
-    </>,
-    document.body,
+
+      {/* Filter input — toggled */}
+      {showFilter && (
+        <div className="px-2 py-1.5 border-b shrink-0" style={{ borderColor: `${t.surfaceBorder}55` }}>
+          <div
+            className="flex items-center gap-2 rounded px-2 h-7 border"
+            style={{ background: t.inputBg, borderColor: t.surfaceBorder }}
+          >
+            <Search size={12} color={t.textDim} className="shrink-0" />
+            <input
+              ref={searchRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setSearchQuery("");
+                  setShowFilter(false);
+                }
+              }}
+              placeholder="Filter files…"
+              autoFocus
+              className="flex-1 bg-transparent border-0 outline-none text-xs p-0 min-w-0"
+              style={{ color: t.text }}
+            />
+            {searchQuery && (
+              <X
+                size={12}
+                color={t.textDim}
+                className="cursor-pointer shrink-0"
+                onClick={() => {
+                  setSearchQuery("");
+                  searchRef.current?.focus();
+                }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Scope strip — Channel | Workspace | Memory */}
+      <ScopeStrip
+        currentPath={currentPath}
+        scopeTargets={[
+          ...(channelTarget ? [{ label: "Channel", path: channelTarget }] : []),
+          { label: "Workspace", path: "/" },
+          ...(memoryTarget ? [{ label: "Memory", path: memoryTarget }] : []),
+        ]}
+        onJump={setCurrentPath}
+      />
+
+      {/* Breadcrumb */}
+      <Breadcrumb
+        path={currentPath}
+        channelId={channelId}
+        channelDisplayName={channelDisplayName}
+        channelNameMap={channelNameMap}
+        onNavigate={setCurrentPath}
+      />
+
+      {/* Tree */}
+      <div
+        className="flex-1 min-h-0 overflow-auto"
+        onContextMenu={openBackgroundContextMenu}
+      >
+        {treeLoading ? (
+          <div className="flex justify-center p-4">
+            <Spinner color={t.accent} />
+          </div>
+        ) : (
+          <>
+            {newItem && (
+              <NewItemRow
+                kind={newItem}
+                onSubmit={(name) => {
+                  if (newItem === "file") writeNewFile(name);
+                  else createFolder(name);
+                }}
+                onCancel={() => setNewItem(null)}
+              />
+            )}
+            {folders.map((entry) => {
+              const displayLabel = entry.display_name || (channelNameMap[entry.name] ?? null);
+              const folderPath = "/" + stripSlashes(entry.path);
+              return (
+                <TreeFolderRow
+                  key={entry.path}
+                  name={entry.name}
+                  displayLabel={displayLabel}
+                  fullPath={folderPath}
+                  multiSelected={selectedPaths.has(folderPath)}
+                  onNavigate={(path, e) => {
+                    if (e?.ctrlKey || e?.metaKey || e?.shiftKey) {
+                      handleMultiSelect(path, e);
+                      return;
+                    }
+                    setSelectedPaths(new Set());
+                    setCurrentPath(path);
+                  }}
+                  onContextMenu={(e) => {
+                    if (selectedPaths.has(folderPath) && selectedPaths.size > 1) {
+                      openBulkContextMenu(e);
+                    } else {
+                      openFolderContextMenu(e, entry);
+                    }
+                  }}
+                  onMoveDrop={(srcPath) => handleMoveDrop(srcPath, entry.path)}
+                />
+              );
+            })}
+            {files.map((entry, i) => {
+              const filePath = stripSlashes(entry.path);
+              return (
+                <TreeFileRow
+                  key={entry.path}
+                  name={entry.name}
+                  fullPath={filePath}
+                  size={entry.size}
+                  modifiedAt={entry.modified_at}
+                  selected={false}
+                  multiSelected={selectedPaths.has(filePath)}
+                  focused={focusedIndex === i}
+                  onSelect={(e) => {
+                    if (e?.ctrlKey || e?.metaKey || e?.shiftKey) {
+                      handleMultiSelect(filePath, e);
+                      return;
+                    }
+                    setSelectedPaths(new Set());
+                    onSelectFile(filePath);
+                  }}
+                  onDelete={() => deleteEntry(entry.name, entry.path, false)}
+                  onContextMenu={(e) => {
+                    if (selectedPaths.has(filePath) && selectedPaths.size > 1) {
+                      openBulkContextMenu(e);
+                    } else {
+                      openFileContextMenu(e, entry);
+                    }
+                  }}
+                />
+              );
+            })}
+            {filtered.length === 0 && !newItem && (
+              <div
+                className="italic text-center p-3"
+                style={{ color: t.textDim, fontSize: 11 }}
+              >
+                {searchQuery ? "No matching files" : "Empty directory"}
+              </div>
+            )}
+            {uploadStatus && (
+              <div className="flex items-center gap-2 p-2">
+                <Spinner color={t.accent} size={14} />
+                <span style={{ color: t.textMuted, fontSize: 11 }}>
+                  Uploading {uploadStatus.current}/{uploadStatus.total}…
+                </span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* OS drag overlay */}
+      {osDragging && (
+        <div
+          className="absolute inset-1 flex items-center justify-center rounded pointer-events-none gap-2"
+          style={{
+            border: `2px dashed ${t.accent}`,
+            backgroundColor: `${t.accent}15`,
+          }}
+        >
+          <Upload size={14} color={t.accent} />
+          <span style={{ color: t.accent, fontSize: 12, fontWeight: 600 }}>
+            Drop to upload to {currentPath}
+          </span>
+        </div>
+      )}
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      <ConfirmDialogSlot />
+    </div>
   );
 }

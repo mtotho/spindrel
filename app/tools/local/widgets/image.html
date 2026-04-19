@@ -88,7 +88,7 @@
     loader.style.cssText = "aspect-ratio: 1/1; border-radius: var(--sd-radius-md);";
     tile.appendChild(loader);
     window.spindrel
-      .apiFetch("/api/v1/attachments/" + encodeURIComponent(item.attachment_id), {
+      .apiFetch("/api/v1/attachments/" + encodeURIComponent(item.attachment_id) + "/file", {
         headers: { Accept: "image/*" }
       })
       .then(function (r) {

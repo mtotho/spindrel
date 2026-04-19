@@ -13,10 +13,12 @@ logger = logging.getLogger(__name__)
     "function": {
         "name": "get_tool_info",
         "description": (
-            "Look up a tool by name and activate it for this turn. Returns the full "
-            "OpenAI function schema AND adds the tool to your callable tools for the "
-            "next iteration, so you can invoke it immediately after. Use this when you "
-            "see a tool listed in the 'available tools (not yet loaded)' index."
+            "Look up a tool by name, enroll it into your persistent working set, and "
+            "activate it for this turn. Returns the full OpenAI function schema AND "
+            "adds the tool to your callable tools for the next iteration, so you can "
+            "invoke it immediately after. The enrollment persists across turns, so you "
+            "won't need to re-fetch the schema next time. Use this when you see a tool "
+            "listed in the 'available tools (not yet loaded)' index."
         ),
         "parameters": {
             "type": "object",
@@ -29,13 +31,17 @@ logger = logging.getLogger(__name__)
             "required": ["tool_name"],
         },
     },
-})
+}, requires_bot_context=True)
 async def get_tool_info(tool_name: str) -> str:
-    """Return the full OpenAI function schema for a tool and activate it for the next loop iteration.
+    """Return the full OpenAI function schema for a tool, enroll it, and activate it.
 
-    The agent loop reads `current_activated_tools` at the top of each iteration and
-    merges any entries into `tools_param`, so a tool looked up via get_tool_info
-    becomes callable on the very next LLM call (not just described to the model).
+    Three effects on success:
+      1. Returns the schema so the LLM can see what args to pass.
+      2. Activates the tool on ``current_activated_tools`` so the next loop
+         iteration gets it merged into ``tools_param`` (callable immediately).
+      3. Enrolls the tool in ``bot_tool_enrollment`` with source='fetched' so
+         future turns see it as pinned in the working set — the bot doesn't
+         need to re-call ``get_tool_info`` for the same tool ever again.
     """
     schema_for_activation: dict | None = None
     response_json: str
@@ -93,6 +99,21 @@ async def get_tool_info(tool_name: str) -> str:
                     logger.info("get_tool_info: activated %r for next iteration", fn_name)
         except Exception:
             logger.exception("get_tool_info: failed to activate %r", tool_name)
+
+    # Enroll into the bot's persistent working set. Mirrors get_skill() — the
+    # act of asking for the schema is a strong "I want this tool" signal, and
+    # relying on the post-call enrollment in loop.py means a failed-args call
+    # or a re-plan keeps the bot stuck re-fetching the same schema every turn.
+    bot_id = current_bot_id.get()
+    if bot_id:
+        try:
+            from app.services.tool_enrollment import enroll as _enroll_tool
+            await _enroll_tool(bot_id, tool_name, source="fetched")
+        except Exception:
+            logger.warning(
+                "Failed to enroll %s into working set for bot %s",
+                tool_name, bot_id, exc_info=True,
+            )
 
     return response_json
 

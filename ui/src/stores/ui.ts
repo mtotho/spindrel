@@ -26,6 +26,15 @@ interface UIState {
   hiddenSidebarSections: string[];
   fileExplorerOpen: boolean;
   fileExplorerSplit: boolean;
+  /** OmniPanel active tab. Persisted so the last-used tab sticks across
+   *  channel navigation. Default = Widgets (the primary reason to open the
+   *  rail). The channel page can flip this to "files" via `requestFilesFocus`
+   *  when the user hits ⌘⇧B or clicks the header's browse-files icon. */
+  omniPanelTab: "widgets" | "files";
+  /** Bumped whenever the user explicitly asks to focus the files tree (e.g.
+   *  ⌘⇧B or the browse-files header button). The FilesTabPanel listens to
+   *  this tick and auto-opens + focuses its filter input. */
+  filesFocusTick: number;
   hudCollapsedChannels: string[];
   /** Channels where the user has explicitly opted to expand the HUD on
    *  mobile. On small viewports the HUD defaults to collapsed; this tracks
@@ -48,6 +57,12 @@ interface UIState {
   toggleFileExplorer: () => void;
   setFileExplorerOpen: (open: boolean) => void;
   toggleFileExplorerSplit: () => void;
+  setOmniPanelTab: (tab: "widgets" | "files") => void;
+  /** Open the OmniPanel, switch to the Files tab, and bump filesFocusTick
+   *  so FilesTabPanel auto-focuses its search filter. Composite action so
+   *  call sites can invoke one thing from a keyboard shortcut / header
+   *  button. */
+  requestFilesFocus: () => void;
   toggleHudCollapsed: (channelId: string) => void;
   toggleHudExpandedOnMobile: (channelId: string) => void;
   recordPageVisit: (href: string) => void;
@@ -64,6 +79,8 @@ export const useUIStore = create<UIState>()(
       hiddenSidebarSections: [],
       fileExplorerOpen: false,
       fileExplorerSplit: false,
+      omniPanelTab: "widgets",
+      filesFocusTick: 0,
       hudCollapsedChannels: [],
       hudExpandedOnMobile: [],
       recentPages: [],
@@ -89,6 +106,13 @@ export const useUIStore = create<UIState>()(
       toggleFileExplorer: () => set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen })),
       setFileExplorerOpen: (open) => set({ fileExplorerOpen: open }),
       toggleFileExplorerSplit: () => set((s) => ({ fileExplorerSplit: !s.fileExplorerSplit })),
+      setOmniPanelTab: (tab) => set({ omniPanelTab: tab }),
+      requestFilesFocus: () =>
+        set((s) => ({
+          fileExplorerOpen: true,
+          omniPanelTab: "files",
+          filesFocusTick: s.filesFocusTick + 1,
+        })),
       toggleHudCollapsed: (channelId) =>
         set((s) => ({
           hudCollapsedChannels: s.hudCollapsedChannels.includes(channelId)
@@ -126,6 +150,7 @@ export const useUIStore = create<UIState>()(
         hiddenSidebarSections: state.hiddenSidebarSections,
         fileExplorerOpen: state.fileExplorerOpen,
         fileExplorerSplit: state.fileExplorerSplit,
+        omniPanelTab: state.omniPanelTab,
         hudCollapsedChannels: state.hudCollapsedChannels,
         hudExpandedOnMobile: state.hudExpandedOnMobile,
         recentPages: state.recentPages,

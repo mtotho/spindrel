@@ -7,7 +7,6 @@ import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { OmniPanel } from "./OmniPanel";
 import { MobileOmniSheet } from "./MobileOmniSheet";
 import { ChannelFileViewer } from "./ChannelFileViewer";
-import { BrowseFilesModal } from "./BrowseFilesModal";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
 import { MessageInput } from "@/src/components/chat/MessageInput";
@@ -303,21 +302,22 @@ export default function ChatScreen() {
   const toggleSplit = useUIStore((s) => s.toggleFileExplorerSplit);
   const fileDirtyRef = useRef(false);
 
-  // Browse-files modal state (full tree lives here, not in the rail)
-  const [browseModalOpen, setBrowseModalOpen] = useState(false);
-  const openBrowseModal = useCallback(() => setBrowseModalOpen(true), []);
-  const closeBrowseModal = useCallback(() => setBrowseModalOpen(false), []);
+  // "Browse files" gesture — opens the OmniPanel on the Files tab and
+  // auto-focuses its filter input. Replaces the old BrowseFilesModal.
+  const requestFilesFocus = useUIStore((s) => s.requestFilesFocus);
+  const openBrowseFiles = useCallback(() => {
+    requestFilesFocus();
+  }, [requestFilesFocus]);
 
   // Keyboard shortcuts for explorer/split/file viewer/browse
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      // Cmd+Shift+B → Browse files modal. Sibling of Cmd+B (toggle rail) — the
-      // rail shows IN CONTEXT, the shifted version opens the full file browser.
+      // Cmd+Shift+B → Browse files (OmniPanel Files tab + focus filter).
       // Check before the plain Cmd+B branch since `e.key` is just "b" either way.
       if (mod && e.shiftKey && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
-        setBrowseModalOpen((v) => !v);
+        requestFilesFocus();
         return;
       }
       if (mod && !e.shiftKey && e.key === "b") {
@@ -330,7 +330,7 @@ export default function ChatScreen() {
         toggleSplit();
         return;
       }
-      if (e.key === "Escape" && activeFile && !browseModalOpen) {
+      if (e.key === "Escape" && activeFile) {
         const tag = (e.target as HTMLElement)?.tagName;
         if (tag !== "INPUT" && tag !== "TEXTAREA") {
           setActiveFile(null);
@@ -339,7 +339,7 @@ export default function ChatScreen() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [toggleExplorer, toggleSplit, activeFile, browseModalOpen]);
+  }, [toggleExplorer, toggleSplit, activeFile, requestFilesFocus]);
 
   // Reset file selection when switching channels
   useEffect(() => {
@@ -431,7 +431,7 @@ export default function ChatScreen() {
         hint: channelLabel,
         icon: FolderOpen,
         category: "This Channel",
-        onSelect: () => setBrowseModalOpen(true),
+        onSelect: () => openBrowseFiles(),
       });
     }
 
@@ -560,7 +560,7 @@ export default function ChatScreen() {
           workspaceId={workspaceId}
           explorerOpen={explorerOpen}
           toggleExplorer={toggleExplorer}
-          onBrowseWorkspace={openBrowseModal}
+          onBrowseWorkspace={openBrowseFiles}
           isMobile={isMobile}
           activeFile={activeFile}
           splitMode={splitMode}
@@ -655,9 +655,11 @@ export default function ChatScreen() {
                 onClose={handleCloseExplorer}
                 channelId={channelId}
                 workspaceId={workspaceId ?? undefined}
+                botId={channel?.bot_id}
+                channelDisplayName={channel?.display_name || channel?.name}
+                channelWorkspaceEnabled={!!workspaceEnabled}
                 activeFile={activeFile}
                 onSelectFile={handleSelectFile}
-                onBrowseFiles={openBrowseModal}
               />
             )}
           </div>
@@ -680,9 +682,11 @@ export default function ChatScreen() {
               <OmniPanel
                 channelId={channelId}
                 workspaceId={workspaceId ?? undefined}
+                botId={channel?.bot_id}
+                channelDisplayName={channel?.display_name || channel?.name}
+                channelWorkspaceEnabled={!!workspaceEnabled}
                 activeFile={activeFile}
                 onSelectFile={handleSelectFile}
-                onBrowseFiles={openBrowseModal}
                 onClose={handleCloseExplorer}
                 width={explorerWidth}
               />
@@ -857,18 +861,6 @@ export default function ChatScreen() {
               total: savedBudget.total_tokens ?? 0,
             } : null
           )}
-        />
-      )}
-      {channelId && !isSystemChannel && (
-        <BrowseFilesModal
-          open={browseModalOpen}
-          channelId={channelId}
-          botId={channel?.bot_id}
-          workspaceId={workspaceId ?? undefined}
-          channelDisplayName={channel?.display_name || channel?.name}
-          channelWorkspaceEnabled={!!workspaceEnabled}
-          onSelectFile={handleSelectFile}
-          onClose={closeBrowseModal}
         />
       )}
     </>

@@ -69,14 +69,14 @@
     }
     // New tool invocation returns a new attachment id; swap the img element
     // so the browser always shows fresh bytes.
-    var nextUrl = "/api/v1/attachments/" + encodeURIComponent(attId);
+    var nextUrl = "/api/v1/attachments/" + encodeURIComponent(attId) + "/file";
     if (nextUrl === currentImgUrl) return;
     currentImgUrl = nextUrl;
 
     var img = document.createElement("img");
     img.alt = cam + " snapshot";
     img.onerror = function () {
-      setError("Image fetch failed (check bot's attachments:read scope)");
+      setError("Image failed to render (attachment bytes were not valid image data)");
     };
     window.spindrel
       .apiFetch(nextUrl, { headers: { Accept: "image/*" } })
