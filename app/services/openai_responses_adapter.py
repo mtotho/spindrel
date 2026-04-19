@@ -187,6 +187,7 @@ class _Message:
     role: str = "assistant"
     content: str | None = None
     tool_calls: list[_ToolCall] | None = None
+    reasoning_content: str | None = None
 
     def model_dump(self, exclude_none: bool = False) -> dict:
         d: dict[str, Any] = {"role": self.role}
@@ -427,6 +428,17 @@ def _build_request_body(
     if "max_tokens" in extra and extra["max_tokens"] is not None and "max_output_tokens" not in body:
         body["max_output_tokens"] = extra["max_tokens"]
 
+    # Every model currently allowed through this adapter (gpt-5-codex, gpt-5,
+    # gpt-5-mini, o4-mini) is a reasoning model. Without an explicit
+    # `reasoning.summary` field Codex omits the summary stream entirely, so
+    # the UI's "thinking" panel stays empty. Default to `auto` so summary
+    # deltas flow through; callers can still override via model_params.
+    reasoning_cfg = body.get("reasoning")
+    if not isinstance(reasoning_cfg, dict):
+        reasoning_cfg = {}
+    reasoning_cfg.setdefault("summary", "auto")
+    body["reasoning"] = reasoning_cfg
+
     return body
 
 
@@ -449,9 +461,14 @@ def _build_usage(usage_obj: dict | None) -> _Usage:
     )
 
 
-def _extract_message_and_tool_calls(output_items: list[dict]) -> tuple[str | None, list[_ToolCall]]:
-    """Walk the Responses output array, collecting text + function_call blocks."""
+def _extract_message_and_tool_calls(
+    output_items: list[dict],
+) -> tuple[str | None, list[_ToolCall], str | None]:
+    """Walk the Responses output array, collecting text + function_call blocks
+    and any reasoning summary text (so non-streaming callers still see the
+    model's thinking)."""
     text_parts: list[str] = []
+    reasoning_parts: list[str] = []
     tool_calls: list[_ToolCall] = []
     for idx, item in enumerate(output_items):
         itype = item.get("type")
@@ -469,8 +486,17 @@ def _extract_message_and_tool_calls(output_items: list[dict]) -> tuple[str | Non
                 ),
                 index=idx,
             ))
+        elif itype == "reasoning":
+            summary_parts = item.get("summary") or []
+            for part in summary_parts:
+                ptype = part.get("type")
+                if ptype in ("summary_text", "reasoning_text"):
+                    t = part.get("text", "")
+                    if t:
+                        reasoning_parts.append(t)
     content = "".join(text_parts) if text_parts else None
-    return content, tool_calls
+    reasoning = "\n\n".join(reasoning_parts) if reasoning_parts else None
+    return content, tool_calls, reasoning
 
 
 def _finish_reason_from_response(resp_obj: dict, tool_calls: list[_ToolCall]) -> str:
@@ -489,8 +515,11 @@ def _finish_reason_from_response(resp_obj: dict, tool_calls: list[_ToolCall]) ->
 
 
 def _response_to_completion(resp_obj: dict) -> _ChatCompletion:
-    content, tool_calls = _extract_message_and_tool_calls(resp_obj.get("output") or [])
-    message = _Message(role="assistant", content=content, tool_calls=tool_calls or None)
+    content, tool_calls, reasoning = _extract_message_and_tool_calls(resp_obj.get("output") or [])
+    message = _Message(
+        role="assistant", content=content, tool_calls=tool_calls or None,
+        reasoning_content=reasoning,
+    )
     return _ChatCompletion(
         id=resp_obj.get("id", ""),
         model=resp_obj.get("model", ""),
@@ -647,6 +676,35 @@ class _ResponsesStreamAdapter:
             if not text:
                 return []
             return [self._make_chunk(delta=_ChoiceDelta(content=text))]
+
+        # Reasoning summary streaming. Codex emits these when the request sets
+        # `reasoning.summary` (we default it to "auto" in _build_request_body).
+        # StreamAccumulator picks up `reasoning_content` and forwards it as a
+        # `thinking` event, driving the channel's thinking display.
+        if evt_type in (
+            "response.reasoning_summary_text.delta",
+            "response.reasoning_text.delta",
+        ):
+            text = payload.get("delta") or ""
+            if not text:
+                return []
+            # Codex splits summary text across multiple parts; insert a blank
+            # line between parts so paragraphs don't jam together in the
+            # thinking display. Prepend on the first delta of each non-first
+            # part (signalled by `summary_part.added`).
+            prefix = ""
+            if getattr(self, "_reasoning_awaiting_part_text", False):
+                prefix = "\n\n"
+                self._reasoning_awaiting_part_text = False
+            self._reasoning_any_text_emitted = True
+            return [self._make_chunk(delta=_ChoiceDelta(reasoning_content=prefix + text))]
+
+        if evt_type == "response.reasoning_summary_part.added":
+            # Next `.delta` begins a new summary part. Prepend a separator
+            # only if a previous part already emitted text for this response.
+            if getattr(self, "_reasoning_any_text_emitted", False):
+                self._reasoning_awaiting_part_text = True
+            return []
 
         if evt_type == "response.output_item.added":
             item = payload.get("item") or {}

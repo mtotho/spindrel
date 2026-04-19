@@ -368,207 +368,225 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
         <div
           style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "flex-end",
-            gap: isMobile ? 4 : 10,
-            padding: isMobile ? "6px 8px" : "14px 20px",
+            padding: isMobile ? "6px 8px 8px" : "10px 16px 14px",
           }}
         >
-          <ComposerAddMenu
-            channelId={channelId}
-            botId={currentBotId}
-            composerText={text}
-            onInsertSkillTag={(skillId) => {
-              editorRef.current?.insertMention(`skill:${skillId}`);
-            }}
-            onAttachFiles={(files) => handleFileSelect(files)}
-            disabled={disabled || recorder.isRecording}
-            isMobile={isMobile}
-          />
-
-          {/* Editor wrapper */}
+          {/* One card. Editor on top (flat — no inner border/bg), actions on bottom. */}
           <div
             ref={editorWrapperRef}
             onFocusCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.boxShadow = `inset 0 0 0 1px ${t.overlayBorder}`; }}
             onBlurCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.boxShadow = `inset 0 0 0 1px ${t.overlayLight}`; }}
             style={{
-              flex: 1,
-              minWidth: 0,
-              minHeight: isMobile ? 44 : 56,
-              maxHeight: 280,
+              display: "flex",
+              flexDirection: "column",
               background: t.surfaceRaised,
-              borderRadius: 16,
-              border: "none",
+              borderRadius: 20,
               boxShadow: `inset 0 0 0 1px ${t.overlayLight}`,
               overflow: "hidden",
-              display: "flex", flexDirection: "row",
+              transition: "box-shadow 0.15s",
             }}
           >
-            {recorder.isRecording ? (
-              <RecordingOverlay
-                durationMs={recorder.durationMs}
-                onCancel={recorder.cancelRecording}
-                isMobile={isMobile}
-              />
-            ) : (
-              <TiptapChatInput
-                ref={editorRef}
-                key={channelId}
-                text={text}
-                onTextChange={setText}
-                onSubmit={handleSend}
-                onImagePaste={handleImagePaste}
-                onSlashCommand={onSlashCommand}
-                disabled={disabled}
-                autoFocus={!isMobile}
-                isMobile={isMobile}
-                currentBotId={currentBotId}
-                isMultiBot={isMultiBot}
-              />
-            )}
-          </div>
-
-          {/* Inline model pill — desktop only. Always visible showing the current
-              effective model; clicking opens the LlmModelDropdown portal. Purple
-              accent only when a per-turn override is active. */}
-          {onModelOverrideChange && !isMobile && (() => {
-            const hasOverride = !!modelOverride;
-            const effectiveName = modelOverride
-              ? modelOverride.split("/").pop()
-              : defaultModel?.split("/").pop();
-            const canRenderPill = !!effectiveName;
-            return (
-              <div ref={modelPickerRef} style={{ position: "relative", display: "flex", flexDirection: "row", alignItems: "center" }}>
-                {canRenderPill ? (
-                  <div
-                    style={{
-                      display: "flex", flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                      background: hasOverride ? t.purpleSubtle : "transparent",
-                      border: `1px solid ${hasOverride ? t.purpleBorder : t.overlayLight}`,
-                      borderRadius: 8,
-                      padding: "5px 10px",
-                      fontSize: 11,
-                      color: hasOverride ? t.purple : t.textMuted,
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                      maxWidth: 200,
-                      height: 32,
-                    }}
-                    onClick={() => setShowModelPicker(true)}
-                    title={hasOverride ? `Per-turn override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName}`}
-                  >
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {effectiveName}
-                    </span>
-                    {hasOverride && (
-                      <>
-                        <span style={{ fontSize: 9, opacity: 0.7 }}>1 msg</span>
-                        <span
-                          onClick={(e) => { e.stopPropagation(); onModelOverrideChange(undefined, null); }}
-                          style={{ marginLeft: 2, cursor: "pointer", fontSize: 12, lineHeight: 1 }}
-                        >
-                          ✕
-                        </span>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <button
-                    className="input-action-btn"
-                    onClick={() => setShowModelPicker(true)}
-                    style={{ width: 44, height: 44, opacity: 0.6 }}
-                    title="Select model for this message"
-                  >
-                    <span style={{ fontSize: 11, color: t.textDim }}>model</span>
-                  </button>
-                )}
-                {showModelPicker && (() => {
-                  const rect = modelPickerRef.current?.getBoundingClientRect();
-                  const dropdownRight = rect ? window.innerWidth - rect.right : 16;
-                  const dropdownBottom = rect ? window.innerHeight - rect.top + 8 : 80;
-                  return createPortal(
-                    <>
-                      <div
-                        onClick={() => setShowModelPicker(false)}
-                        style={{ position: "fixed", inset: 0, zIndex: 50000 }}
-                      />
-                      <div style={{ position: "fixed", bottom: dropdownBottom, right: dropdownRight, zIndex: 50001, width: 320 }}>
-                        <LlmModelDropdown
-                          value={modelOverride ?? ""}
-                          selectedProviderId={modelProviderIdOverride}
-                          onChange={(m: string, pid?: string | null) => {
-                            onModelOverrideChange(m || undefined, pid);
-                            setShowModelPicker(false);
-                          }}
-                          placeholder={defaultModel ? `inherit (${defaultModel})` : "Select model..."}
-                          allowClear
-                          anchor="top"
-                        />
-                      </div>
-                    </>,
-                    document.body
-                  );
-                })()}
-              </div>
-            );
-          })()}
-          {/* Config overhead indicator — desktop only, visible only when overhead is meaningful.
-              Below 20% the bar was rendering as a phantom hairline between the model picker
-              and mic, so the threshold matches the band where the color/opacity actually changes. */}
-          {!isMobile && configOverhead != null && configOverhead >= 0.2 && (
-            <button
-              onClick={onConfigOverheadClick}
-              title={`Config overhead: ${Math.round(configOverhead * 100)}% of context window used by tools, skills, and prompts`}
+            {/* Editor area — no own border/background; inherits the card. */}
+            <div
               style={{
-                width: 4, height: 24, flexShrink: 0, borderRadius: 2,
-                border: "none", padding: 0, cursor: "pointer",
-                backgroundColor: configOverhead > 0.4 ? "#ef4444" : "#eab308",
-                opacity: 0.9,
-                transition: "background-color 0.3s, opacity 0.3s",
+                minHeight: isMobile ? 40 : 60,
+                maxHeight: 260,
+                padding: isMobile ? "8px 12px 4px" : "12px 16px 4px",
+                overflow: "hidden",
+                display: "flex",
+                flexDirection: "row",
               }}
-            />
-          )}
-          {/* Send / Stop / Mic button */}
-          <button
-            className="send-btn"
-            onClick={
-              (showStop && stopArmed) ? () => { tapHaptic(12); onCancel?.(); }
-              : recorder.isRecording ? handleMicToggle
-              : showMic ? handleMicToggle
-              : showStop ? undefined  // visible but not armed yet
-              : handleSend
-            }
-            disabled={!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording}
-            style={{
-              display: "flex", flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 44,
-              height: 44,
-              flexShrink: 0,
-              borderRadius: 12,
-              border: "none",
-              padding: 0,
-              cursor: (!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording) ? "default" : "pointer",
-              background: (canSend && !showStop && !recorder.isRecording) ? `linear-gradient(135deg, ${t.accent}, ${t.purple})` : undefined,
-              backgroundColor: (canSend && !showStop && !recorder.isRecording) ? undefined : sendBtnBg,
-              opacity: (showStop && !stopArmed) ? 0.4 : sendBtnOpacity,
-              transition: "background-color 0.15s, opacity 0.15s",
-            }}
-          >
-            {showStop ? (
-              <Square size={16} color="white" fill="white" />
-            ) : recorder.isRecording ? (
-              <Send size={isMobile ? 16 : 18} color="white" />
-            ) : showMic ? (
-              <Mic size={isMobile ? 16 : 18} color={t.textDim} />
-            ) : (
-              <Send size={isMobile ? 16 : 18} color={canSend ? "white" : t.textDim} />
-            )}
-          </button>
+            >
+              {recorder.isRecording ? (
+                <RecordingOverlay
+                  durationMs={recorder.durationMs}
+                  onCancel={recorder.cancelRecording}
+                  isMobile={isMobile}
+                />
+              ) : (
+                <TiptapChatInput
+                  ref={editorRef}
+                  key={channelId}
+                  text={text}
+                  onTextChange={setText}
+                  onSubmit={handleSend}
+                  onImagePaste={handleImagePaste}
+                  onSlashCommand={onSlashCommand}
+                  disabled={disabled}
+                  autoFocus={!isMobile}
+                  isMobile={isMobile}
+                  currentBotId={currentBotId}
+                  isMultiBot={isMultiBot}
+                />
+              )}
+            </div>
+
+            {/* Action row — attached to the bottom of the card. */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                padding: isMobile ? "4px 6px 4px" : "4px 8px 6px",
+              }}
+            >
+              <ComposerAddMenu
+                channelId={channelId}
+                botId={currentBotId}
+                composerText={text}
+                onInsertSkillTag={(skillId) => {
+                  editorRef.current?.insertMention(`skill:${skillId}`);
+                }}
+                onAttachFiles={(files) => handleFileSelect(files)}
+                disabled={disabled || recorder.isRecording}
+                isMobile={isMobile}
+              />
+
+              <div style={{ flex: 1 }} />
+
+              {/* Config overhead indicator — desktop only. Tucks before the model pill. */}
+              {!isMobile && configOverhead != null && configOverhead >= 0.2 && (
+                <button
+                  onClick={onConfigOverheadClick}
+                  title={`Config overhead: ${Math.round(configOverhead * 100)}% of context window used by tools, skills, and prompts`}
+                  style={{
+                    width: 4, height: 20, flexShrink: 0, borderRadius: 2,
+                    border: "none", padding: 0, cursor: "pointer",
+                    backgroundColor: configOverhead > 0.4 ? "#ef4444" : "#eab308",
+                    opacity: 0.9,
+                    transition: "background-color 0.3s, opacity 0.3s",
+                  }}
+                />
+              )}
+
+              {/* Inline model pill — desktop only. Always visible showing the current
+                  effective model; clicking opens the LlmModelDropdown portal. Purple
+                  accent only when a per-turn override is active. */}
+              {onModelOverrideChange && !isMobile && (() => {
+                const hasOverride = !!modelOverride;
+                const effectiveName = modelOverride
+                  ? modelOverride.split("/").pop()
+                  : defaultModel?.split("/").pop();
+                const canRenderPill = !!effectiveName;
+                return (
+                  <div ref={modelPickerRef} style={{ position: "relative", display: "flex", flexDirection: "row", alignItems: "center" }}>
+                    {canRenderPill ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowModelPicker(true)}
+                        title={hasOverride ? `Per-turn override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName}`}
+                        style={{
+                          display: "flex", flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                          background: hasOverride ? t.purpleSubtle : "transparent",
+                          border: `1px solid ${hasOverride ? t.purpleBorder : "transparent"}`,
+                          borderRadius: 8,
+                          padding: "4px 8px",
+                          fontSize: 11,
+                          color: hasOverride ? t.purple : t.textMuted,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                          maxWidth: 200,
+                        }}
+                      >
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {effectiveName}
+                        </span>
+                        {hasOverride && (
+                          <>
+                            <span style={{ fontSize: 9, opacity: 0.7 }}>1 msg</span>
+                            <span
+                              onClick={(e) => { e.stopPropagation(); onModelOverrideChange(undefined, null); }}
+                              style={{ marginLeft: 2, cursor: "pointer", fontSize: 12, lineHeight: 1 }}
+                            >
+                              ✕
+                            </span>
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <button
+                        className="input-action-btn"
+                        onClick={() => setShowModelPicker(true)}
+                        style={{ width: 32, height: 32, opacity: 0.6 }}
+                        title="Select model for this message"
+                      >
+                        <span style={{ fontSize: 11, color: t.textDim }}>model</span>
+                      </button>
+                    )}
+                    {showModelPicker && (() => {
+                      const rect = modelPickerRef.current?.getBoundingClientRect();
+                      const dropdownRight = rect ? window.innerWidth - rect.right : 16;
+                      const dropdownBottom = rect ? window.innerHeight - rect.top + 8 : 80;
+                      return createPortal(
+                        <>
+                          <div
+                            onClick={() => setShowModelPicker(false)}
+                            style={{ position: "fixed", inset: 0, zIndex: 50000 }}
+                          />
+                          <div style={{ position: "fixed", bottom: dropdownBottom, right: dropdownRight, zIndex: 50001, width: 320 }}>
+                            <LlmModelDropdown
+                              value={modelOverride ?? ""}
+                              selectedProviderId={modelProviderIdOverride}
+                              onChange={(m: string, pid?: string | null) => {
+                                onModelOverrideChange(m || undefined, pid);
+                                setShowModelPicker(false);
+                              }}
+                              placeholder={defaultModel ? `inherit (${defaultModel})` : "Select model..."}
+                              allowClear
+                              anchor="top"
+                            />
+                          </div>
+                        </>,
+                        document.body
+                      );
+                    })()}
+                  </div>
+                );
+              })()}
+
+              {/* Send / Stop / Mic button */}
+              <button
+                className="send-btn"
+                onClick={
+                  (showStop && stopArmed) ? () => { tapHaptic(12); onCancel?.(); }
+                  : recorder.isRecording ? handleMicToggle
+                  : showMic ? handleMicToggle
+                  : showStop ? undefined
+                  : handleSend
+                }
+                disabled={!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording}
+                style={{
+                  display: "flex", flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 36,
+                  height: 36,
+                  flexShrink: 0,
+                  borderRadius: 10,
+                  border: "none",
+                  padding: 0,
+                  cursor: (!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording) ? "default" : "pointer",
+                  background: (canSend && !showStop && !recorder.isRecording) ? `linear-gradient(135deg, ${t.accent}, ${t.purple})` : undefined,
+                  backgroundColor: (canSend && !showStop && !recorder.isRecording) ? undefined : sendBtnBg,
+                  opacity: (showStop && !stopArmed) ? 0.4 : sendBtnOpacity,
+                  transition: "background-color 0.15s, opacity 0.15s",
+                }}
+              >
+                {showStop ? (
+                  <Square size={14} color="white" fill="white" />
+                ) : recorder.isRecording ? (
+                  <Send size={isMobile ? 14 : 16} color="white" />
+                ) : showMic ? (
+                  <Mic size={isMobile ? 14 : 16} color={t.textDim} />
+                ) : (
+                  <Send size={isMobile ? 14 : 16} color={canSend ? "white" : t.textDim} />
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );

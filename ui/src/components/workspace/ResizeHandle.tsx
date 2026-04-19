@@ -4,9 +4,12 @@ import { useThemeTokens } from "../../theme/tokens";
 interface ResizeHandleProps {
   direction: "horizontal" | "vertical";
   onResize: (delta: number) => void;
+  /** Hide the 1px divider entirely — still grabs drag events.
+   *  Use when the surrounding panels already visually separate themselves. */
+  invisible?: boolean;
 }
 
-export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
+export function ResizeHandle({ direction, onResize, invisible = false }: ResizeHandleProps) {
   const t = useThemeTokens();
   const dragging = useRef(false);
   const lastPos = useRef(0);
@@ -106,7 +109,9 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
           [isHorizontal ? "left" : "top"]: 4,
           [isHorizontal ? "width" : "height"]: 1,
           [isHorizontal ? "height" : "width"]: "100%",
-          background: hovered ? t.accent : t.surfaceBorder,
+          background: invisible
+            ? (hovered ? `${t.accent}55` : "transparent")
+            : (hovered ? t.accent : t.surfaceBorder),
           top: isHorizontal ? 0 : undefined,
           left: isHorizontal ? undefined : 0,
           transition: "background 0.15s ease, width 0.15s ease, height 0.15s ease",

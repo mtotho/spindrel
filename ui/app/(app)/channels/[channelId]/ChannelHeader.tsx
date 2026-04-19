@@ -2,13 +2,21 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Settings, Menu, ArrowLeft, Hash, FolderOpen, LayoutDashboard,
-  PanelLeft, Columns2, Users, Wrench, Cog, PanelRight,
+  PanelLeft, Columns2, Users, Wrench, Cog, PanelRight, Plug,
+  MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
 import { useUIStore } from "@/src/stores/ui";
 import { ContextChip } from "@/src/components/chat/ContextChip";
+import { useActivatableIntegrations, useChannel } from "@/src/api/hooks/useChannels";
+import { useIntegrationIcons } from "@/src/api/hooks/useIntegrations";
+import { prettyIntegrationName } from "@/src/utils/format";
 import { ChannelHeaderOverflowMenu, type OverflowItem } from "./ChannelHeaderOverflowMenu";
+
+const INTEGRATION_ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
+  MessageSquare, Code2, Mail, Camera, LayoutDashboard, Tv, Terminal, MessageCircle, Plug,
+};
 
 export interface ChannelHeaderProps {
   channelId: string;
@@ -16,9 +24,7 @@ export interface ChannelHeaderProps {
   bot: { id?: string; name?: string; model?: string } | undefined;
   channelModelOverride: string | undefined;
   columns: "single" | "double" | "triple";
-  showHamburger: boolean;
   goBack: () => void;
-  toggleSidebar: () => void;
   /** Workspace feature flags */
   workspaceEnabled: boolean | undefined;
   workspaceId: string | null | undefined;
@@ -50,11 +56,8 @@ export function ChannelHeader({
   channelId,
   displayName,
   bot,
-  channelModelOverride,
   columns,
-  showHamburger,
   goBack,
-  toggleSidebar,
   workspaceEnabled,
   workspaceId,
   explorerOpen,
@@ -79,13 +82,29 @@ export function ChannelHeader({
   const openPalette = useUIStore((s) => s.openPalette);
   const [compact, setCompact] = useToolResultCompact(channelId);
 
+  const { data: channelData } = useChannel(channelId);
+  const { data: activatable } = useActivatableIntegrations(channelId);
+  const { data: iconsData } = useIntegrationIcons();
+  const integrationIconNames = iconsData?.icons ?? {};
+
+  const activeIntegrations = (activatable ?? []).filter((ig) => ig.activated);
+  const activeTypes = new Set(activeIntegrations.map((ig) => ig.integration_type));
+  const boundOnly = (channelData?.integrations ?? []).filter(
+    (b) => !activeTypes.has(b.integration_type),
+  );
+
   const fmtTokens = (n: number) => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
     if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
     return String(n);
   };
 
-  const modelShort = (channelModelOverride || bot?.model || "").split("/").pop();
+  const resolveIntegrationIcon = (integrationType: string) => {
+    const name = integrationIconNames[integrationType];
+    return (name && INTEGRATION_ICON_MAP[name]) || Plug;
+  };
+
+  void columns;
 
   // Overflow items — driven off the same state the removed inline buttons used.
   const overflowItems: OverflowItem[] = [
@@ -162,10 +181,6 @@ export function ChannelHeader({
         <button className="header-icon-btn" style={{ width: 36, height: 36 }} onClick={goBack} title="Back">
           <ArrowLeft size={18} color={t.textMuted} />
         </button>
-      ) : showHamburger ? (
-        <button className="header-icon-btn" style={{ width: 36, height: 36 }} onClick={toggleSidebar} title="Toggle sidebar">
-          <Menu size={18} color={t.textMuted} />
-        </button>
       ) : null}
 
       {isSystemChannel ? (
@@ -177,7 +192,7 @@ export function ChannelHeader({
       <div
         style={{ flex: 1, minWidth: 0, padding: isMobile ? "6px 0" : "6px 0", cursor: isMobile && !isSystemChannel && bot ? "pointer" : undefined }}
         onClick={isMobile && !isSystemChannel && bot ? onContextBudgetClick : undefined}
-        title={isMobile && !isSystemChannel && bot ? `${bot.name}${modelShort ? ` · ${modelShort}` : ""}` : undefined}
+        title={isMobile && !isSystemChannel && bot ? bot.name : undefined}
       >
         <div className="flex flex-row items-center gap-2 min-w-0">
           <span style={{ fontSize: 15, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -222,11 +237,43 @@ export function ChannelHeader({
             >
               {bot.name}
             </a>
-            {modelShort && (
-              <span style={{ fontSize: 11, color: t.textDim, flexShrink: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {modelShort}
+
+            {/* Inline integration dots — subtle; replaces the vertical ActiveBadgeBar.
+                Activated integrations use the theme success dot; bound-only dim. */}
+            {(activeIntegrations.length > 0 || boundOnly.length > 0) && (
+              <span className="flex flex-row items-center gap-1 shrink-0">
+                {activeIntegrations.map((ig) => {
+                  const Icon = resolveIntegrationIcon(ig.integration_type);
+                  return (
+                    <button
+                      key={`a-${ig.integration_type}`}
+                      onClick={() => navigate(`/channels/${channelId}/settings#integrations`)}
+                      title={`${prettyIntegrationName(ig.integration_type)} — active`}
+                      className="flex flex-row items-center gap-0.5 bg-transparent border-none cursor-pointer p-0"
+                    >
+                      <Icon size={10} color={t.textDim} />
+                      <span
+                        style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: t.success, display: "inline-block" }}
+                      />
+                    </button>
+                  );
+                })}
+                {boundOnly.map((b) => {
+                  const Icon = resolveIntegrationIcon(b.integration_type);
+                  return (
+                    <button
+                      key={`b-${b.id}`}
+                      onClick={() => navigate(`/channels/${channelId}/settings#integrations`)}
+                      title={`${prettyIntegrationName(b.integration_type)} — bound`}
+                      className="flex flex-row items-center bg-transparent border-none cursor-pointer p-0 opacity-50"
+                    >
+                      <Icon size={10} color={t.textDim} />
+                    </button>
+                  );
+                })}
               </span>
             )}
+
             {contextBudget && contextBudget.total > 0 && (
               <span
                 onClick={onContextBudgetClick}

@@ -165,6 +165,16 @@ export default function ChatScreen() {
     if (channelId) markRead(channelId);
   }, [channelId]);
 
+  // Auto-collapse the global sidebar to its rail whenever the user enters a
+  // chat. Maximises horizontal room for the centered chat column; the rail's
+  // own toggle still lets the user re-expand per session.
+  useEffect(() => {
+    if (channelId && columns !== "single" && !sidebarCollapsed) {
+      useUIStore.setState({ sidebarCollapsed: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelId]);
+
   const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
   const loc = useLocation();
   useEffect(() => {
@@ -557,9 +567,7 @@ export default function ChatScreen() {
           bot={bot}
           channelModelOverride={channel?.model_override ?? undefined}
           columns={columns}
-          showHamburger={showHamburger}
           goBack={goBack}
-          toggleSidebar={toggleSidebar}
           workspaceEnabled={workspaceEnabled}
           workspaceId={workspaceId}
           explorerOpen={explorerOpen}
@@ -585,7 +593,9 @@ export default function ChatScreen() {
           toggleFindingsPanel={isSystemChannel ? () => setFindingsPanelOpen((p) => !p) : undefined}
           findingsCount={isSystemChannel ? findingsCount : 0}
         />
-        {channelId && <ActiveBadgeBar channelId={channelId} compact={isMobile} />}
+        {/* Desktop: integration dots inlined into ChannelHeader subtitle.
+            Mobile: retain the compact scrolling bar (no subtitle row to inline into). */}
+        {channelId && isMobile && <ActiveBadgeBar channelId={channelId} compact />}
       </div>
 
       {statusStrips.length > 0 && (
@@ -683,9 +693,9 @@ export default function ChatScreen() {
               Outer padding (pl-1.5 py-1.5) creates the 6px floating-card gap. */}
           {channelId && !isSystemChannel && (
             <div
-              className="pl-1.5 py-1.5"
+              className="pl-2.5 py-2.5"
               style={{
-                width: showExplorer ? explorerWidth + 6 : 0,
+                width: showExplorer ? explorerWidth + 10 : 0,
                 overflow: "hidden",
                 transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
                 flexShrink: 0,
@@ -708,6 +718,7 @@ export default function ChatScreen() {
             <ResizeHandle
               direction="horizontal"
               onResize={(delta) => setExplorerWidth(explorerWidth + delta)}
+              invisible
             />
           )}
 

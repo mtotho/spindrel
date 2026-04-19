@@ -265,6 +265,33 @@ class TestBuildRequestBody:
         assert body["tools"][0]["name"] == "f"
         assert body["tool_choice"] == "auto"
 
+    def test_reasoning_summary_defaults_to_auto(self):
+        # Without `reasoning.summary` the Codex endpoint omits summary stream
+        # events entirely — the UI's thinking display would stay empty. The
+        # adapter defaults it so every request opts in.
+        body = _build_request_body(
+            model="gpt-5", messages=[{"role": "user", "content": "hi"}],
+            tools=None, tool_choice=None, stream=True, extra={},
+        )
+        assert body["reasoning"]["summary"] == "auto"
+
+    def test_caller_reasoning_config_wins_but_summary_still_filled(self):
+        body = _build_request_body(
+            model="gpt-5", messages=[{"role": "user", "content": "hi"}],
+            tools=None, tool_choice=None, stream=True,
+            extra={"reasoning": {"effort": "high"}},
+        )
+        assert body["reasoning"]["effort"] == "high"
+        assert body["reasoning"]["summary"] == "auto"
+
+    def test_caller_reasoning_summary_override(self):
+        body = _build_request_body(
+            model="gpt-5", messages=[{"role": "user", "content": "hi"}],
+            tools=None, tool_choice=None, stream=True,
+            extra={"reasoning": {"summary": "detailed"}},
+        )
+        assert body["reasoning"]["summary"] == "detailed"
+
 
 # ---------------------------------------------------------------------------
 # Response translation
@@ -325,6 +352,31 @@ class TestResponseToCompletion:
         }
         comp = _response_to_completion(resp)
         assert comp.choices[0].finish_reason == "length"
+
+    def test_reasoning_summary_surfaces_as_reasoning_content(self):
+        resp = {
+            "id": "r", "model": "gpt-5", "status": "completed",
+            "output": [
+                {
+                    "type": "reasoning",
+                    "summary": [
+                        {"type": "summary_text", "text": "First I considered X."},
+                        {"type": "summary_text", "text": "Then I settled on Y."},
+                    ],
+                },
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Answer"}],
+                },
+            ],
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+        comp = _response_to_completion(resp)
+        assert comp.choices[0].message.content == "Answer"
+        assert comp.choices[0].message.reasoning_content == (
+            "First I considered X.\n\nThen I settled on Y."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +463,55 @@ class TestStreaming:
                 finish = chunk.choices[0].finish_reason
         assert "".join(deltas) == "hello"
         assert finish == "stop"
+
+    @pytest.mark.asyncio
+    async def test_reasoning_summary_deltas_become_reasoning_content(self):
+        # Codex streams reasoning summaries when the request sets
+        # `reasoning.summary=auto`. StreamAccumulator picks `reasoning_content`
+        # off the delta and converts it into `thinking` events — this test
+        # pins the adapter's side of that contract, plus the part-boundary
+        # separator so multi-part summaries don't jam together.
+        lines: list[str] = []
+        lines += _event("response.created", {"type": "response.created", "response": {"id": "r1"}})
+        lines += _event(
+            "response.reasoning_summary_part.added",
+            {"type": "response.reasoning_summary_part.added", "part": {}},
+        )
+        lines += _event(
+            "response.reasoning_summary_text.delta",
+            {"type": "response.reasoning_summary_text.delta", "delta": "thinking..."},
+        )
+        lines += _event(
+            "response.reasoning_summary_part.added",
+            {"type": "response.reasoning_summary_part.added", "part": {}},
+        )
+        lines += _event(
+            "response.reasoning_summary_text.delta",
+            {"type": "response.reasoning_summary_text.delta", "delta": "next idea"},
+        )
+        lines += _event(
+            "response.output_text.delta",
+            {"type": "response.output_text.delta", "delta": "answer"},
+        )
+        lines += _event(
+            "response.completed",
+            {"type": "response.completed", "response": {"id": "r1"}},
+        )
+        fake = _FakeStreamResponse(lines)
+        adapter = _ResponsesStreamAdapter(fake, model="gpt-5")
+
+        reasoning_parts: list[str] = []
+        content_parts: list[str] = []
+        async for chunk in adapter:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta.reasoning_content:
+                reasoning_parts.append(delta.reasoning_content)
+            if delta.content:
+                content_parts.append(delta.content)
+        assert "".join(content_parts) == "answer"
+        assert "".join(reasoning_parts) == "thinking...\n\nnext idea"
 
     @pytest.mark.asyncio
     async def test_tool_call_streaming_accumulates_arguments(self):
