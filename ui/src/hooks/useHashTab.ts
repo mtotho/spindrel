@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "react-router-dom";
 
 /**
@@ -6,6 +6,11 @@ import { useLocation } from "react-router-dom";
  *
  * @param defaultTab  - tab to use when no hash is present
  * @param validTabs   - optional allowlist; invalid hashes fall back to defaultTab
+ *
+ * Note: `validTabs` is read via ref so callers can pass a freshly-allocated
+ * array each render (e.g. `ALL_TABS.map(t => t.key)`) without thrashing the
+ * `parseHash` identity — otherwise the sync effect re-fires on every render
+ * and overwrites the user's click with the stale react-router hash value.
  */
 export function useHashTab<T extends string>(
   defaultTab: T,
@@ -13,14 +18,18 @@ export function useHashTab<T extends string>(
 ): [T, (tab: T) => void] {
   const location = useLocation();
 
+  const validTabsRef = useRef(validTabs);
+  validTabsRef.current = validTabs;
+
   const parseHash = useCallback(
     (hash: string): T => {
       const raw = decodeURIComponent(hash.replace(/^#/, ""));
       if (!raw) return defaultTab;
-      if (validTabs && !validTabs.includes(raw as T)) return defaultTab;
+      const allowlist = validTabsRef.current;
+      if (allowlist && !allowlist.includes(raw as T)) return defaultTab;
       return raw as T;
     },
-    [defaultTab, validTabs],
+    [defaultTab],
   );
 
   const [tab, setTabState] = useState<T>(() => parseHash(window.location.hash));

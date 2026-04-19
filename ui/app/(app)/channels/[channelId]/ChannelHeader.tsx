@@ -8,7 +8,6 @@ import {
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
 import { useUIStore } from "@/src/stores/ui";
-import { ContextChip } from "@/src/components/chat/ContextChip";
 import { useActivatableIntegrations, useChannel } from "@/src/api/hooks/useChannels";
 import { useIntegrationIcons } from "@/src/api/hooks/useIntegrations";
 import { prettyIntegrationName } from "@/src/utils/format";
@@ -170,7 +169,7 @@ export function ChannelHeader({
         backgroundColor: "transparent",
         flexShrink: 0,
         zIndex: 10,
-        minHeight: isMobile ? 48 : 44,
+        minHeight: isMobile ? 56 : 52,
       }}
     >
       {isMobile ? (
@@ -311,18 +310,6 @@ export function ChannelHeader({
         >
           <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
         </button>
-      )}
-
-      {/* Mobile skills indicator — view-only; desktop surfaces skills inside the + composer menu. */}
-      {isMobile && channelId && (
-        <ContextChip
-          channelId={channelId}
-          botId={bot?.id}
-          size={44}
-          hideWhenEmpty
-          compact
-          placement="below"
-        />
       )}
 
       {/* Overflow — secondary actions. */}
