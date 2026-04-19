@@ -200,8 +200,15 @@ function spindrelBootstrap(
 // `_build_html_widget_body`. We snapshot-extract the JSON so refreshes can
 // postMessage-equivalent push fresh data into a live iframe without
 // rebuilding srcDoc.
+//
+// The regex must match the FULL preamble script tag (opening through
+// closing), not just the `window.spindrel.toolResult = ...` assignment.
+// Earlier we only matched from the assignment, which left an orphan
+// `<script>window.spindrel = window.spindrel || {};` in the body — the
+// browser saw an unclosed script and parsed the following HTML as JS,
+// blowing up with "Unexpected token '<'" at line 2:1.
 const TOOL_RESULT_PREAMBLE_RE =
-  /window\.spindrel\.toolResult\s*=\s*([\s\S]+?);<\/script>/;
+  /<script>\s*window\.spindrel\s*=\s*window\.spindrel\s*\|\|\s*\{\};\s*window\.spindrel\.toolResult\s*=\s*([\s\S]+?);\s*<\/script>/;
 
 function extractToolResultFromBody(body: string): unknown | undefined {
   const match = TOOL_RESULT_PREAMBLE_RE.exec(body);

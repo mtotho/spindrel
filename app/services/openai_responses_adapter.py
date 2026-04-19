@@ -91,6 +91,38 @@ def _raise_for_httpx(resp: httpx.Response) -> None:
     raise _exc_for_status(resp.status_code, msg, resp, body)
 
 
+def _log_error_body(request_body: dict, status_code: int, response_body: Any) -> None:
+    """On 4xx, log the exact request the Codex endpoint rejected.
+
+    The rejection message sometimes names a model different from the one in
+    the request (observed with stale fallback chains pointing at providers
+    that no longer resolve), so we log both to make the mismatch obvious.
+    """
+    if status_code < 400:
+        return
+    try:
+        tools = request_body.get("tools") or []
+        summary = {
+            "model": request_body.get("model"),
+            "stream": request_body.get("stream"),
+            "store": request_body.get("store"),
+            "instructions_len": len(request_body.get("instructions") or ""),
+            "input_items": len(request_body.get("input") or []),
+            "tool_count": len(tools),
+            "tool_names": [t.get("name") for t in tools if isinstance(t, dict)][:20],
+            "has_tool_choice": "tool_choice" in request_body,
+        }
+        logger.warning(
+            "Responses API %s rejected request — sent %s, response body: %s",
+            status_code,
+            json.dumps(summary),
+            (response_body if isinstance(response_body, str) else json.dumps(response_body))[:500],
+        )
+    except Exception:
+        # Logging must never mask the original exception.
+        logger.warning("Responses API %s rejected request (summary unavailable)", status_code)
+
+
 # ---------------------------------------------------------------------------
 # Lightweight dataclass shims that mimic openai response objects
 # ---------------------------------------------------------------------------
@@ -502,6 +534,7 @@ class _ResponsesStreamAdapter:
                     parsed = text.decode("utf-8", errors="replace")
             finally:
                 await response.aclose()
+            _log_error_body(body, response.status_code, parsed)
             msg = f"Responses API returned {response.status_code}: {parsed if isinstance(parsed, str) else json.dumps(parsed)[:500]}"
             raise _exc_for_status(response.status_code, msg, response, parsed)
         return cls(response, model)
@@ -705,6 +738,12 @@ class _Completions:
         except httpx.RequestError as exc:
             raise openai.APIConnectionError(message=str(exc), request=getattr(exc, "request", None)) from exc  # type: ignore[arg-type]
 
+        if not resp.is_success:
+            try:
+                err_body = resp.json()
+            except (json.JSONDecodeError, ValueError):
+                err_body = resp.text
+            _log_error_body(body, resp.status_code, err_body)
         _raise_for_httpx(resp)
         try:
             data = resp.json()

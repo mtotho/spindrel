@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Trash2, X } from "lucide-react";
-import { useDashboardsStore, type Dashboard } from "@/src/stores/dashboards";
+import {
+  useDashboardsStore,
+  isChannelSlug,
+  type Dashboard,
+} from "@/src/stores/dashboards";
+import { apiFetch } from "@/src/api/client";
 import { IconPicker } from "@/src/components/IconPicker";
 import {
   GRID_PRESETS,
@@ -19,11 +24,40 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   const list = useDashboardsStore((s) => s.list);
   const update = useDashboardsStore((s) => s.update);
   const remove = useDashboardsStore((s) => s.remove);
+  const isChannel = slug ? isChannelSlug(slug) : false;
 
-  const dashboard: Dashboard | null = useMemo(
-    () => (slug ? list.find((d) => d.slug === slug) ?? null : null),
-    [slug, list],
-  );
+  // Channel dashboards aren't in the user-scope list that hydrate() fetches —
+  // they lazy-create on first read. If we can't find the row in the store,
+  // fetch it directly for channel slugs so the drawer can still open.
+  const [fetchedChannel, setFetchedChannel] = useState<Dashboard | null>(null);
+  const [channelFetchError, setChannelFetchError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!slug || !isChannel) return;
+    const inList = list.find((d) => d.slug === slug);
+    if (inList) {
+      setFetchedChannel(inList);
+      return;
+    }
+    let cancelled = false;
+    apiFetch<Dashboard>(`/api/v1/widgets/dashboards/${encodeURIComponent(slug)}`)
+      .then((row) => {
+        if (!cancelled) setFetchedChannel(row);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setChannelFetchError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, isChannel, list]);
+
+  const dashboard: Dashboard | null = useMemo(() => {
+    if (!slug) return null;
+    const fromList = list.find((d) => d.slug === slug);
+    return fromList ?? fetchedChannel;
+  }, [slug, list, fetchedChannel]);
 
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<string | null>(null);
@@ -59,41 +93,59 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
 
   if (!slug) return null;
   if (!dashboard) {
+    const msg = channelFetchError
+      ? `Couldn't load dashboard: ${channelFetchError}`
+      : isChannel
+        ? "Loading dashboard…"
+        : "Dashboard not found.";
     return (
       <>
         <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
         <div className="fixed right-0 top-0 bottom-0 z-50 flex w-full flex-col border-l border-surface-border bg-surface-raised shadow-2xl sm:w-[440px]">
-          <div className="p-6 text-center text-[12px] text-text-muted">
-            Dashboard not found.
-          </div>
+          <div className="p-6 text-center text-[12px] text-text-muted">{msg}</div>
         </div>
       </>
     );
   }
 
   const isDefault = dashboard.slug === "default";
-  const dirty =
-    name.trim() !== dashboard.name ||
-    (icon ?? null) !== (dashboard.icon ?? null) ||
-    pinToRail !== dashboard.pin_to_rail ||
-    presetId !== currentPresetId;
-  const canSave = !!name.trim() && dirty && !saving;
-  const canDelete = !isDefault && deleteConfirm === dashboard.slug && !deleting;
+  // Channel dashboards: name is tied to the channel so it's readonly here,
+  // the `pin_to_rail` concept doesn't apply (they're not in the tab bar),
+  // and delete isn't allowed (lifecycle is owned by the channel).
+  const dirty = isChannel
+    ? (icon ?? null) !== (dashboard.icon ?? null) || presetId !== currentPresetId
+    : name.trim() !== dashboard.name
+      || (icon ?? null) !== (dashboard.icon ?? null)
+      || pinToRail !== dashboard.pin_to_rail
+      || presetId !== currentPresetId;
+  const canSave = (isChannel || !!name.trim()) && dirty && !saving;
+  const canDelete =
+    !isChannel && !isDefault && deleteConfirm === dashboard.slug && !deleting;
 
   const handleSave = async () => {
     if (!canSave) return;
     setSaving(true);
     setError(null);
     try {
-      await update(dashboard.slug, {
-        name: name.trim(),
-        icon: icon ?? null,
-        pin_to_rail: pinToRail,
-        grid_config:
-          presetId === "standard"
-            ? null
-            : { layout_type: "grid", preset: presetId },
-      });
+      const patch = isChannel
+        ? {
+            icon: icon ?? null,
+            grid_config:
+              presetId === "standard"
+                ? null
+                : { layout_type: "grid", preset: presetId },
+          }
+        : {
+            name: name.trim(),
+            icon: icon ?? null,
+            pin_to_rail: pinToRail,
+            grid_config:
+              presetId === "standard"
+                ? null
+                : { layout_type: "grid", preset: presetId },
+          };
+      const updated = await update(dashboard.slug, patch);
+      if (isChannel) setFetchedChannel(updated);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -150,26 +202,37 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
 
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-text-muted">Name</span>
+            <span className="text-[12px] font-medium text-text-muted">
+              Name
+              {isChannel && (
+                <span className="ml-2 text-[11px] font-normal text-text-dim">
+                  (tied to the channel)
+                </span>
+              )}
+            </span>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="rounded-md border border-surface-border bg-surface px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/60"
+              readOnly={isChannel}
+              disabled={isChannel}
+              className="rounded-md border border-surface-border bg-surface px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/60 disabled:opacity-60 disabled:cursor-not-allowed"
             />
           </label>
 
           <IconPicker value={icon} onChange={setIcon} label="Icon" />
 
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={pinToRail}
-              onChange={(e) => setPinToRail(e.target.checked)}
-              className="h-4 w-4 accent-current text-accent"
-            />
-            <span className="text-[12px] text-text">Show in sidebar rail</span>
-          </label>
+          {!isChannel && (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={pinToRail}
+                onChange={(e) => setPinToRail(e.target.checked)}
+                className="h-4 w-4 accent-current text-accent"
+              />
+              <span className="text-[12px] text-text">Show in sidebar rail</span>
+            </label>
+          )}
 
           <div className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-text-muted">Grid layout</span>
@@ -219,7 +282,7 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
             </div>
           )}
 
-          {!isDefault && (
+          {!isDefault && !isChannel && (
             <div className="mt-2 border-t border-surface-border pt-4">
               <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-danger">
                 <Trash2 size={13} />
