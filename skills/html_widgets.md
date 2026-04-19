@@ -473,6 +473,16 @@ await window.spindrel.callTool("web_search", { query: "docs" }, {
 - The `state_poll` cache (for declarative widgets) has a 30 s TTL keyed by `(tool, args)`; mutations invalidate it.
 - `dispatch:"api"` is **whitelisted** to `/api/v1/admin/tasks` and `/api/v1/channels/*`. For any other endpoint, use `spindrel.api()` directly. `callTool` is only for tool dispatch — for `dispatch:"api"` or `dispatch:"widget_config"`, use `spindrel.api("/api/v1/widget-actions", ...)` directly.
 
+### Knowing the output shape before you call
+
+There's no dedicated output-schema field on tools today, but three practical ways to learn what a tool returns:
+
+1. **Widget-template `sample_payload`** — integration tool packs declare a `sample_payload` block in `*.widgets.yaml` (e.g. `app/tools/local/tasks.widgets.yaml`, `app/tools/local/admin.widgets.yaml`). When present, it's the de facto output contract — the shape the template's `{{field}}` substitutions expect. Read it from the bot turn before emitting the widget.
+2. **`GET /api/v1/admin/tools/{tool_name}`** — returns the input schema + description + the active widget package name; use that name to locate the widgets.yaml above. Input-shape authoritative, output-shape indirect.
+3. **Call it once from the bot turn, inspect, then write the widget.** The most reliable path: dispatch the tool in the same conversation before authoring the widget, copy the JSON structure out of the envelope body, and shape your widget around it. Live output trumps any doc.
+
+For MCP tools, the upstream protocol only ships `inputSchema` — `outputSchema` isn't exposed. Fall back to path (3).
+
 ## Discovering what endpoints your widget can hit
 
 Don't guess URLs or copy examples blindly — **call `list_api_endpoints` BEFORE writing the widget** and use the result as ground truth. It returns only the endpoints your bot's scoped API key can hit.

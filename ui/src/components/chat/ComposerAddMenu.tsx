@@ -117,7 +117,12 @@ export function ComposerAddMenu({
   };
 
   const width = isMobile ? Math.min(window.innerWidth - 16, 360) : 320;
-  const maxHeight = view === "skills" || view === "tools" ? "min(60vh, 520px)" : "auto";
+  // Sub-views (tools/skills) need a DEFINITE height so inner `flex-1 min-h-0`
+  // children can distribute space + the list's `overflow-y-auto` engages.
+  // `maxHeight` alone lets content grow past the visible area and clips the
+  // top (header + search become unreachable). Root view stays auto-sized.
+  const inSubView = view === "skills" || view === "tools";
+  const sizedHeight = inSubView ? "min(60vh, 520px)" : undefined;
 
   return (
     <>
@@ -183,7 +188,7 @@ export function ComposerAddMenu({
               bottom: pos.bottom,
               left: pos.left,
               width,
-              maxHeight,
+              height: sizedHeight,
               backgroundColor: t.surfaceRaised,
               borderColor: t.surfaceBorder,
             }}

@@ -234,7 +234,7 @@ export function ChatMessageArea({
           overflowY: "auto",
           height: "100%",
           paddingTop: scrollPaddingTop,
-          paddingBottom: 0,
+          paddingBottom: 12,
         }}
       >
         {/* Each column-reverse child is centered within the full-width scroll
