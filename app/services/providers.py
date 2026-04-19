@@ -152,6 +152,12 @@ async def _ensure_openai_subscription_models(
     # Max-tokens hints for the Codex-accessible models. Conservative values
     # when OpenAI hasn't published a specific number for the OAuth variant.
     _CONTEXT_HINTS = {
+        "gpt-5.4": 272_000,
+        "gpt-5.4-pro": 272_000,
+        "gpt-5.3-codex": 272_000,
+        "gpt-5.3-codex-spark": 272_000,
+        "gpt-5.3-instant": 272_000,
+        "gpt-5.3-chat-latest": 272_000,
         "gpt-5-codex": 272_000,
         "gpt-5": 272_000,
         "gpt-5-mini": 272_000,

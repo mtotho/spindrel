@@ -28,8 +28,10 @@ export interface GridPreset {
   minTile: { w: number; h: number };
   /** Column count of the leftmost "rail zone" — pins whose left edge sits
    *  inside this band (`grid_layout.x < railZoneCols`) surface in the
-   *  channel's OmniPanel sidebar. Half the grid by design: gives the user a
-   *  meaningful left-canvas to compose sidebar widgets in. */
+   *  channel's OmniPanel sidebar. Sized as ~1/4 of the full grid so a
+   *  "full rail width" widget on the dashboard matches the sidebar's
+   *  physical width close to 1:1 — otherwise users would need to size
+   *  widgets huge on the dashboard just to fill the sidebar. */
   railZoneCols: number;
 }
 
@@ -40,9 +42,9 @@ export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
     description: "12-column grid, 30px rows. Good for most dashboards.",
     cols: { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 },
     rowHeight: 30,
-    defaultTile: { w: 6, h: 6 },
+    defaultTile: { w: 3, h: 6 },
     minTile: { w: 2, h: 3 },
-    railZoneCols: 6,
+    railZoneCols: 3,
   },
   fine: {
     id: "fine",
@@ -51,9 +53,9 @@ export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
       "24-column grid, 15px rows. Twice as granular — snap to finer positions.",
     cols: { lg: 24, md: 20, sm: 12, xs: 8, xxs: 4 },
     rowHeight: 15,
-    defaultTile: { w: 12, h: 12 },
+    defaultTile: { w: 6, h: 12 },
     minTile: { w: 4, h: 6 },
-    railZoneCols: 12,
+    railZoneCols: 6,
   },
 };
 

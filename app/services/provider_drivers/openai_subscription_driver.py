@@ -53,6 +53,16 @@ CODEX_OAUTH_SCOPES = (
 # manually — there is no ``/models`` endpoint on the Codex Responses base.
 # Update when OpenAI widens or narrows the set.
 OAUTH_MODELS: tuple[str, ...] = (
+    # Latest 5.4 family (as of 2026-04).
+    "gpt-5.4",
+    "gpt-5.4-pro",
+    # 5.3 family — coding + chat variants still served via the Codex backend.
+    "gpt-5.3-codex",
+    "gpt-5.3-codex-spark",
+    "gpt-5.3-instant",
+    "gpt-5.3-chat-latest",
+    # 5.x base aliases — kept because the Codex backend has historically
+    # accepted these as evergreen redirects to the current release.
     "gpt-5-codex",
     "gpt-5",
     "gpt-5-mini",

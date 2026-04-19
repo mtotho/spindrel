@@ -331,15 +331,31 @@ async def _download_media(
     mime_type: str,
     max_bytes: int | None = None,
     timeout: float = 30.0,
+    tool_name: str | None = None,
 ) -> str:
     """Download binary from Frigate → persist as attachment → return attachment_id.
 
     The attachment is linked to the current channel so persist_turn's
     orphan-linking attaches it to the assistant message automatically.
     A client_action is included for immediate Slack display.
+
+    ``tool_name`` — when the calling tool has a registered HTML widget
+    AND we're dispatching to the web UI, we suppress the inline-in-chat
+    display: the attachment is created channel-less (so orphan-linking
+    skips it) and no client_action fires. The widget renders the image
+    via attachment_id, and the chat message body stays clean. Without
+    this, the web user sees the image twice — once as a message
+    attachment, once in the widget.
+
+    Non-web integrations (Slack, Discord, BlueBubbles, etc.) do NOT
+    render widgets, so for them the `client_action` + orphan-linking
+    path is the ONLY way the image gets into the conversation. We keep
+    the old behavior for those — the widget-suppression is strictly a
+    web-UI concern.
     """
     from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
     from app.services.attachments import create_attachment
+    from app.services.widget_templates import get_widget_template
 
     data = await _get_bytes(path, params=params, timeout=timeout)
 
@@ -352,9 +368,18 @@ async def _download_media(
     source = current_dispatch_type.get() or "web"
     is_image = mime_type.startswith("image/")
 
+    # Only the web renderer runs HTML widgets. Other integrations need
+    # the inline attachment/client_action path as their sole rendering route.
+    widget_owns_display = bool(
+        tool_name and get_widget_template(tool_name) and source == "web"
+    )
+
     att = await create_attachment(
         message_id=None,
-        channel_id=channel_id,
+        # channel_id=None when a widget renders this — orphan-linking in
+        # persist_turn filters by channel_id, so this effectively opts the
+        # attachment out of auto-attaching to the assistant message.
+        channel_id=None if widget_owns_display else channel_id,
         filename=filename,
         mime_type=mime_type,
         size_bytes=len(data),
@@ -375,7 +400,10 @@ async def _download_media(
     # When client_action is present, the LLM only sees the "message" field,
     # so we include the attachment_id there for follow-up analysis.
     # Only for images — video clips can be 50MB+ and shouldn't be base64'd.
-    if is_image:
+    # Skip entirely when a widget will render: the widget fetches the image
+    # via attachment_id and shows it there, so duplicating it as a client_
+    # action upload would produce two copies in chat.
+    if is_image and not widget_owns_display:
         import base64
         result["client_action"] = {
             "type": "upload_image",
@@ -442,6 +470,7 @@ async def frigate_snapshot(
             params=params,
             filename=f"{camera}_snapshot.jpg",
             mime_type="image/jpeg",
+            tool_name="frigate_snapshot",
         )
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")
@@ -479,6 +508,7 @@ async def frigate_event_snapshot(event_id: str) -> str:
             f"/api/events/{event_id}/snapshot.jpg",
             filename=f"event_{event_id}_snapshot.jpg",
             mime_type="image/jpeg",
+            tool_name="frigate_event_snapshot",
         )
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")
@@ -518,6 +548,7 @@ async def frigate_event_clip(event_id: str) -> str:
             mime_type="video/mp4",
             max_bytes=settings.FRIGATE_MAX_CLIP_BYTES,
             timeout=120.0,
+            tool_name="frigate_event_clip",
         )
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")
@@ -578,6 +609,7 @@ async def frigate_recording_clip(
             mime_type="video/mp4",
             max_bytes=settings.FRIGATE_MAX_CLIP_BYTES,
             timeout=120.0,
+            tool_name="frigate_get_clip",
         )
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")

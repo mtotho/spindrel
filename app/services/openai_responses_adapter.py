@@ -51,6 +51,10 @@ _OPENAI_BETA_HEADER_VALUE = "responses=experimental"
 # the well-tested codepath and mirrors what community tools do.
 _ORIGINATOR_HEADER_VALUE = "codex_cli_rs"
 
+# OpenAI's endpoints reject bare python-httpx User-Agents at the edge.
+# Keep this in sync with ``openai_oauth._CODEX_USER_AGENT``.
+_CODEX_USER_AGENT = f"{_ORIGINATOR_HEADER_VALUE}/0.45.0 (linux; x86_64) spindrel"
+
 
 # ---------------------------------------------------------------------------
 # Exception translation: httpx / Responses API → openai.*
@@ -766,6 +770,7 @@ class OpenAIResponsesAdapter:
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream, application/json",
+            "User-Agent": _CODEX_USER_AGENT,
             "OpenAI-Beta": _OPENAI_BETA_HEADER_VALUE,
             "originator": _ORIGINATOR_HEADER_VALUE,
             "session_id": self._session_id,

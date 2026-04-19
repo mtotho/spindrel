@@ -1,6 +1,6 @@
 import { useAuthStore, getAuthToken } from "../stores/auth";
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
@@ -8,6 +8,19 @@ class ApiError extends Error {
   ) {
     super(message);
     this.name = "ApiError";
+  }
+
+  /** FastAPI-style `{"detail": "..."}` body — extract the human message. */
+  get detail(): string | null {
+    if (typeof this.body !== "string") return null;
+    try {
+      const parsed = JSON.parse(this.body);
+      if (parsed && typeof parsed.detail === "string") return parsed.detail;
+    } catch {
+      // Not JSON — return the raw text if it's short enough to be a message
+      if (this.body.length < 500) return this.body;
+    }
+    return null;
   }
 }
 
@@ -107,5 +120,3 @@ export async function apiFetchText(
 
   return res.text();
 }
-
-export { ApiError };

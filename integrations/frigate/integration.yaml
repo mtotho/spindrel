@@ -122,3 +122,46 @@ tool_widgets:
       attachment_id: "00000000-0000-0000-0000-000000000000"
       filename: "driveway_snapshot.jpg"
       size_bytes: 84210
+
+  frigate_get_events:
+    content_type: application/vnd.spindrel.html+interactive
+    display: inline
+    display_label: "Frigate events"
+    html_template:
+      path: widgets/frigate_events_timeline.html
+    state_poll:
+      tool: frigate_get_events
+      args:
+        limit: 40
+      refresh_interval_seconds: 60
+    sample_payload:
+      events:
+        - id: "1713607200.123-abc"
+          camera: "driveway"
+          label: "person"
+          score: 0.91
+          start_time: 1713607200.5
+          end_time: 1713607212.3
+          zones: ["walkway"]
+          has_snapshot: true
+          has_clip: true
+        - id: "1713607260.456-def"
+          camera: "backyard"
+          label: "dog"
+          score: 0.82
+          start_time: 1713607260.0
+          end_time: 1713607268.0
+          zones: []
+          has_snapshot: true
+          has_clip: false
+        - id: "1713607300.789-ghi"
+          camera: "driveway"
+          label: "car"
+          score: 0.97
+          start_time: 1713607300.0
+          end_time: 1713607340.0
+          zones: ["driveway"]
+          has_snapshot: true
+          has_clip: true
+          license_plate: "ABC 1234"
+      count: 3

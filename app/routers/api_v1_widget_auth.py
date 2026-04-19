@@ -83,16 +83,23 @@ async def mint_widget_token(
     if not await _caller_may_use_bot(auth, bot):
         raise HTTPException(403, "Not allowed to mint a token for this bot")
 
+    bot_label = bot.display_name or bot.name or str(bot.id)
+
     if bot.api_key_id is None:
         raise HTTPException(
             400,
-            f"Bot {bot.id} has no API key configured — no scopes to grant the "
-            "widget. Provision one via the admin UI first.",
+            f"Bot '{bot_label}' has no API permissions yet. "
+            "Grant the widget the scopes it needs (e.g. attachments:read) "
+            f"under Admin → Bots → {bot_label} → Permissions, then retry.",
         )
 
     api_key = await db.get(ApiKey, bot.api_key_id)
     if api_key is None or not api_key.is_active:
-        raise HTTPException(400, f"Bot {bot.id}'s API key is missing or inactive")
+        raise HTTPException(
+            400,
+            f"Bot '{bot_label}' has an inactive API key. "
+            "Re-enable it under Admin → Bots → Permissions, then retry.",
+        )
 
     scopes = list(api_key.scopes or [])
     token, expires_at = create_widget_token(

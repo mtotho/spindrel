@@ -67,6 +67,25 @@ _ACCOUNT_ID_CLAIM = "https://api.openai.com/auth"
 # token. Gives us a buffer so concurrent calls don't race on expiry.
 _REFRESH_LEEWAY_SECONDS = 10 * 60  # 10 minutes
 
+# OpenAI's /deviceauth/* and /oauth/token endpoints block requests that
+# don't look like they came from the Codex CLI — bare `python-httpx/...`
+# User-Agents return 403. We send the same `originator` + User-Agent the
+# official CLI sends so the wire-level auth path accepts us. This string
+# mirrors what `default_client.rs` in `openai/codex` builds; the explicit
+# version numbers don't matter to OpenAI's validation, but shape does.
+_CODEX_ORIGINATOR = "codex_cli_rs"
+_CODEX_USER_AGENT = f"{_CODEX_ORIGINATOR}/0.45.0 (linux; x86_64) spindrel"
+
+
+def _oauth_headers(content_type: str = "application/json") -> dict[str, str]:
+    """Headers required for every OpenAI OAuth + device-code call."""
+    return {
+        "Content-Type": content_type,
+        "User-Agent": _CODEX_USER_AGENT,
+        "originator": _CODEX_ORIGINATOR,
+        "Accept": "application/json",
+    }
+
 # Device-code flow deadlines (defaults — the server can override via
 # ``expires_in`` / ``interval`` in the usercode response).
 _DEFAULT_POLL_INTERVAL = 2
@@ -147,7 +166,7 @@ async def start_device_flow(provider_id: str) -> dict:
 
     url = f"{CODEX_OAUTH_ISSUER}{_DEVICEAUTH_USERCODE_PATH}"
     body = {"client_id": CODEX_OAUTH_CLIENT_ID}
-    async with httpx.AsyncClient(timeout=15.0) as hc:
+    async with httpx.AsyncClient(timeout=15.0, headers=_oauth_headers()) as hc:
         resp = await hc.post(url, json=body)
     if not resp.is_success:
         raise RuntimeError(
@@ -192,7 +211,7 @@ async def _poll_device_token_once(device_auth_id: str, user_code: str) -> dict |
     """
     url = f"{CODEX_OAUTH_ISSUER}{_DEVICEAUTH_TOKEN_PATH}"
     body = {"device_auth_id": device_auth_id, "user_code": user_code}
-    async with httpx.AsyncClient(timeout=15.0) as hc:
+    async with httpx.AsyncClient(timeout=15.0, headers=_oauth_headers()) as hc:
         resp = await hc.post(url, json=body)
     if resp.is_success:
         return resp.json()
@@ -215,7 +234,8 @@ async def _exchange_authorization_code(
         "code_verifier": code_verifier,
         "scope": CODEX_OAUTH_SCOPES,
     }
-    async with httpx.AsyncClient(timeout=15.0) as hc:
+    headers = _oauth_headers("application/x-www-form-urlencoded")
+    async with httpx.AsyncClient(timeout=15.0, headers=headers) as hc:
         resp = await hc.post(url, data=form)
     if not resp.is_success:
         raise RuntimeError(
@@ -411,7 +431,8 @@ async def _refresh_access_token(refresh_token: str) -> dict:
         "client_id": CODEX_OAUTH_CLIENT_ID,
         "scope": CODEX_OAUTH_SCOPES,
     }
-    async with httpx.AsyncClient(timeout=15.0) as hc:
+    headers = _oauth_headers("application/x-www-form-urlencoded")
+    async with httpx.AsyncClient(timeout=15.0, headers=headers) as hc:
         resp = await hc.post(url, data=form)
     if not resp.is_success:
         raise RuntimeError(

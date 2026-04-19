@@ -130,7 +130,7 @@ class TestDriverCapabilities:
         driver = OpenAISubscriptionDriver()
         models = await driver.list_models(_mock_config(provider_type="openai-subscription"))
         assert models == list(OAUTH_MODELS)
-        assert "gpt-5-codex" in models
+        assert "gpt-5.3-codex" in models
 
     def test_litellm_capabilities(self):
         caps = get_driver("litellm").capabilities()

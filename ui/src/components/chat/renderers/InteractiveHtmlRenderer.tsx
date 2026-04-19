@@ -38,8 +38,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bot as BotIcon } from "lucide-react";
-import { apiFetch } from "../../../api/client";
+import { Bot as BotIcon, RefreshCw } from "lucide-react";
+import { apiFetch, ApiError } from "../../../api/client";
 import type { ToolResultEnvelope } from "../../../types/api";
 import type { ThemeTokens } from "../../../theme/tokens";
 import { useThemeStore } from "../../../stores/theme";
@@ -462,13 +462,17 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
     ) : null;
 
   // Widget auth error — surface so the user understands why fetches fail.
-  // Common cause: bot has no API key configured. Actionable hint beats a
-  // silent iframe showing 401s in devtools.
-  const authError = sourceBotId && tokenQuery.error
-    ? tokenQuery.error instanceof Error
-      ? tokenQuery.error.message
-      : "unknown error"
-    : null;
+  // Common cause: bot has no API key configured. We prefer the backend's
+  // `detail` field (FastAPI's user-facing message) over the generic "API
+  // error 400: Bad Request" so the user sees actionable guidance (where
+  // to provision scopes) directly in the widget chrome.
+  const authError = (() => {
+    if (!sourceBotId || !tokenQuery.error) return null;
+    const err = tokenQuery.error;
+    if (err instanceof ApiError && err.detail) return err.detail;
+    if (err instanceof Error) return err.message;
+    return "unknown error";
+  })();
 
   return (
     <div
@@ -487,11 +491,36 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
             padding: "6px 10px",
             fontSize: 11,
             color: t.danger,
+            background: t.dangerSubtle,
             borderBottom: `1px solid ${t.surfaceBorder}`,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
           }}
         >
-          Widget auth failed: {authError}. API calls from this widget will
-          be unauthenticated.
+          <span style={{ flex: 1 }}>{authError}</span>
+          <button
+            type="button"
+            onClick={() => tokenQuery.refetch()}
+            disabled={tokenQuery.isFetching}
+            style={{
+              appearance: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 8px",
+              fontSize: 11,
+              color: t.text,
+              background: t.surfaceOverlay,
+              border: `1px solid ${t.surfaceBorder}`,
+              borderRadius: 4,
+              cursor: tokenQuery.isFetching ? "wait" : "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            <RefreshCw size={10} />
+            {tokenQuery.isFetching ? "Retrying…" : "Retry"}
+          </button>
         </div>
       )}
       {/* Subtle bot-origin chip — bottom-left so it doesn't collide with
