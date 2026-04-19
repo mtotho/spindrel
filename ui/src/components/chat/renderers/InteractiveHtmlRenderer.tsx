@@ -29,6 +29,12 @@
  * auth headers. Scroll behavior: iframe height is measured via
  * ResizeObserver on the body so async-loaded content still sizes
  * correctly, capped at 800px where internal iframe scrolling takes over.
+ *
+ * Theme layer: every widget inherits the app's design language via a
+ * `<style id="__spindrel_theme">` block and `window.spindrel.theme`
+ * object (see `widgetTheme.ts`). Authors style with `sd-*` utility
+ * classes and `var(--sd-*)` tokens so widgets stay consistent with the
+ * rest of the app and pick up dark mode automatically.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -36,6 +42,8 @@ import { Bot as BotIcon } from "lucide-react";
 import { apiFetch } from "../../../api/client";
 import type { ToolResultEnvelope } from "../../../types/api";
 import type { ThemeTokens } from "../../../theme/tokens";
+import { useThemeStore } from "../../../stores/theme";
+import { buildWidgetThemeCss, buildWidgetThemeObject } from "./widgetTheme";
 
 interface WidgetTokenResponse {
   token: string;
@@ -93,6 +101,7 @@ function spindrelBootstrap(
   botName: string | null,
   widgetToken: string | null,
   initialToolResultJson: string | null,
+  themeJson: string,
 ): string {
   return `<script>
 (function () {
@@ -102,6 +111,7 @@ function spindrelBootstrap(
   // Token mutated in-place by the host on re-mint — read fresh per call.
   const state = { token: ${jsonForScript(widgetToken)} };
   const initialToolResult = ${initialToolResultJson ?? "null"};
+  const initialTheme = ${themeJson};
   // Like fetch() but bearer-attached. Returns the raw Response so callers
   // can choose how to consume the body (.blob() for images, .json(), .text(),
   // streaming, whatever). Use this for anything non-JSON (image/video blobs,
@@ -167,12 +177,19 @@ function spindrelBootstrap(
     writeWorkspaceFile: writeWorkspaceFile,
     listWorkspaceFiles: listWorkspaceFiles,
     toolResult: initialToolResult,
+    theme: initialTheme,
     __setToken: function (t) { state.token = t || null; },
     __setToolResult: function (obj) {
       window.spindrel.toolResult = obj;
       try {
         window.dispatchEvent(new CustomEvent("spindrel:toolresult", { detail: obj }));
       } catch (_) { /* CustomEvent unavailable — ignore */ }
+    },
+    __setTheme: function (t) {
+      window.spindrel.theme = t;
+      try {
+        window.dispatchEvent(new CustomEvent("spindrel:theme", { detail: t }));
+      } catch (_) { /* ignore */ }
     }
   };
 })();
@@ -206,35 +223,17 @@ function wrapHtml(
   botName: string | null,
   widgetToken: string | null,
   initialToolResultJson: string | null,
+  themeCss: string,
+  themeJson: string,
+  isDark: boolean,
 ): string {
   return `<!doctype html>
-<html>
+<html${isDark ? ' class="dark"' : ""}>
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${CSP}" />
-<style>
-  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; color: #333; background: #ffffff; }
-  body { padding: 8px 12px; overflow-y: auto; }
-  * { max-width: 100%; box-sizing: border-box; }
-  img, video { max-width: 100%; height: auto; }
-  table { border-collapse: collapse; }
-  td, th { padding: 4px 8px; border: 1px solid #ddd; }
-  /* Match the host app's thin scrollbar — iframe is a separate document
-     so global.css doesn't reach in. Bot CSS can override. */
-  * { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,0.2) transparent; }
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.35); }
-  ::-webkit-scrollbar-corner { background: transparent; }
-  /* Wrapper div is measured by the host for iframe auto-sizing. Keep
-     it as a block so its scrollHeight reflects intrinsic content height
-     even when bot CSS sets body{min-height:100vh} (which would otherwise
-     pin body height to the iframe's current size and feedback-loop
-     against the ResizeObserver). */
-  #__sd_root { display: block; }
-</style>
-${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson)}
+<style id="__spindrel_theme">${themeCss}</style>
+${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson)}
 </head>
 <body>
 <div id="__sd_root">
@@ -258,12 +257,23 @@ function formatRelative(ts: number | null): string {
 export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
+  const themeMode = useThemeStore((s) => s.mode);
+  const isDark = themeMode === "dark";
 
   const sourcePath = envelope.source_path || null;
   const sourceChannelId = envelope.source_channel_id || null;
   const sourceBotId = envelope.source_bot_id || null;
   const pathMode = !!sourcePath && !!sourceChannelId;
   const effectiveChannelId = channelId ?? sourceChannelId;
+
+  const themeCss = useMemo(
+    () => buildWidgetThemeCss({ tokens: t, isDark }),
+    [t, isDark],
+  );
+  const themeJson = useMemo(
+    () => JSON.stringify(buildWidgetThemeObject({ tokens: t, isDark })),
+    [t, isDark],
+  );
 
   // Mint a bot-scoped bearer token so widget JS authenticates as the
   // emitting bot — not as the viewing user. We re-mint before expiry and
@@ -466,7 +476,7 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
         borderRadius: 8,
         border: `1px solid ${t.surfaceBorder}`,
         overflow: "hidden",
-        background: "#ffffff",
+        background: t.surfaceRaised,
         position: "relative",
       }}
     >
@@ -540,6 +550,9 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
           botName,
           widgetToken,
           frozenInitialToolResultRef.current,
+          themeCss,
+          themeJson,
+          isDark,
         )}
         sandbox="allow-scripts allow-same-origin"
         title={envelope.display_label || "Interactive HTML widget"}

@@ -278,85 +278,36 @@ function WidgetsSection({
   dashboardHref,
   t,
 }: WidgetsSectionProps) {
-  // Render the rail zone at its canonical dashboard-lg pixel size, then scale
-  // the whole grid to fit the sidebar. Gives a pixel-faithful minimap: tile
-  // aspect ratios, gap proportions, and inner widget layout all match what
-  // the user sees on the full /widgets/channel/:id page.
-  const DASH_LG_WIDTH = 1200; // canonical reference width for the lg layout
-  const DASH_GAP = 12; // matches GRID_MARGIN in widgets/index.tsx
-  const dashCellWidth =
-    (DASH_LG_WIDTH - (preset.cols.lg - 1) * DASH_GAP) / preset.cols.lg;
-  const railNaturalWidth =
-    dashCellWidth * preset.railZoneCols
-    + DASH_GAP * (preset.railZoneCols - 1);
-
-  // Compute how many rows the grid occupies so we can reserve scaled height
-  // on the outer wrapper (transform doesn't contribute to layout size).
-  const gridRows = useMemo(() => {
-    let maxBottom = 0;
-    for (const p of railPins) {
-      const gl = p.grid_layout as GridLayoutItem | undefined;
-      const bottom = (gl?.y ?? 0) + (gl?.h ?? 1);
-      if (bottom > maxBottom) maxBottom = bottom;
-    }
-    return Math.max(maxBottom, 1);
-  }, [railPins]);
-  const railNaturalHeight =
-    preset.rowHeight * gridRows + DASH_GAP * (gridRows - 1);
-
-  // Measure the sidebar's available inner width to compute the scale factor.
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [availWidth, setAvailWidth] = useState<number>(280);
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? 0;
-      if (w > 0) setAvailWidth(w);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   if (!hasWidgets) {
     return <EmptyWidgets dashboardHref={dashboardHref} t={t} />;
   }
-
-  const scale = availWidth > 0 ? availWidth / railNaturalWidth : 1;
-
+  // Mini-grid: columns flex to fill the sidebar width; row height matches
+  // the dashboard's `rowHeight` 1:1 so widget content renders at its normal
+  // CSS size (text legible, buttons tappable). The layout still honors each
+  // pin's `grid_layout.x/y/w/h` — only the column width adapts.
   return (
     <div
-      ref={wrapRef}
-      className="w-full overflow-hidden"
-      style={{ height: railNaturalHeight * scale }}
+      className="grid w-full"
+      style={{
+        gridTemplateColumns: `repeat(${preset.railZoneCols}, minmax(0, 1fr))`,
+        gridAutoRows: `${preset.rowHeight}px`,
+        gap: 12,
+      }}
     >
-      <div
-        className="grid"
-        style={{
-          width: railNaturalWidth,
-          height: railNaturalHeight,
-          gridTemplateColumns: `repeat(${preset.railZoneCols}, ${dashCellWidth}px)`,
-          gridAutoRows: `${preset.rowHeight}px`,
-          gap: DASH_GAP,
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
-        }}
-      >
-        {railPins.map((pin) => (
-          <div
-            key={pin.id}
-            style={gridPlacement(pin, preset.railZoneCols)}
-            className="min-w-0 min-h-0"
-          >
-            <PinnedToolWidget
-              widget={asPinnedWidget(pin)}
-              scope={{ kind: "dashboard" }}
-              onUnpin={handleUnpin}
-              onEnvelopeUpdate={handleEnvelopeUpdate}
-            />
-          </div>
-        ))}
-      </div>
+      {railPins.map((pin) => (
+        <div
+          key={pin.id}
+          style={gridPlacement(pin, preset.railZoneCols)}
+          className="min-w-0 min-h-0"
+        >
+          <PinnedToolWidget
+            widget={asPinnedWidget(pin)}
+            scope={{ kind: "dashboard" }}
+            onUnpin={handleUnpin}
+            onEnvelopeUpdate={handleEnvelopeUpdate}
+          />
+        </div>
+      ))}
     </div>
   );
 }

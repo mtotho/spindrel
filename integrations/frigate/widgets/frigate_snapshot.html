@@ -1,34 +1,19 @@
-<style>
-  .frigate-snap { display: flex; flex-direction: column; gap: 6px; font: 13px/1.35 -apple-system, BlinkMacSystemFont, sans-serif; color: #1f2937; }
-  .frigate-snap header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-  .frigate-snap h3 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.2px; }
-  .frigate-snap .meta { font-size: 11px; color: #6b7280; }
-  .frigate-snap .frame { position: relative; border-radius: 6px; overflow: hidden; background: #111827; min-height: 120px; }
-  .frigate-snap img { display: block; width: 100%; height: auto; }
-  .frigate-snap .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 12px; }
-  .frigate-snap .bar { display: flex; gap: 6px; flex-wrap: wrap; }
-  .frigate-snap button { appearance: none; border: 1px solid #e5e7eb; background: #f9fafb; padding: 3px 8px; border-radius: 4px; font-size: 11px; color: #374151; cursor: pointer; }
-  .frigate-snap button:hover { background: #f3f4f6; }
-  .frigate-snap button[aria-pressed="true"] { background: #111827; border-color: #111827; color: #f9fafb; }
-  .frigate-snap .err { color: #b91c1c; font-size: 11px; }
-</style>
-<div class="frigate-snap" id="root">
-  <header>
-    <h3 id="camera">Camera</h3>
-    <span class="meta" id="meta"></span>
+<div class="sd-card" id="root">
+  <header class="sd-card-header">
+    <h3 class="sd-title" id="camera">Camera</h3>
+    <span class="sd-meta" id="meta"></span>
   </header>
-  <div class="frame" id="frame">
-    <div class="overlay" id="overlay">Loading…</div>
+  <div class="sd-frame" id="frame" style="min-height: 120px;">
+    <div class="sd-frame-overlay" id="overlay">Loading…</div>
   </div>
-  <div class="bar">
-    <button id="bbox" aria-pressed="true" type="button">Bounding boxes</button>
-    <button id="refresh" type="button">Refresh</button>
+  <div class="sd-card-actions">
+    <button class="sd-btn" id="bbox" aria-pressed="true" type="button">Bounding boxes</button>
+    <button class="sd-btn" id="refresh" type="button">Refresh</button>
   </div>
-  <div class="err" id="err" hidden></div>
+  <div class="sd-error" id="err" hidden></div>
 </div>
 <script>
 (function () {
-  var root = document.getElementById("root");
   var cameraEl = document.getElementById("camera");
   var metaEl = document.getElementById("meta");
   var frameEl = document.getElementById("frame");
@@ -123,7 +108,7 @@
           widget_config: { show_bbox: bboxBtn.getAttribute("aria-pressed") === "true" },
         }),
       })
-      .then(function (resp) {
+      .then(function () {
         // Host extracts the fresh window.spindrel.toolResult from the returned
         // envelope and pushes it in via __setToolResult. Nothing else to do.
       })

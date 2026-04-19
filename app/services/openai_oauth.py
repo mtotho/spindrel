@@ -37,10 +37,9 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import async_session
 from app.db.models import ProviderConfig as ProviderConfigRow
@@ -50,9 +49,6 @@ from app.services.provider_drivers.openai_subscription_driver import (
     CODEX_OAUTH_ISSUER,
     CODEX_OAUTH_SCOPES,
 )
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

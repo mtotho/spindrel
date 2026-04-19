@@ -111,6 +111,7 @@ async def client(engine, db_session):
         patch("app.services.tool_enrollment.async_session", _test_session_factory),
         patch("app.services.sandbox.async_session", _test_session_factory),
         patch("app.services.providers.async_session", _test_session_factory),
+        patch("app.services.openai_oauth.async_session", _test_session_factory),
     ):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:

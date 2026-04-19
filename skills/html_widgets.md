@@ -283,11 +283,96 @@ Writes (POST/PUT/PATCH/DELETE) work the same way. Think of it as **your own scop
 
 For the exhaustive filtered-by-your-scopes list, call `list_api_endpoints()`. That's always more authoritative than this table.
 
+## Styling — Use the `sd-*` Vocabulary
+
+Every widget iframe auto-inherits the app's design language: colors, spacing, typography, and a small set of component classes. **Use these instead of inline hex colors or bespoke CSS.** Widgets that lean on the vocabulary look like part of the app, stay correct in both light and dark mode, and survive future theme changes.
+
+### CSS variables
+
+Every token from the host theme is available as a CSS variable. Reach for these any time you need a color:
+
+```
+--sd-surface              --sd-text           --sd-accent          --sd-success
+--sd-surface-raised       --sd-text-muted     --sd-accent-hover    --sd-warning
+--sd-surface-overlay      --sd-text-dim       --sd-accent-muted    --sd-danger
+--sd-surface-border                           --sd-accent-subtle   --sd-purple
+                                              --sd-accent-border
+```
+
+Plus subtle/border variants for status colors (`--sd-success-subtle`, `--sd-danger-border`, etc.), overlay tints (`--sd-overlay-light`, `--sd-overlay-border`), spacing (`--sd-gap-xs/sm/md/lg`, `--sd-pad-sm/md/lg`), radii (`--sd-radius-sm/md/lg`), and typography (`--sd-font-sans`, `--sd-font-mono`, `--sd-font-size`).
+
+```css
+.my-chart-bar { fill: var(--sd-accent); }
+.my-error    { color: var(--sd-danger); }
+```
+
+### Utility / component classes
+
+Prefer these over hand-rolled CSS — they compose the same way Tailwind does and stay consistent across widgets:
+
+| Purpose | Class |
+|---|---|
+| Vertical layout | `sd-stack`, `sd-stack-sm`, `sd-stack-lg` |
+| Horizontal layout | `sd-hstack`, `sd-hstack-sm`, `sd-hstack-between` |
+| Responsive auto-fit grid | `sd-grid`, `sd-grid-2`, `sd-tiles` (smaller tiles) |
+| Card surface | `sd-card`, `sd-card-header`, `sd-card-body`, `sd-card-actions` |
+| Framed media region | `sd-frame`, `sd-frame-overlay` (centered status text) |
+| Bordered tile | `sd-tile` |
+| Text | `sd-title`, `sd-subtitle`, `sd-meta`, `sd-muted`, `sd-dim`, `sd-mono` |
+| Button | `sd-btn`, `sd-btn-primary`, `sd-btn-subtle`, `sd-btn-danger` |
+| Form controls | `sd-input`, `sd-select`, `sd-textarea` |
+| Status chip | `sd-chip`, `sd-chip-accent/success/warning/danger/purple` |
+| Progress bar | `sd-progress` (+ `style="--p: 60"` for 60%) + color variants |
+| Feedback | `sd-error`, `sd-empty`, `sd-skeleton`, `sd-spinner`, `sd-divider` |
+
+Toggle buttons work via `aria-pressed="true"` — the base `.sd-btn` handles the pressed styling. Example:
+
+```html
+<div class="sd-card">
+  <header class="sd-card-header">
+    <h3 class="sd-title">Driveway</h3>
+    <span class="sd-meta">Updated 30s ago</span>
+  </header>
+  <div class="sd-frame"><img src="…" /></div>
+  <div class="sd-card-actions">
+    <button class="sd-btn" aria-pressed="true">Bounding boxes</button>
+    <button class="sd-btn sd-btn-primary">Refresh</button>
+  </div>
+</div>
+```
+
+### `window.spindrel.theme` (for SVG / canvas widgets)
+
+When you're drawing programmatically — SVG chart fills, canvas strokes, animated gradients — use `window.spindrel.theme` instead of hard-coded hex:
+
+```js
+const accent = window.spindrel.theme.accent;   // resolved hex for the current mode
+const isDark = window.spindrel.theme.isDark;
+svg.innerHTML = `<rect fill="${accent}" .../>`;
+```
+
+Available keys: `isDark`, `surface`, `surfaceRaised`, `surfaceOverlay`, `surfaceBorder`, `text`, `textMuted`, `textDim`, `accent`, `accentHover`, `accentMuted`, `success`, `warning`, `danger`, `purple`.
+
+### Dark mode
+
+The iframe receives `<html class="dark">` when the app is in dark mode. CSS variables adjust automatically — you usually don't need to branch. For JS that needs to decide (e.g., chart background), check `window.spindrel.theme.isDark`.
+
+### Do / Don't
+
+| Don't | Do | Why |
+|---|---|---|
+| `style="color: #1f2937; background: #f9fafb"` | `style="color: var(--sd-text); background: var(--sd-surface-raised)"` or `class="sd-card"` | Hex colors drift from the app theme and break dark mode silently. |
+| `style="font-family: sans-serif"` | Inherit body default (`var(--sd-font-sans)`) | The theme already sets a system font matching the app. |
+| Custom card component from scratch | `class="sd-card"` + `sd-card-header` + `sd-card-body` | Consistency across widgets. |
+| `<button style="padding: 3px 8px; border: 1px solid #e5e7eb; ...">` | `<button class="sd-btn">` | Fewer lines, on-brand, dark-mode correct. |
+| `border-bottom: 1px solid #e5e7eb` between bars | Spacing + `sd-card` separation | Gratuitous borders look like low-polish admin chrome. |
+| Hard-coded success green (`#16a34a`) | `class="sd-chip-success"` or `var(--sd-success)` | Same color in one place; updates ripple. |
+
 ## Layout & Sizing
 
 - The iframe auto-resizes to content height (up to 800px). Taller content scrolls inside the iframe.
 - Cards fill available width on the dashboard grid. Let the user resize from the dashboard; don't set fixed widths.
-- Base stylesheet is minimal (system font, 13px, padded body). Override via `<style>` / `css=`.
+- The theme stylesheet handles reset (box-sizing, margin/padding), scrollbar styling, table borders, code blocks, links. You rarely need a `<style>` block — reach for `sd-*` classes and `var(--sd-*)` first.
 
 ## Display Label
 
@@ -301,6 +386,8 @@ Always set `display_label` — it appears on the dashboard card header, in the "
 | `fetch("/api/v1/...")` inside the widget | `window.spindrel.api("/api/v1/...")` | Only `spindrel.api` attaches the bearer. Raw `fetch` → 422 (missing Authorization). |
 | `fetch("https://api.example.com/...")` from widget JS | Prior tool call fetches it; inline the data | CSP blocks cross-origin; iframe can only hit same-origin |
 | Guessing API paths | `list_api_endpoints()` first, copy the exact path | You only see endpoints your scopes cover. Saves a roundtrip of 403s. |
+| Inline hex colors (`#fff`, `#1f2937`, `rgb(59,130,246)`) | `var(--sd-*)` variables or `sd-*` classes | Hex drifts from the theme and breaks dark mode. |
+| Hand-rolled `.card { border: 1px solid #e5e7eb; ... }` | `class="sd-card"` | The vocabulary already covers this — on-brand, consistent, dark-mode correct. |
 | `html=...` + `path=...` together | Exactly one | Tool errors — pick inline OR path |
 | Path mode pointing at a non-existent file | Create the file first with `file(create, ...)` | Tool refuses if the path doesn't resolve |
 | `emit_html_widget(html="<script>...</script>")` with no HTML body | Put JS in `js=...`, not inside `html=...` | Cleaner; the tool stitches them correctly |

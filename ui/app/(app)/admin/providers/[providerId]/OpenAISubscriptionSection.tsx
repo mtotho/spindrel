@@ -12,7 +12,8 @@ import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { ExternalLink, Check, X, Copy, AlertTriangle } from "lucide-react";
 
 interface Props {
-  providerId: string;
+  /** Undefined when the provider hasn't been created yet (new-provider form). */
+  providerId?: string;
 }
 
 type Phase =
@@ -32,6 +33,7 @@ type Phase =
  */
 export function OpenAISubscriptionSection({ providerId }: Props) {
   const t = useThemeTokens();
+  const isNew = !providerId;
   const { data: status } = useOpenAIOAuthStatus(providerId);
   const startMut = useStartOpenAIOAuth();
   const pollMut = usePollOpenAIOAuth();
@@ -48,6 +50,7 @@ export function OpenAISubscriptionSection({ providerId }: Props) {
   }, []);
 
   const pollLoop = (interval: number) => {
+    if (!providerId) return;
     const attempt = async () => {
       try {
         const r = await pollMut.mutateAsync(providerId);
@@ -67,6 +70,7 @@ export function OpenAISubscriptionSection({ providerId }: Props) {
   };
 
   const handleConnect = async () => {
+    if (!providerId) return;
     setPhase({ kind: "starting" });
     try {
       const start = await startMut.mutateAsync(providerId);
@@ -89,6 +93,7 @@ export function OpenAISubscriptionSection({ providerId }: Props) {
   };
 
   const handleDisconnect = async () => {
+    if (!providerId) return;
     const ok = await confirm(
       "Disconnect ChatGPT account? Bots using this provider will stop working until you reconnect.",
       { title: "Disconnect ChatGPT", confirmLabel: "Disconnect", variant: "danger" }
@@ -141,7 +146,24 @@ export function OpenAISubscriptionSection({ providerId }: Props) {
         </span>
       </div>
 
-      {connected && (
+      {isNew && (
+        <div
+          style={{
+            padding: "10px 12px",
+            borderRadius: 6,
+            background: t.surfaceRaised,
+            color: t.textMuted,
+            fontSize: 12,
+            lineHeight: 1.5,
+          }}
+        >
+          Enter a Provider ID + Display Name above and hit <strong>Save</strong>.
+          The <em>Connect ChatGPT Account</em> button will appear here once the
+          provider exists — the OAuth flow needs a provider row to bind tokens to.
+        </div>
+      )}
+
+      {!isNew && connected && (
         <FormRow label="Signed in as">
           <div
             style={{
@@ -197,7 +219,7 @@ export function OpenAISubscriptionSection({ providerId }: Props) {
         </FormRow>
       )}
 
-      {!connected && phase.kind === "idle" && (
+      {!isNew && !connected && phase.kind === "idle" && (
         <button
           onClick={handleConnect}
           disabled={startMut.isPending}
@@ -216,7 +238,7 @@ export function OpenAISubscriptionSection({ providerId }: Props) {
         </button>
       )}
 
-      {!connected && phase.kind === "starting" && (
+      {!isNew && !connected && phase.kind === "starting" && (
         <div style={{ color: t.textMuted, fontSize: 12 }}>Contacting OpenAI…</div>
       )}
 

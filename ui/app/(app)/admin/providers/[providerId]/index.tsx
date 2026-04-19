@@ -273,7 +273,7 @@ export default function ProviderDetailScreen() {
       )}
 
       {/* Body */}
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, padding: isWide ? "20px 24px" : "16px", overflowY: "auto" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <Section title="Identity">
             {isNew && (
@@ -302,6 +302,7 @@ export default function ProviderDetailScreen() {
             </FormRow>
           </Section>
 
+          {(showApiKey || showBaseUrl || showManagementKey) && (
           <Section title="Connection">
             {showApiKey && (
               <FormRow label="API Key" description={!isNew && provider?.has_api_key ? "Leave blank to keep existing" : undefined}>
@@ -335,9 +336,10 @@ export default function ProviderDetailScreen() {
               </FormRow>
             )}
           </Section>
+          )}
 
-          {!isNew && providerType === "openai-subscription" && (
-            <OpenAISubscriptionSection providerId={providerId!} />
+          {providerType === "openai-subscription" && (
+            <OpenAISubscriptionSection providerId={isNew ? undefined : providerId} />
           )}
 
           <Section title="Rate Limits" description="Optional per-provider rate limiting">
