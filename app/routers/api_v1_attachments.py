@@ -84,8 +84,21 @@ async def _verify_token_or_header(
         payload = decode_access_token(raw)
     except _jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    # Widget-kind JWTs authenticate HTML widget iframes as the emitting bot.
+    # `<img src="/api/v1/attachments/<id>/file">` inside a widget iframe sends
+    # the widget token via Authorization; `sub` is the bot id, not a user UUID.
+    # The token's signature is the gate — scope enforcement is a no-op here
+    # because this endpoint is already open to any authenticated principal.
+    if payload.get("kind") == "widget":
+        return
+
     from uuid import UUID as _UUID
-    user = await get_user_by_id(db, _UUID(payload["sub"]))
+    try:
+        user_uuid = _UUID(payload["sub"])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token subject")
+    user = await get_user_by_id(db, user_uuid)
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or deactivated")
 

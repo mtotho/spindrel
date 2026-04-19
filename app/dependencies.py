@@ -122,7 +122,10 @@ async def verify_auth_or_user(
             raise HTTPException(status_code=401, detail="Invalid widget token")
         return ApiKeyAuth(key_id=key_id, scopes=list(scopes), name=f"widget:{bot_id}")
 
-    user_id = UUID(payload["sub"])
+    try:
+        user_id = UUID(payload["sub"])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token subject")
     user = await get_user_by_id(db, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or deactivated")
