@@ -1,6 +1,5 @@
-import { useEffect } from "react";
-import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import { EphemeralSessionModal } from "@/src/components/chat/EphemeralSessionModal";
 import { PipelineRunPreRun } from "./PipelineRunPreRun";
 import { PipelineRunLive } from "./PipelineRunLive";
 
@@ -20,15 +19,13 @@ export interface PipelineRunModalProps {
  *   - /channels/:channelId/pipelines/:pipelineId → pre-run (description + params)
  *   - /channels/:channelId/runs/:taskId         → live or complete transcript
  *
- * Closing routes back to the channel URL.
+ * Thin wrapper around EphemeralSessionModal — the portal shell now lives there
+ * so ephemeral sessions and pipeline modals share identical chrome.
  */
 export function PipelineRunModal({ channelId, mode, pipelineId, taskId }: PipelineRunModalProps) {
   const navigate = useNavigate();
 
   const handleClose = () => {
-    // Prefer history back if we came from the channel, otherwise push.
-    // `window.history.length` is a good-enough heuristic — if the user
-    // deep-linked into the modal we don't want `back()` to exit the app.
     if (window.history.length > 1) {
       navigate(-1);
     } else {
@@ -36,56 +33,24 @@ export function PipelineRunModal({ channelId, mode, pipelineId, taskId }: Pipeli
     }
   };
 
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") handleClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelId]);
-
-  if (typeof document === "undefined") return null;
-
-  return createPortal(
-    <>
-      {/* Backdrop */}
-      <div
-        onClick={handleClose}
-        className="fixed inset-0 bg-black/55 z-[10040]"
-        aria-hidden="true"
-      />
-      {/* Modal card — centered on desktop, full-screen on mobile */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="fixed z-[10041] overflow-hidden
-                   inset-0 md:inset-auto md:top-1/2 md:left-1/2
-                   md:-translate-x-1/2 md:-translate-y-1/2
-                   md:w-[92vw] md:max-w-[920px] md:h-[85vh]
-                   bg-surface-raised md:border md:border-surface-border
-                   md:rounded-xl md:shadow-[0_16px_48px_rgba(0,0,0,0.35)]
-                   flex flex-col"
-      >
-        {mode === "prerun" && pipelineId ? (
-          <PipelineRunPreRun
-            pipelineId={pipelineId}
-            channelId={channelId}
-            onClose={handleClose}
-            onLaunched={(childTaskId) =>
-              navigate(`/channels/${channelId}/runs/${childTaskId}`, { replace: true })
-            }
-          />
-        ) : mode === "live" && taskId ? (
-          <PipelineRunLive
-            taskId={taskId}
-            channelId={channelId}
-            onClose={handleClose}
-          />
-        ) : null}
-      </div>
-    </>,
-    document.body,
+  return (
+    <EphemeralSessionModal open title="Pipeline run" onClose={handleClose}>
+      {mode === "prerun" && pipelineId ? (
+        <PipelineRunPreRun
+          pipelineId={pipelineId}
+          channelId={channelId}
+          onClose={handleClose}
+          onLaunched={(childTaskId) =>
+            navigate(`/channels/${channelId}/runs/${childTaskId}`, { replace: true })
+          }
+        />
+      ) : mode === "live" && taskId ? (
+        <PipelineRunLive
+          taskId={taskId}
+          channelId={channelId}
+          onClose={handleClose}
+        />
+      ) : null}
+    </EphemeralSessionModal>
   );
 }

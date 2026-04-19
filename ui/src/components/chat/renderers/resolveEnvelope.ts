@@ -68,6 +68,12 @@ export async function resolveToolEnvelope(input: {
   toolName: string;
   rawResult: unknown;
   widgetConfig?: Record<string, unknown> | null;
+  /** Bot that emitted the tool result. Threaded onto the preview envelope so
+   * HTML-widget iframes can mint a widget-auth token for this bot — without
+   * it, `window.spindrel.api` / `apiFetch` inside the iframe queues forever
+   * on a token that never arrives, and attachment URLs silently never fire. */
+  sourceBotId?: string | null;
+  sourceChannelId?: string | null;
 }): Promise<ToolResultEnvelope | null> {
   // 1. Tool-declared envelope — opt-in, tool-authored.
   if (isRecord(input.rawResult) && "_envelope" in input.rawResult) {
@@ -83,6 +89,8 @@ export async function resolveToolEnvelope(input: {
       tool_name: input.toolName,
       sample_payload: isRecord(input.rawResult) ? input.rawResult : null,
       widget_config: input.widgetConfig ?? null,
+      source_bot_id: input.sourceBotId ?? null,
+      source_channel_id: input.sourceChannelId ?? null,
     });
     if (templated.ok && templated.envelope) {
       return adaptToToolResultEnvelope(templated.envelope);

@@ -39,8 +39,8 @@ class SubSessionEntry:
     """
 
     session: Session
-    parent_channel_id: uuid.UUID
-    source_task: Task
+    parent_channel_id: uuid.UUID | None  # None for channel-less ephemeral sessions
+    source_task: Task | None  # None for ephemeral sessions
 
 
 async def resolve_bus_channel_id(
@@ -83,11 +83,17 @@ async def resolve_sub_session_entry(
 ) -> SubSessionEntry | None:
     """Validate that ``session_id`` names a sub-session and resolve its context.
 
-    Returns ``None`` when the session does not exist, is a normal channel
-    session, has no ``source_task_id`` to anchor to, or has no channel
-    ancestor reachable via ``parent_session_id``. Callers (chat router,
-    discovery tools) treat a ``None`` return as "not a sub-session request"
-    and fall through to the usual channel-scoped path.
+    Returns ``None`` when the session does not exist or is a normal channel
+    session. Callers (chat router, discovery tools) treat a ``None`` return
+    as "not a sub-session request" and fall through to the usual
+    channel-scoped path.
+
+    For ephemeral sessions (session_type="ephemeral"): skips the
+    source_task_id check; parent_channel_id may be None for channel-less
+    ephemeral sessions.
+
+    For pipeline/eval sessions: keeps existing logic (source_task_id required,
+    parent_channel_id required via ancestor walk).
     """
     sess = await db.get(Session, session_id)
     if sess is None:
@@ -97,6 +103,17 @@ async def resolve_sub_session_entry(
         return None
     if sess.session_type == "channel":
         return None
+
+    # --- Ephemeral sessions: no task required, parent channel is optional ---
+    if sess.session_type == "ephemeral":
+        parent_channel_id = await resolve_bus_channel_id(db, session_id)
+        return SubSessionEntry(
+            session=sess,
+            parent_channel_id=parent_channel_id,
+            source_task=None,
+        )
+
+    # --- Pipeline / eval sessions: task + parent channel required ---
     if sess.source_task_id is None:
         return None
     parent_channel_id = await resolve_bus_channel_id(db, session_id)

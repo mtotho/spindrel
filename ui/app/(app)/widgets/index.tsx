@@ -35,6 +35,7 @@ import {
   useDashboards,
 } from "@/src/stores/dashboards";
 import { resolvePreset, type GridPreset } from "@/src/lib/dashboardGrid";
+import { EphemeralSession } from "@/src/components/chat/EphemeralSession";
 
 /** A pin lives in the sidebar "rail zone" when its left edge sits inside the
  *  leftmost band of the dashboard grid. Width and right-edge are intentionally
@@ -458,6 +459,25 @@ export default function WidgetsDashboardPage() {
       <EditDashboardDrawer
         slug={manageSlug}
         onClose={() => setManageSlug(null)}
+      />
+
+      <EphemeralSession
+        shape="dock"
+        open
+        onClose={() => {}}
+        sessionStorageKey={`widgets:${slug}`}
+        parentChannelId={channelScopedId ?? undefined}
+        title="Dashboard assistant"
+        context={{
+          page_name: "widget_dashboard",
+          url: typeof window !== "undefined" ? window.location.pathname : undefined,
+          tags: ["widgets", "dashboard"],
+          payload: {
+            dashboard_slug: slug,
+            pinned_widget_ids: pins.map((p) => p.id),
+          },
+          tool_hints: ["create_html_widget", "pin_widget", "list_widget_templates"],
+        }}
       />
     </div>
   );

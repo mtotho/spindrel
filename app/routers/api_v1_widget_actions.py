@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.config import settings
-from app.dependencies import require_scopes
+from app.dependencies import verify_auth_or_user
 from app.tools.mcp import call_mcp_tool, get_mcp_server_for_tool, is_mcp_tool
 from app.tools.registry import call_local_tool, is_local_tool
 from app.agent.tool_dispatch import (
@@ -39,10 +39,18 @@ from app.services.widget_templates import (
 
 logger = logging.getLogger(__name__)
 
+# Widget-actions is a dispatch proxy; each mode enforces its own authorization:
+#   - dispatch:"tool" → tool registry + approval pipeline
+#   - dispatch:"api"  → proxied endpoint's require_scopes(...) gate
+#   - dispatch:"widget_config" → pin ownership check
+# The router-level gate here is authentication-only. A prior commit required
+# the `chat` scope, but chat is specifically "post messages in channels" —
+# widget-actions doesn't post messages, and gating on it locked out widgets
+# emitted by bots whose API keys omit `chat`.
 router = APIRouter(
     prefix="/widget-actions",
     tags=["widget-actions"],
-    dependencies=[Depends(require_scopes("chat"))],
+    dependencies=[Depends(verify_auth_or_user)],
 )
 
 

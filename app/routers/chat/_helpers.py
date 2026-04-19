@@ -15,6 +15,7 @@ from app.services.channels import (
 )
 from app.services.sessions import load_or_create
 from app.services.sub_session_bus import SubSessionEntry, resolve_sub_session_entry
+from app.services.sub_sessions import SESSION_TYPE_EPHEMERAL
 from app.stt import transcribe as stt_transcribe
 
 from ._schemas import ChatRequest, FileMetadata
@@ -30,7 +31,7 @@ class SubSessionChatEntry:
     """Resolved context for a session-scoped chat POST (sub-session follow-up)."""
 
     entry: SubSessionEntry
-    parent_channel: Channel
+    parent_channel: Channel | None  # None for channel-less ephemeral sessions
     messages: list[dict]
 
 
@@ -168,41 +169,65 @@ async def _try_resolve_sub_session_chat(
     if sub is None:
         return None
 
-    # --- Terminal-only gate (v1) ---
-    task = sub.source_task
-    if task.status not in TERMINAL_TASK_STATUSES:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Pipeline run is {task.status!r} — follow-up turns are only "
-                "accepted after the run reaches a terminal state. "
-                "(Mid-run push-back is not yet supported.)"
-            ),
-        )
-
-    # --- Caller authorization: must be a member of the parent channel ---
-    parent_channel = await db.get(Channel, sub.parent_channel_id)
-    if parent_channel is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Parent channel for this sub-session no longer exists.",
-        )
-    if user is not None:
-        caller_ok = (
-            parent_channel.user_id is None
-            or parent_channel.user_id == user.id
-        )
-        if not caller_ok:
+    if sub.session.session_type == SESSION_TYPE_EPHEMERAL:
+        # --- Ephemeral session path: skip terminal-task gate ---
+        # Authorize: if a parent channel exists, check membership;
+        # otherwise allow any authenticated caller.
+        parent_channel: Channel | None = None
+        if sub.parent_channel_id is not None:
+            parent_channel = await db.get(Channel, sub.parent_channel_id)
+            if parent_channel is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Parent channel for this ephemeral session no longer exists.",
+                )
+            if user is not None:
+                caller_ok = (
+                    parent_channel.user_id is None
+                    or parent_channel.user_id == user.id
+                )
+                if not caller_ok:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="You are not a member of this ephemeral session's parent channel.",
+                    )
+        # Bot identity comes from the session itself — don't override from req.
+    else:
+        # --- Pipeline/eval session path: terminal-only gate (v1) ---
+        task = sub.source_task
+        if task.status not in TERMINAL_TASK_STATUSES:
             raise HTTPException(
-                status_code=403,
-                detail="You are not a member of this pipeline run's parent channel.",
+                status_code=409,
+                detail=(
+                    f"Pipeline run is {task.status!r} — follow-up turns are only "
+                    "accepted after the run reaches a terminal state. "
+                    "(Mid-run push-back is not yet supported.)"
+                ),
             )
 
-    # --- Bot identity is forced to task.bot_id ---
-    # If the client sent a different bot_id, normalize silently — the
-    # sub-session's bot is not user-selectable in v1.
-    if task.bot_id:
-        req.bot_id = task.bot_id
+        # --- Caller authorization: must be a member of the parent channel ---
+        parent_channel = await db.get(Channel, sub.parent_channel_id)
+        if parent_channel is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Parent channel for this sub-session no longer exists.",
+            )
+        if user is not None:
+            caller_ok = (
+                parent_channel.user_id is None
+                or parent_channel.user_id == user.id
+            )
+            if not caller_ok:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You are not a member of this pipeline run's parent channel.",
+                )
+
+        # --- Bot identity is forced to task.bot_id ---
+        # If the client sent a different bot_id, normalize silently — the
+        # sub-session's bot is not user-selectable in v1.
+        if task.bot_id:
+            req.bot_id = task.bot_id
 
     # --- Load Messages from the sub-session itself (history scope = sub-session only) ---
     rows = (

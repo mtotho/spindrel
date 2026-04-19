@@ -413,8 +413,19 @@ async def _enqueue_sub_session_turn(
     sub_entry = sub_chat.entry
     parent_channel = sub_chat.parent_channel
     session_id = sub_entry.session.id
-    channel_id = parent_channel.id
     messages = sub_chat.messages
+
+    # For channel-less ephemeral sessions, parent_channel may be None.
+    # start_turn requires a channel_id; raise HTTP 400 if unavailable.
+    if parent_channel is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This ephemeral session has no parent channel — "
+                "a parent_channel_id is required to enqueue a turn."
+            ),
+        )
+    channel_id = parent_channel.id
 
     ctx = await prepare_bot_context(
         messages=messages,
@@ -427,9 +438,10 @@ async def _enqueue_sub_session_turn(
         db=db,
     )
 
+    task_id_str = str(sub_entry.source_task.id) if sub_entry.source_task is not None else "ephemeral"
     logger.info(
         "POST /chat  sub_session  bot=%s  channel=%s  session=%s  task=%s  message=%r",
-        bot.id, channel_id, session_id, sub_entry.source_task.id, message[:80],
+        bot.id, channel_id, session_id, task_id_str, message[:80],
     )
 
     try:

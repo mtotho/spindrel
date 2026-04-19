@@ -26,10 +26,12 @@ from sqlalchemy import select
 from app.db.models import Channel, Message, Session, Task
 from app.services.sub_session_bus import resolve_sub_session_entry
 from app.services.sub_sessions import (
+    SESSION_TYPE_EPHEMERAL,
     SESSION_TYPE_EVAL,
     SESSION_TYPE_PIPELINE_RUN,
     emit_step_output_message,
     resolve_sub_session,
+    spawn_ephemeral_session,
     spawn_sub_session,
 )
 from app.services.task_run_anchor import _build_metadata, _fallback_text
@@ -104,6 +106,87 @@ class TestSpawnSubSession:
         db_session.add(task)
         await db_session.flush()
         assert await resolve_sub_session(db_session, task) is None
+
+
+# ---------------------------------------------------------------------------
+# spawn_ephemeral_session
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestSpawnEphemeralSession:
+    async def test_creates_ephemeral_session_without_parent(self, db_session):
+        """spawn_ephemeral_session with no parent creates a standalone session."""
+        sub = await spawn_ephemeral_session(db_session, bot_id="test-bot")
+        await db_session.flush()
+
+        assert sub.session_type == SESSION_TYPE_EPHEMERAL
+        assert sub.source_task_id is None
+        assert sub.channel_id is None
+        assert sub.parent_session_id is None
+        assert sub.bot_id == "test-bot"
+
+    async def test_creates_ephemeral_session_with_parent_channel(self, db_session):
+        """spawn_ephemeral_session links to parent channel's active session."""
+        # Create a parent session first
+        parent_session = Session(
+            id=uuid.uuid4(),
+            client_id="web",
+            bot_id="test-bot",
+            channel_id=None,
+            depth=0,
+            session_type="channel",
+        )
+        db_session.add(parent_session)
+        await db_session.flush()
+
+        channel = Channel(
+            id=uuid.uuid4(),
+            name="test",
+            bot_id="test-bot",
+            active_session_id=parent_session.id,
+        )
+        # Link parent session to channel
+        parent_session.channel_id = channel.id
+        db_session.add(channel)
+        await db_session.flush()
+
+        sub = await spawn_ephemeral_session(
+            db_session, bot_id="test-bot", parent_channel_id=channel.id
+        )
+        await db_session.flush()
+
+        assert sub.session_type == SESSION_TYPE_EPHEMERAL
+        assert sub.parent_session_id == parent_session.id
+        assert sub.source_task_id is None
+
+    async def test_creates_context_message_when_context_provided(self, db_session):
+        """spawn_ephemeral_session persists context as ephemeral_context system message."""
+        sub = await spawn_ephemeral_session(
+            db_session,
+            bot_id="test-bot",
+            context={"page_name": "widget_dashboard", "url": "/widgets"},
+        )
+        await db_session.flush()
+
+        msgs = (await db_session.execute(
+            select(Message).where(Message.session_id == sub.id)
+        )).scalars().all()
+
+        assert len(msgs) == 1
+        assert msgs[0].role == "system"
+        assert msgs[0].metadata_["kind"] == "ephemeral_context"
+
+    async def test_no_context_message_when_context_is_none(self, db_session):
+        """spawn_ephemeral_session with no context produces no messages."""
+        sub = await spawn_ephemeral_session(db_session, bot_id="test-bot")
+        await db_session.flush()
+
+        msgs = (await db_session.execute(
+            select(Message).where(Message.session_id == sub.id)
+        )).scalars().all()
+
+        assert len(msgs) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -533,6 +616,49 @@ class TestResolveSubSessionEntry:
 
         entry = await resolve_sub_session_entry(db_session, nested_sub.id)
         assert entry is not None
+        assert entry.parent_channel_id == channel.id
+
+    async def test_resolves_ephemeral_session_without_task(self, db_session):
+        """An ephemeral session resolves even with no source_task_id."""
+        ephemeral = Session(
+            id=uuid.uuid4(),
+            client_id="ephemeral",
+            bot_id="test-bot",
+            channel_id=None,
+            depth=0,
+            session_type=SESSION_TYPE_EPHEMERAL,
+            source_task_id=None,
+        )
+        db_session.add(ephemeral)
+        await db_session.flush()
+
+        entry = await resolve_sub_session_entry(db_session, ephemeral.id)
+        assert entry is not None
+        assert entry.session.id == ephemeral.id
+        assert entry.source_task is None
+        # No parent channel since there is no parent_session_id chain
+        assert entry.parent_channel_id is None
+
+    async def test_resolves_ephemeral_session_with_parent_channel(self, db_session):
+        """An ephemeral session with a parent resolves to the parent's channel."""
+        channel, parent, _, _ = await _build_chain(db_session)
+        ephemeral = Session(
+            id=uuid.uuid4(),
+            client_id="ephemeral",
+            bot_id="test-bot",
+            channel_id=None,
+            parent_session_id=parent.id,
+            root_session_id=parent.id,
+            depth=1,
+            session_type=SESSION_TYPE_EPHEMERAL,
+            source_task_id=None,
+        )
+        db_session.add(ephemeral)
+        await db_session.flush()
+
+        entry = await resolve_sub_session_entry(db_session, ephemeral.id)
+        assert entry is not None
+        assert entry.source_task is None
         assert entry.parent_channel_id == channel.id
 
 

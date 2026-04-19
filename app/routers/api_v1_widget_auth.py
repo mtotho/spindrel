@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ApiKey, Bot, User
-from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user
+from app.dependencies import ApiKeyAuth, get_db, verify_auth_or_user
 from app.services.auth import (
     WIDGET_TOKEN_TTL_SECONDS,
     create_widget_token,
@@ -66,11 +66,7 @@ async def _caller_may_use_bot(auth: object, bot: Bot) -> bool:
     return False
 
 
-@router.post(
-    "/mint",
-    response_model=MintResponse,
-    dependencies=[Depends(require_scopes("chat"))],
-)
+@router.post("/mint", response_model=MintResponse)
 async def mint_widget_token(
     body: MintRequest,
     db: AsyncSession = Depends(get_db),

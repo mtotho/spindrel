@@ -8,6 +8,9 @@ from sqlalchemy import select
 from app.db.models import Message, Session, Task
 from tests.integration.conftest import AUTH_HEADERS
 
+# Chat-scope headers (ephemeral endpoint uses "chat" scope)
+CHAT_HEADERS = {"Authorization": "Bearer test-key"}
+
 
 pytestmark = pytest.mark.asyncio
 
@@ -206,3 +209,68 @@ class TestListMessages:
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/sessions/ephemeral
+# ---------------------------------------------------------------------------
+
+class TestCreateEphemeralSession:
+    async def test_create_ephemeral_session_happy_path(self, client, db_session):
+        resp = await client.post(
+            "/api/v1/sessions/ephemeral",
+            json={"bot_id": "test-bot"},
+            headers=CHAT_HEADERS,
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        uuid.UUID(body["session_id"])
+        assert body["parent_channel_id"] is None
+
+    async def test_create_ephemeral_session_unknown_bot(self, client):
+        resp = await client.post(
+            "/api/v1/sessions/ephemeral",
+            json={"bot_id": "nonexistent-bot"},
+            headers=CHAT_HEADERS,
+        )
+        assert resp.status_code == 400
+
+    async def test_create_ephemeral_session_with_context(self, client, db_session):
+        resp = await client.post(
+            "/api/v1/sessions/ephemeral",
+            json={
+                "bot_id": "test-bot",
+                "context": {"page_name": "widget_dashboard", "tool_hints": ["create_html_widget"]},
+            },
+            headers=CHAT_HEADERS,
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        session_id = uuid.UUID(body["session_id"])
+
+        # Verify the session was persisted with the correct type
+        session = await db_session.get(Session, session_id)
+        assert session is not None
+        assert session.session_type == "ephemeral"
+
+        # Verify context message was persisted
+        msgs = (await db_session.execute(
+            select(Message).where(Message.session_id == session_id)
+        )).scalars().all()
+        assert len(msgs) == 1
+        assert msgs[0].metadata_["kind"] == "ephemeral_context"
+
+    async def test_create_ephemeral_session_persists_session_type(self, client, db_session):
+        resp = await client.post(
+            "/api/v1/sessions/ephemeral",
+            json={"bot_id": "test-bot"},
+            headers=CHAT_HEADERS,
+        )
+        assert resp.status_code == 201
+        session_id = uuid.UUID(resp.json()["session_id"])
+
+        session = await db_session.get(Session, session_id)
+        assert session is not None
+        assert session.session_type == "ephemeral"
+        assert session.channel_id is None
+        assert session.source_task_id is None

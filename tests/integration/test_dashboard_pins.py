@@ -411,3 +411,151 @@ class TestChannelPinsBatchEndpoint:
             "/api/v1/widgets/dashboards/channel-pins", headers=AUTH_HEADERS,
         )
         assert r.json() == {"channels": []}
+
+
+class TestRecentCallsSurfacesTemplatedTools:
+    """``GET /api/v1/widgets/recent-calls`` — powers the "Add widget → Recent
+    calls" tab. Must surface any tool with a registered widget template, not
+    just tools whose raw result happens to be envelope-shaped."""
+
+    @pytest.mark.asyncio
+    async def test_template_rendered_tool_call_surfaces(
+        self, client, db_session,
+    ):
+        """A tool call with a raw JSON payload + a registered widget template
+        must appear, with the envelope rendered from the template."""
+        import json
+        from datetime import datetime, timezone
+        from app.db.models import ToolCall
+        from app.services import widget_templates
+
+        # Register a minimal template so apply_widget_template succeeds.
+        tool_name = "fake_weather_tool"
+        widget_templates._widget_templates[tool_name] = {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "template": {
+                "v": 1,
+                "components": [
+                    {"type": "heading", "text": "Weather for {{location}}"},
+                ],
+            },
+            "html_template_body": None,
+            "transform": None,
+            "display_label": "Weather: {{location}}",
+            "state_poll": None,
+            "default_config": {},
+            "source": "test",
+        }
+        try:
+            db_session.add(
+                ToolCall(
+                    id=uuid.uuid4(),
+                    tool_name=tool_name,
+                    tool_type="local",
+                    arguments={"location": "Portland"},
+                    # Raw JSON payload — NOT an envelope, just the data.
+                    result=json.dumps({"location": "Portland", "temp_f": 64}),
+                    status="done",
+                    created_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(timezone.utc),
+                )
+            )
+            await db_session.commit()
+
+            r = await client.get(
+                "/api/v1/widgets/recent-calls?limit=10",
+                headers=AUTH_HEADERS,
+            )
+            assert r.status_code == 200, r.text
+            calls = r.json()["calls"]
+            assert any(c["tool_name"] == tool_name for c in calls), (
+                "recent-calls should surface tools with registered templates "
+                "even when the stored result isn't itself an envelope"
+            )
+            matching = next(c for c in calls if c["tool_name"] == tool_name)
+            assert (
+                matching["envelope"]["content_type"]
+                == "application/vnd.spindrel.components+json"
+            )
+            assert matching["display_label"] == "Weather: Portland"
+        finally:
+            widget_templates._widget_templates.pop(tool_name, None)
+
+    @pytest.mark.asyncio
+    async def test_envelope_optin_wrapper_surfaces(self, client, db_session):
+        """``emit_html_widget`` and bot-authored widget tools store results
+        as ``{"_envelope": {...}, "llm": "..."}`` — must be unwrapped so
+        the Recent calls tab surfaces them."""
+        import json
+        from datetime import datetime, timezone
+        from app.db.models import ToolCall
+
+        tool_name = "emit_html_widget"
+        envelope_body = {
+            "content_type": "application/vnd.spindrel.html+interactive",
+            "body": "<div>hi</div>",
+            "display": "inline",
+            "display_label": "Hello widget",
+            "plain_body": "hi",
+        }
+        db_session.add(
+            ToolCall(
+                id=uuid.uuid4(),
+                tool_name=tool_name,
+                tool_type="local",
+                arguments={"html": "<div>hi</div>"},
+                result=json.dumps({"_envelope": envelope_body, "llm": "Emitted."}),
+                status="done",
+                created_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db_session.commit()
+
+        r = await client.get(
+            "/api/v1/widgets/recent-calls?limit=10",
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        calls = r.json()["calls"]
+        matching = [c for c in calls if c["tool_name"] == tool_name]
+        assert matching, "_envelope opt-in wrapper must be unwrapped + surfaced"
+        assert (
+            matching[0]["envelope"]["content_type"]
+            == "application/vnd.spindrel.html+interactive"
+        )
+        assert matching[0]["display_label"] == "Hello widget"
+
+    @pytest.mark.asyncio
+    async def test_non_templated_non_envelope_tool_is_skipped(
+        self, client, db_session,
+    ):
+        """Tools without a template AND without envelope-shaped results
+        should not appear (they aren't renderable as widgets)."""
+        import json
+        from datetime import datetime, timezone
+        from app.db.models import ToolCall
+
+        tool_name = f"plain_tool_{uuid.uuid4().hex[:8]}"
+        db_session.add(
+            ToolCall(
+                id=uuid.uuid4(),
+                tool_name=tool_name,
+                tool_type="local",
+                arguments={},
+                result=json.dumps({"just": "data"}),
+                status="done",
+                created_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db_session.commit()
+
+        r = await client.get(
+            "/api/v1/widgets/recent-calls?limit=10",
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200
+        calls = r.json()["calls"]
+        assert not any(c["tool_name"] == tool_name for c in calls)

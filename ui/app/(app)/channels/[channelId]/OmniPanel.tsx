@@ -368,7 +368,7 @@ function WidgetsSection({
         isDraggable={true}
         isResizable={true}
         draggableHandle=".widget-drag-handle"
-        resizeHandles={["se"]}
+        resizeHandles={["s"]}
         compactType="vertical"
         preventCollision={false}
         onDragStop={(current) => scheduleCommit(current)}

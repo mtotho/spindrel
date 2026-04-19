@@ -237,18 +237,24 @@ async def list_recent_widget_calls(
     limit: int = Query(default=30, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
-    """List recent tool calls whose result is a widget-renderable envelope.
+    """List recent tool calls that can be rendered as a widget.
 
-    When ``channel_id`` is provided, filters to calls whose session belongs
-    to that channel. Otherwise returns calls across all channels. Callers
-    feed these results into the `POST /dashboard` pin endpoint verbatim.
+    A call qualifies if either:
+    - the tool's stored ``result`` already IS an envelope (``_envelope``
+      opt-in tools like ``emit_html_widget``), OR
+    - a registered widget template for the tool produces one when applied
+      to the stored ``result``.
+
+    The rendered envelope is returned in each row so the UI can pin it
+    directly without a second round-trip through the preview endpoints.
     """
     import json
     from sqlalchemy import select
     from app.db.models import Session as SessionModel, ToolCall, Channel
+    from app.services.widget_templates import apply_widget_template
 
     # Pull more than `limit` up front since we filter out non-widget
-    # envelopes after parsing — otherwise a page full of text results
+    # envelopes after rendering — otherwise a page full of text results
     # would leave the user with an empty list.
     over_limit = limit * 4
 
@@ -271,17 +277,42 @@ async def list_recent_widget_calls(
     for tool_call, row_channel_id, row_channel_name in rows:
         if len(out) >= limit:
             break
-        if not tool_call.result:
+        raw = tool_call.result
+        if not raw:
             continue
+
+        envelope: dict | None = None
+
+        # Path 1: template-rendered envelope (works for every tool with a
+        # registered .widgets.yaml template). Cheap — dict lookup + a JSON
+        # parse that succeeds fast on the 95% of tools that return JSON.
         try:
-            envelope = json.loads(tool_call.result)
-        except (ValueError, TypeError):
-            continue
-        if not isinstance(envelope, dict):
-            continue
-        content_type = envelope.get("content_type")
-        if content_type not in _WIDGET_CONTENT_TYPES:
-            continue
+            rendered = apply_widget_template(tool_call.tool_name, raw)
+        except Exception:
+            rendered = None
+        if rendered is not None:
+            envelope = rendered.compact_dict()
+
+        # Path 2: tool-shipped envelope via the ``_envelope`` opt-in wrapper
+        # (``emit_html_widget`` and any bot-authored widget tool). Stored
+        # shape is ``{"_envelope": {...content_type, body, ...}, "llm": "..."}``
+        # — we unwrap and accept if the inner envelope is a widget type.
+        if envelope is None:
+            try:
+                parsed = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            inner = parsed.get("_envelope")
+            if isinstance(inner, dict) and inner.get("content_type") in _WIDGET_CONTENT_TYPES:
+                envelope = inner
+            elif parsed.get("content_type") in _WIDGET_CONTENT_TYPES:
+                # Legacy shape — result itself IS the envelope.
+                envelope = parsed
+            else:
+                continue
+
         # De-dupe: tool_name + first 120 chars of body is a good-enough
         # identity for "is this the same widget I already saw 3 calls up".
         body = envelope.get("body")

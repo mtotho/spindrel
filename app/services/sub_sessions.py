@@ -28,16 +28,18 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Session, Task
+from app.db.models import Channel, Session, Task
 
 logger = logging.getLogger(__name__)
 
 SESSION_TYPE_CHANNEL = "channel"
 SESSION_TYPE_PIPELINE_RUN = "pipeline_run"
 SESSION_TYPE_EVAL = "eval"
+SESSION_TYPE_EPHEMERAL = "ephemeral"
 
 
 def _session_type_for_task(task: Task) -> str:
@@ -103,6 +105,72 @@ async def resolve_sub_session(
     if task.run_session_id is None:
         return None
     return await db.get(Session, task.run_session_id)
+
+
+async def spawn_ephemeral_session(
+    db: AsyncSession,
+    *,
+    bot_id: str,
+    parent_channel_id: uuid.UUID | None = None,
+    context: dict | None = None,
+) -> Session:
+    """Create a stand-alone ephemeral sub-session not tied to any Task.
+
+    Used by interactive surfaces (widget dashboard etc.) to open ad-hoc
+    bot conversations without first navigating to a channel.
+
+    parent_channel_id, if supplied, links the session to a parent channel's
+    active session for SSE bus routing (same mechanism as pipeline sub-sessions).
+    context, if supplied, is persisted as a system message with
+    metadata.kind="ephemeral_context" so the agent's first turn sees it.
+
+    Caller is responsible for committing.
+    """
+    from app.db.models import Message
+
+    parent_session_id: uuid.UUID | None = None
+    root_session_id: uuid.UUID | None = None
+    depth = 0
+
+    if parent_channel_id is not None:
+        channel = await db.get(Channel, parent_channel_id)
+        if channel is not None and channel.active_session_id is not None:
+            parent_session_id = channel.active_session_id
+            parent = await db.get(Session, parent_session_id)
+            if parent is not None:
+                depth = parent.depth + 1
+                root_session_id = parent.root_session_id or parent_session_id
+
+    sub = Session(
+        id=uuid.uuid4(),
+        client_id="ephemeral",
+        bot_id=bot_id,
+        channel_id=None,  # ephemeral sessions are never directly channel-bound
+        parent_session_id=parent_session_id,
+        root_session_id=root_session_id,
+        depth=depth,
+        source_task_id=None,
+        session_type=SESSION_TYPE_EPHEMERAL,
+    )
+    db.add(sub)
+
+    if context:
+        from app.db.models import Message
+        ctx_msg = Message(
+            id=uuid.uuid4(),
+            session_id=sub.id,
+            role="system",
+            content=str(context),
+            metadata_={"kind": "ephemeral_context", **{k: v for k, v in context.items() if v is not None}},
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(ctx_msg)
+
+    logger.info(
+        "ephemeral_session spawned: session=%s bot=%s parent_channel=%s",
+        sub.id, bot_id, parent_channel_id,
+    )
+    return sub
 
 
 async def emit_step_output_message(

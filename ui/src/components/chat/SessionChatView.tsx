@@ -4,7 +4,7 @@ import { useSessionMessages } from "@/src/api/hooks/useSessionMessages";
 import { useSessionEvents } from "@/src/api/hooks/useSessionEvents";
 import { useChatStore } from "@/src/stores/chat";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { ChatMessageArea, DateSeparator } from "@/app/(app)/channels/[channelId]/ChatMessageArea";
+import { ChatMessageArea, DateSeparator } from "@/src/components/chat/ChatMessageArea";
 import {
   formatDateSeparator,
   isDifferentDay,
@@ -188,7 +188,7 @@ export function SessionChatView({
       chatState={chatState}
       bot={undefined}
       botId={botId}
-      channelId={undefined}
+
       isLoading={isLoading}
       isFetchingNextPage={isFetchingNextPage}
       hasNextPage={hasNextPage}

@@ -145,6 +145,25 @@ class InjectResponse(BaseModel):
     task_id: Optional[uuid.UUID] = None
 
 
+class EphemeralContextPayload(BaseModel):
+    page_name: Optional[str] = None
+    url: Optional[str] = None
+    tags: Optional[list[str]] = None
+    payload: Optional[dict] = None
+    tool_hints: Optional[list[str]] = None
+
+
+class EphemeralSessionCreate(BaseModel):
+    bot_id: str
+    parent_channel_id: Optional[uuid.UUID] = None
+    context: Optional[EphemeralContextPayload] = None
+
+
+class EphemeralSessionOut(BaseModel):
+    session_id: uuid.UUID
+    parent_channel_id: Optional[uuid.UUID] = None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -180,6 +199,49 @@ async def create_session(
         await db.commit()
 
     return SessionOut(session_id=session_id, created=created)
+
+
+@router.post("/ephemeral", response_model=EphemeralSessionOut, status_code=201)
+async def create_ephemeral_session(
+    body: EphemeralSessionCreate,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("chat")),
+):
+    """Spawn a stand-alone ephemeral session for ad-hoc bot chat.
+
+    Returns a session_id the client can use with POST /chat (via session_id param)
+    and GET /sessions/{id}/messages for history.
+    """
+    from app.agent.bots import get_bot
+    from app.services.sub_sessions import spawn_ephemeral_session
+
+    try:
+        get_bot(body.bot_id)
+    except HTTPException:
+        raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
+
+    if body.parent_channel_id is not None:
+        from app.db.models import Channel as ChannelModel
+        channel = await db.get(ChannelModel, body.parent_channel_id)
+        if channel is None:
+            raise HTTPException(status_code=404, detail="Parent channel not found")
+
+    context_dict: dict | None = None
+    if body.context is not None:
+        context_dict = body.context.model_dump(exclude_none=True)
+
+    sub = await spawn_ephemeral_session(
+        db,
+        bot_id=body.bot_id,
+        parent_channel_id=body.parent_channel_id,
+        context=context_dict if context_dict else None,
+    )
+    await db.commit()
+
+    return EphemeralSessionOut(
+        session_id=sub.id,
+        parent_channel_id=body.parent_channel_id,
+    )
 
 
 @router.post("/{session_id}/messages", response_model=InjectResponse, status_code=201)

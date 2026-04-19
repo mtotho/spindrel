@@ -337,7 +337,12 @@ function CallDetail({
     setEnvelope(null);
     setEnvLoading(true);
     const tool = cleanToolName(detail.tool_name);
-    resolveToolEnvelope({ toolName: tool, rawResult })
+    resolveToolEnvelope({
+      toolName: tool,
+      rawResult,
+      sourceBotId: detail.bot_id ?? null,
+      sourceChannelId: detail.channel_id ?? null,
+    })
       .then((env) => setEnvelope(env))
       .catch(() => {})
       .finally(() => setEnvLoading(false));

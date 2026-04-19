@@ -346,6 +346,13 @@ export function ToolsSandbox() {
       const preview = await previewWidgetForTool({
         tool_name: toolName,
         sample_payload: payload,
+        // Thread the sandbox identity onto the envelope so HTML-widget
+        // iframes (e.g. frigate_snapshot) can mint a widget-auth token and
+        // fetch their own attachments / state-poll endpoints. Without this,
+        // window.spindrel.apiFetch inside the iframe queues on a token that
+        // never arrives, and the image silently never loads.
+        source_bot_id: selectedBotId || null,
+        source_channel_id: selectedChannelId || null,
       });
       if (preview.ok && preview.envelope) {
         setEnvelope(preview.envelope);

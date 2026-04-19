@@ -38,6 +38,7 @@ import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCa
 import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
 import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnText } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
+import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
 import { OrchestratorLaunchpad } from "./OrchestratorEmptyState";
 import { useChannelPipelines } from "@/src/api/hooks/useChannelPipelines";
@@ -528,7 +529,11 @@ export default function ChatScreen() {
     chatState,
     bot,
     botId: channel?.bot_id,
-    channelId: channelId ?? undefined,
+    pendingApprovalsSlot: channelId
+      ? (liveApprovalIds: Set<string>) => (
+          <ChannelPendingApprovals channelId={channelId} liveApprovalIds={liveApprovalIds} />
+        )
+      : undefined,
     isLoading,
     isFetchingNextPage,
     hasNextPage,
