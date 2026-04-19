@@ -219,15 +219,23 @@ function ActiveFileRow({
   const modified = formatRelativeTime(file.modified_at);
 
   return (
-    <button type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         display: "flex", flexDirection: "row", alignItems: "center",
         height: 22, paddingLeft: 12, paddingRight: 8, gap: 6, width: "100%",
         background: selected ? t.accentSubtle : hovered ? `${t.text}08` : "transparent",
-        cursor: "pointer", border: "none",
+        cursor: "pointer",
       }}
     >
       {icon}
@@ -258,7 +266,7 @@ function ActiveFileRow({
       ) : modified ? (
         <span style={{ color: t.textDim, fontSize: 9, flexShrink: 0 }}>{modified}</span>
       ) : null}
-    </button>
+    </div>
   );
 }
 

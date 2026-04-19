@@ -11,7 +11,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useWidgetAction } from "@/src/api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "@/src/api/hooks/useWidgetAction";
-import { ComponentRenderer, WidgetActionContext } from "@/src/components/chat/renderers/ComponentRenderer";
+import { RichToolResult } from "@/src/components/chat/RichToolResult";
 import type { PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/api";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
@@ -285,7 +285,7 @@ export function PinnedToolWidget({
     [rawDispatch, widget.id, channelId, isDashboard, widget.tool_name, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, channelPatchConfig, dashboardPatchConfig, refreshState],
   );
 
-  const actionCtx = useMemo(
+  const dispatcher = useMemo(
     () => ({ dispatchAction: interceptingDispatch }),
     [interceptingDispatch],
   );
@@ -430,9 +430,7 @@ export function PinnedToolWidget({
             : "px-2 pb-3 max-h-[350px] overflow-y-auto"
         }
       >
-        <WidgetActionContext.Provider value={actionCtx}>
-          <ComponentRenderer body={body} t={t} />
-        </WidgetActionContext.Provider>
+        <RichToolResult envelope={currentEnvelope} dispatcher={dispatcher} t={t} />
       </div>
 
       {/* Footer: refresh timestamp — fades in on card hover */}

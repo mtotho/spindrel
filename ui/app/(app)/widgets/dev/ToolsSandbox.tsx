@@ -8,11 +8,9 @@ import {
   type PreviewEnvelope,
   type ValidationIssue,
 } from "@/src/api/hooks/useWidgetPackages";
-import {
-  ComponentRenderer,
-  WidgetActionContext,
-  type WidgetActionDispatcher,
-} from "@/src/components/chat/renderers/ComponentRenderer";
+import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
+import { RichToolResult } from "@/src/components/chat/RichToolResult";
+import { adaptToToolResultEnvelope } from "@/src/components/chat/renderers/resolveEnvelope";
 import { JsonTreeRenderer } from "@/src/components/chat/renderers/JsonTreeRenderer";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
@@ -372,9 +370,11 @@ export function ToolsSandbox() {
                 </div>
               )}
               <div className="rounded-lg border border-surface-border bg-surface-raised p-4">
-                <WidgetActionContext.Provider value={NOOP_DISPATCHER}>
-                  <ComponentRenderer body={envelope.body} t={t} />
-                </WidgetActionContext.Provider>
+                <RichToolResult
+                  envelope={adaptToToolResultEnvelope(envelope)}
+                  dispatcher={NOOP_DISPATCHER}
+                  t={t}
+                />
               </div>
             </section>
           )}

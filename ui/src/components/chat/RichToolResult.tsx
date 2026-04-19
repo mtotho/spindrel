@@ -34,6 +34,7 @@ import { InteractiveHtmlRenderer } from "./renderers/InteractiveHtmlRenderer";
 import { DiffRenderer } from "./renderers/DiffRenderer";
 import { FileListingRenderer } from "./renderers/FileListingRenderer";
 import { ComponentRenderer } from "./renderers/ComponentRenderer";
+import type { WidgetActionDispatcher } from "./renderers/ComponentRenderer";
 import { WidgetActionContext } from "./renderers/ComponentRenderer";
 
 interface Props {
@@ -41,24 +42,33 @@ interface Props {
   /** Session id, for lazy-fetching truncated bodies via
    *  GET /api/v1/sessions/{sid}/tool-calls/{record_id}/result */
   sessionId?: string;
-  /** Channel + bot context for interactive widget actions */
+  /** Channel + bot context for interactive widget actions. When a `dispatcher`
+   *  is explicitly passed, channelId/botId are ignored for dispatch construction
+   *  (the caller already built the right one — e.g. pin-scoped from PinnedToolWidget). */
   channelId?: string;
   botId?: string;
+  /** Pre-built dispatcher. Surfaces that need a non-channel-scoped dispatcher
+   *  (pinned widgets, dev panel with NOOP) pass this instead of channelId+botId. */
+  dispatcher?: WidgetActionDispatcher;
   t: ThemeTokens;
 }
 
-export function RichToolResult({ envelope, sessionId, channelId, botId, t }: Props) {
+export function RichToolResult({ envelope, sessionId, channelId, botId, dispatcher, t }: Props) {
   const [fetched, setFetched] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [showJson, setShowJson] = useState(false);
 
-  // Widget action context — provide whenever we have at least a channelId
-  // (botId may be missing on some persisted messages but actions can still work)
-  const dispatchAction = useWidgetAction(channelId, botId ?? "default");
+  // Widget action context — prefer the explicit dispatcher prop; otherwise
+  // build a channel-scoped one from channelId/botId (chat path).
+  const internalDispatchAction = useWidgetAction(channelId, botId ?? "default");
   const actionCtx = useMemo(
-    () => (channelId ? { dispatchAction } : null),
-    [channelId, dispatchAction],
+    () => {
+      if (dispatcher) return dispatcher;
+      if (channelId) return { dispatchAction: internalDispatchAction };
+      return null;
+    },
+    [dispatcher, channelId, internalDispatchAction],
   );
 
   // body may be a pre-parsed object from JSONB metadata — normalize to string

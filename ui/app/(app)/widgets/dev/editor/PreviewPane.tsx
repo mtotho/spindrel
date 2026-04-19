@@ -7,11 +7,9 @@ import {
   type PreviewEnvelope,
   type ValidationIssue,
 } from "@/src/api/hooks/useWidgetPackages";
-import {
-  ComponentRenderer,
-  WidgetActionContext,
-  type WidgetActionDispatcher,
-} from "@/src/components/chat/renderers/ComponentRenderer";
+import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
+import { RichToolResult } from "@/src/components/chat/RichToolResult";
+import { adaptToToolResultEnvelope } from "@/src/components/chat/renderers/resolveEnvelope";
 import { useDebouncedValue } from "@/src/hooks/useDebouncedValue";
 import { useThemeTokens } from "@/src/theme/tokens";
 
@@ -282,9 +280,11 @@ export function PreviewPane({
 
         {hasContent && envelope && previewErrors.length === 0 && mode === "rendered" && (
           <div className="rounded-lg border border-surface-border bg-surface-raised p-5">
-            <WidgetActionContext.Provider value={NOOP_DISPATCHER}>
-              <ComponentRenderer body={envelope.body} t={t} />
-            </WidgetActionContext.Provider>
+            <RichToolResult
+              envelope={adaptToToolResultEnvelope(envelope)}
+              dispatcher={NOOP_DISPATCHER}
+              t={t}
+            />
           </div>
         )}
 

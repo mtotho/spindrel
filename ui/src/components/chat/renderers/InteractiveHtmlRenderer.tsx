@@ -132,11 +132,19 @@ function wrapHtml(body: string, channelId: string | null): string {
   img, video { max-width: 100%; height: auto; }
   table { border-collapse: collapse; }
   td, th { padding: 4px 8px; border: 1px solid #ddd; }
+  /* Wrapper div is measured by the host for iframe auto-sizing. Keep
+     it as a block so its scrollHeight reflects intrinsic content height
+     even when bot CSS sets body{min-height:100vh} (which would otherwise
+     pin body height to the iframe's current size and feedback-loop
+     against the ResizeObserver). */
+  #__sd_root { display: block; }
 </style>
 ${spindrelBootstrap(channelId)}
 </head>
 <body>
+<div id="__sd_root">
 ${body}
+</div>
 </body>
 </html>`;
 }
@@ -209,7 +217,11 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
       try {
         const doc = iframe.contentDocument;
         if (!doc?.body) return;
-        const h = Math.min(doc.body.scrollHeight + 24, MAX_IFRAME_HEIGHT);
+        // Measure the intrinsic content wrapper, not body. body may be
+        // sized to viewport (min-height:100vh from bot CSS) which would
+        // feedback-loop against the iframe's own height.
+        const root = doc.getElementById("__sd_root") ?? doc.body;
+        const h = Math.min(root.scrollHeight + 24, MAX_IFRAME_HEIGHT);
         setHeight(Math.max(80, h));
       } catch {
         // Edge case: contentDocument not accessible. Stay at last height.
@@ -222,8 +234,9 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
       try {
         const doc = iframe.contentDocument;
         if (!doc?.body || observer) return;
+        const root = doc.getElementById("__sd_root") ?? doc.body;
         observer = new ResizeObserver(updateHeight);
-        observer.observe(doc.body);
+        observer.observe(root);
       } catch {
         // ignored
       }

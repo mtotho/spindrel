@@ -233,9 +233,17 @@ export function useChannelEvents(
         const msgSid = payload?.message?.session_id;
         const payloadSid = payload?.session_id;
         const eventSid = msgSid ?? payloadSid;
-        if (eventSid !== undefined && eventSid !== filter) return;
+        // Treat both ``undefined`` (field absent on wire) and ``null``
+        // (field present but unset — the default when ``TurnStartedPayload``
+        // / ``TurnEndedPayload`` were extended with an optional
+        // ``session_id``) as "no session tag, let it through". The
+        // discriminator only fires when the payload actively claims a
+        // different session than the one this subscription is filtering
+        // for.
+        if (eventSid != null && eventSid !== filter) return;
         // Events without any session_id (replay_lapsed, shutdown,
-        // delivery_failed) pass through — they're connection-scoped.
+        // delivery_failed, legacy turn-lifecycle publishes) pass
+        // through — they're connection-scoped.
       }
       const store = useChatStore.getState();
       // Dispatch key — the modal uses the sub-session's id so its state

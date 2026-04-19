@@ -121,13 +121,18 @@ document.getElementById("save").addEventListener("click", async () => {
 
 ### Poll recent messages
 
+There is no `GET /channels/{id}/messages`. Use the search endpoint with no
+query — it returns the most recent rows in the channel ordered by date:
+
 ```js
 async function refresh() {
   const cid = window.spindrel.channelId;
-  const data = await window.spindrel.api("/api/v1/channels/" + cid + "/messages?limit=20");
+  const messages = await window.spindrel.api(
+    "/api/v1/channels/" + cid + "/messages/search?limit=20"
+  );
   const ul = document.getElementById("messages");
-  ul.innerHTML = data.messages
-    .map(m => `<li><b>${m.bot_id || "user"}:</b> ${m.content}</li>`)
+  ul.innerHTML = messages
+    .map(m => `<li><b>${m.role}:</b> ${m.content}</li>`)
     .join("");
 }
 setInterval(refresh, 5000);
@@ -136,14 +141,20 @@ refresh();
 
 ### List tasks + their latest status
 
+The tasks list lives under `/admin/tasks`. Filter by `channel_id` to scope
+to the current chat:
+
 ```js
 async function loadTasks() {
-  const tasks = await window.spindrel.api("/api/v1/tasks");
-  const rows = tasks.map(t => `
+  const cid = window.spindrel.channelId;
+  const data = await window.spindrel.api(
+    "/api/v1/admin/tasks?channel_id=" + cid + "&limit=20"
+  );
+  const rows = (data.tasks || []).map(t => `
     <tr>
-      <td>${t.title}</td>
+      <td>${t.prompt?.slice(0, 60) ?? t.id}</td>
       <td>${t.status}</td>
-      <td>${t.next_run_at ?? "—"}</td>
+      <td>${t.scheduled_at ?? "—"}</td>
     </tr>
   `).join("");
   document.getElementById("tasks").innerHTML = rows;
@@ -214,11 +225,12 @@ The iframe auto-sizes to content height, capped at 800px. Taller content scrolls
 | Endpoint | For |
 |---|---|
 | `GET /api/v1/channels` | List channels |
-| `GET /api/v1/channels/{id}/messages` | Recent messages |
+| `GET /api/v1/channels/{id}/messages/search?limit=N` | Recent messages (no `q` = newest first) |
+| `GET /api/v1/channels/{id}/state` | Active turns + pending approvals snapshot |
 | `GET /api/v1/channels/{id}/workspace/files` | Workspace file tree |
 | `GET /api/v1/channels/{id}/workspace/files/content?path=...` | Read a workspace file |
 | `PUT /api/v1/channels/{id}/workspace/files/content?path=...` | Write a workspace file |
-| `GET /api/v1/tasks` | Tasks + runs |
+| `GET /api/v1/admin/tasks?channel_id=...` | Tasks (filter by channel/status/bot) |
 | `GET /api/v1/admin/tool-calls/recent` | Recent tool-call envelopes |
 | `GET /api/v1/bots/me` | Bot's own config |
 

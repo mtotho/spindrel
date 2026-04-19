@@ -27,14 +27,11 @@ import { useBots } from "@/src/api/hooks/useBots";
 import { useTools } from "@/src/api/hooks/useTools";
 import { BotPicker } from "@/src/components/shared/BotPicker";
 import { ToolSelector, shortToolName } from "@/src/components/shared/ToolSelector";
-import {
-  genericRenderWidget,
-  previewWidgetForTool,
-  type PreviewEnvelope,
-} from "@/src/api/hooks/useWidgetPackages";
-import { ComponentRenderer, WidgetActionContext, type WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
+import { genericRenderWidget } from "@/src/api/hooks/useWidgetPackages";
+import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
+import { RichToolResult } from "@/src/components/chat/RichToolResult";
+import { resolveToolEnvelope } from "@/src/components/chat/renderers/resolveEnvelope";
 import { JsonTreeRenderer } from "@/src/components/chat/renderers/JsonTreeRenderer";
-import { InteractiveHtmlRenderer } from "@/src/components/chat/renderers/InteractiveHtmlRenderer";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useWidgetImportStore } from "@/src/stores/widgetImport";
@@ -307,7 +304,7 @@ function CallDetail({
   const t = useThemeTokens();
   const { data: detail, isLoading } = useToolCall(callId);
   const [resultTab, setResultTab] = useState<"raw" | "rendered">("rendered");
-  const [envelope, setEnvelope] = useState<PreviewEnvelope | null>(null);
+  const [envelope, setEnvelope] = useState<ToolResultEnvelope | null>(null);
   const [envLoading, setEnvLoading] = useState(false);
   const [pinState, setPinState] = useState<"idle" | "pinning" | "success" | "error">("idle");
   const [pinError, setPinError] = useState<string | null>(null);
@@ -317,33 +314,17 @@ function CallDetail({
     [detail?.result],
   );
 
-  // (Re)render when the selection or tab changes. Cheap — the backend
-  // caches generic output and tool templates by (tool, payload).
+  // (Re)render when the selection or tab changes. Resolver priority:
+  // tool-declared `_envelope` → widget template → generic render. Cheap —
+  // the backend caches generic output and tool templates by (tool, payload).
   useEffect(() => {
     if (!detail) return;
     if (resultTab !== "rendered") return;
     setEnvelope(null);
     setEnvLoading(true);
     const tool = cleanToolName(detail.tool_name);
-    // Try the tool's active template first; fall back to generic render.
-    previewWidgetForTool({
-      tool_name: tool,
-      sample_payload:
-        rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)
-          ? (rawResult as Record<string, unknown>)
-          : null,
-    })
-      .then(async (res) => {
-        if (res.ok && res.envelope) {
-          setEnvelope(res.envelope);
-          return;
-        }
-        const generic = await genericRenderWidget({
-          tool_name: tool,
-          raw_result: rawResult,
-        });
-        if (generic.ok && generic.envelope) setEnvelope(generic.envelope);
-      })
+    resolveToolEnvelope({ toolName: tool, rawResult })
+      .then((env) => setEnvelope(env))
       .catch(() => {})
       .finally(() => setEnvLoading(false));
   }, [detail, rawResult, resultTab]);
@@ -481,16 +462,7 @@ function CallDetail({
                 </span>
               )}
               {!envLoading && envelope?.body && (
-                <WidgetActionContext.Provider value={NOOP_DISPATCHER}>
-                  <ComponentRenderer
-                    body={
-                      typeof envelope.body === "string"
-                        ? envelope.body
-                        : JSON.stringify(envelope.body)
-                    }
-                    t={t}
-                  />
-                </WidgetActionContext.Provider>
+                <RichToolResult envelope={envelope} dispatcher={NOOP_DISPATCHER} t={t} />
               )}
               {!envLoading && !envelope?.body && (
                 <span className="text-[12px] text-text-dim">
