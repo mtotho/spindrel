@@ -9,8 +9,20 @@ via `ComponentRenderer`.
 
 Packages are editable in the admin UI at **Tools → Widget Library**.
 
+## Picking a mode
+
+There are three ways to turn a tool result into a rendered card. They coexist and target different problems:
+
+| Mode | Who authors | When to use |
+|---|---|---|
+| Component template (YAML `template:`) | Integration author — declarative | The card fits the component grammar (status, toggle, slider, tiles, properties, tables). Composable, admin-editable. |
+| HTML template (YAML `html_template:`) | Integration author — bundled HTML file | The tool always returns a specific shape and wants a rich custom layout (image with overlays, custom timelines, canvas). Declarative, admin-forkable, pinnable, state_poll works. |
+| Runtime `emit_html_widget` | Bot author — HTML written at chat time | One-off dashboards, prompts like "make me a panel that…". Fresh HTML per invocation. See [HTML Widgets guide](guides/html-widgets.md). |
+
+Both HTML-based modes share the same iframe, CSP, and bot-scoped auth model. If you want every call to a tool to render the same way, pick **HTML template**. If each call emits its own bespoke HTML, the bot uses **`emit_html_widget`**.
+
 !!! tip "Looking for bot-authored HTML widgets?"
-    The template system on this page is for **tool-result component widgets** — declarative YAML bound to a tool. For bot-written HTML (charts, mini-dashboards, anything outside the component grammar), see the [HTML Widgets guide](guides/html-widgets.md). Those run as the emitting bot with short-lived bot-scoped tokens — a different auth model.
+    The template system on this page is for **tool-result component widgets** and **declarative HTML templates** — both bound to a tool name. For bot-written HTML (charts, mini-dashboards, anything outside the component grammar), see the [HTML Widgets guide](guides/html-widgets.md). Those run as the emitting bot with short-lived bot-scoped tokens — same auth model.
 
 !!! tip "Where these widgets live"
     Both component widgets and HTML widgets pin onto the same dashboards — named user boards and per-channel boards. See [Widget Dashboards](guides/widget-dashboards.md) for dashboard creation, the OmniPanel rail, grid presets, and editing.
@@ -115,6 +127,129 @@ state_poll:
 
 `args` values are templated from the pin's `widget_meta` (`display_label`,
 `config`), allowing per-pin args like `{{display_label}}`.
+
+## HTML template mode
+
+For tools whose result needs rendering beyond the component grammar (live
+camera snapshots, canvas overlays, custom timelines), an integration can
+ship a bundled HTML file instead of a component tree. The tool's JSON
+result flows into the iframe as `window.spindrel.toolResult` and the
+widget's own JS owns the render.
+
+```yaml
+tool_widgets:
+  frigate_snapshot:
+    content_type: application/vnd.spindrel.html+interactive
+    display: inline
+    display_label: "Snapshot — {{camera}}"
+    html_template:
+      path: widgets/frigate_snapshot.html   # relative to the integration dir
+    default_config:
+      show_bbox: true
+    state_poll:
+      tool: frigate_snapshot
+      args:
+        camera: "{{display_label}}"
+        bounding_box: "{{config.show_bbox}}"
+      refresh_interval_seconds: 60
+```
+
+Two key rules:
+
+- `template:` and `html_template:` are mutually exclusive. Pick one.
+- `state_poll.template` is **not** used in HTML mode. The poll re-invokes
+  the tool and the new `toolResult` is pushed into the iframe — the HTML
+  file itself re-renders. No sub-template to author.
+
+### `html_template` shape
+
+| Form | When to use |
+|---|---|
+| `html_template: { path: "widgets/foo.html" }` | Integration seeds. The seeder reads the file at boot and inlines its body into the stored YAML. Edits to the file land on restart. |
+| `html_template: { body: "…" }` | User-forked DB packages authored via the admin UI. Inline HTML as a YAML block scalar. |
+
+Paths are resolved against the integration's directory (for seeds) or the
+core `app/tools/local/` dir. Path traversal is blocked.
+
+### The injected data preamble
+
+Before the HTML body runs, the renderer prepends:
+
+```html
+<script>
+  window.spindrel = window.spindrel || {};
+  window.spindrel.toolResult = {/* tool JSON result, minus the merged config */};
+</script>
+```
+
+Widget JS reads `window.spindrel.toolResult` synchronously at load:
+
+```js
+const { attachment_id, filename } = window.spindrel.toolResult;
+document.querySelector("h3").textContent = filename;
+```
+
+### Responding to refreshes
+
+State polling re-invokes the tool and pushes the new JSON in without
+reloading the iframe — `srcDoc` stays stable, so scroll position, focused
+form fields, running animations, and any other in-iframe state survive
+the refresh. Subscribe with a custom event:
+
+```js
+window.addEventListener("spindrel:toolresult", (ev) => {
+  render(ev.detail);  // ev.detail === window.spindrel.toolResult
+});
+render(window.spindrel.toolResult);  // initial paint
+```
+
+### Auth, scopes, CSP
+
+Same as runtime HTML widgets — iframes authenticate as the emitting bot
+via a short-lived JWT, NOT as the viewing user. Use one of two helpers:
+
+- **`window.spindrel.api(path, options?)`** — JSON-in / JSON-or-text-out.
+  Throws on `!ok`, returns the parsed body. Right choice for most calls.
+- **`window.spindrel.apiFetch(path, options?)`** — bearer-attached
+  `fetch` that returns the raw `Response`. Use it for binary payloads
+  (images, video, downloads) or when you want to stream or inspect
+  headers yourself.
+
+```js
+// JSON
+const stats = await window.spindrel.api("/api/v1/tools");
+
+// Binary — image from an attachment
+const r = await window.spindrel.apiFetch("/api/v1/attachments/" + id,
+  { headers: { Accept: "image/*" } });
+if (!r.ok) throw new Error("HTTP " + r.status);
+img.src = URL.createObjectURL(await r.blob());
+```
+
+Raw `fetch()` is unauthenticated and will 401 on scoped endpoints. Both
+helpers pick up the same auto-rotating bot token, so long-running widgets
+keep working without re-authenticating.
+
+The iframe CSP allows `img-src data: blob: 'self'` and `connect-src
+'self'` — any cross-origin URL (e.g. a direct `http://frigate:5000/...`
+stream) is blocked. Route media through the app's attachment or
+widget-accessible endpoints.
+
+### CSP and HTML size
+
+HTML widgets are **exempt from the 4KB inline body cap**. Declarative
+templates routinely carry styles + markup + JS in one file. Runtime
+bot-authored HTML widgets get the same exemption.
+
+### Authoring checklist
+
+- File lives under the integration dir (e.g. `integrations/frigate/widgets/my.html`).
+- `integration.yaml` declares `tool_widgets.<tool>.html_template.path` as a relative path.
+- HTML is a fragment — no `<!doctype>` or outer `<html>`/`<body>`. The renderer wraps.
+- `<style>` and `<script>` tags inside the fragment are fine.
+- Widget JS reads `window.spindrel.toolResult` for initial state and subscribes to `spindrel:toolresult` for refreshes.
+- API calls go through `window.spindrel.api()` (JSON) or `window.spindrel.apiFetch()` (binary / raw Response).
+- Images/media use same-origin URLs (the app's attachment or file-content endpoints).
 
 ## Python transform code
 

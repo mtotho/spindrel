@@ -96,13 +96,24 @@ Every widget gets a small helper injected automatically. No imports, no setup:
 window.spindrel.channelId                  // emitting channel UUID, or null
 window.spindrel.botId                      // your bot id (the one running this)
 window.spindrel.botName                    // display name, e.g. "crumb"
-window.spindrel.api(path, options?)        // authed fetch to /api/v1/..., returns parsed body
+window.spindrel.api(path, options?)        // authed fetch → parsed body (JSON/text), throws on !ok
+window.spindrel.apiFetch(path, options?)   // authed fetch → raw Response (for blobs, streams, binary)
+window.spindrel.toolResult                 // only set for declarative html_template widgets
 window.spindrel.readWorkspaceFile(path)    // returns file content as a string
 window.spindrel.writeWorkspaceFile(path, content)   // PUT
 window.spindrel.listWorkspaceFiles({include_archive?, include_data?, data_prefix?})
 ```
 
-`api(path, options)` is a thin `fetch` wrapper — attaches `Authorization: Bearer <short-lived bot token>`, sets `Content-Type: application/json`, parses JSON responses, and throws on non-2xx so you can `try/catch`. **Always use this instead of raw `fetch()`**; raw fetch won't be authenticated.
+`api(path, options)` is a thin `fetch` wrapper — attaches `Authorization: Bearer <short-lived bot token>`, sets `Content-Type: application/json`, parses JSON responses, and throws on non-2xx so you can `try/catch`. **Always use this or `apiFetch` instead of raw `fetch()`**; raw fetch won't be authenticated.
+
+`apiFetch(path, options)` is the same auth but returns the raw `Response` object. Reach for it when you need a blob (images, video, downloads), headers, or streaming — anywhere `api()`'s auto-parsing gets in the way:
+
+```js
+const r = await window.spindrel.apiFetch("/api/v1/attachments/" + id,
+  { headers: { Accept: "image/*" } });
+if (!r.ok) throw new Error("HTTP " + r.status);
+img.src = URL.createObjectURL(await r.blob());
+```
 
 ## Discovering what endpoints your widget can hit
 

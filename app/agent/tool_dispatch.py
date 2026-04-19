@@ -237,7 +237,16 @@ def _build_envelope_from_optin(envelope_data: dict, raw_text: str) -> ToolResult
 
     byte_size = len(body_str.encode("utf-8")) if body_str else len((raw_text or "").encode("utf-8"))
     truncated = False
-    if len(body_str) > INLINE_BODY_CAP_BYTES:
+    # Interactive HTML widgets ship fixed-at-author-time markup (either from
+    # emit_html_widget's inline mode or an integration's declarative
+    # html_template). The 4KB cap was designed for unbounded tool output;
+    # HTML markup blows past it trivially, and the UI renderer has no
+    # fall-back to lazy-fetch a truncated HTML body — truncation renders as
+    # an empty iframe. Exempt only this content_type.
+    if (
+        len(body_str) > INLINE_BODY_CAP_BYTES
+        and content_type != "application/vnd.spindrel.html+interactive"
+    ):
         body_str = None
         truncated = True
 

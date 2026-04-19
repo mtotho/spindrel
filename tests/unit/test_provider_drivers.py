@@ -18,6 +18,10 @@ from app.services.provider_drivers.base import ProviderCapabilities, ProviderDri
 from app.services.provider_drivers.litellm_driver import LiteLLMDriver
 from app.services.provider_drivers.ollama_driver import OllamaDriver
 from app.services.provider_drivers.openai_driver import OpenAICompatibleDriver, OpenAIDriver
+from app.services.provider_drivers.openai_subscription_driver import (
+    OAUTH_MODELS,
+    OpenAISubscriptionDriver,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -27,8 +31,8 @@ from app.services.provider_drivers.openai_driver import OpenAICompatibleDriver, 
 
 class TestDriverRegistry:
     def test_all_types_registered(self):
-        assert len(DRIVER_REGISTRY) == 7
-        expected = {"litellm", "openai", "openai-compatible", "anthropic", "anthropic-compatible", "anthropic-subscription", "ollama"}
+        assert len(DRIVER_REGISTRY) == 8
+        expected = {"litellm", "openai", "openai-compatible", "openai-subscription", "anthropic", "anthropic-compatible", "anthropic-subscription", "ollama"}
         assert set(DRIVER_REGISTRY.keys()) == expected
 
     def test_provider_types_list_matches_registry(self):
@@ -45,6 +49,11 @@ class TestDriverRegistry:
     def test_anthropic_subscription_alias(self):
         """anthropic-subscription is an alias for the Anthropic driver."""
         assert isinstance(get_driver("anthropic-subscription"), AnthropicDriver)
+
+    def test_openai_subscription_driver_registered(self):
+        assert isinstance(
+            get_driver("openai-subscription"), OpenAISubscriptionDriver
+        )
 
     def test_get_driver_unknown_type_returns_fallback(self):
         """Unknown provider types fall back to OpenAI-compatible driver."""
@@ -107,6 +116,21 @@ class TestDriverCapabilities:
         caps = get_driver("anthropic-subscription").capabilities()
         assert caps.chat_completions is True
         assert caps.requires_api_key is True
+
+    def test_openai_subscription_capabilities(self):
+        caps = get_driver("openai-subscription").capabilities()
+        assert caps.chat_completions is True
+        assert caps.list_models is True
+        # OAuth, not api_key / base_url — UI hides those fields.
+        assert caps.requires_api_key is False
+        assert caps.requires_base_url is False
+
+    @pytest.mark.asyncio
+    async def test_openai_subscription_lists_hardcoded_models(self):
+        driver = OpenAISubscriptionDriver()
+        models = await driver.list_models(_mock_config(provider_type="openai-subscription"))
+        assert models == list(OAUTH_MODELS)
+        assert "gpt-5-codex" in models
 
     def test_litellm_capabilities(self):
         caps = get_driver("litellm").capabilities()

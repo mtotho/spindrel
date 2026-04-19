@@ -345,3 +345,85 @@ export function useRemoteModelInfo(
     enabled: !!providerId && providerId !== "new" && !!modelName,
   });
 }
+
+// ---------------------------------------------------------------------------
+// openai-subscription: ChatGPT OAuth device flow
+// ---------------------------------------------------------------------------
+
+export interface OpenAIOAuthStart {
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete: string;
+  expires_in: number;
+  interval: number;
+}
+
+export interface OpenAIOAuthPoll {
+  status: "pending" | "success";
+  email?: string;
+  plan?: string;
+}
+
+export interface OpenAIOAuthStatus {
+  connected: boolean;
+  email?: string;
+  plan?: string;
+  expires_at?: string;
+}
+
+export function useOpenAIOAuthStatus(providerId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["openai-oauth-status", providerId],
+    queryFn: () =>
+      apiFetch<OpenAIOAuthStatus>(
+        `/api/v1/admin/providers/openai-oauth/status/${providerId}`
+      ),
+    enabled: !!providerId && providerId !== "new" && enabled,
+  });
+}
+
+export function useStartOpenAIOAuth() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providerId: string) =>
+      apiFetch<OpenAIOAuthStart>(
+        `/api/v1/admin/providers/openai-oauth/start/${providerId}`,
+        { method: "POST" }
+      ),
+    onSuccess: (_data, providerId) => {
+      qc.invalidateQueries({ queryKey: ["openai-oauth-status", providerId] });
+    },
+  });
+}
+
+export function usePollOpenAIOAuth() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providerId: string) =>
+      apiFetch<OpenAIOAuthPoll>(
+        `/api/v1/admin/providers/openai-oauth/poll/${providerId}`,
+        { method: "POST" }
+      ),
+    onSuccess: (data, providerId) => {
+      if (data.status === "success") {
+        qc.invalidateQueries({ queryKey: ["openai-oauth-status", providerId] });
+        qc.invalidateQueries({ queryKey: ["admin-provider", providerId] });
+      }
+    },
+  });
+}
+
+export function useDisconnectOpenAIOAuth() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providerId: string) =>
+      apiFetch<{ ok: boolean }>(
+        `/api/v1/admin/providers/openai-oauth/disconnect/${providerId}`,
+        { method: "POST" }
+      ),
+    onSuccess: (_data, providerId) => {
+      qc.invalidateQueries({ queryKey: ["openai-oauth-status", providerId] });
+      qc.invalidateQueries({ queryKey: ["admin-provider", providerId] });
+    },
+  });
+}

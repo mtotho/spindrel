@@ -60,6 +60,7 @@ export function adaptToToolResultEnvelope(
       ((src as { refresh_interval_seconds?: number | null }).refresh_interval_seconds) ?? null,
     source_path: (src as { source_path?: string | null }).source_path ?? null,
     source_channel_id: (src as { source_channel_id?: string | null }).source_channel_id ?? null,
+    source_bot_id: (src as { source_bot_id?: string | null }).source_bot_id ?? null,
   };
 }
 

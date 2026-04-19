@@ -176,33 +176,37 @@ export function PinnedToolWidget({
   // Initial refresh on mount / re-pin.
   const refreshedForRef = useRef<string | null>(null);
   const [hasCompletedInitialRefresh, setHasCompletedInitialRefresh] = useState(false);
-  // HTML widgets own their own freshness: inline envelopes are static
-  // snapshots, path-mode envelopes are polled by the renderer against the
-  // workspace file. Calling /widget-actions/refresh for them returns an
-  // empty-envelope error and — worse — overwrites `source_channel_id` /
-  // `source_bot_id` on the current envelope, breaking `window.spindrel`.
+  // HTML widgets own their own freshness UNLESS they declare state_poll.
+  //   - emit_html_widget output is either a static inline snapshot or a
+  //     path-mode envelope polled against the workspace file — refreshable=false.
+  //   - Declarative html_template widgets (e.g. frigate_snapshot) run through
+  //     state_poll like component widgets, so they get refreshable=true + a
+  //     refresh_interval_seconds. The refresh endpoint re-emits the envelope
+  //     with fresh source_bot_id/source_channel_id so `window.spindrel` stays
+  //     intact across polls.
   const isHtmlWidget = currentEnvelope?.content_type
     === "application/vnd.spindrel.html+interactive";
+  const skipHtmlAutoRefresh = isHtmlWidget && !currentEnvelope?.refreshable;
   useEffect(() => {
     if (refreshedForRef.current === widget.id) return;
     refreshedForRef.current = widget.id;
-    if (isHtmlWidget) {
+    if (skipHtmlAutoRefresh) {
       setHasCompletedInitialRefresh(true);
       return;
     }
     refreshState().finally(() => setHasCompletedInitialRefresh(true));
-  }, [widget.id, refreshState, isHtmlWidget]);
+  }, [widget.id, refreshState, skipHtmlAutoRefresh]);
 
   // Automatic interval refresh — driven by envelope.refresh_interval_seconds.
   // The template engine sets this from state_poll.refresh_interval_seconds in
   // the integration's widget YAML (e.g. OpenWeather uses 3600 for hourly).
   const intervalSec = currentEnvelope?.refresh_interval_seconds;
   useEffect(() => {
-    if (isHtmlWidget) return;
+    if (skipHtmlAutoRefresh) return;
     if (!intervalSec || intervalSec <= 0) return;
     const handle = setInterval(refreshState, intervalSec * 1000);
     return () => clearInterval(handle);
-  }, [intervalSec, refreshState, isHtmlWidget]);
+  }, [intervalSec, refreshState, skipHtmlAutoRefresh]);
 
   // React to external envelope updates (chat broadcasts, other pinned widgets).
   // Two cases:
@@ -268,8 +272,9 @@ export function PinnedToolWidget({
         const result = await rawDispatch(action, value);
         if (
           result.envelope &&
-          result.envelope.content_type === "application/vnd.spindrel.components+json" &&
-          result.envelope.body
+          result.envelope.body &&
+          (result.envelope.content_type === "application/vnd.spindrel.components+json"
+            || result.envelope.content_type === "application/vnd.spindrel.html+interactive")
         ) {
           selfBroadcastRef.current = result.envelope;
           setCurrentEnvelope(result.envelope);
@@ -433,15 +438,17 @@ export function PinnedToolWidget({
             style={{ color: t.textMuted, opacity: 0.6 }}
           />
         </button>
-        <button
-          type="button"
-          onClick={() => onUnpin(widget.id)}
-          className={ctrlBtnClass}
-          aria-label="Unpin widget"
-          title="Unpin"
-        >
-          <X size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.5 }} />
-        </button>
+        {(!isDashboard || editMode) && (
+          <button
+            type="button"
+            onClick={() => onUnpin(widget.id)}
+            className={ctrlBtnClass}
+            aria-label="Unpin widget"
+            title="Unpin"
+          >
+            <X size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.5 }} />
+          </button>
+        )}
       </div>
 
       {/* Body: component content. Dashboard scope fills the tile; channel

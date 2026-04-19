@@ -64,6 +64,8 @@ export interface PreviewEnvelope {
   display_label?: string | null;
   refreshable: boolean;
   refresh_interval_seconds?: number | null;
+  source_bot_id?: string | null;
+  source_channel_id?: string | null;
 }
 
 export interface PreviewResponse {
@@ -194,6 +196,8 @@ export function previewWidgetInline(body: {
   sample_payload?: Record<string, unknown> | null;
   widget_config?: Record<string, unknown> | null;
   tool_name?: string | null;
+  source_bot_id?: string | null;
+  source_channel_id?: string | null;
 }): Promise<PreviewResponse> {
   return apiFetch<PreviewResponse>(
     "/api/v1/admin/widget-packages/preview-inline",
@@ -205,6 +209,8 @@ export function previewWidgetForTool(body: {
   tool_name: string;
   sample_payload?: Record<string, unknown> | null;
   widget_config?: Record<string, unknown> | null;
+  source_bot_id?: string | null;
+  source_channel_id?: string | null;
 }): Promise<PreviewResponse> {
   return apiFetch<PreviewResponse>(
     "/api/v1/admin/widget-packages/preview-for-tool",

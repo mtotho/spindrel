@@ -12,6 +12,7 @@ from .base import ProviderCapabilities, ProviderDriver
 from .litellm_driver import LiteLLMDriver
 from .ollama_driver import OllamaDriver
 from .openai_driver import OpenAICompatibleDriver, OpenAIDriver
+from .openai_subscription_driver import OpenAISubscriptionDriver
 
 __all__ = [
     "ProviderCapabilities",
@@ -25,6 +26,7 @@ DRIVER_REGISTRY: dict[str, ProviderDriver] = {
     "litellm": LiteLLMDriver(),
     "openai": OpenAIDriver(),
     "openai-compatible": OpenAICompatibleDriver(),
+    "openai-subscription": OpenAISubscriptionDriver(),
     "anthropic": AnthropicDriver(),
     "anthropic-compatible": AnthropicCompatibleDriver(),
     "anthropic-subscription": AnthropicDriver(),

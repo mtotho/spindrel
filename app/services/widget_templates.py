@@ -67,11 +67,17 @@ _STATUS_COLORS: dict[str, str] = {
 
 # ── Template loading ──
 
-def _register_widgets(source: str, widgets: dict) -> int:
+def _register_widgets(
+    source: str, widgets: dict, *, base_dir: Path | None = None,
+) -> int:
     """Register tool_widgets from a source (integration ID, file path, etc.).
 
     Returns the number of templates registered. Later registrations do NOT
     override earlier ones — first-registered wins (integration > core).
+
+    ``base_dir`` — used to resolve ``html_template.path`` references against
+    an integration directory (or the core tools dir for core widgets). When
+    omitted, path-mode HTML widgets are rejected (body-only).
     """
     from app.services.widget_package_validation import _validate_parsed_definition
 
@@ -80,9 +86,11 @@ def _register_widgets(source: str, widgets: dict) -> int:
         # Skip YAML anchors (keys starting with _) — not real tool names
         if tool_name.startswith("_"):
             continue
-        if not isinstance(widget_def, dict) or "template" not in widget_def:
+        if not isinstance(widget_def, dict) or (
+            "template" not in widget_def and "html_template" not in widget_def
+        ):
             logger.warning(
-                "%s: tool_widgets[%s] missing 'template', skipping",
+                "%s: tool_widgets[%s] missing 'template' or 'html_template', skipping",
                 source, tool_name,
             )
             continue
@@ -94,9 +102,18 @@ def _register_widgets(source: str, widgets: dict) -> int:
             )
             continue
 
+        # If html_template.path is set, resolve it against base_dir and
+        # inline the HTML body so the rest of the pipeline sees a
+        # self-contained widget_def.
+        resolved_def, resolve_err = _resolve_html_template_paths(widget_def, base_dir)
+        if resolve_err:
+            logger.error("%s: tool_widgets[%s]: %s", source, tool_name, resolve_err)
+            continue
+        widget_def = resolved_def
+
         # Component-tree validation — fail fast on misauthored templates
         # rather than letting them surface as `Unknown: <type>` blocks or
-        # silent runtime errors.
+        # silent runtime errors. Extended to accept html_template shape.
         errors, warnings = _validate_parsed_definition(widget_def)
         for w in warnings:
             logger.warning("%s: tool_widgets[%s]: %s", source, tool_name, w.message)
@@ -104,6 +121,11 @@ def _register_widgets(source: str, widgets: dict) -> int:
             for e in errors:
                 logger.error("%s: tool_widgets[%s]: %s", source, tool_name, e.message)
             continue
+
+        is_html_mode = "html_template" in widget_def
+        html_body: str | None = None
+        if is_html_mode:
+            html_body = widget_def["html_template"].get("body")
 
         # Expand fragment references, then default state_poll.template to
         # template if the author omitted it. Expansion errors skip the
@@ -115,14 +137,29 @@ def _register_widgets(source: str, widgets: dict) -> int:
                 logger.error("%s: tool_widgets[%s]: %s", source, tool_name, msg)
             continue
         state_poll = expanded.get("state_poll")
-        if isinstance(state_poll, dict) and state_poll.get("template") is None:
+        # For component mode, default state_poll.template to the main template.
+        # HTML mode ignores state_poll.template — the HTML file re-renders from
+        # fresh toolResult JSON pushed into the iframe, no sub-template needed.
+        if (
+            isinstance(state_poll, dict)
+            and state_poll.get("template") is None
+            and not is_html_mode
+            and expanded.get("template") is not None
+        ):
             state_poll = {**state_poll, "template": copy.deepcopy(expanded["template"])}
             expanded["state_poll"] = state_poll
 
+        default_content_type = (
+            "application/vnd.spindrel.html+interactive"
+            if is_html_mode
+            else "application/vnd.spindrel.components+json"
+        )
+
         _widget_templates[tool_name] = {
-            "content_type": expanded.get("content_type", "application/vnd.spindrel.components+json"),
+            "content_type": expanded.get("content_type", default_content_type),
             "display": expanded.get("display", "inline"),
-            "template": expanded["template"],
+            "template": expanded.get("template"),
+            "html_template_body": html_body,
             "transform": expanded.get("transform"),
             "display_label": expanded.get("display_label"),
             "state_poll": expanded.get("state_poll"),
@@ -131,6 +168,46 @@ def _register_widgets(source: str, widgets: dict) -> int:
         }
         count += 1
     return count
+
+
+def _resolve_html_template_paths(
+    widget_def: dict, base_dir: Path | None,
+) -> tuple[dict, str | None]:
+    """Inline ``html_template.path`` into ``html_template.body`` in-place.
+
+    Returns (resolved_widget_def, error_message_or_None). The widget_def
+    is always returned unmodified on error so callers can log and skip.
+    """
+    html_template = widget_def.get("html_template")
+    if not isinstance(html_template, dict):
+        return widget_def, None
+    # Already inlined? Nothing to do.
+    if html_template.get("body") is not None:
+        return widget_def, None
+    rel_path = html_template.get("path")
+    if not rel_path:
+        return widget_def, None
+    if base_dir is None:
+        return widget_def, (
+            "html_template.path set but no base_dir available to resolve — "
+            "use html_template.body instead"
+        )
+    try:
+        resolved = (base_dir / rel_path).resolve()
+        base_resolved = base_dir.resolve()
+        if base_resolved not in resolved.parents and resolved != base_resolved:
+            return widget_def, (
+                f"html_template.path '{rel_path}' escapes base directory"
+            )
+        if not resolved.is_file():
+            return widget_def, f"html_template.path '{rel_path}' not found"
+        body_text = resolved.read_text()
+    except Exception as exc:
+        return widget_def, f"html_template.path '{rel_path}' read failed: {exc}"
+
+    new_html_template = {**html_template, "body": body_text}
+    new_html_template.pop("path", None)
+    return {**widget_def, "html_template": new_html_template}, None
 
 
 def load_widget_templates_from_manifests() -> None:
@@ -149,7 +226,11 @@ def load_widget_templates_from_manifests() -> None:
     for integration_id, manifest in get_all_manifests().items():
         tool_widgets = manifest.get("tool_widgets")
         if tool_widgets and isinstance(tool_widgets, dict):
-            total += _register_widgets(f"integration:{integration_id}", tool_widgets)
+            src_path = manifest.get("source_path")
+            base_dir = Path(src_path).parent if src_path else None
+            total += _register_widgets(
+                f"integration:{integration_id}", tool_widgets, base_dir=base_dir,
+            )
 
     # 2. Core tool widget templates — co-located *.widgets.yaml
     core_dir = Path(__file__).parent.parent / "tools" / "local"
@@ -158,7 +239,9 @@ def load_widget_templates_from_manifests() -> None:
             try:
                 raw = yaml.safe_load(yaml_path.read_text())
                 if isinstance(raw, dict):
-                    total += _register_widgets(f"core:{yaml_path.stem}", raw)
+                    total += _register_widgets(
+                        f"core:{yaml_path.stem}", raw, base_dir=core_dir,
+                    )
             except Exception:
                 logger.warning("Failed to load core widget template %s", yaml_path, exc_info=True)
 
@@ -193,9 +276,11 @@ def _build_entry_from_package(row) -> dict | None:
             row.id, row.tool_name, exc,
         )
         return None
-    if not isinstance(widget_def, dict) or "template" not in widget_def:
+    if not isinstance(widget_def, dict) or (
+        "template" not in widget_def and "html_template" not in widget_def
+    ):
         logger.warning(
-            "Widget package %s (tool=%s) YAML missing 'template' key",
+            "Widget package %s (tool=%s) YAML missing 'template' or 'html_template' key",
             row.id, row.tool_name,
         )
         return None
@@ -217,12 +302,29 @@ def _build_entry_from_package(row) -> dict | None:
             "transform": resolve_transform_ref(state_poll.get("transform"), row.id),
         }
 
+    html_template = widget_def.get("html_template")
+    html_body: str | None = None
+    is_html_mode = isinstance(html_template, dict)
+    if is_html_mode:
+        html_body = html_template.get("body")
+        if not isinstance(html_body, str):
+            logger.warning(
+                "Widget package %s (tool=%s) html_template missing inlined 'body'",
+                row.id, row.tool_name,
+            )
+            return None
+
+    default_content_type = (
+        "application/vnd.spindrel.html+interactive"
+        if is_html_mode
+        else "application/vnd.spindrel.components+json"
+    )
+
     return {
-        "content_type": widget_def.get(
-            "content_type", "application/vnd.spindrel.components+json",
-        ),
+        "content_type": widget_def.get("content_type", default_content_type),
         "display": widget_def.get("display", "inline"),
-        "template": widget_def["template"],
+        "template": widget_def.get("template"),
+        "html_template_body": html_body,
         "transform": transform,
         "display_label": widget_def.get("display_label"),
         "state_poll": state_poll,
@@ -378,31 +480,60 @@ def apply_widget_template(
 
     # Shallow-merge default_config < widget_config → data["config"]
     merged_config = {**(tmpl.get("default_config") or {}), **(widget_config or {})}
-    data = {**data, "config": merged_config}
+    data_with_config = {**data, "config": merged_config}
 
-    # Deep-copy the template and substitute variables
-    filled = _substitute(copy.deepcopy(tmpl["template"]), data)
+    # Resolve display_label if declared in the template (shared across modes)
+    display_label = None
+    raw_label = tmpl.get("display_label")
+    if raw_label and isinstance(raw_label, str):
+        resolved = _substitute_string(raw_label, data_with_config)
+        if resolved and isinstance(resolved, str) and resolved.strip():
+            display_label = resolved.strip()
+
+    state_poll = tmpl.get("state_poll") or {}
+    interval = state_poll.get("refresh_interval_seconds")
+    plain_body = f"Widget: {tool_name}"
+
+    # HTML template mode: bake the tool's JSON result into a
+    # `window.spindrel.toolResult` preamble, then concatenate the shipped
+    # HTML body. The iframe renderer wraps in a `<!doctype>` + CSP shell.
+    # Refreshes go through apply_state_poll (which reuses the preamble
+    # pipeline with fresh data).
+    if tmpl.get("html_template_body") is not None:
+        # Capture current bot/channel context so the iframe can mint a
+        # widget-auth token and call channel-scoped APIs. Matches the
+        # stamping pattern in emit_html_widget.
+        from app.agent.context import current_bot_id, current_channel_id
+        bot_id = current_bot_id.get()
+        channel_val = current_channel_id.get()
+        channel_str = str(channel_val) if channel_val else None
+
+        body = _build_html_widget_body(tmpl["html_template_body"], data)
+        return ToolResultEnvelope(
+            content_type=tmpl.get(
+                "content_type", "application/vnd.spindrel.html+interactive",
+            ),
+            body=body,
+            plain_body=plain_body,
+            display=tmpl.get("display", "inline"),
+            display_label=display_label,
+            refreshable=bool(tmpl.get("state_poll")),
+            refresh_interval_seconds=int(interval) if interval else None,
+            source_bot_id=bot_id if bot_id else None,
+            source_channel_id=channel_str,
+        )
+
+    # Component template mode (legacy/default)
+    filled = _substitute(copy.deepcopy(tmpl["template"]), data_with_config)
 
     # Apply code extension if declared
     transform_ref = tmpl.get("transform")
     if transform_ref and isinstance(filled, dict):
         components = filled.get("components")
         if isinstance(components, list):
-            filled["components"] = _apply_code_transform(transform_ref, data, components)
+            filled["components"] = _apply_code_transform(transform_ref, data_with_config, components)
 
     body = json.dumps(filled)
-    plain_body = f"Widget: {tool_name}"
-
-    # Resolve display_label if declared in the template
-    display_label = None
-    raw_label = tmpl.get("display_label")
-    if raw_label and isinstance(raw_label, str):
-        resolved = _substitute_string(raw_label, data)
-        if resolved and isinstance(resolved, str) and resolved.strip():
-            display_label = resolved.strip()
-
-    state_poll = tmpl.get("state_poll") or {}
-    interval = state_poll.get("refresh_interval_seconds")
 
     return ToolResultEnvelope(
         content_type=tmpl["content_type"],
@@ -413,6 +544,30 @@ def apply_widget_template(
         refreshable=bool(tmpl.get("state_poll")),
         refresh_interval_seconds=int(interval) if interval else None,
     )
+
+
+def _build_html_widget_body(html_template_body: str, tool_result_json: dict) -> str:
+    """Prepend a `window.spindrel.toolResult = {...}` preamble to the HTML body.
+
+    The preamble runs before any user script in the body, so widget JS can
+    synchronously read `window.spindrel.toolResult` at load time. Refresh
+    pushes new values via `window.spindrel.__setToolResult(...)` (see the
+    iframe renderer) without reloading srcDoc.
+
+    Escapes `</script>` occurrences in the JSON to keep the preamble from
+    closing early if a string literal in the tool result includes it.
+    """
+    json_payload = json.dumps(tool_result_json, ensure_ascii=False)
+    # Break any `</script>` literal so the host <script> tag isn't terminated
+    # mid-JSON. Browsers treat this as a pure escape on the JS side.
+    safe_json = json_payload.replace("</", "<\\/")
+    preamble = (
+        "<script>"
+        "window.spindrel = window.spindrel || {};"
+        f"window.spindrel.toolResult = {safe_json};"
+        "</script>\n"
+    )
+    return preamble + html_template_body
 
 
 def get_state_poll_config(tool_name: str) -> dict | None:
@@ -434,12 +589,27 @@ def apply_state_poll(
     """Apply a state_poll template to a raw poll result.
 
     ``widget_meta`` carries pinned widget metadata (display_label, etc.)
-    that the code transform can use to filter the poll result.
+    that the code transform can use to filter the poll result. For HTML
+    widgets it should also carry ``source_bot_id`` and ``source_channel_id``
+    so the refreshed envelope keeps iframe auth intact (otherwise
+    ``window.spindrel.api()`` stops working on the next render).
 
     Flow: raw_result → code transform (optional) → template substitution → envelope.
     """
     poll_cfg = get_state_poll_config(tool_name)
-    if not poll_cfg or "template" not in poll_cfg:
+    if not poll_cfg:
+        return None
+
+    # Resolve the owning widget template — it tells us whether to render as
+    # components or as HTML with a fresh preamble.
+    owner_tmpl = _widget_templates.get(tool_name) or (
+        _widget_templates.get(tool_name.split("-", 1)[1])
+        if "-" in tool_name else None
+    ) or {}
+    is_html_mode = owner_tmpl.get("html_template_body") is not None
+
+    if not is_html_mode and "template" not in poll_cfg:
+        # Component-mode widgets still require state_poll.template.
         return None
 
     # Run code transform if declared — reshape raw result for template
@@ -455,25 +625,35 @@ def apply_state_poll(
     if not isinstance(data, dict):
         return None
 
-    # Resolve the owning widget template for default_config (state_poll may
-    # share the tool with the main template, or it may be a poll-only tool —
-    # both cases look up by tool_name, same as get_state_poll_config).
-    owner_tmpl = _widget_templates.get(tool_name) or (
-        _widget_templates.get(tool_name.split("-", 1)[1])
-        if "-" in tool_name else None
-    ) or {}
     merged_config = {
         **(owner_tmpl.get("default_config") or {}),
         **(widget_meta.get("config") or {}),
     }
-    data = {**data, "config": merged_config}
+    data_with_config = {**data, "config": merged_config}
 
-    # Deep-copy and substitute template
-    filled = _substitute(copy.deepcopy(poll_cfg["template"]), data)
-
-    body = json.dumps(filled)
     display_label = widget_meta.get("display_label")
     interval = poll_cfg.get("refresh_interval_seconds")
+
+    # HTML mode: rebuild body with fresh toolResult preamble. The iframe
+    # renderer extracts the new JSON and pushes it in via
+    # window.spindrel.__setToolResult without reloading srcDoc.
+    if is_html_mode:
+        body = _build_html_widget_body(owner_tmpl["html_template_body"], data)
+        return ToolResultEnvelope(
+            content_type="application/vnd.spindrel.html+interactive",
+            body=body,
+            plain_body=f"Widget: {tool_name}",
+            display=owner_tmpl.get("display", "inline"),
+            display_label=display_label,
+            refreshable=True,
+            refresh_interval_seconds=int(interval) if interval else None,
+            source_bot_id=widget_meta.get("source_bot_id"),
+            source_channel_id=widget_meta.get("source_channel_id"),
+        )
+
+    # Component-template mode
+    filled = _substitute(copy.deepcopy(poll_cfg["template"]), data_with_config)
+    body = json.dumps(filled)
 
     return ToolResultEnvelope(
         content_type="application/vnd.spindrel.components+json",

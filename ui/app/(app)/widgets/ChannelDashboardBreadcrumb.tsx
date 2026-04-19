@@ -33,26 +33,29 @@ export function ChannelDashboardBreadcrumb({
 }: Props) {
   return (
     <div
-      className="relative flex items-center gap-2 bg-surface px-2 sm:px-3 py-1.5 text-[12px] shadow-[0_1px_3px_-1px_rgba(0,0,0,0.22)]"
+      className="relative flex items-center gap-1.5 sm:gap-2 bg-surface px-2 sm:px-3 py-1.5 text-[12px] shadow-[0_1px_3px_-1px_rgba(0,0,0,0.22)]"
       role="navigation"
       aria-label="Channel dashboard breadcrumb"
     >
       <Link
         to={`/channels/${channelId}`}
-        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
+        className="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-text-muted hover:bg-surface-overlay hover:text-text transition-colors sm:px-2"
         title="Back to channel"
         aria-label="Back to channel"
       >
-        <ArrowLeft size={13} />
-        <Hash size={12} />
-        <span className="font-medium">{channelName ?? "channel"}</span>
+        <ArrowLeft size={13} className="shrink-0" />
+        <Hash size={12} className="shrink-0" />
+        <span className="font-medium truncate max-w-[9rem] sm:max-w-none">
+          {channelName ?? "channel"}
+        </span>
       </Link>
-      <span className="text-text-dim" aria-hidden>
+      <span className="hidden sm:inline text-text-dim" aria-hidden>
         /
       </span>
-      <span className="inline-flex items-center gap-1.5 text-text">
+      {/* Dashboard label: icon-only on mobile, full label on sm+. */}
+      <span className="inline-flex shrink-0 items-center gap-1.5 text-text">
         <LayoutDashboard size={13} className="text-accent" />
-        <span className="font-semibold">Channel dashboard</span>
+        <span className="hidden sm:inline font-semibold">Channel dashboard</span>
       </span>
       {onOpenManage && (
         <button
@@ -60,16 +63,17 @@ export function ChannelDashboardBreadcrumb({
           onClick={onOpenManage}
           title="Dashboard settings"
           aria-label="Dashboard settings"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay hover:text-text transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay hover:text-text transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         >
           <Settings size={13} />
         </button>
       )}
-      <span className="text-[11px] uppercase tracking-wider text-text-dim tabular-nums">
+      {/* Rail/total chip — only on md+ where there's room without wrapping. */}
+      <span className="hidden md:inline text-[11px] uppercase tracking-wider text-text-dim tabular-nums">
         {railCount} in rail · {pinCount} total
       </span>
       {right && (
-        <div className="ml-auto flex shrink-0 items-center gap-2 pl-3">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2 sm:gap-2 sm:pl-3">
           {right}
         </div>
       )}

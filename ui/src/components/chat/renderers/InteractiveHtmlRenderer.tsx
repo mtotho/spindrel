@@ -79,12 +79,20 @@ function jsonForScript(value: string | null | undefined): string {
  *  emitted the widget (``envelope.source_bot_id``). The host re-mints
  *  before expiry and overwrites ``window.spindrel.__token`` in-place so
  *  long-lived widgets keep a fresh bearer without reloading.
+ *
+ *  For declarative HTML widgets the tool's raw JSON result is baked into
+ *  the body preamble as ``window.spindrel.toolResult``. The host can push
+ *  fresh data after a state_poll refresh via ``__setToolResult`` without
+ *  reassigning srcDoc (which would destroy the widget's in-iframe state).
+ *  Widget JS observes refreshes via the ``spindrel:toolresult`` CustomEvent
+ *  or by re-reading ``window.spindrel.toolResult`` on demand.
  */
 function spindrelBootstrap(
   channelId: string | null,
   botId: string | null,
   botName: string | null,
   widgetToken: string | null,
+  initialToolResultJson: string | null,
 ): string {
   return `<script>
 (function () {
@@ -93,14 +101,26 @@ function spindrelBootstrap(
   const botName = ${jsonForScript(botName)};
   // Token mutated in-place by the host on re-mint — read fresh per call.
   const state = { token: ${jsonForScript(widgetToken)} };
-  async function api(path, options) {
+  const initialToolResult = ${initialToolResultJson ?? "null"};
+  // Like fetch() but bearer-attached. Returns the raw Response so callers
+  // can choose how to consume the body (.blob() for images, .json(), .text(),
+  // streaming, whatever). Use this for anything non-JSON (image/video blobs,
+  // file downloads). For JSON endpoints, api() below is the convenience
+  // wrapper that throws on !ok and parses the body for you.
+  async function apiFetch(path, options) {
     const opts = options || {};
+    const baseHeaders = opts.body !== undefined && !opts.headers
+      ? { "Content-Type": "application/json" }
+      : {};
     const headers = Object.assign(
-      { "Content-Type": "application/json" },
+      baseHeaders,
       state.token ? { "Authorization": "Bearer " + state.token } : {},
       opts.headers || {}
     );
-    const resp = await fetch(path, Object.assign({}, opts, { headers }));
+    return fetch(path, Object.assign({}, opts, { headers }));
+  }
+  async function api(path, options) {
+    const resp = await apiFetch(path, options);
     const ct = resp.headers.get("content-type") || "";
     const data = ct.includes("application/json") ? await resp.json() : await resp.text();
     if (!resp.ok) {
@@ -142,13 +162,41 @@ function spindrelBootstrap(
     botId: botId,
     botName: botName,
     api: api,
+    apiFetch: apiFetch,
     readWorkspaceFile: readWorkspaceFile,
     writeWorkspaceFile: writeWorkspaceFile,
     listWorkspaceFiles: listWorkspaceFiles,
-    __setToken: function (t) { state.token = t || null; }
+    toolResult: initialToolResult,
+    __setToken: function (t) { state.token = t || null; },
+    __setToolResult: function (obj) {
+      window.spindrel.toolResult = obj;
+      try {
+        window.dispatchEvent(new CustomEvent("spindrel:toolresult", { detail: obj }));
+      } catch (_) { /* CustomEvent unavailable — ignore */ }
+    }
   };
 })();
 </script>`;
+}
+
+// Matches the server-side preamble written in
+// `_build_html_widget_body`. We snapshot-extract the JSON so refreshes can
+// postMessage-equivalent push fresh data into a live iframe without
+// rebuilding srcDoc.
+const TOOL_RESULT_PREAMBLE_RE =
+  /window\.spindrel\.toolResult\s*=\s*([\s\S]+?);<\/script>/;
+
+function extractToolResultFromBody(body: string): unknown | undefined {
+  const match = TOOL_RESULT_PREAMBLE_RE.exec(body);
+  if (!match) return undefined;
+  try {
+    // Reverse the `</` escape the backend applies to keep the script tag
+    // from closing early mid-JSON literal.
+    const json = match[1].replace(/<\\\//g, "</");
+    return JSON.parse(json);
+  } catch {
+    return undefined;
+  }
 }
 
 function wrapHtml(
@@ -157,6 +205,7 @@ function wrapHtml(
   botId: string | null,
   botName: string | null,
   widgetToken: string | null,
+  initialToolResultJson: string | null,
 ): string {
   return `<!doctype html>
 <html>
@@ -185,7 +234,7 @@ function wrapHtml(
      against the ResizeObserver). */
   #__sd_root { display: block; }
 </style>
-${spindrelBootstrap(channelId, botId, botName, widgetToken)}
+${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson)}
 </head>
 <body>
 <div id="__sd_root">
@@ -285,10 +334,63 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
     return () => clearInterval(id);
   }, [pathMode]);
 
-  const body = useMemo(() => {
+  const rawBody = useMemo(() => {
     if (pathMode) return fileQuery.data?.content ?? "";
     return envelope.body ?? "";
   }, [pathMode, fileQuery.data?.content, envelope.body]);
+
+  // Declarative HTML widgets ship the tool's JSON result baked into a
+  // `window.spindrel.toolResult = {...}` preamble. Splitting it off lets
+  // srcDoc depend only on the (stable) HTML fragment while tool-result
+  // refreshes are pushed into the live iframe via `__setToolResult`.
+  // That preserves scroll / focus / animation state across polls.
+  const { bodyWithoutPreamble, initialToolResultJson } = useMemo(() => {
+    const match = TOOL_RESULT_PREAMBLE_RE.exec(rawBody);
+    if (!match) {
+      return { bodyWithoutPreamble: rawBody, initialToolResultJson: null as string | null };
+    }
+    const stripped = rawBody.replace(TOOL_RESULT_PREAMBLE_RE, "");
+    const restored = match[1].replace(/<\\\//g, "</");
+    return {
+      bodyWithoutPreamble: stripped.replace(/^\s*<script>\s*<\/script>\s*/i, ""),
+      initialToolResultJson: restored as string | null,
+    };
+  }, [rawBody]);
+
+  // Freeze the JSON that flowed into srcDoc at mount so subsequent poll
+  // refreshes flow through `__setToolResult` rather than rebuilding srcDoc.
+  const frozenInitialToolResultRef = useRef<string | null>(null);
+  if (frozenInitialToolResultRef.current === null && initialToolResultJson != null) {
+    frozenInitialToolResultRef.current = initialToolResultJson;
+  }
+
+  const lastInjectedToolResultRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (pathMode) return;
+    if (initialToolResultJson == null) return;
+    // Same JSON as last push? No-op (first mount is handled by srcDoc seed).
+    if (initialToolResultJson === lastInjectedToolResultRef.current) return;
+    if (initialToolResultJson === frozenInitialToolResultRef.current
+        && lastInjectedToolResultRef.current === null) {
+      lastInjectedToolResultRef.current = initialToolResultJson;
+      return;
+    }
+    try {
+      const w = iframeRef.current?.contentWindow as
+        | (Window & {
+            spindrel?: { __setToolResult?: (v: unknown) => void };
+          })
+        | null
+        | undefined;
+      if (w?.spindrel?.__setToolResult) {
+        const parsed = JSON.parse(initialToolResultJson);
+        w.spindrel.__setToolResult(parsed);
+        lastInjectedToolResultRef.current = initialToolResultJson;
+      }
+    } catch {
+      // Iframe mid-navigation or malformed JSON — next body update retries.
+    }
+  }, [initialToolResultJson, pathMode]);
 
   // Measure iframe content height via ResizeObserver on the body so
   // async-loaded content (fetch + render, setInterval updates) still
@@ -330,7 +432,7 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
       iframe.removeEventListener("load", onLoad);
       if (observer) observer.disconnect();
     };
-  }, [body]);
+  }, [bodyWithoutPreamble]);
 
   const errorOverlay =
     pathMode && fileQuery.error ? (
@@ -432,11 +534,12 @@ export function InteractiveHtmlRenderer({ envelope, channelId, t }: Props) {
       <iframe
         ref={iframeRef}
         srcDoc={wrapHtml(
-          body,
+          bodyWithoutPreamble,
           effectiveChannelId,
           sourceBotId,
           botName,
           widgetToken,
+          frozenInitialToolResultRef.current,
         )}
         sandbox="allow-scripts allow-same-origin"
         title={envelope.display_label || "Interactive HTML widget"}

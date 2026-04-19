@@ -125,6 +125,56 @@ async def _warm_model_info_cache() -> None:
         )
 
 
+async def _ensure_openai_subscription_models(
+    db, provider_rows: list[ProviderConfigRow]
+) -> None:
+    """Seed provider_models rows for every enabled openai-subscription provider.
+
+    Idempotent — inserts only missing rows, never updates existing ones, so
+    user edits (display_name, max_tokens override) stick. Max_tokens values
+    come from OpenAI's published limits for the Codex-flavored models.
+    """
+    from app.services.provider_drivers.openai_subscription_driver import OAUTH_MODELS
+
+    sub_ids = [r.id for r in provider_rows if r.provider_type == "openai-subscription"]
+    if not sub_ids:
+        return
+
+    existing = (
+        await db.execute(
+            select(ProviderModel.provider_id, ProviderModel.model_id).where(
+                ProviderModel.provider_id.in_(sub_ids)
+            )
+        )
+    ).all()
+    have: set[tuple[str, str]] = {(pid, mid) for pid, mid in existing}
+
+    # Max-tokens hints for the Codex-accessible models. Conservative values
+    # when OpenAI hasn't published a specific number for the OAuth variant.
+    _CONTEXT_HINTS = {
+        "gpt-5-codex": 272_000,
+        "gpt-5": 272_000,
+        "gpt-5-mini": 272_000,
+        "o4-mini": 200_000,
+    }
+
+    inserted = 0
+    for provider_id in sub_ids:
+        for model_id in OAUTH_MODELS:
+            if (provider_id, model_id) in have:
+                continue
+            db.add(ProviderModel(
+                provider_id=provider_id,
+                model_id=model_id,
+                display_name=model_id,
+                max_tokens=_CONTEXT_HINTS.get(model_id),
+            ))
+            inserted += 1
+    if inserted:
+        await db.commit()
+        logger.info("Seeded %d openai-subscription ProviderModel rows", inserted)
+
+
 async def load_providers() -> None:
     """Load all enabled providers from DB into the in-memory registry. Clears client cache."""
     global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _plan_billed_models, _model_to_provider, _live_model_to_provider
@@ -145,6 +195,12 @@ async def load_providers() -> None:
                 select(ProviderConfigRow).where(ProviderConfigRow.is_enabled == True)  # noqa: E712
             )
         ).scalars().all()
+
+        # Ensure provider_models rows exist for openai-subscription providers.
+        # The Codex Responses API has no /models endpoint, so the driver ships
+        # a hardcoded allowlist — seed it into the DB so cost reporting,
+        # context-window lookup, and the admin model picker all work.
+        await _ensure_openai_subscription_models(db, rows)
 
         # Load model IDs flagged as no_system_messages
         flagged = (
@@ -209,6 +265,7 @@ async def load_providers() -> None:
                 ).setdefault("max_tokens", max_tokens)
 
     from app.services.encryption import decrypt
+    from app.services.openai_oauth import decrypt_oauth_fields
 
     for row in rows:
         # Decrypt secrets so in-memory registry holds usable values
@@ -218,6 +275,8 @@ async def load_providers() -> None:
             config = dict(row.config)
             config["management_key"] = decrypt(config["management_key"])
             row.config = config
+        if row.config and row.config.get("oauth"):
+            row.config = decrypt_oauth_fields(row.config)
         _registry[row.id] = row
         logger.info("Loaded provider: %s (%s)", row.id, row.provider_type)
 

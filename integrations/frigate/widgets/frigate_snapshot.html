@@ -1,0 +1,159 @@
+<style>
+  .frigate-snap { display: flex; flex-direction: column; gap: 6px; font: 13px/1.35 -apple-system, BlinkMacSystemFont, sans-serif; color: #1f2937; }
+  .frigate-snap header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .frigate-snap h3 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.2px; }
+  .frigate-snap .meta { font-size: 11px; color: #6b7280; }
+  .frigate-snap .frame { position: relative; border-radius: 6px; overflow: hidden; background: #111827; min-height: 120px; }
+  .frigate-snap img { display: block; width: 100%; height: auto; }
+  .frigate-snap .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 12px; }
+  .frigate-snap .bar { display: flex; gap: 6px; flex-wrap: wrap; }
+  .frigate-snap button { appearance: none; border: 1px solid #e5e7eb; background: #f9fafb; padding: 3px 8px; border-radius: 4px; font-size: 11px; color: #374151; cursor: pointer; }
+  .frigate-snap button:hover { background: #f3f4f6; }
+  .frigate-snap button[aria-pressed="true"] { background: #111827; border-color: #111827; color: #f9fafb; }
+  .frigate-snap .err { color: #b91c1c; font-size: 11px; }
+</style>
+<div class="frigate-snap" id="root">
+  <header>
+    <h3 id="camera">Camera</h3>
+    <span class="meta" id="meta"></span>
+  </header>
+  <div class="frame" id="frame">
+    <div class="overlay" id="overlay">Loading…</div>
+  </div>
+  <div class="bar">
+    <button id="bbox" aria-pressed="true" type="button">Bounding boxes</button>
+    <button id="refresh" type="button">Refresh</button>
+  </div>
+  <div class="err" id="err" hidden></div>
+</div>
+<script>
+(function () {
+  var root = document.getElementById("root");
+  var cameraEl = document.getElementById("camera");
+  var metaEl = document.getElementById("meta");
+  var frameEl = document.getElementById("frame");
+  var overlayEl = document.getElementById("overlay");
+  var bboxBtn = document.getElementById("bbox");
+  var refreshBtn = document.getElementById("refresh");
+  var errEl = document.getElementById("err");
+  var currentImgUrl = null;
+
+  function setError(msg) {
+    if (!msg) { errEl.hidden = true; errEl.textContent = ""; return; }
+    errEl.hidden = false;
+    errEl.textContent = msg;
+  }
+
+  function humanSize(bytes) {
+    if (!bytes && bytes !== 0) return "";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
+  function cameraFromFilename(filename) {
+    if (!filename) return "";
+    var m = /^(.*?)_snapshot\.jpg$/.exec(filename);
+    return m ? m[1] : filename;
+  }
+
+  function render(data) {
+    if (!data || typeof data !== "object") {
+      overlayEl.textContent = "No snapshot yet.";
+      return;
+    }
+    if (data.error) {
+      setError(data.error);
+      overlayEl.textContent = "Snapshot failed.";
+      return;
+    }
+    setError("");
+
+    var cam = cameraFromFilename(data.filename) || "Camera";
+    cameraEl.textContent = cam;
+
+    var bits = [];
+    if (data.size_bytes) bits.push(humanSize(data.size_bytes));
+    bits.push(new Date().toLocaleTimeString());
+    metaEl.textContent = bits.join(" · ");
+
+    var attId = data.attachment_id;
+    if (!attId) {
+      overlayEl.textContent = "Snapshot has no attachment_id.";
+      return;
+    }
+    // New tool invocation returns a new attachment id; swap the img element
+    // so the browser always shows fresh bytes.
+    var nextUrl = "/api/v1/attachments/" + encodeURIComponent(attId);
+    if (nextUrl === currentImgUrl) return;
+    currentImgUrl = nextUrl;
+
+    var img = document.createElement("img");
+    img.alt = cam + " snapshot";
+    img.onerror = function () {
+      setError("Image fetch failed (check bot's attachments:read scope)");
+    };
+    window.spindrel
+      .apiFetch(nextUrl, { headers: { Accept: "image/*" } })
+      .then(function (r) {
+        if (!r || !r.ok) throw new Error("HTTP " + (r && r.status));
+        return r.blob();
+      })
+      .then(function (blob) {
+        img.src = URL.createObjectURL(blob);
+      })
+      .catch(function (e) {
+        setError("Image fetch failed: " + (e && e.message));
+      });
+    frameEl.innerHTML = "";
+    frameEl.appendChild(img);
+  }
+
+  function refresh() {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "Refreshing…";
+    window.spindrel
+      .api("/api/v1/widget-actions/refresh", {
+        method: "POST",
+        body: JSON.stringify({
+          tool_name: "frigate_snapshot",
+          display_label: cameraEl.textContent || "",
+          bot_id: window.spindrel.botId,
+          channel_id: window.spindrel.channelId,
+          widget_config: { show_bbox: bboxBtn.getAttribute("aria-pressed") === "true" },
+        }),
+      })
+      .then(function (resp) {
+        // Host extracts the fresh window.spindrel.toolResult from the returned
+        // envelope and pushes it in via __setToolResult. Nothing else to do.
+      })
+      .catch(function (e) {
+        setError("Refresh failed: " + (e && e.message));
+      })
+      .finally(function () {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = "Refresh";
+      });
+  }
+
+  bboxBtn.addEventListener("click", function () {
+    var next = bboxBtn.getAttribute("aria-pressed") !== "true";
+    bboxBtn.setAttribute("aria-pressed", next ? "true" : "false");
+    // Toggling bbox means the cached snapshot no longer matches the user's
+    // choice; force a refresh with the new config.
+    refresh();
+  });
+  refreshBtn.addEventListener("click", refresh);
+
+  // Re-render whenever the host pushes a new tool result via
+  // __setToolResult. This fires on state_poll refreshes AND on the
+  // widget_config dispatch above (because the refresh endpoint returns
+  // the refreshed envelope and the host extracts the preamble).
+  window.addEventListener("spindrel:toolresult", function (ev) {
+    render(ev.detail);
+  });
+
+  // Initial paint from the baked-in preamble.
+  render(window.spindrel && window.spindrel.toolResult);
+})();
+</script>

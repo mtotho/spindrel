@@ -11,17 +11,20 @@ import {
   useProvider, useCreateProvider, useUpdateProvider, useDeleteProvider, useTestProvider, useTestProviderInline,
   useProviderModels, useAddProviderModel, useDeleteProviderModel,
   useProviderTypeCapabilities, useDeleteRemoteModel,
+  useOpenAIOAuthStatus, useStartOpenAIOAuth, usePollOpenAIOAuth, useDisconnectOpenAIOAuth,
   type ProviderModelItem,
 } from "@/src/api/hooks/useProviders";
 import { FormRow, TextInput, SelectInput, Toggle, Section, Row, Col } from "@/src/components/shared/FormControls";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { ProviderCapabilitySections } from "./ProviderCapabilitySections";
+import { OpenAISubscriptionSection } from "./OpenAISubscriptionSection";
 
 const PROVIDER_TYPE_OPTIONS = [
   { label: "LiteLLM", value: "litellm" },
   { label: "OpenAI", value: "openai" },
   { label: "OpenAI Compatible", value: "openai-compatible" },
+  { label: "OpenAI (ChatGPT subscription)", value: "openai-subscription" },
   { label: "Anthropic", value: "anthropic" },
   { label: "Anthropic Compatible", value: "anthropic-compatible" },
   { label: "Ollama", value: "ollama" },
@@ -282,7 +285,20 @@ export default function ProviderDetailScreen() {
               <TextInput value={displayName} onChangeText={setDisplayName} placeholder="e.g. My LiteLLM Proxy" />
             </FormRow>
             <FormRow label="Provider Type">
-              <SelectInput value={providerType} onChange={setProviderType} options={PROVIDER_TYPE_OPTIONS} />
+              <SelectInput
+                value={providerType}
+                onChange={(v) => {
+                  setProviderType(v);
+                  // Seed sensible billing defaults when picking a subscription
+                  // provider — user can still override before saving.
+                  if (v === "openai-subscription" && billingType !== "plan") {
+                    setBillingType("plan");
+                    if (!planCost) setPlanCost("20");
+                    setPlanPeriod("monthly");
+                  }
+                }}
+                options={PROVIDER_TYPE_OPTIONS}
+              />
             </FormRow>
           </Section>
 
@@ -319,6 +335,10 @@ export default function ProviderDetailScreen() {
               </FormRow>
             )}
           </Section>
+
+          {!isNew && providerType === "openai-subscription" && (
+            <OpenAISubscriptionSection providerId={providerId!} />
+          )}
 
           <Section title="Rate Limits" description="Optional per-provider rate limiting">
             <Row>

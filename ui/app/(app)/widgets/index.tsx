@@ -56,9 +56,13 @@ export function isRailPin(pin: WidgetDashboardPin, railZoneCols = 6): boolean {
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
-/** Screen-width breakpoints are preset-agnostic; only column counts and row
- *  heights change per preset (see `@/src/lib/dashboardGrid`). */
-const BREAKPOINTS = { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 } as const;
+/** Screen-width breakpoints. `lg` = the canonical multi-column layout the
+ *  user designs at. We keep the threshold aligned with the mobile cutoff
+ *  (768px) so that typical desktop viewports — including ones with sidebars
+ *  and DevTools open — stay on the lg layout instead of falling back to the
+ *  narrow single-column stack. Narrower breakpoints only kick in for truly
+ *  mobile-sized content areas, which are also blocked from editing. */
+const BREAKPOINTS = { lg: 768, md: 480, sm: 320, xs: 200, xxs: 0 } as const;
 const GRID_MARGIN: [number, number] = [12, 12];
 
 /** Adapt a WidgetDashboardPin row to the PinnedWidget shape the PinnedToolWidget
@@ -276,7 +280,9 @@ export default function WidgetsDashboardPage() {
 
   const actions = (
     <>
-      {pins.length > 0 && (
+      {/* Edit layout — hidden on mobile where the grid is read-only anyway
+          (the in-page banner explains why). */}
+      {pins.length > 0 && !isMobile && (
         <button
           type="button"
           onClick={() => setEditMode((v) => !v)}
@@ -306,9 +312,10 @@ export default function WidgetsDashboardPage() {
         <Plus size={13} />
         <span className="hidden md:inline">Add widget</span>
       </button>
+      {/* Developer panel — not a mobile action; hide to keep the top bar clean. */}
       <Link
         to="/widgets/dev"
-        className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
+        className="hidden sm:inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
         aria-label="Developer panel"
         title="Developer panel"
       >

@@ -339,6 +339,11 @@ async def _do_state_poll(
         "display_label": display_label,
         "tool_name": tool_name,
         "config": widget_config or {},
+        # HTML-template widgets read these off widget_meta so apply_state_poll
+        # can re-emit them on the refreshed envelope — preserving iframe auth
+        # across refreshes. Component widgets ignore them.
+        "source_bot_id": bot_id,
+        "source_channel_id": str(channel_id) if channel_id else None,
     }
     substituted_args = substitute_vars(raw_args, widget_meta)
     poll_args = json.dumps(substituted_args, sort_keys=True)

@@ -49,17 +49,33 @@ def _collect_sources() -> list[tuple[str, dict, str | None, str | None]]:
 
     out: list[tuple[str, dict, str | None, str | None]] = []
 
+    from app.services.widget_templates import _resolve_html_template_paths
+
+    def _is_widget(widget_def: Any) -> bool:
+        return isinstance(widget_def, dict) and (
+            "template" in widget_def or "html_template" in widget_def
+        )
+
     # 1. Integration manifests
     for integration_id, manifest in get_all_manifests().items():
         tool_widgets = manifest.get("tool_widgets")
         if not isinstance(tool_widgets, dict):
             continue
+        src_path = manifest.get("source_path")
+        base_dir = Path(src_path).parent if src_path else None
         for tool_name, widget_def in tool_widgets.items():
             if tool_name.startswith("_"):
                 continue
-            if not isinstance(widget_def, dict) or "template" not in widget_def:
+            if not _is_widget(widget_def):
                 continue
-            out.append((tool_name, widget_def, None, integration_id))
+            resolved, err = _resolve_html_template_paths(widget_def, base_dir)
+            if err:
+                logger.warning(
+                    "integration:%s tool_widgets[%s]: %s",
+                    integration_id, tool_name, err,
+                )
+                continue
+            out.append((tool_name, resolved, None, integration_id))
 
     # 2. Core *.widgets.yaml files
     core_dir = Path(__file__).resolve().parent.parent / "tools" / "local"
@@ -77,9 +93,16 @@ def _collect_sources() -> list[tuple[str, dict, str | None, str | None]]:
             for tool_name, widget_def in raw.items():
                 if tool_name.startswith("_"):
                     continue
-                if not isinstance(widget_def, dict) or "template" not in widget_def:
+                if not _is_widget(widget_def):
                     continue
-                out.append((tool_name, widget_def, str(yaml_path), None))
+                resolved, err = _resolve_html_template_paths(widget_def, core_dir)
+                if err:
+                    logger.warning(
+                        "core:%s tool_widgets[%s]: %s",
+                        yaml_path.stem, tool_name, err,
+                    )
+                    continue
+                out.append((tool_name, resolved, str(yaml_path), None))
 
     return out
 

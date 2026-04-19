@@ -12,21 +12,16 @@
  * Editing happens on the full dashboard page (`/widgets/channel/:id`).
  * The OmniPanel is read-only; one source of truth.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ChevronDown,
-  ChevronRight,
-  FolderOpen,
   LayoutDashboard,
   Layers,
-  Pin,
   Plus,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { ChannelFileExplorer } from "./ChannelFileExplorer";
 import { PinnedToolWidget } from "./PinnedToolWidget";
-import { usePinnedWidgetsStore } from "@/src/stores/pinnedWidgets";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useDashboards, channelSlug } from "@/src/stores/dashboards";
@@ -113,10 +108,6 @@ export function OmniPanel({
   mobileTabs = false,
 }: OmniPanelProps) {
   const t = useThemeTokens();
-  const filesSectionCollapsed = usePinnedWidgetsStore((s) => s.filesSectionCollapsed);
-  const widgetsSectionCollapsed = usePinnedWidgetsStore((s) => s.widgetsSectionCollapsed);
-  const toggleFilesCollapsed = usePinnedWidgetsStore((s) => s.toggleFilesSectionCollapsed);
-  const toggleWidgetsCollapsed = usePinnedWidgetsStore((s) => s.toggleWidgetsSectionCollapsed);
 
   const slug = channelSlug(channelId);
   const { pins } = useDashboardPins(slug);
@@ -191,14 +182,13 @@ export function OmniPanel({
       activeFile={activeFile}
       onSelectFile={onSelectFile}
       onBrowseFiles={onBrowseFiles}
-      onCollapseFiles={toggleFilesCollapsed}
     />
   ) : null;
 
-  // ── Mobile tabs layout: Widgets/Files segmented, one section visible. ──
-  // Default tab = Widgets (not Files) — the sidebar is the reason people
-  // swipe this sheet up. Last selection persisted in localStorage so
-  // subsequent opens remember the user's choice globally.
+  // Single unified tabbed layout (desktop + mobile bottom sheet both use it).
+  // Widgets/Files segmented, one section visible at a time. Default tab =
+  // Widgets — it's the primary reason to open this panel. Last selection
+  // persisted in localStorage so opens remember the user's choice globally.
   const [tab, setTabState] = useState<"widgets" | "files">(() => {
     if (typeof window === "undefined") return "widgets";
     const stored = window.localStorage.getItem("spindrel:omniSheetTab");
@@ -216,49 +206,8 @@ export function OmniPanel({
     if (!hasWorkspace && tab === "files") setTab("widgets");
   }, [hasWorkspace, tab, setTab]);
 
-  if (mobileTabs) {
-    const activeTab = hasWorkspace ? tab : "widgets";
-    return (
-      <div
-        className="flex flex-col h-full overflow-hidden"
-        style={{
-          ...(fullWidth ? { flex: 1 } : { width, flexShrink: 0 }),
-          backgroundColor: t.surfaceRaised,
-        }}
-      >
-        {hasWorkspace && (
-          <div
-            className="flex items-center gap-1 px-2 pt-2 pb-2"
-            style={{ borderBottom: `1px solid ${t.surfaceBorder}55` }}
-          >
-            <TabButton
-              label="Widgets"
-              active={activeTab === "widgets"}
-              onClick={() => setTab("widgets")}
-              count={railPins.length}
-              t={t}
-            />
-            <TabButton
-              label="Files"
-              active={activeTab === "files"}
-              onClick={() => setTab("files")}
-              t={t}
-            />
-          </div>
-        )}
-
-        {activeTab === "files" && hasWorkspace ? (
-          <div className="flex-1 min-h-0 overflow-hidden">{filesSection}</div>
-        ) : (
-          <div className="flex flex-col flex-1 min-h-0">{widgetsSection}</div>
-        )}
-      </div>
-    );
-  }
-
-  // ── Desktop stacked layout ──
-  const showFilesSection = hasWorkspace && !filesSectionCollapsed;
-  const showWidgetsSection = !widgetsSectionCollapsed;
+  const activeTab = hasWorkspace ? tab : "widgets";
+  const showWidgetsHeaderLink = activeTab === "widgets";
 
   return (
     <div
@@ -268,80 +217,44 @@ export function OmniPanel({
         backgroundColor: t.surfaceRaised,
       }}
     >
-      {/* ── Files Section ── */}
-      {hasWorkspace && (
-        <>
-          {showFilesSection ? (
-            <div className="flex-1 min-h-0 overflow-hidden">{filesSection}</div>
-          ) : (
-            <CollapsedSectionHeader
-              icon={<FolderOpen size={11} color={t.textMuted} />}
-              label="Files"
-              onClick={toggleFilesCollapsed}
-              t={t}
-            />
-          )}
-          <div className="h-px mx-2" style={{ backgroundColor: `${t.surfaceBorder}55` }} />
-        </>
-      )}
-
-      {/* ── Widgets Section ── */}
       <div
-        className="flex flex-col min-h-0"
-        style={{ flex: hasWorkspace && showFilesSection ? "none" : 1 }}
+        className="flex items-center gap-1 px-2 pt-2 pb-2"
+        style={{ borderBottom: `1px solid ${t.surfaceBorder}55` }}
       >
-        <div className="flex items-center gap-1 px-2.5 h-8">
-          <button
-            type="button"
-            onClick={toggleWidgetsCollapsed}
-            className="flex items-center gap-1 flex-1 text-left transition-colors duration-150 hover:text-text"
-            aria-expanded={showWidgetsSection}
-            aria-controls="omni-widgets-body"
-          >
-            {showWidgetsSection ? (
-              <ChevronDown size={11} color={t.textMuted} />
-            ) : (
-              <ChevronRight size={11} color={t.textMuted} />
-            )}
-            <Pin size={11} color={t.textMuted} />
-            <span
-              className="uppercase tracking-wider"
-              style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}
-            >
-              Widgets
-            </span>
-            {hasWidgets && (
-              <span
-                className="text-[10px] tabular-nums rounded-full px-1.5 py-0.5"
-                style={{
-                  color: t.textMuted,
-                  backgroundColor: `${t.textMuted}18`,
-                }}
-              >
-                {railPins.length}
-              </span>
-            )}
-          </button>
+        <TabButton
+          label="Widgets"
+          active={activeTab === "widgets"}
+          onClick={() => setTab("widgets")}
+          count={railPins.length}
+          t={t}
+        />
+        {hasWorkspace && (
+          <TabButton
+            label="Files"
+            active={activeTab === "files"}
+            onClick={() => setTab("files")}
+            t={t}
+          />
+        )}
+        {showWidgetsHeaderLink && (
           <Link
             to={dashboardHref}
-            className="inline-flex items-center justify-center w-6 h-6 rounded-md transition-colors duration-150 hover:bg-white/[0.06]"
+            className="ml-auto inline-flex items-center justify-center w-6 h-6 rounded-md transition-colors duration-150 hover:bg-white/[0.06]"
             aria-label="Edit channel dashboard"
             title="Edit channel dashboard"
           >
             <LayoutDashboard size={12} color={t.textMuted} />
           </Link>
-        </div>
-
-        {showWidgetsSection && (
-          hasWidgets ? (
-            <div id="omni-widgets-body" className="flex-1 overflow-y-auto px-2 pb-2">
-              {widgetsSection}
-            </div>
-          ) : (
-            <EmptyWidgets dashboardHref={dashboardHref} t={t} />
-          )
         )}
       </div>
+
+      {activeTab === "files" && hasWorkspace ? (
+        <div className="flex-1 min-h-0 overflow-hidden">{filesSection}</div>
+      ) : (
+        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto px-2 pb-2 pt-2">
+          {hasWidgets ? widgetsSection : <EmptyWidgets dashboardHref={dashboardHref} t={t} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -365,38 +278,85 @@ function WidgetsSection({
   dashboardHref,
   t,
 }: WidgetsSectionProps) {
+  // Render the rail zone at its canonical dashboard-lg pixel size, then scale
+  // the whole grid to fit the sidebar. Gives a pixel-faithful minimap: tile
+  // aspect ratios, gap proportions, and inner widget layout all match what
+  // the user sees on the full /widgets/channel/:id page.
+  const DASH_LG_WIDTH = 1200; // canonical reference width for the lg layout
+  const DASH_GAP = 12; // matches GRID_MARGIN in widgets/index.tsx
+  const dashCellWidth =
+    (DASH_LG_WIDTH - (preset.cols.lg - 1) * DASH_GAP) / preset.cols.lg;
+  const railNaturalWidth =
+    dashCellWidth * preset.railZoneCols
+    + DASH_GAP * (preset.railZoneCols - 1);
+
+  // Compute how many rows the grid occupies so we can reserve scaled height
+  // on the outer wrapper (transform doesn't contribute to layout size).
+  const gridRows = useMemo(() => {
+    let maxBottom = 0;
+    for (const p of railPins) {
+      const gl = p.grid_layout as GridLayoutItem | undefined;
+      const bottom = (gl?.y ?? 0) + (gl?.h ?? 1);
+      if (bottom > maxBottom) maxBottom = bottom;
+    }
+    return Math.max(maxBottom, 1);
+  }, [railPins]);
+  const railNaturalHeight =
+    preset.rowHeight * gridRows + DASH_GAP * (gridRows - 1);
+
+  // Measure the sidebar's available inner width to compute the scale factor.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [availWidth, setAvailWidth] = useState<number>(280);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      if (w > 0) setAvailWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   if (!hasWidgets) {
     return <EmptyWidgets dashboardHref={dashboardHref} t={t} />;
   }
-  // Mini-grid: same column count as the dashboard's rail zone, scaled to the
-  // panel's actual width via 1fr columns. Row height is a proportion of the
-  // dashboard's rowHeight so wide tiles don't get squished into a single line.
-  // 0.7× keeps two-row controls (toggle + slider) readable in the narrow
-  // panel while still letting the user fit several pins above the fold.
-  const miniRowHeight = Math.max(16, Math.round(preset.rowHeight * 0.7));
+
+  const scale = availWidth > 0 ? availWidth / railNaturalWidth : 1;
+
   return (
     <div
-      className="grid w-full"
-      style={{
-        gridTemplateColumns: `repeat(${preset.railZoneCols}, minmax(0, 1fr))`,
-        gridAutoRows: `${miniRowHeight}px`,
-        gap: 8,
-      }}
+      ref={wrapRef}
+      className="w-full overflow-hidden"
+      style={{ height: railNaturalHeight * scale }}
     >
-      {railPins.map((pin) => (
-        <div
-          key={pin.id}
-          style={gridPlacement(pin, preset.railZoneCols)}
-          className="min-w-0 min-h-0"
-        >
-          <PinnedToolWidget
-            widget={asPinnedWidget(pin)}
-            scope={{ kind: "dashboard" }}
-            onUnpin={handleUnpin}
-            onEnvelopeUpdate={handleEnvelopeUpdate}
-          />
-        </div>
-      ))}
+      <div
+        className="grid"
+        style={{
+          width: railNaturalWidth,
+          height: railNaturalHeight,
+          gridTemplateColumns: `repeat(${preset.railZoneCols}, ${dashCellWidth}px)`,
+          gridAutoRows: `${preset.rowHeight}px`,
+          gap: DASH_GAP,
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+        }}
+      >
+        {railPins.map((pin) => (
+          <div
+            key={pin.id}
+            style={gridPlacement(pin, preset.railZoneCols)}
+            className="min-w-0 min-h-0"
+          >
+            <PinnedToolWidget
+              widget={asPinnedWidget(pin)}
+              scope={{ kind: "dashboard" }}
+              onUnpin={handleUnpin}
+              onEnvelopeUpdate={handleEnvelopeUpdate}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -422,35 +382,6 @@ function EmptyWidgets({
         Open channel dashboard
       </Link>
     </div>
-  );
-}
-
-function CollapsedSectionHeader({
-  icon,
-  label,
-  onClick,
-  t,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  t: ReturnType<typeof useThemeTokens>;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1 px-2.5 h-7 hover:bg-white/[0.04] transition-colors duration-150"
-    >
-      <ChevronRight size={11} color={t.textMuted} />
-      {icon}
-      <span
-        className="flex-1 text-left uppercase tracking-wider"
-        style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}
-      >
-        {label}
-      </span>
-    </button>
   );
 }
 

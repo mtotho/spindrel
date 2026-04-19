@@ -105,6 +105,22 @@ class TestOptInEnvelope:
         assert env.body is None
         assert env.plain_body == "very large output"
 
+    def test_interactive_html_body_exempt_from_cap(self):
+        # HTML widgets carry ship-time markup, not user-generated payload,
+        # and the renderer has no lazy-fetch fallback — truncation would
+        # render as an empty iframe. Confirm they survive past the cap.
+        big_html = "<div>" + ("x" * (INLINE_BODY_CAP_BYTES + 1024)) + "</div>"
+        env = _build_envelope_from_optin(
+            {
+                "content_type": "application/vnd.spindrel.html+interactive",
+                "body": big_html,
+                "plain_body": "",
+            },
+            raw_text=big_html,
+        )
+        assert env.truncated is False
+        assert env.body == big_html
+
     def test_optin_invalid_display_falls_back_to_badge(self):
         env = _build_envelope_from_optin(
             {"content_type": "text/plain", "body": "x", "display": "totally-invalid"},

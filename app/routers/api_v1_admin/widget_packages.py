@@ -142,6 +142,10 @@ class PreviewInlineIn(BaseModel):
     sample_payload: Optional[dict] = None
     widget_config: Optional[dict] = None
     tool_name: Optional[str] = None
+    # Sandbox-selected identity. Echoed on the returned envelope so HTML
+    # widget previews can mint widget-auth tokens for the chosen bot.
+    source_bot_id: Optional[str] = None
+    source_channel_id: Optional[str] = None
 
 
 class PreviewForToolIn(BaseModel):
@@ -150,6 +154,8 @@ class PreviewForToolIn(BaseModel):
     tool_name: str = Field(min_length=1)
     sample_payload: Optional[dict] = None
     widget_config: Optional[dict] = None
+    source_bot_id: Optional[str] = None
+    source_channel_id: Optional[str] = None
 
 
 class PreviewEnvelope(BaseModel):
@@ -159,6 +165,11 @@ class PreviewEnvelope(BaseModel):
     display_label: Optional[str] = None
     refreshable: bool = False
     refresh_interval_seconds: Optional[int] = None
+    # Forwarded when rendering an html_template widget so the preview pane's
+    # iframe can mint a widget-auth token and call /api/v1/* endpoints as the
+    # intended bot. Empty for component-tree widgets.
+    source_bot_id: Optional[str] = None
+    source_channel_id: Optional[str] = None
 
 
 class PreviewOut(BaseModel):
@@ -585,6 +596,8 @@ async def preview_widget_for_tool(
             tool_name=body.tool_name,
             sample_payload=body.sample_payload or {},
             widget_config=body.widget_config,
+            source_bot_id=body.source_bot_id,
+            source_channel_id=body.source_channel_id,
         )
     except Exception as exc:
         logger.warning("preview-for-tool failed for %s: %s", body.tool_name, exc, exc_info=True)
@@ -628,6 +641,8 @@ async def preview_widget_inline(
             tool_name=body.tool_name or "",
             sample_payload=body.sample_payload or {},
             widget_config=body.widget_config,
+            source_bot_id=body.source_bot_id,
+            source_channel_id=body.source_channel_id,
         )
     except Exception as exc:
         logger.warning("Inline preview render failed: %s", exc, exc_info=True)
@@ -730,36 +745,57 @@ def _render_preview(
     tool_name: str,
     sample_payload: dict,
     widget_config: dict | None,
+    source_bot_id: str | None = None,
+    source_channel_id: str | None = None,
 ) -> PreviewEnvelope:
     """Run the widget_templates pipeline against a sample payload, return envelope.
 
     Does NOT touch the global ``_widget_templates`` registry.
     """
-    from app.services.widget_templates import _apply_code_transform
+    from app.services.widget_templates import (
+        _apply_code_transform,
+        _build_html_widget_body,
+    )
 
     data = dict(sample_payload) if isinstance(sample_payload, dict) else {}
     default_config = widget_def.get("default_config") or {}
     merged_config = {**default_config, **(widget_config or {})}
-    data = {**data, "config": merged_config}
-
-    template = widget_def.get("template") or {}
-    filled = _substitute(copy.deepcopy(template), data)
-
-    transform_ref = widget_def.get("transform")
-    if transform_ref and isinstance(filled, dict):
-        components = filled.get("components")
-        if isinstance(components, list):
-            filled["components"] = _apply_code_transform(transform_ref, data, components)
+    data_with_config = {**data, "config": merged_config}
 
     display_label = None
     raw_label = widget_def.get("display_label")
     if isinstance(raw_label, str):
-        resolved = _substitute_string(raw_label, data)
+        resolved = _substitute_string(raw_label, data_with_config)
         if isinstance(resolved, str) and resolved.strip():
             display_label = resolved.strip()
 
     state_poll = widget_def.get("state_poll") or {}
     interval = state_poll.get("refresh_interval_seconds")
+
+    html_template = widget_def.get("html_template")
+    if isinstance(html_template, dict) and isinstance(html_template.get("body"), str):
+        body = _build_html_widget_body(html_template["body"], data)
+        return PreviewEnvelope(
+            content_type=widget_def.get(
+                "content_type", "application/vnd.spindrel.html+interactive",
+            ),
+            body=body,
+            display=widget_def.get("display", "inline"),
+            display_label=display_label,
+            refreshable=bool(widget_def.get("state_poll")),
+            refresh_interval_seconds=int(interval) if interval else None,
+            source_bot_id=source_bot_id,
+            source_channel_id=source_channel_id,
+        )
+
+    template = widget_def.get("template") or {}
+    filled = _substitute(copy.deepcopy(template), data_with_config)
+
+    transform_ref = widget_def.get("transform")
+    if transform_ref and isinstance(filled, dict):
+        components = filled.get("components")
+        if isinstance(components, list):
+            filled["components"] = _apply_code_transform(transform_ref, data_with_config, components)
 
     return PreviewEnvelope(
         content_type=widget_def.get(

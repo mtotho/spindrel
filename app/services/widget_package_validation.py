@@ -98,8 +98,43 @@ def _validate_parsed_definition(
     warnings: list[ValidationIssue] = []
 
     template = parsed.get("template")
-    if not isinstance(template, dict):
-        errors.append(ValidationIssue("schema", "Missing required 'template' mapping"))
+    html_template = parsed.get("html_template")
+
+    if template is not None and html_template is not None:
+        errors.append(ValidationIssue(
+            "schema",
+            "'template' and 'html_template' are mutually exclusive — choose one mode",
+        ))
+
+    if html_template is not None:
+        # HTML template mode: tool JSON is injected into `window.spindrel.toolResult`
+        # and a bundled HTML file handles rendering. Accepts either `body` (inline
+        # HTML string) or `path` (filesystem-relative, resolved at seed time).
+        if not isinstance(html_template, dict):
+            errors.append(ValidationIssue(
+                "schema", "html_template must be a mapping",
+            ))
+        else:
+            body = html_template.get("body")
+            path = html_template.get("path")
+            if body is None and path is None:
+                errors.append(ValidationIssue(
+                    "schema",
+                    "html_template requires either 'body' (inline HTML) or 'path' "
+                    "(relative file reference)",
+                ))
+            if body is not None and not isinstance(body, str):
+                errors.append(ValidationIssue(
+                    "schema", "html_template.body must be a string",
+                ))
+            if path is not None and not isinstance(path, str):
+                errors.append(ValidationIssue(
+                    "schema", "html_template.path must be a string",
+                ))
+    elif not isinstance(template, dict):
+        errors.append(ValidationIssue(
+            "schema", "Missing required 'template' (or 'html_template') mapping",
+        ))
     else:
         if template.get("v") != 1:
             errors.append(ValidationIssue(
