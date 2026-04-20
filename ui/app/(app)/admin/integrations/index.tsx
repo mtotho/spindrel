@@ -163,7 +163,7 @@ function IntegrationCard({ item }: { item: IntegrationItem }) {
 
   const onAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
-    statusMut.mutate("needs_setup");
+    statusMut.mutate("enabled");
   };
 
   return (

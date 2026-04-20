@@ -125,12 +125,12 @@ export function DashboardShareWarning({
   const entries = gaps.map((g) => ({ bot_id: g.bot_id, user_ids: g.missing_user_ids }));
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-amber-400/40 bg-amber-500/[0.08] px-3 py-2.5 text-[12px] text-amber-100">
+    <div className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-[12px] text-amber-800 dark:border-amber-400/40 dark:bg-amber-500/[0.08] dark:text-amber-100">
       <div className="flex flex-row items-start gap-2">
-        <ShieldAlert size={14} className="mt-0.5 text-amber-300 shrink-0" />
+        <ShieldAlert size={14} className="mt-0.5 shrink-0 text-amber-500 dark:text-amber-300" />
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-amber-200">Heads up — {message}.</div>
-          <div className="mt-0.5 text-[11px] text-amber-200/80">
+          <div className="font-medium text-amber-800 dark:text-amber-200">Heads up — {message}.</div>
+          <div className="mt-0.5 text-[11px] text-amber-700/80 dark:text-amber-200/80">
             Grant access so everyone with this dashboard pinned can load its
             widgets. You can fine-tune per-bot later in Admin → Bots.
           </div>
@@ -141,13 +141,13 @@ export function DashboardShareWarning({
           type="button"
           onClick={() => bulkGrant.mutate(entries)}
           disabled={bulkGrant.isPending}
-          className="inline-flex items-center gap-1 rounded-md bg-amber-500/80 px-2.5 py-1 text-[11px] font-medium text-amber-950 transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-amber-500/80 dark:text-amber-950"
         >
           {bulkGrant.isPending ? "Granting…" : "Grant access to all"}
         </button>
       </div>
       {bulkGrant.isError && (
-        <div className="text-[11px] text-red-300">
+        <div className="text-[11px] text-red-600 dark:text-red-300">
           {(bulkGrant.error as Error)?.message ?? "Grant failed."}
         </div>
       )}

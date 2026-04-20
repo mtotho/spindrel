@@ -545,7 +545,7 @@ export function useDeviceStatus(id: string) {
 // Integration lifecycle status
 // ---------------------------------------------------------------------------
 
-export type IntegrationLifecycleStatus = "available" | "needs_setup" | "enabled";
+export type IntegrationLifecycleStatus = "available" | "enabled";
 
 export function useSetIntegrationStatus(id: string) {
   const qc = useQueryClient();

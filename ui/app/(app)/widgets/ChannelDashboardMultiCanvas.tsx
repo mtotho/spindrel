@@ -42,8 +42,13 @@ import { EditModeGridGuides } from "./EditModeGridGuides";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
-const RAIL_WIDTH = 280;
-const DOCK_WIDTH = 320;
+/** Tailwind width classes per vertical canvas. Below the `lg` breakpoint
+ *  (<1024px) each canvas becomes full width and the three-column layout
+ *  stacks vertically — see the outer flex container's `flex-col lg:flex-row`
+ *  switch. Using classes (not inline `style.width`) so the responsive
+ *  breakpoint wins over a fixed pixel value. */
+const RAIL_CLASSES = "w-full lg:w-[280px] lg:shrink-0";
+const DOCK_CLASSES = "w-full lg:w-[320px] lg:shrink-0";
 const HEADER_COLS = 12;
 const HEADER_ROW_HEIGHT = 32;
 const RAIL_ROW_HEIGHT = 30;
@@ -323,13 +328,14 @@ function HeaderCanvas({
 function VerticalCanvas({
   pins, editMode, chrome, onUnpin, onEnvelopeUpdate, onEditPin, onMoveZone,
   dragPinId, onDragStartPin, onDragEndPin,
-  zone, label, icon, description, width, emptyMessage,
+  zone, label, icon, description, widthClass, emptyMessage,
 }: CanvasProps & {
   zone: "rail" | "dock";
   label: string;
   icon: React.ReactNode;
   description: string;
-  width: number;
+  /** Tailwind responsive width class (full width on narrow, fixed px on `lg`). */
+  widthClass: string;
   emptyMessage: string;
 }) {
   const t = useThemeTokens();
@@ -367,16 +373,15 @@ function VerticalCanvas({
 
   const rowHeight = zone === "rail" ? RAIL_ROW_HEIGHT : DOCK_ROW_HEIGHT;
   const wrapperClass = editMode
-    ? "flex flex-col rounded-md border shrink-0"
-    : "flex flex-col shrink-0";
+    ? `flex flex-col rounded-md border ${widthClass}`
+    : `flex flex-col ${widthClass}`;
   const wrapperStyle = editMode
     ? {
-        width,
         borderColor: dragOver ? t.accent : `${t.surfaceBorder}55`,
         backgroundColor: t.surface,
         boxShadow: dragOver ? `inset 0 0 0 2px ${t.accent}55` : undefined,
       }
-    : { width };
+    : {};
 
   return (
     <div className={wrapperClass} style={wrapperStyle} {...handlers}>
@@ -639,7 +644,12 @@ export function ChannelDashboardMultiCanvas({
         </div>
       )}
       <HeaderCanvas pins={headerPins} {...canvasCommon} />
-      <div className={editMode ? "flex gap-3 min-h-[320px]" : "flex gap-3"}>
+      <div
+        className={
+          "flex flex-col gap-3 lg:flex-row " +
+          (editMode ? "lg:min-h-[320px]" : "")
+        }
+      >
         <VerticalCanvas
           pins={railPins}
           {...canvasCommon}
@@ -647,7 +657,7 @@ export function ChannelDashboardMultiCanvas({
           label="Chat sidebar rail"
           icon={<PanelLeft size={12} />}
           description="Widgets in the OmniPanel rail on the left side of the channel chat."
-          width={RAIL_WIDTH}
+          widthClass={RAIL_CLASSES}
           emptyMessage="Drop widgets here to pin them in the chat sidebar."
         />
         <GridCanvas pins={gridPins} preset={preset} {...canvasCommon} />
@@ -658,7 +668,7 @@ export function ChannelDashboardMultiCanvas({
           label="Chat right dock"
           icon={<ArrowRight size={12} />}
           description="Widgets in the right-side dock on the channel chat."
-          width={DOCK_WIDTH}
+          widthClass={DOCK_CLASSES}
           emptyMessage="Drop widgets here to pin them on the right side of the channel chat."
         />
       </div>
