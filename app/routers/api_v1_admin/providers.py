@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,6 +82,7 @@ class ProviderModelOut(BaseModel):
     no_system_messages: bool = False
     supports_tools: bool = True
     supports_vision: bool = True
+    prompt_style: str = "markdown"
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -96,6 +97,15 @@ class ProviderModelCreateIn(BaseModel):
     no_system_messages: bool = False
     supports_tools: bool = True
     supports_vision: bool = True
+    prompt_style: str = "markdown"
+
+    @field_validator("prompt_style")
+    @classmethod
+    def _validate_prompt_style(cls, v: str) -> str:
+        from app.services.prompt_dialect import PROMPT_STYLES
+        if v not in PROMPT_STYLES:
+            raise ValueError(f"prompt_style must be one of {PROMPT_STYLES}")
+        return v
 
 
 class ProviderTestResult(BaseModel):
@@ -192,6 +202,7 @@ async def admin_add_provider_model(
         no_system_messages=body.no_system_messages,
         supports_tools=body.supports_tools,
         supports_vision=body.supports_vision,
+        prompt_style=body.prompt_style,
     )
     db.add(row)
     try:
@@ -200,7 +211,14 @@ async def admin_add_provider_model(
     except Exception as exc:
         raise HTTPException(status_code=409, detail=f"Model already exists or DB error: {exc}")
 
-    if body.no_system_messages or not body.supports_tools or not body.supports_vision:
+    # Any non-default flag (including non-markdown prompt_style) means the
+    # runtime cache must reload.
+    if (
+        body.no_system_messages
+        or not body.supports_tools
+        or not body.supports_vision
+        or body.prompt_style != "markdown"
+    ):
         from app.services.providers import load_providers
         await load_providers()
 

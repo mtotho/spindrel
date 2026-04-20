@@ -6,6 +6,41 @@ import json
 from app.agent.context import current_bot_id
 from app.tools.registry import register
 
+_SEARCH_RETURNS = {
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer"},
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string"},
+                    "score": {"type": "number"},
+                    "snippet": {"type": "string"},
+                },
+                "required": ["file_path", "snippet"],
+            },
+        },
+        "best_similarity": {"type": "number"},
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+    "required": ["count", "results"],
+}
+
+
+def _parse_chunk_fields(chunk: str) -> tuple[str, str]:
+    """Return (file_path, snippet) from a formatted fs chunk string."""
+    sep = "\n\n"
+    idx = chunk.find(sep)
+    if chunk.startswith("[File: ") and idx > 0:
+        location = chunk[7:idx - 1]  # strip "[File: " prefix and "]" suffix
+        fp = location.split(" (")[0].split(" L")[0]
+        snippet = chunk[idx + 2:].strip()
+        return fp, snippet
+    return "", chunk.strip()
+
 
 @register({
     "type": "function",
@@ -32,19 +67,19 @@ from app.tools.registry import register
             "required": ["query"],
         },
     },
-}, requires_bot_context=True)
+}, requires_bot_context=True, returns=_SEARCH_RETURNS)
 async def search_workspace(query: str, top_k: int | None = None) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
+        return json.dumps({"count": 0, "results": [], "error": "No bot context available."}, ensure_ascii=False)
 
     from app.agent.bots import get_bot
     bot = get_bot(bot_id)
 
     if not bot.workspace.enabled:
-        return json.dumps({"error": "Workspace is not enabled for this bot."}, ensure_ascii=False)
+        return json.dumps({"count": 0, "results": [], "error": "Workspace is not enabled for this bot."}, ensure_ascii=False)
     if not bot.workspace.indexing.enabled:
-        return json.dumps({"error": "Workspace indexing is not enabled for this bot."}, ensure_ascii=False)
+        return json.dumps({"count": 0, "results": [], "error": "Workspace indexing is not enabled for this bot."}, ensure_ascii=False)
 
     from app.services.workspace import workspace_service
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
@@ -61,9 +96,13 @@ async def search_workspace(query: str, top_k: int | None = None) -> str:
         segments=_resolved.get("segments"),
     )
     if not chunks:
-        return "No relevant results found."
-    header = f"Found {len(chunks)} result(s) (best similarity: {best_sim:.3f}):\n\n"
-    return header + "\n\n---\n\n".join(chunks)
+        return json.dumps({"count": 0, "results": [], "message": "No relevant results found."}, ensure_ascii=False)
+
+    items = []
+    for chunk in chunks:
+        fp, snippet = _parse_chunk_fields(chunk)
+        items.append({"file_path": fp, "snippet": snippet})
+    return json.dumps({"count": len(items), "results": items, "best_similarity": round(best_sim, 3)}, ensure_ascii=False)
 
 
 @register({
@@ -93,22 +132,22 @@ async def search_workspace(query: str, top_k: int | None = None) -> str:
             "required": ["query"],
         },
     },
-}, requires_bot_context=True)
+}, requires_bot_context=True, returns=_SEARCH_RETURNS)
 async def search_bot_knowledge(query: str, top_k: int | None = None) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
+        return json.dumps({"count": 0, "results": [], "error": "No bot context available."}, ensure_ascii=False)
 
     query = (query or "").strip()
     if not query:
-        return "No search query provided."
+        return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
     from app.agent.bots import get_bot
     bot = get_bot(bot_id)
     if not bot or not bot.workspace.enabled:
-        return "Bot knowledge search is not available (workspace disabled)."
+        return json.dumps({"count": 0, "results": [], "error": "Bot knowledge search is not available (workspace disabled)."}, ensure_ascii=False)
     if not bot.workspace.indexing.enabled:
-        return "Bot knowledge search is not available (indexing disabled)."
+        return json.dumps({"count": 0, "results": [], "error": "Bot knowledge search is not available (indexing disabled)."}, ensure_ascii=False)
 
     from app.services.workspace import workspace_service
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
@@ -128,17 +167,17 @@ async def search_bot_knowledge(query: str, top_k: int | None = None) -> str:
             top_k=top_k or _resolved["top_k"],
         )
     except Exception as exc:
-        return f"Bot knowledge search ERROR: {exc}"
+        return json.dumps({"count": 0, "results": [], "error": f"Bot knowledge search ERROR: {exc}"}, ensure_ascii=False)
 
     if not results:
-        return "No matching content in this bot's knowledge base."
+        return json.dumps({"count": 0, "results": [], "message": "No matching content in this bot's knowledge base."}, ensure_ascii=False)
 
-    lines = []
+    items = []
     for r in results:
-        content = r.content
-        if content.startswith("# "):
-            first_nl = content.find("\n")
+        snippet = r.content
+        if snippet.startswith("# "):
+            first_nl = snippet.find("\n")
             if first_nl > 0:
-                content = content[first_nl + 1:]
-        lines.append(f"**{r.file_path}** (score: {r.score:.3f})\n{content.strip()}")
-    return "\n\n---\n\n".join(lines)
+                snippet = snippet[first_nl + 1:]
+        items.append({"file_path": r.file_path, "score": round(r.score, 3), "snippet": snippet.strip()})
+    return json.dumps({"count": len(items), "results": items}, ensure_ascii=False)

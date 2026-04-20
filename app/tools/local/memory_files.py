@@ -1,12 +1,47 @@
 """Local tools for file-based memory scheme: search_memory, get_memory_file, search_bot_memory."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
 
 from app.agent.context import current_bot_id
 from app.tools.registry import register
+
+_SEARCH_RETURNS = {
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer"},
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string"},
+                    "score": {"type": "number"},
+                    "snippet": {"type": "string"},
+                },
+                "required": ["file_path", "snippet"],
+            },
+        },
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+    "required": ["count", "results"],
+}
+
+
+def _format_search_results(results) -> str:
+    items = []
+    for r in results:
+        snippet = r.content
+        if snippet.startswith("# "):
+            first_nl = snippet.find("\n")
+            if first_nl > 0:
+                snippet = snippet[first_nl + 1:]
+        items.append({"file_path": r.file_path, "score": round(r.score, 3), "snippet": snippet.strip()})
+    return json.dumps({"count": len(items), "results": items}, ensure_ascii=False)
 
 logger = logging.getLogger(__name__)
 
@@ -93,26 +128,23 @@ def _resolve_memory_path(name: str, memory_root: str) -> str | None:
             "required": ["query"],
         },
     },
-}, requires_bot_context=True)
+}, requires_bot_context=True, returns=_SEARCH_RETURNS)
 async def search_memory(query: str) -> str:
     """Hybrid search across memory files."""
     bot, bot_id, ws_root = _get_bot_and_root()
     if not bot or not ws_root:
-        return "Memory search is not available (no workspace context)."
+        return json.dumps({"count": 0, "results": [], "error": "Memory search is not available (no workspace context)."}, ensure_ascii=False)
 
     query = (query or "").strip()
     if not query:
-        return "No search query provided."
+        return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
     from app.services.memory_scheme import get_memory_index_prefix
     from app.services.memory_search import hybrid_memory_search
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
-    # Use the RESOLVED embedding model (same as FS_CONTEXT / indexer) — not the bare default
     _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
     embedding_model = _resolved["embedding_model"]
-
-    # Search all roots; use index-aware prefix (bots/{id}/memory for shared workspace)
     roots = [str(Path(r).resolve()) for r in get_all_roots(bot)]
 
     try:
@@ -126,27 +158,16 @@ async def search_memory(query: str) -> str:
         )
     except Exception as exc:
         logger.error("search_memory failed for bot %s: %s", bot_id, exc)
-        return f"Memory search ERROR: {exc}"
+        return json.dumps({"count": 0, "results": [], "error": f"Memory search ERROR: {exc}"}, ensure_ascii=False)
 
     if not results:
         prefix = get_memory_index_prefix(bot)
-        return (
-            f"No matching memory content found.\n"
-            f"(debug: bot={bot_id}, roots={roots}, prefix={prefix}, model={embedding_model})\n"
-            f"Check server logs for MEMORY SEARCH DIAGNOSTIC."
-        )
+        return json.dumps({
+            "count": 0, "results": [],
+            "message": f"No matching memory content found. (debug: bot={bot_id}, prefix={prefix}, model={embedding_model})",
+        }, ensure_ascii=False)
 
-    lines = []
-    for r in results:
-        # Strip the file header line (e.g. "# memory/logs/2026-03-28.md")
-        content = r.content
-        if content.startswith("# "):
-            first_nl = content.find("\n")
-            if first_nl > 0:
-                content = content[first_nl + 1:]
-        lines.append(f"**{r.file_path}** (score: {r.score:.3f})\n{content.strip()}")
-
-    return "\n\n---\n\n".join(lines)
+    return _format_search_results(results)
 
 
 @register({
@@ -171,23 +192,30 @@ async def search_memory(query: str) -> str:
             "required": ["name"],
         },
     },
-}, requires_bot_context=True)
+}, requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "path": {"type": "string"},
+        "content": {"type": "string"},
+        "error": {"type": "string"},
+        "available": {"type": "array", "items": {"type": "string"}},
+    },
+})
 async def get_memory_file(name: str) -> str:
     """Read a memory file by name."""
     bot, bot_id, ws_root = _get_bot_and_root()
     if not bot or not ws_root:
-        return "Memory file access is not available (no workspace context)."
+        return json.dumps({"error": "Memory file access is not available (no workspace context)."}, ensure_ascii=False)
 
     name = (name or "").strip()
     if not name:
-        return "No file name provided."
+        return json.dumps({"error": "No file name provided."}, ensure_ascii=False)
 
     from app.services.memory_scheme import get_memory_root
     memory_root = get_memory_root(bot, ws_root=ws_root)
     path = _resolve_memory_path(name, memory_root)
 
     if path is None:
-        # List available files to help the bot
         available = []
         if os.path.isdir(memory_root):
             for dirpath, _, filenames in os.walk(memory_root):
@@ -195,16 +223,14 @@ async def get_memory_file(name: str) -> str:
                     if fn.endswith(".md"):
                         rel = os.path.relpath(os.path.join(dirpath, fn), memory_root)
                         available.append(rel)
-        if available:
-            return f"File not found: {name}\nAvailable memory files:\n" + "\n".join(f"  - {f}" for f in available)
-        return f"File not found: {name} (memory directory is empty)"
+        return json.dumps({"error": f"File not found: {name}", "available": available}, ensure_ascii=False)
 
     try:
         content = Path(path).read_text()
         rel = os.path.relpath(path, memory_root)
-        return f"# memory/{rel}\n\n{content}"
+        return json.dumps({"path": f"memory/{rel}", "content": content}, ensure_ascii=False)
     except Exception as e:
-        return f"Error reading file: {e}"
+        return json.dumps({"error": f"Error reading file: {e}"}, ensure_ascii=False)
 
 
 @register({
@@ -231,7 +257,7 @@ async def get_memory_file(name: str) -> str:
             "required": ["bot_id", "query"],
         },
     },
-}, requires_bot_context=True)
+}, requires_bot_context=True, returns=_SEARCH_RETURNS)
 async def search_bot_memory(bot_id: str, query: str) -> str:
     """Search another bot's memory files (for orchestrators).
 
@@ -240,38 +266,33 @@ async def search_bot_memory(bot_id: str, query: str) -> str:
     """
     caller_bot, caller_bot_id, caller_ws_root = _get_bot_and_root()
     if not caller_bot or not caller_ws_root:
-        return "search_bot_memory is not available (no workspace context)."
+        return json.dumps({"count": 0, "results": [], "error": "search_bot_memory is not available (no workspace context)."}, ensure_ascii=False)
 
-    # Gate: only orchestrators can search other bots' memory
     if caller_bot.shared_workspace_role != "orchestrator":
-        return "search_bot_memory is only available to orchestrator bots."
+        return json.dumps({"count": 0, "results": [], "error": "search_bot_memory is only available to orchestrator bots."}, ensure_ascii=False)
 
     target_bot_id = (bot_id or "").strip()
     query = (query or "").strip()
     if not target_bot_id:
-        return "No bot_id provided."
+        return json.dumps({"count": 0, "results": [], "error": "No bot_id provided."}, ensure_ascii=False)
     if not query:
-        return "No search query provided."
+        return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
     from app.agent.bots import get_bot
     target_bot = get_bot(target_bot_id)
     if not target_bot:
-        return f"Bot not found: {target_bot_id}"
+        return json.dumps({"count": 0, "results": [], "error": f"Bot not found: {target_bot_id}"}, ensure_ascii=False)
     if target_bot.memory_scheme != "workspace-files":
-        return f"Bot {target_bot_id} does not use workspace-files memory scheme."
+        return json.dumps({"count": 0, "results": [], "error": f"Bot {target_bot_id} does not use workspace-files memory scheme."}, ensure_ascii=False)
 
-    # Each bot indexes its own workspace root and stores chunks under its own
-    # bot_id. Query the target's chunks directly.
     from app.services.memory_search import hybrid_memory_search
     from app.services.memory_scheme import get_memory_index_prefix
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
-    # Use the target bot's resolved embedding model
     _resolved = resolve_indexing(
         target_bot.workspace.indexing, target_bot._workspace_raw, target_bot._ws_indexing_config,
     )
     embedding_model = _resolved["embedding_model"]
-
     roots = [str(Path(r).resolve()) for r in get_all_roots(target_bot)]
 
     try:
@@ -285,18 +306,9 @@ async def search_bot_memory(bot_id: str, query: str) -> str:
         )
     except Exception as exc:
         logger.error("search_bot_memory failed for bot %s: %s", target_bot_id, exc)
-        return f"Memory search ERROR for bot {target_bot_id}: {exc}"
+        return json.dumps({"count": 0, "results": [], "error": f"Memory search ERROR for bot {target_bot_id}: {exc}"}, ensure_ascii=False)
 
     if not results:
-        return f"No matching memory content found for bot {target_bot_id}."
+        return json.dumps({"count": 0, "results": [], "message": f"No matching memory content found for bot {target_bot_id}."}, ensure_ascii=False)
 
-    lines = [f"**Memory search results for bot `{target_bot_id}`:**\n"]
-    for r in results:
-        content = r.content
-        if content.startswith("# "):
-            first_nl = content.find("\n")
-            if first_nl > 0:
-                content = content[first_nl + 1:]
-        lines.append(f"**{r.file_path}** (score: {r.score:.3f})\n{content.strip()}")
-
-    return "\n\n---\n\n".join(lines)
+    return _format_search_results(results)

@@ -26,6 +26,9 @@ _no_sys_msg_models: set[str] = set()
 _no_tools_models: set[str] = set()
 # Cached set of model_ids flagged as supports_vision=False in provider_models table
 _no_vision_models: set[str] = set()
+# Cached map model_id → prompt_style ('markdown' | 'xml' | 'structured')
+# Unknown models default to 'markdown' (handled by get_prompt_style()).
+_prompt_style_by_model: dict[str, str] = {}
 # Cached set of model_ids belonging to plan-billed providers
 _plan_billed_models: set[str] = set()
 # Reverse index: model_id → provider_id (built from provider_models table)
@@ -197,7 +200,7 @@ async def _ensure_openai_subscription_models(
 
 async def load_providers() -> None:
     """Load all enabled providers from DB into the in-memory registry. Clears client cache."""
-    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _plan_billed_models, _model_to_provider, _live_model_to_provider
+    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _plan_billed_models, _model_to_provider, _live_model_to_provider, _prompt_style_by_model
     _registry = {}
     _client_cache = {}
     _tpm_windows = {}
@@ -208,6 +211,7 @@ async def load_providers() -> None:
     _plan_billed_models = set()
     _model_to_provider = {}
     _live_model_to_provider = {}
+    _prompt_style_by_model = {}
 
     async with async_session() as db:
         rows = (
@@ -251,6 +255,14 @@ async def load_providers() -> None:
             )
         ).scalars().all()
         _no_vision_models = set(no_vision)
+
+        # Load prompt_style per model (defaults to 'markdown' server-side)
+        styles = (
+            await db.execute(
+                select(ProviderModel.model_id, ProviderModel.prompt_style)
+            )
+        ).all()
+        _prompt_style_by_model = {mid: (style or "markdown") for mid, style in styles}
 
         # Load model IDs belonging to plan-billed providers
         plan_provider_ids = [r.id for r in rows if r.billing_type == "plan"]
@@ -348,6 +360,42 @@ async def has_encrypted_secrets() -> bool:
             if mgmt_key and mgmt_key.startswith(ENCRYPTED_PREFIX):
                 return True
     return False
+
+
+def get_prompt_style(model: str) -> str:
+    """Return the prompt_style flag for a model, or 'markdown' if unknown.
+
+    Backed by the cache loaded from ``provider_models.prompt_style``. Unknown
+    models fall back to ``'markdown'`` — the safe default that works for
+    everything OpenAI-compatible (including all the things that answer to
+    the openai-compatible provider_type: vLLM, Groq, Together, LMStudio,
+    OpenRouter, LocalAI, LiteLLM proxy).
+    """
+    from app.services.prompt_dialect import DEFAULT_STYLE, PROMPT_STYLES
+
+    style = _prompt_style_by_model.get(model, DEFAULT_STYLE)
+    if style not in PROMPT_STYLES:
+        return DEFAULT_STYLE
+    return style
+
+
+def resolve_prompt_style(bot, channel=None) -> str:
+    """Resolve the prompt dialect for a bot/channel pair.
+
+    Resolution mirrors model selection: channel override first, then the
+    bot's configured model. Only the model_id is needed for dialect lookup
+    (``prompt_style`` is a per-model flag). If no model can be determined
+    we return the safe default.
+    """
+    model_id: str | None = None
+    if channel is not None:
+        model_id = getattr(channel, "model_override", None)
+    if not model_id:
+        model_id = getattr(bot, "model", None)
+    if not model_id:
+        from app.services.prompt_dialect import DEFAULT_STYLE
+        return DEFAULT_STYLE
+    return get_prompt_style(model_id)
 
 
 def requires_system_message_folding(model: str) -> bool:

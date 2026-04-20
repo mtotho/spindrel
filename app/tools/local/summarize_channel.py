@@ -1,4 +1,6 @@
 """Agent tool for summarizing historical channel messages."""
+import json
+
 from app.agent.context import current_channel_id
 from app.tools.registry import register
 
@@ -42,7 +44,14 @@ from app.tools.registry import register
             },
         },
     },
-}, requires_channel_context=True)
+}, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "error": {"type": "string"},
+    },
+    "required": ["summary"],
+})
 async def summarize_channel(
     skip: int = 0,
     take: int | None = None,
@@ -53,10 +62,10 @@ async def summarize_channel(
 ) -> str:
     channel_id = current_channel_id.get()
     if not channel_id:
-        return "Error: no channel_id in context."
+        return json.dumps({"summary": "", "error": "no channel_id in context"}, ensure_ascii=False)
 
     from app.services.summarizer import summarize_messages
-    return await summarize_messages(
+    result = await summarize_messages(
         channel_id=channel_id,
         skip=skip,
         take=take,
@@ -65,3 +74,4 @@ async def summarize_channel(
         start_date=start_date,
         end_date=end_date,
     )
+    return json.dumps({"summary": result}, ensure_ascii=False)

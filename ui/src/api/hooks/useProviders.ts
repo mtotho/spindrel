@@ -149,6 +149,8 @@ export function useTestProviderInline() {
 // Provider Models (DB-backed model lists)
 // ---------------------------------------------------------------------------
 
+export type PromptStyle = "markdown" | "xml" | "structured";
+
 export interface ProviderModelItem {
   id: number;
   provider_id: string;
@@ -159,6 +161,7 @@ export interface ProviderModelItem {
   output_cost_per_1m?: string | null;
   no_system_messages?: boolean;
   supports_tools?: boolean;
+  prompt_style?: PromptStyle;
   created_at: string;
 }
 
@@ -170,6 +173,7 @@ export interface ProviderModelCreatePayload {
   output_cost_per_1m?: string;
   no_system_messages?: boolean;
   supports_tools?: boolean;
+  prompt_style?: PromptStyle;
 }
 
 export function useProviderModels(providerId: string | undefined) {

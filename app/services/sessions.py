@@ -211,12 +211,18 @@ def _content_for_db(msg: dict) -> str | dict | list | None:
 def _effective_system_prompt(
     bot: BotConfig,
     workspace_base_prompt_enabled: bool = False,
+    channel=None,
 ) -> str:
     """Base prompt + bot system prompt + optional memory guidelines.
 
     If workspace_base_prompt_enabled and the bot belongs to a shared workspace,
     reads common/prompts/base.md (+ bots/{bot_id}/prompts/base.md) from the
     workspace filesystem and uses that instead of the global base prompt.
+
+    Framework prompts (GLOBAL_BASE_PROMPT, MEMORY_SCHEME_PROMPT) pass through
+    ``prompt_dialect.render`` to apply the resolved provider's prompt_style.
+    The bot's own ``system_prompt`` is appended verbatim — user-authored text
+    is never transformed.
     """
     from app.agent.context import current_system_prompt_override
     _override = current_system_prompt_override.get()
@@ -224,17 +230,22 @@ def _effective_system_prompt(
         return _override
     from app.agent.base_prompt import render_base_prompt, resolve_workspace_base_prompt
     from app.config import settings as _settings
+    from app.services.prompt_dialect import render as _dialect_render
+    from app.services.providers import resolve_prompt_style
+
+    _style = resolve_prompt_style(bot, channel)
     parts = []
 
     # Global base prompt: org-wide instructions prepended before everything
     if _settings.GLOBAL_BASE_PROMPT:
-        parts.append(_settings.GLOBAL_BASE_PROMPT.rstrip())
+        parts.append(_dialect_render(_settings.GLOBAL_BASE_PROMPT, _style).rstrip())
 
     ws_base = None
     if workspace_base_prompt_enabled:
         ws_base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
 
     if ws_base:
+        # User/workspace-authored base — pass through verbatim
         parts.append(ws_base.rstrip())
     else:
         base = render_base_prompt(bot)
@@ -252,6 +263,7 @@ def _effective_system_prompt(
         )
         if _ws_prompt:
             _sys_prompt = _ws_prompt
+    # Bot's own system_prompt is user-authored — verbatim, never dialect-transformed
     parts.append(_sys_prompt.rstrip())
     if getattr(bot, "memory_scheme", None) == "workspace-files":
         from app.config import settings as _cfg
@@ -259,7 +271,9 @@ def _effective_system_prompt(
         _mem_rel = get_memory_rel_path(bot)
         from app.config import DEFAULT_MEMORY_SCHEME_PROMPT
         _tmpl = _cfg.MEMORY_SCHEME_PROMPT.strip() if _cfg.MEMORY_SCHEME_PROMPT else ""
-        _prompt = (_tmpl or DEFAULT_MEMORY_SCHEME_PROMPT).format(memory_rel=_mem_rel).strip()
+        # Render dialect FIRST so {%...%} markers are gone before .format() runs.
+        _rendered = _dialect_render(_tmpl or DEFAULT_MEMORY_SCHEME_PROMPT, _style)
+        _prompt = _rendered.format(memory_rel=_mem_rel).strip()
         parts.append(_prompt)
     # DB memory prompt injection removed (deprecated)
     return "\n\n".join(parts)

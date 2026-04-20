@@ -47,7 +47,6 @@ async def bot_bound_client(engine, db_session):
         model="test/model",
         system_prompt="You are a test bot.",
         api_key_id=api_key_row.id,
-        config={},
     )
     db_session.add(bot_row)
     await db_session.commit()

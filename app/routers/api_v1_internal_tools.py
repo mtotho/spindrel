@@ -201,6 +201,7 @@ async def exec_tool(
 async def list_signatures_endpoint(
     category: str | None = None,
     limit: int = 200,
+    include_unschematized: bool = False,
     auth: ApiKeyAuth = Depends(verify_auth_or_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -209,6 +210,12 @@ async def list_signatures_endpoint(
     Lets a script discover what's composable without needing the tool to be
     auto-injected into its bindings. Returns the same payload shape the tool
     does. Same auth contract as ``/exec``.
+
+    When ``include_unschematized=true``, also returns local tools that have an
+    input schema but no declared returns_schema, plus MCP tools (which never
+    have output schemas). Scripts use these by calling the tool and inspecting
+    the result — see the ``programmatic_tool_use`` skill for the explore-first
+    pattern.
     """
     await _resolve_calling_bot(db, auth)
     from app.tools.local.discovery import list_tool_signatures  # noqa: F401 — register decorator
@@ -218,9 +225,12 @@ async def list_signatures_endpoint(
 
     needle = (category or "").strip().lower()
     out: list[dict] = []
+    cap = max(1, min(limit, 500))
+
+    # Local tools first.
     for name, entry in _tools.items():
         returns = entry.get("returns")
-        if not returns:
+        if not returns and not include_unschematized:
             continue
         integration = entry.get("source_integration") or ""
         if needle and needle not in name.lower() and needle not in integration.lower():
@@ -230,14 +240,47 @@ async def list_signatures_endpoint(
         out.append({
             "name": name,
             "params": _summarize_params(fn.get("parameters")),
-            "returns_summary": _summarize_returns(returns),
+            "returns_summary": _summarize_returns(returns) if returns else "?",
             "returns_schema": returns,
             "input_schema": fn.get("parameters"),
             "description": (fn.get("description") or "").strip(),
             "safety_tier": entry.get("safety_tier", "readonly"),
             "source_integration": entry.get("source_integration"),
+            "kind": "local",
         })
-        if len(out) >= max(1, min(limit, 500)):
+        if len(out) >= cap:
             break
+
+    # MCP tools (always unschematized — MCP only has input schemas, never returns).
+    # Cached at app/tools/mcp.py:_cache; populated lazily on first fetch_mcp_tools()
+    # call. Iterating the cache avoids triggering an HTTP fetch from this endpoint.
+    if include_unschematized and len(out) < cap:
+        try:
+            from app.tools import mcp as _mcp_mod
+            for server_name, cache_entry in _mcp_mod._cache.items():
+                for tool_schema in cache_entry.get("tools", []):
+                    fn = tool_schema.get("function") or {}
+                    name = fn.get("name")
+                    if not name:
+                        continue
+                    if needle and needle not in name.lower() and needle not in server_name.lower():
+                        continue
+                    out.append({
+                        "name": name,
+                        "params": _summarize_params(fn.get("parameters")),
+                        "returns_summary": "? (MCP — explore by calling)",
+                        "returns_schema": None,
+                        "input_schema": fn.get("parameters"),
+                        "description": (fn.get("description") or "").strip(),
+                        "safety_tier": "readonly",
+                        "source_integration": f"mcp:{server_name}",
+                        "kind": "mcp",
+                    })
+                    if len(out) >= cap:
+                        break
+                if len(out) >= cap:
+                    break
+        except Exception:
+            logger.warning("MCP signature enumeration failed", exc_info=True)
 
     return {"category": category, "count": len(out), "signatures": out}

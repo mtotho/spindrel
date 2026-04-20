@@ -178,14 +178,18 @@ def _render_channel_workspace_prompt(
     workspace_path: str,
     channel_id: str,
     data_listing: str,
+    style: str = "markdown",
 ) -> str:
     """Render the channel workspace helper prompt from the configured template.
 
     Uses CHANNEL_WORKSPACE_PROMPT if set, otherwise DEFAULT_CHANNEL_WORKSPACE_PROMPT.
     Template placeholders: {workspace_path}, {channel_id}, {data_listing}.
-    Falls back to appending a plain header if format_map fails.
+    Prompt-dialect section markers ({% section %}) are resolved first, then
+    Python .format_map fills the value placeholders. Falls back to
+    DEFAULT_CHANNEL_WORKSPACE_PROMPT if the configured template breaks.
     """
     from app.config import DEFAULT_CHANNEL_WORKSPACE_PROMPT
+    from app.services.prompt_dialect import render as _dialect_render
 
     template = settings.CHANNEL_WORKSPACE_PROMPT.strip() or DEFAULT_CHANNEL_WORKSPACE_PROMPT
     replacements = {
@@ -194,12 +198,12 @@ def _render_channel_workspace_prompt(
         "data_listing": data_listing,
     }
     try:
-        return template.format_map(replacements)
+        return _dialect_render(template, style).format_map(replacements)
     except (KeyError, ValueError) as exc:
         logger.warning(
             "Failed to render CHANNEL_WORKSPACE_PROMPT (%s), using fallback", exc,
         )
-        return DEFAULT_CHANNEL_WORKSPACE_PROMPT.format_map(replacements)
+        return _dialect_render(DEFAULT_CHANNEL_WORKSPACE_PROMPT, style).format_map(replacements)
 
 
 def _compact_tool_usage(name: str, fn: dict[str, Any]) -> str:
@@ -511,8 +515,12 @@ async def _inject_channel_workspace(
 
         # Build and inject helper prompt
         cw_abs = f"/workspace/channels/{ch_id}"
+        from app.services.providers import resolve_prompt_style
         helper = _render_channel_workspace_prompt(
-            workspace_path=cw_abs, channel_id=ch_id, data_listing=data_listing,
+            workspace_path=cw_abs,
+            channel_id=ch_id,
+            data_listing=data_listing,
+            style=resolve_prompt_style(bot, ch_row),
         )
         if schema_content:
             helper = schema_content + "\n\n" + helper

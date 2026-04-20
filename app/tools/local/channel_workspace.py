@@ -1,6 +1,7 @@
 """Local tools for channel workspace: search_channel_archive, search_channel_workspace, list_channels."""
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -8,6 +9,41 @@ from app.agent.context import current_bot_id, current_channel_id
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
+
+_SEARCH_RETURNS = {
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer"},
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string"},
+                    "score": {"type": "number"},
+                    "snippet": {"type": "string"},
+                },
+                "required": ["file_path", "snippet"],
+            },
+        },
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+    "required": ["count", "results"],
+}
+
+
+def _format_search_results(results) -> str:
+    """Format hybrid_memory_search results as a structured JSON string."""
+    items = []
+    for r in results:
+        snippet = r.content
+        if snippet.startswith("# "):
+            first_nl = snippet.find("\n")
+            if first_nl > 0:
+                snippet = snippet[first_nl + 1:]
+        items.append({"file_path": r.file_path, "score": round(r.score, 3), "snippet": snippet.strip()})
+    return json.dumps({"count": len(items), "results": items}, ensure_ascii=False)
 
 
 async def _get_bot_and_roots(channel_id: str | None = None) -> tuple:
@@ -95,16 +131,16 @@ async def _resolve_channel_owner_bot(channel_id: str, caller_bot_id: str):
             "required": ["query"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
 async def search_channel_archive(query: str) -> str:
     """Search archived workspace files for the current channel."""
     bot, ch_id, ws_root, embedding_model = await _get_bot_and_roots()
     if not bot or not ch_id:
-        return "Archive search is not available (no channel workspace context)."
+        return json.dumps({"count": 0, "results": [], "error": "Archive search is not available (no channel workspace context)."}, ensure_ascii=False)
 
     query = (query or "").strip()
     if not query:
-        return "No search query provided."
+        return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
     from app.services.channel_workspace import get_channel_workspace_index_prefix
     from app.services.channel_workspace_indexing import _get_channel_index_bot_id
@@ -124,25 +160,15 @@ async def search_channel_archive(query: str) -> str:
         )
     except Exception as exc:
         logger.error("search_channel_archive failed for channel %s: %s", ch_id, exc)
-        return f"Archive search ERROR: {exc}"
+        return json.dumps({"count": 0, "results": [], "error": f"Archive search ERROR: {exc}"}, ensure_ascii=False)
 
     if not results:
-        # Trigger background re-index in case files were written via exec_command
         import asyncio
         from app.services.channel_workspace_indexing import index_channel_workspace
         asyncio.create_task(index_channel_workspace(ch_id, bot))
-        return "No matching archived content found."
+        return json.dumps({"count": 0, "results": [], "message": "No matching archived content found."}, ensure_ascii=False)
 
-    lines = []
-    for r in results:
-        content = r.content
-        if content.startswith("# "):
-            first_nl = content.find("\n")
-            if first_nl > 0:
-                content = content[first_nl + 1:]
-        lines.append(f"**{r.file_path}** (score: {r.score:.3f})\n{content.strip()}")
-
-    return "\n\n---\n\n".join(lines)
+    return _format_search_results(results)
 
 
 @register({
@@ -169,23 +195,22 @@ async def search_channel_archive(query: str) -> str:
             "required": ["query"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
 async def search_channel_workspace(query: str, channel_id: str | None = None) -> str:
     """Search channel workspace files (active + archive)."""
     bot, ch_id, ws_root, embedding_model = await _get_bot_and_roots(channel_id)
     if not bot or not ch_id:
-        return "Channel workspace search is not available (no workspace context)."
+        return json.dumps({"count": 0, "results": [], "error": "Channel workspace search is not available (no workspace context)."}, ensure_ascii=False)
 
     query = (query or "").strip()
     if not query:
-        return "No search query provided."
+        return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
     from app.services.channel_workspace import get_channel_workspace_index_prefix
     from app.services.channel_workspace_indexing import _get_channel_index_bot_id
     from app.services.memory_search import hybrid_memory_search
 
     sentinel = _get_channel_index_bot_id(ch_id)
-    # Search both active + archive (the whole workspace prefix)
     prefix = get_channel_workspace_index_prefix(ch_id)
 
     try:
@@ -199,21 +224,12 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
         )
     except Exception as exc:
         logger.error("search_channel_workspace failed for channel %s: %s", ch_id, exc)
-        return f"Channel workspace search ERROR: {exc}"
+        return json.dumps({"count": 0, "results": [], "error": f"Channel workspace search ERROR: {exc}"}, ensure_ascii=False)
 
     if not results:
-        return "No matching workspace content found."
+        return json.dumps({"count": 0, "results": [], "message": "No matching workspace content found."}, ensure_ascii=False)
 
-    lines = []
-    for r in results:
-        content = r.content
-        if content.startswith("# "):
-            first_nl = content.find("\n")
-            if first_nl > 0:
-                content = content[first_nl + 1:]
-        lines.append(f"**{r.file_path}** (score: {r.score:.3f})\n{content.strip()}")
-
-    return "\n\n---\n\n".join(lines)
+    return _format_search_results(results)
 
 
 @register({
@@ -239,16 +255,16 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
             "required": ["query"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
 async def search_channel_knowledge(query: str) -> str:
     """Search the current channel's knowledge-base/ folder."""
     bot, ch_id, ws_root, embedding_model = await _get_bot_and_roots()
     if not bot or not ch_id:
-        return "Channel knowledge search is not available (no channel workspace context)."
+        return json.dumps({"count": 0, "results": [], "error": "Channel knowledge search is not available (no channel workspace context)."}, ensure_ascii=False)
 
     query = (query or "").strip()
     if not query:
-        return "No search query provided."
+        return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
     from app.services.channel_workspace import get_channel_knowledge_base_index_prefix
     from app.services.channel_workspace_indexing import _get_channel_index_bot_id
@@ -268,20 +284,12 @@ async def search_channel_knowledge(query: str) -> str:
         )
     except Exception as exc:
         logger.error("search_channel_knowledge failed for channel %s: %s", ch_id, exc)
-        return f"Channel knowledge search ERROR: {exc}"
+        return json.dumps({"count": 0, "results": [], "error": f"Channel knowledge search ERROR: {exc}"}, ensure_ascii=False)
 
     if not results:
-        return "No matching content in this channel's knowledge base."
+        return json.dumps({"count": 0, "results": [], "message": "No matching content in this channel's knowledge base."}, ensure_ascii=False)
 
-    lines = []
-    for r in results:
-        content = r.content
-        if content.startswith("# "):
-            first_nl = content.find("\n")
-            if first_nl > 0:
-                content = content[first_nl + 1:]
-        lines.append(f"**{r.file_path}** (score: {r.score:.3f})\n{content.strip()}")
-    return "\n\n---\n\n".join(lines)
+    return _format_search_results(results)
 
 
 @register({
@@ -298,13 +306,36 @@ async def search_channel_knowledge(query: str) -> str:
             "properties": {},
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer"},
+        "channels": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "client_id": {"type": "string"},
+                    "bot_id": {"type": "string"},
+                    "bot_name": {"type": "string"},
+                    "is_current": {"type": "boolean"},
+                    "is_member": {"type": "boolean"},
+                },
+                "required": ["id"],
+            },
+        },
+        "error": {"type": "string"},
+    },
+    "required": ["count", "channels"],
+})
 async def list_channels() -> str:
     """List all channels the bot belongs to (primary + member)."""
     bot_id = current_bot_id.get()
     my_ch_id = str(current_channel_id.get()) if current_channel_id.get() else None
     if not bot_id:
-        return "Not available (no bot context)."
+        return json.dumps({"count": 0, "channels": [], "error": "Not available (no bot context)."}, ensure_ascii=False)
 
     from app.agent.bots import get_bot
     bot = get_bot(bot_id)
@@ -316,7 +347,6 @@ async def list_channels() -> str:
 
     async with async_session() as db:
         if cross_access:
-            # Cross-workspace: list channels across ALL bots, include bot name
             stmt = (
                 select(
                     Channel.id, Channel.name, Channel.client_id,
@@ -339,24 +369,23 @@ async def list_channels() -> str:
         rows = (await db.execute(stmt)).all()
 
     if not rows:
-        return "No channels found."
+        return json.dumps({"count": 0, "channels": []}, ensure_ascii=False)
 
-    lines = []
+    channels = []
     for row in rows:
         ch_str = str(row.id)
-        label = row.name or row.client_id
-        flags = []
-        if ch_str == my_ch_id:
-            flags.append("current")
+        entry: dict = {
+            "id": ch_str,
+            "name": row.name or row.client_id or "",
+            "client_id": row.client_id or "",
+            "bot_id": str(row.bot_id),
+            "is_current": ch_str == my_ch_id,
+        }
         if cross_access:
-            bot_label = row.bot_name or str(row.bot_id)
-            own = " (yours)" if str(row.bot_id) == bot_id else ""
-            flag_str = f" ({', '.join(flags)})" if flags else ""
-            lines.append(f"- **{label}**{flag_str} [{bot_label}{own}]: `{ch_str}`")
+            entry["bot_name"] = getattr(row, "bot_name", None) or str(row.bot_id)
+            entry["is_member"] = str(row.bot_id) != bot_id
         else:
-            if str(row.bot_id) != bot_id:
-                flags.append("member")
-            flag_str = f" ({', '.join(flags)})" if flags else ""
-            lines.append(f"- **{label}**{flag_str}: `{ch_str}`")
+            entry["is_member"] = str(row.bot_id) != bot_id
+        channels.append(entry)
 
-    return "Your channels:\n" + "\n".join(lines)
+    return json.dumps({"count": len(channels), "channels": channels}, ensure_ascii=False)

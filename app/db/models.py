@@ -682,6 +682,7 @@ class ProviderModel(Base):
     no_system_messages: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     supports_tools: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     supports_vision: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    prompt_style: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'markdown'"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     provider: Mapped["ProviderConfig"] = relationship(back_populates="models")

@@ -1,5 +1,6 @@
 """get_skill tool — lets the agent fetch the full content of a configured skill on demand."""
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -33,31 +34,32 @@ logger = logging.getLogger(__name__)
             "required": ["skill_id"],
         },
     },
-}, requires_bot_context=True)
+}, requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "content": {"type": "string"},
+        "error": {"type": "string"},
+    },
+    "required": ["id"],
+})
 async def get_skill(skill_id: str) -> str:
     """Fetch the full content of a skill from DB."""
     from app.agent.context import current_channel_id
     bot_id = current_bot_id.get()
     channel_id = current_channel_id.get()
 
-    # Bot-scoped skills (bots/{bot_id}/...) are private — only the owning bot can access
     if bot_id and skill_id.startswith("bots/") and not skill_id.startswith(f"bots/{bot_id}/"):
-        return f"Skill '{skill_id}' is not configured for this bot."
+        return json.dumps({"id": skill_id, "error": f"Skill '{skill_id}' is not configured for this bot."}, ensure_ascii=False)
 
-    # Fetch from DB AND promote into the working set in the same session.
-    # Doing both inside one `async with async_session()` ensures unit tests
-    # that patch `async_session` see all the queries through the mock — no
-    # leaked sessions against the real engine.
     async with async_session() as db:
         row = await db.get(SkillRow, skill_id)
         if not row:
-            return f"Skill '{skill_id}' not found."
+            return json.dumps({"id": skill_id, "error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
         if row.archived_at:
-            return f"Skill '{skill_id}' is archived. Use manage_bot_skill(action='restore') to restore it."
+            return json.dumps({"id": skill_id, "error": f"Skill '{skill_id}' is archived. Use manage_bot_skill(action='restore') to restore it."}, ensure_ascii=False)
 
-        # Phase 3 working set: promote on successful fetch. Idempotent.
-        # Capture the row attrs into locals BEFORE commit so the return below
-        # never depends on `expire_on_commit=False` staying that way.
         row_name = row.name
         row_content = row.content
         if bot_id:
@@ -72,18 +74,14 @@ async def get_skill(skill_id: str) -> str:
                 await db.commit()
                 invalidate_enrolled_cache(bot_id)
             except Exception:
-                # Promotion is best-effort but a failure here usually means the
-                # schema is missing or the catalog is broken — surface as warning,
-                # not debug, so prod issues are visible.
                 logger.warning(
                     "Failed to promote %s into working set for bot %s",
                     skill_id, bot_id, exc_info=True,
                 )
 
-    # Track surfacing (fire-and-forget) — only counts actual LLM-initiated fetches
     asyncio.create_task(_increment_surface_count(skill_id, bot_id))
 
-    return f"# {row_name}\n\n{row_content}"
+    return json.dumps({"id": skill_id, "name": row_name, "content": row_content}, ensure_ascii=False)
 
 
 _PRUNE_PROTECTION_DAYS = 7  # skills enrolled less than this many days ago are protected
@@ -297,6 +295,25 @@ async def prune_enrolled_skills(skill_ids: list[str], overrides: dict[str, str] 
             "properties": {},
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer"},
+        "skills": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "triggers": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["id", "name"],
+            },
+        },
+    },
+    "required": ["count", "skills"],
 })
 async def get_skill_list() -> str:
     """Return the full flat index of all available skills."""
@@ -308,7 +325,6 @@ async def get_skill_list() -> str:
         query = select(SkillRow.id, SkillRow.name, SkillRow.description, SkillRow.triggers).where(
             SkillRow.archived_at.is_(None),
         )
-        # Exclude other bots' private skills
         if bot_id:
             query = query.where(
                 ~SkillRow.id.like("bots/%") | SkillRow.id.like(f"bots/{bot_id}/%")
@@ -317,19 +333,16 @@ async def get_skill_list() -> str:
             query = query.where(~SkillRow.id.like("bots/%"))
         rows = (await db.execute(query)).all()
 
-    if not rows:
-        return "No skills found."
-
-    lines = []
-    for r in rows:
-        parts = [f"- {r.id}: {r.name}"]
-        if r.description:
-            parts.append(f" — {r.description}")
-        if r.triggers:
-            parts.append(f" [{', '.join(r.triggers)}]")
-        lines.append("".join(parts))
-
-    return f"All available skills ({len(lines)}):\n" + "\n".join(lines)
+    skills = [
+        {
+            "id": r.id,
+            "name": r.name,
+            **({"description": r.description} if r.description else {}),
+            **({"triggers": r.triggers} if r.triggers else {}),
+        }
+        for r in rows
+    ]
+    return json.dumps({"count": len(skills), "skills": skills}, ensure_ascii=False)
 
 
 

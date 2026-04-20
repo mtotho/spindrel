@@ -104,6 +104,7 @@ export default function ProviderDetailScreen() {
   const [newModelOutputCost, setNewModelOutputCost] = useState("");
   const [newModelNoSysMsg, setNewModelNoSysMsg] = useState(false);
   const [newModelNoTools, setNewModelNoTools] = useState(false);
+  const [newModelPromptStyle, setNewModelPromptStyle] = useState<"markdown" | "xml" | "structured">("markdown");
   const { confirm, ConfirmDialogSlot } = useConfirm();
 
   if (provider && !initialized) {
@@ -439,6 +440,16 @@ export default function ProviderDetailScreen() {
                           borderRadius: 4,
                         }}>no-tools</span>
                       )}
+                      {m.prompt_style && m.prompt_style !== "markdown" && (
+                        <span
+                          style={{
+                            color: t.textMuted, fontSize: 10, fontWeight: 600,
+                            background: t.surfaceOverlay, padding: "1px 5px",
+                            borderRadius: 4,
+                          }}
+                          title="Framework prompts render in this dialect for this model"
+                        >{m.prompt_style}</span>
+                      )}
                       {caps?.delete_model && (
                         <button
                           onClick={async () => {
@@ -578,6 +589,23 @@ export default function ProviderDetailScreen() {
                   />
                   No tools
                 </label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 110, alignSelf: "flex-end" }}>
+                  <div style={{ color: t.textDim, fontSize: 10 }}>Prompt style</div>
+                  <select
+                    value={newModelPromptStyle}
+                    onChange={(e) => setNewModelPromptStyle(e.target.value as "markdown" | "xml" | "structured")}
+                    style={{
+                      padding: "5px 6px", fontSize: 12,
+                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                      color: t.text,
+                    }}
+                    title="How framework prompts (global base, memory scheme, channel workspace) are rendered for this model. Anthropic native → xml; everything else → markdown."
+                  >
+                    <option value="markdown">markdown</option>
+                    <option value="xml">xml</option>
+                    <option value="structured">structured</option>
+                  </select>
+                </div>
                 <button
                   onClick={async () => {
                     if (!newModelId.trim()) return;
@@ -589,6 +617,7 @@ export default function ProviderDetailScreen() {
                       output_cost_per_1m: newModelOutputCost.trim() || undefined,
                       no_system_messages: newModelNoSysMsg || undefined,
                       supports_tools: newModelNoTools ? false : undefined,
+                      prompt_style: newModelPromptStyle !== "markdown" ? newModelPromptStyle : undefined,
                     });
                     setNewModelId("");
                     setNewModelDisplay("");
@@ -597,6 +626,7 @@ export default function ProviderDetailScreen() {
                     setNewModelOutputCost("");
                     setNewModelNoSysMsg(false);
                     setNewModelNoTools(false);
+                    setNewModelPromptStyle("markdown");
                   }}
                   disabled={!newModelId.trim() || addModelMut.isPending}
                   style={{

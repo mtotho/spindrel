@@ -1,4 +1,5 @@
 """Unit tests for app.tools.local.summarize_channel tool function."""
+import json
 import uuid
 from unittest.mock import patch, MagicMock, AsyncMock
 
@@ -20,7 +21,8 @@ class TestSummarizeChannelTool:
             MagicMock(get=MagicMock(return_value=None)),
         ):
             result = await summarize_channel()
-        assert "Error" in result
+        data = json.loads(result)
+        assert "error" in data
 
     async def test_delegates_to_service(self):
         from app.tools.local.summarize_channel import summarize_channel
@@ -40,7 +42,8 @@ class TestSummarizeChannelTool:
         ):
             result = await summarize_channel(skip=10, take=50, prompt="focus on DB")
 
-        assert result == "Summary of conversation."
+        data = json.loads(result)
+        assert data["summary"] == "Summary of conversation."
         mock_summarize.assert_called_once_with(
             channel_id=ch_id,
             skip=10,
@@ -72,7 +75,8 @@ class TestSummarizeChannelTool:
                 end_date="2026-03-22",
             )
 
-        assert result == "Date-filtered summary."
+        data = json.loads(result)
+        assert data["summary"] == "Date-filtered summary."
         call_kwargs = mock_summarize.call_args.kwargs
         assert call_kwargs["start_date"] == "2026-03-20"
         assert call_kwargs["end_date"] == "2026-03-22"
