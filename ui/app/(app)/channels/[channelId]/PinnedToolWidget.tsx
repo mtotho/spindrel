@@ -496,14 +496,16 @@ export function PinnedToolWidget({
   // Title row is always present in channel-scope chips (for drag DOM).
   // Dashboard + rail tiles honor the dashboard's hide_titles flag plus the
   // per-pin `widget_config.show_title` override ("inherit" / "show" / "hide").
-  // Edit mode always shows the title so pencil/unpin controls are reachable
-  // even when the dashboard has hide_titles on.
-  const showTitle =
-    editMode
-    || resolveShowTitle(
-      { ...DEFAULT_CHROME, hideTitles },
-      (widgetConfig ?? null) as Record<string, unknown> | null,
-    );
+  // Title visibility follows preview exactly — including in edit mode — so the
+  // tile's edit-mode footprint matches what the user will see post-save, and
+  // snap / ghost targets line up with real content. When titles are hidden in
+  // edit mode the drag handle + pencil/unpin move to a floating hover overlay
+  // so the chrome is still reachable.
+  const showTitle = resolveShowTitle(
+    { ...DEFAULT_CHROME, hideTitles },
+    (widgetConfig ?? null) as Record<string, unknown> | null,
+  );
+  const overlayChrome = isDashboard && editMode && !showTitle;
   if (isChip) {
     // Edit mode (only reachable when the parent DndContext provides
     // `externalDrag`) exposes a grip handle on the left edge + an unpin X on
@@ -568,66 +570,108 @@ export function PinnedToolWidget({
   return (
     <div
       ref={rootRef}
-      className={`group rounded-lg ${cardBorderClass} transition-colors duration-150 hover:bg-white/[0.02] ${cardSizeClass}`}
+      className={`group relative rounded-lg ${cardBorderClass} transition-colors duration-150 hover:bg-white/[0.02] ${cardSizeClass}`}
       style={sortableStyle}
       {...rootAttrs}
     >
-      {/* Header */}
-      <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-0.5">
-        {/* In dashboard scope the handle is gated by editMode so view mode
-            stays calm; channel scope and rail tiles keep the handle in the
-            DOM (the OmniPanel dnd-kit / RGL flow relies on it) but hover-
-            reveal it so tiles are visually empty at rest. */}
-        {(!isDashboard || editMode || railMode) && (
+      {/* Header — suppressed entirely when the widget is titleless in edit
+          mode; chrome surfaces as a floating overlay below so the tile's
+          footprint matches preview exactly. */}
+      {!overlayChrome && (
+        <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-0.5">
+          {(!isDashboard || editMode || railMode) && (
+            <GripVertical
+              size={ctrlIconSize}
+              className={
+                "widget-drag-handle text-text-muted cursor-grab transition-opacity duration-150 flex-shrink-0 " +
+                (editMode
+                  ? "opacity-80 hover:opacity-100"
+                  : "opacity-0 group-hover:opacity-100") +
+                (isDashboard ? " p-0.5 -m-0.5" : "")
+              }
+              aria-label="Drag to reorder"
+              {...(handleListeners ?? {})}
+            />
+          )}
+          {showTitle ? (
+            <span
+              className="flex-1 text-[10px] font-medium uppercase tracking-wider truncate"
+              style={{ color: t.textDim }}
+            >
+              {resolveDisplayName(widget)}
+            </span>
+          ) : (
+            <div className="flex-1" />
+          )}
+          {isDashboard && editMode && onEdit && (
+            <button
+              type="button"
+              onClick={() => onEdit(widget.id)}
+              className={ctrlBtnClass}
+              aria-label="Edit pin"
+              title="Edit pin"
+            >
+              <Pencil size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => { void refreshState(); }}
+            className={`${ctrlBtnClass} opacity-0 group-hover:opacity-100`}
+            aria-label="Refresh widget"
+            title={refreshTooltip}
+            disabled={refreshing}
+          >
+            <RefreshCw
+              size={ctrlIconSize}
+              className={refreshing ? "animate-spin" : ""}
+              style={{ color: t.textMuted, opacity: 0.6 }}
+            />
+          </button>
+          {(!isDashboard || editMode) && (
+            <button
+              type="button"
+              onClick={() => onUnpin(widget.id)}
+              className={ctrlBtnClass}
+              aria-label="Unpin widget"
+              title="Unpin"
+            >
+              <X size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.5 }} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Floating chrome for titleless tiles in edit mode. Hover-reveal so
+          the tile is visually unchanged from preview until the user mouses
+          over it, at which point drag + edit + unpin surface in the top-
+          right corner. `z-20` keeps it above iframe content; backdrop-blur
+          + translucent raised bg gives the chrome a card chip appearance
+          without carving dedicated vertical space out of the tile. */}
+      {overlayChrome && (
+        <div
+          className="absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-md bg-surface-raised/85 backdrop-blur-sm px-0.5 py-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity border border-surface-border/40"
+          // Prevent pointer events inside the overlay from falling through
+          // to the iframe body during drag initiation.
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <GripVertical
             size={ctrlIconSize}
-            className={
-              "widget-drag-handle text-text-muted cursor-grab transition-opacity duration-150 flex-shrink-0 " +
-              (editMode
-                ? "opacity-80 hover:opacity-100"
-                : "opacity-0 group-hover:opacity-100") +
-              (isDashboard ? " p-0.5 -m-0.5" : "")
-            }
+            className="widget-drag-handle text-text-muted cursor-grab p-0.5 -m-0.5 opacity-80 hover:opacity-100 transition-opacity"
             aria-label="Drag to reorder"
             {...(handleListeners ?? {})}
           />
-        )}
-        {showTitle ? (
-          <span
-            className="flex-1 text-[10px] font-medium uppercase tracking-wider truncate"
-            style={{ color: t.textDim }}
-          >
-            {resolveDisplayName(widget)}
-          </span>
-        ) : (
-          <div className="flex-1" />
-        )}
-        {isDashboard && editMode && onEdit && (
-          <button
-            type="button"
-            onClick={() => onEdit(widget.id)}
-            className={ctrlBtnClass}
-            aria-label="Edit pin"
-            title="Edit pin"
-          >
-            <Pencil size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => { void refreshState(); }}
-          className={`${ctrlBtnClass} opacity-0 group-hover:opacity-100`}
-          aria-label="Refresh widget"
-          title={refreshTooltip}
-          disabled={refreshing}
-        >
-          <RefreshCw
-            size={ctrlIconSize}
-            className={refreshing ? "animate-spin" : ""}
-            style={{ color: t.textMuted, opacity: 0.6 }}
-          />
-        </button>
-        {(!isDashboard || editMode) && (
+          {onEdit && (
+            <button
+              type="button"
+              onClick={() => onEdit(widget.id)}
+              className={ctrlBtnClass}
+              aria-label="Edit pin"
+              title="Edit pin"
+            >
+              <Pencil size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.7 }} />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onUnpin(widget.id)}
@@ -635,10 +679,10 @@ export function PinnedToolWidget({
             aria-label="Unpin widget"
             title="Unpin"
           >
-            <X size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.5 }} />
+            <X size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Body: component content. Dashboard scope fills the tile; channel
           scope retains the fixed cap so the OmniPanel column stays compact.
@@ -649,7 +693,7 @@ export function PinnedToolWidget({
         className={
           "relative "
           + (isDashboard
-            ? "px-2 pb-2 flex-1 min-h-0 "
+            ? (overlayChrome ? "p-2 flex-1 min-h-0 " : "px-2 pb-2 flex-1 min-h-0 ")
             : "px-2 pb-2 max-h-[350px] ")
           + (hoverScrollbars
             ? "overflow-y-auto scroll-subtle"

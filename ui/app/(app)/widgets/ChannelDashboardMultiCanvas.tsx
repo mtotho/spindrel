@@ -757,11 +757,6 @@ function HeaderCanvas({
   ghost,
 }: HeaderCanvasProps) {
   const t = useThemeTokens();
-  if (!editMode && pins.length === 0) return null;
-  // Chip scope in BOTH modes so the author sees exactly what the chat shows.
-  const chipScope: WidgetScope = { kind: "channel", channelId, compact: "chip" };
-  const ids = pins.map((p) => p.id);
-
   // Live width resize preview — swap in the pending `w` so the chip snaps
   // during the drag. Clears on commit; store's optimistic update takes over.
   const [resizePreview, setResizePreview] = useState<{ id: string; w: number } | null>(null);
@@ -773,6 +768,13 @@ function HeaderCanvas({
     const innerW = measure.rect ? Math.max(0, measure.rect.width - 24) : 480;
     return (innerW - (HEADER_COLS - 1) * 4) / HEADER_COLS;
   }, [measure.rect]);
+
+  // All hooks must run before any early return so React's hook order stays
+  // stable when edit mode or pin count toggles the empty-state branch.
+  if (!editMode && pins.length === 0) return null;
+  // Chip scope in BOTH modes so the author sees exactly what the chat shows.
+  const chipScope: WidgetScope = { kind: "channel", channelId, compact: "chip" };
+  const ids = pins.map((p) => p.id);
 
   return (
     <DroppableCanvas
@@ -968,10 +970,12 @@ function ListCanvas({
   justMovedId,
   onTileMoved,
 }: ListCanvasProps) {
+  const [resizePreview, setResizePreview] = useState<{ id: string; h: number } | null>(null);
+  // All hooks must run before any early return so React's hook order stays
+  // stable when edit mode or pin count toggles the empty-state branch.
   if (!editMode && pins.length === 0) return null;
   const ids = pins.map((p) => p.id);
   const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
-  const [resizePreview, setResizePreview] = useState<{ id: string; h: number } | null>(null);
 
   // Bare column — matches OmniPanel (rail) / WidgetDockRight (dock) runtime
   // chrome after those cards were stripped. Width mirrors the runtime default
@@ -1109,9 +1113,6 @@ function GridCanvas({
   ghost,
 }: GridCanvasProps) {
   const t = useThemeTokens();
-  if (!editMode && pins.length === 0) return null;
-  const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
-
   // Live resize preview — updates immediately as the user drags the handle.
   // Clears on commit; the store's optimistic update from `applyLayout` takes
   // over from there. `x` tracks west-edge resizes so the tile visibly slides
@@ -1130,6 +1131,11 @@ function GridCanvas({
     const innerW = measuredRect ? Math.max(0, measuredRect.width - 24) : 720;
     return (innerW - (preset.cols.lg - 1) * GAP_PX) / preset.cols.lg;
   }, [measuredRect, preset.cols.lg]);
+
+  // All hooks must run before any early return so React's hook order stays
+  // stable when edit mode or pin count toggles the empty-state branch.
+  if (!editMode && pins.length === 0) return null;
+  const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
 
   const gridStyle: CSSProperties = {
     display: "grid",
