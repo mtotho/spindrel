@@ -144,7 +144,7 @@ export function BotPicker({ value, onChange, bots, allowNone, placeholder, disab
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search bots..."
               autoFocus
-              className="w-full px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
+              className="w-full px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40"
             />
           </div>
 

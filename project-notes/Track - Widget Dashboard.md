@@ -125,6 +125,8 @@ Related: [[Track - Widgets]] (widget DX/robustness — the underlying system thi
 | P8 | Add-panel TLC + dev-panel dashboard context | Phase A: tool-calls endpoint surfaces `channel_id`, RecentTab propagates it on pin (kills "source_channel_id required" 400). Phase B: `DashboardTargetPicker` in `/widgets/dev` header — rich dropdown listing user + channel dashboards, `?from=<slug>` seed from Developer-panel link, localStorage persistence. Phase C: new `GET /widgets/dashboards/channel-pins` batch endpoint; "From channel" tab now reads `widget_dashboard_pins` (post-213) and hides on channel dashboards. Phase D: minimal-chrome pass on `AddFromChannelSheet` (drop panel/header/tab `border-b/l`). 4 new integration tests for batch endpoint. | **done** (2026-04-19) |
 | P9 | Kiosk / fullscreen mode | `useKioskMode` hook drives `?kiosk=1` URL param; AppShell suppresses Sidebar/DetailPanel/CommandPalette/toasts; `/widgets/:slug` suppresses DashboardTabs / Breadcrumb; floating `KioskExitChip` (top-right, fades at 20% opacity after 3s idle). Best-effort Fullscreen API + Wake Lock + cursor-hide-on-idle all fire on a fresh user gesture from the toggle; Esc exits fullscreen AND kiosk. Desktop-only (hidden on mobile, also hidden in edit mode to prevent mid-drag accidents). | **done** (2026-04-19) |
 | P10 | Panel-mode HTML widget | Migration 224 adds `widget_dashboard_pins.is_main_panel` + partial unique index (one panel pin per dashboard); `promote_pin_to_panel` / `demote_pin_from_panel` service helpers atomically clear-then-set + flip `grid_config.layout_mode`; `POST/DELETE /api/v1/widgets/dashboard/pins/{id}/promote-panel` endpoints; `emit_html_widget` gains `display_mode="inline"|"panel"` kwarg; `ToolResultEnvelope.display_mode` field round-trips through `_build_envelope_from_optin` + `compact_dict`. UI: `EditPinDrawer` Promote/Demote button (only on `html+interactive` envelopes); `WidgetsDashboardPage` branches into a 2-column `PanelModeView` when `layout_mode === 'panel'` AND a panel pin exists; mobile collapses to single column with the panel above the rail strip. Deleting a panel pin auto-reverts the dashboard back to `'grid'` mode. 8 new tests. | **done** (2026-04-19) |
+| P11-a | RGL guardrails (layout DX, small) | Size-preset chips S/M/L/XL on `GridPreset` drive `applyLayout` from `EditPinDrawer`; Full-width toggle sets `w = cols.lg`, `x = 0` and falls back to M on un-toggle; Reset-layout button in edit-mode action bar with two-click confirm, uses `defaultLayoutForIndex` to repack every pin; edit-mode grid guides now render on all dashboards (not just channel ones — user dashboards had no cell lines before); column-index tick row appears while dragging; rail divider thickens + glows when the drag is inside the rail zone. No migration, no backend change. | **done** (2026-04-19) |
+| P12 | Chat-screen positional zones | Channel dashboard IS the chat layout editor. Three positional chat zones: leftmost cols → `rail` (existing OmniPanel), rightmost `dockRightCols` (new, default 3/6) → `dock_right`, top row between them → `header_chip`. No `chat_zone` key — position alone drives membership; moving a tile via `apply_layout_bulk` shifts its zone on the next read. New `app/services/channel_chat_zones.py::classify_pin` + `resolve_chat_zones`; `GET /channels/{id}/chat-zones`; Python/TS preset parity guard in `tests/unit/test_grid_preset_parity.py`. Frontend: `ChatZone` union, `classifyPin` helper, `useChannelChatZones` selector, generalized `EditModeGridGuides` with three bands (rail / dock / header) that light up on drag intersection, `WidgetDockRight.tsx` (right-side dock, 320px default, localStorage width), `ChannelHeaderChip.tsx` (chip row with `+N` popover, singleton-free), `PinnedToolWidget` gains `compact: "chip"` scope (180×32 body, header hidden), `EditPinDrawer` gets read-only "Chat placement" readout. OmniPanel's rail filter swapped to the unified `useChannelChatZones.rail` — zero behavior change. Drive-by: tuned `focus:border-accent` → `/40` across 16 input-heavy files. 25 new tests + 19 passing green. Plan: `~/.claude/plans/wild-cuddling-eich.md`. | **done** (2026-04-20) |
 
 ## Phase detail
 
@@ -360,6 +362,32 @@ Second slice of `~/.claude/plans/typed-bubbling-hoare.md` (P9 was the first). Le
 - Reorderable rail strip in panel mode — flex stack keeps it simple; if reorder becomes needed, drag-handles + dnd-kit are the upgrade path (sibling to channel-OmniPanel).
 - Auto-resize of pin `{x, y, w, h}` when promoting — coordinates persist as-is so the user can demote back without losing their grid layout. The rail strip ignores `w/h` since width is fixed.
 - Migration 224 backfill — every existing pin defaults to `is_main_panel=FALSE`; existing dashboards stay in grid mode unless someone explicitly promotes.
+
+### P11-a — RGL guardrails (done — 2026-04-19)
+
+First slice of the P11 layout-DX trio from `~/.claude/plans/typed-bubbling-hoare.md`. Keeps the free-form RGL grid working, adds the small quality-of-life wins that were missing, and fixes a drive-by bug where user dashboards had no cell-grid lines in edit mode.
+
+**Size presets.** `GridPreset` gained `sizePresets: SizePreset[]` — preset-specific S/M/L/XL tuples. Standard runs `{3×6, 4×8, 6×10, 12×12}`; fine runs `{6×12, 8×16, 12×20, 24×24}` (same physical areas at twice the snap resolution). `EditPinDrawer` renders them as a chip row that calls the store's `applyLayout` on click, preserving the pin's `{x, y}` except when the chip is XL/full-width — there we snap `x=0` so the tile can actually fit.
+
+**Full-width toggle.** Separate button in the same Size panel that sets `w = preset.cols.lg` and `x = 0` while preserving `y` and `h`. When the pin is already full-width, the button label flips to "Full width · on" and a click falls back to the M preset at the same `{x, y}` — the only state that's preserved between toggles is the row position, not a prior width.
+
+**Reset layout.** New button in the edit-mode action bar (hidden outside edit mode, hidden on mobile). Two-click confirm — first click swaps the label to "Confirm reset?" with a danger-token border for 4s; second click runs `applyLayout` with `defaultLayoutForIndex(idx, preset)` for every pin. Arm state clears on exiting edit mode so it never lingers across sessions. Undo lives in P11-b; until then the confirm is the only guardrail.
+
+**Drag guides generalized.** `EditModeGridGuides` was previously gated on `isChannelScoped` — user dashboards had no cell grid, no column reference, nothing. Gate removed; cell grid now renders on every dashboard in edit mode at `lg` breakpoint. New `showRailDivider` prop keeps the rail/Sidebar chrome channel-only since the rail zone is a channel-specific OmniPanel concept. New `dragging` prop renders a column-index tick row (1..N) above the grid while a drag is in flight, and the rail divider thickens (2px) + picks up an accent drop-shadow when the drag sits inside the rail zone.
+
+**Files**
+- `ui/src/lib/dashboardGrid.ts` — `SizePreset` type + `sizePresets` on both `GridPreset` entries.
+- `ui/app/(app)/widgets/EditPinDrawer.tsx` — Size panel (chips + Full-width button), `preset` prop, `applyTileSize` helper, `sizeBusy` state.
+- `ui/app/(app)/widgets/index.tsx` — `resetArmed` state + `handleResetLayout`, Reset button in action bar, `preset` passed to `EditPinDrawer`, `EditModeGridGuides` rendered unconditionally in edit mode.
+- `ui/app/(app)/widgets/EditModeGridGuides.tsx` — `dragging` + `showRailDivider` props, column-index tick row, intensified rail divider during drag.
+
+**Tests.** No new tests — the slice is UI polish on top of existing persisted layouts via the already-tested `applyLayout` store action and `/api/v1/widgets/dashboard/pins/layout` endpoint. `npx tsc --noEmit` clean.
+
+**Plan**: `~/.claude/plans/typed-bubbling-hoare.md` (Phase P11 — P11-a row).
+
+**Not in scope (deferred to P11-b / P11-c)**
+- Layout versioning + Undo (P11-b) — the Reset button assumes no undo exists; P11-b adds a snapshot ring and ctrl-Z.
+- HA-style Sections mode (P11-c) — third `layout_mode` value on top of `grid` / `panel`. Independent of P11-a.
 
 ## Key invariants
 

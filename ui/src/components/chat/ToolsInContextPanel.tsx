@@ -159,7 +159,7 @@ export function ToolsInContextPanel({ channelId, botId, onClose }: ToolsInContex
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search all tools\u2026"
           autoFocus
-          className="flex-1 min-w-0 px-2 py-1 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
+          className="flex-1 min-w-0 px-2 py-1 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40"
         />
       </div>
 

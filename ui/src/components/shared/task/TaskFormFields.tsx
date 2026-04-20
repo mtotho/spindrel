@@ -72,7 +72,7 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Task title (optional)"
-          className="bg-input border border-surface-border rounded-lg px-3 py-2 text-text text-[13px] outline-none w-full focus:border-accent"
+          className="bg-input border border-surface-border rounded-lg px-3 py-2 text-text text-[13px] outline-none w-full focus:border-accent/40"
         />
       </FormRow>
 
@@ -343,7 +343,7 @@ export function TriggerFields({ form }: { form: TaskFormState }) {
           value={maxRunSeconds}
           onChange={(e) => setMaxRunSeconds(e.target.value)}
           placeholder="Inherit from channel/global"
-          className="bg-input border border-surface-border rounded-lg px-3 py-[7px] text-text text-[13px] outline-none w-full focus:border-accent"
+          className="bg-input border border-surface-border rounded-lg px-3 py-[7px] text-text text-[13px] outline-none w-full focus:border-accent/40"
         />
       </FormRow>
 

@@ -560,7 +560,15 @@ def _build_html_widget_body(html_template_body: str, tool_result_json: dict) -> 
     json_payload = json.dumps(tool_result_json, ensure_ascii=False)
     # Break any `</script>` literal so the host <script> tag isn't terminated
     # mid-JSON. Browsers treat this as a pure escape on the JS side.
-    safe_json = json_payload.replace("</", "<\\/")
+    # Also escape U+2028 / U+2029 — valid JSON, but JS treats them as line
+    # terminators inside string literals, breaking the inline script with
+    # `Invalid or unexpected token`. Common in scraped article/RSS content.
+    safe_json = (
+        json_payload
+        .replace("</", "<\\/")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
     preamble = (
         "<script>"
         "window.spindrel = window.spindrel || {};"

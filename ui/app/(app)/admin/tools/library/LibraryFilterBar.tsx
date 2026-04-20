@@ -31,7 +31,7 @@ export function LibraryFilterBar({ filters, onChange }: Props) {
         onChange={(e) =>
           onChange({ ...filters, source: e.target.value as LibraryFilters["source"] })
         }
-        className="rounded-md border border-surface-border bg-input px-2 py-1.5 text-[12px] text-text outline-none focus:border-accent cursor-pointer"
+        className="rounded-md border border-surface-border bg-input px-2 py-1.5 text-[12px] text-text outline-none focus:border-accent/40 cursor-pointer"
       >
         <option value="all">All integrations</option>
         <option value="seed">Defaults only</option>

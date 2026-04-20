@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { useUIStore } from "@/src/stores/ui";
 import { useKioskMode } from "@/src/hooks/useKioskMode";
-import { Check, Info, LayoutDashboard, Maximize2, Minimize2, Move, Plus, Wrench } from "lucide-react";
+import { Check, Info, LayoutDashboard, Maximize2, Minimize2, Move, Plus, RotateCcw, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
 import {
@@ -36,7 +36,7 @@ import {
   isChannelSlug,
   useDashboards,
 } from "@/src/stores/dashboards";
-import { resolvePreset, type GridPreset } from "@/src/lib/dashboardGrid";
+import { resolveChrome, resolvePreset, type DashboardChrome, type GridPreset } from "@/src/lib/dashboardGrid";
 // EphemeralSession import removed — dock disabled pending React #185 fix (see Track - Task Sub-Sessions §4.0c)
 // import { EphemeralSession } from "@/src/components/chat/EphemeralSession";
 
@@ -124,6 +124,10 @@ export default function WidgetsDashboardPage() {
     () => resolvePreset(currentDashboard?.grid_config ?? null),
     [currentDashboard?.grid_config],
   );
+  const chrome = useMemo(
+    () => resolveChrome(currentDashboard?.grid_config ?? null),
+    [currentDashboard?.grid_config],
+  );
   // Only fetched when we're on a channel dashboard — gives the breadcrumb the
   // channel's real `name` without colliding with the main channel-chat route.
   const { data: channelRow } = useChannel(channelScopedId ?? undefined);
@@ -151,10 +155,21 @@ export default function WidgetsDashboardPage() {
   );
   const inPanelMode = layoutMode === "panel" && panelPin !== null;
   /** While a widget is being dragged in edit mode, this tracks the dragging
-   *  item's `x`. Drives the rail-divider's "you're entering the rail zone"
-   *  active state in `EditModeGridGuides`. Cleared on drag stop. */
-  const [dragX, setDragX] = useState<number | null>(null);
-  const dragXInRail = dragX !== null && dragX < preset.railZoneCols;
+   *  item's grid coords. Drives the three chat-zone bands' active state in
+   *  `EditModeGridGuides`. Cleared on drag stop. */
+  const [dragCoords, setDragCoords] = useState<
+    { x: number; y: number; h: number } | null
+  >(null);
+  const dragging = dragCoords !== null;
+  const dragXInRail = dragging && dragCoords.x < preset.railZoneCols;
+  const dragXInDockRight =
+    dragging && dragCoords.x >= preset.cols.lg - preset.dockRightCols;
+  const dragInHeader =
+    dragging
+    && dragCoords.y === 0
+    && dragCoords.h === 1
+    && dragCoords.x >= preset.railZoneCols
+    && dragCoords.x < preset.cols.lg - preset.dockRightCols;
   const gridRowCount = useMemo(() => {
     let max = 0;
     for (const p of pins) {
@@ -285,6 +300,43 @@ export default function WidgetsDashboardPage() {
     };
   }, []);
 
+  /** Reset-layout two-click confirm. First click arms the button (swaps to
+   *  a danger variant + "Confirm reset?" label) for 4 seconds; a second
+   *  click within that window runs the repack. Cleared on click-away or
+   *  exiting edit mode so it never lingers across sessions. */
+  const [resetArmed, setResetArmed] = useState(false);
+  const resetArmTimer = useRef<number | null>(null);
+  useEffect(() => {
+    if (!editMode && resetArmed) setResetArmed(false);
+  }, [editMode, resetArmed]);
+  useEffect(() => () => {
+    if (resetArmTimer.current) window.clearTimeout(resetArmTimer.current);
+  }, []);
+
+  const handleResetLayout = () => {
+    if (!resetArmed) {
+      setResetArmed(true);
+      if (resetArmTimer.current) window.clearTimeout(resetArmTimer.current);
+      resetArmTimer.current = window.setTimeout(() => setResetArmed(false), 4000);
+      return;
+    }
+    // Pack every pin via defaultLayoutForIndex — same helper used for pins
+    // with no grid_layout, so "Reset" is identical to "pretend every pin
+    // was freshly pinned".
+    setResetArmed(false);
+    if (resetArmTimer.current) window.clearTimeout(resetArmTimer.current);
+    const items = pins.map((p, idx) => ({
+      id: p.id,
+      ...defaultLayoutForIndex(idx, preset),
+    }));
+    void applyLayout(items)
+      .then(() => setLayoutError(null))
+      .catch((err) => {
+        console.error("Failed to reset layout:", err);
+        setLayoutError(err instanceof Error ? err.message : "Failed to reset layout");
+      });
+  };
+
   const scheduleCommit = (items: Layout) => {
     if (pendingTimer.current) window.clearTimeout(pendingTimer.current);
     pendingTimer.current = window.setTimeout(() => {
@@ -322,6 +374,34 @@ export default function WidgetsDashboardPage() {
           {editMode ? <Check size={13} /> : <Move size={13} />}
           <span className="hidden md:inline">
             {editMode ? "Done" : "Edit layout"}
+          </span>
+        </button>
+      )}
+      {/* Reset layout — only surfaced in edit mode. Two-click confirm so a
+          misclick can't accidentally repack a carefully-tuned grid. Uses
+          the same `defaultLayoutForIndex` helper as fresh pins, so "reset"
+          equals "pretend everything was just pinned". */}
+      {editMode && pins.length > 0 && !isMobile && (
+        <button
+          type="button"
+          onClick={handleResetLayout}
+          className={
+            "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-medium transition-colors "
+            + (resetArmed
+              ? "border-danger/60 bg-danger/10 text-danger"
+              : "border-surface-border text-text-muted hover:bg-surface-overlay")
+          }
+          aria-pressed={resetArmed}
+          aria-label={resetArmed ? "Confirm reset layout" : "Reset layout"}
+          title={
+            resetArmed
+              ? "Click again to repack every pin. Undo coming in P11-b."
+              : "Auto-pack every pin into default positions"
+          }
+        >
+          <RotateCcw size={13} />
+          <span className="hidden md:inline">
+            {resetArmed ? "Confirm reset?" : "Reset layout"}
           </span>
         </button>
       )}
@@ -447,6 +527,7 @@ export default function WidgetsDashboardPage() {
             pins={pins}
             panelPin={panelPin}
             preset={preset}
+            chrome={chrome}
             highlightPinId={highlightPinId}
             layoutEditable={layoutEditable}
             onUnpin={handleUnpin}
@@ -456,14 +537,19 @@ export default function WidgetsDashboardPage() {
         )}
         {!isLoading && !error && pins.length > 0 && !inPanelMode && (
           <div className="relative">
-            {isChannelScoped && layoutEditable && breakpoint === "lg" && (
+            {layoutEditable && breakpoint === "lg" && (
               <EditModeGridGuides
                 cols={preset.cols.lg}
                 rowHeight={preset.rowHeight}
                 rowGap={GRID_MARGIN[1]}
                 railZoneCols={preset.railZoneCols}
+                dockRightCols={preset.dockRightCols}
                 gridRowCount={Math.max(gridRowCount, 6)}
                 dragXInRail={dragXInRail}
+                dragXInDockRight={dragXInDockRight}
+                dragInHeader={dragInHeader}
+                dragging={dragging}
+                showChatZones={isChannelScoped}
               />
             )}
             <ResponsiveGridLayout
@@ -479,9 +565,11 @@ export default function WidgetsDashboardPage() {
               compactType="vertical"
               preventCollision={false}
               onDrag={(_layout, _oldItem, newItem) => {
-                if (newItem) setDragX(newItem.x);
+                if (newItem) {
+                  setDragCoords({ x: newItem.x, y: newItem.y, h: newItem.h });
+                }
               }}
-              onDragStop={() => setDragX(null)}
+              onDragStop={() => setDragCoords(null)}
               onBreakpointChange={(bp) => setBreakpoint(bp)}
               onLayoutChange={(current) => {
                 if (layoutEditable && breakpoint === "lg") scheduleCommit(current);
@@ -500,6 +588,8 @@ export default function WidgetsDashboardPage() {
                     onEnvelopeUpdate={handleEnvelopeUpdate}
                     editMode={layoutEditable}
                     onEdit={() => setEditingPinId(p.id)}
+                    borderless={chrome.borderless}
+                    hoverScrollbars={chrome.hoverScrollbars}
                   />
                 </div>
               ))}
@@ -518,6 +608,7 @@ export default function WidgetsDashboardPage() {
       <EditPinDrawer
         pinId={editingPinId}
         onClose={() => setEditingPinId(null)}
+        preset={preset}
       />
       <CreateDashboardSheet
         open={createOpen}
@@ -569,6 +660,7 @@ interface PanelModeViewProps {
   pins: WidgetDashboardPin[];
   panelPin: WidgetDashboardPin;
   preset: GridPreset;
+  chrome: DashboardChrome;
   highlightPinId: string | null;
   layoutEditable: boolean;
   onUnpin: (pinId: string) => void;
@@ -589,6 +681,7 @@ interface PanelModeViewProps {
 function PanelModeView({
   pins,
   panelPin,
+  chrome,
   highlightPinId,
   layoutEditable,
   onUnpin,
@@ -618,6 +711,8 @@ function PanelModeView({
                 onEnvelopeUpdate={onEnvelopeUpdate}
                 editMode={layoutEditable}
                 onEdit={onEditPin}
+                borderless={chrome.borderless}
+                hoverScrollbars={chrome.hoverScrollbars}
               />
             </div>
           ))}
@@ -638,6 +733,8 @@ function PanelModeView({
           onEnvelopeUpdate={onEnvelopeUpdate}
           editMode={layoutEditable}
           onEdit={onEditPin}
+          borderless={chrome.borderless}
+          hoverScrollbars={chrome.hoverScrollbars}
         />
       </div>
     </div>

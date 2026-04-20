@@ -1,18 +1,22 @@
-"""WebSocket endpoint the browser extension connects to.
+"""HTTP + WebSocket surface for browser_live.
 
 Mounted under /integrations/browser_live (see app/main.py:554 — routers
-on integrations are auto-discovered). The extension opens
+on integrations are auto-discovered).
 
-    wss://<host>/integrations/browser_live/ws?token=<pairing_token>
-
-and exchanges JSON RPC frames with the bridge.
+Endpoints:
+- GET  /admin/status        — list paired connections (admin)
+- POST /admin/token/rotate  — generate a new pairing token (admin)
+- WS   /ws?token=…&label=…  — extension connects here
 """
 
 from __future__ import annotations
 
 import logging
+import secrets
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+
+from integrations.sdk import async_session, verify_admin_auth
 
 from .bridge import bridge
 
@@ -20,24 +24,29 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+INTEGRATION_ID = "browser_live"
+TOKEN_KEY = "BROWSER_LIVE_PAIRING_TOKEN"
 
-async def _resolve_user_for_token(token: str) -> str | None:
-    """Look up which user owns this pairing token.
 
-    TODO: real implementation reads BROWSER_LIVE_PAIRING_TOKEN out of
-    per-user IntegrationSettings (one row per user). For the sketch we
-    accept any token and treat it as the user_id directly so you can
-    smoke-test end-to-end without wiring the settings table first.
-    """
-    if not token:
-        return None
-    return token  # SKETCH ONLY — replace with real lookup before shipping
+def _stored_token() -> str:
+    from app.services.integration_settings import get_value
+
+    return get_value(INTEGRATION_ID, TOKEN_KEY, "")
 
 
 @router.websocket("/ws")
-async def extension_ws(websocket: WebSocket, token: str = Query(...)):
-    user_id = await _resolve_user_for_token(token)
-    if not user_id:
+async def extension_ws(
+    websocket: WebSocket,
+    token: str = Query(...),
+    label: str = Query("browser"),
+):
+    expected = _stored_token()
+    if not expected:
+        await websocket.close(code=4401, reason="pairing token not configured")
+        return
+    # Constant-time compare guards against timing oracles even though both
+    # sides are local — cheap habit, no downside.
+    if not secrets.compare_digest(token, expected):
         await websocket.close(code=4401, reason="invalid pairing token")
         return
 
@@ -46,18 +55,17 @@ async def extension_ws(websocket: WebSocket, token: str = Query(...)):
     async def _send(payload: dict) -> None:
         await websocket.send_json(payload)
 
-    conn = await bridge.register(user_id, _send)
+    conn = await bridge.register(_send, label=label)
     try:
         await websocket.send_json({"type": "hello", "connection_id": conn.connection_id})
         while True:
             msg = await websocket.receive_json()
-            # Two frame shapes: replies to our RPCs, and unsolicited events.
             if "request_id" in msg:
                 bridge.handle_reply(conn, msg)
             else:
-                # TODO: forward extension-initiated events (tab opened,
-                # navigation, console error) onto channel_events bus so
-                # bots / widgets can react.
+                # Unsolicited extension events (tab opened, navigation,
+                # console error, etc.) — TODO: forward onto channel_events
+                # bus so widgets can subscribe via spindrel.stream.
                 logger.debug("browser_live event: %s", msg)
     except WebSocketDisconnect:
         pass
@@ -65,3 +73,30 @@ async def extension_ws(websocket: WebSocket, token: str = Query(...)):
         logger.exception("browser_live ws error")
     finally:
         await bridge.unregister(conn)
+
+
+@router.get("/admin/status", dependencies=[Depends(verify_admin_auth)])
+async def admin_status() -> dict:
+    return {
+        "token_configured": bool(_stored_token()),
+        "connections": bridge.list_connections(),
+    }
+
+
+@router.post("/admin/token/rotate", dependencies=[Depends(verify_admin_auth)])
+async def admin_rotate_token() -> dict:
+    """Generate and persist a fresh pairing token. Returns the plaintext —
+    surface it once in the admin UI; the user pastes it into the extension.
+    Subsequent reads via the regular settings endpoint will be masked."""
+    from app.services.integration_settings import update_settings
+
+    new_token = secrets.token_urlsafe(32)
+    setup_var = [{"key": TOKEN_KEY, "secret": True}]
+    async with async_session() as db:
+        await update_settings(INTEGRATION_ID, {TOKEN_KEY: new_token}, setup_var, db)
+
+    # Force any currently-paired extension to reconnect with the new token.
+    for c in list(bridge._conns):  # noqa: SLF001 — internal cleanup is fine
+        await bridge.unregister(c)
+
+    return {"token": new_token}

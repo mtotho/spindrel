@@ -10,6 +10,7 @@ import { apiFetch } from "@/src/api/client";
 import { IconPicker } from "@/src/components/IconPicker";
 import {
   GRID_PRESETS,
+  resolveChrome,
   resolvePreset,
   type GridPresetId,
 } from "@/src/lib/dashboardGrid";
@@ -70,6 +71,8 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   const [icon, setIcon] = useState<string | null>(null);
   const [railChoice, setRailChoice] = useState<RailChoice>("off");
   const [presetId, setPresetId] = useState<GridPresetId>("standard");
+  const [borderless, setBorderless] = useState(false);
+  const [hoverScrollbars, setHoverScrollbars] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -81,6 +84,9 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
     setIcon(dashboard.icon);
     setRailChoice(resolveRailChoice(dashboard.rail));
     setPresetId(resolvePreset(dashboard.grid_config ?? null).id);
+    const chrome = resolveChrome(dashboard.grid_config ?? null);
+    setBorderless(chrome.borderless);
+    setHoverScrollbars(chrome.hoverScrollbars);
     setError(null);
     setDeleteConfirm("");
   }, [dashboard?.slug]);
@@ -88,6 +94,7 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   const currentPresetId = dashboard
     ? resolvePreset(dashboard.grid_config ?? null).id
     : "standard";
+  const currentChrome = resolveChrome(dashboard?.grid_config ?? null);
 
   useEffect(() => {
     if (!slug) return;
@@ -121,14 +128,19 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   // and delete isn't allowed (lifecycle is owned by the channel). Rail
   // scoping is supported for any dashboard — see RailScopePicker for the
   // admin-gated "For everyone" option.
+  const chromeDirty =
+    borderless !== currentChrome.borderless
+    || hoverScrollbars !== currentChrome.hoverScrollbars;
   const dirty = isChannel
     ? (icon ?? null) !== (dashboard.icon ?? null)
       || railChoice !== initialRailChoice
       || presetId !== currentPresetId
+      || chromeDirty
     : name.trim() !== dashboard.name
       || (icon ?? null) !== (dashboard.icon ?? null)
       || railChoice !== initialRailChoice
-      || presetId !== currentPresetId;
+      || presetId !== currentPresetId
+      || chromeDirty;
   const canSave = (isChannel || !!name.trim()) && dirty && !saving;
   const canDelete =
     !isChannel && !isDefault && deleteConfirm === dashboard.slug && !deleting;
@@ -155,22 +167,22 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
     setSaving(true);
     setError(null);
     try {
+      // Chrome (borderless / hover_scrollbars) is a sibling of `preset` in the
+      // same grid_config blob. We can only collapse to `null` when the dashboard
+      // is fully default — otherwise the non-default chrome bits would be lost.
+      const chromeDefault = !borderless && !hoverScrollbars;
+      const gridConfig =
+        presetId === "standard" && chromeDefault
+          ? null
+          : {
+              layout_type: "grid",
+              preset: presetId,
+              ...(borderless ? { borderless: true } : {}),
+              ...(hoverScrollbars ? { hover_scrollbars: true } : {}),
+            };
       const patch = isChannel
-        ? {
-            icon: icon ?? null,
-            grid_config:
-              presetId === "standard"
-                ? null
-                : { layout_type: "grid", preset: presetId },
-          }
-        : {
-            name: name.trim(),
-            icon: icon ?? null,
-            grid_config:
-              presetId === "standard"
-                ? null
-                : { layout_type: "grid", preset: presetId },
-          };
+        ? { icon: icon ?? null, grid_config: gridConfig }
+        : { name: name.trim(), icon: icon ?? null, grid_config: gridConfig };
       const updated = await update(dashboard.slug, patch);
       await persistRailChoice(railChoice);
       if (isChannel) setFetchedChannel(updated);
@@ -300,6 +312,38 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
                 your arrangement carries over.
               </p>
             )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[12px] font-medium text-text-muted">Tile chrome</span>
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
+              <input
+                type="checkbox"
+                checked={borderless}
+                onChange={(e) => setBorderless(e.target.checked)}
+                className="mt-0.5 h-3.5 w-3.5 accent-accent"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-[12.5px] font-medium text-text">Borderless tiles</div>
+                <div className="mt-0.5 text-[11px] text-text-dim leading-snug">
+                  Drops the 1px border around each widget card. Hover background stays.
+                </div>
+              </div>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
+              <input
+                type="checkbox"
+                checked={hoverScrollbars}
+                onChange={(e) => setHoverScrollbars(e.target.checked)}
+                className="mt-0.5 h-3.5 w-3.5 accent-accent"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-[12.5px] font-medium text-text">Scrollbars on hover</div>
+                <div className="mt-0.5 text-[11px] text-text-dim leading-snug">
+                  Widget scrollbars stay hidden until you hover over the tile.
+                </div>
+              </div>
+            </label>
           </div>
 
           {error && (

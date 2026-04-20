@@ -35,3 +35,23 @@ tool_widgets:
       image_data_url: "data:image/png;base64,iVBORw0KGgo..."
       width: 1280
       height: 800
+
+  # Onboarding + live status. Bot calls `browser_status` to inspect
+  # pairing state; the widget renders paired browsers as cards if any
+  # are connected, otherwise drops into a 3-step pairing walkthrough
+  # (load extension → open Options → paste token). Auto-refreshes every
+  # 5s via state_poll so you can watch the connection appear after you
+  # click Save in the extension.
+  browser_status:
+    content_type: application/vnd.spindrel.html+interactive
+    display: inline
+    display_label: "Live Browser"
+    html_template:
+      path: widgets/status.html
+    state_poll:
+      tool: browser_status
+      args: {}
+    sample_payload:
+      connections:
+        - connection_id: "00000000-0000-0000-0000-000000000001"
+          pending: 0

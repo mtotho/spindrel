@@ -534,16 +534,43 @@ async def create_dashboard_pin(
     return serialize_pin(pin)
 
 
+@router.get(
+    "/dashboard/pins/{pin_id}/db-status",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def get_pin_db_status(
+    pin_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Check whether the pin's widget bundle has a SQLite DB with content.
+
+    Used by the unpin flow: the UI calls this first, and if ``has_content`` is
+    True it surfaces a confirmation before deleting.
+
+    Returns ``{has_content: false}`` for inline widgets and empty/absent DBs.
+    """
+    pin = await get_pin(db, pin_id)
+    from app.services.dashboard_pins import check_pin_db_content
+    info = await check_pin_db_content(pin)
+    if info is None:
+        return {"has_content": False}
+    return info
+
+
 @router.delete(
     "/dashboard/pins/{pin_id}",
     dependencies=[Depends(require_scopes("channels:write"))],
 )
 async def delete_dashboard_pin(
     pin_id: uuid.UUID,
+    delete_bundle_data: bool = Query(
+        default=False,
+        description="When true, also unlinks the pin's bundle data.sqlite file.",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
-    await delete_pin(db, pin_id)
-    return {"ok": True}
+    result = await delete_pin(db, pin_id, delete_bundle_data=delete_bundle_data)
+    return {"ok": True, **result}
 
 
 @router.patch(

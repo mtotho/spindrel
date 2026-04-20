@@ -215,6 +215,23 @@ class TestBuildHtmlWidgetBody:
         assert "window.spindrel.toolResult = {};" in body
         assert body.endswith("<p/>")
 
+    def test_preamble_escapes_js_line_terminators(self):
+        # U+2028 / U+2029 are valid JSON but break JS string literals when
+        # inlined as a JS expression — they're treated as line terminators
+        # and produce `Invalid or unexpected token`. Common in scraped
+        # article summaries / RSS feeds. The bug took down every widget on
+        # the page because the bootstrap script also failed, leaving
+        # `window.spindrel` undefined.
+        data = {"summary": "first line\u2028second line\u2029third"}
+        body = _build_html_widget_body("<div/>", data)
+        # The raw line terminators must NOT appear in the inlined JS source.
+        assert "\u2028" not in body
+        assert "\u2029" not in body
+        # And the escape sequences should be present so the data round-trips
+        # through JS parsing into the same string content.
+        assert "\\u2028" in body
+        assert "\\u2029" in body
+
 
 class TestApplyStatePollHtmlMode:
     def test_poll_returns_html_envelope_with_fresh_preamble(self, tmp_path):

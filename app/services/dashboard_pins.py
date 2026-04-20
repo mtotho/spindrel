@@ -209,10 +209,48 @@ async def get_pin(
     return pin
 
 
-async def delete_pin(db: AsyncSession, pin_id: uuid.UUID) -> None:
+async def check_pin_db_content(pin: WidgetDashboardPin) -> dict | None:
+    """Return DB info if the pin's bundle has a SQLite DB with content.
+
+    Returns ``None`` when the pin is an inline widget (no source_path), the DB
+    file doesn't exist, or the DB is empty.  Returns a dict with ``path``
+    (str, absolute) and ``has_content`` (True) otherwise.  Used by the unpin
+    flow to decide whether to surface a data-loss confirmation to the user.
+    """
+    try:
+        from app.services.widget_db import has_content, resolve_db_path
+        db_path = resolve_db_path(pin)
+        if has_content(db_path):
+            return {"path": str(db_path), "has_content": True}
+    except (ValueError, Exception):
+        pass
+    return None
+
+
+async def delete_pin(
+    db: AsyncSession,
+    pin_id: uuid.UUID,
+    *,
+    delete_bundle_data: bool = False,
+) -> dict:
+    """Delete a dashboard pin.
+
+    When ``delete_bundle_data=True``, also unlinks the bundle's ``data.sqlite``
+    file (if one exists at the resolved path).
+
+    Returns a dict with ``deleted=True`` and, when a non-empty DB was found
+    after deletion, ``data_sqlite_orphan=True`` + ``orphan_path`` so the caller
+    can surface a follow-up prompt or record what was cleaned up.
+    """
     pin = await get_pin(db, pin_id)
     was_panel = bool(pin.is_main_panel)
     dashboard_key = pin.dashboard_key
+
+    # Resolve DB path before deleting the pin (we need bot/channel info from pin).
+    orphan_info: dict | None = None
+    if delete_bundle_data:
+        orphan_info = await check_pin_db_content(pin)
+
     await db.delete(pin)
     await db.flush()
     if was_panel:
@@ -220,6 +258,22 @@ async def delete_pin(db: AsyncSession, pin_id: uuid.UUID) -> None:
         # mode — otherwise the renderer would show an empty main area.
         await _set_dashboard_layout_mode(db, dashboard_key, None)
     await db.commit()
+
+    result: dict = {"deleted": True}
+    if delete_bundle_data and orphan_info:
+        import os
+        db_path_str = orphan_info["path"]
+        try:
+            os.unlink(db_path_str)
+            result["bundle_data_deleted"] = True
+            result["orphan_path"] = db_path_str
+        except FileNotFoundError:
+            result["bundle_data_deleted"] = False
+        except Exception as exc:
+            result["bundle_data_deleted"] = False
+            result["bundle_data_error"] = str(exc)
+
+    return result
 
 
 async def apply_dashboard_pin_config_patch(

@@ -2,12 +2,14 @@
 
 The extension holds the WebSocket open. Tools send JSON-RPC requests keyed
 by ``request_id``; the bridge awaits a matching reply on a per-request
-Future. Multiple extensions per user are allowed (multi-device) — the
-bridge fans out to the most-recently-connected one by default; pass
+Future. Multiple paired browsers (e.g. desktop + laptop) are supported —
+the bridge fans out to the most-recently-connected one by default; pass
 ``connection_id`` to target a specific one.
 
-Deliberately not persisted. A reconnect = a new connection id; any
-in-flight request whose Future is still pending gets cancelled.
+Bridge state is process-local. Multi-worker deployments need an external
+broker (Redis pub/sub keyed by connection_id) to route replies back to
+the right worker — out of scope for this sketch; single-worker uvicorn
+is fine.
 """
 
 from __future__ import annotations
@@ -24,33 +26,27 @@ logger = logging.getLogger(__name__)
 @dataclass
 class _Connection:
     connection_id: str
-    user_id: str
+    label: str
     send: Any  # async callable: (dict) -> None
     pending: dict[str, asyncio.Future] = field(default_factory=dict)
 
 
 class Bridge:
     def __init__(self) -> None:
-        # user_id -> list[_Connection], most-recent last
-        self._conns: dict[str, list[_Connection]] = {}
+        self._conns: list[_Connection] = []  # most-recent last
         self._lock = asyncio.Lock()
 
-    async def register(self, user_id: str, send) -> _Connection:
-        conn = _Connection(
-            connection_id=str(uuid.uuid4()), user_id=user_id, send=send
-        )
+    async def register(self, send, *, label: str = "browser") -> _Connection:
+        conn = _Connection(connection_id=str(uuid.uuid4()), label=label, send=send)
         async with self._lock:
-            self._conns.setdefault(user_id, []).append(conn)
-        logger.info("browser_live: connected user=%s conn=%s", user_id, conn.connection_id)
+            self._conns.append(conn)
+        logger.info("browser_live: connected conn=%s label=%s", conn.connection_id, label)
         return conn
 
     async def unregister(self, conn: _Connection) -> None:
         async with self._lock:
-            self._conns.get(conn.user_id, []).remove(conn) if conn in self._conns.get(
-                conn.user_id, []
-            ) else None
-            if not self._conns.get(conn.user_id):
-                self._conns.pop(conn.user_id, None)
+            if conn in self._conns:
+                self._conns.remove(conn)
         for fut in list(conn.pending.values()):
             if not fut.done():
                 fut.cancel()
@@ -65,20 +61,24 @@ class Bridge:
 
     async def request(
         self,
-        user_id: str,
         op: str,
         args: dict | None = None,
         *,
         connection_id: str | None = None,
         timeout_ms: int = 15000,
     ) -> dict:
-        """Send an RPC to one of the user's connected browsers; await the reply."""
+        """Send an RPC to a paired browser; await the reply.
+
+        With no ``connection_id`` the most-recently-connected browser
+        services the call. Raises if no browser is paired or if the
+        request times out.
+        """
         async with self._lock:
-            conns = list(self._conns.get(user_id, []))
+            conns = list(self._conns)
         if not conns:
             raise RuntimeError(
                 "No paired browser. Install the Spindrel Live Browser "
-                "extension and paste your pairing token into its Options page."
+                "extension and paste the pairing token from the admin UI."
             )
         conn = (
             next((c for c in conns if c.connection_id == connection_id), None)
@@ -101,12 +101,16 @@ class Bridge:
             raise RuntimeError(f"browser_live: {reply['error']}")
         return reply.get("result") or {}
 
-    def connections_for(self, user_id: str) -> list[dict]:
+    def list_connections(self) -> list[dict]:
         return [
-            {"connection_id": c.connection_id, "pending": len(c.pending)}
-            for c in self._conns.get(user_id, [])
+            {
+                "connection_id": c.connection_id,
+                "label": c.label,
+                "pending": len(c.pending),
+            }
+            for c in self._conns
         ]
 
 
-# Singleton — tools import this.
+# Singleton — tools and the router import this.
 bridge = Bridge()

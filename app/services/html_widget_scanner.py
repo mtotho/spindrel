@@ -24,9 +24,15 @@ Parsed metadata comes from a leading HTML comment containing a YAML block:
 
 Missing frontmatter is fine — sensible defaults fall back to the bundle slug.
 
-Results are cached keyed by ``(channel_id, path, mtime)``. Re-parse fires only
-on mtime mismatch — no TTL, because mtime is authoritative for "has the file
-changed since we last parsed it".
+If a ``widget.yaml`` file sits in the same directory as the scanned
+``.html``, it is parsed and merged into the catalog entry — manifest
+fields (``name``, ``description``, ``version``) take precedence over
+HTML frontmatter.  The entry gains a ``has_manifest: True`` field so the
+UI can badge backend-capable bundles.
+
+Results are cached keyed by ``(channel_id, rel_path)`` with value
+``(html_mtime, yaml_mtime, meta)``.  Either mtime mismatch triggers a
+re-parse — no TTL needed.
 """
 from __future__ import annotations
 
@@ -54,10 +60,9 @@ _FRONTMATTER_RE = re.compile(
 
 _SPINDREL_TOKEN = "spindrel."
 
-# Process-local cache: (channel_id, path) -> (mtime, parsed_metadata).
-# No TTL — mtime bumps invalidate. Cap at 2000 entries to protect memory on
-# long-lived processes with lots of channels.
-_SCAN_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
+# Process-local cache: (channel_id, rel_path) -> (html_mtime, yaml_mtime | None, meta).
+# Either mtime mismatch triggers re-parse. Cap at 2000 entries.
+_SCAN_CACHE: dict[tuple[str, str], tuple[float, float | None, dict]] = {}
 _CACHE_MAX = 2000
 
 
@@ -111,6 +116,7 @@ def _entry_from_metadata(
     is_loose: bool,
     size: int,
     mtime: float,
+    has_manifest: bool = False,
 ) -> dict:
     """Merge parsed frontmatter with path-derived defaults into a catalog entry."""
     slug = _slug_from_path(rel_path)
@@ -132,6 +138,7 @@ def _entry_from_metadata(
         "icon": meta.get("icon") if meta.get("icon") else None,
         "is_bundle": is_bundle,
         "is_loose": is_loose,
+        "has_manifest": has_manifest,
         "size": size,
         "modified_at": mtime,
     }
@@ -152,21 +159,32 @@ def _cache_trim() -> None:
         _SCAN_CACHE.pop(key, None)
 
 
+def _yaml_path_for(abs_path: str) -> str:
+    """Return the sibling ``widget.yaml`` path for an html file."""
+    return os.path.join(os.path.dirname(abs_path), "widget.yaml")
+
+
 def _scan_metadata_for(
     channel_id: str,
     rel_path: str,
     abs_path: str,
     mtime: float,
 ) -> dict | None:
-    """Return cached metadata for this file, re-parsing if mtime changed.
+    """Return cached metadata for this file, re-parsing if either mtime changed.
 
     Returns ``None`` if the file cannot be read or is not a recognizable
     widget (no ``widgets/`` parent AND no ``spindrel.`` reference).
     """
+    yaml_path = _yaml_path_for(abs_path)
+    try:
+        yaml_mtime: float | None = os.stat(yaml_path).st_mtime
+    except OSError:
+        yaml_mtime = None
+
     cache_key = (channel_id, rel_path)
     cached = _SCAN_CACHE.get(cache_key)
-    if cached and cached[0] == mtime:
-        return cached[1]
+    if cached and cached[0] == mtime and cached[1] == yaml_mtime:
+        return cached[2]
 
     try:
         with open(abs_path, encoding="utf-8", errors="replace") as f:
@@ -179,14 +197,29 @@ def _scan_metadata_for(
     has_ref = has_spindrel_reference(content)
     if not is_bundle and not has_ref:
         # Not a widget. Cache the negative result so we don't re-read next scan.
-        _SCAN_CACHE[cache_key] = (mtime, {})
+        _SCAN_CACHE[cache_key] = (mtime, yaml_mtime, {})
         _cache_trim()
         return {}
 
     meta = parse_frontmatter(content)
     meta["__is_bundle"] = is_bundle
     meta["__is_loose"] = has_ref and not is_bundle
-    _SCAN_CACHE[cache_key] = (mtime, meta)
+    meta["__has_manifest"] = False
+
+    if yaml_mtime is not None:
+        # Manifest fields take precedence over HTML frontmatter.
+        try:
+            from app.services.widget_manifest import parse_manifest, ManifestError
+
+            manifest = parse_manifest(yaml_path)
+            meta["name"] = manifest.name
+            meta["description"] = manifest.description
+            meta["version"] = manifest.version
+            meta["__has_manifest"] = True
+        except (ManifestError, Exception) as exc:
+            logger.warning("widget.yaml at %s failed validation: %s", yaml_path, exc)
+
+    _SCAN_CACHE[cache_key] = (mtime, yaml_mtime, meta)
     _cache_trim()
     return meta
 
@@ -231,6 +264,7 @@ def scan_channel(channel_id: str, bot: "BotConfig") -> list[dict]:
 
             is_bundle = meta.get("__is_bundle", False)
             is_loose = meta.get("__is_loose", False)
+            has_manifest = meta.get("__has_manifest", False)
             # Strip internal markers before building the public entry.
             public_meta = {k: v for k, v in meta.items() if not k.startswith("__")}
             entries.append(
@@ -239,6 +273,7 @@ def scan_channel(channel_id: str, bot: "BotConfig") -> list[dict]:
                     public_meta,
                     is_bundle=is_bundle,
                     is_loose=is_loose,
+                    has_manifest=has_manifest,
                     size=stat.st_size,
                     mtime=stat.st_mtime,
                 )

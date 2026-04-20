@@ -10,12 +10,45 @@
  *  reads `preset` and picks the right column/row/tile constants.
  */
 
+import type { ChatZone, GridLayoutItem } from "@/src/types/api";
+export type { ChatZone };
+
 export type GridLayoutType = "grid";
 export type GridPresetId = "standard" | "fine";
 
 export interface GridConfig {
   layout_type: GridLayoutType;
   preset: GridPresetId;
+  borderless?: boolean;
+  hover_scrollbars?: boolean;
+}
+
+export interface DashboardChrome {
+  borderless: boolean;
+  hoverScrollbars: boolean;
+}
+
+export const DEFAULT_CHROME: DashboardChrome = {
+  borderless: false,
+  hoverScrollbars: false,
+};
+
+export function resolveChrome(grid_config: unknown): DashboardChrome {
+  if (!grid_config || typeof grid_config !== "object") return DEFAULT_CHROME;
+  const cfg = grid_config as Record<string, unknown>;
+  return {
+    borderless: cfg.borderless === true,
+    hoverScrollbars: cfg.hover_scrollbars === true,
+  };
+}
+
+export type SizePresetId = "S" | "M" | "L" | "XL";
+
+export interface SizePreset {
+  id: SizePresetId;
+  label: string;
+  w: number;
+  h: number;
 }
 
 export interface GridPreset {
@@ -33,6 +66,16 @@ export interface GridPreset {
    *  physical width close to 1:1 — otherwise users would need to size
    *  widgets huge on the dashboard just to fill the sidebar. */
   railZoneCols: number;
+  /** Column count of the rightmost "dock zone" — pins whose left edge sits
+   *  at or past ``cols.lg - dockRightCols`` surface in the chat's right-side
+   *  WidgetDock. Mirror of ``railZoneCols`` on the right; proportioned
+   *  identically (~1/4 of the full grid) so dashboard geometry matches the
+   *  chat dock's physical width 1:1. */
+  dockRightCols: number;
+  /** One-click tile sizing chips surfaced in EditPinDrawer. Preset values
+   *  are preset-specific — the standard grid's "S" is a 3×6 tile; the fine
+   *  grid's "S" is 6×12 (same physical area, half the snap granularity). */
+  sizePresets: SizePreset[];
 }
 
 export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
@@ -45,6 +88,13 @@ export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
     defaultTile: { w: 3, h: 6 },
     minTile: { w: 2, h: 3 },
     railZoneCols: 3,
+    dockRightCols: 3,
+    sizePresets: [
+      { id: "S", label: "S", w: 3, h: 6 },
+      { id: "M", label: "M", w: 4, h: 8 },
+      { id: "L", label: "L", w: 6, h: 10 },
+      { id: "XL", label: "XL", w: 12, h: 12 },
+    ],
   },
   fine: {
     id: "fine",
@@ -56,10 +106,38 @@ export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
     defaultTile: { w: 6, h: 12 },
     minTile: { w: 4, h: 6 },
     railZoneCols: 6,
+    dockRightCols: 6,
+    sizePresets: [
+      { id: "S", label: "S", w: 6, h: 12 },
+      { id: "M", label: "M", w: 8, h: 16 },
+      { id: "L", label: "L", w: 12, h: 20 },
+      { id: "XL", label: "XL", w: 24, h: 24 },
+    ],
   },
 };
 
 export const DEFAULT_PRESET_ID: GridPresetId = "standard";
+
+/** Classify a pin into its chat-side zone based purely on grid coordinates.
+ *  Keep in sync with `app/services/channel_chat_zones.py::classify_pin` — the
+ *  parity test `tests/unit/test_grid_preset_parity.py` catches preset drift,
+ *  but the rule order itself must match. */
+export function classifyPin(
+  pin: { grid_layout?: GridLayoutItem | Record<string, never> | null },
+  preset: GridPreset,
+): ChatZone {
+  const gl = pin.grid_layout;
+  if (!gl || typeof gl !== "object" || typeof (gl as GridLayoutItem).x !== "number") {
+    return "grid";
+  }
+  const { x, y, h } = gl as GridLayoutItem;
+  if (x < preset.railZoneCols) return "rail";
+  if (x >= preset.cols.lg - preset.dockRightCols) return "dock_right";
+  if (typeof y === "number" && typeof h === "number" && y === 0 && h === 1) {
+    return "header_chip";
+  }
+  return "grid";
+}
 
 /** Resolve a dashboard's preset from its `grid_config`. Null / malformed
  *  values fall back to the default preset. */

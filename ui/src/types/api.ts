@@ -455,6 +455,8 @@ export interface HtmlWidgetEntry {
   /** True when the file was matched only by the `window.spindrel.*` grep
    *  rule — lives outside a `widgets/` folder. UI shows a "loose" badge. */
   is_loose: boolean;
+  /** True when a sibling `widget.yaml` was found and parsed successfully. */
+  has_manifest: boolean;
   size: number;
   modified_at: number;
 }
@@ -493,10 +495,18 @@ export interface GridLayoutItem {
   h: number;
 }
 
-/** Discriminator telling `PinnedToolWidget` which surface it lives on. */
+/** Discriminator telling `PinnedToolWidget` which surface it lives on.
+ *  ``compact`` is only meaningful for channel-scope pins:
+ *    - ``"chip"`` — minimal 180×32 rendering used by `ChannelHeaderChip`. */
 export type WidgetScope =
-  | { kind: "channel"; channelId: string }
+  | { kind: "channel"; channelId: string; compact?: false | "chip" }
   | { kind: "dashboard" };
+
+/** Chat-side zone a dashboard pin resolves into, based purely on its
+ *  ``grid_layout``. ``"grid"`` means dashboard-only — the pin does not
+ *  surface on the chat screen. See `classifyPin` in `lib/dashboardGrid`
+ *  (and the Python mirror in `app/services/channel_chat_zones.py`). */
+export type ChatZone = "rail" | "dock_right" | "header_chip" | "grid";
 
 // Full channel settings (matches server ChannelSettingsOut)
 export interface ChannelSettings {

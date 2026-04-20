@@ -65,6 +65,26 @@ async function connect() {
   attaching = false;
 }
 
+// Resolve when the top-level frame of `tabId` finishes loading. Falls back
+// to a timer if the navigation event never fires (e.g. SPA route change
+// where the URL was already resolved synchronously).
+function waitForNav(tabId, timeoutMs) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      chrome.webNavigation.onCompleted.removeListener(onDone);
+      resolve();
+    };
+    const onDone = (details) => {
+      if (details.tabId === tabId && details.frameId === 0) finish();
+    };
+    chrome.webNavigation.onCompleted.addListener(onDone);
+    setTimeout(finish, timeoutMs);
+  });
+}
+
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab) throw new Error("no active tab");
@@ -77,9 +97,7 @@ async function dispatch(op, args) {
       const tab = args.new_tab
         ? await chrome.tabs.create({ url: args.url })
         : await chrome.tabs.update((await activeTab()).id, { url: args.url });
-      // Wait for the navigation to settle. TODO: subscribe to
-      // chrome.webNavigation.onCompleted instead of polling.
-      await new Promise((r) => setTimeout(r, 500));
+      await waitForNav(tab.id, 25000);
       const fresh = await chrome.tabs.get(tab.id);
       return { final_url: fresh.url, tab_id: fresh.id, title: fresh.title };
     }

@@ -1,0 +1,283 @@
+<!--
+---
+name: Live Browser status
+description: Pairing walkthrough + live connection list for the browser_live integration. Shows step-by-step setup if no browser is paired, switches to a card per connection once one connects, and lets you take a test screenshot to verify everything works.
+display_label: Live Browser
+version: 0.1.0
+author: spindrel
+tags: [setup, browser_live, dashboard]
+icon: globe
+---
+-->
+<div class="sd-card" id="root">
+  <header class="sd-card-header sd-hstack-between">
+    <div class="sd-stack" style="gap: 0;">
+      <h3 class="sd-title">Live Browser</h3>
+      <span class="sd-meta" id="meta">Loading…</span>
+    </div>
+    <div class="sd-hstack-sm">
+      <button class="sd-btn sd-btn-subtle" id="refresh-btn" type="button" title="Refresh now">↻</button>
+    </div>
+  </header>
+
+  <div class="sd-card-body">
+    <div id="empty" hidden>
+      <div class="sd-stack" style="gap: 12px;">
+        <div class="sd-empty" style="padding: 14px 4px 10px;">
+          No browser paired yet — three steps to get one.
+        </div>
+
+        <ol class="sd-stack" style="gap: 14px; padding-left: 18px; margin: 0;">
+          <li>
+            <div class="sd-stack" style="gap: 4px;">
+              <strong>Load the extension</strong>
+              <span class="sd-meta">
+                Open <code>chrome://extensions</code> · enable Developer
+                mode (top-right) · click <em>Load unpacked</em> · pick the
+                folder below.
+              </span>
+              <div class="sd-hstack-sm" style="margin-top: 4px;">
+                <code class="sd-chip" id="ext-path" style="user-select: all;">integrations/browser_live/extension/</code>
+                <button class="sd-btn sd-btn-subtle" type="button" data-copy="#ext-path">Copy</button>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <div class="sd-stack" style="gap: 4px;">
+              <strong>Open the extension's Options page</strong>
+              <span class="sd-meta">
+                Click the puzzle-piece icon in the Chrome toolbar →
+                <em>Spindrel Live Browser</em> → <em>Options</em>.
+              </span>
+            </div>
+          </li>
+
+          <li>
+            <div class="sd-stack" style="gap: 4px;">
+              <strong>Paste the server URL and a pairing token</strong>
+              <span class="sd-meta">
+                Mint a fresh token from the admin endpoint, then paste it
+                into the extension Options page. Click <em>Mint token</em>
+                below to do it now — the value is shown once.
+              </span>
+              <div class="sd-stack" style="gap: 6px; margin-top: 4px;">
+                <div class="sd-hstack-sm">
+                  <span class="sd-meta" style="min-width: 86px;">Server URL</span>
+                  <code class="sd-chip" id="server-url" style="user-select: all;"></code>
+                  <button class="sd-btn sd-btn-subtle" type="button" data-copy="#server-url">Copy</button>
+                </div>
+                <div class="sd-hstack-sm">
+                  <span class="sd-meta" style="min-width: 86px;">Token</span>
+                  <code class="sd-chip" id="minted-token" style="user-select: all; min-width: 240px;">— not yet minted —</code>
+                  <button class="sd-btn sd-btn-subtle" type="button" data-copy="#minted-token" id="copy-token-btn" disabled>Copy</button>
+                </div>
+                <div class="sd-hstack-sm">
+                  <button class="sd-btn" id="mint-btn" type="button">🔑 Mint token</button>
+                  <span class="sd-meta" id="mint-status">Requires admin auth on this session.</span>
+                </div>
+              </div>
+            </div>
+          </li>
+        </ol>
+
+        <div class="sd-meta" id="watch-hint" style="font-style: italic;">
+          Watching for a connection… this widget refreshes itself.
+        </div>
+      </div>
+    </div>
+
+    <div id="paired" hidden>
+      <div class="sd-stack" id="conn-list" style="gap: 8px;"></div>
+      <div class="sd-hstack-sm" style="margin-top: 12px;">
+        <button class="sd-btn" id="test-screenshot-btn" type="button">📸 Test screenshot</button>
+        <span class="sd-meta" id="test-status"></span>
+      </div>
+      <div class="sd-frame" id="screenshot-frame" hidden style="margin-top: 12px;">
+        <img id="screenshot-img" alt="Screenshot" style="display: block; width: 100%; height: auto; border-radius: var(--sd-radius-sm);" />
+      </div>
+    </div>
+
+    <div class="sd-error" id="err" hidden></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var sp = window.spindrel;
+  var root = document.getElementById("root");
+  var metaEl = document.getElementById("meta");
+  var emptyEl = document.getElementById("empty");
+  var pairedEl = document.getElementById("paired");
+  var connList = document.getElementById("conn-list");
+  var serverUrlEl = document.getElementById("server-url");
+  var watchHint = document.getElementById("watch-hint");
+  var testBtn = document.getElementById("test-screenshot-btn");
+  var testStatus = document.getElementById("test-status");
+  var shotFrame = document.getElementById("screenshot-frame");
+  var shotImg = document.getElementById("screenshot-img");
+  var refreshBtn = document.getElementById("refresh-btn");
+  var errEl = document.getElementById("err");
+
+  // Server URL — the iframe is same-origin with the app, so this is the
+  // address the user (or extension) needs to point at.
+  var serverUrl = window.location.origin;
+  serverUrlEl.textContent = serverUrl;
+  var mintedTokenEl = document.getElementById("minted-token");
+  var copyTokenBtn = document.getElementById("copy-token-btn");
+  var mintBtn = document.getElementById("mint-btn");
+  var mintStatus = document.getElementById("mint-status");
+
+  // Mint a fresh pairing token via the admin endpoint. The widget runs
+  // with the bot's bearer, so admin-auth-only endpoints will 401/403
+  // unless the bot has admin scope. The button surface is intentional:
+  // a clear "this requires admin auth" affordance beats a silent fail.
+  mintBtn.addEventListener("click", async function () {
+    mintStatus.textContent = "Minting…";
+    mintBtn.disabled = true;
+    try {
+      var res = await sp.api(
+        "/integrations/browser_live/admin/token/rotate",
+        { method: "POST" }
+      );
+      var token = res && res.token;
+      if (!token) throw new Error("No token in response");
+      mintedTokenEl.textContent = token;
+      copyTokenBtn.disabled = false;
+      mintStatus.textContent = "Minted. Paste into extension Options · also disconnects any current pairings.";
+    } catch (e) {
+      var msg = String(e && e.message || e);
+      // Friendly hint when the bot lacks admin scope.
+      if (/401|403|admin/i.test(msg)) {
+        msg = "This bot doesn't have admin scope — mint via curl: " +
+              "curl -X POST -H 'Authorization: Bearer $ADMIN_KEY' " +
+              serverUrl + "/integrations/browser_live/admin/token/rotate";
+      }
+      mintStatus.textContent = msg;
+    } finally {
+      mintBtn.disabled = false;
+    }
+  });
+
+  function setError(msg) {
+    if (!msg) { errEl.hidden = true; errEl.textContent = ""; return; }
+    errEl.hidden = false;
+    errEl.textContent = msg;
+  }
+
+  function shortId(id) {
+    return id ? id.slice(0, 8) : "—";
+  }
+
+  function render(data) {
+    var conns = (data && data.connections) || [];
+    if (!conns.length) {
+      emptyEl.hidden = false;
+      pairedEl.hidden = true;
+      metaEl.textContent = "0 paired · waiting for extension";
+      return;
+    }
+    emptyEl.hidden = true;
+    pairedEl.hidden = false;
+    metaEl.textContent = conns.length + " paired";
+
+    connList.innerHTML = "";
+    conns.forEach(function (c) {
+      var row = document.createElement("div");
+      row.className = "sd-hstack-between";
+      row.style.cssText = "padding: 8px 10px; border-radius: var(--sd-radius-sm); background: var(--sd-surface-overlay);";
+      row.innerHTML =
+        '<div class="sd-stack" style="gap: 0;">' +
+          '<span class="sd-title" style="font-size: 13px;">🟢 ' +
+            (c.label || "browser") +
+          "</span>" +
+          '<span class="sd-meta" style="font-family: var(--sd-font-mono); font-size: 11px;">' +
+            shortId(c.connection_id) +
+            (c.pending ? " · " + c.pending + " in-flight" : "") +
+          "</span>" +
+        "</div>";
+      connList.appendChild(row);
+    });
+  }
+
+  // Initial paint from the envelope the host injected.
+  render((sp && sp.toolResult && sp.toolResult.data) || {});
+
+  // Re-paint whenever state_poll refreshes the envelope.
+  if (sp && sp.onToolResult) {
+    sp.onToolResult(function (env) { render(env && env.data); });
+  }
+
+  // Manual refresh button — fires the tool again immediately rather than
+  // waiting for the next state_poll tick. Useful right after the user
+  // clicks Save in the extension Options page.
+  refreshBtn.addEventListener("click", async function () {
+    setError("");
+    refreshBtn.disabled = true;
+    try {
+      var env = await sp.callTool("browser_status", {});
+      render(env && env.data);
+    } catch (e) {
+      setError(String(e && e.message || e));
+    } finally {
+      refreshBtn.disabled = false;
+    }
+  });
+
+  // While unpaired, poll a bit faster so the connection appears quickly
+  // after the user finishes the Options page. Stops once a browser pairs.
+  var fastPoll = setInterval(async function () {
+    var data = sp && sp.toolResult && sp.toolResult.data;
+    if (data && data.connections && data.connections.length) {
+      clearInterval(fastPoll);
+      return;
+    }
+    try {
+      var env = await sp.callTool("browser_status", {});
+      render(env && env.data);
+    } catch (e) {
+      // Network blip — let the next tick try again.
+    }
+  }, 3000);
+
+  // "Copy" buttons.
+  document.querySelectorAll("[data-copy]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var sel = btn.getAttribute("data-copy");
+      var src = document.querySelector(sel);
+      if (!src) return;
+      navigator.clipboard.writeText(src.textContent || "").then(function () {
+        var orig = btn.textContent;
+        btn.textContent = "Copied!";
+        setTimeout(function () { btn.textContent = orig; }, 1200);
+      });
+    });
+  });
+
+  // "Test screenshot" — proves the round-trip end-to-end without
+  // navigating anywhere. Renders the result inline.
+  testBtn.addEventListener("click", async function () {
+    setError("");
+    testStatus.textContent = "Capturing…";
+    testBtn.disabled = true;
+    try {
+      var env = await sp.callTool("browser_screenshot", {});
+      var data = (env && env.data) || {};
+      if (!data.image_data_url) {
+        testStatus.textContent = "No image returned.";
+        return;
+      }
+      shotImg.src = data.image_data_url;
+      shotFrame.hidden = false;
+      testStatus.textContent =
+        (data.title ? data.title + " · " : "") +
+        (data.width && data.height ? data.width + "×" + data.height : "");
+    } catch (e) {
+      testStatus.textContent = "";
+      setError(String(e && e.message || e));
+    } finally {
+      testBtn.disabled = false;
+    }
+  });
+})();
+</script>

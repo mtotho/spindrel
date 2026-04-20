@@ -304,7 +304,7 @@ export function DateTimePicker({ value, onChange, placeholder = "Pick a date & t
                   if (h > 23) h = 23;
                   setTime(h, minutes);
                 }}
-                className="w-11 px-1.5 py-1 text-xs text-center bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent font-mono"
+                className="w-11 px-1.5 py-1 text-xs text-center bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40 font-mono"
               />
               <span className="text-text-dim font-bold text-xs">:</span>
               <input
@@ -318,7 +318,7 @@ export function DateTimePicker({ value, onChange, placeholder = "Pick a date & t
                   if (m > 59) m = 59;
                   setTime(hours, m);
                 }}
-                className="w-11 px-1.5 py-1 text-xs text-center bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent font-mono"
+                className="w-11 px-1.5 py-1 text-xs text-center bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40 font-mono"
               />
             </div>
             {selectedDate && (

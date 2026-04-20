@@ -148,7 +148,24 @@ const MAX_IFRAME_HEIGHT = 800;
 
 /** JSON-escape a value for injection into a <script> string. */
 function jsonForScript(value: string | null | undefined): string {
-  return JSON.stringify(value ?? null).replace(/</g, "\\u003c");
+  return JSON.stringify(value ?? null)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+// Defense-in-depth for pre-stringified JSON that gets inlined directly as a
+// JS expression (initialToolResultJson, themeJson). U+2028 and U+2029 are
+// valid JSON characters but JS parses them as line terminators inside
+// string literals, breaking the bootstrap `<script>` and leaving
+// `window.spindrel` undefined for every widget on the page. The backend
+// also escapes these in `_build_html_widget_body`; this catches anything
+// that bypasses that path (pre-baked JSON re-extracted by the renderer,
+// theme tokens, future inline payloads).
+function escapeInlineJsonForScript(jsonText: string): string {
+  return jsonText
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 }
 
 /** Build the host-page helper script that gets injected into every widget.
@@ -238,8 +255,8 @@ function spindrelBootstrap(
   }
   // Token mutated in-place by the host on re-mint — read fresh per call.
   const state = { token: ${jsonForScript(widgetToken)} };
-  const initialToolResult = ${initialToolResultJson ?? "null"};
-  const initialTheme = ${themeJson};
+  const initialToolResult = ${initialToolResultJson ? escapeInlineJsonForScript(initialToolResultJson) : "null"};
+  const initialTheme = ${escapeInlineJsonForScript(themeJson)};
   // Token-ready promise — resolves as soon as a non-null token lands in
   // state.token (either baked into srcDoc or pushed later via __setToken).
   // apiFetch awaits this when no token is present yet, so the widget's
@@ -711,6 +728,52 @@ function spindrelBootstrap(
     }
     return resp.envelope || null;
   }
+  // ───────────────────────────────────────────────────────────────────────
+  // Phase B.1 SDK helper: spindrel.db — server-side SQLite per bundle.
+  // Routes through POST /api/v1/widget-actions (dispatch:"db_query"|"db_exec").
+  // dashboard_pin_id identifies which pin's bundle DB to target.
+  // ───────────────────────────────────────────────────────────────────────
+
+  async function dbQuery(sql, params) {
+    if (!dashboardPinId) throw new Error("spindrel.db requires a pinned widget (dashboardPinId is null)");
+    if (typeof sql !== "string" || !sql.trim()) throw new Error("spindrel.db.query: sql must be a non-empty string");
+    const resp = await api("/api/v1/widget-actions", {
+      method: "POST",
+      body: JSON.stringify({
+        dispatch: "db_query",
+        sql: sql,
+        params: params || [],
+        dashboard_pin_id: dashboardPinId,
+      }),
+    });
+    if (!resp || resp.ok !== true) throw new Error((resp && resp.error) || "spindrel.db.query failed");
+    return (resp.db_result && resp.db_result.rows) || [];
+  }
+  async function dbExec(sql, params) {
+    if (!dashboardPinId) throw new Error("spindrel.db requires a pinned widget (dashboardPinId is null)");
+    if (typeof sql !== "string" || !sql.trim()) throw new Error("spindrel.db.exec: sql must be a non-empty string");
+    const resp = await api("/api/v1/widget-actions", {
+      method: "POST",
+      body: JSON.stringify({
+        dispatch: "db_exec",
+        sql: sql,
+        params: params || [],
+        dashboard_pin_id: dashboardPinId,
+      }),
+    });
+    if (!resp || resp.ok !== true) throw new Error((resp && resp.error) || "spindrel.db.exec failed");
+    return resp.db_result || { lastInsertRowid: null, rowsAffected: 0 };
+  }
+  async function dbTx(callback) {
+    if (!dashboardPinId) throw new Error("spindrel.db requires a pinned widget (dashboardPinId is null)");
+    if (typeof callback !== "function") throw new Error("spindrel.db.tx: callback must be a function");
+    // Lightweight client-side tx wrapper: runs callback with a tx-like object
+    // whose exec/query methods share the same pin-id context. For true server-
+    // side atomicity, use raw SQL with BEGIN/COMMIT in a single db_exec call.
+    const tx = { exec: dbExec, query: dbQuery };
+    return callback(tx);
+  }
+
   // ───────────────────────────────────────────────────────────────────────
   // Phase A SDK helpers (2026-04-19). See Track - Widget SDK in the vault
   // for the full plan. These are pure client-side — no new backend infra.
@@ -1315,6 +1378,11 @@ function spindrelBootstrap(
       chart: uiChart,
     },
     form: form,
+    db: {
+      query: dbQuery,
+      exec: dbExec,
+      tx: dbTx,
+    },
     onToolResult: onToolResult,
     onConfig: onConfig,
     onTheme: onTheme,

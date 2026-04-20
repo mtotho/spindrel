@@ -426,7 +426,7 @@ function EventTriggerFields({
               value={filterKey}
               onChange={(e) => setFilterKey(e.target.value)}
               placeholder="key"
-              className="flex-1 px-2 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
+              className="flex-1 px-2 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40"
             />
             <input
               type="text"
@@ -434,7 +434,7 @@ function EventTriggerFields({
               onChange={(e) => setFilterValue(e.target.value)}
               placeholder="value"
               onKeyDown={(e) => { if (e.key === "Enter") addFilter(); }}
-              className="flex-[2] px-2 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
+              className="flex-[2] px-2 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40"
             />
             <button
               onClick={addFilter}

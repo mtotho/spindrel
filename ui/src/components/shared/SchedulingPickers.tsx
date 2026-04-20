@@ -134,14 +134,14 @@ export function RecurrencePicker({ value, onChange }: { value: string; onChange:
                 min={1}
                 value={numValue}
                 onChange={(e) => handleNumChange(parseInt(e.target.value) || 1)}
-                className={`w-14 px-2 py-1.5 text-[13px] text-center bg-input border rounded-md text-text outline-none focus:border-accent ${
+                className={`w-14 px-2 py-1.5 text-[13px] text-center bg-input border rounded-md text-text outline-none focus:border-accent/40 ${
                   isValid ? "border-surface-border" : "border-danger"
                 }`}
               />
               <select
                 value={unitValue}
                 onChange={(e) => handleUnitChange(e.target.value)}
-                className="px-2 py-1.5 text-[13px] bg-input border border-surface-border rounded-md text-text outline-none cursor-pointer focus:border-accent"
+                className="px-2 py-1.5 text-[13px] bg-input border border-surface-border rounded-md text-text outline-none cursor-pointer focus:border-accent/40"
               >
                 {RECURRENCE_UNITS.map((u) => (
                   <option key={u.value} value={u.value}>{u.label}</option>

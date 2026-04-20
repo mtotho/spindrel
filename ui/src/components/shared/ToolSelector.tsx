@@ -247,7 +247,7 @@ export function ToolSelector({
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search tools..."
               autoFocus
-              className="flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
+              className="flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40"
             />
             <div ref={sourceRef} className="relative shrink-0">
               <button

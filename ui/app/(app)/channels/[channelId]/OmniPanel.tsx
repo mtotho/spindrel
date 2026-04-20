@@ -36,7 +36,7 @@ import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useDashboards, channelSlug } from "@/src/stores/dashboards";
 import { useUIStore } from "@/src/stores/ui";
 import { resolvePreset, type GridPreset } from "@/src/lib/dashboardGrid";
-import { isRailPin } from "@/app/(app)/widgets/index";
+import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import type {
   GridLayoutItem,
   PinnedWidget,
@@ -110,7 +110,10 @@ export function OmniPanel({
   const t = useThemeTokens();
 
   const slug = channelSlug(channelId);
-  const { pins } = useDashboardPins(slug);
+  // Hydration trigger — useChannelChatZones re-uses the same store, but we
+  // also rely on the loading/error UX that `useDashboardPins` drives for this
+  // panel's mount lifecycle elsewhere.
+  useDashboardPins(slug);
   const unpinDashboardPin = useDashboardPinsStore((s) => s.unpinWidget);
   const updateDashboardEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
   const dashboardCurrentSlug = useDashboardPinsStore((s) => s.currentSlug);
@@ -125,14 +128,12 @@ export function OmniPanel({
   );
 
   // The rail subset: any pin whose left edge sits in the leftmost
-  // `railZoneCols` columns. Pins overhanging past the zone get visually
-  // clipped on render (loose inclusion).
+  // `railZoneCols` columns. Resolved via the shared zone classifier so OmniPanel
+  // shares one source of truth with WidgetDockRight + ChannelHeaderChip.
+  const { rail: railBucket } = useChannelChatZones(channelId);
   const railPins = useMemo(
-    () =>
-      pins
-        .filter((p) => isRailPin(p, preset.railZoneCols))
-        .sort(sortByGridYX),
-    [pins, preset.railZoneCols],
+    () => [...railBucket].sort(sortByGridYX),
+    [railBucket],
   );
 
   // Auto-hydrate when the slug we want differs from the one the store is

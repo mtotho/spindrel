@@ -342,3 +342,381 @@ class TestAdminChannelsVisibility:
 # Widget pin CRUD moved to /api/v1/widgets/dashboard (slug=channel:<uuid>) —
 # see tests/unit/test_dashboard_pins_service.py for the direct coverage and
 # tests/unit/test_dashboards_service.py for the channel-dashboard lifecycle.
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Channel ownership enforcement on PUT/PATCH/DELETE + GET visibility
+# ---------------------------------------------------------------------------
+
+@pytest_asyncio.fixture
+async def jwt_client_factory(engine, db_session):
+    """Per-test client whose `verify_auth_or_user` returns a chosen User principal.
+
+    Mirrors the `client_factory` shape in `test_widget_auth_mint.py`. Used to
+    drive the JWT-as-non-admin paths that the default `client` fixture's
+    static-key override hides.
+    """
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession as _AS
+
+    from app.dependencies import get_db, verify_auth_or_user
+    from app.routers.api_v1 import router as api_v1_router
+
+    _factory = async_sessionmaker(engine, class_=_AS, expire_on_commit=False)
+
+    def _make(user: User):
+        # Eagerly resolve scopes the way verify_auth_or_user would (Phase 1.5)
+        # so require_scopes() doesn't fail closed for legitimate non-admins.
+        # Tests pass a list explicitly via attach_scopes() below when relevant.
+        if not hasattr(user, "_resolved_scopes"):
+            user._resolved_scopes = ["chat", "channels:read", "channels:write"]
+        app = FastAPI()
+        app.include_router(api_v1_router)
+
+        async def _override_get_db():
+            yield db_session
+
+        async def _override_auth():
+            return user
+
+        app.dependency_overrides[get_db] = _override_get_db
+        app.dependency_overrides[verify_auth_or_user] = _override_auth
+
+        transport = ASGITransport(app=app)
+        return AsyncClient(transport=transport, base_url="http://test")
+
+    yield _make
+
+
+def _attach_scopes(user: User, scopes: list[str]) -> User:
+    user._resolved_scopes = list(scopes)
+    return user
+
+
+class TestChannelOwnershipEnforcement:
+    async def test_owner_can_update_own_channel(self, jwt_client_factory, db_session):
+        owner = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=owner.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(owner) as ac:
+            resp = await ac.put(
+                f"/api/v1/channels/{ch.id}",
+                json={"name": "renamed-by-owner"},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["name"] == "renamed-by-owner"
+
+    async def test_non_owner_cannot_update_channel(self, jwt_client_factory, db_session):
+        owner = await _create_user(db_session)
+        intruder = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=owner.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(intruder) as ac:
+            resp = await ac.put(
+                f"/api/v1/channels/{ch.id}",
+                json={"name": "hijacked"},
+            )
+        assert resp.status_code == 403
+        assert "owner" in resp.json()["detail"].lower()
+
+    async def test_non_owner_cannot_delete_channel(self, jwt_client_factory, db_session):
+        owner = await _create_user(db_session)
+        intruder = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=owner.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(intruder) as ac:
+            resp = await ac.delete(f"/api/v1/channels/{ch.id}")
+        assert resp.status_code == 403
+
+        # Channel still exists
+        await db_session.refresh(ch)
+        assert ch.id is not None
+
+    async def test_owner_can_delete_own_channel(self, jwt_client_factory, db_session):
+        owner = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=owner.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(owner) as ac:
+            resp = await ac.delete(f"/api/v1/channels/{ch.id}")
+        assert resp.status_code == 204
+
+        # Channel is gone
+        result = await db_session.execute(select(Channel).where(Channel.id == ch.id))
+        assert result.scalar_one_or_none() is None
+
+    async def test_admin_can_update_any_channel(self, jwt_client_factory, db_session):
+        owner = await _create_user(db_session)
+        admin = await _create_user(db_session, is_admin=True)
+        ch = await _create_channel_row(db_session, user_id=owner.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(admin) as ac:
+            resp = await ac.put(
+                f"/api/v1/channels/{ch.id}",
+                json={"name": "admin-rename"},
+            )
+        assert resp.status_code == 200, resp.text
+
+    async def test_admin_can_delete_any_channel(self, jwt_client_factory, db_session):
+        owner = await _create_user(db_session)
+        admin = await _create_user(db_session, is_admin=True)
+        ch = await _create_channel_row(db_session, user_id=owner.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(admin) as ac:
+            resp = await ac.delete(f"/api/v1/channels/{ch.id}")
+        assert resp.status_code == 204
+
+    async def test_unowned_channel_rejects_non_admin_edit(self, jwt_client_factory, db_session):
+        """Legacy/orphaned channels (user_id=NULL) must require admin to edit."""
+        anyone = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=None)
+        await db_session.commit()
+
+        async with jwt_client_factory(anyone) as ac:
+            resp = await ac.put(
+                f"/api/v1/channels/{ch.id}",
+                json={"name": "claimed"},
+            )
+        assert resp.status_code == 403
+
+    async def test_non_owner_cannot_update_config(self, jwt_client_factory, db_session):
+        owner = await _create_user(db_session)
+        intruder = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=owner.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(intruder) as ac:
+            resp = await ac.patch(
+                f"/api/v1/channels/{ch.id}/config",
+                json={"max_iterations": 99},
+            )
+        assert resp.status_code == 403
+
+
+class TestChannelGetVisibility:
+    async def test_non_admin_cannot_get_other_users_private_channel(
+        self, jwt_client_factory, db_session,
+    ):
+        owner = await _create_user(db_session)
+        intruder = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, private=True, user_id=owner.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(intruder) as ac:
+            resp = await ac.get(f"/api/v1/channels/{ch.id}")
+        # 404 (not 403) — don't leak the channel's existence
+        assert resp.status_code == 404
+
+    async def test_owner_can_get_own_private_channel(self, jwt_client_factory, db_session):
+        owner = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, private=True, user_id=owner.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(owner) as ac:
+            resp = await ac.get(f"/api/v1/channels/{ch.id}")
+        assert resp.status_code == 200
+        assert resp.json()["private"] is True
+
+    async def test_non_owner_can_get_public_channel(self, jwt_client_factory, db_session):
+        owner = await _create_user(db_session)
+        viewer = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, private=False, user_id=owner.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(viewer) as ac:
+            resp = await ac.get(f"/api/v1/channels/{ch.id}")
+        assert resp.status_code == 200
+
+    async def test_admin_can_get_any_private_channel(self, jwt_client_factory, db_session):
+        owner = await _create_user(db_session)
+        admin = await _create_user(db_session, is_admin=True)
+        ch = await _create_channel_row(db_session, private=True, user_id=owner.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(admin) as ac:
+            resp = await ac.get(f"/api/v1/channels/{ch.id}")
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Integration binding lockdown
+#
+# ``member_user`` preset grants ``channels:write``, and ``has_scope`` covers
+# ``channels.integrations:write`` via parent-covers-child. That leaks binding
+# mutation to non-admins despite the Phase 0 decision ("admin-only"). The
+# ``require_admin_and_scope`` dependency now enforces admin-ness on top of
+# the scope check for the 6 binding write endpoints. These pins fail if the
+# parent-cover leak reopens.
+# ---------------------------------------------------------------------------
+class TestChannelIntegrationBindingAdminGate:
+    async def test_non_admin_cannot_bind_integration(self, jwt_client_factory, db_session):
+        member = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=member.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(member) as ac:
+            resp = await ac.post(
+                f"/api/v1/channels/{ch.id}/integrations",
+                json={
+                    "integration_type": "slack",
+                    "client_id": "slack:C123",
+                },
+            )
+        assert resp.status_code == 403
+        assert "admin" in resp.json()["detail"].lower()
+
+    async def test_non_admin_cannot_unbind_integration(self, jwt_client_factory, db_session):
+        from app.db.models import ChannelIntegration
+
+        member = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=member.id)
+        binding = ChannelIntegration(
+            channel_id=ch.id,
+            integration_type="slack",
+            client_id=f"slack:{uuid.uuid4().hex[:8]}",
+            activated=True,
+        )
+        db_session.add(binding)
+        await db_session.commit()
+
+        async with jwt_client_factory(member) as ac:
+            resp = await ac.delete(
+                f"/api/v1/channels/{ch.id}/integrations/{binding.id}",
+            )
+        assert resp.status_code == 403
+
+    async def test_non_admin_cannot_adopt_integration(self, jwt_client_factory, db_session):
+        from app.db.models import ChannelIntegration
+
+        member = await _create_user(db_session)
+        ch1 = await _create_channel_row(db_session, user_id=member.id)
+        ch2 = await _create_channel_row(db_session, user_id=member.id)
+        binding = ChannelIntegration(
+            channel_id=ch1.id,
+            integration_type="slack",
+            client_id=f"slack:{uuid.uuid4().hex[:8]}",
+            activated=True,
+        )
+        db_session.add(binding)
+        await db_session.commit()
+
+        async with jwt_client_factory(member) as ac:
+            resp = await ac.post(
+                f"/api/v1/channels/{ch1.id}/integrations/{binding.id}/adopt",
+                json={"target_channel_id": str(ch2.id)},
+            )
+        assert resp.status_code == 403
+
+    async def test_non_admin_cannot_activate_integration(self, jwt_client_factory, db_session):
+        member = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=member.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(member) as ac:
+            resp = await ac.post(
+                f"/api/v1/channels/{ch.id}/integrations/mission_control/activate",
+            )
+        assert resp.status_code == 403
+
+    async def test_non_admin_cannot_deactivate_integration(self, jwt_client_factory, db_session):
+        member = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=member.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(member) as ac:
+            resp = await ac.post(
+                f"/api/v1/channels/{ch.id}/integrations/mission_control/deactivate",
+            )
+        assert resp.status_code == 403
+
+    async def test_non_admin_cannot_update_activation_config(self, jwt_client_factory, db_session):
+        member = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=member.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(member) as ac:
+            resp = await ac.patch(
+                f"/api/v1/channels/{ch.id}/integrations/mission_control/config",
+                json={"config": {"whatever": "value"}},
+            )
+        assert resp.status_code == 403
+
+    async def test_non_admin_can_list_bindings_readonly(self, jwt_client_factory, db_session):
+        """Reads stay allowed — non-admins see bindings on their own channel."""
+        member = await _create_user(db_session)
+        ch = await _create_channel_row(db_session, user_id=member.id)
+        await db_session.commit()
+
+        async with jwt_client_factory(member) as ac:
+            resp = await ac.get(f"/api/v1/channels/{ch.id}/integrations")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_admin_can_bind_integration(self, jwt_client_factory, db_session):
+        """Admin JWT passes the admin-and-scope gate; endpoint returns 201."""
+        admin = await _create_user(db_session, is_admin=True)
+        ch = await _create_channel_row(db_session, user_id=None)
+        await db_session.commit()
+
+        async with jwt_client_factory(admin) as ac:
+            resp = await ac.post(
+                f"/api/v1/channels/{ch.id}/integrations",
+                json={
+                    "integration_type": "slack",
+                    "client_id": f"slack:{uuid.uuid4().hex[:8]}",
+                },
+            )
+        assert resp.status_code == 201, resp.text
+
+    async def test_scoped_key_without_admin_is_rejected(
+        self, engine, db_session,
+    ):
+        """ApiKeyAuth with channels:write but no ``admin`` scope is denied.
+
+        Mirrors the ``slack_integration``/``chat_client`` preset shape — these
+        keys carry ``channels:write`` and via parent-cover technically satisfy
+        ``channels.integrations:write``. The admin gate must reject them.
+        """
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+        from app.dependencies import ApiKeyAuth, get_db, verify_auth_or_user
+        from app.routers.api_v1 import router as api_v1_router
+
+        ch = await _create_channel_row(db_session, user_id=None)
+        await db_session.commit()
+
+        scoped_key = ApiKeyAuth(
+            key_id=uuid.uuid4(),
+            scopes=["chat", "channels:read", "channels:write"],
+            name="slack-integration-style",
+        )
+
+        app = FastAPI()
+        app.include_router(api_v1_router)
+
+        async def _override_get_db():
+            yield db_session
+
+        async def _override_auth():
+            return scoped_key
+
+        app.dependency_overrides[get_db] = _override_get_db
+        app.dependency_overrides[verify_auth_or_user] = _override_auth
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            resp = await ac.post(
+                f"/api/v1/channels/{ch.id}/integrations",
+                json={
+                    "integration_type": "slack",
+                    "client_id": f"slack:{uuid.uuid4().hex[:8]}",
+                },
+            )
+        assert resp.status_code == 403
+        assert "admin" in resp.json()["detail"].lower()

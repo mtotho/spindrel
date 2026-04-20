@@ -5,6 +5,7 @@ import { useGoBack } from "@/src/hooks/useGoBack";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { OmniPanel } from "./OmniPanel";
+import { WidgetDockRight } from "./WidgetDockRight";
 import { MobileOmniSheet } from "./MobileOmniSheet";
 import { ChannelFileViewer } from "./ChannelFileViewer";
 import { MobileFileViewerSlide } from "./MobileFileViewerSlide";
@@ -826,6 +827,13 @@ export default function ChatScreen() {
           {/* Pinned workspace-file panels — hidden on system channels. */}
           {!isMobile && channelId && !isSystemChannel && (
             <PinnedPanelsRail channelId={channelId} workspaceId={workspaceId} />
+          )}
+
+          {/* Right-side widget dock — surfaces channel-dashboard pins whose
+              left edge sits in the dock-right band. Hidden on system channels
+              (no channel dashboard) and when the band is empty. */}
+          {!isMobile && channelId && !isSystemChannel && (
+            <WidgetDockRight channelId={channelId} />
           )}
 
           {/* Participants panel (multi-bot channels) */}

@@ -8,14 +8,22 @@
  * action-dispatched button flips stay on merge:true semantics.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Maximize2, Minimize2, X } from "lucide-react";
+import { Loader2, Maximize2, Minimize2, Trash2, X } from "lucide-react";
+import { apiFetch } from "@/src/api/client";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
+import type { ChatZone, GridLayoutItem } from "@/src/types/api";
+import { classifyPin, type GridPreset } from "@/src/lib/dashboardGrid";
 
 const HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive";
 
 interface Props {
   pinId: string | null;
   onClose: () => void;
+  /** Active dashboard grid preset — drives size-preset chip values +
+   *  full-width column count. Absent when opened from a context that has
+   *  no dashboard (shouldn't happen in practice, but the size row is
+   *  hidden when missing to stay safe). */
+  preset?: GridPreset;
 }
 
 function prettyJson(value: unknown): string {
@@ -26,7 +34,7 @@ function prettyJson(value: unknown): string {
   }
 }
 
-export function EditPinDrawer({ pinId, onClose }: Props) {
+export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   const pin = useDashboardPinsStore((s) =>
     pinId ? s.pins.find((p) => p.id === pinId) ?? null : null,
   );
@@ -34,13 +42,21 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
   const replaceConfig = useDashboardPinsStore((s) => s.replaceWidgetConfig);
   const promotePanel = useDashboardPinsStore((s) => s.promotePinToPanel);
   const demotePanel = useDashboardPinsStore((s) => s.demotePinFromPanel);
+  const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
 
   const [label, setLabel] = useState("");
   const [jsonText, setJsonText] = useState("{}");
+  const unpinWidget = useDashboardPinsStore((s) => s.unpinWidget);
+
   const [saving, setSaving] = useState(false);
   const [panelBusy, setPanelBusy] = useState(false);
+  const [sizeBusy, setSizeBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  // Delete / unpin state
+  const [deleteChecking, setDeleteChecking] = useState(false);
+  const [deleteConfirmNeeded, setDeleteConfirmNeeded] = useState(false);
+  const [deleteDeleting, setDeleteDeleting] = useState(false);
 
   useEffect(() => {
     if (!pin) return;
@@ -131,6 +147,62 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
   const isHtmlWidget = pin?.envelope?.content_type === HTML_INTERACTIVE_CT;
   const isPanelPin = !!pin?.is_main_panel;
 
+  const currentLayout = (pin?.grid_layout as GridLayoutItem | undefined) ?? null;
+  const isFullWidth =
+    !!currentLayout
+    && !!preset
+    && currentLayout.x === 0
+    && currentLayout.w === preset.cols.lg;
+  /** Match the current pin's {w,h} against a preset. Used to highlight the
+   *  active chip. Falls back to null when the pin has a custom size. */
+  const activeSizeId = useMemo(() => {
+    if (!currentLayout || !preset) return null;
+    const hit = preset.sizePresets.find(
+      (p) => p.w === currentLayout.w && p.h === currentLayout.h,
+    );
+    return hit?.id ?? null;
+  }, [currentLayout, preset]);
+
+  const applyTileSize = async (w: number, h: number, resetX: boolean) => {
+    if (!pin || !currentLayout) return;
+    setSizeBusy(true);
+    setError(null);
+    try {
+      await applyLayout([
+        {
+          id: pin.id,
+          x: resetX ? 0 : currentLayout.x,
+          y: currentLayout.y,
+          w,
+          h,
+        },
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSizeBusy(false);
+    }
+  };
+
+  const handleSizeChip = (w: number, h: number) => {
+    // Full-width sizes (w === cols.lg) need x snapped to 0 so the tile can
+    // actually fit without overflow. Smaller sizes preserve x/y — picking
+    // "M" on a right-side tile shouldn't yank it to the left gutter.
+    const resetX = !!preset && w === preset.cols.lg;
+    void applyTileSize(w, h, resetX);
+  };
+
+  const handleFullWidthToggle = () => {
+    if (!preset || !currentLayout) return;
+    if (isFullWidth) {
+      // Toggle off → fall back to the M preset at the current (x,y).
+      const m = preset.sizePresets.find((p) => p.id === "M") ?? preset.sizePresets[0];
+      void applyTileSize(m.w, m.h, false);
+    } else {
+      void applyTileSize(preset.cols.lg, currentLayout.h, true);
+    }
+  };
+
   const handlePanelToggle = async () => {
     if (!pin) return;
     setPanelBusy(true);
@@ -145,6 +217,52 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setPanelBusy(false);
+    }
+  };
+
+  const handleDeleteClick = async () => {
+    if (!pin) return;
+    if (deleteConfirmNeeded) {
+      // Second click — confirmed, also wipe bundle data.
+      setDeleteDeleting(true);
+      setError(null);
+      try {
+        await apiFetch(
+          `/api/v1/widgets/dashboard/pins/${pin.id}?delete_bundle_data=true`,
+          { method: "DELETE" },
+        );
+        await unpinWidget(pin.id);
+        onClose();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        setDeleteDeleting(false);
+      }
+      return;
+    }
+    // First click — check if the bundle has DB data.
+    setDeleteChecking(true);
+    setError(null);
+    try {
+      const resp = await apiFetch(`/api/v1/widgets/dashboard/pins/${pin.id}/db-status`);
+      const data = await (resp as Response).json();
+      if (data?.has_content) {
+        setDeleteConfirmNeeded(true);
+        setDeleteChecking(false);
+        return;
+      }
+    } catch {
+      // Ignore status-check failure — proceed with plain delete.
+    }
+    // No DB data (or check failed) — delete immediately.
+    setDeleteChecking(false);
+    setDeleteDeleting(true);
+    try {
+      await apiFetch(`/api/v1/widgets/dashboard/pins/${pin.id}`, { method: "DELETE" });
+      await unpinWidget(pin.id);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setDeleteDeleting(false);
     }
   };
 
@@ -197,12 +315,16 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder={pin?.envelope?.display_label ?? pin?.tool_name ?? ""}
-              className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent"
+              className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/40"
             />
             <span className="text-[11px] text-text-dim">
               Leave empty to fall back to the widget's own label.
             </span>
           </label>
+
+          {pin && preset && pin.dashboard_key.startsWith("channel:") && (
+            <ChatPlacementRow pin={pin} preset={preset} />
+          )}
 
           {isHtmlWidget && (
             <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
@@ -240,6 +362,62 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
             </div>
           )}
 
+          {preset && currentLayout && (
+            <div className="flex flex-col gap-2 rounded-md border border-surface-border bg-surface px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+                  Size
+                </span>
+                <span className="text-[10px] font-mono text-text-dim tabular-nums">
+                  {currentLayout.w}×{currentLayout.h}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {preset.sizePresets.map((sp) => {
+                  const active = activeSizeId === sp.id;
+                  return (
+                    <button
+                      key={sp.id}
+                      type="button"
+                      onClick={() => handleSizeChip(sp.w, sp.h)}
+                      disabled={sizeBusy}
+                      className={
+                        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors "
+                        + (active
+                          ? "border-accent/60 bg-accent/10 text-accent"
+                          : "border-surface-border text-text-muted hover:bg-surface-overlay")
+                        + " disabled:opacity-50 disabled:cursor-not-allowed"
+                      }
+                      title={`${sp.label} — ${sp.w}×${sp.h}`}
+                    >
+                      {sp.label}
+                      <span className="font-mono text-[10px] text-text-dim">
+                        {sp.w}×{sp.h}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={handleFullWidthToggle}
+                disabled={sizeBusy}
+                className={
+                  "inline-flex w-fit items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors "
+                  + (isFullWidth
+                    ? "border-accent/60 bg-accent/10 text-accent"
+                    : "border-surface-border text-text-muted hover:bg-surface-overlay")
+                  + " disabled:opacity-50 disabled:cursor-not-allowed"
+                }
+                aria-pressed={isFullWidth}
+              >
+                {sizeBusy && <Loader2 size={11} className="animate-spin" />}
+                <Maximize2 size={11} />
+                {isFullWidth ? "Full width · on" : "Make full width"}
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
@@ -258,7 +436,7 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
               onChange={(e) => setJsonText(e.target.value)}
               spellCheck={false}
               className={
-                "h-64 resize-none rounded-md border bg-input px-2.5 py-2 font-mono text-[12px] leading-relaxed text-text outline-none focus:border-accent " +
+                "h-64 resize-none rounded-md border bg-input px-2.5 py-2 font-mono text-[12px] leading-relaxed text-text outline-none focus:border-accent/40 " +
                 (jsonError ? "border-danger/60" : "border-surface-border")
               }
             />
@@ -280,30 +458,102 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
           )}
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-surface-border px-4 py-3">
-          {savedFlash && (
-            <span className="mr-auto text-[12px] text-success">
-              Saved.
-            </span>
+        <footer className="flex flex-col gap-2 border-t border-surface-border px-4 py-3">
+          {deleteConfirmNeeded && (
+            <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">
+              This widget has saved data. Click <strong>Unpin & delete data</strong> to permanently remove the widget and its SQLite database.
+            </div>
           )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-surface-border px-3 py-1.5 text-[12px] text-text-muted hover:bg-surface-overlay"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={!canSave}
-            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-          >
-            {saving && <Loader2 size={12} className="animate-spin" />}
-            Save changes
-          </button>
+          <div className="flex items-center justify-end gap-2">
+            {savedFlash && (
+              <span className="mr-auto text-[12px] text-success">
+                Saved.
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleDeleteClick()}
+              disabled={deleteChecking || deleteDeleting}
+              className={
+                "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12px] font-medium transition-colors mr-auto " +
+                (deleteConfirmNeeded
+                  ? "border-danger/60 bg-danger/10 text-danger hover:bg-danger/20"
+                  : "border-surface-border text-text-muted hover:bg-surface-overlay") +
+                " disabled:opacity-50 disabled:cursor-not-allowed"
+              }
+              title={deleteConfirmNeeded ? "Confirm: unpin and delete saved data" : "Unpin this widget"}
+            >
+              {(deleteChecking || deleteDeleting) && <Loader2 size={12} className="animate-spin" />}
+              {!(deleteChecking || deleteDeleting) && <Trash2 size={12} />}
+              {deleteConfirmNeeded ? "Unpin & delete data" : "Unpin"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-surface-border px-3 py-1.5 text-[12px] text-text-muted hover:bg-surface-overlay"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!canSave}
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+            >
+              {saving && <Loader2 size={12} className="animate-spin" />}
+              Save changes
+            </button>
+          </div>
         </footer>
       </div>
     </>
+  );
+}
+
+const ZONE_COPY: Record<ChatZone, { label: string; text: string }> = {
+  rail: {
+    label: "Chat sidebar",
+    text: "Appears in the chat sidebar rail alongside the OmniPanel.",
+  },
+  dock_right: {
+    label: "Chat right dock",
+    text: "Appears in the right-side dock on the chat screen.",
+  },
+  header_chip: {
+    label: "Chat header",
+    text: "Appears as a compact chip in the channel header.",
+  },
+  grid: {
+    label: "Dashboard only",
+    text: "Not visible on the chat screen. Drag to a rail, dock, or header band in edit mode to surface it.",
+  },
+};
+
+function ChatPlacementRow({
+  pin,
+  preset,
+}: {
+  pin: { grid_layout: GridLayoutItem | Record<string, never> };
+  preset: GridPreset;
+}) {
+  const zone = classifyPin(pin, preset);
+  const { label, text } = ZONE_COPY[zone];
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+          Chat placement
+        </span>
+        <span
+          className={
+            "text-[10px] font-medium "
+            + (zone === "grid" ? "text-text-dim" : "text-accent")
+          }
+        >
+          {label}
+        </span>
+      </div>
+      <p className="text-[11px] text-text-muted leading-snug">{text}</p>
+    </div>
   );
 }

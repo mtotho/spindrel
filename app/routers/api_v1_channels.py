@@ -14,7 +14,13 @@ from app.db.models import (
     Attachment, Channel, ChannelBotMember, ChannelHeartbeat, ChannelIntegration,
     Message, Session, Skill, Task, ToolApproval, ToolCall, TraceEvent,
 )
-from app.dependencies import ApiKeyAuth, get_db, require_scopes
+from app.dependencies import (
+    ApiKeyAuth,
+    assert_admin_or_channel_owner,
+    get_db,
+    require_admin_and_scope,
+    require_scopes,
+)
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
     reset_channel_session, switch_channel_session,
@@ -530,13 +536,14 @@ async def list_channels(
 async def get_channel(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:read")),
+    auth=Depends(require_scopes("channels:read")),
 ):
     """Get channel info."""
-    result = await db.execute(
-        select(Channel).options(selectinload(Channel.integrations), selectinload(Channel.bot_members)).where(Channel.id == channel_id)
-    )
-    channel = result.scalar_one_or_none()
+    stmt = select(Channel).options(
+        selectinload(Channel.integrations), selectinload(Channel.bot_members),
+    ).where(Channel.id == channel_id)
+    stmt = apply_channel_visibility(stmt, auth)
+    channel = (await db.execute(stmt)).scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     out = ChannelOut.model_validate(channel)
@@ -589,6 +596,7 @@ async def update_channel_config(
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    assert_admin_or_channel_owner(channel, _auth)
 
     updates = body.model_dump(exclude_unset=True)
     now = datetime.now(timezone.utc)
@@ -743,12 +751,13 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
 async def delete_channel(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:write")),
+    auth=Depends(require_scopes("channels:write")),
 ):
     """Delete a channel and all associated data (integrations, heartbeat cascade; conversations/tasks/etc set null)."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    assert_admin_or_channel_owner(channel, auth)
 
     # Cascade the channel's implicit widget dashboard (if any). No FK wires
     # this — ``channel:<uuid>`` slugs aren't backed by a foreign key, so we
@@ -769,12 +778,13 @@ async def update_channel(
     channel_id: uuid.UUID,
     body: ChannelUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:write")),
+    auth=Depends(require_scopes("channels:write")),
 ):
     """Update channel settings."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    assert_admin_or_channel_owner(channel, auth)
 
     if body.name is not None:
         channel.name = body.name
@@ -1137,6 +1147,38 @@ async def get_channel_state(
     return ChannelStateOut(active_turns=active_turns, pending_approvals=pending_approvals)
 
 
+class ChatZonesOut(BaseModel):
+    rail: list[dict]
+    dock_right: list[dict]
+    header_chip: list[dict]
+
+
+@router.get("/{channel_id}/chat-zones", response_model=ChatZonesOut)
+async def get_channel_chat_zones(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:read")),
+):
+    """Channel dashboard pins grouped by chat-side zone (positional).
+
+    Pin placement on the channel dashboard grid determines membership:
+    leftmost rail cols → ``rail``, rightmost dock cols → ``dock_right``,
+    top row between them → ``header_chip``. Pins in the middle of the grid
+    are dashboard-only and excluded from the response.
+    """
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    from app.services.channel_chat_zones import resolve_chat_zones
+    zones = await resolve_chat_zones(db, channel_id)
+    return ChatZonesOut(
+        rail=zones["rail"],
+        dock_right=zones["dock_right"],
+        header_chip=zones["header_chip"],
+    )
+
+
 async def _snapshot_pending_approvals(db: AsyncSession, channel_id: uuid.UUID) -> list[dict]:
     """Reuse the shape Phase 1 already returns for pending approvals.
 
@@ -1448,7 +1490,7 @@ async def bind_channel_integration(
     channel_id: uuid.UUID,
     body: IntegrationBindRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels.integrations:write")),
+    _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Bind an integration to a channel."""
     channel = await db.get(Channel, channel_id)
@@ -1486,7 +1528,7 @@ async def unbind_channel_integration(
     channel_id: uuid.UUID,
     binding_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels.integrations:write")),
+    _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Remove an integration binding from a channel."""
     binding = await db.get(ChannelIntegration, binding_id)
@@ -1503,7 +1545,7 @@ async def adopt_channel_integration(
     binding_id: uuid.UUID,
     body: IntegrationAdoptRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels.integrations:write")),
+    _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Move an integration binding to another channel."""
     binding = await db.get(ChannelIntegration, binding_id)
@@ -1588,7 +1630,7 @@ async def activate_integration(
     channel_id: uuid.UUID,
     integration_type: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels.integrations:write")),
+    _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Activate an integration on a channel. Creates/updates ChannelIntegration with activated=true."""
     from integrations import get_activation_manifests
@@ -1730,7 +1772,7 @@ async def deactivate_integration(
     channel_id: uuid.UUID,
     integration_type: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels.integrations:write")),
+    _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Deactivate an integration on a channel."""
     from integrations import get_activation_manifests
@@ -1871,7 +1913,7 @@ async def update_activation_config(
     integration_type: str,
     body: ActivationConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels.integrations:write")),
+    _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Merge values into the activation_config JSONB of a ChannelIntegration row."""
     ci = (await db.execute(

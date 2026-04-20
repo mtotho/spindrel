@@ -1294,4 +1294,106 @@ Now live. `window.spindrel.loadAsset(path)` fetches a workspace file with the bo
 
 ---
 
+### `widget.yaml` — manifest for backend-capable widgets
+
+A bundle can declare a sibling `widget.yaml` to opt into backend capabilities (server-side SQLite, Python handlers, cron, event subscriptions). For Phase B.0 the manifest is parsed and surfaced in the widget catalog; execution hooks land in later slices.
+
+**Minimal manifest (no backend needed):**
+
+```yaml
+name: My Widget
+version: 1.0.0
+description: What this widget does
+```
+
+**Full schema:**
+
+```yaml
+name: Project Status          # required; overrides HTML frontmatter name
+version: 1.2.0
+description: Live phase tracker
+permissions:
+  tools: [fetch_url]          # tools ctx.tool() may call; enforced at dispatch (B.2+)
+  events: [new_message]       # ChannelEventKind values @on_event may subscribe to
+cron:
+  - name: hourly_refresh
+    schedule: "0 * * * *"     # 5-field classic cron only
+    handler: hourly_refresh   # function name in widget.py
+events:
+  - kind: new_message
+    handler: on_new_message
+db:
+  schema_version: 2           # integer >= 1; source of truth
+  migrations:
+    - from: 1
+      to: 2                   # must be from+1; steps must be contiguous starting at 1
+      sql: |
+        alter table items add column priority integer default 0;
+```
+
+**Validation rules enforced at parse time:**
+- `name` — required non-empty string
+- `permissions.events` — each value must be a valid `ChannelEventKind`
+- `cron[].schedule` — must pass `validate_cron()` (5-field, no seconds)
+- `db.schema_version` — integer ≥ 1; `migrations` must be contiguous `{from: N, to: N+1}` starting at 1 and ending at `schema_version`
+- Tool names in `permissions.tools` are accepted as strings; unknown names surface as 403 at `ctx.tool()` call time (B.2+)
+
+**Catalog badge:** bundles with a valid `widget.yaml` show a "manifest" badge in the HTML Widgets section of the dev panel Library tab.
+
+---
+
+### `window.spindrel.db` — server-side SQLite per bundle
+
+Available only for **path-mode pinned widgets** (those with a `source_path` in their envelope — i.e. pinned from a channel bundle directory, not inline `<p>…</p>` widgets). `dashboardPinId` must be set in the bootstrap; inline widgets throw.
+
+The DB file lives at `<bundle_dir>/data.sqlite` inside the channel workspace. Built-in bundles (under `app/tools/local/widgets/`) redirect to `{workspace_base}/widget_db/builtin/<slug>/data.sqlite` so the Docker read-only layer is never written to. WAL mode is enabled automatically; concurrent writes from different browser tabs are serialised server-side by an asyncio lock keyed on the DB path.
+
+#### API
+
+```js
+// Read rows — params optional, returns array of row objects
+const rows = await window.spindrel.db.query(sql, params?);
+
+// Write — returns { lastInsertRowid, rowsAffected }
+const result = await window.spindrel.db.exec(sql, params?);
+
+// Logical transaction helper — callback receives { query, exec }
+const out = await window.spindrel.db.tx(async (tx) => {
+  await tx.exec("INSERT INTO items(text) VALUES (?)", ["hello"]);
+  return tx.query("SELECT * FROM items");
+});
+```
+
+All three methods POST to `/api/v1/widget-actions` with `dispatch: "db_query"` / `"db_exec"` using the bot bearer. Errors throw `Error` with the server message.
+
+#### Schema migrations
+
+Declare migrations in `widget.yaml` under `db.migrations`. On first open the server runs any pending steps in order using `PRAGMA user_version` as the authoritative version counter. Downgrades are refused; gaps raise an error at open time (not at widget load), so schema errors surface immediately in the dev panel.
+
+```yaml
+db:
+  schema_version: 2
+  migrations:
+    - from: 0
+      to: 1
+      sql: |
+        CREATE TABLE items (
+          id    INTEGER PRIMARY KEY AUTOINCREMENT,
+          text  TEXT NOT NULL,
+          done  INTEGER NOT NULL DEFAULT 0
+        );
+    - from: 1
+      to: 2
+      sql: |
+        ALTER TABLE items ADD COLUMN priority INTEGER DEFAULT 0;
+```
+
+Steps must be contiguous `{from: N, to: N+1}` starting at 0 → 1 and ending at `schema_version`. If no `widget.yaml` exists the DB is opened without migration.
+
+#### Unpin and data cleanup
+
+When a user unpins a widget that has a non-empty `data.sqlite`, the Unpin drawer presents a two-step confirmation: first click reveals a warning banner; second click deletes both the pin row and the DB file (`?delete_bundle_data=true`).
+
+---
+
 *If one of these ships, this skill is updated the same session. Until then: build with the primitives above.*

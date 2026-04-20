@@ -3,11 +3,14 @@
 POST /api/v1/widget-actions
 
 When a user interacts with an interactive component (toggle, button, select, etc.)
-in a tool result widget, the frontend sends the action here. Two dispatch modes:
+in a tool result widget, the frontend sends the action here. Dispatch modes:
 
 - dispatch:"tool" — calls the named tool through the standard tool dispatch pipeline
   (policy checks, recording, envelope building). This is the default and preferred path.
 - dispatch:"api" — proxies a request to an allowlisted internal API endpoint.
+- dispatch:"widget_config" — patch a pinned widget's config and return a refreshed envelope.
+- dispatch:"db_query" — read-only SQLite query against the pin's bundle DB (no lock).
+- dispatch:"db_exec" — write SQLite statement against the pin's bundle DB (acquires lock).
 """
 from __future__ import annotations
 
@@ -21,9 +24,10 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.dependencies import verify_auth_or_user
+from app.dependencies import verify_auth_or_user, get_db
 from app.tools.mcp import call_mcp_tool, get_mcp_server_for_tool, is_mcp_tool
 from app.tools.registry import call_local_tool, is_local_tool
 from app.agent.tool_dispatch import (
@@ -74,7 +78,7 @@ _API_ALLOWLIST = [
 
 
 class WidgetActionRequest(BaseModel):
-    dispatch: Literal["tool", "api", "widget_config"] = "tool"
+    dispatch: Literal["tool", "api", "widget_config", "db_query", "db_exec"] = "tool"
     # For tool dispatch
     tool: str | None = None
     args: dict = {}
@@ -88,6 +92,10 @@ class WidgetActionRequest(BaseModel):
     # pin table and are addressed via ``dashboard_pin_id``.
     dashboard_pin_id: uuid.UUID | None = None
     config: dict | None = None
+    # For db_query / db_exec dispatch — SQL statement + optional params.
+    # ``dashboard_pin_id`` above identifies which pin's DB to target.
+    sql: str | None = None
+    params: list | None = None
     # Context
     channel_id: uuid.UUID | None = None
     bot_id: str | None = None
@@ -106,10 +114,11 @@ class WidgetActionResponse(BaseModel):
     envelope: dict | None = None
     error: str | None = None
     api_response: dict | None = None
+    db_result: dict | None = None
 
 
 @router.post("", response_model=WidgetActionResponse)
-async def dispatch_widget_action(req: WidgetActionRequest):
+async def dispatch_widget_action(req: WidgetActionRequest, db: AsyncSession = Depends(get_db)):
     """Dispatch a widget action — tool call or API proxy."""
 
     if req.dispatch == "tool":
@@ -118,6 +127,8 @@ async def dispatch_widget_action(req: WidgetActionRequest):
         return await _dispatch_api(req)
     elif req.dispatch == "widget_config":
         return await _dispatch_widget_config(req)
+    elif req.dispatch in ("db_query", "db_exec"):
+        return await _dispatch_db(req, db)
     else:
         raise HTTPException(400, f"Unknown dispatch type: {req.dispatch}")
 
@@ -298,6 +309,77 @@ async def _dispatch_api(req: WidgetActionRequest) -> WidgetActionResponse:
         return WidgetActionResponse(ok=False, error=f"API request failed: {exc}")
 
     return WidgetActionResponse(ok=True, api_response=data)
+
+
+async def _dispatch_db(req: WidgetActionRequest, db: AsyncSession) -> WidgetActionResponse:
+    """Execute a SQLite read (db_query) or write (db_exec) on the pin's bundle DB.
+
+    ``db_query`` — parameterised SELECT; returns ``rows`` as a list of dicts.
+      No lock held — WAL mode lets concurrent readers run freely.
+    ``db_exec`` — INSERT/UPDATE/DELETE/DDL; acquires the per-path asyncio lock
+      so concurrent writes serialise safely.  Returns ``{lastInsertRowid,
+      rowsAffected}``.
+
+    Auth: widget bearer (bot-scoped) identifies the pin via ``dashboard_pin_id``.
+    """
+    import asyncio as _asyncio
+    import sqlite3 as _sqlite3
+
+    if not req.dashboard_pin_id:
+        return WidgetActionResponse(ok=False, error="db_query/db_exec requires dashboard_pin_id")
+    if not req.sql:
+        return WidgetActionResponse(ok=False, error="db_query/db_exec requires sql")
+
+    from app.services.dashboard_pins import get_pin
+    from app.services.widget_db import acquire_db, resolve_db_path
+
+    try:
+        pin = await get_pin(db, req.dashboard_pin_id)
+        db_path = resolve_db_path(pin)
+    except ValueError as exc:
+        return WidgetActionResponse(ok=False, error=str(exc))
+    except Exception as exc:
+        logger.warning("db dispatch pin lookup failed: %s", exc, exc_info=True)
+        return WidgetActionResponse(ok=False, error="Pin not found")
+
+    params = req.params or []
+    sql = req.sql
+
+    if req.dispatch == "db_query":
+        # Read-only: open without the per-path write lock.
+        def _query() -> list[dict]:
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = _sqlite3.connect(str(db_path), check_same_thread=False)
+            conn.row_factory = _sqlite3.Row
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                cursor = conn.execute(sql, params)
+                return [dict(row) for row in cursor.fetchall()]
+            finally:
+                conn.close()
+
+        try:
+            rows = await _asyncio.to_thread(_query)
+        except Exception as exc:
+            return WidgetActionResponse(ok=False, error=f"db_query failed: {exc}")
+        return WidgetActionResponse(ok=True, db_result={"rows": rows})
+
+    # db_exec — write path, hold the per-path lock.
+    def _exec(conn: _sqlite3.Connection) -> dict:
+        cursor = conn.execute(sql, params)
+        conn.commit()
+        return {
+            "lastInsertRowid": cursor.lastrowid,
+            "rowsAffected": cursor.rowcount,
+        }
+
+    try:
+        async with acquire_db(db_path) as conn:
+            result = await _asyncio.to_thread(_exec, conn)
+    except Exception as exc:
+        return WidgetActionResponse(ok=False, error=f"db_exec failed: {exc}")
+
+    return WidgetActionResponse(ok=True, db_result=result)
 
 
 def _build_result_envelope(

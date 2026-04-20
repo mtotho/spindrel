@@ -15,6 +15,7 @@ import {
   useActivatableIntegrations,
 } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
+import { useIsAdmin } from "@/src/hooks/useScope";
 import { prettyIntegrationName } from "@/src/utils/format";
 import type { ChannelSettings } from "@/src/types/api";
 
@@ -34,14 +35,17 @@ import { ParticipantsTab } from "./ParticipantsTab";
 
 // ---------------------------------------------------------------------------
 // Tab definitions — single flat list, all visible. A separator divides
-// primary settings from diagnostic/operational tabs.
+// primary settings from diagnostic/operational tabs. The Integrations tab
+// is admin-only (backend writes are gated by require_admin_and_scope) and
+// is filtered out for non-admins below.
 // ---------------------------------------------------------------------------
-const ALL_TABS: { key: string; label: string; separator?: boolean }[] = [
+type TabDef = { key: string; label: string; separator?: boolean; adminOnly?: boolean };
+const ALL_TABS: TabDef[] = [
   { key: "general", label: "General" },
   { key: "participants", label: "Participants" },
   { key: "workspace", label: "Workspace" },
   { key: "capabilities", label: "Capabilities" },
-  { key: "integrations", label: "Integrations" },
+  { key: "integrations", label: "Integrations", adminOnly: true },
   { key: "heartbeat", label: "Heartbeat" },
   { key: "history", label: "History" },
   { key: "attachments", label: "Attachments" },
@@ -58,6 +62,7 @@ export default function ChannelSettingsScreen() {
   const t = useThemeTokens();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const isAdmin = useIsAdmin();
   const { channelId } = useParams<{ channelId: string }>();
   const goBack = useGoBack(`/channels/${channelId}`);
   const { refreshing, onRefresh } = usePageRefresh();
@@ -72,7 +77,8 @@ export default function ChannelSettingsScreen() {
   const resolvedWorkspaceId = settings?.resolved_workspace_id ?? currentBot?.shared_workspace_id;
   const hasWorkspace = !!resolvedWorkspaceId;
 
-  const tabKeys = ALL_TABS.map((tab) => tab.key);
+  const visibleTabs = ALL_TABS.filter((tb) => !tb.adminOnly || isAdmin);
+  const tabKeys = visibleTabs.map((tab) => tab.key);
   const [tab, setTab] = useHashTab("general", tabKeys);
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
@@ -314,7 +320,7 @@ export default function ChannelSettingsScreen() {
             minWidth: 0,
           }}
         >
-          {ALL_TABS.map((tb) => {
+          {visibleTabs.map((tb) => {
             const isActive = tb.key === tab;
             return (
               <div key={tb.key} style={{ display: "flex", flexDirection: "row", alignItems: "stretch", flexShrink: 0 }}>
@@ -431,7 +437,7 @@ export default function ChannelSettingsScreen() {
           <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} memoryScheme={currentBot?.memory_scheme} botHistoryMode={currentBot?.history_mode} />
         )}
         {tab === "capabilities" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />}
-        {tab === "integrations" && <IntegrationsTab channelId={channelId!} />}
+        {tab === "integrations" && isAdmin && <IntegrationsTab channelId={channelId!} />}
         {tab === "attachments" && <AttachmentsTab channelId={channelId!} />}
         {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "pipelines" && <PipelinesTab channelId={channelId!} />}

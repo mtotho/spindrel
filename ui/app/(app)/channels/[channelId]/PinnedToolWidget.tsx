@@ -48,6 +48,11 @@ interface PinnedToolWidgetProps {
    *  revealing the full edit chrome (pencil / unpin). The rail uses RGL for
    *  in-place reorder + resize; everything else stays calm. */
   railMode?: boolean;
+  /** Dashboard-level chrome flags (`grid_config.borderless` /
+   *  `grid_config.hover_scrollbars`). Default to a bordered card with a
+   *  persistent scrollbar — matches legacy behavior for every other surface. */
+  borderless?: boolean;
+  hoverScrollbars?: boolean;
 }
 
 export function PinnedToolWidget({
@@ -58,9 +63,12 @@ export function PinnedToolWidget({
   editMode = false,
   onEdit,
   railMode = false,
+  borderless = false,
+  hoverScrollbars = false,
 }: PinnedToolWidgetProps) {
   const isDashboard = scope.kind === "dashboard";
   const channelId = scope.kind === "channel" ? scope.channelId : null;
+  const isChip = scope.kind === "channel" && scope.compact === "chip";
 
   const t = useThemeTokens();
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);
@@ -351,15 +359,20 @@ export function PinnedToolWidget({
     return null;
   }
 
+  // Borderless mode (dashboard-scope flag) drops the border color entirely so
+  // the neighboring tiles read as a clean grid of content blocks instead of
+  // a bordered admin chrome. Channel scope keeps its border unconditionally.
+  const showBorder = !(isDashboard && borderless);
+  const borderColorStyle = showBorder ? { borderColor: `${t.surfaceBorder}80` } : {};
   const sortableStyle = isDashboard
     ? {
-        borderColor: `${t.surfaceBorder}80`,
+        ...borderColorStyle,
         opacity: refreshing ? 0.6 : 1,
       }
     : {
         transform: CSS.Transform.toString(transform),
         transition,
-        borderColor: `${t.surfaceBorder}80`,
+        ...borderColorStyle,
         opacity: isDragging ? 0.5 : refreshing ? 0.6 : 1,
       };
 
@@ -387,10 +400,32 @@ export function PinnedToolWidget({
     : "p-0.5 rounded hover:bg-white/[0.06] transition-colors duration-150 flex-shrink-0";
   const ctrlIconSize = isDashboard ? 14 : 12;
 
+  const cardBorderClass = showBorder ? "border" : "";
+  if (isChip) {
+    return (
+      <div
+        className="flex h-8 w-[180px] items-center rounded-md border border-surface-border/60 bg-surface-raised/40 px-2 overflow-hidden"
+        title={resolveDisplayName(widget)}
+        style={{ color: t.textMuted }}
+      >
+        <div
+          className="flex-1 min-w-0 overflow-hidden [mask-image:linear-gradient(to_right,black_80%,transparent)]"
+        >
+          <RichToolResult
+            envelope={currentEnvelope}
+            dispatcher={dispatcher}
+            fillHeight={false}
+            dashboardPinId={widget.id}
+            t={t}
+          />
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       ref={rootRef}
-      className={`group rounded-lg border transition-colors duration-150 hover:bg-white/[0.02] ${cardSizeClass}`}
+      className={`group rounded-lg ${cardBorderClass} transition-colors duration-150 hover:bg-white/[0.02] ${cardSizeClass}`}
       style={sortableStyle}
       {...rootAttrs}
     >
@@ -461,12 +496,16 @@ export function PinnedToolWidget({
       {/* Body: component content. Dashboard scope fills the tile; channel
           scope retains the fixed cap so the OmniPanel column stays compact.
           `pb-2` gives range-slider thumbs (which render outside the input's
-          box) a bit of room to escape the overflow clip. */}
+          box) a bit of room to escape the overflow clip. `scroll-subtle`
+          (dashboard flag) hides the scrollbar until the tile is hovered. */}
       <div
         className={
-          isDashboard
-            ? "px-2 pb-2 flex-1 min-h-0 overflow-y-auto"
-            : "px-2 pb-2 max-h-[350px] overflow-y-auto"
+          (isDashboard
+            ? "px-2 pb-2 flex-1 min-h-0 "
+            : "px-2 pb-2 max-h-[350px] ")
+          + (isDashboard && hoverScrollbars
+            ? "overflow-y-auto scroll-subtle"
+            : "overflow-y-auto")
         }
       >
         <RichToolResult

@@ -400,7 +400,7 @@ function ToolSelector({ value, tools, onChange }: {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search tools..."
               autoFocus
-              className="flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
+              className="flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40"
             />
             <div ref={sourceRef} className="relative shrink-0">
               <button
@@ -560,7 +560,7 @@ function StepConditionEditor({ step, stepIndex, steps, onChange }: {
           value={value}
           onChange={(e) => onChange(buildCondition(mode, e.target.value, prevStepId))}
           placeholder="text to match..."
-          className="bg-input border border-surface-border rounded-md px-2 py-1 text-text text-xs outline-none flex-1 min-w-[100px] focus:border-accent"
+          className="bg-input border border-surface-border rounded-md px-2 py-1 text-text text-xs outline-none flex-1 min-w-[100px] focus:border-accent/40"
         />
       )}
       {mode === "status_is" && (
@@ -647,7 +647,7 @@ function ToolArgsEditor({ step, tools, readOnly, onChange }: {
                 }
                 onChange(updated);
               }}
-              className="bg-input border border-surface-border rounded-md px-2 py-1 text-text text-xs font-mono outline-none focus:border-accent w-full"
+              className="bg-input border border-surface-border rounded-md px-2 py-1 text-text text-xs font-mono outline-none focus:border-accent/40 w-full"
             />
           </div>
         ))}
@@ -682,7 +682,7 @@ function ToolArgsEditor({ step, tools, readOnly, onChange }: {
         readOnly={readOnly}
         placeholder='{"key": "value"}'
         rows={3}
-        className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none resize-y focus:border-accent w-full"
+        className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none resize-y focus:border-accent/40 w-full"
       />
     </div>
   );
@@ -781,7 +781,7 @@ function UserPromptFields({ step, readOnly, onChange }: {
           onChange={(e) => onChange({ title: e.target.value })}
           readOnly={readOnly}
           placeholder="Shown above the widget"
-          className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs outline-none focus:border-accent w-full"
+          className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs outline-none focus:border-accent/40 w-full"
         />
       </div>
 
@@ -807,7 +807,7 @@ function UserPromptFields({ step, readOnly, onChange }: {
               onChange={(e) => setSchema({ type: "multi_item", items_ref: e.target.value })}
               readOnly={readOnly}
               placeholder="{{steps.analyze.result.proposals}}"
-              className="flex-1 min-w-[200px] bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none focus:border-accent"
+              className="flex-1 min-w-[200px] bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none focus:border-accent/40"
             />
           )}
         </div>
@@ -866,7 +866,7 @@ function ForeachFields({ step, tools, readOnly, onChange }: {
           onChange={(e) => onChange({ over: e.target.value })}
           readOnly={readOnly}
           placeholder="{{steps.analyze.result.proposals}}"
-          className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none focus:border-accent w-full"
+          className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none focus:border-accent/40 w-full"
         />
         <span className="text-[10px] text-text-dim opacity-70">
           A <code className="text-accent/80 bg-accent/5 px-1 rounded">{"{{steps.*}}"}</code> or{" "}
@@ -1085,7 +1085,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
               readOnly={readOnly}
               placeholder="Shell command..."
               rows={2}
-              className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none resize-y focus:border-accent w-full"
+              className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none resize-y focus:border-accent/40 w-full"
             />
             {!readOnly && (
               <input
@@ -1093,7 +1093,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
                 value={step.working_directory ?? ""}
                 onChange={(e) => update({ working_directory: e.target.value || null })}
                 placeholder="Working directory (optional)"
-                className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs outline-none w-full focus:border-accent"
+                className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs outline-none w-full focus:border-accent/40"
               />
             )}
           </>
@@ -1134,7 +1134,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
               readOnly={readOnly}
               placeholder="LLM prompt — prior step results are auto-injected..."
               rows={3}
-              className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs outline-none resize-y focus:border-accent w-full"
+              className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs outline-none resize-y focus:border-accent/40 w-full"
             />
             {!readOnly && (
               <div className="flex-1">

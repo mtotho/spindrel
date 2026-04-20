@@ -231,6 +231,58 @@ async def optional_user(
         return None
 
 
+def assert_admin_or_channel_owner(channel, auth) -> None:
+    """Raise 403 unless ``auth`` is admin-equivalent or owns ``channel``.
+
+    - ``ApiKeyAuth`` (any scope) is admin-equivalent here: scoped API keys are
+      not users and have no ownership concept; row-level access for keys is
+      gated by the scope check at the dependency layer.
+    - JWT users pass when ``is_admin`` is true OR ``channel.user_id == user.id``.
+    - Channels with no owner (``channel.user_id is None``) are admin-only edits.
+    """
+    if isinstance(auth, ApiKeyAuth):
+        return
+    if getattr(auth, "is_admin", False):
+        return
+    user_id = getattr(auth, "id", None)
+    if channel.user_id is not None and user_id is not None and channel.user_id == user_id:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Channel owner or admin access required",
+    )
+
+
+def require_admin_and_scope(scope: str):
+    """Dependency factory that enforces a scope **and** admin-equivalence.
+
+    Use for endpoints whose scope is technically reachable from a non-admin
+    preset via ``has_scope`` parent-covers-child semantics (e.g.
+    ``channels:write`` covers ``channels.integrations:write``) but which must
+    remain admin-only. Rather than tightening ``has_scope`` globally (which
+    would affect every ``*:*`` preset), this narrowly asserts that the caller
+    is an admin on top of the normal scope check.
+
+    Pass criteria:
+    - ``ApiKeyAuth`` must include the literal ``"admin"`` scope (static env
+      key and admin-user keys qualify; bot/integration presets do not).
+    - JWT ``User`` must have ``is_admin=True``.
+    - Widget-kind tokens never pass (they ride as ``ApiKeyAuth`` with the
+      emitting bot's scopes, which do not include ``"admin"``).
+    """
+    async def _check(
+        auth=Depends(require_scopes(scope)),
+    ):
+        if isinstance(auth, ApiKeyAuth):
+            if "admin" in (auth.scopes or []):
+                return auth
+            raise HTTPException(status_code=403, detail="Admin access required")
+        if getattr(auth, "is_admin", False):
+            return auth
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return _check
+
+
 def require_scopes(*scopes: str):
     """Dependency factory that enforces scope requirements on API keys and users.
 

@@ -175,7 +175,7 @@ export function ChannelPicker({ value, onChange, channels, bots, allowNone, plac
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search channels..."
               autoFocus
-              className="flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent"
+              className="flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40"
             />
             {typeGroups.length > 1 && (
               <div ref={typeRef} className="relative shrink-0">

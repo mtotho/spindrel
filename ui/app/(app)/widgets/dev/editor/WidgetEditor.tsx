@@ -417,7 +417,7 @@ export function WidgetEditor({
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
             disabled={readOnly}
             placeholder="e.g. Weather forecast card"
-            className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[14px] font-semibold text-text outline-none focus:border-accent disabled:opacity-70"
+            className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[14px] font-semibold text-text outline-none focus:border-accent/40 disabled:opacity-70"
           />
         </label>
         <div className="flex flex-col gap-1 min-w-[220px] flex-1">
@@ -443,7 +443,7 @@ export function WidgetEditor({
             onChange={(e) => setDraft({ ...draft, description: e.target.value })}
             disabled={readOnly}
             placeholder="Shown in the library"
-            className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent disabled:opacity-70"
+            className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/40 disabled:opacity-70"
           />
         </label>
         <div className="flex items-center gap-2 self-end">

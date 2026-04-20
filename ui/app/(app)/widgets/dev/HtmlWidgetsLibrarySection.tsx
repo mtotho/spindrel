@@ -14,6 +14,7 @@ import {
   Copy,
   ExternalLink,
   FileCode,
+  ScrollText,
   Tag,
 } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
@@ -191,6 +192,14 @@ function HtmlWidgetLibraryRow({
           </span>
           {entry.version && entry.version !== "0.0.0" && (
             <span className="text-[11px] text-text-dim">v{entry.version}</span>
+          )}
+          {entry.has_manifest && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded bg-accent/15 px-1 py-px text-[10px] font-medium uppercase tracking-wider text-accent"
+              title="Bundle declares a widget.yaml manifest (backend-capable)"
+            >
+              <ScrollText size={9} /> manifest
+            </span>
           )}
           {entry.is_loose && (
             <span

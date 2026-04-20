@@ -50,6 +50,8 @@ export interface Dashboard {
     layout_type?: string;
     preset?: string;
     layout_mode?: "grid" | "panel";
+    borderless?: boolean;
+    hover_scrollbars?: boolean;
   } | null;
   last_viewed_at: string | null;
   created_at: string | null;
@@ -59,7 +61,12 @@ export interface Dashboard {
 export interface DashboardPatch {
   name?: string;
   icon?: string | null;
-  grid_config?: { layout_type: string; preset: string } | null;
+  grid_config?: {
+    layout_type: string;
+    preset: string;
+    borderless?: boolean;
+    hover_scrollbars?: boolean;
+  } | null;
 }
 
 interface DashboardsState {

@@ -31,6 +31,10 @@ def source() -> str:
 
 # ── Helper *definitions* live inside the IIFE ─────────────────────────
 HELPER_DEFINITIONS = [
+    # Phase B.1 additions
+    "function dbQuery",
+    "function dbExec",
+    "function dbTx",
     # Phase A additions
     "function busPublish",
     "function busSubscribe",
@@ -66,6 +70,8 @@ def test_helper_function_defined(source: str, needle: str) -> None:
 # on the key name followed by a colon so we don't false-positive on a
 # standalone identifier elsewhere.
 SPINDREL_KEYS = [
+    # Phase B.1
+    "db:",
     # Phase A
     "bus:",
     "stream:",
@@ -156,6 +162,7 @@ SKILL_DOC = Path(__file__).resolve().parents[2] / "skills/html_widgets.md"
 def test_skill_doc_documents_phase_a_helpers() -> None:
     text = SKILL_DOC.read_text()
     for needle in [
+        "window.spindrel.db",
         "window.spindrel.bus",
         "window.spindrel.cache",
         "window.spindrel.notify",
