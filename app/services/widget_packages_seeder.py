@@ -223,7 +223,17 @@ async def seed_widget_packages() -> None:
                     None,
                 )
                 if replacement is not None and replacement.id != row.id:
+                    # Force the orphan's deactivation to land in the DB BEFORE
+                    # promoting the replacement — the partial unique index
+                    # `UNIQUE (tool_name) WHERE is_active` cannot tolerate two
+                    # active rows with the same tool_name even transiently. SA's
+                    # unit-of-work does not guarantee flush order between
+                    # attribute writes on different objects, so we pin the
+                    # order explicitly. (When replacement is already active,
+                    # SA emits no UPDATE for it — attribute dirty-check sees
+                    # no change — so the second flush is a no-op but cheap.)
                     row.is_active = False
+                    await db.flush()
                     replacement.is_active = True
 
         await db.commit()
