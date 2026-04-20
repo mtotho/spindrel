@@ -46,8 +46,8 @@ def _integration(integration_type: str, activated: bool) -> SimpleNamespace:
 
 
 MOCK_MANIFESTS = {
-    "mission_control": {
-        "carapaces": ["mission-control"],
+    "excalidraw": {
+        "carapaces": ["excalidraw"],
     },
     "frigate": {
         "carapaces": ["frigate-monitor", "frigate-alerts"],
@@ -62,7 +62,7 @@ class TestActivationCarapacesInjected:
     def test_activation_carapaces_injected(self, _mock_manifests):
         bot = _bot(carapaces=["qa"])
         ch = _channel(
-            integrations=[_integration("mission_control", activated=True)],
+            integrations=[_integration("excalidraw", activated=True)],
         )
 
         # Need to patch at the point of import inside the function
@@ -70,7 +70,7 @@ class TestActivationCarapacesInjected:
             eff = resolve_effective_tools(bot, ch)
 
         assert "qa" in eff.carapaces, "Bot's own carapace should be preserved"
-        assert "mission-control" in eff.carapaces, (
+        assert "excalidraw" in eff.carapaces, (
             "Activated integration's carapace should be injected"
         )
 
@@ -79,14 +79,14 @@ class TestActivationCarapacesInjected:
         bot = _bot(carapaces=[])
         ch = _channel(
             integrations=[
-                _integration("mission_control", activated=True),
+                _integration("excalidraw", activated=True),
                 _integration("frigate", activated=True),
             ],
         )
 
         eff = resolve_effective_tools(bot, ch)
 
-        assert "mission-control" in eff.carapaces
+        assert "excalidraw" in eff.carapaces
         assert "frigate-monitor" in eff.carapaces
         assert "frigate-alerts" in eff.carapaces
 
@@ -94,14 +94,14 @@ class TestActivationCarapacesInjected:
     def test_activation_carapaces_deduplicated_with_bot(self, _mock_manifests):
         """If the bot already has a carapace that the activation would inject,
         it should not appear twice."""
-        bot = _bot(carapaces=["mission-control"])
+        bot = _bot(carapaces=["excalidraw"])
         ch = _channel(
-            integrations=[_integration("mission_control", activated=True)],
+            integrations=[_integration("excalidraw", activated=True)],
         )
 
         eff = resolve_effective_tools(bot, ch)
 
-        assert eff.carapaces.count("mission-control") == 1
+        assert eff.carapaces.count("excalidraw") == 1
 
 
 class TestActivationCarapacesNotInjectedWhenInactive:
@@ -111,13 +111,13 @@ class TestActivationCarapacesNotInjectedWhenInactive:
     def test_activation_carapaces_not_injected_when_inactive(self, _mock_manifests):
         bot = _bot(carapaces=["qa"])
         ch = _channel(
-            integrations=[_integration("mission_control", activated=False)],
+            integrations=[_integration("excalidraw", activated=False)],
         )
 
         eff = resolve_effective_tools(bot, ch)
 
         assert "qa" in eff.carapaces, "Bot's own carapace should be preserved"
-        assert "mission-control" not in eff.carapaces, (
+        assert "excalidraw" not in eff.carapaces, (
             "Inactive integration's carapace should NOT be injected"
         )
 
@@ -127,14 +127,14 @@ class TestActivationCarapacesNotInjectedWhenInactive:
         bot = _bot(carapaces=[])
         ch = _channel(
             integrations=[
-                _integration("mission_control", activated=True),
+                _integration("excalidraw", activated=True),
                 _integration("frigate", activated=False),
             ],
         )
 
         eff = resolve_effective_tools(bot, ch)
 
-        assert "mission-control" in eff.carapaces
+        assert "excalidraw" in eff.carapaces
         assert "frigate-monitor" not in eff.carapaces
         assert "frigate-alerts" not in eff.carapaces
 
@@ -156,14 +156,14 @@ class TestActivationCarapacesRespectsDisabled:
     def test_activation_carapaces_respects_disabled(self, _mock_manifests):
         bot = _bot(carapaces=["qa"])
         ch = _channel(
-            integrations=[_integration("mission_control", activated=True)],
-            carapaces_disabled=["mission-control"],
+            integrations=[_integration("excalidraw", activated=True)],
+            carapaces_disabled=["excalidraw"],
         )
 
         eff = resolve_effective_tools(bot, ch)
 
         assert "qa" in eff.carapaces, "Non-disabled carapace should remain"
-        assert "mission-control" not in eff.carapaces, (
+        assert "excalidraw" not in eff.carapaces, (
             "Activated carapace should be removed when in disabled list"
         )
 
@@ -190,12 +190,12 @@ class TestActivationCarapacesRespectsDisabled:
         """Disabled list removes both bot carapaces and activation-injected ones."""
         bot = _bot(carapaces=["qa", "code-review"])
         ch = _channel(
-            integrations=[_integration("mission_control", activated=True)],
-            carapaces_disabled=["qa", "mission-control"],
+            integrations=[_integration("excalidraw", activated=True)],
+            carapaces_disabled=["qa", "excalidraw"],
         )
 
         eff = resolve_effective_tools(bot, ch)
 
         assert "qa" not in eff.carapaces
-        assert "mission-control" not in eff.carapaces
+        assert "excalidraw" not in eff.carapaces
         assert "code-review" in eff.carapaces

@@ -3,8 +3,6 @@ name: "spindrel-${SPINDREL_INSTANCE_ID:-default}-web-search"
 services:
   searxng:
     image: searxng/searxng
-    ports:
-      - "8080:8080"
     volumes:
       - ./config/searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
@@ -13,8 +11,6 @@ services:
 
   playwright:
     image: ghcr.io/browserless/chromium
-    ports:
-      - "3000:3000"
     environment:
       - TIMEOUT=60000
       - CONCURRENT=5

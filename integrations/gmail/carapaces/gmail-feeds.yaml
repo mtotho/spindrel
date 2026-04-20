@@ -2,10 +2,6 @@ id: gmail-feeds
 name: Gmail Feeds
 description: >
   Email ingestion, triage, and digest management via Gmail IMAP.
-  Includes Mission Control tools for task tracking and workspace organization.
-
-includes:
-  - mission-control
 
 local_tools:
   - check_gmail_status
@@ -25,8 +21,6 @@ system_prompt_fragment: |
   | User asks about quarantined/blocked emails | `query_feed_store(action="quarantine", store="gmail")` |
   | User asks to check Gmail connectivity | `check_gmail_status()` |
   | User asks to fetch new emails now | `trigger_gmail_poll()` |
-  | Creating task cards from emails | `create_task_card` with tags `email,from:{sender}` |
-  | Logging triage activity | `append_timeline_event` with triage summary |
 
   ### Credential Safety
   Credentials are configured via **Admin → Integrations → Gmail** (never in chat).

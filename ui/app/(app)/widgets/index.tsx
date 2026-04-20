@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { useUIStore } from "@/src/stores/ui";
 import { useKioskMode } from "@/src/hooks/useKioskMode";
 import { Check, Info, LayoutDashboard, Maximize2, Minimize2, Move, Plus, RotateCcw, Wrench } from "lucide-react";
@@ -212,6 +212,22 @@ export default function WidgetsDashboardPage() {
    *  mounted on global dashboards yet — ephemeral mode there is still blocked
    *  by the streaming / React #185 bugs on the ephemeral path (Track §4.0a/c). */
   const chatDockNoop = useCallback(() => {}, []);
+
+  // `?dock=expanded` — the channel screen's Minimize button navigates here
+  // with this flag so the dock opens already expanded (landing continuity).
+  // Read once, scrub from the URL on mount so a later refresh doesn't re-open.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [initialDockExpanded] = useState(() => searchParams.get("dock") === "expanded");
+  useEffect(() => {
+    if (searchParams.get("dock") === "expanded") {
+      const next = new URLSearchParams(searchParams);
+      next.delete("dock");
+      setSearchParams(next, { replace: true });
+    }
+    // Mount-only: subsequent ?dock changes are ignored; they'd only happen if
+    // the user manually edited the URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleUnpin = async (pinId: string) => {
     try {
@@ -615,6 +631,7 @@ export default function WidgetsDashboardPage() {
           open
           onClose={chatDockNoop}
           title={channelRow?.name ? `#${channelRow.name}` : "Channel chat"}
+          initiallyExpanded={initialDockExpanded}
         />
       )}
     </div>

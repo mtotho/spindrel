@@ -57,12 +57,10 @@ def _build_test_app():
     from fastapi import FastAPI
     from app.routers.api_v1 import router as api_v1_router
     from app.routers.chat import router as chat_router
-    from integrations.mission_control.router import router as mc_router
 
     test_app = FastAPI()
     test_app.include_router(api_v1_router)
     test_app.include_router(chat_router)
-    test_app.include_router(mc_router, prefix="/integrations/mission_control")
     return test_app
 
 

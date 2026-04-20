@@ -56,8 +56,6 @@ ALL_SCOPES = [
     "operations:read", "operations:write",
     # Usage
     "usage:read", "usage:write",
-    # Mission Control
-    "mission_control:read", "mission_control:write",
     # Carapaces
     "carapaces:read", "carapaces:write",
     # Workflows
@@ -137,8 +135,6 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "operations:write": "Trigger backups, git pull, server restart, and update backup config",
     "usage:read": "View usage summary, logs, breakdown, timeseries, forecast, and limit status",
     "usage:write": "Create, update, and delete usage limits",
-    "mission_control:read": "Read Mission Control dashboard data (overview, kanban, journal, memory, context)",
-    "mission_control:write": "Write Mission Control data (create/move kanban cards, update preferences)",
     "carapaces:read": "List and get carapace details (skill+tool bundles)",
     "carapaces:write": "Create, update, and delete carapaces",
     "workflows:read": "List workflows, view workflow runs and step details",
@@ -250,10 +246,6 @@ SCOPE_GROUPS: dict[str, dict] = {
     "Usage": {
         "description": "Cost analytics, forecasting, and usage limits",
         "scopes": ["usage:read", "usage:write"],
-    },
-    "Mission Control": {
-        "description": "Aggregated dashboard: overview, kanban, journal, memory, debug context",
-        "scopes": ["mission_control:read", "mission_control:write"],
     },
     "Carapaces": {
         "description": "Manage skill+tool bundles (composable expert configurations)",
@@ -383,23 +375,6 @@ SCOPE_PRESETS: dict[str, dict] = {
         ],
         "instructions": "Safe for dashboards and monitoring. Cannot send messages or modify data.",
     },
-    "mission_control": {
-        "name": "Mission Control Dashboard",
-        "description": "Read-write access for the Mission Control dashboard — channels, tasks, workspace files",
-        "scopes": [
-            "bots:read", "channels:read", "sessions:read",
-            "tasks:read", "tasks:write",
-            "todos:read", "todos:write",
-            "workspaces:read", "workspaces.files:read", "workspaces.files:write",
-            "attachments:read", "logs:read",
-            "mission_control:read", "mission_control:write",
-            "carapaces:read",
-        ],
-        "instructions": (
-            "Used by the Mission Control dashboard container. Auto-provisioned on first start.\n\n"
-            "Set as `AGENT_SERVER_API_KEY` in the Mission Control container environment."
-        ),
-    },
     "admin_user": {
         "name": "Admin User",
         "description": "Full admin access for admin users — bypasses all scope checks",
@@ -415,7 +390,6 @@ SCOPE_PRESETS: dict[str, dict] = {
             "sessions:read",
             "attachments:read", "attachments:write",
             "todos:read", "todos:write",
-            "mission_control:read", "mission_control:write",
             "approvals:read",
         ],
         "instructions": "Auto-provisioned for non-admin users.",

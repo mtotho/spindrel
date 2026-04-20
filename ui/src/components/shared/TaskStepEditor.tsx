@@ -188,7 +188,6 @@ function humanizeSource(s: string): string {
     homeassistant: "Home Assistant",
     bluebubbles: "Blue Bubbles",
     claude_code: "Claude Code",
-    mission_control: "Mission Control",
     web_search: "Web Search",
   };
   if (SPECIAL[s]) return SPECIAL[s];

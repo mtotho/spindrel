@@ -38,10 +38,10 @@ async def write_workspace_file(
     path: str,
     content: str,
 ) -> bool:
-    """Write a file to a channel's workspace via MC's PUT endpoint."""
+    """Write a file to a channel's workspace via the core channel-workspace PUT endpoint."""
     try:
         r = await _http.put(
-            f"{_base_url()}/integrations/mission_control/channels/{channel_id}/workspace/files/content",
+            f"{_base_url()}/api/v1/channels/{channel_id}/workspace/files/content",
             params={"path": path},
             json={"content": content},
             headers=_headers(),

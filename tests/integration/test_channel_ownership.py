@@ -620,7 +620,7 @@ class TestChannelIntegrationBindingAdminGate:
 
         async with jwt_client_factory(member) as ac:
             resp = await ac.post(
-                f"/api/v1/channels/{ch.id}/integrations/mission_control/activate",
+                f"/api/v1/channels/{ch.id}/integrations/excalidraw/activate",
             )
         assert resp.status_code == 403
 
@@ -631,7 +631,7 @@ class TestChannelIntegrationBindingAdminGate:
 
         async with jwt_client_factory(member) as ac:
             resp = await ac.post(
-                f"/api/v1/channels/{ch.id}/integrations/mission_control/deactivate",
+                f"/api/v1/channels/{ch.id}/integrations/excalidraw/deactivate",
             )
         assert resp.status_code == 403
 
@@ -642,7 +642,7 @@ class TestChannelIntegrationBindingAdminGate:
 
         async with jwt_client_factory(member) as ac:
             resp = await ac.patch(
-                f"/api/v1/channels/{ch.id}/integrations/mission_control/config",
+                f"/api/v1/channels/{ch.id}/integrations/excalidraw/config",
                 json={"config": {"whatever": "value"}},
             )
         assert resp.status_code == 403

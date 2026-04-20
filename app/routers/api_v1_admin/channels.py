@@ -23,7 +23,6 @@ from app.db.models import (
     CompactionLog,
     HeartbeatRun,
     Message,
-    Plan,
     Session,
     Task,
     ToolCall,
@@ -296,34 +295,6 @@ class TaskOut(BaseModel):
 
 class TaskListOut(BaseModel):
     tasks: list[TaskOut]
-
-
-class PlanItemOut(BaseModel):
-    id: uuid.UUID
-    position: int
-    content: str
-    status: str = "pending"
-    notes: Optional[str] = None
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class PlanOut(BaseModel):
-    id: uuid.UUID
-    bot_id: str
-    title: str
-    description: Optional[str] = None
-    status: str = "active"
-    created_at: datetime
-    updated_at: datetime
-    items: list[PlanItemOut] = []
-
-    model_config = {"from_attributes": True}
-
-
-class PlanListOut(BaseModel):
-    plans: list[PlanOut]
 
 
 class ChannelSettingsOut(BaseModel):
@@ -1372,56 +1343,6 @@ async def admin_channel_workflow_connections(
     return connections
 
 
-# ---------------------------------------------------------------------------
-# Plans
-# ---------------------------------------------------------------------------
-
-@router.get("/channels/{channel_id}/plans", response_model=PlanListOut)
-async def admin_channel_plans(
-    channel_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_scopes("channels:read")),
-):
-    """List plans with items for a channel."""
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    plans = (await db.execute(
-        select(Plan)
-        .options(selectinload(Plan.items))
-        .where(Plan.channel_id == channel_id)
-        .order_by(Plan.updated_at.desc())
-    )).scalars().all()
-
-    return PlanListOut(
-        plans=[
-            PlanOut(
-                id=p.id,
-                bot_id=p.bot_id,
-                title=p.title,
-                description=p.description,
-                status=p.status,
-                created_at=p.created_at,
-                updated_at=p.updated_at,
-                items=[
-                    PlanItemOut(
-                        id=item.id,
-                        position=item.position,
-                        content=item.content,
-                        status=item.status,
-                        notes=item.notes,
-                        updated_at=item.updated_at,
-                    )
-                    for item in p.items
-                ],
-            )
-            for p in plans
-        ],
-    )
-
-
-# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Backfill sections
 # ---------------------------------------------------------------------------

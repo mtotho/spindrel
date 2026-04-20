@@ -1274,30 +1274,6 @@ class Outbox(Base):
     )
 
 
-class Plan(Base):
-    __tablename__ = "plans"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
-    session_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
-    )
-    channel_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("channels.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
-
-    items: Mapped[list["PlanItem"]] = relationship(
-        "PlanItem", back_populates="plan", cascade="all, delete-orphan", order_by="PlanItem.position"
-    )
-
-
 class Todo(Base):
     __tablename__ = "todos"
 
@@ -1385,22 +1361,6 @@ class SecretValue(Base):
     created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-
-
-class PlanItem(Base):
-    __tablename__ = "plan_items"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    plan_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("plans.id", ondelete="CASCADE"), nullable=False
-    )
-    position: Mapped[int] = mapped_column(Integer, nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-
-    plan: Mapped["Plan"] = relationship("Plan", back_populates="items")
 
 
 class ServerSetting(Base):

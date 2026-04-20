@@ -4,6 +4,7 @@ import {
   Settings, Menu, ArrowLeft, Hash, Lock, FolderOpen, LayoutDashboard,
   PanelLeft, Columns2, Users, Wrench, Cog, PanelRight, Plug,
   MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle,
+  Minimize2,
   User as UserIcon,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -347,6 +348,21 @@ export function ChannelHeader({
 
       {/* Overflow — secondary actions. */}
       <ChannelHeaderOverflowMenu items={overflowItems} isMobile={isMobile} />
+
+      {/* Minimize — collapses the chat into the channel widget dashboard's
+          bottom-right dock. Skipped on mobile (no dock surface there; the
+          widget dashboard gates the dock on `!isMobile`). */}
+      {channelId && !isMobile && (
+        <button
+          className="header-icon-btn"
+          style={{ width: 36, height: 36 }}
+          onClick={() => navigate(`/widgets/channel/${channelId}?dock=expanded`)}
+          title="Minimize to dashboard dock"
+          aria-label="Minimize chat to widget dashboard dock"
+        >
+          <Minimize2 size={16} color={t.textDim} />
+        </button>
+      )}
 
       {/* Settings — primary chrome. */}
       {channelId && (

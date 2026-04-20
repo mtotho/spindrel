@@ -1,4 +1,4 @@
-/** Pretty-print an integration type slug (e.g., "mission_control" → "Mission Control"). */
+/** Pretty-print an integration type slug (e.g., "google_workspace" → "Google Workspace"). */
 export function prettyIntegrationName(slug: string): string {
   const names: Record<string, string> = {
     slack: "Slack",
@@ -6,7 +6,6 @@ export function prettyIntegrationName(slug: string): string {
     discord: "Discord",
     gmail: "Gmail",
     frigate: "Frigate",
-    mission_control: "Mission Control",
     arr: "Media Stack",
     claude_code: "Claude Code",
     bluebubbles: "BlueBubbles",

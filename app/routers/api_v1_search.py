@@ -46,7 +46,7 @@ class MemorySearchResponse(BaseModel):
 @router.post(
     "/memory",
     response_model=MemorySearchResponse,
-    dependencies=[Depends(require_scopes("mission_control:read"))],
+    dependencies=[Depends(require_scopes("bots:read"))],
 )
 async def search_memory(
     body: MemorySearchRequest,

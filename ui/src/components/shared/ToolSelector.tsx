@@ -4,8 +4,8 @@
  * to bind a string to a tool name.
  *
  * Matches selected tools via `resolveValue(tool)` so callers can opt into
- * either full (`tool_name` as-is, e.g. "mission_control-list_tasks") or
- * bare (integration prefix stripped, e.g. "list_tasks") matching.
+ * either full (`tool_name` as-is, e.g. "github-list_prs") or
+ * bare (integration prefix stripped, e.g. "list_prs") matching.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
@@ -19,7 +19,6 @@ export function humanizeSource(s: string): string {
     homeassistant: "Home Assistant",
     bluebubbles: "Blue Bubbles",
     claude_code: "Claude Code",
-    mission_control: "Mission Control",
     web_search: "Web Search",
   };
   if (SPECIAL[s]) return SPECIAL[s];

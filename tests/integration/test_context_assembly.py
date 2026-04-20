@@ -292,7 +292,7 @@ class TestWithChannel:
 
         ci = ChannelIntegration(
             channel_id=channel_id,
-            integration_type="mission_control",
+            integration_type="excalidraw",
             client_id="mc:test",
             activated=True,
         )
@@ -300,8 +300,8 @@ class TestWithChannel:
         await db_session.commit()
 
         # Register a test carapace in the in-memory registry (stores dicts)
-        _registry["mission-control"] = {
-            "id": "mission-control",
+        _registry["excalidraw"] = {
+            "id": "excalidraw",
             "name": "Mission Control",
             "description": "Test MC carapace",
             "skills": [{"id": "mc-skill", "mode": "on_demand"}],
@@ -315,8 +315,8 @@ class TestWithChannel:
         factory = _session_factory(engine)
 
         manifests = {
-            "mission_control": {
-                "carapaces": ["mission-control"],
+            "excalidraw": {
+                "carapaces": ["excalidraw"],
                 "requires_workspace": False,
             },
         }
@@ -353,7 +353,7 @@ class TestWithChannel:
             carapace_events = [e for e in events if e.get("type") == "carapace_context"]
             assert len(carapace_events) == 1
         finally:
-            _registry.pop("mission-control", None)
+            _registry.pop("excalidraw", None)
 
     @pytest.mark.asyncio
     async def test_channel_max_iterations_override(self, engine, db_session):

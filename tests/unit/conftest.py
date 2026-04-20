@@ -94,8 +94,6 @@ async def patched_async_sessions(engine):
     ), patch(
         "app.services.sessions.async_session", factory
     ), patch(
-        "app.tools.local.plans.async_session", factory
-    ), patch(
         "app.tools.local.todos.async_session", factory
     ):
         yield factory

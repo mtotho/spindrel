@@ -13,7 +13,7 @@ from app.agent.bots import get_bot
 from app.config import settings
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Channel, Message, Plan, PlanItem, Session, TraceEvent
+from app.db.models import Attachment, Channel, Message, Session, TraceEvent
 from app.dependencies import get_db, require_scopes
 from app.schemas.messages import AttachmentBrief, MessageOut
 from app.services.compaction import run_compaction_forced
@@ -352,93 +352,6 @@ async def get_session_context_diagnostics(
             ),
         },
     }
-
-
-@router.get("/{session_id}/plans")
-async def get_session_plans(
-    session_id: uuid.UUID,
-    status: Optional[str] = "active",
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("sessions:read")),
-):
-    """Return plans for a session with their items."""
-    stmt = select(Plan).where(Plan.session_id == session_id)
-    if status and status != "all":
-        stmt = stmt.where(Plan.status == status)
-    stmt = stmt.order_by(Plan.created_at)
-    plans = (await db.execute(stmt)).scalars().all()
-
-    result = []
-    for plan in plans:
-        items = (await db.execute(
-            select(PlanItem).where(PlanItem.plan_id == plan.id).order_by(PlanItem.position)
-        )).scalars().all()
-        result.append({
-            "id": str(plan.id),
-            "title": plan.title,
-            "description": plan.description,
-            "status": plan.status,
-            "created_at": plan.created_at.isoformat(),
-            "items": [
-                {
-                    "id": str(i.id),
-                    "position": i.position,
-                    "content": i.content,
-                    "status": i.status,
-                    "notes": i.notes,
-                }
-                for i in items
-            ],
-        })
-    return result
-
-
-@router.post("/{session_id}/plans/{plan_id}/status")
-async def update_plan_status(
-    session_id: uuid.UUID,
-    plan_id: uuid.UUID,
-    body: dict,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("sessions:write")),
-):
-    """Update a plan's status. Body: {status: active|complete|abandoned}"""
-    plan = await db.get(Plan, plan_id)
-    if not plan or plan.session_id != session_id:
-        raise HTTPException(status_code=404, detail="Plan not found")
-    new_status = body.get("status")
-    if new_status not in ("active", "complete", "abandoned"):
-        raise HTTPException(status_code=400, detail="Invalid status")
-    plan.status = new_status
-    await db.commit()
-    return {"ok": True}
-
-
-@router.post("/{session_id}/plans/{plan_id}/items/{item_position}/status")
-async def update_plan_item_status(
-    session_id: uuid.UUID,
-    plan_id: uuid.UUID,
-    item_position: int,
-    body: dict,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("sessions:write")),
-):
-    """Update a plan item's status by 1-based position. Body: {status: pending|in_progress|done|skipped}"""
-    plan = await db.get(Plan, plan_id)
-    if not plan or plan.session_id != session_id:
-        raise HTTPException(status_code=404, detail="Plan not found")
-    result = await db.execute(
-        select(PlanItem)
-        .where(PlanItem.plan_id == plan_id, PlanItem.position == item_position - 1)
-    )
-    item = result.scalar_one_or_none()
-    if not item:
-        raise HTTPException(status_code=404, detail=f"Item {item_position} not found")
-    new_status = body.get("status")
-    if new_status not in ("pending", "in_progress", "done", "skipped"):
-        raise HTTPException(status_code=400, detail="Invalid status")
-    item.status = new_status
-    await db.commit()
-    return {"ok": True}
 
 
 class SummarizeResponse(BaseModel):

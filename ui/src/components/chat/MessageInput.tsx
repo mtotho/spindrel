@@ -44,6 +44,10 @@ interface Props {
   configOverhead?: number | null;
   /** Called when user clicks the config overhead indicator */
   onConfigOverheadClick?: () => void;
+  /** Constrained-container mode. Tightens outer + editor padding and the
+   *  card's corner radius so the composer fits naturally inside a narrow
+   *  dock / drawer on desktop. Behavior unchanged. */
+  compact?: boolean;
 }
 
 /** Short non-blocking haptic buzz. No-op on iOS Safari (vibrate is
@@ -64,7 +68,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow, configOverhead, onConfigOverheadClick }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -375,7 +379,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
         <div
           style={{
-            padding: isMobile ? "0 12px 12px" : "0 16px 14px",
+            padding: compactLayout ? "0 10px 10px" : isMobile ? "0 12px 12px" : "0 16px 14px",
           }}
         >
           {/* One card. Editor on top (flat — no inner border/bg), actions on bottom.
@@ -402,7 +406,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               background: `${t.surfaceRaised}d9`,
               backdropFilter: "blur(14px)",
               WebkitBackdropFilter: "blur(14px)",
-              borderRadius: 20,
+              borderRadius: compactLayout ? 14 : 20,
               boxShadow: isFocused
                 ? `inset 0 0 0 1px ${t.accentBorder}, inset 0 1px 0 ${t.overlayLight}, 0 0 0 3px ${t.accent}1a, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`
                 : `inset 0 1px 0 ${t.overlayLight}, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`,
@@ -415,9 +419,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 the single-row pill stays useful. */}
             <div
               style={{
-                minHeight: isMobile ? 36 : 60,
+                minHeight: compactLayout ? 44 : isMobile ? 36 : 60,
                 maxHeight: 260,
-                padding: collapsed ? "4px 6px 4px 14px" : isMobile ? "6px 10px 2px" : "12px 16px 4px",
+                padding: collapsed ? "4px 6px 4px 14px" : compactLayout ? "8px 12px 2px" : isMobile ? "6px 10px 2px" : "12px 16px 4px",
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "row",
@@ -471,7 +475,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
-                padding: isMobile ? "2px 4px 3px" : "4px 8px 6px",
+                padding: compactLayout ? "3px 6px 4px" : isMobile ? "2px 4px 3px" : "4px 8px 6px",
               }}
             >
               <ComposerAddMenu

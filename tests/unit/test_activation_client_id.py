@@ -47,7 +47,7 @@ def test_falls_back_when_setting_empty():
 def test_falls_back_when_no_binding():
     """Integration without binding config uses mc-activated."""
     with patch("integrations.discover_binding_metadata", return_value={}):
-        result = _resolve_activation_client_id("mission_control", CHANNEL_ID)
+        result = _resolve_activation_client_id("excalidraw", CHANNEL_ID)
 
     assert result.startswith("mc-activated:") and result.endswith(str(CHANNEL_ID))
 

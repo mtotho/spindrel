@@ -56,8 +56,15 @@ interface PinnedToolWidgetProps {
   hoverScrollbars?: boolean;
   /** Channel multi-canvas dashboard: render a small zone-picker chip in the
    *  tile header (edit mode only) so the user can move the pin between
-   *  canvases (rail / header / dock / grid) without dragging across grids. */
-  zoneChip?: { current: ChatZone; onSelect: (z: ChatZone) => void };
+   *  canvases (rail / header / dock / grid). The chip supports both a click
+   *  (opens dropdown) and HTML5 drag (drop onto another canvas). */
+  zoneChip?: {
+    current: ChatZone;
+    onSelect: (z: ChatZone) => void;
+    pinId?: string;
+    onDragStart?: (pinId: string) => void;
+    onDragEnd?: () => void;
+  };
 }
 
 export function PinnedToolWidget({
@@ -464,7 +471,13 @@ export function PinnedToolWidget({
           {resolveDisplayName(widget)}
         </span>
         {zoneChip && editMode && (
-          <ZoneChip current={zoneChip.current} onSelect={zoneChip.onSelect} />
+          <ZoneChip
+            current={zoneChip.current}
+            onSelect={zoneChip.onSelect}
+            pinId={zoneChip.pinId}
+            onDragStart={zoneChip.onDragStart}
+            onDragEnd={zoneChip.onDragEnd}
+          />
         )}
         {isDashboard && editMode && onEdit && (
           <button

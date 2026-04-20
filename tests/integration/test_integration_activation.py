@@ -13,8 +13,8 @@ pytestmark = pytest.mark.asyncio
 @pytest.fixture
 def _patch_manifests():
     manifests = {
-        "mission_control": {
-            "carapaces": ["mission-control"],
+        "excalidraw": {
+            "carapaces": ["excalidraw"],
             "requires_workspace": True,
             "description": "MC activation",
         }
@@ -41,13 +41,13 @@ class TestActivateEndpoint:
 
         with patch("app.services.feature_validation.validate_activation", new_callable=AsyncMock, return_value=[]):
             resp = await client.post(
-                f"/api/v1/channels/{ch.id}/integrations/mission_control/activate",
+                f"/api/v1/channels/{ch.id}/integrations/excalidraw/activate",
                 headers=AUTH_HEADERS,
             )
         assert resp.status_code == 200
         body = resp.json()
         assert body["activated"] is True
-        assert body["integration_type"] == "mission_control"
+        assert body["integration_type"] == "excalidraw"
 
     async def test_activate_idempotent(self, client, db_session, _patch_manifests):
         """Activating twice is idempotent."""
@@ -64,15 +64,15 @@ class TestActivateEndpoint:
         db_session.add(ch)
         ci = ChannelIntegration(
             channel_id=ch.id,
-            integration_type="mission_control",
-            client_id=f"mc-activated:mission_control:{ch.id}",
+            integration_type="excalidraw",
+            client_id=f"mc-activated:excalidraw:{ch.id}",
             activated=True,
         )
         db_session.add(ci)
         await db_session.commit()
 
         resp = await client.post(
-            f"/api/v1/channels/{ch.id}/integrations/mission_control/activate",
+            f"/api/v1/channels/{ch.id}/integrations/excalidraw/activate",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
@@ -116,15 +116,15 @@ class TestDeactivateEndpoint:
         db_session.add(ch)
         ci = ChannelIntegration(
             channel_id=ch.id,
-            integration_type="mission_control",
-            client_id=f"mc-activated:mission_control:{ch.id}",
+            integration_type="excalidraw",
+            client_id=f"mc-activated:excalidraw:{ch.id}",
             activated=True,
         )
         db_session.add(ci)
         await db_session.commit()
 
         resp = await client.post(
-            f"/api/v1/channels/{ch.id}/integrations/mission_control/deactivate",
+            f"/api/v1/channels/{ch.id}/integrations/excalidraw/deactivate",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
@@ -134,7 +134,7 @@ class TestDeactivateEndpoint:
         """Deactivating on non-existent channel → 404."""
         fake_id = str(uuid.uuid4())
         resp = await client.post(
-            f"/api/v1/channels/{fake_id}/integrations/mission_control/deactivate",
+            f"/api/v1/channels/{fake_id}/integrations/excalidraw/deactivate",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 404
@@ -163,7 +163,7 @@ class TestAvailableIntegrationsEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert len(body) >= 1
-        mc = next((i for i in body if i["integration_type"] == "mission_control"), None)
+        mc = next((i for i in body if i["integration_type"] == "excalidraw"), None)
         assert mc is not None
         assert mc["requires_workspace"] is True
         assert mc["activated"] is False
@@ -183,8 +183,8 @@ class TestAvailableIntegrationsEndpoint:
         db_session.add(ch)
         ci = ChannelIntegration(
             channel_id=ch.id,
-            integration_type="mission_control",
-            client_id=f"mc-activated:mission_control:{ch.id}",
+            integration_type="excalidraw",
+            client_id=f"mc-activated:excalidraw:{ch.id}",
             activated=True,
         )
         db_session.add(ci)
@@ -196,6 +196,6 @@ class TestAvailableIntegrationsEndpoint:
         )
         assert resp.status_code == 200
         body = resp.json()
-        mc = next((i for i in body if i["integration_type"] == "mission_control"), None)
+        mc = next((i for i in body if i["integration_type"] == "excalidraw"), None)
         assert mc is not None
         assert mc["activated"] is True

@@ -54,7 +54,6 @@ function humanizeIntegration(s: string): string {
     web_search: "Web Search",
     google_workspace: "Google Workspace",
     claude_code: "Claude Code",
-    mission_control: "Mission Control",
   };
   if (SPECIAL[s]) return SPECIAL[s];
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());

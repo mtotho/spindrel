@@ -71,6 +71,10 @@ export interface ChatSessionProps {
   title?: string;
   /** Empty-state content shown before the first message is sent. */
   emptyState?: React.ReactNode;
+  /** When rendered as a dock, open already expanded instead of the FAB.
+   *  Used for the minimize-from-channel round-trip so the user lands on
+   *  the dashboard with the chat already visible. */
+  initiallyExpanded?: boolean;
 }
 
 /**
@@ -104,6 +108,7 @@ function ChannelChatSession({
   onClose,
   title,
   emptyState,
+  initiallyExpanded,
 }: ChannelChatSessionProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
@@ -114,7 +119,26 @@ function ChannelChatSession({
   const overheadPct = overheadData?.overhead_pct ?? null;
 
   // Dock expansion (FAB vs panel); controller owns so header X collapses.
-  const [dockExpanded, setDockExpanded] = useState(false);
+  // Respect the caller's `initiallyExpanded` on mount only — subsequent toggles
+  // go through the X button and FAB, not prop updates.
+  const [dockExpanded, setDockExpanded] = useState(
+    shape === "dock" && (initiallyExpanded ?? false),
+  );
+
+  // Composer overlay height — measured via ResizeObserver so the message
+  // list's scroll padding matches the real composer height. Mirrors the main
+  // channel screen pattern at ui/app/(app)/channels/[channelId]/index.tsx:571.
+  const inputOverlayRef = useRef<HTMLDivElement>(null);
+  const [inputOverlayHeight, setInputOverlayHeight] = useState(96);
+  useEffect(() => {
+    if (!inputOverlayRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h) setInputOverlayHeight(Math.ceil(h));
+    });
+    ro.observe(inputOverlayRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   // Message-renderer — same rendering primitives as the full channel screen
   // and SessionChatView. No onBotClick / secret warnings / etc. in the dock.
@@ -184,6 +208,7 @@ function ChannelChatSession({
             fullTurnText={fullTurnText}
             channelId={source.channelId}
             isLatestBotMessage={isLatest}
+            compact
           />
         </>
       );
@@ -282,26 +307,33 @@ function ChannelChatSession({
           isProcessing={src.chatState.isProcessing}
           t={t}
           emptyStateComponent={emptyState}
+          scrollPaddingBottom={inputOverlayHeight + 16}
         />
-      </div>
-      {src.sendError && (
-        <div className="px-4 py-1.5 text-[11px] text-red-400 border-t border-red-500/20 bg-red-500/5 shrink-0">
-          {src.sendError}
+        {/* Composer overlay — messages scroll behind the frosted card
+            (mirrors the main channel screen pattern). */}
+        <div
+          ref={inputOverlayRef}
+          className="absolute bottom-0 left-0 right-0 z-[4]"
+        >
+          {src.sendError && (
+            <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+              {src.sendError}
+            </div>
+          )}
+          <MessageInput
+            onSend={handleSendMsg}
+            disabled={!src.bot_id}
+            isStreaming={src.isStreaming}
+            currentBotId={src.bot_id}
+            channelId={source.channelId}
+            modelOverride={src.modelOverride}
+            modelProviderIdOverride={src.modelProviderIdOverride}
+            onModelOverrideChange={src.setModelOverride}
+            defaultModel={bot?.model}
+            configOverhead={overheadPct}
+            compact
+          />
         </div>
-      )}
-      <div className="shrink-0" style={{ borderTop: `1px solid ${t.surfaceBorder}` }}>
-        <MessageInput
-          onSend={handleSendMsg}
-          disabled={!src.bot_id}
-          isStreaming={src.isStreaming}
-          currentBotId={src.bot_id}
-          channelId={source.channelId}
-          modelOverride={src.modelOverride}
-          modelProviderIdOverride={src.modelProviderIdOverride}
-          onModelOverrideChange={src.setModelOverride}
-          defaultModel={bot?.model}
-          configOverhead={overheadPct}
-        />
       </div>
     </div>
   );

@@ -613,58 +613,6 @@ class TestSpawnSubagentsSchema:
 
 
 # ---------------------------------------------------------------------------
-# plans — returns schema coverage
-# ---------------------------------------------------------------------------
-
-class TestPlansSchema:
-    @pytest.mark.asyncio
-    async def test_create_plan_matches_schema(self, db_session, patched_async_sessions):
-        from app.tools.local.plans import create_plan
-
-        with patch("app.tools.local.plans.current_bot_id") as mock_bot, \
-             patch("app.tools.local.plans.current_channel_id") as mock_ch, \
-             patch("app.tools.local.plans.current_session_id") as mock_sess:
-            mock_bot.get.return_value = "crumb"
-            mock_ch.get.return_value = uuid.uuid4()
-            mock_sess.get.return_value = None
-            result = await create_plan("Test Plan", ["step 1", "step 2"])
-
-        data = _validate(result, "create_plan")
-        assert "plan_id" in data
-        assert data["item_count"] == 2
-
-    @pytest.mark.asyncio
-    async def test_list_plans_empty_matches_schema(self, db_session, patched_async_sessions):
-        from app.tools.local.plans import list_plans
-
-        with patch("app.tools.local.plans.current_bot_id") as mock_bot, \
-             patch("app.tools.local.plans.current_session_id") as mock_sess:
-            mock_bot.get.return_value = "crumb"
-            mock_sess.get.return_value = None
-            result = await list_plans()
-
-        data = _validate(result, "list_plans")
-        assert data["count"] == 0
-        assert data["plans"] == []
-
-    @pytest.mark.asyncio
-    async def test_update_plan_item_not_found_returns_error(self, db_session, patched_async_sessions):
-        from app.tools.local.plans import update_plan_item
-
-        result = await update_plan_item(str(uuid.uuid4()), status="done")
-        data = _validate(result, "update_plan_item")
-        assert "error" in data
-
-    @pytest.mark.asyncio
-    async def test_edit_plan_not_found_returns_error(self, db_session, patched_async_sessions):
-        from app.tools.local.plans import edit_plan
-
-        result = await edit_plan(str(uuid.uuid4()), title="New Title")
-        data = _validate(result, "edit_plan")
-        assert "error" in data
-
-
-# ---------------------------------------------------------------------------
 # todos — returns schema coverage
 # ---------------------------------------------------------------------------
 

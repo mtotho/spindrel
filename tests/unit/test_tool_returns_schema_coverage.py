@@ -39,9 +39,6 @@ _PENDING_BACKFILL: frozenset[str] = frozenset({
     # Local tools needing normalization
     "prune_enrolled_skills",        # mixed JSON/bare-string returns
     "list_sub_sessions",            # bare-string returns throughout
-    "draft_plan",                   # bare-string returns
-    "update_plan_status",           # bare-string returns
-    "update_plan_step",             # bare-string returns
 })
 
 _EXCLUDED: frozenset[str] = _TEXT_OUTPUT_TOOLS | _PENDING_BACKFILL

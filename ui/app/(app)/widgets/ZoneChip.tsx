@@ -1,8 +1,13 @@
 /**
- * ZoneChip — compact zone-picker dropdown shown in PinnedToolWidget's tile
- * header on channel dashboards in edit mode. Lets the user move a pin
- * between the four canvases (rail / header / dock / grid) without dragging
- * between react-grid-layout instances.
+ * ZoneChip — dual-gesture zone mover for channel dashboard tiles in edit
+ * mode. A click opens a dropdown to pick a target canvas; a mousedown +
+ * drag initiates an HTML5 drag so the user can drop the tile directly
+ * onto another canvas (rail / header / dock / grid). React-grid-layout
+ * uses mousedown on `.widget-drag-handle` for intra-grid drag; the chip
+ * uses HTML5 `dragstart` which is a separate event pipeline, so the two
+ * gestures don't conflict. Browsers disambiguate click vs drag via the
+ * drag-start threshold — a static press-and-release still fires `click`
+ * and opens the menu.
  *
  * Extracted from ChannelDashboardMultiCanvas so PinnedToolWidget can import
  * it without a circular dependency.
@@ -21,12 +26,22 @@ const LABELS: Record<ChatZone, string> = {
 
 const ZONES: ChatZone[] = ["rail", "header", "dock", "grid"];
 
+/** dataTransfer MIME key for cross-canvas drops. */
+export const PIN_DND_MIME = "application/x-spindrel-pin-id";
+
 interface Props {
   current: ChatZone;
   onSelect: (z: ChatZone) => void;
+  /** Pin id to stamp in the dataTransfer on dragstart. When omitted the
+   *  chip is click-only (no drag). */
+  pinId?: string;
+  /** Parent signals that a cross-canvas drag is in flight. Used to paint
+   *  drop-target highlights on the receiving canvas. */
+  onDragStart?: (pinId: string) => void;
+  onDragEnd?: () => void;
 }
 
-export function ZoneChip({ current, onSelect }: Props) {
+export function ZoneChip({ current, onSelect, pinId, onDragStart, onDragEnd }: Props) {
   const t = useThemeTokens();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -46,15 +61,27 @@ export function ZoneChip({ current, onSelect }: Props) {
     <div ref={menuRef} className="relative">
       <button
         type="button"
+        draggable={!!pinId}
+        onDragStart={(e) => {
+          if (!pinId) return;
+          e.stopPropagation();
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData(PIN_DND_MIME, pinId);
+          // Non-empty text/plain helps Firefox actually start the drag.
+          e.dataTransfer.setData("text/plain", pinId);
+          setOpen(false);
+          onDragStart?.(pinId);
+        }}
+        onDragEnd={() => onDragEnd?.()}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className="inline-flex items-center gap-0.5 rounded px-1 py-0 text-[9px] font-semibold uppercase tracking-wide transition-colors"
+        className="inline-flex items-center gap-0.5 rounded px-1 py-0 text-[9px] font-semibold uppercase tracking-wide transition-colors cursor-grab active:cursor-grabbing"
         style={{
           color: t.accent,
           backgroundColor: `${t.accent}18`,
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
-        title="Move to another canvas"
+        title={pinId ? "Drag to another canvas, or click to pick" : "Move to another canvas"}
       >
         {LABELS[current]}
         <ChevronDown size={8} />

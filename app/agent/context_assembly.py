@@ -590,25 +590,6 @@ async def _inject_channel_workspace(
     except Exception:
         logger.warning("Failed to inject channel workspace files for channel %s", ch_row.id, exc_info=True)
 
-    # Plan stall detection
-    try:
-        plans_path = os.path.join(get_channel_workspace_root(ch_id, bot), "plans.md")
-        if os.path.isfile(plans_path):
-            plans_age = time.time() - os.path.getmtime(plans_path)
-            if plans_age > 600:
-                plans_content = Path(plans_path).read_text()
-                if "[executing]" in plans_content:
-                    messages.append({
-                        "role": "system",
-                        "content": (
-                            "Note: plans.md contains an executing plan that may be stalled "
-                            "(last modified >10 minutes ago). Check the plan and resume "
-                            "the next pending step."
-                        ),
-                    })
-    except Exception:
-        pass
-
 
 async def _inject_conversation_sections(
     messages: list[dict],

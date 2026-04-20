@@ -135,7 +135,6 @@ _EXTERNAL_DEP_HINTS: dict[str, tuple[str, ...]] = {
     "frigate": ("aiomqtt",),
     "gmail": ("imapclient",),
     "bluebubbles": ("socketio",),
-    "mission_control": (),
 }
 
 

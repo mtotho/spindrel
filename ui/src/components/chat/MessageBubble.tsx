@@ -6,7 +6,6 @@ import { MarkdownContent } from "./MarkdownContent";
 import { AttachmentImages } from "./AttachmentDisplay";
 import { ToolBadges } from "./ToolBadges";
 import { WidgetCard } from "./WidgetCard";
-import { SkillOrb, type ActiveSkillLike } from "./SkillOrb";
 import { MessageActions, TimestampActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
 import { RichToolResult } from "./RichToolResult";
@@ -16,8 +15,6 @@ import { useToolResultCompact } from "../../stores/toolResultPref";
 import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
 import { useUIStore } from "../../stores/ui";
 import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
-
-type AutoInjectedSkillMeta = ActiveSkillLike;
 
 // Re-export for external consumers
 export { extractDisplayText } from "./messageUtils";
@@ -42,14 +39,20 @@ interface Props {
   /** Mobile layout: avatar inlined with name header, content flows flush-left
    *  (no avatar-column indent) so the narrow viewport gets full width. */
   isMobile?: boolean;
+  /** Constrained-container layout. Same "no avatar column, flush-left content"
+   *  treatment as `isMobile` — for desktop dock / drawer mounts that still want
+   *  the mobile-style bubble. Kept separate from `isMobile` so the latter can
+   *  retain its "touch device" semantics elsewhere. */
+  compact?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // MessageBubble -- Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage, isMobile = false }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage, isMobile = false, compact: compactLayout = false }: Props) {
   const t = useThemeTokens();
+  const narrow = isMobile || compactLayout;
   const [compact] = useToolResultCompact(channelId ?? "");
   const setExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
 
@@ -114,8 +117,6 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const richEnvelope: ToolResultEnvelope | undefined = meta.envelope as ToolResultEnvelope | undefined;
   const msgToolCalls: ToolCall[] | undefined = message.tool_calls;
   const trigger = meta.trigger as string | undefined;
-  const autoInjectedSkills = (meta.auto_injected_skills as AutoInjectedSkillMeta[]) || [];
-  const activeSkills = (meta.active_skills as ActiveSkillLike[]) || [];
   const llmStatus = meta.llm_status as { retries?: number; fallback_model?: string; vision_fallback?: boolean } | undefined;
   const delegations = (meta.delegations as any[]) || [];
   const delegatedByDisplay = meta.delegated_by_display as string | undefined;
@@ -291,8 +292,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       <div
         className="msg-hover"
         style={{
-          paddingLeft: isMobile ? 12 : 68,
-          paddingRight: isMobile ? 12 : 20,
+          paddingLeft: narrow ? 12 : 68,
+          paddingRight: narrow ? 12 : 20,
           paddingTop: 1,
           paddingBottom: 1,
           borderRadius: 4,
@@ -317,19 +318,20 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       className="msg-hover"
       style={{
         display: "flex",
-        flexDirection: isMobile ? "column" : "row",
-        gap: isMobile ? 0 : 12,
-        paddingLeft: isMobile ? 12 : 20,
-        paddingRight: isMobile ? 12 : 20,
+        flexDirection: narrow ? "column" : "row",
+        gap: narrow ? 0 : 12,
+        paddingLeft: narrow ? 12 : 20,
+        paddingRight: narrow ? 12 : 20,
         paddingTop: 14,
         paddingBottom: 6,
         borderRadius: 4,
       }}
     >
-      {/* Avatar — desktop only. Mobile drops the avatar entirely; the colored
-          name carries identity and the layout feels better balanced without a
-          tiny badge sitting off to the left of the header. */}
-      {!isMobile && (
+      {/* Avatar — full-width layouts only. Narrow layouts (mobile, dock, drawer)
+          drop the avatar entirely; the colored name carries identity and the
+          layout feels better balanced without a tiny badge sitting off to the
+          left of the header. */}
+      {!narrow && (
         <div style={{ paddingTop: 2 }}>
           <Avatar name={displayName} isUser={isUser} onClick={handleBotClick} />
         </div>
@@ -363,9 +365,6 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             onBotClick={handleBotClick}
             t={t}
           />
-          {(activeSkills.length > 0 || autoInjectedSkills.length > 0) && (
-            <SkillOrb active={activeSkills} autoInjected={autoInjectedSkills} t={t} />
-          )}
           {isMemberBot && (
             <span style={{
               fontSize: 10,

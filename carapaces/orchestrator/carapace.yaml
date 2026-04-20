@@ -6,9 +6,6 @@ description: >-
   an orchestrator via channel carapaces_extra.
 tags: [admin, delegation, orchestration]
 
-includes:
-  - mission-control
-
 delegates:
   # Cheap workers — use liberally
   - id: scanner

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessageSquare } from "lucide-react";
 
 interface ChatSessionDockProps {
@@ -19,6 +19,21 @@ interface ChatSessionDockProps {
  * The controller owns ``expanded`` so its header controls can collapse.
  */
 export function ChatSessionDock({ open, expanded, onExpandedChange, title, children }: ChatSessionDockProps) {
+  // Entry animation — play once per expansion so the panel slides in from
+  // ~the viewport center, selling the "chat just moved here" motion when the
+  // user clicked Minimize on the channel screen.
+  const [entering, setEntering] = useState(false);
+  const prevExpandedRef = useRef(expanded);
+  useEffect(() => {
+    if (expanded && !prevExpandedRef.current) {
+      setEntering(true);
+      const timer = window.setTimeout(() => setEntering(false), 300);
+      prevExpandedRef.current = expanded;
+      return () => window.clearTimeout(timer);
+    }
+    prevExpandedRef.current = expanded;
+  }, [expanded]);
+
   useEffect(() => {
     if (!expanded) return;
     const handler = (e: KeyboardEvent) => {
@@ -35,16 +50,21 @@ export function ChatSessionDock({ open, expanded, onExpandedChange, title, child
   if (!open) return null;
 
   if (!expanded) {
+    // FAB lives at a modest z-layer so drawers (scrim z-40, panel z-50) sit
+    // on top of it — save buttons at the bottom of a slide-in drawer must be
+    // clickable without the FAB intercepting. When a drawer opens, its scrim
+    // visually dims the FAB too; when no drawer is open, the FAB is still the
+    // top-most button in the bottom-right region.
     return (
       <button
         onClick={() => onExpandedChange(true)}
         aria-label={`Open ${title}`}
-        className="fixed bottom-4 right-4 z-[9990] w-14 h-14 rounded-full
+        className="fixed bottom-4 right-4 z-[30] w-12 h-12 rounded-full
                    bg-accent text-white shadow-[0_4px_16px_rgba(0,0,0,0.35)]
                    flex items-center justify-center
                    hover:brightness-110 active:scale-95 transition-all"
       >
-        <MessageSquare size={22} />
+        <MessageSquare size={18} />
       </button>
     );
   }
@@ -63,7 +83,7 @@ export function ChatSessionDock({ open, expanded, onExpandedChange, title, child
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="fixed z-[9991] flex flex-col overflow-hidden
+        className={`fixed z-[9991] flex flex-col overflow-hidden
                    bg-surface-raised border border-surface-border
                    shadow-[0_8px_32px_rgba(0,0,0,0.4)]
                    /* mobile: full bottom sheet */
@@ -71,7 +91,8 @@ export function ChatSessionDock({ open, expanded, onExpandedChange, title, child
                    /* desktop: anchored bottom-right */
                    md:inset-auto md:bottom-4 md:right-4
                    md:w-[380px] md:h-[560px]
-                   md:rounded-xl"
+                   md:rounded-xl
+                   ${entering ? "chat-dock-panel--entering" : ""}`}
       >
         {children}
       </div>

@@ -71,7 +71,6 @@ settings:
 
 activation:
   carapaces: [arr]
-  includes: [mission_control]
   requires_workspace: false
   description: "Media library management with Sonarr, Radarr, Prowlarr, qBittorrent, Jellyfin, Jellyseerr, and Bazarr"
 
