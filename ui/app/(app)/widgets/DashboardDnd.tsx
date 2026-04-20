@@ -132,13 +132,15 @@ export function DroppableCanvas({
     return <div className={extraClass}>{children}</div>;
   }
 
+  // Calm default outline. When a drag is in flight somewhere on the page we
+  // firm up every canvas's border slightly so users can see valid targets.
+  // The current target gets the accent border only — no background wash
+  // (that was reading as an "ugly blue highlight").
   const outlineColor = isOver
     ? t.accent
     : anyDragging
-      ? `${t.accent}55`
+      ? `${t.textDim}55`
       : `${t.textDim}33`;
-  const boxShadow = isOver ? `inset 0 0 0 2px ${t.accent}55` : undefined;
-  const background = isOver ? `${t.accent}08` : undefined;
 
   return (
     <div
@@ -147,9 +149,7 @@ export function DroppableCanvas({
       className={`relative rounded border border-dashed ${extraClass}`}
       style={{
         borderColor: outlineColor,
-        boxShadow,
-        backgroundColor: background,
-        transition: "border-color 120ms, box-shadow 120ms, background-color 120ms",
+        transition: "border-color 120ms",
       }}
     >
       <span
@@ -181,12 +181,14 @@ export function SortableTile({ id, children }: SortableTileProps) {
     transition,
     isDragging,
   } = useSortable({ id });
-  const style: CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-    zIndex: isDragging ? 50 : undefined,
-  };
+  // Source tile: hide (DragOverlay is painting the floating copy). Siblings
+  // continue to receive their sortable translate for the push-aside animation.
+  const style: CSSProperties = isDragging
+    ? { opacity: 0, transition: "none" }
+    : {
+        transform: CSS.Transform.toString(transform),
+        transition,
+      };
   return <>{children({ setNodeRef, attributes, listeners, style, isDragging })}</>;
 }
 
@@ -203,16 +205,15 @@ interface GridTileProps {
 }
 
 export function GridTile({ id, gridColumn, gridRow, children }: GridTileProps) {
-  const { setNodeRef, attributes, listeners, transform, isDragging } = useDraggable({
-    id,
-  });
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({ id });
+  // Hide source tile while dragging — the DragOverlay is the visible copy.
+  // No CSS transform on the source; it stays parked in its grid cell until
+  // the drop commits to new {x,y} and CSS Grid re-lays it out.
   const style: CSSProperties = {
     gridColumn,
     gridRow,
-    transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.4 : 1,
-    zIndex: isDragging ? 50 : undefined,
-    transition: isDragging ? "none" : "transform 120ms",
+    opacity: isDragging ? 0 : 1,
+    transition: isDragging ? "none" : "opacity 120ms",
   };
   return <>{children({ setNodeRef, attributes, listeners, style, isDragging })}</>;
 }
@@ -315,9 +316,11 @@ export function ResizeHandles({
     [onCommit],
   );
 
-  const base = "absolute z-20 select-none";
+  const base = "absolute z-20 select-none opacity-0 hover:opacity-100 transition-opacity duration-150";
   const visible = `pointer-events-auto`;
-  const tint = `${t.accent}66`;
+  // Neutral gray — keeps the corner/edge handle from competing with the
+  // drop-target accent outline.
+  const tint = `${t.textDim}55`;
 
   return (
     <>

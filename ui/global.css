@@ -423,6 +423,25 @@ textarea::placeholder {
   animation: chat-dock-expand-in 260ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
 }
 
+/* Full chat screen — reverse of the dock-expand motion. Played when the user
+ * clicks the Open-chat button on the dashboard top bar, signaled by the
+ * `?from=dock` query param. Scales up from the bottom-right where the dock
+ * lived, so the transition reads as "the dock grew into the full screen." */
+@keyframes chat-screen-expand-from-dock {
+  from {
+    opacity: 0.4;
+    transform: translate(calc(50vw - 50% - 16px), calc(50vh - 50% - 16px)) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+.chat-screen--entering-from-dock {
+  animation: chat-screen-expand-from-dock 300ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  transform-origin: bottom right;
+}
+
 /* react-grid-layout drop-target placeholder. The library's default is
  * `background: red; opacity: 0.2` — looks alarming and occasionally sticks in
  * the DOM after drop. Override to use the accent color, and safety-net hide

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useUIStore } from "@/src/stores/ui";
 import { useKioskMode } from "@/src/hooks/useKioskMode";
-import { Check, Info, LayoutDashboard, Maximize2, Minimize2, Move, Plus, RotateCcw, Wrench } from "lucide-react";
+import { Check, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, RotateCcw, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
 import {
@@ -353,8 +353,25 @@ export default function WidgetsDashboardPage() {
     }, 400);
   };
 
+  const navigate = useNavigate();
+
   const actions = (
     <>
+      {/* Open chat — channel-scoped only. Paired with the Minimize button in
+          ChannelHeader so the user can ping-pong between dashboard + chat in
+          the same screen region. `?from=dock` cues the chat screen to play an
+          entrance animation (reverse of the dock collapse motion). */}
+      {isChannelScoped && channelScopedId && !isMobile && (
+        <button
+          type="button"
+          onClick={() => navigate(`/channels/${channelScopedId}?from=dock`)}
+          className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay transition-colors"
+          aria-label="Open chat view"
+          title="Open chat"
+        >
+          <MessageSquare size={13} />
+        </button>
+      )}
       {/* Edit layout — hidden on mobile where the grid is read-only anyway
           (the in-page banner explains why). */}
       {pins.length > 0 && !isMobile && (
@@ -412,12 +429,11 @@ export default function WidgetsDashboardPage() {
         <button
           type="button"
           onClick={kiosk ? exitKiosk : enterKiosk}
-          className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
+          className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay transition-colors"
           aria-label={kiosk ? "Exit kiosk mode" : "Enter kiosk mode"}
           title={kiosk ? "Exit kiosk (Esc)" : "Kiosk (fullscreen presentation)"}
         >
           {kiosk ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-          <span className="hidden md:inline">{kiosk ? "Exit kiosk" : "Kiosk"}</span>
         </button>
       )}
       <button
@@ -430,18 +446,23 @@ export default function WidgetsDashboardPage() {
         <Plus size={13} />
         <span className="hidden md:inline">Add widget</span>
       </button>
-      {/* Developer panel — not a mobile action; hide to keep the top bar clean.
+      {/* Developer panel — global tool, reached from the sidebar rail. Hidden
+          on channel-scoped dashboards to keep the top bar focused on the
+          channel's own controls; still rendered on global dashboards where
+          it's the fastest path to pin-testing a new widget.
           Carry the active dashboard slug via ?from= so the dev-panel's Pin
           target picker can seed to the board the user came from. */}
-      <Link
-        to={`/widgets/dev?from=${encodeURIComponent(slug)}`}
-        className="hidden sm:inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
-        aria-label="Developer panel"
-        title="Developer panel"
-      >
-        <Wrench size={13} />
-        <span className="hidden lg:inline">Developer panel</span>
-      </Link>
+      {!isChannelScoped && (
+        <Link
+          to={`/widgets/dev?from=${encodeURIComponent(slug)}`}
+          className="hidden sm:inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
+          aria-label="Developer panel"
+          title="Developer panel"
+        >
+          <Wrench size={13} />
+          <span className="hidden lg:inline">Developer panel</span>
+        </Link>
+      )}
     </>
   );
 
@@ -553,8 +574,6 @@ export default function WidgetsDashboardPage() {
                 cols={preset.cols.lg}
                 rowHeight={preset.rowHeight}
                 rowGap={GRID_MARGIN[1]}
-                gridRowCount={Math.max(gridRowCount, 6)}
-                dragging={dragging}
               />
             )}
             <ResponsiveGridLayout

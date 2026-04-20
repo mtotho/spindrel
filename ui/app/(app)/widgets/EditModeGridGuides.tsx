@@ -1,49 +1,30 @@
-/** Visual guides shown only while editing a user dashboard.
+/** Visual guides shown only while editing a dashboard.
  *
- *  Two layers, pointer-events-none, rendered as the FIRST sibling inside the
- *  relative grid wrapper:
+ *  One layer, `pointer-events-none`, sized to `absolute inset-0` of the
+ *  enclosing positioned container. The parent (the grid/flex content area
+ *  INSIDE each canvas) owns the coordinate space — that's what keeps the
+ *  cell lines aligned with the actual tile positions. Do NOT render this
+ *  OUTSIDE the grid container with its own padding; the gradient offsets
+ *  will drift away from the real cells.
  *
- *  1. Faint cell grid — solid 1px lines at every column boundary and every
- *     row boundary. Renders snap targets without competing with widgets.
- *  2. Column-index tick row (only while dragging) — numbered 1..N across the
- *     top, tied to the breakpoint's column count.
- *
- *  Used by both the user-dashboard single grid and the channel dashboard's
- *  per-canvas grids (see ``ChannelDashboardMultiCanvas``). For a rail/dock
- *  canvas pass ``cols={1}`` — the horizontal row lines are what matter for
- *  snapping there. Chat-zone bands are no longer rendered here; zones are
- *  visually separated by the multi-canvas layout itself.
+ *  For 1-col canvases (rail / dock) only horizontal row lines draw — a lone
+ *  vertical line at the single column boundary looks like a rogue edge.
  */
 
 interface Props {
-  /** Total column count of the grid (lg breakpoint). */
+  /** Total column count of the grid at the current breakpoint. */
   cols: number;
-  /** Row height in px (matches grid `rowHeight`). */
+  /** Row height in px (must match parent's `grid-auto-rows` / row sizing). */
   rowHeight: number;
-  /** Pixel gap between cells (matches grid `margin`). */
+  /** Pixel gap between cells (must match parent's `gap`). */
   rowGap: number;
-  /** Number of rows of guide grid to draw. */
-  gridRowCount: number;
-  /** True while any widget is being dragged — triggers column-index ticks. */
-  dragging: boolean;
 }
 
-export function EditModeGridGuides({
-  cols,
-  rowHeight,
-  rowGap,
-  gridRowCount,
-  dragging,
-}: Props) {
+export function EditModeGridGuides({ cols, rowHeight, rowGap }: Props) {
   const cellPitch = `calc((100% - ${cols - 1} * ${rowGap}px) / ${cols} + ${rowGap}px)`;
-  const heightPx = Math.max(
-    gridRowCount * rowHeight + (gridRowCount - 1) * rowGap,
-    rowHeight * 8,
-  );
-  const cellLineColor = "rgba(148, 163, 184, 0.10)"; // slate-400 @ 10%
+  // slate-400 @ 6% — calmer than before, still visible on dark surfaces.
+  const cellLineColor = "rgba(148, 163, 184, 0.06)";
 
-  // 1-col canvases (rail / dock) only need horizontal row lines — a vertical
-  // gradient at the single column boundary looks like a rogue edge. Skip it.
   const verticalGradient =
     cols > 1
       ? `repeating-linear-gradient(
@@ -58,40 +39,21 @@ export function EditModeGridGuides({
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute left-0 right-0 top-0"
-      style={{ height: heightPx }}
-    >
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundImage: `
-            ${verticalGradient}
-            repeating-linear-gradient(
-              to bottom,
-              transparent 0,
-              transparent ${rowHeight + rowGap - 1}px,
-              ${cellLineColor} ${rowHeight + rowGap - 1}px,
-              ${cellLineColor} ${rowHeight + rowGap}px
-            )
-          `,
-        }}
-      />
-      {dragging && (
-        <div
-          className="absolute left-0 right-0 -top-4 flex text-[10px] font-mono text-text-dim/70 tabular-nums"
-          aria-hidden
-        >
-          {Array.from({ length: cols }).map((_, i) => (
-            <span
-              key={i}
-              className="flex-1 text-center"
-              style={{ marginRight: i < cols - 1 ? rowGap : 0 }}
-            >
-              {i + 1}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
+      className="pointer-events-none absolute inset-0"
+      style={{
+        gridColumn: "1 / -1",
+        gridRow: "1 / -1",
+        backgroundImage: `
+          ${verticalGradient}
+          repeating-linear-gradient(
+            to bottom,
+            transparent 0,
+            transparent ${rowHeight + rowGap - 1}px,
+            ${cellLineColor} ${rowHeight + rowGap - 1}px,
+            ${cellLineColor} ${rowHeight + rowGap}px
+          )
+        `,
+      }}
+    />
   );
 }

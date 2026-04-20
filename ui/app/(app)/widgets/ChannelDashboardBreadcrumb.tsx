@@ -68,9 +68,13 @@ export function ChannelDashboardBreadcrumb({
           <Settings size={13} />
         </button>
       )}
-      {/* Rail/total chip — only on md+ where there's room without wrapping. */}
-      <span className="hidden md:inline text-[11px] uppercase tracking-wider text-text-dim tabular-nums">
-        {railCount} in rail · {pinCount} total
+      {/* Rail/total chip — compact tabular count, md+ only. Full breakdown
+          lives in the tooltip; the bar stays visually tight. */}
+      <span
+        className="hidden md:inline text-[11px] text-text-dim tabular-nums"
+        title={`${railCount} in rail · ${pinCount} total`}
+      >
+        {railCount}/{pinCount}
       </span>
       {right && (
         <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2 sm:gap-2 sm:pl-3">

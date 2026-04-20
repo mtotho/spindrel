@@ -371,6 +371,7 @@ export function ChannelDashboardMultiCanvas({
             isOver={overZone === "grid"}
             applyLayout={applyLayout}
             measureRef={gridMeasure.setRef}
+            measuredRect={gridMeasure.rect}
           />
 
           <ListCanvas
@@ -443,14 +444,19 @@ function HeaderCanvas({
   onEditPin,
   anyDragging,
   isOver,
-  applyLayout,
 }: CanvasSharedProps) {
   if (!editMode && pins.length === 0) return null;
-  const channelScope = (p: WidgetDashboardPin): WidgetScope => ({
-    kind: "channel",
-    channelId: p.source_channel_id ?? "",
-    compact: "chip",
-  });
+  // Edit mode shows the full dashboard tile (grip + edit + unpin controls).
+  // View mode renders each header pin as a compact chip — matches how
+  // ChannelHeaderChip surfaces the same pins in the chat strip.
+  const tileScope = (p: WidgetDashboardPin): WidgetScope =>
+    editMode
+      ? { kind: "dashboard" }
+      : {
+          kind: "channel",
+          channelId: p.source_channel_id ?? "",
+          compact: "chip",
+        };
   const ids = pins.map((p) => p.id);
 
   return (
@@ -462,42 +468,42 @@ function HeaderCanvas({
       anyDragging={anyDragging}
       isOver={isOver}
     >
-      {editMode && (
-        <EditModeGridGuides
-          cols={12}
-          rowHeight={32}
-          rowGap={GAP_PX}
-          gridRowCount={3}
-          dragging={anyDragging}
-        />
-      )}
-      {pins.length === 0 ? (
-        editMode ? (
-          <EmptyCanvasHint message="Drop widgets here to show as compact chips above the channel chat." />
-        ) : null
-      ) : (
-        <SortableContext items={ids} strategy={horizontalListSortingStrategy}>
-          <div className="relative flex flex-row gap-2 p-2 overflow-x-auto">
-            {pins.map((p) => (
-              <SortableTile key={p.id} id={p.id}>
-                {(binding) => (
-                  <TileShell
-                    binding={binding}
-                    pin={p}
-                    editMode={editMode}
-                    chrome={chrome}
-                    scope={channelScope(p)}
-                    onUnpin={onUnpin}
-                    onEnvelopeUpdate={onEnvelopeUpdate}
-                    onEditPin={onEditPin}
-                    resize={null}
-                  />
-                )}
-              </SortableTile>
-            ))}
-          </div>
-        </SortableContext>
-      )}
+      <div className="relative min-h-[56px] overflow-hidden p-3">
+        {editMode && <EditModeGridGuides cols={12} rowHeight={32} rowGap={GAP_PX} />}
+        {pins.length === 0 ? (
+          editMode ? (
+            <EmptyCanvasHint message="Drop widgets here to show as compact chips above the channel chat." />
+          ) : null
+        ) : (
+          <SortableContext items={ids} strategy={horizontalListSortingStrategy}>
+            <div className="relative flex flex-row gap-2 overflow-x-auto">
+              {pins.map((p) => (
+                <SortableTile key={p.id} id={p.id}>
+                  {(binding) => (
+                    <div
+                      ref={binding.setNodeRef}
+                      {...binding.attributes}
+                      style={binding.style}
+                    >
+                      <TileShell
+                        binding={{ ...binding, setNodeRef: () => {} }}
+                        pin={p}
+                        editMode={editMode}
+                        chrome={chrome}
+                        scope={tileScope(p)}
+                        onUnpin={onUnpin}
+                        onEnvelopeUpdate={onEnvelopeUpdate}
+                        onEditPin={onEditPin}
+                        resize={null}
+                      />
+                    </div>
+                  )}
+                </SortableTile>
+              ))}
+            </div>
+          </SortableContext>
+        )}
+      </div>
     </DroppableCanvas>
   );
 }
@@ -532,6 +538,7 @@ function ListCanvas({
   const ids = pins.map((p) => p.id);
   const dashboardScope = (): WidgetScope => ({ kind: "dashboard" });
   const rowHeight = 30;
+  const [resizePreview, setResizePreview] = useState<{ id: string; h: number } | null>(null);
 
   return (
     <DroppableCanvas
@@ -542,23 +549,18 @@ function ListCanvas({
       anyDragging={anyDragging}
       isOver={isOver}
     >
-      {editMode && (
-        <EditModeGridGuides
-          cols={1}
-          rowHeight={rowHeight}
-          rowGap={GAP_PX}
-          gridRowCount={Math.max(pins.length * 6 + 6, 24)}
-          dragging={anyDragging}
-        />
-      )}
-      {pins.length === 0 ? (
-        editMode ? <EmptyCanvasHint message={emptyMessage} /> : null
-      ) : (
-        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-          <div className="relative flex flex-col gap-3 p-2">
-            {pins.map((p) => {
+      <div className="relative min-h-[200px] overflow-hidden p-3">
+        {editMode && <EditModeGridGuides cols={1} rowHeight={rowHeight} rowGap={GAP_PX} />}
+        {pins.length === 0 ? (
+          editMode ? <EmptyCanvasHint message={emptyMessage} /> : null
+        ) : (
+          <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+            <div className="relative flex flex-col gap-3">
+              {pins.map((p) => {
               const gl = toGridLayout(p);
-              const tileHeightPx = gl.h * (rowHeight + GAP_PX) - GAP_PX;
+              const effH =
+                resizePreview?.id === p.id ? resizePreview.h : gl.h;
+              const tileHeightPx = effH * (rowHeight + GAP_PX) - GAP_PX;
               return (
                 <SortableTile key={p.id} id={p.id}>
                   {(binding) => (
@@ -589,8 +591,11 @@ function ListCanvas({
                                 cellPx: { w: 280, h: rowHeight + GAP_PX },
                                 clampW: { min: 1, max: 1 },
                                 clampH: { min: 2 },
-                                onCommit: ({ h }) =>
-                                  applyLayout([
+                                onResizing: ({ h }) =>
+                                  setResizePreview({ id: p.id, h }),
+                                onCommit: ({ h }) => {
+                                  setResizePreview(null);
+                                  void applyLayout([
                                     {
                                       id: p.id,
                                       x: 0,
@@ -599,7 +604,8 @@ function ListCanvas({
                                       h,
                                       zone,
                                     },
-                                  ]),
+                                  ]);
+                                },
                               }
                             : null
                         }
@@ -609,9 +615,10 @@ function ListCanvas({
                 </SortableTile>
               );
             })}
-          </div>
-        </SortableContext>
-      )}
+            </div>
+          </SortableContext>
+        )}
+      </div>
     </DroppableCanvas>
   );
 }
@@ -623,6 +630,7 @@ function ListCanvas({
 interface GridCanvasProps extends CanvasSharedProps {
   preset: GridPreset;
   measureRef: (el: HTMLDivElement | null) => void;
+  measuredRect: DOMRect | null;
 }
 
 function GridCanvas({
@@ -637,25 +645,49 @@ function GridCanvas({
   isOver,
   applyLayout,
   measureRef,
+  measuredRect,
 }: GridCanvasProps) {
   if (!editMode && pins.length === 0) return null;
   const dashboardScope = (): WidgetScope => ({ kind: "dashboard" });
 
+  // Live resize preview — updates immediately as the user drags the handle.
+  // Clears on commit; the store's optimistic update from `applyLayout` takes
+  // over from there.
+  const [resizePreview, setResizePreview] = useState<{
+    id: string;
+    w: number;
+    h: number;
+  } | null>(null);
+
+  // Ensure enough grid rows are reserved so every pin has room and empty
+  // canvases still show a usable drop area. The row count is reflected in
+  // the canvas's min-height so the guides + tiles share the same vertical
+  // extent.
   const rowCount = useMemo(() => {
     let max = 0;
     for (const p of pins) {
       const gl = toGridLayout(p);
       max = Math.max(max, gl.y + gl.h);
     }
-    return Math.max(max + 6, 24);
+    return Math.max(max + 2, 12);
   }, [pins]);
+
+  const contentHeight = rowCount * preset.rowHeight + (rowCount - 1) * GAP_PX;
+
+  // Cell width in px: canvas inner width (less the p-3 = 24px padding +
+  // (cols-1) gaps) / cols. Used by ResizeHandles to convert pixel delta to
+  // column delta. Falls back to a sensible default until the first measure.
+  const cellWidthPx = useMemo(() => {
+    const innerW = measuredRect ? Math.max(0, measuredRect.width - 24) : 720;
+    return (innerW - (preset.cols.lg - 1) * GAP_PX) / preset.cols.lg;
+  }, [measuredRect, preset.cols.lg]);
 
   const gridStyle: CSSProperties = {
     display: "grid",
     gridTemplateColumns: `repeat(${preset.cols.lg}, minmax(0, 1fr))`,
     gridAutoRows: `${preset.rowHeight}px`,
-    gap: GAP_PX,
-    padding: GAP_PX,
+    gap: `${GAP_PX}px`,
+    minHeight: contentHeight,
   };
 
   return (
@@ -668,78 +700,96 @@ function GridCanvas({
       isOver={isOver}
       measureRef={measureRef}
     >
-      {editMode && (
-        <EditModeGridGuides
-          cols={preset.cols.lg}
-          rowHeight={preset.rowHeight}
-          rowGap={GAP_PX}
-          gridRowCount={rowCount}
-          dragging={anyDragging}
-        />
-      )}
-      {pins.length === 0 ? (
-        editMode ? (
-          <EmptyCanvasHint message="Drop widgets here to keep them on this dashboard page without surfacing them on chat." />
-        ) : null
-      ) : (
+      <div className="relative overflow-hidden p-3">
         <div style={gridStyle} className="relative">
-          {pins.map((p) => {
-            const gl = toGridLayout(p);
-            const gridColumn = `${gl.x + 1} / span ${gl.w}`;
-            const gridRow = `${gl.y + 1} / span ${gl.h}`;
-            return (
-              <GridTile
-                key={p.id}
-                id={p.id}
-                gridColumn={gridColumn}
-                gridRow={gridRow}
+          {editMode && (
+            <EditModeGridGuides
+              cols={preset.cols.lg}
+              rowHeight={preset.rowHeight}
+              rowGap={GAP_PX}
+            />
+          )}
+          {pins.length === 0 ? (
+            editMode ? (
+              <div
+                className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] text-center opacity-40 select-none px-4"
+                style={{ gridColumn: "1 / -1", gridRow: "1 / -1" }}
               >
-                {(binding) => (
-                  <div
-                    ref={binding.setNodeRef}
-                    {...binding.attributes}
-                    className="relative min-w-0 min-h-0"
-                    style={binding.style}
-                  >
-                    <TileShell
-                      binding={{ ...binding, setNodeRef: () => {} }}
-                      pin={p}
-                      editMode={editMode}
-                      chrome={chrome}
-                      scope={dashboardScope()}
-                      onUnpin={onUnpin}
-                      onEnvelopeUpdate={onEnvelopeUpdate}
-                      onEditPin={onEditPin}
-                      resize={
-                        editMode
-                          ? {
-                              edges: ["s", "e", "se"] as ResizeEdge[],
-                              initial: { w: gl.w, h: gl.h },
-                              cellPx: { w: 80, h: preset.rowHeight + GAP_PX },
-                              clampW: { min: 1, max: preset.cols.lg },
-                              clampH: { min: 2 },
-                              onCommit: ({ w, h }) =>
-                                applyLayout([
-                                  {
-                                    id: p.id,
-                                    x: gl.x,
-                                    y: gl.y,
-                                    w,
-                                    h,
-                                    zone: "grid",
-                                  },
-                                ]),
-                            }
-                          : null
-                      }
-                    />
-                  </div>
-                )}
-              </GridTile>
-            );
-          })}
+                Drop widgets here to keep them on this dashboard page without surfacing them on chat.
+              </div>
+            ) : null
+          ) : (
+            pins.map((p) => {
+              const gl = toGridLayout(p);
+              // Live preview during resize: swap in the transient w/h so the
+              // tile expands/contracts in real time. Commit reverts to the
+              // persisted grid_layout when the pointer is released.
+              const isResizing = resizePreview?.id === p.id;
+              const effW = isResizing ? resizePreview!.w : gl.w;
+              const effH = isResizing ? resizePreview!.h : gl.h;
+              const gridColumn = `${gl.x + 1} / span ${effW}`;
+              const gridRow = `${gl.y + 1} / span ${effH}`;
+              return (
+                <GridTile
+                  key={p.id}
+                  id={p.id}
+                  gridColumn={gridColumn}
+                  gridRow={gridRow}
+                >
+                  {(binding) => (
+                    <div
+                      ref={binding.setNodeRef}
+                      {...binding.attributes}
+                      className="relative min-w-0 min-h-0"
+                      style={binding.style}
+                    >
+                      <TileShell
+                        binding={{ ...binding, setNodeRef: () => {} }}
+                        pin={p}
+                        editMode={editMode}
+                        chrome={chrome}
+                        scope={dashboardScope()}
+                        onUnpin={onUnpin}
+                        onEnvelopeUpdate={onEnvelopeUpdate}
+                        onEditPin={onEditPin}
+                        resize={
+                          editMode
+                            ? {
+                                edges: ["s", "e", "se"] as ResizeEdge[],
+                                initial: { w: gl.w, h: gl.h },
+                                cellPx: {
+                                  w: cellWidthPx + GAP_PX,
+                                  h: preset.rowHeight + GAP_PX,
+                                },
+                                clampW: { min: 1, max: preset.cols.lg - gl.x },
+                                clampH: { min: 2 },
+                                onResizing: ({ w, h }) =>
+                                  setResizePreview({ id: p.id, w, h }),
+                                onCommit: ({ w, h }) => {
+                                  setResizePreview(null);
+                                  void applyLayout([
+                                    {
+                                      id: p.id,
+                                      x: gl.x,
+                                      y: gl.y,
+                                      w,
+                                      h,
+                                      zone: "grid",
+                                    },
+                                  ]);
+                                },
+                              }
+                            : null
+                        }
+                      />
+                    </div>
+                  )}
+                </GridTile>
+              );
+            })
+          )}
         </div>
-      )}
+      </div>
     </DroppableCanvas>
   );
 }
@@ -766,6 +816,7 @@ interface TileShellProps {
         cellPx: { w: number; h: number };
         clampW: { min: number; max: number };
         clampH: { min: number; max?: number };
+        onResizing?: (size: { w: number; h: number }) => void;
         onCommit: (size: { w: number; h: number }) => void;
       };
 }
@@ -803,6 +854,7 @@ function TileShell({
           cellPx={resize.cellPx}
           clampW={resize.clampW}
           clampH={resize.clampH}
+          onResizing={resize.onResizing}
           onCommit={resize.onCommit}
         />
       )}

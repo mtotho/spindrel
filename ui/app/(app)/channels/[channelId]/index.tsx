@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, useLocation, useMatch } from "react-router-dom";
+import { useParams, useNavigate, useLocation, useMatch, useSearchParams } from "react-router-dom";
 import { PipelineRunModal } from "./PipelineRunModal";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
@@ -68,13 +68,16 @@ function DockPeekTab({
   const positionClass = side === "left" ? "left-0" : "right-0";
   const radiusClass = side === "left" ? "rounded-r-md" : "rounded-l-md";
   const Icon = side === "left" ? ChevronRight : ChevronLeft;
+  // Absolute positioning anchors to the chat flex-row container (NOT the
+  // viewport) so the left tab sits just right of the app shell's channel
+  // rail instead of hiding behind it.
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={title}
       title={title}
-      className={`fixed top-1/2 -translate-y-1/2 ${positionClass} ${radiusClass} z-[25]
+      className={`absolute top-1/2 -translate-y-1/2 ${positionClass} ${radiusClass} z-[25]
                   flex items-center justify-center
                   w-4 h-16
                   bg-surface-raised/80 hover:bg-surface-raised
@@ -352,6 +355,30 @@ export default function ChatScreen() {
   const rightDockHidden = useUIStore((s) => s.rightDockHidden);
   const setRightDockHidden = useUIStore((s) => s.setRightDockHidden);
   const fileDirtyRef = useRef(false);
+
+  // `?from=dock` — dashboard's Open-chat toggle cues an entrance animation
+  // that visually reverses the chat-dock-expand-in motion (scales up from
+  // the bottom-right where the dock lived). Read once on mount, scrub the
+  // param so a refresh doesn't replay.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [enteringFromDock] = useState(() => searchParams.get("from") === "dock");
+  useEffect(() => {
+    if (searchParams.get("from") === "dock") {
+      const next = new URLSearchParams(searchParams);
+      next.delete("from");
+      setSearchParams(next, { replace: true });
+    }
+    // Mount-only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Flip the animation class off once the animation window has elapsed so
+  // subsequent state updates don't re-run it.
+  const [entranceClassActive, setEntranceClassActive] = useState(enteringFromDock);
+  useEffect(() => {
+    if (!enteringFromDock) return;
+    const timer = window.setTimeout(() => setEntranceClassActive(false), 360);
+    return () => window.clearTimeout(timer);
+  }, [enteringFromDock]);
   // Header-zone pins — read here so the floating strip below the header
   // renders only when there's something to show (empty translucent pill is
   // visual noise).
@@ -760,7 +787,7 @@ export default function ChatScreen() {
            OmniPanel runs floor-to-ceiling (it owns its own header); the channel
            header overlays ONLY the chat column so the panel feels like a
            standalone card with its own top edge, per the Claude-style reference. */
-        <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", position: "relative" }}>
           {/* OmniPanel — always rendered, animated via width clip.
               Hidden on system channels (orchestrator has no workspace files
               or channel-specific pinned widgets worth surfacing).
@@ -1026,7 +1053,10 @@ export default function ChatScreen() {
   }
 
   return (
-    <div className="chat-fade-in" style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface, overflow: "hidden" }}>
+    <div
+      className={`chat-fade-in${entranceClassActive ? " chat-screen--entering-from-dock" : ""}`}
+      style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface, overflow: "hidden" }}
+    >
       {outerChildren}
       <ChannelModalMount />
     </div>

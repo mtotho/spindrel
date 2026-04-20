@@ -23,6 +23,7 @@ run_startup_as() {
 # container as an explicit --user.
 if [ "$(id -u)" = "0" ] && id spindrel >/dev/null 2>&1; then
     chown -R spindrel:spindrel /app 2>/dev/null || true
+    chown -R spindrel:spindrel /workspace-data 2>/dev/null || true
 
     # The spindrel user needs the host docker-socket GID in its group
     # list to use /var/run/docker.sock (integration sidecar containers,
