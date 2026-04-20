@@ -44,6 +44,7 @@ import { apiFetch, ApiError } from "../../../api/client";
 import type { ToolResultEnvelope } from "../../../types/api";
 import type { ThemeTokens } from "../../../theme/tokens";
 import { useThemeStore } from "../../../stores/theme";
+import { pushWidgetLog } from "../../../stores/widgetLog";
 import { useIsAdmin } from "../../../hooks/useScope";
 import { buildWidgetThemeCss, buildWidgetThemeObject } from "./widgetTheme";
 
@@ -547,6 +548,142 @@ function spindrelBootstrap(
     await dataSave(path, next);
     return next;
   }
+  // --- state: versioned data.load with forward migrations.
+  //   spec: { schema_version: N, migrations?: [{from, to, apply}], defaults? }
+  // On load: read file, read its __schema_version__ (default 1 if missing),
+  // run ordered migrations up to N, persist, return the upgraded object.
+  // Throws on downgrade (file version > declared) — widgets should refuse
+  // to touch data written by a newer bundle. Per-path mutex serialises
+  // concurrent state.load calls inside this window; cross-iframe coordination
+  // relies on the same RMW limitation as data.patch (documented in the skill).
+  const __stateLocks = {};
+  async function __withStateLock(path, fn) {
+    const prev = __stateLocks[path] || Promise.resolve();
+    let release;
+    const gate = new Promise(function (r) { release = r; });
+    __stateLocks[path] = prev.then(function () { return gate; });
+    try { await prev; } catch (_) { /* ignore prior errors */ }
+    try { return await fn(); } finally { release(); }
+  }
+  async function stateLoad(path, spec) {
+    const s = spec || {};
+    const declared = typeof s.schema_version === "number" ? s.schema_version : 1;
+    if (!Number.isFinite(declared) || declared < 1) {
+      throw new Error("spindrel.state: schema_version must be a positive integer");
+    }
+    const migrations = Array.isArray(s.migrations) ? s.migrations.slice() : [];
+    const defaults = s.defaults;
+    return __withStateLock(path, async function () {
+      const initial = await dataLoad(path, undefined);
+      let obj;
+      let fileVersion;
+      const hasInitial = initial !== undefined
+        && (typeof initial !== "object" || initial !== null);
+      if (!hasInitial || !isPlainObject(initial)) {
+        obj = defaults !== undefined ? deepClone(defaults) : {};
+        fileVersion = 0; // treat brand-new bundle as pre-v1
+      } else {
+        obj = deepClone(initial);
+        const v = obj.__schema_version__;
+        fileVersion = typeof v === "number" && v >= 1 ? v : 1;
+      }
+      if (fileVersion > declared) {
+        throw new Error(
+          "spindrel.state: " + path + " was written by schema v" + fileVersion +
+          " but the bundle declares v" + declared + " — refusing to downgrade"
+        );
+      }
+      let changed = fileVersion === 0; // brand-new file always persists version
+      let v = Math.max(1, fileVersion);
+      while (v < declared) {
+        const step = migrations.find(function (m) { return m && m.from === v; });
+        if (!step || typeof step.apply !== "function" || step.to !== v + 1) {
+          throw new Error(
+            "spindrel.state: missing migration from v" + v + " to v" + (v + 1) +
+            " for " + path
+          );
+        }
+        const result = await step.apply(obj);
+        if (isPlainObject(result)) obj = result;
+        v = step.to;
+        changed = true;
+      }
+      obj.__schema_version__ = declared;
+      if (changed) await dataSave(path, obj);
+      return obj;
+    });
+  }
+  async function stateSave(path, object) {
+    return __withStateLock(path, async function () {
+      const out = isPlainObject(object) ? Object.assign({}, object) : object;
+      // Preserve the caller's declared version if they supplied one; otherwise
+      // leave the existing field intact (rehydrate from disk if absent).
+      if (isPlainObject(out) && typeof out.__schema_version__ !== "number") {
+        try {
+          const disk = await dataLoad(path, undefined);
+          if (isPlainObject(disk) && typeof disk.__schema_version__ === "number") {
+            out.__schema_version__ = disk.__schema_version__;
+          }
+        } catch (_) { /* first save */ }
+      }
+      await dataSave(path, out);
+      return out;
+    });
+  }
+  async function statePatch(path, patch, spec) {
+    return __withStateLock(path, async function () {
+      const current = await stateLoadInner(path, spec);
+      const next = isPlainObject(current) && isPlainObject(patch)
+        ? deepMerge(current, patch)
+        : (patch !== undefined ? patch : current);
+      if (isPlainObject(next) && spec && typeof spec.schema_version === "number") {
+        next.__schema_version__ = spec.schema_version;
+      }
+      await dataSave(path, next);
+      return next;
+    });
+  }
+  // Internal variant used by statePatch so the outer patch lock isn't
+  // re-entered by the nested load. Shares migration semantics with
+  // stateLoad but does not acquire __stateLocks again.
+  async function stateLoadInner(path, spec) {
+    const s = spec || {};
+    const declared = typeof s.schema_version === "number" ? s.schema_version : 1;
+    const migrations = Array.isArray(s.migrations) ? s.migrations.slice() : [];
+    const defaults = s.defaults;
+    const initial = await dataLoad(path, undefined);
+    let obj;
+    let fileVersion;
+    if (!isPlainObject(initial)) {
+      obj = defaults !== undefined ? deepClone(defaults) : {};
+      fileVersion = 0;
+    } else {
+      obj = deepClone(initial);
+      const v = obj.__schema_version__;
+      fileVersion = typeof v === "number" && v >= 1 ? v : 1;
+    }
+    if (fileVersion > declared) {
+      throw new Error(
+        "spindrel.state: " + path + " was written by schema v" + fileVersion +
+        " but the bundle declares v" + declared + " — refusing to downgrade"
+      );
+    }
+    let v = Math.max(1, fileVersion);
+    while (v < declared) {
+      const step = migrations.find(function (m) { return m && m.from === v; });
+      if (!step || typeof step.apply !== "function" || step.to !== v + 1) {
+        throw new Error(
+          "spindrel.state: missing migration from v" + v + " to v" + (v + 1) +
+          " for " + path
+        );
+      }
+      const result = await step.apply(obj);
+      if (isPlainObject(result)) obj = result;
+      v = step.to;
+    }
+    obj.__schema_version__ = declared;
+    return obj;
+  }
   // One-line tool-dispatch helper. Wraps POST /api/v1/widget-actions so bots
   // don't re-write the same 15-line dance in every widget. Fills bot_id +
   // channel_id from the helper context; extras (display_label, widget_config,
@@ -574,6 +711,564 @@ function spindrelBootstrap(
     }
     return resp.envelope || null;
   }
+  // ───────────────────────────────────────────────────────────────────────
+  // Phase A SDK helpers (2026-04-19). See Track - Widget SDK in the vault
+  // for the full plan. These are pure client-side — no new backend infra.
+  // Scope: widget↔widget bus, TTL cache with dedup, host-chrome toasts,
+  // log ring buffer, minimal UI helpers (table, status), declarative form,
+  // uncaught-error forwarding to host chrome.
+  // ───────────────────────────────────────────────────────────────────────
+
+  // --- Bus: widget↔widget pubsub via BroadcastChannel, scoped per channel.
+  // User-dashboard cross-widget comms land when dashboard slug threads
+  // through the iframe props (Phase B). For now: channel-scoped only;
+  // falls back to a "global" scope if channelId is null.
+  const __busName = "spindrel:bus:" + (channelId || "global");
+  let __busChannel = null;
+  try {
+    __busChannel = typeof BroadcastChannel !== "undefined"
+      ? new BroadcastChannel(__busName)
+      : null;
+  } catch (_) { __busChannel = null; }
+  const __busSubs = new Map();
+  function __busEnsureWired() {
+    if (!__busChannel || __busChannel.__wired) return __busChannel;
+    __busChannel.__wired = true;
+    __busChannel.addEventListener("message", function (e) {
+      const msg = e.data || {};
+      const subs = __busSubs.get(msg.topic);
+      if (!subs) return;
+      for (const cb of subs) {
+        try { cb(msg.data, msg.topic); } catch (err) { console.error("spindrel.bus handler threw:", err); }
+      }
+    });
+    return __busChannel;
+  }
+  function busPublish(topic, data) {
+    if (typeof topic !== "string" || !topic) throw new Error("spindrel.bus.publish: topic required");
+    const ch = __busEnsureWired();
+    if (!ch) return;
+    try { ch.postMessage({ topic: topic, data: data }); } catch (_) { /* serialization error */ }
+  }
+  function busSubscribe(topic, cb) {
+    if (typeof topic !== "string" || !topic) throw new Error("spindrel.bus.subscribe: topic required");
+    if (typeof cb !== "function") throw new Error("spindrel.bus.subscribe: callback required");
+    __busEnsureWired();
+    let set = __busSubs.get(topic);
+    if (!set) { set = new Set(); __busSubs.set(topic, set); }
+    set.add(cb);
+    return function () {
+      const s = __busSubs.get(topic);
+      if (!s) return;
+      s.delete(cb);
+      if (s.size === 0) __busSubs.delete(topic);
+    };
+  }
+
+  // --- Stream: SSE multiplexer over the channel-events bus. Widgets
+  // subscribe to one or more ChannelEventKind values and receive typed
+  // events as they arrive. Uses fetch() + ReadableStream (not EventSource)
+  // so the widget bearer token rides in the Authorization header rather
+  // than leaking into a query string. Auto-reconnects on network drop
+  // with exponential backoff + since=lastSeq so the ring buffer fills the gap.
+  const __STREAM_KIND_WHITELIST = new Set([
+    "new_message","message_updated","turn_started","turn_stream_token",
+    "turn_stream_thinking","turn_stream_tool_start","turn_stream_tool_result",
+    "turn_ended","approval_requested","approval_resolved","attachment_deleted",
+    "delivery_failed","workflow_progress","heartbeat_tick","tool_activity",
+    "shutdown","replay_lapsed","context_budget","memory_scheme_bootstrap",
+    "pinned_file_updated","skill_auto_inject","llm_status","ephemeral_message",
+    "modal_submitted",
+  ]);
+  function __streamNormalizeArgs(a, b, c) {
+    // Overloaded:
+    //   stream(kind|kinds, cb)
+    //   stream(kind|kinds, filter, cb)
+    //   stream(optsObject, cb)
+    //   stream(optsObject, filter, cb)
+    let opts, filter, cb;
+    const firstIsOpts = a && typeof a === "object" && !Array.isArray(a);
+    if (firstIsOpts) { opts = a; }
+    else { opts = { kinds: a }; }
+    if (typeof b === "function" && c === undefined) { cb = b; }
+    else { filter = b; cb = c; }
+    if (typeof cb !== "function") throw new Error("spindrel.stream: callback required");
+    if (filter !== undefined && filter !== null && typeof filter !== "function") {
+      throw new Error("spindrel.stream: filter must be a function or omitted");
+    }
+    let kinds = opts.kinds;
+    if (typeof kinds === "string") kinds = [kinds];
+    if (kinds && !Array.isArray(kinds)) {
+      throw new Error("spindrel.stream: kinds must be a string, array of strings, or omitted");
+    }
+    if (kinds) {
+      for (const k of kinds) {
+        if (!__STREAM_KIND_WHITELIST.has(k)) {
+          throw new Error("spindrel.stream: unknown event kind '" + k + "'");
+        }
+      }
+    }
+    const cid = opts.channelId || channelId;
+    if (!cid) {
+      throw new Error("spindrel.stream: channelId required (widget has no host channel; pass opts.channelId)");
+    }
+    return { kinds: kinds || null, channelId: cid, since: typeof opts.since === "number" ? opts.since : null, filter: filter || null, cb: cb };
+  }
+  function stream(a, b, c) {
+    const args = __streamNormalizeArgs(a, b, c);
+    const controller = new AbortController();
+    let stopped = false;
+    let retry = 0;
+    let lastSeq = args.since;
+    async function connect() {
+      if (stopped) return;
+      const params = new URLSearchParams();
+      params.set("channel_id", args.channelId);
+      if (args.kinds && args.kinds.length) params.set("kinds", args.kinds.join(","));
+      if (typeof lastSeq === "number") params.set("since", String(lastSeq));
+      const url = "/api/v1/widget-actions/stream?" + params.toString();
+      let resp;
+      try {
+        resp = await apiFetch(url, { signal: controller.signal, headers: { Accept: "text/event-stream" } });
+      } catch (err) {
+        if (stopped || controller.signal.aborted) return;
+        scheduleReconnect();
+        return;
+      }
+      if (!resp.ok || !resp.body) {
+        if (stopped) return;
+        scheduleReconnect();
+        return;
+      }
+      retry = 0;
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done || stopped) break;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            let event;
+            try { event = JSON.parse(line.slice(6)); }
+            catch (_) { continue; }
+            if (typeof event.seq === "number") lastSeq = event.seq;
+            if (event.kind === "shutdown") { stopped = true; return; }
+            if (event.kind === "replay_lapsed") {
+              try { notify("warn", "Stream replay lapsed — some events may be missing."); } catch (_) {}
+              // Fall through — the widget also sees it via cb so it can refetch.
+            }
+            if (args.filter) {
+              let keep = true;
+              try { keep = !!args.filter(event); }
+              catch (err) { console.error("spindrel.stream filter threw:", err); keep = false; }
+              if (!keep) continue;
+            }
+            try { args.cb(event); }
+            catch (err) { console.error("spindrel.stream handler threw:", err); }
+          }
+        }
+      } catch (_) { /* reader error — fall through to reconnect */ }
+      if (!stopped) scheduleReconnect();
+    }
+    function scheduleReconnect() {
+      const delay = Math.min(1000 * Math.pow(2, retry), 30000);
+      retry = Math.min(retry + 1, 10);
+      setTimeout(function () { if (!stopped) connect(); }, delay);
+    }
+    connect();
+    return function unsubscribe() {
+      stopped = true;
+      try { controller.abort(); } catch (_) {}
+    };
+  }
+
+  // --- Cache: TTL'd Map with inflight dedup so concurrent get() for the
+  // same key share a single fetcher invocation.
+  const __cacheStore = new Map();
+  function cacheGet(key, ttlMs, fetcher) {
+    if (typeof key !== "string" || !key) throw new Error("spindrel.cache.get: key required");
+    const now = Date.now();
+    const hit = __cacheStore.get(key);
+    if (hit && hit.expires > now && hit.value !== undefined) return Promise.resolve(hit.value);
+    if (hit && hit.inflight) return hit.inflight;
+    if (typeof fetcher !== "function") {
+      return Promise.resolve(hit && hit.value !== undefined ? hit.value : undefined);
+    }
+    const ttl = typeof ttlMs === "number" && ttlMs > 0 ? ttlMs : 30000;
+    const p = Promise.resolve().then(fetcher).then(function (val) {
+      __cacheStore.set(key, { expires: Date.now() + ttl, value: val });
+      return val;
+    }).catch(function (err) {
+      __cacheStore.delete(key);
+      throw err;
+    });
+    __cacheStore.set(key, { inflight: p });
+    return p;
+  }
+  function cacheSet(key, value, ttlMs) {
+    const ttl = typeof ttlMs === "number" && ttlMs > 0 ? ttlMs : 30000;
+    __cacheStore.set(key, { expires: Date.now() + ttl, value: value });
+  }
+  function cacheClear(key) {
+    if (key === undefined) __cacheStore.clear();
+    else __cacheStore.delete(key);
+  }
+
+  // --- Notify: surface a status message to the host chrome as a toast
+  // rendered above the iframe. Levels: info / success / warn / error.
+  // Use for auth failures, submit confirmations, non-fatal errors the
+  // widget would otherwise swallow silently.
+  function notify(level, message) {
+    const lvl = (level === "warn" || level === "error" || level === "success") ? level : "info";
+    const msg = typeof message === "string"
+      ? message
+      : String(message == null ? "" : message);
+    try {
+      window.parent.postMessage(
+        { __spindrel: true, type: "notify", level: lvl, message: msg, ts: Date.now() },
+        "*"
+      );
+    } catch (_) { /* cross-origin or detached */ }
+  }
+
+  // --- Log: in-iframe ring buffer (cap 200) + forward to host for the
+  // future Dev Panel "Widget log" subtab. Not wired to the panel yet;
+  // the messages flow through postMessage so the receiver can pick them
+  // up without another iframe change.
+  const __logBuffer = [];
+  const __LOG_CAP = 200;
+  function __logPush(level, args) {
+    const entry = {
+      ts: Date.now(),
+      level: level,
+      message: Array.prototype.slice.call(args).map(function (a) {
+        if (typeof a === "string") return a;
+        try { return JSON.stringify(a); } catch (_) { return String(a); }
+      }).join(" "),
+    };
+    __logBuffer.push(entry);
+    if (__logBuffer.length > __LOG_CAP) __logBuffer.shift();
+    try {
+      window.parent.postMessage({ __spindrel: true, type: "log", entry: entry }, "*");
+    } catch (_) {}
+  }
+  const log = {
+    info:  function () { __logPush("info",  arguments); },
+    warn:  function () { __logPush("warn",  arguments); },
+    error: function () { __logPush("error", arguments); },
+    buffer: function () { return __logBuffer.slice(); },
+    clear:  function () { __logBuffer.length = 0; },
+  };
+
+  // --- UI helpers: minimal DOM-fragment builders using sd-* utility classes.
+  // No framework — ui.status replaces innerHTML; ui.table returns an HTML
+  // string so widgets can either set innerHTML or inject into a template.
+  function __coerceEl(elOrSelector) {
+    if (elOrSelector == null) throw new Error("spindrel.ui: element required");
+    if (typeof elOrSelector === "string") {
+      const el = document.querySelector(elOrSelector);
+      if (!el) throw new Error("spindrel.ui: selector '" + elOrSelector + "' matched nothing");
+      return el;
+    }
+    return elOrSelector;
+  }
+  function __esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function uiStatus(elOrSelector, state, opts) {
+    const el = __coerceEl(elOrSelector);
+    const o = opts || {};
+    if (state === "ready") { el.innerHTML = ""; return; }
+    if (state === "loading") {
+      const h = typeof o.height === "number" ? o.height : 60;
+      el.innerHTML = '<div class="sd-skeleton" style="height:' + h + 'px"></div>';
+      return;
+    }
+    if (state === "empty") {
+      el.innerHTML = '<div class="sd-empty">' + __esc(o.message || "Nothing to show") + '</div>';
+      return;
+    }
+    if (state === "error") {
+      el.innerHTML = '<div class="sd-error">' + __esc(o.message || "Something went wrong") + '</div>';
+      return;
+    }
+    throw new Error("spindrel.ui.status: unknown state '" + state + "'");
+  }
+  function uiTable(rows, columns, opts) {
+    const o = opts || {};
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return '<div class="sd-empty">' + __esc(o.emptyMessage || "No rows") + '</div>';
+    }
+    const cols = Array.isArray(columns) && columns.length > 0
+      ? columns
+      : Object.keys(rows[0] || {}).map(function (k) { return { key: k, label: k }; });
+    const thead = cols.map(function (c) {
+      return '<th style="text-align:' + (c.align || "left") + '">' +
+        __esc(c.label != null ? c.label : c.key) + '</th>';
+    }).join("");
+    const tbody = rows.map(function (row) {
+      const tds = cols.map(function (c) {
+        let v = row[c.key];
+        if (typeof c.format === "function") {
+          try { v = c.format(v, row); } catch (_) { /* fall back to raw */ }
+        }
+        const isHtml = c.html === true;
+        return '<td style="text-align:' + (c.align || "left") + '">' +
+          (isHtml ? (v == null ? "" : String(v)) : __esc(v)) + '</td>';
+      }).join("");
+      return '<tr>' + tds + '</tr>';
+    }).join("");
+    return '<table class="sd-table"><thead><tr>' + thead +
+      '</tr></thead><tbody>' + tbody + '</tbody></table>';
+  }
+
+  // --- ui.chart: minimal inline SVG line/bar/area helper. Sparkline-first:
+  // no axis, fills container width, theme.accent stroke. Data accepts a
+  // flat number[] or an array of {x?, y} points; x is i when omitted.
+  // Opts: { type?: "line"|"bar"|"area", height?, color?, min?, max?,
+  //   showAxis?, strokeWidth?, format?(v), emptyMessage?, label? }.
+  function uiChart(elOrSelector, data, opts) {
+    const el = __coerceEl(elOrSelector);
+    const o = opts || {};
+    const type = o.type || "line";
+    const height = typeof o.height === "number" ? o.height : 40;
+    const vbWidth = 200; // fixed viewBox; SVG scales to container width
+    const strokeWidth = typeof o.strokeWidth === "number" ? o.strokeWidth : 1.5;
+    const accent = (window.spindrel && window.spindrel.theme && window.spindrel.theme.accent) || "#3b82f6";
+    const color = o.color || accent;
+    const showAxis = o.showAxis === true;
+    const fmt = typeof o.format === "function" ? o.format : function (v) { return String(v); };
+
+    const arr = Array.isArray(data) ? data : [];
+    if (arr.length === 0) {
+      el.innerHTML = '<div class="sd-empty">' + __esc(o.emptyMessage || "No data") + '</div>';
+      return;
+    }
+    const points = arr.map(function (d, i) {
+      if (typeof d === "number") return { x: i, y: d };
+      if (d && typeof d === "object") {
+        const yn = typeof d.y === "number" ? d.y : Number(d.y);
+        const xn = typeof d.x === "number" ? d.x : (d.x != null ? Number(d.x) : i);
+        return { x: isFinite(xn) ? xn : i, y: isFinite(yn) ? yn : 0 };
+      }
+      return { x: i, y: 0 };
+    });
+
+    let minY = typeof o.min === "number" ? o.min : Infinity;
+    let maxY = typeof o.max === "number" ? o.max : -Infinity;
+    for (const p of points) {
+      if (typeof o.min !== "number" && p.y < minY) minY = p.y;
+      if (typeof o.max !== "number" && p.y > maxY) maxY = p.y;
+    }
+    if (!isFinite(minY)) minY = 0;
+    if (!isFinite(maxY)) maxY = 0;
+    if (minY === maxY) maxY = minY + 1; // flat line: pad so stroke sits mid-band
+
+    const padY = 2;
+    const innerH = Math.max(1, height - padY * 2);
+    const axisW = showAxis ? 28 : 0;
+    const innerW = Math.max(1, vbWidth - axisW - 2);
+
+    function sx(i) {
+      if (points.length === 1) return axisW + innerW / 2;
+      return axisW + (i / (points.length - 1)) * innerW;
+    }
+    function sy(y) {
+      const t = (y - minY) / (maxY - minY);
+      return padY + (1 - t) * innerH;
+    }
+
+    let body = "";
+    if (type === "bar") {
+      const step = innerW / points.length;
+      const barW = Math.max(0.5, step - 1);
+      for (let i = 0; i < points.length; i++) {
+        const x = axisW + i * step;
+        const y = sy(points[i].y);
+        const h = (padY + innerH) - y;
+        body += '<rect x="' + x.toFixed(2) + '" y="' + y.toFixed(2) +
+          '" width="' + barW.toFixed(2) + '" height="' + Math.max(0, h).toFixed(2) +
+          '" fill="' + __esc(color) + '" vector-effect="non-scaling-stroke" />';
+      }
+    } else {
+      const d = points.map(function (p, i) {
+        return (i === 0 ? "M" : "L") + sx(i).toFixed(2) + "," + sy(p.y).toFixed(2);
+      }).join(" ");
+      if (type === "area") {
+        const fill = d +
+          " L" + sx(points.length - 1).toFixed(2) + "," + (padY + innerH).toFixed(2) +
+          " L" + sx(0).toFixed(2) + "," + (padY + innerH).toFixed(2) + " Z";
+        body += '<path d="' + fill + '" fill="' + __esc(color) +
+          '" fill-opacity="0.18" stroke="none" vector-effect="non-scaling-stroke" />';
+      }
+      body += '<path d="' + d + '" fill="none" stroke="' + __esc(color) +
+        '" stroke-width="' + strokeWidth + '" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" />';
+    }
+
+    let axis = "";
+    if (showAxis) {
+      const tickStyle = 'font-size="9" fill="currentColor" font-family="inherit" opacity="0.55"';
+      axis =
+        '<text x="' + (axisW - 2) + '" y="' + (padY + 6) + '" text-anchor="end" ' + tickStyle + '>' + __esc(fmt(maxY)) + '</text>' +
+        '<text x="' + (axisW - 2) + '" y="' + (padY + innerH) + '" text-anchor="end" ' + tickStyle + '>' + __esc(fmt(minY)) + '</text>';
+    }
+
+    const title = o.label ? '<title>' + __esc(o.label) + '</title>' : '';
+    el.innerHTML =
+      '<svg viewBox="0 0 ' + vbWidth + ' ' + height + '" ' +
+      'width="100%" height="' + height + '" preserveAspectRatio="none" ' +
+      'style="display:block;overflow:visible">' +
+      title + axis + body +
+      '</svg>';
+  }
+
+  // --- Form: declarative form renderer with sd-* styling + validation.
+  // spec: { fields: [{name, label, type, required, options, placeholder,
+  //   validate?(value, values) → string|undefined}],
+  //   initial?, onSubmit(values, api), submitLabel?, submittingLabel?,
+  //   resetOnSubmit? }
+  // Returns { values, set(patch), reset(), submit() }.
+  function form(elOrSelector, spec) {
+    const el = __coerceEl(elOrSelector);
+    const fields = (spec && spec.fields) || [];
+    if (!Array.isArray(fields)) throw new Error("spindrel.form: spec.fields must be an array");
+    const initial = (spec && spec.initial) || {};
+    const state = { values: Object.assign({}, initial), submitting: false, errors: {} };
+
+    function renderField(f) {
+      const val = state.values[f.name] != null ? state.values[f.name] : "";
+      const err = state.errors[f.name];
+      const required = f.required ? " required" : "";
+      const fid = "__sdf_" + __esc(f.name);
+      const label = '<label class="sd-label" for="' + fid + '">' +
+        __esc(f.label != null ? f.label : f.name) +
+        (f.required ? ' <span class="sd-required">*</span>' : '') + '</label>';
+      let input;
+      if (f.type === "textarea") {
+        input = '<textarea class="sd-textarea" id="' + fid + '" name="' + __esc(f.name) + '"' +
+          required + (f.placeholder ? ' placeholder="' + __esc(f.placeholder) + '"' : '') +
+          '>' + __esc(val) + '</textarea>';
+      } else if (f.type === "select") {
+        const opts = (f.options || []).map(function (opt) {
+          const o = typeof opt === "string" ? { value: opt, label: opt } : opt;
+          const selected = String(val) === String(o.value) ? " selected" : "";
+          return '<option value="' + __esc(o.value) + '"' + selected + '>' +
+            __esc(o.label != null ? o.label : o.value) + '</option>';
+        }).join("");
+        input = '<select class="sd-select" id="' + fid + '" name="' + __esc(f.name) + '"' +
+          required + '>' + opts + '</select>';
+      } else if (f.type === "checkbox") {
+        const checked = val ? " checked" : "";
+        input = '<input type="checkbox" class="sd-checkbox" id="' + fid +
+          '" name="' + __esc(f.name) + '"' + checked + ' />';
+      } else {
+        input = '<input type="' + __esc(f.type || "text") + '" class="sd-input" id="' + fid +
+          '" name="' + __esc(f.name) + '"' + required +
+          ' value="' + __esc(val) + '"' +
+          (f.placeholder ? ' placeholder="' + __esc(f.placeholder) + '"' : '') + ' />';
+      }
+      const errHtml = err ? '<div class="sd-error" style="font-size:12px;margin-top:4px">' +
+        __esc(err) + '</div>' : '';
+      return '<div class="sd-stack-sm" data-field="' + __esc(f.name) + '">' +
+        label + input + errHtml + '</div>';
+    }
+
+    function render() {
+      const submitLabel = (spec && spec.submitLabel) || "Submit";
+      el.innerHTML =
+        '<form class="sd-stack" novalidate>' +
+        fields.map(renderField).join("") +
+        '<div class="sd-hstack sd-hstack-between">' +
+        '<div class="sd-meta" data-form-status></div>' +
+        '<button type="submit" class="sd-btn sd-btn-primary" data-form-submit' +
+        (state.submitting ? ' disabled' : '') + '>' +
+        __esc(state.submitting ? (spec.submittingLabel || "Working…") : submitLabel) +
+        '</button></div></form>';
+      const formEl = el.querySelector("form");
+      formEl.addEventListener("input", function (e) {
+        const t = e.target;
+        if (!t || !t.name) return;
+        state.values[t.name] = t.type === "checkbox" ? t.checked : t.value;
+      });
+      formEl.addEventListener("submit", function (e) {
+        e.preventDefault();
+        handleSubmit();
+      });
+    }
+
+    async function handleSubmit() {
+      if (state.submitting) return;
+      state.errors = {};
+      for (const f of fields) {
+        const v = state.values[f.name];
+        if (f.required && (v == null || v === "" || v === false)) {
+          state.errors[f.name] = "Required";
+        } else if (typeof f.validate === "function") {
+          try {
+            const r = await f.validate(v, state.values);
+            if (typeof r === "string" && r) state.errors[f.name] = r;
+          } catch (err) {
+            state.errors[f.name] = (err && err.message) || "Invalid";
+          }
+        }
+      }
+      if (Object.keys(state.errors).length > 0) { render(); return; }
+      if (typeof (spec && spec.onSubmit) !== "function") { render(); return; }
+      state.submitting = true;
+      render();
+      try {
+        await spec.onSubmit(Object.assign({}, state.values), { api: api, apiFetch: apiFetch });
+        if (spec.resetOnSubmit) state.values = Object.assign({}, initial);
+      } catch (err) {
+        const status = el.querySelector("[data-form-status]");
+        const msg = (err && err.message) || "Submit failed";
+        if (status) status.innerHTML = '<span class="sd-error">' + __esc(msg) + '</span>';
+        notify("error", msg);
+      } finally {
+        state.submitting = false;
+        render();
+      }
+    }
+
+    render();
+    return {
+      get values() { return Object.assign({}, state.values); },
+      set: function (patch) { Object.assign(state.values, patch || {}); render(); },
+      reset: function () { state.values = Object.assign({}, initial); state.errors = {}; render(); },
+      submit: handleSubmit,
+    };
+  }
+
+  // --- Error boundary: forward uncaught errors to host chrome so the
+  // widget card surfaces a banner instead of the widget going silently
+  // dead. Host chrome re-renders with a Reload action.
+  window.addEventListener("error", function (e) {
+    try {
+      window.parent.postMessage({
+        __spindrel: true, type: "error",
+        message: (e.error && e.error.message) || e.message || "Uncaught error",
+        source: e.filename || null, lineno: e.lineno || null,
+      }, "*");
+    } catch (_) {}
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    try {
+      const reason = e.reason;
+      const msg = (reason && reason.message) || String(reason == null ? "Promise rejected" : reason);
+      window.parent.postMessage({
+        __spindrel: true, type: "error",
+        message: msg, source: "unhandledrejection", lineno: null,
+      }, "*");
+    } catch (_) {}
+  });
+
   window.spindrel = {
     channelId: channelId,
     botId: botId,
@@ -597,6 +1292,29 @@ function spindrelBootstrap(
       save: dataSave,
       patch: dataPatch,
     },
+    state: {
+      load: stateLoad,
+      save: stateSave,
+      patch: statePatch,
+    },
+    bus: {
+      publish: busPublish,
+      subscribe: busSubscribe,
+    },
+    stream: stream,
+    cache: {
+      get: cacheGet,
+      set: cacheSet,
+      clear: cacheClear,
+    },
+    notify: notify,
+    log: log,
+    ui: {
+      status: uiStatus,
+      table: uiTable,
+      chart: uiChart,
+    },
+    form: form,
     onToolResult: onToolResult,
     onConfig: onConfig,
     onTheme: onTheme,
@@ -815,6 +1533,89 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
     const id = setInterval(() => setTick((n) => n + 1), 10_000);
     return () => clearInterval(id);
   }, [pathMode]);
+
+  // Host-side receiver for `spindrel.notify` / `spindrel.log` / uncaught
+  // iframe errors. Iframes postMessage up to the parent window; we filter
+  // by `event.source === iframeRef.current.contentWindow` so widgets in
+  // other iframes don't bleed their toasts into this card.
+  // Phase A SDK — extended in Phase B to feed the Dev Panel widget log subtab.
+  type Toast = { id: number; level: "info" | "success" | "warn" | "error"; message: string };
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [widgetError, setWidgetError] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  // Capture envelope context for log enrichment via ref so the handler's
+  // one-time `useEffect` doesn't stale-close over pinId / bot / channel when
+  // a re-mint swaps the token (bot_name lands after the first paint).
+  const logContextRef = useRef({
+    pinId: dashboardPinId ?? null,
+    channelId: effectiveChannelId ?? null,
+    botId: sourceBotId,
+    botName: botName ?? null,
+    widgetPath: sourcePath,
+  });
+  useEffect(() => {
+    logContextRef.current = {
+      pinId: dashboardPinId ?? null,
+      channelId: effectiveChannelId ?? null,
+      botId: sourceBotId,
+      botName: botName ?? null,
+      widgetPath: sourcePath,
+    };
+  }, [dashboardPinId, effectiveChannelId, sourceBotId, botName, sourcePath]);
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const iframe = iframeRef.current;
+      if (!iframe) return;
+      if (event.source !== iframe.contentWindow) return;
+      const data = event.data as
+        | {
+            __spindrel?: true;
+            type?: string;
+            level?: string;
+            message?: string;
+            entry?: { ts?: number; level?: string; message?: string };
+          }
+        | null
+        | undefined;
+      if (!data || data.__spindrel !== true) return;
+      if (data.type === "notify") {
+        const id = Date.now() + Math.random();
+        const lvl = (data.level === "warn" || data.level === "error" || data.level === "success")
+          ? data.level
+          : "info";
+        const msg = typeof data.message === "string" ? data.message : "";
+        setToasts((prev) => [...prev.slice(-4), { id, level: lvl as Toast["level"], message: msg }]);
+        window.setTimeout(() => {
+          setToasts((prev) => prev.filter((t) => t.id !== id));
+        }, 4000);
+      } else if (data.type === "error") {
+        setWidgetError(typeof data.message === "string" ? data.message : "Widget crashed");
+      } else if (data.type === "log") {
+        const entry = data.entry || {};
+        const rawLevel = entry.level;
+        const level = rawLevel === "warn" || rawLevel === "error" ? rawLevel : "info";
+        const ctx = logContextRef.current;
+        pushWidgetLog({
+          ts: typeof entry.ts === "number" ? entry.ts : Date.now(),
+          level,
+          message: typeof entry.message === "string" ? entry.message : "",
+          pinId: ctx.pinId,
+          channelId: ctx.channelId,
+          botId: ctx.botId,
+          botName: ctx.botName,
+          widgetPath: ctx.widgetPath,
+        });
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+  const toastTone = (level: Toast["level"]) => {
+    if (level === "error") return { fg: t.danger, bg: t.dangerSubtle };
+    if (level === "warn") return { fg: t.warning, bg: t.warningSubtle };
+    if (level === "success") return { fg: t.success, bg: t.successSubtle };
+    return { fg: t.textMuted, bg: t.overlayLight };
+  };
 
   const rawBody = useMemo(() => {
     if (pathMode) return fileQuery.data?.content ?? "";
@@ -1107,7 +1908,91 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
           {formatRelative(lastUpdated)}
         </div>
       )}
+      {widgetError && (
+        <div
+          role="alert"
+          style={{
+            padding: "6px 10px",
+            fontSize: 11,
+            color: t.danger,
+            background: t.dangerSubtle,
+            borderBottom: `1px solid ${t.surfaceBorder}`,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            Widget error: {widgetError}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setWidgetError(null);
+              setReloadNonce((n) => n + 1);
+            }}
+            style={{
+              appearance: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 8px",
+              fontSize: 11,
+              color: t.text,
+              background: t.surfaceOverlay,
+              border: `1px solid ${t.surfaceBorder}`,
+              borderRadius: 4,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            <RefreshCw size={10} />
+            Reload
+          </button>
+        </div>
+      )}
+      {toasts.length > 0 && (
+        <div
+          aria-live="polite"
+          style={{
+            position: "absolute",
+            top: 6,
+            left: 8,
+            right: 40,
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+            zIndex: 2,
+            pointerEvents: "none",
+          }}
+        >
+          {toasts.map((toast) => {
+            const tone = toastTone(toast.level);
+            return (
+              <div
+                key={toast.id}
+                style={{
+                  padding: "4px 8px",
+                  fontSize: 11,
+                  color: tone.fg,
+                  background: tone.bg,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  borderRadius: 4,
+                  pointerEvents: "auto",
+                  cursor: "pointer",
+                }}
+                onClick={() =>
+                  setToasts((prev) => prev.filter((x) => x.id !== toast.id))
+                }
+              >
+                {toast.message}
+              </div>
+            );
+          })}
+        </div>
+      )}
       <iframe
+        key={`widget-iframe-${reloadNonce}`}
         ref={iframeRef}
         srcDoc={wrapHtml(
           bodyWithoutPreamble,

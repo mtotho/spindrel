@@ -32,6 +32,23 @@ logger = logging.getLogger(__name__)
             "required": ["attachment_id"],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "type": {"type": "string"},
+        "filename": {"type": ["string", "null"]},
+        "mime_type": {"type": ["string", "null"]},
+        "size_bytes": {"type": ["integer", "null"]},
+        "posted_by": {"type": ["string", "null"]},
+        "posted_at": {"type": ["string", "null"]},
+        "source_integration": {"type": ["string", "null"]},
+        "description": {"type": ["string", "null"]},
+        "description_model": {"type": ["string", "null"]},
+        "described_at": {"type": ["string", "null"]},
+        "has_file_data": {"type": "boolean"},
+        "error": {"type": "string"},
+    },
 })
 async def get_attachment(attachment_id: str) -> str:
     from app.services.attachments import get_attachment_by_id
@@ -96,7 +113,33 @@ async def get_attachment(attachment_id: str) -> str:
             "required": [],
         },
     },
-}, requires_channel_context=True)
+}, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "attachments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "filename": {"type": ["string", "null"]},
+                    "type": {"type": "string"},
+                    "mime_type": {"type": ["string", "null"]},
+                    "size_bytes": {"type": ["integer", "null"]},
+                    "description": {"type": ["string", "null"]},
+                    "posted_by": {"type": ["string", "null"]},
+                    "posted_at": {"type": ["string", "null"]},
+                },
+                "required": ["id"],
+            },
+        },
+        "page": {"type": "integer"},
+        "total_pages": {"type": "integer"},
+        "total_count": {"type": "integer"},
+        "showing": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def list_attachments(
     channel_id: str | None = None,
     limit: int = 5,
@@ -194,6 +237,13 @@ async def list_attachments(
             "required": ["attachment_id"],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "injected_images": {"type": "array", "items": {"type": "object"}},
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
 })
 async def view_attachment(attachment_id: str) -> str:
     from app.services.attachments import get_attachment_by_id
@@ -246,6 +296,14 @@ async def view_attachment(attachment_id: str) -> str:
             },
             "required": ["attachment_id"],
         },
+    },
+}, returns={
+    "type": "object",
+    "properties": {
+        "attachment_id": {"type": "string"},
+        "filename": {"type": ["string", "null"]},
+        "description": {"type": "string"},
+        "error": {"type": "string"},
     },
 })
 async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
@@ -337,6 +395,14 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
             "required": ["attachment_id"],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "deleted": {"type": "boolean"},
+        "integration_deleted": {"type": "boolean"},
+        "error": {"type": "string"},
+    },
 })
 async def delete_attachment(attachment_id: str) -> str:
     from app.services.attachments import delete_attachment as _delete
@@ -377,7 +443,26 @@ async def delete_attachment(attachment_id: str) -> str:
             "required": [],
         },
     },
-}, requires_channel_context=True)
+}, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "message": {"type": "string"},
+        "deleted_count": {"type": "integer"},
+        "deleted": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "filename": {"type": ["string", "null"]},
+                    "type": {"type": "string"},
+                    "integration_deleted": {"type": "boolean"},
+                },
+            },
+        },
+        "error": {"type": "string"},
+    },
+})
 async def delete_recent_attachments(
     max_age_seconds: int = 120,
     type_filter: str | None = None,
@@ -463,7 +548,15 @@ async def delete_recent_attachments(
             "required": ["attachment_id", "path"],
         },
     },
-}, requires_bot_context=True)
+}, requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "saved": {"type": "string"},
+        "filename": {"type": ["string", "null"]},
+        "size_bytes": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def save_attachment(attachment_id: str, path: str) -> str:
     from app.agent.context import current_bot_id
     from app.services.attachments import get_attachment_by_id

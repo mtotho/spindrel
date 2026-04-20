@@ -150,6 +150,44 @@ def ensure_channel_workspace(
     return ws_path
 
 
+async def backfill_knowledge_base_dirs() -> int:
+    """Walk every existing channel and ensure its knowledge-base/ subdir exists.
+
+    One-shot startup backfill for the KB convention (shipped 2026-04-19).
+    Channels created before that date never had `ensure_channel_workspace`
+    create the folder, so existing OmniPanel views show no KB row until the
+    next message is sent in the channel. Idempotent — `mkdirs(exist_ok=True)`
+    is a no-op when the folder is already there.
+
+    Returns the number of channels touched (rows iterated, not folders newly
+    created).
+    """
+    from app.db.engine import async_session
+    from app.db.models import Channel
+    from app.agent.bots import get_bot
+    from sqlalchemy import select
+
+    count = 0
+    async with async_session() as db:
+        result = await db.execute(select(Channel.id, Channel.bot_id))
+        rows = result.all()
+        for ch_id, bot_id in rows:
+            if not bot_id:
+                continue
+            try:
+                bot = get_bot(bot_id)
+            except Exception:
+                continue
+            try:
+                ws_path = get_channel_workspace_root(str(ch_id), bot)
+                kb_path = os.path.join(ws_path, "knowledge-base")
+                os.makedirs(kb_path, exist_ok=True)
+                count += 1
+            except Exception:
+                logger.warning("KB backfill failed for channel %s", ch_id, exc_info=True)
+    return count
+
+
 def list_workspace_files(
     channel_id: str,
     bot: "BotConfig",

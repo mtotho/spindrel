@@ -484,6 +484,8 @@ class BotUpdateIn(BaseModel):
     tool_retrieval: Optional[bool] = None
     tool_discovery: Optional[bool] = None
     tool_similarity_threshold: Optional[float] = None
+    max_iterations: Optional[int] = None
+    max_script_tool_calls: Optional[int] = None
     tool_result_config: Optional[dict] = None
     persona: Optional[bool] = None
     persona_content: Optional[str] = None
@@ -675,6 +677,8 @@ class BotCreateIn(BaseModel):
     tool_retrieval: Optional[bool] = True
     tool_discovery: Optional[bool] = True
     tool_similarity_threshold: Optional[float] = None
+    max_iterations: Optional[int] = None
+    max_script_tool_calls: Optional[int] = None
     tool_result_config: Optional[dict] = None
     persona: Optional[bool] = False
     persona_content: Optional[str] = None

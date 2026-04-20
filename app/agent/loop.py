@@ -353,7 +353,15 @@ async def run_agent_tool_loop(
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
     """
-    effective_max_iterations = max_iterations or settings.AGENT_MAX_ITERATIONS
+    # Resolve the per-turn tool-call cap. Channel override wins; bot-level
+    # override is the middle fallback; global settings default is the floor.
+    # ``max_iterations`` passed in from the caller already reflects the
+    # channel override (context_assembly sets it from Channel.max_iterations).
+    effective_max_iterations = (
+        max_iterations
+        or getattr(bot, "max_iterations", None)
+        or settings.AGENT_MAX_ITERATIONS
+    )
     model = model_override or bot.model
     provider_id = _resolve_effective_provider(model_override, provider_id_override, bot.model_provider_id)
 

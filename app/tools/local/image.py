@@ -162,7 +162,25 @@ async def _resolve_attachments(attachment_ids: list[str]) -> tuple[list, str | N
             "required": ["prompt"],
         },
     },
-}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "message": {"type": "string"},
+        "prompt": {"type": "string"},
+        "model": {"type": "string"},
+        "images": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "attachment_id": {"type": "string"},
+                    "filename": {"type": "string"},
+                },
+            },
+        },
+        "error": {"type": "string"},
+    },
+})
 async def generate_image_tool(
     prompt: str,
     model: str | None = None,
@@ -257,6 +275,13 @@ async def generate_image_tool(
         # Gemini via LiteLLM returns .b64_json
         b64: str | None = getattr(item, "b64_json", None) or getattr(item, "b64", None)
         if not b64 and getattr(item, "url", None):
+            from app.services.url_safety import UnsafePublicURLError, assert_public_url
+
+            try:
+                await assert_public_url(item.url)
+            except UnsafePublicURLError as e:
+                logger.warning("Refusing unsafe image URL %d (%s): %s", idx, item.url, e)
+                continue
             try:
                 async with httpx.AsyncClient(timeout=60.0) as ac:
                     r = await ac.get(item.url)

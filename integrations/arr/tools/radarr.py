@@ -130,7 +130,36 @@ async def _put(path: str, payload: dict, timeout: float = 15.0):
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "total_in_library": {
+                "type": "integer"
+            },
+            "movies": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "page": {
+                "type": "object"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def radarr_movies(search: str | None = None, name: str | None = None, filter: str | None = None, limit: int = 50) -> str:
     if not settings.RADARR_URL:
         return error("RADARR_URL is not configured")
@@ -226,7 +255,33 @@ async def radarr_movies(search: str | None = None, name: str | None = None, filt
             "required": ["movie_id"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string"
+            },
+            "id": {
+                "type": "integer"
+            },
+            "title": {
+                "type": "string"
+            },
+            "quality_profile_id": {
+                "type": "integer"
+            },
+            "monitored": {
+                "type": "boolean"
+            },
+            "minimum_availability": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def radarr_movie_update(
     movie_id: int,
     quality_profile_id: int | None = None,
@@ -290,7 +345,27 @@ async def radarr_movie_update(
             "required": ["action"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string"
+            },
+            "command_id": {
+                "type": "integer"
+            },
+            "action": {
+                "type": "string"
+            },
+            "message": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def radarr_command(
     action: str,
     movie_ids: list[int] | None = None,
@@ -333,7 +408,24 @@ async def radarr_command(
             "properties": {},
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def radarr_queue() -> str:
     if not settings.RADARR_URL:
         return error("RADARR_URL is not configured")
@@ -411,7 +503,30 @@ async def radarr_queue() -> str:
             "required": ["action"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "releases": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "status": {
+                "type": "string"
+            },
+            "message": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def radarr_releases(
     action: str,
     movie_id: int | None = None,
@@ -488,7 +603,24 @@ async def radarr_releases(
             "required": ["movie_id"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "events": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def radarr_history(movie_id: int, limit: int = 30) -> str:
     if not settings.RADARR_URL:
         return error("RADARR_URL is not configured")
@@ -555,7 +687,27 @@ async def radarr_history(movie_id: int, limit: int = 30) -> str:
             "required": ["queue_ids"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "removed": {
+                "type": "integer"
+            },
+            "errors": {
+                "type": "integer"
+            },
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def radarr_queue_manage(
     queue_ids: list[int],
     blocklist: bool = False,
@@ -641,7 +793,39 @@ def _format_quality_profile(profile: dict) -> dict:
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "profiles": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "id": {
+                "type": "integer"
+            },
+            "name": {
+                "type": "string"
+            },
+            "cutoff": {
+                "type": "string"
+            },
+            "upgrade_allowed": {
+                "type": "boolean"
+            },
+            "qualities": {
+                "type": "array"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def radarr_quality_profiles(profile_id: int | None = None) -> str:
     if not settings.RADARR_URL:
         return error("RADARR_URL is not configured")
@@ -700,7 +884,30 @@ async def radarr_quality_profiles(profile_id: int | None = None) -> str:
             "required": ["profile_id"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "integer"
+            },
+            "name": {
+                "type": "string"
+            },
+            "cutoff": {
+                "type": "string"
+            },
+            "upgrade_allowed": {
+                "type": "boolean"
+            },
+            "qualities": {
+                "type": "array"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def radarr_quality_profile_update(
     profile_id: int,
     upgrade_allowed: bool | None = None,
@@ -781,7 +988,24 @@ async def radarr_quality_profile_update(
             "properties": {},
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "indexers": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def radarr_indexers() -> str:
     if not settings.RADARR_URL:
         return error("RADARR_URL is not configured")

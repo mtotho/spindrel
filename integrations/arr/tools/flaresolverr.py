@@ -81,7 +81,39 @@ def _summarize_solution(solution: dict) -> dict:
             "properties": {},
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string"
+            },
+            "base_url": {
+                "type": "string"
+            },
+            "version": {
+                "type": "string"
+            },
+            "fs_message": {
+                "type": "string"
+            },
+            "session_count": {
+                "type": "integer"
+            },
+            "active_sessions": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "response_ms": {
+                "type": "integer"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def flaresolverr_health() -> str:
     if not settings.FLARESOLVERR_URL:
         return error("FLARESOLVERR_URL is not configured")
@@ -141,7 +173,36 @@ async def flaresolverr_health() -> str:
             "required": ["action"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string"
+            },
+            "version": {
+                "type": "string"
+            },
+            "session_count": {
+                "type": "integer"
+            },
+            "sessions": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "session_id": {
+                "type": "string"
+            },
+            "message": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def flaresolverr_sessions(
     action: str,
     session_id: str | None = None,
@@ -231,7 +292,51 @@ async def flaresolverr_sessions(
             "required": ["url"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "fs_status": {
+                "type": "string"
+            },
+            "fs_message": {
+                "type": "string"
+            },
+            "fs_version": {
+                "type": "string"
+            },
+            "response_ms": {
+                "type": "integer"
+            },
+            "fetched_url": {
+                "type": "string"
+            },
+            "solution_status": {
+                "type": "integer"
+            },
+            "solution_url": {
+                "type": "string"
+            },
+            "user_agent": {
+                "type": "string"
+            },
+            "response_size": {
+                "type": "integer"
+            },
+            "cookie_count": {
+                "type": "integer"
+            },
+            "cf_clearance": {
+                "type": "boolean"
+            },
+            "has_turnstile_token": {
+                "type": "boolean"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def flaresolverr_test_fetch(
     url: str,
     session_id: str | None = None,
@@ -293,7 +398,36 @@ async def flaresolverr_test_fetch(
             "properties": {},
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string"
+            },
+            "destroyed_count": {
+                "type": "integer"
+            },
+            "destroyed": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "failed": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "version": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def flaresolverr_destroy_all_sessions() -> str:
     if not settings.FLARESOLVERR_URL:
         return error("FLARESOLVERR_URL is not configured")

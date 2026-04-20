@@ -1,14 +1,47 @@
 #!/bin/bash
 set -e
 
-# Run workspace startup script if present (lives on persistent volume).
-# Integrations and bots can append install commands here; they survive
-# container restarts and image rebuilds.
 STARTUP_SCRIPT="${WORKSPACE_DATA_DIR:-/workspace-data}/startup.sh"
-if [ -f "$STARTUP_SCRIPT" ]; then
-    echo "[entrypoint] Running workspace startup script: $STARTUP_SCRIPT"
-    bash "$STARTUP_SCRIPT"
+
+run_startup_as() {
+    if [ -f "$STARTUP_SCRIPT" ]; then
+        if [ -n "$1" ]; then
+            echo "[entrypoint] Running workspace startup script as $1: $STARTUP_SCRIPT"
+            gosu "$1" bash "$STARTUP_SCRIPT"
+        else
+            echo "[entrypoint] Running workspace startup script: $STARTUP_SCRIPT"
+            bash "$STARTUP_SCRIPT"
+        fi
+    fi
+}
+
+# Drop from root to the unprivileged 'spindrel' user when possible.
+# Keeps any RCE (e.g. via workspace exec, malicious tool, compromised
+# bot) contained to UID 1000 instead of host-root. Volume ownership is
+# left to the host; if the host user is not UID 1000, set it manually
+# once (chown -R 1000:1000 <volume>) or skip this branch by running the
+# container as an explicit --user.
+if [ "$(id -u)" = "0" ] && id spindrel >/dev/null 2>&1; then
+    chown -R spindrel:spindrel /app 2>/dev/null || true
+
+    # The spindrel user needs the host docker-socket GID in its group
+    # list to use /var/run/docker.sock (integration sidecar containers,
+    # docker_stacks service).
+    if [ -S /var/run/docker.sock ]; then
+        DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+        if ! getent group "$DOCKER_GID" >/dev/null 2>&1; then
+            groupadd -g "$DOCKER_GID" hostdocker >/dev/null 2>&1 || true
+        fi
+        GROUP_NAME="$(getent group "$DOCKER_GID" | cut -d: -f1 || true)"
+        if [ -n "$GROUP_NAME" ]; then
+            usermod -aG "$GROUP_NAME" spindrel >/dev/null 2>&1 || true
+        fi
+    fi
+
+    run_startup_as spindrel
+    exec gosu spindrel uvicorn app.main:app --host 0.0.0.0 --port 8000
 fi
 
-# Start the server
+# Fallback: non-root base image or spindrel user unavailable. Run as-is.
+run_startup_as ""
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000

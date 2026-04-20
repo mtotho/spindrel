@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { useUIStore } from "@/src/stores/ui";
-import { Check, Info, LayoutDashboard, Move, Plus, Wrench } from "lucide-react";
+import { useKioskMode } from "@/src/hooks/useKioskMode";
+import { Check, Info, LayoutDashboard, Maximize2, Minimize2, Move, Plus, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
 import {
@@ -28,6 +29,7 @@ import { CreateDashboardSheet } from "./CreateDashboardSheet";
 import { EditDashboardDrawer } from "./EditDashboardDrawer";
 import { ChannelDashboardBreadcrumb } from "./ChannelDashboardBreadcrumb";
 import { EditModeGridGuides } from "./EditModeGridGuides";
+import { KioskExitChip } from "./KioskExitChip";
 import {
   channelIdFromSlug,
   channelSlug,
@@ -135,6 +137,19 @@ export default function WidgetsDashboardPage() {
     () => pins.filter((p) => isRailPin(p, preset.railZoneCols)).length,
     [pins, preset.railZoneCols],
   );
+  /** Panel-mode short-circuit: when the dashboard's `grid_config.layout_mode`
+   *  is `'panel'` AND a panel pin exists, the right side becomes the panel
+   *  pin and the left becomes a narrow RGL strip with rail-zone pins only.
+   *  When the mode is set but no pin carries `is_main_panel` (e.g. the panel
+   *  pin was just unpinned), we fall back to grid mode rather than render
+   *  an empty main area — the server's delete cascade also flips the mode
+   *  back, but the UI guards in case a stale dashboards.list is in flight. */
+  const layoutMode = currentDashboard?.grid_config?.layout_mode ?? "grid";
+  const panelPin = useMemo(
+    () => pins.find((p) => p.is_main_panel) ?? null,
+    [pins],
+  );
+  const inPanelMode = layoutMode === "panel" && panelPin !== null;
   /** While a widget is being dragged in edit mode, this tracks the dragging
    *  item's `x`. Drives the rail-divider's "you're entering the rail zone"
    *  active state in `EditModeGridGuides`. Cleared on drag stop. */
@@ -151,6 +166,7 @@ export default function WidgetsDashboardPage() {
     return max;
   }, [pins]);
 
+  const { kiosk, enterKiosk, exitKiosk, idle: kioskIdle } = useKioskMode();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   /** Current RGL breakpoint. We only persist layout edits at `lg` — smaller
@@ -309,6 +325,21 @@ export default function WidgetsDashboardPage() {
           </span>
         </button>
       )}
+      {/* Kiosk — presentation mode. Desktop-only (fullscreen API is flaky
+          on touch) and hidden while editing so we can't accidentally kiosk
+          mid-drag. */}
+      {pins.length > 0 && !isMobile && !editMode && (
+        <button
+          type="button"
+          onClick={kiosk ? exitKiosk : enterKiosk}
+          className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
+          aria-label={kiosk ? "Exit kiosk mode" : "Enter kiosk mode"}
+          title={kiosk ? "Exit kiosk (Esc)" : "Kiosk (fullscreen presentation)"}
+        >
+          {kiosk ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          <span className="hidden md:inline">{kiosk ? "Exit kiosk" : "Kiosk"}</span>
+        </button>
+      )}
       <button
         type="button"
         onClick={() => setSheetOpen(true)}
@@ -335,8 +366,15 @@ export default function WidgetsDashboardPage() {
   );
 
   return (
-    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
-      {isChannelScoped && channelScopedId ? (
+    <div
+      className={
+        "flex-1 flex flex-col bg-surface overflow-hidden "
+        + (kiosk && kioskIdle ? "cursor-none" : "")
+      }
+    >
+      {/* Chrome-bars suppressed in kiosk — the page should feel like a
+          presentation surface, not a configurable admin tool. */}
+      {!kiosk && (isChannelScoped && channelScopedId ? (
         <ChannelDashboardBreadcrumb
           channelId={channelScopedId}
           channelName={channelRow?.name}
@@ -352,12 +390,23 @@ export default function WidgetsDashboardPage() {
           onOpenManage={() => setManageSlug(slug)}
           right={actions}
         />
-      )}
+      ))}
+
+      {/* Floating exit chip only visible in kiosk. Consumers outside the
+          dashboard route will never see this — the hook's `kiosk` flag is
+          URL-scoped. */}
+      {kiosk && <KioskExitChip idle={kioskIdle} onExit={exitKiosk} />}
 
       <div
         className={
-          "relative flex-1 overflow-auto p-2 sm:p-4 md:p-6 "
-          + (layoutEditable ? "pb-[40vh]" : "")
+          "relative flex-1 p-2 sm:p-4 md:p-6 "
+          // Panel mode: the panel pin owns scrolling internally — the
+          // wrapper stays clipped so the iframe / interactive component
+          // can fill the viewport edge to edge. Grid mode keeps the
+          // long-page scroll behavior so tall layouts can be paged
+          // through normally.
+          + (inPanelMode ? "overflow-hidden flex flex-col min-h-0 " : "overflow-auto ")
+          + (layoutEditable && !inPanelMode ? "pb-[40vh]" : "")
         }
       >
         {layoutError && (
@@ -393,7 +442,19 @@ export default function WidgetsDashboardPage() {
         {!isLoading && !error && pins.length === 0 && (
           <EmptyState onAddClick={() => setSheetOpen(true)} />
         )}
-        {!isLoading && !error && pins.length > 0 && (
+        {!isLoading && !error && pins.length > 0 && inPanelMode && panelPin && (
+          <PanelModeView
+            pins={pins}
+            panelPin={panelPin}
+            preset={preset}
+            highlightPinId={highlightPinId}
+            layoutEditable={layoutEditable}
+            onUnpin={handleUnpin}
+            onEnvelopeUpdate={handleEnvelopeUpdate}
+            onEditPin={(id) => setEditingPinId(id)}
+          />
+        )}
+        {!isLoading && !error && pins.length > 0 && !inPanelMode && (
           <div className="relative">
             {isChannelScoped && layoutEditable && breakpoint === "lg" && (
               <EditModeGridGuides
@@ -499,6 +560,85 @@ function EmptyState({ onAddClick }: { onAddClick: () => void }) {
           <Wrench size={13} />
           Open developer panel
         </Link>
+      </div>
+    </div>
+  );
+}
+
+interface PanelModeViewProps {
+  pins: WidgetDashboardPin[];
+  panelPin: WidgetDashboardPin;
+  preset: GridPreset;
+  highlightPinId: string | null;
+  layoutEditable: boolean;
+  onUnpin: (pinId: string) => void;
+  onEnvelopeUpdate: (pinId: string, envelope: ToolResultEnvelope) => void;
+  onEditPin: (pinId: string) => void;
+}
+
+/** Two-column layout used when `grid_config.layout_mode === 'panel'`.
+ *
+ *  - Left: rail-zone pins stacked vertically (no RGL — simple flex column;
+ *    drag/resize is meaningful only against a multi-column grid, which we no
+ *    longer have here. Reordering moves to the EditPinDrawer if needed
+ *    later.)
+ *  - Right: the single panel pin, filling the remaining area.
+ *
+ *  Mobile collapses to a single column with the panel above the rail strip
+ *  so the headline content stays first-paint visible. */
+function PanelModeView({
+  pins,
+  panelPin,
+  highlightPinId,
+  layoutEditable,
+  onUnpin,
+  onEnvelopeUpdate,
+  onEditPin,
+}: PanelModeViewProps) {
+  const railPins = useMemo(
+    () => pins.filter((p) => p.id !== panelPin.id),
+    [pins, panelPin.id],
+  );
+  return (
+    <div className="flex flex-col-reverse lg:flex-row gap-3 h-full">
+      {railPins.length > 0 && (
+        <div className="lg:w-[320px] lg:shrink-0 flex flex-col gap-3 lg:overflow-y-auto">
+          {railPins.map((p) => (
+            <div
+              key={p.id}
+              data-pin-id={p.id}
+              className={
+                "min-w-0 " + (highlightPinId === p.id ? "pin-flash" : "")
+              }
+            >
+              <PinnedToolWidget
+                widget={asPinnedWidget(p)}
+                scope={{ kind: "dashboard" }}
+                onUnpin={onUnpin}
+                onEnvelopeUpdate={onEnvelopeUpdate}
+                editMode={layoutEditable}
+                onEdit={onEditPin}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+      <div
+        key={panelPin.id}
+        data-pin-id={panelPin.id}
+        className={
+          "flex-1 min-w-0 min-h-[60vh] lg:min-h-0 flex flex-col "
+          + (highlightPinId === panelPin.id ? "pin-flash" : "")
+        }
+      >
+        <PinnedToolWidget
+          widget={asPinnedWidget(panelPin)}
+          scope={{ kind: "dashboard" }}
+          onUnpin={onUnpin}
+          onEnvelopeUpdate={onEnvelopeUpdate}
+          editMode={layoutEditable}
+          onEdit={onEditPin}
+        />
       </div>
     </div>
   );

@@ -1,0 +1,37 @@
+id: browser_live
+name: Live Browser Control
+icon: Globe
+description: Drive the user's actual logged-in Chrome/Firefox via a paired browser extension. Tools navigate tabs, click/type, evaluate JS, and capture screenshots — all in the real session, with the user's cookies.
+version: "0.1"
+
+# Per-user pairing token. Generated on first extension pair (TODO: admin UI
+# button to (re)generate). The extension stores token + server URL; the WS
+# handler in router.py rejects connections without a matching token.
+settings:
+  - key: BROWSER_LIVE_PAIRING_TOKEN
+    type: secret
+    label: "Pairing token (paste into extension Options page)"
+    required: false
+  - key: BROWSER_LIVE_DEFAULT_TIMEOUT_MS
+    type: int
+    label: "Default per-command timeout (ms)"
+    required: false
+    default: 15000
+
+provides:
+  - tools
+  - router
+
+# Tool widgets — sketch only. Wire real templates once tools land.
+tool_widgets:
+  browser_screenshot:
+    content_type: application/vnd.spindrel.html+interactive
+    display: inline
+    display_label: "{{url}}"
+    html_template:
+      path: widgets/screenshot.html  # TODO: write
+    sample_payload:
+      url: "https://example.com"
+      image_data_url: "data:image/png;base64,iVBORw0KGgo..."
+      width: 1280
+      height: 800

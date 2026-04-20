@@ -77,7 +77,16 @@ from app.tools.registry import register
             "required": ["title", "body"],
         },
     },
-}, safety_tier="mutating")
+}, safety_tier="mutating", returns={
+    "type": "object",
+    "properties": {
+        "sent": {"type": "integer"},
+        "pruned": {"type": "integer"},
+        "failed": {"type": "integer"},
+        "skipped_active": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def send_push_notification(
     title: str,
     body: str,

@@ -58,7 +58,21 @@ E2E_DIR = Path(__file__).parent.parent.parent.parent / "tests" / "e2e"
             "required": ["action"],
         },
     },
-}, safety_tier="exec_capable")
+}, safety_tier="exec_capable", returns={
+    "type": "object",
+    "properties": {
+        "running": {"type": "boolean"},
+        "health": {"type": "string"},
+        "passed": {"type": "boolean"},
+        "exit_code": {"type": "integer"},
+        "summary": {"type": "string"},
+        "output": {"type": "string"},
+        "stopped": {"type": "boolean"},
+        "scenario": {"type": "string"},
+        "steps": {"type": "array"},
+        "error": {"type": "string"},
+    },
+})
 async def run_e2e_tests(
     action: str,
     scenarios: str = "",

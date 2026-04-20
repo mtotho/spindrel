@@ -991,6 +991,19 @@ async def update_task(
             "required": ["task_id"],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "status": {"type": "string"},
+        "task_type": {"type": "string"},
+        "bot_id": {"type": "string"},
+        "title": {"type": "string"},
+        "result": {"type": "string"},
+        "run_at": {"type": "string"},
+        "completed_at": {"type": "string"},
+        "error": {"type": "string"},
+    },
 })
 async def get_task_result(task_id: str) -> str:
     try:

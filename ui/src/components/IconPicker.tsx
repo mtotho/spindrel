@@ -1,125 +1,6 @@
 import { useMemo, useState } from "react";
-import {
-  Activity,
-  AlarmClock,
-  Anchor,
-  Archive,
-  AtSign,
-  Award,
-  BarChart,
-  BarChart3,
-  Battery,
-  Bell,
-  Bike,
-  Book,
-  BookMarked,
-  BookOpen,
-  Bookmark,
-  Box,
-  Briefcase,
-  Bug,
-  Building,
-  Calendar,
-  Camera,
-  Car,
-  ChefHat,
-  Cloud,
-  CloudRain,
-  Code,
-  Coffee,
-  Compass,
-  Cpu,
-  CreditCard,
-  Database,
-  Disc,
-  DollarSign,
-  Download,
-  Dumbbell,
-  Feather,
-  Film,
-  Flag,
-  Flame,
-  Flower,
-  Folder,
-  Gamepad2,
-  Gauge,
-  Gem,
-  Gift,
-  Globe,
-  GraduationCap,
-  Hammer,
-  Hash,
-  Headphones,
-  Heart,
-  Home,
-  Image,
-  Inbox,
-  Key,
-  Lamp,
-  LayoutDashboard,
-  Leaf,
-  Lightbulb,
-  Link,
-  List,
-  Lock,
-  Mail,
-  Map,
-  MapPin,
-  Megaphone,
-  Mic,
-  Moon,
-  Mountain,
-  Music,
-  Newspaper,
-  Package,
-  Palette,
-  PawPrint,
-  Phone,
-  PieChart,
-  Pin,
-  Pizza,
-  Plane,
-  Plug,
-  Puzzle,
-  Radio,
-  Rocket,
-  Ruler,
-  Save,
-  Scissors,
-  Server,
-  Settings,
-  Shield,
-  ShoppingBag,
-  ShoppingCart,
-  Smartphone,
-  Smile,
-  Speaker,
-  Star,
-  Sun,
-  Tag,
-  Target,
-  Terminal,
-  Thermometer,
-  Timer,
-  PenTool,
-  Train,
-  Trash,
-  Trees,
-  TrendingUp,
-  Trophy,
-  Truck,
-  Tv,
-  Umbrella,
-  User,
-  Users,
-  Utensils,
-  Video,
-  Wallet,
-  Watch,
-  Wifi,
-  Wrench,
-  Zap,
-} from "lucide-react";
+import { LayoutDashboard } from "lucide-react";
+import { DynamicIcon, iconNames } from "lucide-react/dynamic";
 import { cn } from "../lib/cn";
 
 interface Props {
@@ -129,46 +10,47 @@ interface Props {
   label?: string;
 }
 
-/** Curated rail-friendly icon set. Keys are the stored string names; values
- *  are the component references. This is the single source of truth for
- *  both the picker UI and the dynamic render path. */
-export const RAIL_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-  Activity, AlarmClock, Anchor, Archive, AtSign, Award,
-  BarChart, BarChart3, Battery, Bell, Bike, Book, BookMarked, BookOpen,
-  Bookmark, Box, Briefcase, Bug, Building,
-  Calendar, Camera, Car, ChefHat, Cloud, CloudRain, Code, Coffee,
-  Compass, Cpu, CreditCard,
-  Database, Disc, DollarSign, Download, Dumbbell,
-  Feather, Film, Flag, Flame, Flower, Folder,
-  Gamepad2, Gauge, Gem, Gift, Globe, GraduationCap,
-  Hammer, Hash, Headphones, Heart, Home,
-  Image, Inbox,
-  Key,
-  Lamp, LayoutDashboard, Leaf, Lightbulb, Link, List, Lock,
-  Mail, Map, MapPin, Megaphone, Mic, Moon, Mountain, Music,
-  Newspaper,
-  Package, Palette, PawPrint, Phone, PieChart, Pin, Pizza, Plane, Plug, Puzzle,
-  Radio, Rocket, Ruler,
-  Save, Scissors, Server, Settings, Shield, ShoppingBag, ShoppingCart,
-  Smartphone, Smile, Speaker, Star, Sun,
-  Tag, Target, Terminal, Thermometer, Timer, PenTool, Train, Trash, Trees,
-  TrendingUp, Trophy, Truck, Tv,
-  Umbrella, User, Users, Utensils,
-  Video,
-  Wallet, Watch, Wifi, Wrench,
-  Zap,
-};
+/** Lucide's canonical icon name is kebab-case (e.g. `layout-dashboard`). The
+ *  full catalog (~1900 icons + aliases) is exposed via `iconNames`. Legacy
+ *  stored names are PascalCase (e.g. `LayoutDashboard`) — `normalizeIconName`
+ *  converts both forms to the canonical kebab-case that `DynamicIcon` expects. */
+const ICON_SET: Set<string> = new Set(iconNames);
 
-const ICON_NAMES = Object.keys(RAIL_ICONS).sort();
+function pascalToKebab(name: string): string {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+    .toLowerCase();
+}
+
+export function normalizeIconName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  if (ICON_SET.has(name)) return name;
+  const kebab = pascalToKebab(name);
+  return ICON_SET.has(kebab) ? kebab : null;
+}
+
+/** Sorted canonical name list — source of truth for the picker. */
+const SORTED_NAMES = [...iconNames].sort();
+
+/** Render cap so we don't spin up thousands of lazy icons at once. Typing
+ *  into the search narrows the list; "Show more" bumps the cap in chunks. */
+const INITIAL_LIMIT = 240;
+const MORE_STEP = 240;
 
 export function IconPicker({ value, onChange, label }: Props) {
   const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(INITIAL_LIMIT);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return ICON_NAMES;
-    return ICON_NAMES.filter((name) => name.toLowerCase().includes(q));
+    if (!q) return SORTED_NAMES;
+    return SORTED_NAMES.filter((name) => name.includes(q));
   }, [query]);
+
+  const visible = filtered.slice(0, limit);
+  const hasMore = filtered.length > limit;
+  const canonicalValue = normalizeIconName(value);
 
   return (
     <div className="flex flex-col gap-2">
@@ -179,8 +61,11 @@ export function IconPicker({ value, onChange, label }: Props) {
         <input
           type="text"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search icons…"
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setLimit(INITIAL_LIMIT);
+          }}
+          placeholder={`Search ${SORTED_NAMES.length} icons…`}
           className="flex-1 rounded-md border border-surface-border bg-surface-raised px-2.5 py-1.5 text-[12px] text-text outline-none focus:border-accent/60"
         />
         {value && (
@@ -194,11 +79,16 @@ export function IconPicker({ value, onChange, label }: Props) {
           </button>
         )}
       </div>
-      <div className="grid max-h-56 grid-cols-8 gap-1 overflow-auto rounded-md border border-surface-border bg-surface p-2">
-        {filtered.map((name) => {
-          const Icon = RAIL_ICONS[name];
-          if (!Icon) return null;
-          const active = value === name;
+      {canonicalValue && (
+        <div className="flex items-center gap-2 rounded-md border border-surface-border bg-surface px-2.5 py-1.5 text-[11px] text-text-muted">
+          <DynamicIcon name={canonicalValue as never} size={14} />
+          <span className="font-mono text-text">{canonicalValue}</span>
+          <span className="text-text-dim">· current</span>
+        </div>
+      )}
+      <div className="grid max-h-72 grid-cols-6 gap-1 overflow-auto rounded-md border border-surface-border bg-surface p-2">
+        {visible.map((name) => {
+          const active = canonicalValue === name;
           return (
             <button
               key={name}
@@ -206,29 +96,41 @@ export function IconPicker({ value, onChange, label }: Props) {
               onClick={() => onChange(name)}
               title={name}
               className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-md border transition-colors",
+                "flex flex-col items-center justify-start gap-1 rounded-md border px-1 py-1.5 transition-colors",
                 active
                   ? "border-accent/60 bg-accent/10 text-accent"
                   : "border-transparent text-text-muted hover:bg-surface-overlay",
               )}
             >
-              <Icon size={16} />
+              <DynamicIcon name={name as never} size={18} />
+              <span className="w-full truncate text-center font-mono text-[9.5px] leading-tight text-text-dim">
+                {name}
+              </span>
             </button>
           );
         })}
         {filtered.length === 0 && (
-          <div className="col-span-8 py-4 text-center text-[12px] text-text-muted">
+          <div className="col-span-6 py-4 text-center text-[12px] text-text-muted">
             No icons match "{query}"
           </div>
+        )}
+        {hasMore && (
+          <button
+            type="button"
+            onClick={() => setLimit((l) => l + MORE_STEP)}
+            className="col-span-6 mt-1 rounded-md border border-surface-border bg-surface-raised py-1.5 text-[11px] text-text-muted hover:bg-surface-overlay"
+          >
+            Show more ({filtered.length - limit} remaining)
+          </button>
         )}
       </div>
     </div>
   );
 }
 
-/** Render a curated rail icon by name, falling back to LayoutDashboard for
- *  unknown names (stored name dropped from the set, etc.). Only icons in
- *  RAIL_ICONS are supported — tree-shake-friendly. */
+/** Render a Lucide icon by stored name. Accepts both legacy PascalCase
+ *  (`LayoutDashboard`) and canonical kebab-case (`layout-dashboard`); falls
+ *  back to LayoutDashboard for unknown names. */
 export function LucideIconByName({
   name,
   size = 18,
@@ -238,6 +140,13 @@ export function LucideIconByName({
   size?: number;
   className?: string;
 }) {
-  const Icon = (name && RAIL_ICONS[name]) || LayoutDashboard;
-  return <Icon size={size} className={className} />;
+  const canonical = normalizeIconName(name);
+  if (!canonical) return <LayoutDashboard size={size} className={className} />;
+  return (
+    <DynamicIcon
+      name={canonical as never}
+      size={size}
+      className={className}
+    />
+  );
 }

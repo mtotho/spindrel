@@ -22,8 +22,10 @@ from app.services.dashboard_pins import (
     apply_layout_bulk,
     create_pin,
     delete_pin,
+    demote_pin_from_panel,
     get_pin,
     list_pins,
+    promote_pin_to_panel,
     rename_pin,
     serialize_pin,
     update_pin_envelope,
@@ -587,6 +589,39 @@ async def patch_dashboard_pin_layout(
     slug = body.dashboard_key or DEFAULT_DASHBOARD_KEY
     items = [item.model_dump(mode="json") for item in body.items]
     return await apply_layout_bulk(db, items, dashboard_key=slug)
+
+
+@router.post(
+    "/dashboard/pins/{pin_id}/promote-panel",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def promote_dashboard_pin_to_panel(
+    pin_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Make this pin the dashboard's main panel.
+
+    Atomically clears any other panel pin in the same dashboard and flips
+    ``grid_config.layout_mode`` to ``"panel"``. Other pins keep their grid
+    coordinates and surface in the rail strip alongside the panel.
+    """
+    return await promote_pin_to_panel(db, pin_id)
+
+
+@router.delete(
+    "/dashboard/pins/{pin_id}/promote-panel",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def demote_dashboard_pin_from_panel(
+    pin_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Clear ``is_main_panel`` on this pin.
+
+    If this leaves the dashboard with no panel pin the layout mode reverts to
+    ``"grid"`` so the dashboard renders as a normal RGL canvas again.
+    """
+    return await demote_pin_from_panel(db, pin_id)
 
 
 @router.post(

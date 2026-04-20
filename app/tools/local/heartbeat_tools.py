@@ -34,11 +34,41 @@ logger = logging.getLogger(__name__)
             "required": [],
         },
     },
-}, requires_channel_context=True)
+}, requires_channel_context=True, returns={
+    "oneOf": [
+        {
+            "type": "object",
+            "description": "single run (limit=1)",
+            "properties": {
+                "run_id": {"type": "string"},
+                "status": {"type": "string"},
+                "run_at": {"type": ["string", "null"]},
+                "completed_at": {"type": ["string", "null"]},
+                "result": {"type": ["string", "null"]},
+                "error": {"type": "string"},
+            },
+        },
+        {
+            "type": "array",
+            "description": "multiple runs (limit>1)",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "run_id": {"type": "string"},
+                    "status": {"type": "string"},
+                    "run_at": {"type": ["string", "null"]},
+                    "completed_at": {"type": ["string", "null"]},
+                    "result": {"type": ["string", "null"]},
+                    "error": {"type": "string"},
+                },
+            },
+        },
+    ],
+})
 async def get_last_heartbeat(limit: int = 1) -> str:
     channel_id = current_channel_id.get()
     if not channel_id:
-        return "No channel context available."
+        return json.dumps({"error": "No channel context available."}, ensure_ascii=False)
 
     limit = min(max(1, int(limit)), 10)
 
@@ -49,7 +79,7 @@ async def get_last_heartbeat(limit: int = 1) -> str:
         )
         hb_id = (await db.execute(hb_stmt)).scalar()
         if not hb_id:
-            return "No heartbeat configured for this channel."
+            return json.dumps({"error": "No heartbeat configured for this channel."}, ensure_ascii=False)
 
         stmt = (
             select(HeartbeatRun)
@@ -63,7 +93,7 @@ async def get_last_heartbeat(limit: int = 1) -> str:
         runs = list((await db.execute(stmt)).scalars().all())
 
     if not runs:
-        return "No completed heartbeat runs found for this channel."
+        return json.dumps({"error": "No completed heartbeat runs found for this channel."}, ensure_ascii=False)
 
     results = []
     for r in runs:

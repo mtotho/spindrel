@@ -50,7 +50,21 @@ logger = logging.getLogger(__name__)
             "required": ["command"],
         },
     },
-}, safety_tier="exec_capable", requires_bot_context=True)
+}, safety_tier="exec_capable", requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "stdout": {"type": "string"},
+        "stderr": {"type": "string"},
+        "exit_code": {"type": "integer"},
+        "truncated": {"type": "boolean"},
+        "duration_ms": {"type": "number"},
+        "workspace_type": {"type": "string"},
+        "sandbox": {"type": "string"},
+        "dry_run": {"type": "boolean"},
+        "error": {"type": "string"},
+        "message": {"type": "string"},
+    },
+})
 async def exec_command(command: str, working_dir: str = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:

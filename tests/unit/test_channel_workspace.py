@@ -412,6 +412,41 @@ class TestChannelWorkspaceFileOps:
                 # No workspace/ subdirectory should exist
                 assert not os.path.isdir(os.path.join(root, "workspace"))
 
+    @pytest.mark.asyncio
+    async def test_backfill_creates_kb_for_existing_channel_dir_without_one(self):
+        """Backfill mkdirs knowledge-base/ for channels that pre-date the KB convention."""
+        from app.services.channel_workspace import backfill_knowledge_base_dirs
+        bot = _make_bot()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            # Pre-create a channel dir WITHOUT a knowledge-base/ subdir,
+            # mimicking the on-disk state of a channel created before
+            # 2026-04-19.
+            channel_dir = os.path.join(tmp, "channels", "legacy-ch")
+            os.makedirs(os.path.join(channel_dir, "archive"), exist_ok=True)
+            assert not os.path.isdir(os.path.join(channel_dir, "knowledge-base"))
+
+            # Stub async_session to yield a session whose execute() returns
+            # one channel row. Channel id is matched against the pre-created
+            # dir above by `get_channel_workspace_root`.
+            class _FakeCtx:
+                async def __aenter__(self_inner):
+                    sess = AsyncMock()
+                    result = MagicMock()
+                    result.all = MagicMock(return_value=[("legacy-ch", "test_bot")])
+                    sess.execute = AsyncMock(return_value=result)
+                    return sess
+                async def __aexit__(self_inner, *a):
+                    return None
+
+            with patch("app.services.channel_workspace._get_ws_root", return_value=tmp), \
+                 patch("app.db.engine.async_session", new=lambda: _FakeCtx()), \
+                 patch("app.agent.bots.get_bot", return_value=bot):
+                n = await backfill_knowledge_base_dirs()
+
+            assert n == 1
+            assert os.path.isdir(os.path.join(channel_dir, "knowledge-base"))
+
     def test_ensure_writes_display_name_to_channel_info(self):
         """When display_name is provided, .channel_info should contain it."""
         from app.services.channel_workspace import ensure_channel_workspace

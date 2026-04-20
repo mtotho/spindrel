@@ -51,7 +51,51 @@ logger = logging.getLogger(__name__)
             "required": ["action"],
         },
     },
-}, safety_tier="control_plane")
+}, safety_tier="control_plane", returns={
+    "oneOf": [
+        {
+            "type": "array",
+            "description": "list action — array of bot summaries",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "model": {"type": "string"},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "type": "object",
+            "description": "get action — full bot config",
+            "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string"},
+                "model": {"type": "string"},
+                "system_prompt": {"type": "string"},
+                "local_tools": {"type": "array", "items": {"type": "string"}},
+                "skills": {"type": "array"},
+                "workspace_enabled": {"type": "boolean"},
+                "memory_scheme": {"type": ["string", "null"]},
+                "tool_retrieval": {"type": "boolean"},
+                "context_compaction": {"type": "boolean"},
+                "delegate_bots": {"type": "array"},
+                "error": {"type": "string"},
+            },
+        },
+        {
+            "type": "object",
+            "description": "create/update/delete action",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "bot_id": {"type": "string"},
+                "message": {"type": "string"},
+                "error": {"type": "string"},
+            },
+        },
+    ],
+})
 async def manage_bot(
     action: str,
     bot_id: str | None = None,

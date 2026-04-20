@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useSearchParams } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { DetailPanel } from "./DetailPanel";
 import { SystemPauseBanner } from "./SystemPauseBanner";
@@ -13,12 +13,19 @@ import { useChatStore } from "../../stores/chat";
 import { useSystemStatus } from "../../api/hooks/useSystemStatus";
 import { usePresenceHeartbeat } from "../../hooks/usePresenceHeartbeat";
 import { CommandPalette, useCommandPaletteShortcut } from "./CommandPalette";
+import { KIOSK_PARAM } from "../../hooks/useKioskMode";
 
 export function AppShell() {
   const columns = useResponsiveColumns();
   const hasDetail = useUIStore((s) => s.detailPanel.type !== null);
   const paletteOpen = useUIStore((s) => s.paletteOpen);
   const closePalette = useUIStore((s) => s.closePalette);
+  // Kiosk mode reads the URL param directly — no hook dependency here so the
+  // whole shell can still render even if the kiosk hook's effects would fail
+  // (e.g. tests without react-router). Sole contract: hide every chrome
+  // element when the param is set.
+  const [searchParams] = useSearchParams();
+  const kiosk = searchParams.get(KIOSK_PARAM) === "1";
   useCommandPaletteShortcut();
   usePresenceHeartbeat();
   const { data: status } = useSystemStatus();
@@ -46,10 +53,11 @@ export function AppShell() {
 
   return (
     <div className="relative flex flex-col flex-1 bg-surface overflow-hidden h-full">
-      {status?.paused && <SystemPauseBanner behavior={status.pause_behavior} />}
+      {!kiosk && status?.paused && <SystemPauseBanner behavior={status.pause_behavior} />}
       <div className="flex flex-row flex-1 overflow-hidden">
-        {/* Sidebar — desktop only. On mobile the palette is the nav surface. */}
-        {columns !== "single" && <Sidebar />}
+        {/* Sidebar — desktop only. On mobile the palette is the nav surface.
+            Suppressed in kiosk so the dashboard fills the viewport. */}
+        {!kiosk && columns !== "single" && <Sidebar />}
 
         {/* Center content — always visible */}
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
@@ -57,23 +65,18 @@ export function AppShell() {
         </div>
 
         {/* Detail panel — only on triple column when active */}
-        {columns === "triple" && hasDetail && <DetailPanel />}
+        {!kiosk && columns === "triple" && hasDetail && <DetailPanel />}
 
-        {/* Streaming toast — shows when a background channel is processing */}
-        <StreamingToast />
-
-        {/* Approval toast — shows when new pending approvals arrive */}
-        <ApprovalToast />
-
-        {/* Global workflow HUD — shows when any workflow is actively running */}
-        <ActiveWorkflowsHud />
-
-        {/* Generic toast host — success/info/error messages */}
-        <ToastHost />
+        {/* All ambient chrome (toasts, HUDs) is suppressed in kiosk. The
+            dashboard page owns its own exit affordance. */}
+        {!kiosk && <StreamingToast />}
+        {!kiosk && <ApprovalToast />}
+        {!kiosk && <ActiveWorkflowsHud />}
+        {!kiosk && <ToastHost />}
       </div>
 
       {/* Global command palette (Cmd+K / Ctrl+K on desktop, hamburger on mobile) */}
-      <CommandPalette open={paletteOpen} onClose={closePalette} />
+      {!kiosk && <CommandPalette open={paletteOpen} onClose={closePalette} />}
     </div>
   );
 }

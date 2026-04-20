@@ -75,7 +75,32 @@ logger = logging.getLogger(__name__)
             "required": ["action"],
         },
     },
-}, safety_tier="mutating", requires_bot_context=True)
+}, safety_tier="mutating", requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "hooks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "trigger": {"type": "string"},
+                    "conditions": {"type": "object"},
+                    "command": {"type": "string"},
+                    "cooldown_seconds": {"type": "integer"},
+                    "on_failure": {"type": "string"},
+                    "enabled": {"type": "boolean"},
+                },
+            },
+        },
+        "ok": {"type": "boolean"},
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "deleted": {"type": "boolean"},
+        "error": {"type": "string"},
+    },
+})
 async def manage_hooks(
     action: str,
     hook_id: str | None = None,

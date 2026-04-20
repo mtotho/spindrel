@@ -100,7 +100,16 @@ _MODAL_TIMEOUT_SECONDS = 15 * 60
             "required": ["title", "schema"],
         },
     },
-}, safety_tier="readonly", required_capabilities=frozenset({Capability.MODALS}), requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="readonly", required_capabilities=frozenset({Capability.MODALS}), requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "values": {"type": "object", "description": "Submitted form values keyed by field id."},
+        "error": {"type": "string"},
+        "unsupported": {"type": "boolean"},
+    },
+    "required": ["ok"],
+})
 async def open_modal(
     title: str,
     schema: dict,

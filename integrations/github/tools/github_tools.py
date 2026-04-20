@@ -66,7 +66,15 @@ def _gh_link(owner: str, repo: str, number: int | None = None, path: str = "") -
         },
         "required": ["owner", "repo", "pull_number"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "llm": {"type": "string"},
+        "_envelope": {"type": "object"},
+        "count": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def github_get_pr(owner: str, repo: str, pull_number: int) -> str:
     r = await _http.get(
         f"{_GITHUB_API}/repos/{owner}/{repo}/pulls/{pull_number}",
@@ -176,7 +184,15 @@ async def github_get_pr(owner: str, repo: str, pull_number: int) -> str:
         },
         "required": ["query"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "llm": {"type": "string"},
+        "_envelope": {"type": "object"},
+        "count": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def github_search_issues(query: str, repo: str = "") -> str:
     q = query
     if repo:
@@ -192,7 +208,7 @@ async def github_search_issues(query: str, repo: str = "") -> str:
 
     items = data.get("items", [])
     if not items:
-        return f"No results for: {q}"
+        return json.dumps({"llm": f"No results for: {q}", "count": 0}, ensure_ascii=False)
 
     # LLM text
     lines = [f"Found {data.get('total_count', 0)} results (showing top {len(items)}):\n"]
@@ -243,7 +259,14 @@ async def github_search_issues(query: str, repo: str = "") -> str:
         },
         "required": ["owner", "repo", "issue_number", "body"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "comment_url": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def github_post_comment(owner: str, repo: str, issue_number: int, body: str) -> str:
     r = await _http.post(
         f"{_GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}/comments",
@@ -252,7 +275,7 @@ async def github_post_comment(owner: str, repo: str, issue_number: int, body: st
     )
     r.raise_for_status()
     data = r.json()
-    return f"Comment posted: {data.get('html_url', '(no url)')}"
+    return json.dumps({"ok": True, "comment_url": data.get("html_url", "")}, ensure_ascii=False)
 
 
 @reg.register({"type": "function", "function": {
@@ -267,7 +290,15 @@ async def github_post_comment(owner: str, repo: str, issue_number: int, body: st
         },
         "required": ["owner", "repo"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "llm": {"type": "string"},
+        "_envelope": {"type": "object"},
+        "count": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def github_list_prs(owner: str, repo: str, state: str = "open") -> str:
     r = await _http.get(
         f"{_GITHUB_API}/repos/{owner}/{repo}/pulls",
@@ -278,7 +309,7 @@ async def github_list_prs(owner: str, repo: str, state: str = "open") -> str:
     prs = r.json()
 
     if not prs:
-        return f"No {state} PRs in {owner}/{repo}"
+        return json.dumps({"llm": f"No {state} PRs in {owner}/{repo}", "count": 0}, ensure_ascii=False)
 
     # LLM text
     lines = [f"{len(prs)} {state} PR(s) in {owner}/{repo}:\n"]
@@ -331,7 +362,15 @@ async def github_list_prs(owner: str, repo: str, state: str = "open") -> str:
         },
         "required": ["owner", "repo"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "llm": {"type": "string"},
+        "_envelope": {"type": "object"},
+        "count": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def github_list_commits(
     owner: str,
     repo: str,
@@ -363,7 +402,7 @@ async def github_list_commits(
     commits = r.json()
 
     if not commits:
-        return f"No commits found in {owner}/{repo} with the given filters."
+        return json.dumps({"llm": f"No commits found in {owner}/{repo} with the given filters.", "count": 0}, ensure_ascii=False)
 
     # LLM text
     lines = [f"{len(commits)} commit(s) in {owner}/{repo}:\n"]
@@ -410,7 +449,15 @@ async def github_list_commits(
         },
         "required": ["owner", "repo", "ref"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "llm": {"type": "string"},
+        "_envelope": {"type": "object"},
+        "count": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def github_get_commit(owner: str, repo: str, ref: str) -> str:
     r = await _http.get(
         f"{_GITHUB_API}/repos/{owner}/{repo}/commits/{ref}",
@@ -650,7 +697,15 @@ async def github_list_branches(owner: str, repo: str) -> str:
         },
         "required": ["owner", "repo", "issue_number"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "llm": {"type": "string"},
+        "_envelope": {"type": "object"},
+        "count": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def github_get_issue(owner: str, repo: str, issue_number: int) -> str:
     r = await _http.get(
         f"{_GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}",
@@ -770,7 +825,15 @@ async def github_get_issue(owner: str, repo: str, issue_number: int) -> str:
         },
         "required": ["owner", "repo", "title"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "issue_number": {"type": "integer"},
+        "issue_url": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def github_create_issue(
     owner: str,
     repo: str,
@@ -794,7 +857,7 @@ async def github_create_issue(
     )
     r.raise_for_status()
     issue = r.json()
-    return f"Issue created: #{issue['number']} — {issue.get('html_url', '')}"
+    return json.dumps({"ok": True, "issue_number": issue["number"], "issue_url": issue.get("html_url", "")}, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -815,7 +878,15 @@ async def github_create_issue(
         },
         "required": ["owner", "repo", "pull_number"],
     },
-}}, safety_tier="exec_capable")
+}}, safety_tier="exec_capable", returns={
+    "type": "object",
+    "properties": {
+        "llm": {"type": "string"},
+        "_envelope": {"type": "object"},
+        "count": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def github_update_pr(
     owner: str, repo: str, pull_number: int,
     state: str | None = None, title: str | None = None,
@@ -852,7 +923,15 @@ async def github_update_pr(
         },
         "required": ["owner", "repo", "pull_number"],
     },
-}}, safety_tier="exec_capable")
+}}, safety_tier="exec_capable", returns={
+    "type": "object",
+    "properties": {
+        "llm": {"type": "string"},
+        "_envelope": {"type": "object"},
+        "count": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def github_merge_pr(
     owner: str, repo: str, pull_number: int,
     merge_method: str = "merge",
@@ -881,7 +960,15 @@ async def github_merge_pr(
         },
         "required": ["owner", "repo", "issue_number"],
     },
-}}, safety_tier="exec_capable")
+}}, safety_tier="exec_capable", returns={
+    "type": "object",
+    "properties": {
+        "llm": {"type": "string"},
+        "_envelope": {"type": "object"},
+        "count": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def github_update_issue(
     owner: str, repo: str, issue_number: int,
     state: str | None = None, title: str | None = None,

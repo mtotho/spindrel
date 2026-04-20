@@ -160,6 +160,13 @@ class BotConfig:
     tool_retrieval: bool = True
     tool_discovery: bool = True  # discover undeclared tools via RAG (requires tool_retrieval)
     tool_similarity_threshold: float | None = None
+    # Per-bot override for the loop's tool-call cap per turn. Resolved as
+    # channel.max_iterations -> bot.max_iterations -> settings.AGENT_MAX_ITERATIONS.
+    max_iterations: int | None = None
+    # Per-bot override for run_script's inner tool-call budget. Caps how many
+    # /api/v1/internal/tools/exec dispatches one script invocation may make.
+    # None = inherit settings.AGENT_MAX_SCRIPT_TOOL_CALLS.
+    max_script_tool_calls: int | None = None
     client_tools: list[str] = field(default_factory=list)
     skills: list[SkillConfig] = field(default_factory=list)
     persona: bool = False
@@ -416,6 +423,8 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         tool_retrieval=row.tool_retrieval,
         tool_discovery=getattr(row, "tool_discovery", True),
         tool_similarity_threshold=row.tool_similarity_threshold,
+        max_iterations=getattr(row, "max_iterations", None),
+        max_script_tool_calls=getattr(row, "max_script_tool_calls", None),
         client_tools=row.client_tools or [],
         skills=[_parse_skill_entry(e) for e in (row.skills or [])],
         persona=row.persona,
@@ -513,6 +522,8 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "tool_retrieval": data.get("tool_retrieval", True),
         "tool_discovery": data.get("tool_discovery", True),
         "tool_similarity_threshold": data.get("tool_similarity_threshold"),
+        "max_iterations": data.get("max_iterations"),
+        "max_script_tool_calls": data.get("max_script_tool_calls"),
         "persona": data.get("persona", False),
         "base_prompt": data.get("base_prompt", True),
         "context_compaction": data.get("context_compaction", True),

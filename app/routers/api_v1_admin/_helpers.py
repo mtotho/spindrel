@@ -55,6 +55,8 @@ def _bot_to_out(
         tool_retrieval=bot.tool_retrieval,
         tool_discovery=bot.tool_discovery,
         tool_similarity_threshold=bot.tool_similarity_threshold,
+        max_iterations=getattr(bot, "max_iterations", None),
+        max_script_tool_calls=getattr(bot, "max_script_tool_calls", None),
         tool_result_config=getattr(bot, "tool_result_config", {}),
         persona=bot.persona,
         persona_content=persona_content,

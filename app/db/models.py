@@ -705,6 +705,8 @@ class Bot(Base):
     tool_retrieval: Mapped[bool] = mapped_column(nullable=False, default=True)
     tool_discovery: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"), default=True)
     tool_similarity_threshold: Mapped[float | None] = mapped_column(nullable=True)
+    max_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_script_tool_calls: Mapped[int | None] = mapped_column(Integer, nullable=True)
     persona: Mapped[bool] = mapped_column(nullable=False, default=False)
     base_prompt: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"), default=True)
     context_compaction: Mapped[bool] = mapped_column(nullable=False, default=True)
@@ -1878,6 +1880,9 @@ class WidgetDashboardPin(Base):
     grid_layout: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict,
     )
+    is_main_panel: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("FALSE"), default=False,
+    )
     pinned_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()"),
     )
@@ -1889,6 +1894,16 @@ class WidgetDashboardPin(Base):
         Index(
             "ix_widget_dashboard_pins_key_pos",
             "dashboard_key", "position",
+        ),
+        # Partial unique index — at most one panel pin per dashboard. Both
+        # backends support partial indexes (SQLite ≥3.8.0); the predicate is
+        # rendered for whichever dialect the engine is on.
+        Index(
+            "uq_widget_dashboard_pins_main_panel",
+            "dashboard_key",
+            unique=True,
+            postgresql_where=text("is_main_panel = TRUE"),
+            sqlite_where=text("is_main_panel = 1"),
         ),
     )
 

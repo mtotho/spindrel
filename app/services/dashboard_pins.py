@@ -68,6 +68,7 @@ def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
         "envelope": pin.envelope or {},
         "display_label": pin.display_label,
         "grid_layout": pin.grid_layout or {},
+        "is_main_panel": bool(pin.is_main_panel),
         "pinned_at": pin.pinned_at.isoformat() if pin.pinned_at else None,
         "updated_at": pin.updated_at.isoformat() if pin.updated_at else None,
     }
@@ -210,7 +211,14 @@ async def get_pin(
 
 async def delete_pin(db: AsyncSession, pin_id: uuid.UUID) -> None:
     pin = await get_pin(db, pin_id)
+    was_panel = bool(pin.is_main_panel)
+    dashboard_key = pin.dashboard_key
     await db.delete(pin)
+    await db.flush()
+    if was_panel:
+        # Removing the dashboard's only panel pin reverts it to normal grid
+        # mode — otherwise the renderer would show an empty main area.
+        await _set_dashboard_layout_mode(db, dashboard_key, None)
     await db.commit()
 
 
@@ -288,6 +296,91 @@ def _validate_layout_item(item: Any) -> tuple[uuid.UUID, dict[str, int]]:
             )
         coords[key] = value
     return pin_id, coords
+
+
+async def _set_dashboard_layout_mode(
+    db: AsyncSession, dashboard_key: str, mode: str | None,
+) -> None:
+    """Read-modify-write ``WidgetDashboard.grid_config.layout_mode``.
+
+    ``mode=None`` removes the key entirely (treated as default ``"grid"``).
+    Lazy import of dashboards service to avoid the module-level cycle.
+    """
+    from app.db.models import WidgetDashboard
+    row = (await db.execute(
+        select(WidgetDashboard).where(WidgetDashboard.slug == dashboard_key)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(404, f"Dashboard not found: {dashboard_key}")
+    cfg = copy.deepcopy(row.grid_config or {})
+    if mode is None:
+        cfg.pop("layout_mode", None)
+    else:
+        cfg["layout_mode"] = mode
+    row.grid_config = cfg or None
+    flag_modified(row, "grid_config")
+    await db.flush()
+
+
+async def promote_pin_to_panel(
+    db: AsyncSession, pin_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Make ``pin_id`` the panel pin for its dashboard.
+
+    Atomic: clears ``is_main_panel`` on every other pin in the same dashboard
+    first, then sets it on this pin, then flips ``grid_config.layout_mode`` to
+    ``"panel"``. Returns the serialized promoted pin.
+    """
+    pin = await get_pin(db, pin_id)
+    # Clear any existing panel pin in this dashboard (the partial unique
+    # index would otherwise reject the SET below on Postgres).
+    others = (await db.execute(
+        select(WidgetDashboardPin)
+        .where(
+            WidgetDashboardPin.dashboard_key == pin.dashboard_key,
+            WidgetDashboardPin.is_main_panel == True,  # noqa: E712 - SQL boolean
+            WidgetDashboardPin.id != pin.id,
+        )
+    )).scalars().all()
+    for other in others:
+        other.is_main_panel = False
+    # Flush the clears before setting the new one so the partial unique
+    # index never sees two TRUE rows in the same statement window.
+    if others:
+        await db.flush()
+    pin.is_main_panel = True
+    await _set_dashboard_layout_mode(db, pin.dashboard_key, "panel")
+    await db.commit()
+    await db.refresh(pin)
+    return serialize_pin(pin)
+
+
+async def demote_pin_from_panel(
+    db: AsyncSession, pin_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Clear ``is_main_panel`` on ``pin_id``.
+
+    If this leaves the dashboard with no panel pin, ``grid_config.layout_mode``
+    is reverted to ``"grid"`` (so the dashboard renders as a normal RGL grid
+    again instead of an empty panel area).
+    """
+    pin = await get_pin(db, pin_id)
+    pin.is_main_panel = False
+    await db.flush()
+
+    remaining = (await db.execute(
+        select(func.count())
+        .select_from(WidgetDashboardPin)
+        .where(
+            WidgetDashboardPin.dashboard_key == pin.dashboard_key,
+            WidgetDashboardPin.is_main_panel == True,  # noqa: E712
+        )
+    )).scalar() or 0
+    if remaining == 0:
+        await _set_dashboard_layout_mode(db, pin.dashboard_key, None)
+    await db.commit()
+    await db.refresh(pin)
+    return serialize_pin(pin)
 
 
 async def apply_layout_bulk(

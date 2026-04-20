@@ -123,6 +123,8 @@ Related: [[Track - Widgets]] (widget DX/robustness — the underlying system thi
 | P5-polish | Cohesiveness + mobile pass | Dark-mode dropdown invariant fix, Library hierarchy, "Tools"→"Call tools", row-level "New"→hover-Plus icon, overlay standardization (4 surfaces), edit-mode visual affordance, DashboardTabs touch targets, mobile drag-disable + collapsible CTAs, dashboard danger-token sweep | **done** (2026-04-18 session 22) |
 | P7 | Sandbox bot/channel context + grouping | `requires_bot_context` / `requires_channel_context` flags on `@register(...)`; always-visible BotPicker + ChannelPicker in `ToolsSandbox.tsx` (sticky via localStorage); `admin_execute_tool` accepts `bot_id`/`channel_id`, validates against flags, sets/resets ContextVars; `_do_state_poll` propagates pin's `source_bot_id`/`source_channel_id` so dashboard refresh respects identity; tool sidebar grouped collapsibly by `source_integration` with `Bot`/`Hash` icons for required-context tools; pin gating blocks Pin until bot/channel selected when required | **done** (2026-04-19) |
 | P8 | Add-panel TLC + dev-panel dashboard context | Phase A: tool-calls endpoint surfaces `channel_id`, RecentTab propagates it on pin (kills "source_channel_id required" 400). Phase B: `DashboardTargetPicker` in `/widgets/dev` header — rich dropdown listing user + channel dashboards, `?from=<slug>` seed from Developer-panel link, localStorage persistence. Phase C: new `GET /widgets/dashboards/channel-pins` batch endpoint; "From channel" tab now reads `widget_dashboard_pins` (post-213) and hides on channel dashboards. Phase D: minimal-chrome pass on `AddFromChannelSheet` (drop panel/header/tab `border-b/l`). 4 new integration tests for batch endpoint. | **done** (2026-04-19) |
+| P9 | Kiosk / fullscreen mode | `useKioskMode` hook drives `?kiosk=1` URL param; AppShell suppresses Sidebar/DetailPanel/CommandPalette/toasts; `/widgets/:slug` suppresses DashboardTabs / Breadcrumb; floating `KioskExitChip` (top-right, fades at 20% opacity after 3s idle). Best-effort Fullscreen API + Wake Lock + cursor-hide-on-idle all fire on a fresh user gesture from the toggle; Esc exits fullscreen AND kiosk. Desktop-only (hidden on mobile, also hidden in edit mode to prevent mid-drag accidents). | **done** (2026-04-19) |
+| P10 | Panel-mode HTML widget | Migration 224 adds `widget_dashboard_pins.is_main_panel` + partial unique index (one panel pin per dashboard); `promote_pin_to_panel` / `demote_pin_from_panel` service helpers atomically clear-then-set + flip `grid_config.layout_mode`; `POST/DELETE /api/v1/widgets/dashboard/pins/{id}/promote-panel` endpoints; `emit_html_widget` gains `display_mode="inline"|"panel"` kwarg; `ToolResultEnvelope.display_mode` field round-trips through `_build_envelope_from_optin` + `compact_dict`. UI: `EditPinDrawer` Promote/Demote button (only on `html+interactive` envelopes); `WidgetsDashboardPage` branches into a 2-column `PanelModeView` when `layout_mode === 'panel'` AND a panel pin exists; mobile collapses to single column with the panel above the rail strip. Deleting a panel pin auto-reverts the dashboard back to `'grid'` mode. 8 new tests. | **done** (2026-04-19) |
 
 ## Phase detail
 
@@ -306,6 +308,58 @@ Closes the dev-panel false-oracle bug for tools needing agent identity (`list_ap
 - **Non-goals (still)**: no auto-application in chat (channels still show raw JSON for untemplated tools); no refresh (generic pins are static snapshots); no picker UI in the pin flow (sophistication belongs in the template builder).
 - Tests: `tests/unit/test_generic_widget_view.py` (17 cases) + `tests/integration/test_widget_generic_render.py` (5 cases). 22/22 green. Regression sweep across `test_tool_execute_api`, `test_widget_preview_inline`, `test_dashboard_pins` — 53/53 green.
 - Plan: `~/.claude/plans/concurrent-greeting-dahl.md`.
+
+### P9 — Kiosk / Fullscreen Mode (done — 2026-04-19)
+
+Landing phase from the four-part presentation/authoring plan (`~/.claude/plans/typed-bubbling-hoare.md`). Smallest + fully independent slice — no schema, no backend. Ships a presentation-grade view of any dashboard at `/widgets/:slug` and `/widgets/channel/:channelId`.
+
+**Behavior.** A new `Kiosk` toggle in the dashboard actions bar flips `?kiosk=1` on the current URL. When set, `AppShell` suppresses the Sidebar, DetailPanel, StreamingToast, ApprovalToast, ActiveWorkflowsHud, ToastHost, and CommandPalette; `WidgetsDashboardPage` suppresses the `DashboardTabs` / `ChannelDashboardBreadcrumb` top bar. The dashboard grid fills the viewport edge-to-edge. A floating `KioskExitChip` (top-right, z-50, fades to 20% opacity after 3s idle, full opacity on hover) provides the exit path; Esc (via fullscreen exit) also exits kiosk. Desktop-only (hidden on mobile — fullscreen API is flaky on touch, and there's no sidebar worth hiding there) and hidden while editing (prevents mid-drag accidents).
+
+**Kiosk hook (`ui/src/hooks/useKioskMode.ts`).** Single primitive — reads `?kiosk=1` from `useSearchParams`, exposes `enter` / `exit` / `idle`. Side-effects are all best-effort so the hook degrades cleanly on platforms without the APIs:
+- **Fullscreen**: calls `document.documentElement.requestFullscreen()` on enter (fresh user gesture from the toggle click). Esc → `fullscreenchange` listener also clears `?kiosk=1` so Esc behaves as "exit kiosk", not "exit fullscreen-but-keep-chrome-hidden".
+- **Wake Lock**: `navigator.wakeLock.request("screen")` on enter; re-acquired on `visibilitychange` → visible (spec: locks auto-release when the tab is hidden); released on exit/unmount. Ignores permission errors silently.
+- **Idle cursor hide**: 3-second timer that sets `idle = true`. Consumer applies `cursor-none` on the dashboard wrapper via Tailwind. Any mousemove/keydown/touchstart resets.
+
+**Files changed.**
+- New: `ui/src/hooks/useKioskMode.ts` (191 LOC), `ui/app/(app)/widgets/KioskExitChip.tsx` (31 LOC).
+- Modified: `ui/src/components/layout/AppShell.tsx` (reads `KIOSK_PARAM`, wraps chrome elements in `!kiosk` guards — unmount not `display:none` since none of those components carry warm state worth preserving), `ui/app/(app)/widgets/index.tsx` (new actions-bar toggle, suppresses top bar, applies `cursor-none` wrapper class, mounts exit chip).
+
+**Tests.** UI has no vitest harness set up; `npx tsc --noEmit` clean. Manual smoke checklist: `/widgets/default?kiosk=1` direct URL (shareable), toggle in + out, Esc exits, Wake Lock held through ~5 min (screen doesn't dim on Linux/Chrome), cursor fades after 3s idle + reappears on mousemove, no regression on existing dashboard edit flow.
+
+**Out of scope (intentional).** No per-dashboard kiosk settings, no auto-rotation between dashboards, no kiosk-only pin subset. The feature is "show this dashboard as-is, full-bleed" — deliberately minimal.
+
+### P10 — Panel-mode HTML widget (done — 2026-04-19)
+
+Second slice of `~/.claude/plans/typed-bubbling-hoare.md` (P9 was the first). Lets a single HTML widget pin claim the dashboard's main area while every other pin renders in a rail strip alongside it. Useful for self-contained mini-apps (status board, dashboard chrome, single-pane reports) that shouldn't be faked as a 12-wide × 30-tall RGL tile.
+
+**Schema.** Migration 224 adds `widget_dashboard_pins.is_main_panel boolean NOT NULL DEFAULT FALSE` + a partial unique index (`uq_widget_dashboard_pins_main_panel`) keyed on `dashboard_key WHERE is_main_panel = TRUE` so at most one panel pin can exist per dashboard. The index uses both `postgresql_where` and `sqlite_where` predicates — SQLite ≥3.8.0 supports partial indexes, so the same constraint enforces in both runtimes. `WidgetDashboard.grid_config` JSONB carries the new key `layout_mode: "grid" | "panel"` (default `grid`); no DB migration needed since it's just a JSONB key.
+
+**Service layer.** `app/services/dashboard_pins.py::promote_pin_to_panel(pin_id)` — atomically clears `is_main_panel` on every other pin in the same dashboard, sets it on this one, and flips `grid_config.layout_mode='panel'`. The clear-then-set order matters under the partial unique index: a single statement that flipped two rows would briefly violate the constraint. `demote_pin_from_panel(pin_id)` clears the flag and reverts `layout_mode` to `'grid'` (key removed) when no panel pin remains. `delete_pin` was extended to fire the same revert when the deleted pin was the panel pin — without it, the dashboard would render as an empty main area.
+
+**Routes.** `POST /api/v1/widgets/dashboard/pins/{pin_id}/promote-panel` and `DELETE` counterpart, both gated on `channels:write`. Both return the serialized pin so the optimistic-rollback loop on the client has the canonical post-state.
+
+**Tool layer.** `emit_html_widget` gained `display_mode: "inline" | "panel" = "inline"`. When `"panel"`, the envelope carries `display_mode: "panel"` (only — `"inline"` is the default and not serialized). `ToolResultEnvelope.display_mode` field added; `compact_dict` only emits the key when non-default; `_build_envelope_from_optin` parses + validates incoming envelope payloads and discards anything that isn't `"inline"` or `"panel"`. The hint exists so the pinning UI can default the Promote checkbox to ON without a manual click — the user still confirms via EditPinDrawer.
+
+**Frontend.** `EditPinDrawer.tsx` gained a Promote/Demote button block visible only when `pin.envelope.content_type === 'application/vnd.spindrel.html+interactive'`. `WidgetsDashboardPage` computes `layoutMode = currentDashboard?.grid_config?.layout_mode ?? 'grid'` and `panelPin = pins.find(p => p.is_main_panel)`; when both line up, the page renders `PanelModeView` instead of `ResponsiveGridLayout`. `PanelModeView` is a flex 2-col layout (`flex-col-reverse lg:flex-row`): rail strip on the left (320px), panel pin filling the remainder. The rail strip is a plain flex stack rather than a sub-RGL — `w/h` lose meaning when the column is fixed-width; reordering moves to `EditPinDrawer` if that ever becomes necessary. Mobile collapses to a single column with the panel above the rail (headline content stays first-paint visible). The page's outer container switches from `overflow-auto` to `overflow-hidden flex flex-col min-h-0` in panel mode so the panel pin's iframe can fill the viewport edge-to-edge.
+
+**Store.** `useDashboardPinsStore.promotePinToPanel` / `demotePinFromPanel` do optimistic local writes (clear all `is_main_panel` flags + set the target's, or flip false), call the new endpoints, and trigger a `useDashboardsStore.hydrate()` so the dashboard's `grid_config.layout_mode` refreshes without a full reload. Lazy import of `dashboards` store breaks the load-time cycle.
+
+**Files**
+- Backend: `migrations/versions/224_widget_dashboard_pin_main_panel.py` (new), `app/db/models.py`, `app/services/dashboard_pins.py` (+`promote_pin_to_panel`, +`demote_pin_from_panel`, +`_set_dashboard_layout_mode`, extended `delete_pin` + `serialize_pin`), `app/routers/api_v1_dashboard.py` (2 new endpoints), `app/tools/local/emit_html_widget.py` (+`display_mode` schema/kwarg), `app/agent/tool_dispatch.py` (`ToolResultEnvelope.display_mode` + opt-in parse + compact serialize).
+- Frontend: `ui/app/(app)/widgets/index.tsx` (panel-mode branch + `PanelModeView`), `ui/app/(app)/widgets/EditPinDrawer.tsx` (Promote/Demote button block), `ui/src/stores/dashboardPins.ts` (+ promote/demote actions), `ui/src/stores/dashboards.ts` (`grid_config.layout_mode` typed), `ui/src/types/api.ts` (+ `is_main_panel` on `WidgetDashboardPin`, + `display_mode` on `ToolResultEnvelope`).
+
+**Tests** — 8 new + adjacent regression sweep green:
+- `tests/integration/test_dashboard_panel_mode.py` (7 cases): promote sets flag + flips `layout_mode`, promote clears prior panel pin, demote reverts `layout_mode`, deleting the panel pin reverts mode, default `is_main_panel=False`, 404 on unknown pin, sibling pins survive promote.
+- `tests/unit/test_emit_html_widget.py` (5 new under `TestDisplayMode`): default omits the field, `display_mode="panel"` stamps it, invalid value errors, opt-in envelope round-trip, `inline` not serialized in `compact_dict`.
+- Adjacent suite (test_dashboard_pins, test_dashboard_pins_service, test_widget_packages_seeder, test_widget_preview_inline, test_tool_execute_api, test_widget_packages_api) — 70 green.
+
+**Plan**: `~/.claude/plans/typed-bubbling-hoare.md` (P10 row).
+
+**Out of scope (intentional)**
+- Panel-mode kiosk wrapper — kiosk + panel-mode happen to play well together since both clip chrome, but no bespoke combined treatment.
+- Reorderable rail strip in panel mode — flex stack keeps it simple; if reorder becomes needed, drag-handles + dnd-kit are the upgrade path (sibling to channel-OmniPanel).
+- Auto-resize of pin `{x, y, w, h}` when promoting — coordinates persist as-is so the user can demote back without losing their grid layout. The rail strip ignores `w/h` since width is fixed.
+- Migration 224 backfill — every existing pin defaults to `is_main_panel=FALSE`; existing dashboards stay in grid mode unless someone explicitly promotes.
 
 ## Key invariants
 

@@ -89,7 +89,30 @@ async def _post(path: str, params: dict | None = None, payload: dict | None = No
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "total": {
+                "type": "integer"
+            },
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "status": {
+                "type": "string"
+            },
+            "message": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def bazarr_subtitles(
     action: str = "wanted",
     media_type: str = "episodes",

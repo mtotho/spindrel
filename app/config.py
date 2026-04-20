@@ -542,6 +542,11 @@ class Settings(BaseSettings):
 
     # Agent
     AGENT_MAX_ITERATIONS: int = 15
+    # Cap on inner tool calls a single run_script invocation may dispatch via
+    # /api/v1/internal/tools/exec. Defends against scripts that loop around
+    # the loop-level max_iterations fence. Per-bot override on
+    # Bot.max_script_tool_calls.
+    AGENT_MAX_SCRIPT_TOOL_CALLS: int = 50
     SKILL_NUDGE_AFTER_ITERATIONS: int = SKILL_NUDGE_AFTER_ITERATIONS  # inject skill-learning nudge after N iterations (0 = disabled)
     SKILL_CORRECTION_NUDGE_ENABLED: bool = True  # inject skill-learning nudge when user corrects the bot
     SKILL_REPEATED_LOOKUP_NUDGE_ENABLED: bool = True  # inject nudge when bot repeatedly searches same topics

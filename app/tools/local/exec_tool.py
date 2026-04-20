@@ -125,7 +125,20 @@ def build_exec_script(
             "required": ["command"],
         },
     },
-}, safety_tier="exec_capable", requires_bot_context=True)
+}, safety_tier="exec_capable", requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "exit_code": {"type": "integer"},
+        "duration_ms": {"type": "number"},
+        "workspace_type": {"type": "string"},
+        "stdout": {"type": "string"},
+        "stderr": {"type": "string"},
+        "output_file": {"type": "string"},
+        "task_id": {"type": "string"},
+        "status": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def delegate_to_exec(
     command: str,
     args: list[str] | None = None,

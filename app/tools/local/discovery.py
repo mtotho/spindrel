@@ -160,14 +160,21 @@ async def get_tool_info(tool_name: str) -> str:
             "required": ["tool_names"],
         },
     },
-}, requires_bot_context=True)
+}, requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "removed": {"type": "integer"},
+        "requested": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def prune_enrolled_tools(tool_names: list[str]) -> str:
     """Remove the listed tools from this bot's persistent enrollment."""
     bot_id = current_bot_id.get()
     if not bot_id:
-        return "Cannot prune: no bot context."
+        return json.dumps({"error": "no bot context"}, ensure_ascii=False)
     if not tool_names:
-        return "No tool names provided."
+        return json.dumps({"error": "no tool names provided"}, ensure_ascii=False)
 
     from app.services.tool_enrollment import unenroll_many
 
@@ -175,11 +182,9 @@ async def prune_enrolled_tools(tool_names: list[str]) -> str:
         removed = await unenroll_many(bot_id, tool_names)
     except Exception as exc:
         logger.exception("prune_enrolled_tools failed for bot %s", bot_id)
-        return f"Failed to prune enrollments: {exc}"
+        return json.dumps({"error": f"Failed to prune enrollments: {exc}"}, ensure_ascii=False)
 
-    if removed == 0:
-        return f"No matching enrollments to remove ({len(tool_names)} requested)."
-    return f"Pruned {removed} tool enrollment(s) from your working set."
+    return json.dumps({"removed": removed, "requested": len(tool_names)}, ensure_ascii=False)
 
 
 @register({

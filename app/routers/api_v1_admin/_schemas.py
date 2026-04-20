@@ -41,6 +41,8 @@ class BotOut(BaseModel):
     tool_retrieval: bool = True
     tool_discovery: bool = True
     tool_similarity_threshold: Optional[float] = None
+    max_iterations: Optional[int] = None
+    max_script_tool_calls: Optional[int] = None
     tool_result_config: dict = {}
     persona: bool = False
     persona_content: Optional[str] = None

@@ -346,3 +346,61 @@ class TestEnvelopeRoundTrip:
         d = env.compact_dict()
         assert "source_path" not in d
         assert "source_channel_id" not in d
+
+
+class TestDisplayMode:
+    """``display_mode`` kwarg — P10 panel-mode pinning hint."""
+
+    @pytest.mark.asyncio
+    async def test_inline_default_omits_display_mode(self):
+        # The hint is opt-in: absent kwarg → not stamped, so existing pins +
+        # consumers don't see a new field where they didn't before.
+        result = await emit_html_widget(html="<p>x</p>")
+        env = _envelope(result)
+        assert "display_mode" not in env
+
+    @pytest.mark.asyncio
+    async def test_panel_stamps_display_mode_inline_path(self):
+        result = await emit_html_widget(
+            html="<p>x</p>", display_mode="panel",
+        )
+        env = _envelope(result)
+        assert env["display_mode"] == "panel"
+
+    @pytest.mark.asyncio
+    async def test_invalid_display_mode_errors(self):
+        result = await emit_html_widget(
+            html="<p>x</p>", display_mode="huge",
+        )
+        err = _parse(result).get("error", "")
+        assert "display_mode" in err
+
+    def test_panel_round_trips_through_optin_envelope(self):
+        env = _build_envelope_from_optin(
+            {
+                "content_type": INTERACTIVE_HTML_CONTENT_TYPE,
+                "body": "",
+                "plain_body": "panel",
+                "display": "inline",
+                "display_mode": "panel",
+            },
+            raw_text="",
+        )
+        assert env.display_mode == "panel"
+        d = env.compact_dict()
+        assert d["display_mode"] == "panel"
+
+    def test_inline_display_mode_not_serialized(self):
+        # When the value is the default we don't pollute the wire format.
+        env = _build_envelope_from_optin(
+            {
+                "content_type": INTERACTIVE_HTML_CONTENT_TYPE,
+                "body": "",
+                "plain_body": "x",
+                "display": "inline",
+                "display_mode": "inline",
+            },
+            raw_text="",
+        )
+        d = env.compact_dict()
+        assert "display_mode" not in d

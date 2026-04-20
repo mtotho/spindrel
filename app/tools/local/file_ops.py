@@ -307,6 +307,97 @@ def _error(msg: str) -> str:
             "required": ["operation", "path"],
         },
     },
+}, returns={
+    "oneOf": [
+        {
+            "description": "list operation",
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "type": {"type": "string", "enum": ["file", "dir"]},
+                            "size": {"type": "integer"},
+                        },
+                        "required": ["name", "type"],
+                    },
+                },
+            },
+            "required": ["path", "entries"],
+        },
+        {
+            "description": "grep operation",
+            "type": "object",
+            "properties": {
+                "matches": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "file": {"type": "string"},
+                            "line": {"type": "integer"},
+                            "text": {"type": "string"},
+                        },
+                        "required": ["file", "line", "text"],
+                    },
+                },
+                "count": {"type": "integer"},
+                "files_scanned": {"type": "integer"},
+                "truncated": {"type": "boolean"},
+                "files_skipped_large": {"type": "integer"},
+            },
+            "required": ["matches", "count"],
+        },
+        {
+            "description": "glob operation",
+            "type": "object",
+            "properties": {
+                "paths": {"type": "array", "items": {"type": "string"}},
+                "count": {"type": "integer"},
+                "truncated": {"type": "boolean"},
+            },
+            "required": ["paths", "count"],
+        },
+        {
+            "description": "read operation",
+            "type": "object",
+            "properties": {
+                "llm": {"type": "string"},
+                "_envelope": {"type": "object"},
+            },
+            "required": ["llm"],
+        },
+        {
+            "description": "write/edit/move/delete/mkdir/restore/history operations — success",
+            "type": "object",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "bytes": {"type": "integer"},
+                "created": {"type": "boolean"},
+                "deleted": {"type": "boolean"},
+                "moved": {"type": "string"},
+                "backup": {"type": ["string", "null"]},
+                "applied": {"type": "integer"},
+                "replacements": {"type": "integer"},
+                "restored_from": {"type": "string"},
+                "prior_backup": {"type": ["string", "null"]},
+                "path": {"type": "string"},
+                "versions": {"type": "array"},
+                "_envelope": {"type": "object"},
+            },
+            "required": ["ok"],
+        },
+        {
+            "description": "error",
+            "type": "object",
+            "properties": {"error": {"type": "string"}},
+            "required": ["error"],
+        },
+    ],
 }, safety_tier="mutating", requires_bot_context=True)
 async def file(
     operation: str,

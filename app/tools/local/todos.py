@@ -42,15 +42,23 @@ def _get_scope():
             "required": ["content"]
         }
     }
-}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "content": {"type": "string"},
+        "status": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def create_todo(content: str, priority: int = 0) -> str:
     priority = int(priority)
     bot_id, channel_id, err = _get_scope()
     if err:
-        return err
+        return json.dumps({"error": err}, ensure_ascii=False)
 
     if not content or not content.strip():
-        return "Error: content must not be empty."
+        return json.dumps({"error": "content must not be empty."}, ensure_ascii=False)
 
     now = datetime.now(timezone.utc)
     todo = Todo(
@@ -87,11 +95,31 @@ async def create_todo(content: str, priority: int = 0) -> str:
             "required": []
         }
     }
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer"},
+        "todos": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "content": {"type": "string"},
+                    "status": {"type": "string"},
+                    "priority": {"type": "integer"},
+                },
+                "required": ["id", "content", "status", "priority"],
+            },
+        },
+        "error": {"type": "string"},
+    },
+    "required": ["count", "todos"],
+})
 async def list_todos(status: str = "pending") -> str:
     bot_id, channel_id, err = _get_scope()
     if err:
-        return err
+        return json.dumps({"error": err}, ensure_ascii=False)
 
     async with async_session() as db:
         stmt = (
@@ -103,13 +131,8 @@ async def list_todos(status: str = "pending") -> str:
             stmt = stmt.where(Todo.status == status)
         todos = (await db.execute(stmt)).scalars().all()
 
-    if not todos:
-        return "No todos found."
-
-    lines = []
-    for t in todos:
-        lines.append(f"- [{t.status}] (p{t.priority}) {t.content}  [id: {t.id}]")
-    return "\n".join(lines)
+    items = [{"id": str(t.id), "content": t.content, "status": t.status, "priority": t.priority} for t in todos]
+    return json.dumps({"count": len(items), "todos": items}, ensure_ascii=False)
 
 
 @register({
@@ -128,26 +151,33 @@ async def list_todos(status: str = "pending") -> str:
             "required": ["todo_id"]
         }
     }
-}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "todo_id": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def complete_todo(todo_id: str) -> str:
     try:
         tid = uuid.UUID(todo_id)
     except ValueError:
-        return f"Error: invalid todo_id: {todo_id}"
+        return json.dumps({"error": f"invalid todo_id: {todo_id}"}, ensure_ascii=False)
 
     bot_id, channel_id, err = _get_scope()
     if err:
-        return err
+        return json.dumps({"error": err}, ensure_ascii=False)
 
     async with async_session() as db:
         todo = await db.get(Todo, tid)
         if not todo or todo.bot_id != bot_id or todo.channel_id != channel_id:
-            return f"Error: todo {todo_id} not found."
+            return json.dumps({"error": f"todo {todo_id} not found."}, ensure_ascii=False)
         todo.status = "done"
         todo.updated_at = datetime.now(timezone.utc)
         await db.commit()
 
-    return f"Todo {todo_id} marked as done."
+    return json.dumps({"ok": True, "todo_id": todo_id}, ensure_ascii=False)
 
 
 @register({
@@ -179,22 +209,29 @@ async def complete_todo(todo_id: str) -> str:
             "required": ["todo_id"]
         }
     }
-}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "todo_id": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def update_todo(todo_id: str, content: str | None = None,
                       priority: int | None = None, status: str | None = None) -> str:
     try:
         tid = uuid.UUID(todo_id)
     except ValueError:
-        return f"Error: invalid todo_id: {todo_id}"
+        return json.dumps({"error": f"invalid todo_id: {todo_id}"}, ensure_ascii=False)
 
     bot_id, channel_id, err = _get_scope()
     if err:
-        return err
+        return json.dumps({"error": err}, ensure_ascii=False)
 
     async with async_session() as db:
         todo = await db.get(Todo, tid)
         if not todo or todo.bot_id != bot_id or todo.channel_id != channel_id:
-            return f"Error: todo {todo_id} not found."
+            return json.dumps({"error": f"todo {todo_id} not found."}, ensure_ascii=False)
         if content is not None:
             todo.content = content
         if priority is not None:
@@ -205,7 +242,7 @@ async def update_todo(todo_id: str, content: str | None = None,
         todo.updated_at = datetime.now(timezone.utc)
         await db.commit()
 
-    return f"Todo {todo_id} updated."
+    return json.dumps({"ok": True, "todo_id": todo_id}, ensure_ascii=False)
 
 
 @register({
@@ -224,22 +261,29 @@ async def update_todo(todo_id: str, content: str | None = None,
             "required": ["todo_id"]
         }
     }
-}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "todo_id": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def delete_todo(todo_id: str) -> str:
     try:
         tid = uuid.UUID(todo_id)
     except ValueError:
-        return f"Error: invalid todo_id: {todo_id}"
+        return json.dumps({"error": f"invalid todo_id: {todo_id}"}, ensure_ascii=False)
 
     bot_id, channel_id, err = _get_scope()
     if err:
-        return err
+        return json.dumps({"error": err}, ensure_ascii=False)
 
     async with async_session() as db:
         todo = await db.get(Todo, tid)
         if not todo or todo.bot_id != bot_id or todo.channel_id != channel_id:
-            return f"Error: todo {todo_id} not found."
+            return json.dumps({"error": f"todo {todo_id} not found."}, ensure_ascii=False)
         await db.delete(todo)
         await db.commit()
 
-    return f"Todo {todo_id} deleted."
+    return json.dumps({"ok": True, "todo_id": todo_id}, ensure_ascii=False)

@@ -193,6 +193,19 @@ def _fmt_alerts(alerts: list, offset: int) -> list[dict]:
             "required": ["location"],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "location": {"type": "string"},
+        "units": {"type": "string"},
+        "timezone": {"type": "string"},
+        "current": {"type": "object"},
+        "daily_forecast": {"type": "array"},
+        "hourly_forecast": {"type": "array"},
+        "alerts": {"type": "array"},
+        "error": {"type": "string"},
+        "detail": {"type": "string"},
+    },
 })
 async def get_weather(
     location: str,

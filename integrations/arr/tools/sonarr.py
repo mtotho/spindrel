@@ -137,7 +137,24 @@ async def _delete(path: str, params: dict | None = None, timeout: float = 15.0):
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "episodes": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_calendar(days_ahead: int = 7) -> str:
     if not settings.SONARR_URL:
         return error("SONARR_URL is not configured")
@@ -198,7 +215,36 @@ async def sonarr_calendar(days_ahead: int = 7) -> str:
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "total_in_library": {
+                "type": "integer"
+            },
+            "series": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "page": {
+                "type": "object"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_series(search: str | None = None, filter: str | None = None, limit: int = 50) -> str:
     if not settings.SONARR_URL:
         return error("SONARR_URL is not configured")
@@ -290,7 +336,33 @@ async def sonarr_series(search: str | None = None, filter: str | None = None, li
             "required": ["series_id"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string"
+            },
+            "id": {
+                "type": "integer"
+            },
+            "title": {
+                "type": "string"
+            },
+            "quality_profile_id": {
+                "type": "integer"
+            },
+            "monitored": {
+                "type": "boolean"
+            },
+            "series_type": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_series_update(
     series_id: int,
     quality_profile_id: int | None = None,
@@ -346,7 +418,27 @@ async def sonarr_series_update(
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "total_records": {
+                "type": "integer"
+            },
+            "page": {
+                "type": "object"
+            },
+            "episodes": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_wanted(limit: int = 20) -> str:
     if not settings.SONARR_URL:
         return error("SONARR_URL is not configured")
@@ -396,7 +488,24 @@ async def sonarr_wanted(limit: int = 20) -> str:
             "properties": {},
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_queue() -> str:
     if not settings.SONARR_URL:
         return error("SONARR_URL is not configured")
@@ -478,7 +587,27 @@ async def sonarr_queue() -> str:
             "required": ["action"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string"
+            },
+            "command_id": {
+                "type": "integer"
+            },
+            "action": {
+                "type": "string"
+            },
+            "message": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_command(
     action: str,
     series_id: int | None = None,
@@ -547,7 +676,30 @@ async def sonarr_command(
             "required": ["action"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "releases": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "status": {
+                "type": "string"
+            },
+            "message": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_releases(
     action: str,
     episode_id: int | None = None,
@@ -625,7 +777,24 @@ async def sonarr_releases(
             "required": ["series_id"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "episodes": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_episodes(series_id: int, season: int | None = None) -> str:
     if not settings.SONARR_URL:
         return error("SONARR_URL is not configured")
@@ -689,7 +858,24 @@ async def sonarr_episodes(series_id: int, season: int | None = None) -> str:
             "required": ["series_id"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "events": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_history(
     series_id: int,
     episode_id: int | None = None,
@@ -769,7 +955,27 @@ async def sonarr_history(
             "required": ["queue_ids"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "removed": {
+                "type": "integer"
+            },
+            "errors": {
+                "type": "integer"
+            },
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_queue_manage(
     queue_ids: list[int],
     blocklist: bool = False,
@@ -858,7 +1064,39 @@ def _format_quality_profile(profile: dict) -> dict:
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "profiles": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "id": {
+                "type": "integer"
+            },
+            "name": {
+                "type": "string"
+            },
+            "cutoff": {
+                "type": "string"
+            },
+            "upgrade_allowed": {
+                "type": "boolean"
+            },
+            "qualities": {
+                "type": "array"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_quality_profiles(profile_id: int | None = None) -> str:
     if not settings.SONARR_URL:
         return error("SONARR_URL is not configured")
@@ -917,7 +1155,30 @@ async def sonarr_quality_profiles(profile_id: int | None = None) -> str:
             "required": ["profile_id"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "integer"
+            },
+            "name": {
+                "type": "string"
+            },
+            "cutoff": {
+                "type": "string"
+            },
+            "upgrade_allowed": {
+                "type": "boolean"
+            },
+            "qualities": {
+                "type": "array"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_quality_profile_update(
     profile_id: int,
     upgrade_allowed: bool | None = None,
@@ -1002,7 +1263,24 @@ async def sonarr_quality_profile_update(
             "properties": {},
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "indexers": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def sonarr_indexers() -> str:
     if not settings.SONARR_URL:
         return error("SONARR_URL is not configured")

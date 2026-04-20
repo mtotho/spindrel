@@ -1,0 +1,275 @@
+<!--
+---
+name: Context Tracker
+description: Live context window fill for this channel — gauge, per-bot breakdown, and turn activity stream from the channel event bus
+display_label: Context tracker
+version: 1.0.0
+author: spindrel
+tags: [observability, context, live, spindrel-sdk]
+icon: gauge
+---
+-->
+<style>
+  #ctx-root { font: inherit; }
+  #ctx-root .ctx-bots { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 10px; align-items: center; font-size: var(--sd-font-size-sm); }
+  #ctx-root .ctx-bots .ctx-bot-util { font-variant-numeric: tabular-nums; color: var(--sd-text-muted); }
+  #ctx-root .ctx-bots .ctx-bot-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #ctx-root .ctx-activity li { display: grid; grid-template-columns: 60px 1fr auto; gap: 8px; font-size: var(--sd-font-size-sm); padding: 2px 0; border-bottom: 1px dashed var(--sd-surface-border); }
+  #ctx-root .ctx-activity li:last-child { border-bottom: none; }
+  #ctx-root .ctx-activity .ctx-act-time { color: var(--sd-text-muted); font-variant-numeric: tabular-nums; }
+  #ctx-root .ctx-activity .ctx-act-meta { color: var(--sd-text-muted); font-variant-numeric: tabular-nums; }
+  #ctx-root .ctx-activity ul { list-style: none; padding: 0; margin: 0; }
+  #ctx-root .ctx-status { display: inline-flex; align-items: center; gap: 6px; }
+  #ctx-root .ctx-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sd-text-muted); }
+  #ctx-root .ctx-dot-live { background: var(--sd-success); box-shadow: 0 0 0 0 var(--sd-success); animation: ctx-pulse 1.6s ease-out infinite; }
+  #ctx-root .ctx-dot-tool { background: var(--sd-warning); }
+  #ctx-root .ctx-dot-err  { background: var(--sd-danger); }
+  @keyframes ctx-pulse { 0% { box-shadow: 0 0 0 0 rgba(0,180,0,0.35); } 100% { box-shadow: 0 0 0 6px rgba(0,180,0,0); } }
+  #ctx-root .ctx-pct { font-variant-numeric: tabular-nums; font-weight: 600; }
+  #ctx-root .ctx-spark-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--sd-text-muted); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  #ctx-root .ctx-spark-host { min-height: 36px; }
+</style>
+<div class="sd-card" id="ctx-root">
+  <header class="sd-card-header sd-hstack-between">
+    <div class="sd-stack" style="gap: 0;">
+      <h3 class="sd-title">Context tracker</h3>
+      <span class="sd-meta ctx-status">
+        <span class="ctx-dot" id="ctx-dot"></span>
+        <span id="ctx-status-label">idle</span>
+      </span>
+    </div>
+    <span class="sd-chip" id="ctx-model" title="Model">—</span>
+  </header>
+  <div class="sd-card-body sd-stack">
+    <section>
+      <div class="sd-hstack-between" style="align-items: baseline; margin-bottom: 4px;">
+        <span class="sd-label">Window fill</span>
+        <span class="ctx-pct" id="ctx-util-pct">—</span>
+      </div>
+      <div class="sd-progress" id="ctx-bar" style="--p: 0"></div>
+      <div class="sd-hstack-between" style="margin-top: 4px;">
+        <span class="sd-meta" id="ctx-tokens">awaiting first turn…</span>
+        <span class="sd-meta" id="ctx-last-bot">—</span>
+      </div>
+      <div class="ctx-spark-host" id="ctx-spark" style="margin-top: 6px;"></div>
+      <div class="ctx-spark-meta" id="ctx-spark-meta" hidden>
+        <span>oldest</span>
+        <span id="ctx-spark-range">—</span>
+        <span>now</span>
+      </div>
+    </section>
+
+    <section>
+      <h4 class="sd-label">Per-bot latest</h4>
+      <div id="ctx-bots"></div>
+    </section>
+
+    <section>
+      <h4 class="sd-label">Recent turns</h4>
+      <div id="ctx-activity"></div>
+    </section>
+  </div>
+</div>
+<script>
+(function () {
+  const sp = window.spindrel;
+  const root = document.getElementById("ctx-root");
+  const dot = document.getElementById("ctx-dot");
+  const statusEl = document.getElementById("ctx-status-label");
+  const modelEl = document.getElementById("ctx-model");
+  const pctEl = document.getElementById("ctx-util-pct");
+  const barEl = document.getElementById("ctx-bar");
+  const tokensEl = document.getElementById("ctx-tokens");
+  const lastBotEl = document.getElementById("ctx-last-bot");
+  const botsEl = document.getElementById("ctx-bots");
+  const activityEl = document.getElementById("ctx-activity");
+
+  if (!sp.channelId) {
+    sp.ui.status(root, "empty", {
+      message: "Pin this widget on a channel to see live context usage.",
+    });
+    return;
+  }
+
+  // Per-bot latest snapshot (bot_id → {consumed, total, util, model, ts})
+  const bots = new Map();
+  // Per-turn running state (turn_id → {bot_id, started, tool})
+  const turns = new Map();
+  // Recent activity — newest first, cap 8
+  const activity = [];
+  // Utilization sparkline series — oldest → newest, cap 20
+  const util = [];
+  const UTIL_CAP = 20;
+
+  const fmtPct = (u) => (u * 100).toFixed(0) + "%";
+  const fmtTokens = (c, t) => c.toLocaleString() + " / " + t.toLocaleString();
+  const shortBot = (id) => id.length > 12 ? id.slice(0, 10) + "…" : id;
+
+  function setStatus(label, tone) {
+    statusEl.textContent = label;
+    dot.className = "ctx-dot";
+    if (tone === "live") dot.classList.add("ctx-dot-live");
+    else if (tone === "tool") dot.classList.add("ctx-dot-tool");
+    else if (tone === "err") dot.classList.add("ctx-dot-err");
+  }
+
+  function barToneClass(util) {
+    if (util >= 0.9) return "sd-progress-danger";
+    if (util >= 0.75) return "sd-progress-warning";
+    return "";
+  }
+
+  function renderGauge(entry) {
+    const u = Math.max(0, Math.min(1, entry.utilization || 0));
+    pctEl.textContent = fmtPct(u);
+    barEl.style.setProperty("--p", String(Math.round(u * 100)));
+    barEl.className = "sd-progress " + barToneClass(u);
+    tokensEl.textContent = fmtTokens(entry.consumed_tokens || 0, entry.total_tokens || 0);
+    lastBotEl.textContent = shortBot(entry.bot_id || "") + (entry.model ? " · " + entry.model : "");
+    if (entry.model) modelEl.textContent = entry.model;
+  }
+
+  const sparkEl = document.getElementById("ctx-spark");
+  const sparkMetaEl = document.getElementById("ctx-spark-meta");
+  const sparkRangeEl = document.getElementById("ctx-spark-range");
+
+  function pushUtil(u) {
+    util.push(Math.max(0, Math.min(1, u)));
+    if (util.length > UTIL_CAP) util.splice(0, util.length - UTIL_CAP);
+    renderSpark();
+  }
+
+  function renderSpark() {
+    if (util.length < 2) {
+      sparkEl.innerHTML = "";
+      sparkMetaEl.hidden = true;
+      return;
+    }
+    sp.ui.chart(sparkEl, util, {
+      type: "area",
+      height: 36,
+      min: 0,
+      max: 1,
+      strokeWidth: 1.5,
+      label: "Window fill over last " + util.length + " snapshots",
+    });
+    sparkMetaEl.hidden = false;
+    sparkRangeEl.textContent = util.length + " pts · " + fmtPct(util[util.length - 1]);
+  }
+
+  function renderBots() {
+    const rows = Array.from(bots.values()).sort((a, b) => b.ts - a.ts);
+    if (!rows.length) {
+      sp.ui.status(botsEl, "empty", { message: "No turns observed yet." });
+      return;
+    }
+    const frag = document.createElement("div");
+    frag.className = "ctx-bots";
+    for (const r of rows) {
+      const name = document.createElement("span");
+      name.className = "ctx-bot-name";
+      name.textContent = shortBot(r.bot_id);
+      name.title = r.bot_id + (r.model ? " — " + r.model : "");
+      const tokens = document.createElement("span");
+      tokens.className = "ctx-bot-util";
+      tokens.textContent = fmtTokens(r.consumed_tokens, r.total_tokens);
+      const pct = document.createElement("span");
+      pct.className = "ctx-pct";
+      pct.textContent = fmtPct(r.utilization);
+      if (r.utilization >= 0.9) pct.style.color = "var(--sd-danger)";
+      else if (r.utilization >= 0.75) pct.style.color = "var(--sd-warning)";
+      frag.appendChild(name);
+      frag.appendChild(tokens);
+      frag.appendChild(pct);
+    }
+    botsEl.innerHTML = "";
+    botsEl.appendChild(frag);
+  }
+
+  function renderActivity() {
+    if (!activity.length) {
+      sp.ui.status(activityEl, "empty", { message: "No turns yet." });
+      return;
+    }
+    const ul = document.createElement("ul");
+    for (const a of activity) {
+      const li = document.createElement("li");
+      const t = document.createElement("span"); t.className = "ctx-act-time"; t.textContent = new Date(a.ts).toLocaleTimeString();
+      const body = document.createElement("span"); body.textContent = a.label;
+      const meta = document.createElement("span"); meta.className = "ctx-act-meta"; meta.textContent = a.meta || "";
+      li.appendChild(t); li.appendChild(body); li.appendChild(meta);
+      ul.appendChild(li);
+    }
+    activityEl.innerHTML = "";
+    activityEl.className = "ctx-activity";
+    activityEl.appendChild(ul);
+  }
+
+  function pushActivity(label, meta) {
+    activity.unshift({ ts: Date.now(), label, meta: meta || "" });
+    if (activity.length > 8) activity.length = 8;
+    renderActivity();
+  }
+
+  renderBots();
+  renderActivity();
+
+  // Subscribe to the channel bus. Kinds we care about:
+  //   context_budget          — primary, updates the gauge
+  //   turn_started / turn_ended — status dot + activity log
+  //   turn_stream_tool_start  — "using tool X" status
+  sp.stream(
+    ["context_budget", "turn_started", "turn_ended", "turn_stream_tool_start"],
+    (event) => {
+      const p = event.payload || {};
+      if (event.kind === "context_budget") {
+        const entry = {
+          bot_id: p.bot_id || "",
+          consumed_tokens: p.consumed_tokens || 0,
+          total_tokens: p.total_tokens || 0,
+          utilization: p.utilization || 0,
+          model: p.model || "",
+          ts: Date.now(),
+        };
+        renderGauge(entry);
+        pushUtil(entry.utilization || 0);
+        if (entry.bot_id) bots.set(entry.bot_id, entry);
+        renderBots();
+        return;
+      }
+      if (event.kind === "turn_started") {
+        const tid = p.turn_id;
+        if (tid) turns.set(tid, { bot_id: p.bot_id, started: Date.now() });
+        setStatus(shortBot(p.bot_id || "bot") + " thinking…", "live");
+        pushActivity("▶ " + shortBot(p.bot_id || "bot") + " started", p.reason || "");
+        return;
+      }
+      if (event.kind === "turn_stream_tool_start") {
+        setStatus(shortBot(p.bot_id || "bot") + " · " + (p.tool_name || "tool"), "tool");
+        return;
+      }
+      if (event.kind === "turn_ended") {
+        const tid = p.turn_id;
+        const started = turns.get(tid);
+        turns.delete(tid);
+        const elapsed = started ? ((Date.now() - started.started) / 1000).toFixed(1) + "s" : "";
+        const ok = !p.error;
+        setStatus("idle", ok ? "" : "err");
+        pushActivity(
+          (ok ? "■ " : "✕ ") + shortBot(p.bot_id || "bot") + (ok ? " finished" : " failed"),
+          elapsed,
+        );
+        return;
+      }
+    },
+  );
+
+  // If nothing arrives for a while, soften the dot back to idle so an
+  // orphaned "thinking…" state (renderer raced an event) clears itself.
+  setInterval(() => {
+    if (turns.size === 0 && statusEl.textContent !== "idle") {
+      setStatus("idle");
+    }
+  }, 10000);
+})();
+</script>

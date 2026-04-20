@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Spindrel Live Browser",
+  "version": "0.1.0",
+  "description": "Pairs your browser with a Spindrel server so bots can drive your real, logged-in tabs.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "activeTab",
+    "debugger"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Spindrel — pair browser",
+    "default_popup": "options.html"
+  }
+}

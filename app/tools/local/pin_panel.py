@@ -46,6 +46,14 @@ _PIN_PANEL_SCHEMA = {
     safety_tier="mutating",
     requires_bot_context=True,
     requires_channel_context=True,
+    returns={
+        "type": "object",
+        "properties": {
+            "llm": {"type": "string"},
+            "_envelope": {"type": "object"},
+            "error": {"type": "string"},
+        },
+    },
 )
 async def pin_panel(path: str, position: str = "right") -> str:
     channel_id = current_channel_id.get()
@@ -115,6 +123,14 @@ _UNPIN_PANEL_SCHEMA = {
     _UNPIN_PANEL_SCHEMA,
     safety_tier="mutating",
     requires_channel_context=True,
+    returns={
+        "type": "object",
+        "properties": {
+            "llm": {"type": "string"},
+            "_envelope": {"type": "object"},
+            "error": {"type": "string"},
+        },
+    },
 )
 async def unpin_panel(path: str) -> str:
     channel_id = current_channel_id.get()

@@ -425,6 +425,15 @@ async def lifespan(application: FastAPI):
     logger.info("Ensuring orchestrator landing channel...")
     from app.services.channels import ensure_orchestrator_channel
     await ensure_orchestrator_channel()
+    # Backfill knowledge-base/ folders for channels that pre-date the KB
+    # convention (shipped 2026-04-19). Idempotent; safe to run every boot.
+    from app.services.channel_workspace import backfill_knowledge_base_dirs
+    try:
+        backfilled = await backfill_knowledge_base_dirs()
+        if backfilled:
+            logger.info("Ensured knowledge-base/ for %d existing channel(s)", backfilled)
+    except Exception:
+        logger.warning("KB backfill failed", exc_info=True)
     logger.info("Seeding system pipelines from YAML...")
     from app.services.task_seeding import ensure_system_pipelines
     await ensure_system_pipelines()

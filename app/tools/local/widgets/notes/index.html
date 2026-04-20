@@ -1,0 +1,177 @@
+<!--
+---
+name: Notes
+description: Persistent pinned-channel scratchpad backed by spindrel.state with schema-migrations showcase
+display_label: Notes
+version: 2.0.0
+author: spindrel
+tags: [productivity, notes, spindrel-sdk]
+icon: notebook-pen
+---
+-->
+<style>
+  #notes-root .notes-body { min-height: 80px; }
+  #notes-root textarea { width: 100%; min-height: 110px; resize: vertical; font: inherit; }
+  #notes-root .notes-meta { font-size: 11px; color: var(--sd-text-muted); display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+  #notes-root .notes-rendered { font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  #notes-root .notes-rendered.empty { color: var(--sd-text-muted); font-style: italic; }
+  #notes-root .notes-chip { font-variant-numeric: tabular-nums; }
+</style>
+<div class="sd-card" id="notes-root">
+  <header class="sd-card-header sd-hstack-between">
+    <div class="sd-stack" style="gap: 0;">
+      <h3 class="sd-title">Notes</h3>
+      <span class="sd-meta" id="notes-sub">Pinned-channel scratchpad</span>
+    </div>
+    <span class="sd-chip notes-chip" id="notes-version" title="state.json schema version">v—</span>
+  </header>
+  <div class="sd-card-body sd-stack">
+    <div class="notes-body" id="notes-body">
+      <div class="notes-rendered empty" id="notes-rendered">Loading…</div>
+    </div>
+    <div class="notes-edit" id="notes-edit" hidden>
+      <textarea id="notes-textarea" placeholder="Write in markdown — supports **bold**, *italic*, `code`, lists, headings."></textarea>
+      <div class="notes-meta">
+        <span id="notes-meta-updated">—</span>
+        <span>
+          <button type="button" class="sd-btn sd-btn-ghost" id="notes-cancel">Cancel</button>
+          <button type="button" class="sd-btn sd-btn-primary" id="notes-save">Save</button>
+        </span>
+      </div>
+    </div>
+    <div class="notes-meta" id="notes-display-meta">
+      <span id="notes-meta-summary">—</span>
+      <button type="button" class="sd-btn sd-btn-ghost" id="notes-edit-btn">Edit</button>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const sp = window.spindrel;
+  const root = document.getElementById("notes-root");
+  const renderedEl = document.getElementById("notes-rendered");
+  const subEl = document.getElementById("notes-sub");
+  const versionEl = document.getElementById("notes-version");
+  const editEl = document.getElementById("notes-edit");
+  const textareaEl = document.getElementById("notes-textarea");
+  const editBtn = document.getElementById("notes-edit-btn");
+  const saveBtn = document.getElementById("notes-save");
+  const cancelBtn = document.getElementById("notes-cancel");
+  const displayMeta = document.getElementById("notes-display-meta");
+  const updatedMeta = document.getElementById("notes-meta-updated");
+  const summaryMeta = document.getElementById("notes-meta-summary");
+
+  if (!sp.channelId) {
+    sp.ui.status(root, "empty", { message: "Pin this widget on a channel to write notes." });
+    return;
+  }
+
+  // Schema history (showcase — the file could live at v1 before upgrade):
+  //   v1: { text: string }
+  //   v2: { markdown: string, createdAt: number, updatedAt: number }
+  // The declared bundle version is 2; files written under v1 get migrated.
+  const STATE_PATH = "./state.json";
+  const SPEC = {
+    schema_version: 2,
+    defaults: { markdown: "", createdAt: 0, updatedAt: 0 },
+    migrations: [
+      {
+        from: 1,
+        to: 2,
+        apply: (s) => ({
+          markdown: s.text || "",
+          createdAt: s.createdAt || Date.now(),
+          updatedAt: Date.now(),
+        }),
+      },
+    ],
+  };
+
+  let current = { markdown: "", createdAt: 0, updatedAt: 0 };
+
+  function fmtWhen(ts) {
+    if (!ts) return "never";
+    const d = new Date(ts);
+    return d.toLocaleString();
+  }
+
+  function render() {
+    const md = current.markdown || "";
+    if (!md.trim()) {
+      renderedEl.innerHTML = "";
+      renderedEl.textContent = "No notes yet. Click Edit to start.";
+      renderedEl.classList.add("empty");
+    } else {
+      renderedEl.classList.remove("empty");
+      renderedEl.innerHTML = "";
+      renderedEl.className = "notes-rendered";
+      const fragHost = document.createElement("div");
+      fragHost.innerHTML = sp.renderMarkdown(md);
+      renderedEl.appendChild(fragHost);
+    }
+    summaryMeta.textContent = "Updated " + fmtWhen(current.updatedAt);
+    versionEl.textContent = "v" + (current.__schema_version__ || 2);
+  }
+
+  function enterEdit() {
+    textareaEl.value = current.markdown || "";
+    updatedMeta.textContent = current.updatedAt
+      ? "Last saved " + fmtWhen(current.updatedAt)
+      : "Unsaved";
+    editEl.hidden = false;
+    displayMeta.hidden = true;
+    textareaEl.focus();
+  }
+
+  function exitEdit() {
+    editEl.hidden = true;
+    displayMeta.hidden = false;
+  }
+
+  async function save() {
+    const next = textareaEl.value;
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving…";
+    try {
+      const saved = await sp.state.save(STATE_PATH, {
+        markdown: next,
+        createdAt: current.createdAt || Date.now(),
+        updatedAt: Date.now(),
+        __schema_version__: 2,
+      });
+      current = saved;
+      render();
+      exitEdit();
+      sp.log.info("notes: saved", next.length, "chars");
+    } catch (e) {
+      sp.notify("error", "Notes save failed: " + (e && e.message));
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save";
+    }
+  }
+
+  editBtn.addEventListener("click", enterEdit);
+  cancelBtn.addEventListener("click", exitEdit);
+  saveBtn.addEventListener("click", save);
+  textareaEl.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); save(); }
+    if (e.key === "Escape") { e.preventDefault(); exitEdit(); }
+  });
+
+  (async function boot() {
+    try {
+      current = await sp.state.load(STATE_PATH, SPEC);
+      subEl.textContent = current.createdAt
+        ? "Created " + fmtWhen(current.createdAt)
+        : "New pinned scratchpad";
+      render();
+    } catch (e) {
+      sp.log.error("notes: load failed", e && e.message);
+      sp.ui.status(root, "error", {
+        message: "Notes failed to load: " + (e && e.message),
+      });
+    }
+  })();
+})();
+</script>

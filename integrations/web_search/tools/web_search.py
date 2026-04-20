@@ -40,6 +40,24 @@ _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
             "required": ["query"],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "query": {"type": "string"},
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "url": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+            },
+        },
+        "count": {"type": "integer"},
+        "error": {"type": "string"},
+    },
 })
 async def web_search(query: str, num_results: int = 5) -> str:
     mode = settings.WEB_SEARCH_MODE

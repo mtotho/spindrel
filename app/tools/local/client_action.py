@@ -86,6 +86,27 @@ async def _list_sessions_result() -> str:
             "required": ["action"],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "status": {"type": "string"},
+        "action": {"type": "string"},
+        "params": {"type": "object"},
+        "result": {"type": "string"},
+        "sessions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "bot_id": {"type": "string"},
+                    "title": {"type": ["string", "null"]},
+                    "last_active": {"type": ["string", "null"]},
+                },
+            },
+        },
+        "error": {"type": "string"},
+    },
 })
 async def client_action(action: str, params: dict | None = None) -> str:
     if action not in CLIENT_ACTIONS:

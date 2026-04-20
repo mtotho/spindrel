@@ -210,6 +210,79 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
             "required": ["action"],
         },
     },
+}, returns={
+    "oneOf": [
+        {
+            "description": "list action",
+            "type": "object",
+            "properties": {
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "name": {"type": "string"},
+                            "category": {"type": "string"},
+                            "preview": {"type": "string"},
+                            "created_at": {"type": ["string", "null"]},
+                            "updated_at": {"type": ["string", "null"]},
+                            "last_surfaced_at": {"type": ["string", "null"]},
+                            "surface_count": {"type": "integer"},
+                            "stale": {"type": "boolean"},
+                        },
+                        "required": ["id", "name"],
+                    },
+                },
+                "total": {"type": "integer"},
+                "limit": {"type": "integer"},
+                "offset": {"type": "integer"},
+                "hint": {"type": "string"},
+                "message": {"type": "string"},
+            },
+            "required": ["skills"],
+        },
+        {
+            "description": "get action",
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string"},
+                "content": {"type": "string"},
+                "updated_at": {"type": ["string", "null"]},
+            },
+            "required": ["id", "content"],
+        },
+        {
+            "description": "create/update/delete/restore/patch/merge — success",
+            "type": "object",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "id": {"type": "string"},
+                "embedded": {"type": "boolean"},
+                "deleted": {"type": "array", "items": {"type": "string"}},
+                "message": {"type": "string"},
+            },
+            "required": ["ok", "id"],
+        },
+        {
+            "description": "duplicate warning (create without force)",
+            "type": "object",
+            "properties": {
+                "warning": {"type": "string"},
+                "similar_skill_id": {"type": "string"},
+                "similarity": {"type": "number"},
+                "message": {"type": "string"},
+            },
+            "required": ["warning"],
+        },
+        {
+            "description": "error",
+            "type": "object",
+            "properties": {"error": {"type": "string"}},
+            "required": ["error"],
+        },
+    ],
 }, safety_tier="control_plane", requires_bot_context=True)
 async def manage_bot_skill(
     action: str,

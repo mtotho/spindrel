@@ -8,8 +8,10 @@
  * action-dispatched button flips stay on merge:true semantics.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { Loader2, Maximize2, Minimize2, X } from "lucide-react";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
+
+const HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive";
 
 interface Props {
   pinId: string | null;
@@ -30,10 +32,13 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
   );
   const renamePin = useDashboardPinsStore((s) => s.renamePin);
   const replaceConfig = useDashboardPinsStore((s) => s.replaceWidgetConfig);
+  const promotePanel = useDashboardPinsStore((s) => s.promotePinToPanel);
+  const demotePanel = useDashboardPinsStore((s) => s.demotePinFromPanel);
 
   const [label, setLabel] = useState("");
   const [jsonText, setJsonText] = useState("{}");
   const [saving, setSaving] = useState(false);
+  const [panelBusy, setPanelBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
 
@@ -123,6 +128,26 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
     setJsonText("{}");
   };
 
+  const isHtmlWidget = pin?.envelope?.content_type === HTML_INTERACTIVE_CT;
+  const isPanelPin = !!pin?.is_main_panel;
+
+  const handlePanelToggle = async () => {
+    if (!pin) return;
+    setPanelBusy(true);
+    setError(null);
+    try {
+      if (isPanelPin) {
+        await demotePanel(pin.id);
+      } else {
+        await promotePanel(pin.id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPanelBusy(false);
+    }
+  };
+
   // Bind the keyboard shortcut to the latest save handler (closure capture
   // would otherwise freeze the disabled/parsed-json state from first paint).
   kbdSaveRef.current = () => {
@@ -178,6 +203,42 @@ export function EditPinDrawer({ pinId, onClose }: Props) {
               Leave empty to fall back to the widget's own label.
             </span>
           </label>
+
+          {isHtmlWidget && (
+            <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+                  Dashboard panel
+                </span>
+                {isPanelPin && (
+                  <span className="text-[10px] font-medium text-accent">
+                    Active
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-text-muted leading-snug">
+                {isPanelPin
+                  ? "This pin owns the dashboard's main area. Other pins surface in the rail strip alongside it."
+                  : "Promote to give this widget the dashboard's main area; existing tiles move to the rail strip."}
+              </p>
+              <button
+                type="button"
+                onClick={handlePanelToggle}
+                disabled={panelBusy}
+                className={
+                  "inline-flex w-fit items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors " +
+                  (isPanelPin
+                    ? "border-surface-border text-text-muted hover:bg-surface-overlay"
+                    : "border-accent/60 bg-accent/10 text-accent hover:bg-accent/20") +
+                  " disabled:opacity-50 disabled:cursor-not-allowed"
+                }
+              >
+                {panelBusy && <Loader2 size={12} className="animate-spin" />}
+                {isPanelPin ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                {isPanelPin ? "Demote from panel" : "Promote to dashboard panel"}
+              </button>
+            </div>
+          )}
 
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between">

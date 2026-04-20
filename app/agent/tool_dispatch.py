@@ -94,6 +94,13 @@ class ToolResultEnvelope:
     # Values must be https:// origins — no wildcards, no scheme keywords
     # (`data:`, `blob:`, `'self'`, `'unsafe-*'`). Validated at emit time.
     extra_csp: dict[str, list[str]] | None = None
+    # Pinning hint for HTML widgets — `"panel"` tells the dashboard pinning
+    # UI that this widget would prefer to claim the dashboard's main area
+    # instead of a normal grid tile. Surfaced via emit_html_widget's
+    # display_mode kwarg; the user still confirms via the EditPinDrawer
+    # promote action. Defaults to None (== "inline") so existing widgets
+    # behave identically.
+    display_mode: Literal["inline", "panel"] | None = None
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -127,6 +134,8 @@ class ToolResultEnvelope:
             d["source_bot_id"] = self.source_bot_id
         if self.extra_csp:
             d["extra_csp"] = self.extra_csp
+        if self.display_mode and self.display_mode != "inline":
+            d["display_mode"] = self.display_mode
         return d
 
 
@@ -289,6 +298,10 @@ def _build_envelope_from_optin(
     refresh_interval_seconds = envelope_data.get("refresh_interval_seconds")
     extra_csp_raw = envelope_data.get("extra_csp")
     extra_csp = _sanitize_extra_csp(extra_csp_raw) if extra_csp_raw else None
+    raw_display_mode = envelope_data.get("display_mode")
+    display_mode = (
+        raw_display_mode if raw_display_mode in ("inline", "panel") else None
+    )
 
     return ToolResultEnvelope(
         content_type=content_type,
@@ -304,6 +317,7 @@ def _build_envelope_from_optin(
         source_channel_id=str(source_channel_id) if source_channel_id else None,
         source_bot_id=str(source_bot_id) if source_bot_id else None,
         extra_csp=extra_csp,
+        display_mode=display_mode,
     )
 
 

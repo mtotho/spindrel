@@ -58,7 +58,30 @@ async def _qbit_client():
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "global_dl_speed_kb": {
+                "type": "number"
+            },
+            "global_up_speed_kb": {
+                "type": "number"
+            },
+            "torrents": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def qbit_torrents(filter: str = "all", limit: int = 50) -> str:
     if not settings.QBIT_URL:
         return error("QBIT_URL is not configured")
@@ -135,7 +158,30 @@ async def qbit_torrents(filter: str = "all", limit: int = 50) -> str:
             "required": ["hashes", "action"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string"
+            },
+            "action": {
+                "type": "string"
+            },
+            "hashes": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "message": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def qbit_manage(hashes: list[str], action: str) -> str:
     if not settings.QBIT_URL:
         return error("QBIT_URL is not configured")

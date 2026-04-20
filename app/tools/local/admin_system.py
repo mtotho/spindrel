@@ -27,7 +27,18 @@ logger = logging.getLogger(__name__)
             "required": [],
         },
     },
-}, safety_tier="control_plane")
+}, safety_tier="control_plane", returns={
+    "type": "object",
+    "properties": {
+        "bots": {"type": "array"},
+        "channels": {"type": "array"},
+        "integrations": {"type": "array"},
+        "providers": {"type": "array"},
+        "system_config": {"type": "object"},
+        "is_fresh_install": {"type": "boolean"},
+        "error": {"type": "string"},
+    },
+})
 async def get_system_status() -> str:
     from app.agent.bots import list_bots
     from app.services.providers import list_providers

@@ -11,8 +11,9 @@ FROM python:3.12-slim
 
 # Workspace tools — git, ripgrep, jq, build tools, etc.
 # These run in-process via subprocess when bots use exec_tool.
+# gosu: drop from root to the non-privileged 'spindrel' user in entrypoint.
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-    curl wget git jq ripgrep fd-find tree unzip zip \
+    curl wget git jq ripgrep fd-find tree unzip zip gosu \
     build-essential sqlite3 openssh-client ca-certificates gnupg \
     && rm -rf /var/lib/apt/lists/*
 
@@ -70,6 +71,14 @@ RUN if [ "$BUILD_DASHBOARDS" = "true" ]; then \
 # bots/ and skills/ are volume-mounted (see docker-compose.yml).
 # Create empty dirs as fallback if not mounted.
 RUN mkdir -p bots skills tools
+
+# Non-root runtime user. UID 1000 matches the typical Linux desktop
+# user so bind-mounted volumes (workspaces, home dir) line up without
+# extra host-side chowning. The entrypoint runs as root, fixes
+# ownership of container-internal paths, aligns the spindrel user with
+# the host docker-socket GID, then drops privileges via gosu.
+RUN groupadd -g 1000 spindrel \
+    && useradd -u 1000 -g spindrel -m -s /bin/bash spindrel
 
 EXPOSE 8000
 

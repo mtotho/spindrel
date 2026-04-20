@@ -142,6 +142,20 @@ async def run_script(script: str, description: str, timeout_s: int = 60) -> str:
         "python3 script.py",
     ])
 
+    # Open the inner-tool-call budget for this script. Keyed by the parent
+    # correlation id so /api/v1/internal/tools/exec can look it up on each
+    # dispatch. None/missing correlation id → no budget (call is untracked),
+    # matching the behavior of every other correlation-keyed subsystem.
+    from app.config import settings as _cfg
+    from app.services.script_budget import (
+        close_budget as _close_budget,
+        open_budget as _open_budget,
+    )
+    budget_key = str(correlation_id) if correlation_id else None
+    budget_limit = bot.max_script_tool_calls or _cfg.AGENT_MAX_SCRIPT_TOOL_CALLS
+    if budget_key:
+        await _open_budget(budget_key, budget_limit)
+
     keep_scratch = False
     try:
         result = await workspace_service.exec(
@@ -157,6 +171,12 @@ async def run_script(script: str, description: str, timeout_s: int = 60) -> str:
             "script_dir": script_dir_str,
             "workspace_type": result.workspace_type,
         }
+        if budget_key:
+            spent_limit = await _close_budget(budget_key)
+            if spent_limit is not None:
+                spent, limit = spent_limit
+                payload["tool_calls_used"] = spent
+                payload["tool_calls_limit"] = limit
         # Keep scratch dir on non-zero exit so the bot can inspect / re-run.
         keep_scratch = result.exit_code != 0
         if result.exit_code != 0:
@@ -175,5 +195,7 @@ async def run_script(script: str, description: str, timeout_s: int = 60) -> str:
             "script_dir": script_dir_str,
         }, ensure_ascii=False)
     finally:
+        if budget_key:
+            await _close_budget(budget_key)
         if not keep_scratch:
             cleanup_scratch_dir(scratch)

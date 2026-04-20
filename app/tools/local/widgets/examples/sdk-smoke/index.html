@@ -1,0 +1,165 @@
+<!--
+---
+name: SDK smoke
+description: Throwaway QA widget exercising every Phase A.1 SDK helper — form, bus, notify, log, cache, ui.status, ui.table, error boundary
+display_label: SDK smoke
+version: 0.1.0
+author: widget-sdk
+tags: [qa, sdk, smoke]
+icon: activity
+---
+-->
+<div class="sd-card" id="root">
+  <header class="sd-card-header sd-hstack-between">
+    <div class="sd-stack" style="gap: 0;">
+      <h3 class="sd-title">SDK smoke</h3>
+      <span class="sd-meta">Phase A.1 — form + bus + notify + log + cache + error boundary</span>
+    </div>
+    <span class="sd-chip" id="clock" title="cached (TTL 3 s)">—</span>
+  </header>
+  <div class="sd-card-body sd-stack">
+    <section class="sd-stack-sm">
+      <h4 class="sd-label">1. Publish to bus</h4>
+      <div id="publish-form"></div>
+      <p class="sd-muted" style="font-size: var(--sd-font-size-sm); margin: 0;">
+        Pin this widget <em>twice</em> on the same channel dashboard to see both sides of the bus —
+        BroadcastChannel does not echo to the same window.
+      </p>
+    </section>
+
+    <section class="sd-stack-sm">
+      <div class="sd-hstack-between" style="align-items: baseline;">
+        <h4 class="sd-label">2. Received on <code>smoke:ping</code></h4>
+        <button class="sd-btn sd-btn-subtle" id="clear-received" type="button" style="padding: 2px 8px; font-size: 11px;">Clear</button>
+      </div>
+      <div id="received"></div>
+    </section>
+
+    <section class="sd-stack-sm">
+      <h4 class="sd-label">3. Trigger the error boundary</h4>
+      <div class="sd-hstack-sm">
+        <button class="sd-btn sd-btn-subtle" id="throw-sync" type="button">Throw sync</button>
+        <button class="sd-btn sd-btn-subtle" id="throw-async" type="button">Reject async</button>
+        <button class="sd-btn sd-btn-subtle" id="toast-each" type="button">Toast each level</button>
+      </div>
+      <p class="sd-muted" style="font-size: var(--sd-font-size-sm); margin: 0;">
+        Sync + async buttons raise through the error boundary → red banner with Reload.
+        Toast button fires info / success / warn / error notifies.
+      </p>
+    </section>
+
+    <section class="sd-stack-sm">
+      <h4 class="sd-label">4. Log ring buffer</h4>
+      <div class="sd-hstack-sm">
+        <span class="sd-meta" id="log-count">0 entries</span>
+        <button class="sd-btn sd-btn-subtle" id="log-dump" type="button" style="padding: 2px 8px; font-size: 11px;">Dump to console</button>
+        <button class="sd-btn sd-btn-subtle" id="log-clear" type="button" style="padding: 2px 8px; font-size: 11px;">Clear</button>
+      </div>
+    </section>
+  </div>
+</div>
+<script>
+(function () {
+  const sp = window.spindrel;
+  const received = [];
+  const receivedEl = document.getElementById("received");
+  const clockEl = document.getElementById("clock");
+  const logCountEl = document.getElementById("log-count");
+
+  function renderReceived() {
+    if (!received.length) {
+      sp.ui.status(receivedEl, "empty", { message: "Nothing yet. Publish from another copy." });
+      return;
+    }
+    receivedEl.innerHTML = sp.ui.table(received, [
+      { key: "ts", label: "When", format: (v) => new Date(v).toLocaleTimeString() },
+      { key: "level", label: "Level" },
+      { key: "message", label: "Message" },
+    ]);
+  }
+
+  function bumpLogCount() {
+    logCountEl.textContent = sp.log.buffer().length + " entries";
+  }
+
+  // --- Form (spindrel.form) ---
+  sp.form(document.getElementById("publish-form"), {
+    fields: [
+      { name: "level", label: "Level", type: "select",
+        options: [
+          { value: "info", label: "info" },
+          { value: "success", label: "success" },
+          { value: "warn", label: "warn" },
+          { value: "error", label: "error" },
+        ],
+        initial: "info" },
+      { name: "message", label: "Message", required: true, placeholder: "Hello from another pin" },
+    ],
+    initial: { level: "info" },
+    submitLabel: "Publish",
+    submittingLabel: "Publishing…",
+    resetOnSubmit: true,
+    onSubmit: async (values) => {
+      sp.log.info("publish", values.level, values.message);
+      sp.bus.publish("smoke:ping", { ts: Date.now(), level: values.level, message: values.message });
+      sp.notify(values.level, "Published → smoke:ping");
+      bumpLogCount();
+    },
+  });
+
+  // --- Bus subscribe (spindrel.bus) ---
+  sp.bus.subscribe("smoke:ping", (data) => {
+    received.unshift({ ts: data.ts, level: data.level, message: data.message });
+    if (received.length > 20) received.length = 20;
+    sp.log.info("received", data.level, data.message);
+    renderReceived();
+    bumpLogCount();
+  });
+
+  document.getElementById("clear-received").addEventListener("click", () => {
+    received.length = 0;
+    renderReceived();
+  });
+
+  // --- Error boundary triggers ---
+  document.getElementById("throw-sync").addEventListener("click", () => {
+    sp.log.warn("about to throw sync");
+    throw new Error("Sync smoke — boundary should catch this");
+  });
+  document.getElementById("throw-async").addEventListener("click", () => {
+    sp.log.warn("about to reject async");
+    Promise.reject(new Error("Async smoke — unhandledrejection should catch this"));
+  });
+
+  // --- Toast each level (spindrel.notify) ---
+  document.getElementById("toast-each").addEventListener("click", () => {
+    ["info", "success", "warn", "error"].forEach((lvl, i) => {
+      setTimeout(() => sp.notify(lvl, lvl + " toast"), i * 120);
+    });
+  });
+
+  // --- Log controls ---
+  document.getElementById("log-dump").addEventListener("click", () => {
+    console.table(sp.log.buffer());
+    sp.notify("info", "Dumped " + sp.log.buffer().length + " entries to console");
+  });
+  document.getElementById("log-clear").addEventListener("click", () => {
+    sp.log.clear();
+    bumpLogCount();
+  });
+
+  // --- Cache demo (spindrel.cache) — 3 s TTL on Date.now() ---
+  async function tickClock() {
+    const val = await sp.cache.get("smoke:clock", 3000, () => Date.now());
+    clockEl.textContent = new Date(val).toLocaleTimeString();
+    clockEl.title = "cached (fetched " + ((Date.now() - val) / 1000).toFixed(1) + "s ago)";
+  }
+  tickClock();
+  setInterval(tickClock, 500);
+
+  // --- First paint ---
+  renderReceived();
+  bumpLogCount();
+  sp.log.info("smoke widget mounted", { pin: sp.dashboardPinId, channel: sp.channelId });
+})();
+</script>

@@ -101,7 +101,7 @@ try:
     from app.tools.registry import get_settings  # noqa: F401
 except ImportError:
 
-    def register_tool(schema, *, source_dir=None, safety_tier="readonly"):  # type: ignore[misc]
+    def register_tool(schema, *, source_dir=None, safety_tier="readonly", returns=None, **kwargs):  # type: ignore[misc]
         """Stub register — attaches schema for later discovery."""
 
         def decorator(func):

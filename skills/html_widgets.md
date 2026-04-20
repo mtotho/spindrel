@@ -188,6 +188,22 @@ Same path for both tools. `emit_html_widget` parses the `/workspace/channels/<ch
 
 After pinning, further edits to files in that bundle refresh the pinned widget within ~3 seconds. Iterate on the folder; no need to re-emit.
 
+### Optional: claim the dashboard's main area (`display_mode="panel"`)
+
+For widgets meant to BE the dashboard — a single self-contained mini-app rather than one tile among many — pass `display_mode="panel"` to hint that the user should pin it as the dashboard panel:
+
+```
+emit_html_widget(
+    path="/workspace/channels/<CHANNEL_ID>/data/widgets/control-room/index.html",
+    display_label="Control room",
+    display_mode="panel",
+)
+```
+
+The hint pre-checks the **Promote to dashboard panel** option in EditPinDrawer. The user still confirms via the drawer; promotion flips `widget_dashboard.grid_config.layout_mode` to `panel` and renders this widget filling the dashboard's main area while every other pin stacks in a 320px rail strip alongside it. Only one pin per dashboard can be the panel pin (server-enforced via a partial unique index).
+
+Default is `display_mode="inline"` — normal grid tile. Don't reach for `panel` unless the widget is genuinely the *whole* point of its dashboard; multiple inline tiles are usually a better composition.
+
 ## What the Sandbox Allows
 
 The widget runs in an iframe with `sandbox="allow-scripts allow-same-origin"` and a tight CSP:
@@ -283,6 +299,36 @@ window.spindrel.data.save(path, object)      // overwrite (escape hatch)
 window.spindrel.onToolResult(cb)   // fires whenever the envelope is refreshed (state_poll, callTool result, etc.)
 window.spindrel.onConfig(cb)       // fires when this pin's widget_config changes (debounced — only on actual change)
 window.spindrel.onTheme(cb)        // fires when the app switches light/dark mode
+
+// Widget-to-widget pubsub (bus) — channel-scoped; see "SDK framework" below
+window.spindrel.bus.publish(topic, data)        // broadcast to peers in the same channel
+window.spindrel.bus.subscribe(topic, cb)        // returns unsubscribe
+
+// Live channel events (stream) — SSE over the channel event bus; returns unsubscribe
+window.spindrel.stream("new_message", cb)               // single kind
+window.spindrel.stream(["turn_started","turn_ended"], cb)
+window.spindrel.stream(["tool_activity"], filter, cb)   // + client-side predicate
+
+// TTL cache with inflight dedup — drop-in for "fetch X but only once per 30s"
+window.spindrel.cache.get(key, ttlMs, fetcher)  // returns cached | awaits fetcher | dedups concurrent callers
+window.spindrel.cache.set(key, value, ttlMs)
+window.spindrel.cache.clear(key?)
+
+// Host-chrome toasts + uncaught-error banner + log ring
+window.spindrel.notify(level, message)          // level: "info" | "success" | "warn" | "error"
+window.spindrel.log.info|warn|error(...args)    // ring buffer (200) + live in Widgets → Dev → Recent → "Widget log"
+
+// Minimal UI helpers (sd-* styled)
+window.spindrel.ui.status(el, state, {message?, height?})  // state: "loading" | "error" | "empty" | "ready"
+window.spindrel.ui.table(rows, columns, {emptyMessage?})   // returns HTML string — set innerHTML or append
+window.spindrel.ui.chart(el, data, {type?, height?, color?, min?, max?, showAxis?, format?})  // SVG sparkline / line / bar / area
+
+// Versioned state.json — wraps spindrel.data with schema migrations
+window.spindrel.state.load(path, {schema_version, migrations, defaults})  // runs migrations on load, persists bumped version
+window.spindrel.state.save(path, object)           // write; preserves __schema_version__ from disk when omitted
+window.spindrel.state.patch(path, patch, spec)     // RMW deep-merge with migrations
+
+window.spindrel.form(el, {fields, onSubmit, initial?, submitLabel?, submittingLabel?, resetOnSubmit?})
 
 // Tool result / config
 window.spindrel.toolResult                 // current envelope payload (see declarative widgets)
@@ -898,6 +944,266 @@ If the widget uses `state.json`, paste the schema here with field semantics.
 
 **Rule of thumb**: if you created the widget in this turn, you haven't finished shipping it until both files exist.
 
+## SDK framework — Phase A helpers (2026-04-19)
+
+Widgets used to re-implement forms, tables, caches, and toast notifications from scratch. The bootstrap now ships a small framework so you don't.
+
+**Scope.** Pure client-side. No new backend calls, no schema changes. Works in every existing widget the moment the iframe loads. Phase B adds the backend half (`spindrel.db`, `widget.py` handlers, cron, SSE streams); Phase C makes widgets the presentation layer of integrations. See the `Track - Widget SDK` for the full arc.
+
+### Bus — talk to peer widgets on the same dashboard
+
+```js
+// Control panel widget publishes after a successful action
+window.spindrel.bus.publish("items_changed", { id: 42 });
+
+// Feed widget listens and re-fetches
+const off = window.spindrel.bus.subscribe("items_changed", () => reloadFeed());
+// call off() from teardown; iframe unload also cleans up
+```
+
+Scope is **channel-scoped** right now — both widgets must be pinned on the same channel dashboard (or in the same channel chat) to see each other. User-dashboard pubsub lands when the dashboard slug threads through the iframe (Phase B). Falls back silently on browsers without `BroadcastChannel`.
+
+### Cache — TTL + inflight dedup
+
+```js
+// Called by 3 widgets on page load; only one actual fetch fires
+const forecast = await window.spindrel.cache.get(
+  "weather:philly",
+  5 * 60_000,                                    // 5 min TTL
+  () => window.spindrel.callTool("get_weather", { location: "philly" }),
+);
+```
+
+`get()` returns the cached value if fresh, shares an inflight promise across concurrent callers, and re-fetches on expiry. On fetcher error, the cache entry is cleared so the next call retries instead of sticking on the error.
+
+### Notify — surface status as a toast
+
+```js
+try {
+  await window.spindrel.callTool("run_backup", {});
+  window.spindrel.notify("success", "Backup started.");
+} catch (e) {
+  window.spindrel.notify("error", e.message);
+}
+```
+
+Renders as a toast banner in the widget chrome (not inside your widget DOM — stays out of your layout). Auto-dismisses after 4s; user can click to dismiss early. Four levels: `info` / `success` / `warn` / `error` with the matching semantic token colors.
+
+### Log — buffered, host-forwarded
+
+```js
+window.spindrel.log.info("fetched", data.length, "items");
+window.spindrel.log.error("parse failed:", err);
+```
+
+Writes to an in-iframe ring buffer (last 200 entries, inspectable via `log.buffer()`) AND posts each entry to the host, where the Dev Panel's **Widgets → Dev → Recent → "Widget log"** subtab renders them in a filterable, per-pin-attributed list (newest first, level filter, click to expand). Host-side ring buffer caps at 500 entries. Use instead of `console.log` when you want the messages visible to anyone editing the widget without opening browser devtools — and when you want to trace a log line back to one concrete pin.
+
+### ui.status + ui.table — skip the CSS
+
+```js
+const listEl = document.getElementById("items");
+window.spindrel.ui.status(listEl, "loading");
+try {
+  const rows = await window.spindrel.api("/api/v1/tasks?limit=20");
+  if (!rows.length) {
+    window.spindrel.ui.status(listEl, "empty", { message: "No tasks yet." });
+  } else {
+    listEl.innerHTML = window.spindrel.ui.table(rows, [
+      { key: "title", label: "Task" },
+      { key: "status", label: "Status" },
+      { key: "updated_at", label: "Updated", format: (v) => new Date(v).toLocaleDateString() },
+      { key: "id", label: "", html: true, format: (id) => `<a href="/tasks/${id}">→</a>` },
+    ]);
+  }
+} catch (e) {
+  window.spindrel.ui.status(listEl, "error", { message: e.message });
+}
+```
+
+`ui.status(el, state, opts)` replaces the element's contents with an `sd-*` styled skeleton / empty / error block (or clears it when state is `"ready"`). `ui.table(rows, columns)` returns an HTML string — set `innerHTML` or append wherever. Column options: `{key, label, align?, format?(v, row), html?}`. Set `html: true` to pass pre-rendered HTML through unescaped.
+
+### ui.chart — sparkline / line / bar / area
+
+```js
+const el = document.getElementById("trend");
+
+// Sparkline — defaults: 40px tall, theme.accent, no axis, fills container width.
+window.spindrel.ui.chart(el, [0.12, 0.19, 0.24, 0.31, 0.42, 0.55, 0.61], {
+  type: "area",       // "line" (default) | "bar" | "area"
+  min: 0, max: 1,     // auto from data if omitted
+});
+
+// With axis + custom format
+window.spindrel.ui.chart(el, requests, {
+  type: "bar",
+  height: 80,
+  showAxis: true,
+  format: (v) => v.toLocaleString(),
+});
+
+// Points form — x is used only for spacing; omit it for even spacing.
+window.spindrel.ui.chart(el, [{x:0,y:1},{x:2,y:4},{x:5,y:3}]);
+```
+
+`chart(el, data, opts)` replaces the element's contents with an inline SVG. Options:
+
+| Opt | Default | Purpose |
+|-----|---------|---------|
+| `type` | `"line"` | One of `line`, `bar`, `area`. |
+| `height` | `40` | SVG height in px. Width stretches to container. |
+| `color` | `spindrel.theme.accent` | Stroke / fill colour. |
+| `min`, `max` | auto | Y-axis bounds. Omit for auto-fit; pass both for absolute scaling (e.g. `0`/`1` for a percent). |
+| `strokeWidth` | `1.5` | Line / area stroke width (kept crisp at any size via `vector-effect="non-scaling-stroke"`). |
+| `showAxis` | `false` | Reserves 28px on the left and renders min/max tick labels. |
+| `format` | `String` | Formatter for axis labels. |
+| `emptyMessage` | `"No data"` | Shown via `sd-empty` when `data` is empty. |
+| `label` | — | `<title>` text for accessibility / hover tooltip. |
+
+**Data shapes accepted**: `number[]`, `{y}[]`, or `{x,y}[]`. `x` is used only for spacing; omit for even spacing (the common sparkline case).
+
+Re-call on every update — the SVG is rebuilt cheaply. For a rolling series, keep a `const values = []` and `values.push(...); if (values.length > CAP) values.splice(0, values.length - CAP); chart(el, values, opts)`.
+
+**Not in Phase A**: tooltips on hover, axes beyond min/max ticks, multi-series overlays, colour palettes for categorical bars. If you need those, inline a tiny third-party lib or wait for Phase B — the goal here is "sparkline under a stat card", not Grafana.
+
+### state — versioned `data.load` with schema migrations
+
+```js
+// Schema history:
+//   v1: { text: string }
+//   v2: { markdown: string, createdAt: number, updatedAt: number }
+
+const state = await window.spindrel.state.load("./state.json", {
+  schema_version: 2,
+  defaults: { markdown: "", createdAt: 0, updatedAt: 0 },
+  migrations: [
+    {
+      from: 1,
+      to: 2,
+      apply: (s) => ({
+        markdown: s.text || "",
+        createdAt: s.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      }),
+    },
+  ],
+});
+
+await window.spindrel.state.save("./state.json", {
+  ...state,
+  markdown: "hello world",
+  updatedAt: Date.now(),
+});
+```
+
+**How it works.** `state.load` reads the file, inspects `__schema_version__` (or treats a missing field as v1), runs each matching migration in order up to `schema_version`, persists the upgraded state back to disk, and returns the object with `__schema_version__` stamped. `state.save` / `state.patch` are thin wrappers over `data.save` / `data.patch` that preserve the version field and apply the same per-path in-iframe mutex (so two `await`s kicked off side-by-side don't lose the intermediate write).
+
+**Migration contract.**
+
+- Each migration is `{ from: N, to: N+1, apply(state) → state }` — one hop at a time. A missing step throws at load time so bundle upgrades fail loud.
+- Migrations should be **idempotent**. If `state.load` persists a partially-migrated state and then throws, the next call re-reads the disk file; running the same migration twice must land on the same output. Test it.
+- Migrations run on a deep-cloned object; the return value is what gets persisted. Return `state` to mutate in place, or a fresh object to replace wholesale.
+
+**Downgrade refusal.** If the file was written by a newer bundle (`file_version > declared`), `state.load` throws rather than silently dropping fields. Widgets that roll back after a schema bump need to either pin to the old version or clear the file.
+
+**Concurrency caveat.** The per-path mutex covers one iframe. Two widgets in different iframes (or two tabs on the same dashboard) sharing the same `data/widgets/<slug>/state.json` inherit the same RMW race as `spindrel.data.patch` — last write wins. If this matters, write small and scope each widget's state to its own path (common) or wait for Phase B's `spindrel.db` (backend-serialized).
+
+**Not in Phase A.** Multi-step migration chains (`{from: 1, to: 3}`), down-migrations, transactional rollback of a failed migration, cross-bundle state sharing. If a migration throws mid-way, the disk file keeps its old version; next load retries the same step.
+
+### form — declarative, validated, sd-* styled
+
+```js
+const el = document.getElementById("add-task");
+const f = window.spindrel.form(el, {
+  fields: [
+    { name: "title",   label: "Title",   required: true, placeholder: "What needs doing?" },
+    { name: "notes",   label: "Notes",   type: "textarea" },
+    { name: "priority", label: "Priority", type: "select",
+      options: [{ value: "low", label: "Low" }, { value: "med", label: "Medium" }, { value: "high", label: "High" }],
+      initial: "med" },
+    { name: "pinned",  label: "Pin it",  type: "checkbox" },
+  ],
+  initial: { priority: "med" },
+  submitLabel: "Add task",
+  submittingLabel: "Adding…",
+  resetOnSubmit: true,
+  onSubmit: async (values, { api }) => {
+    await api("/api/v1/tasks", { method: "POST", body: JSON.stringify(values) });
+    window.spindrel.bus.publish("items_changed", {});
+    window.spindrel.notify("success", "Task added.");
+  },
+});
+
+// Programmatic control
+f.set({ priority: "high" });  // patch values
+f.reset();                     // back to initial
+await f.submit();              // trigger submit externally
+```
+
+Fields support `text` / `textarea` / `select` / `checkbox` / any `<input type=...>`. `validate` is called per-field — return a string to surface an error under the field, or nothing to pass. Required validation is automatic. Submit is disabled while running; errors from `onSubmit` show inline *and* fire a `notify("error", ...)`. `resetOnSubmit: true` clears fields back to `initial` after a successful submit.
+
+### Error boundary — no more silent crashes
+
+Uncaught iframe errors and unhandled promise rejections now surface a red banner above the widget with a **Reload** button. Users can recover from a widget crash without refreshing the page; the Reload button remounts the iframe (state inside the iframe is lost, state in `state.json` / `widget_config` survives).
+
+### `spindrel.stream(kinds, filter?, cb)` — live channel events (Phase A.2b)
+
+Subscribes the widget to the channel's event bus over SSE. Use this for
+anything that wants to react to activity in the channel without polling —
+new messages, turn start / end, context-budget ticks, tool activity, etc.
+
+```js
+// One kind:
+const off = window.spindrel.stream("new_message", (event) => {
+  renderMessage(event.payload.message);
+});
+
+// Multiple kinds:
+const off = window.spindrel.stream(
+  ["turn_started", "turn_ended"],
+  (event) => updateStatus(event.kind, event.payload.bot_id),
+);
+
+// With a client-side filter:
+const off = window.spindrel.stream(
+  ["tool_activity"],
+  (event) => event.payload?.tool_name === "fetch_url",
+  (event) => log(event),
+);
+
+// Full form — subscribe to a specific (non-host) channel or pass since:
+const off = window.spindrel.stream(
+  { kinds: ["context_budget"], channelId, since: lastSeq },
+  (event) => updateGauge(event.payload),
+);
+
+// Stop: call the returned unsubscribe.
+off();
+```
+
+- `cb` receives the wire event `{kind, channel_id, seq, ts, payload}` — the
+  same shape the web UI gets. Each `ChannelEventKind` has its own payload
+  schema (see `app/domain/payloads.py`).
+- Kind strings are validated client-side; typos throw immediately.
+- Auto-reconnects on network drops with exponential backoff; the last seen
+  `seq` is passed as `since=` so the replay ring fills the gap.
+- On `replay_lapsed` the widget gets a host toast ("Stream replay lapsed")
+  AND the callback fires so the widget can refetch baseline state.
+- On server shutdown the stream closes quietly (no reconnect).
+
+**`spindrel.stream` vs `spindrel.bus`** — `bus` is `BroadcastChannel`,
+widget↔widget only, same browser, cross-window only. `stream` is server
+SSE — cross-client, includes the bot's own activity, survives page reloads
+via replay. Use `bus` for presentation-layer pubsub between pinned copies;
+use `stream` for "react to what the agent is doing."
+
+**Reference widget** — `app/tools/local/widgets/context_tracker/index.html`
+pins a live context-window gauge driven entirely by
+`spindrel.stream([context_budget, turn_started, turn_ended, turn_stream_tool_start], ...)`.
+
+### What's NOT in Phase A
+
+- `spindrel.db` — server SQLite per bundle. Phase B.
+
 ## Common Mistakes
 
 | Wrong | Right | Why |
@@ -915,9 +1221,17 @@ If the widget uses `state.json`, paste the schema here with field semantics.
 | `file(create, path="data/widgets/foo/index.html")` + `emit_html_widget(path="data/widgets/foo/index.html")` | Use the same absolute `/workspace/channels/<channel_id>/data/widgets/foo/index.html` for **both** tools | `file`'s relative paths root at the bot workspace; `emit_html_widget`'s relative paths root at the channel workspace. Pass the absolute form to both and the ambiguity goes away. |
 | Shipping a widget without updating `memory/MEMORY.md` | Add index entry + `memory/reference/<slug>.md` same turn | Future turns lose the bundle. You'll rebuild or debug blind. |
 | Dumping loose `.html` at the workspace root | Put each widget in its own bundle folder | Bundles move/rename/delete atomically; the root stays legible |
-| Blind-overwriting `state.json` | Read-merge-write | Two open copies stay coherent; no silent data loss |
+| Blind-overwriting `state.json` | Read-merge-write; use `spindrel.state.load` + `state.save` when the bundle's shape might change over time | Two open copies stay coherent; schema_version + migrations make shape changes safe across deploys |
 | Skipping `display_label` | Always supply one | Blank headers on the dashboard are ugly + fail the pinned-widget context hint |
 | Asking the user to "broaden your admin key" so your widget works | Ask them to broaden YOUR BOT's scopes via admin UI | The widget uses your bot's key, not the user's session. |
+| Hand-rolling a form with `<input>` / state tracking / validation / submit-disable | `window.spindrel.form(el, {fields, onSubmit, ...})` | Declarative — validation + error surfaces + submitting state + sd-* styling for free. |
+| Hand-rolling a `<table>` + empty-state + loading skeleton | `window.spindrel.ui.status(el, "loading")` + `ui.table(rows, cols)` + `ui.status(el, "empty")` | One-liners that stay on-brand and dark-mode-safe. |
+| Inlining Chart.js or hand-writing SVG for a small sparkline | `window.spindrel.ui.chart(el, values, { type: "area", min: 0, max: 1 })` | Native `spindrel.theme.accent`, crisp strokes at any width, no 60 KB JS. See [[#ui.chart — sparkline / line / bar / area]]. |
+| Swallowing errors with `try { ... } catch {}` | `catch (e) { window.spindrel.notify("error", e.message); }` | Toasts surface through host chrome above the widget; user sees what failed. |
+| `console.log("debug:", x)` | `window.spindrel.log.info("debug:", x)` | Ring-buffered, forwarded to Widgets → Dev → Recent → "Widget log" with per-pin attribution; visible without opening browser devtools. |
+| `setInterval(() => fetchShared(), 5000)` in every widget that shares data | One widget fetches + `window.spindrel.bus.publish("X_changed", data)`; peers subscribe | One fetch instead of N; widgets stay in sync without polling races. |
+| `setInterval(() => refetchChannelState(), 2000)` to see new messages / turns | `window.spindrel.stream("new_message", cb)` | SSE over the channel event bus — zero poll latency, no wasted round-trips, auto-replays missed events on reconnect. |
+| Using `spindrel.bus` to hear what the bot is doing | `spindrel.stream(["turn_started","turn_ended","tool_activity"], cb)` | `bus` is `BroadcastChannel` — widget↔widget only. The agent doesn't post there. `stream` is the backend bus. |
 
 ## When NOT to Use This
 

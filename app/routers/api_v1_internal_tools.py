@@ -84,6 +84,28 @@ async def exec_tool(
     - 200 with ``{name, ok, result, error}`` on success — ``result`` is the parsed
       JSON of the tool's return value (or the raw string if it isn't JSON).
     """
+    # --- Budget check --- caps how many inner tool calls a single
+    # run_script invocation may dispatch. Budget is opened by run_script
+    # keyed on the parent correlation id; untracked calls (no budget
+    # entry for this id) are allowed through. Checked early so the
+    # reject path doesn't pay for bot-resolution / registry lookups.
+    from app.services.script_budget import spend as _spend_budget
+    allowed, _remaining, _limit = await _spend_budget(payload.parent_correlation_id)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "script_tool_budget_exhausted",
+                "limit": _limit,
+                "hint": (
+                    f"This run_script invocation already made {_limit} inner tool calls. "
+                    "Cap prevents cost-amplification from a looping script. "
+                    "Split the work across multiple run_script calls or raise "
+                    "bot.max_script_tool_calls."
+                ),
+            },
+        )
+
     bot_id = await _resolve_calling_bot(db, auth)
 
     from app.tools.registry import is_local_tool, get_tool_safety_tier

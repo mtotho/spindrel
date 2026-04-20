@@ -99,7 +99,17 @@ def _open_readwrite(db_path: Path) -> IngestionStore:
         },
         "required": ["action"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "stats": {"type": "object"},
+        "items": {"type": "array"},
+        "count": {"type": "integer"},
+        "stores": {"type": "array"},
+        "released": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def query_feed_store(
     action: str,
     store: str | None = None,
@@ -115,14 +125,14 @@ async def query_feed_store(
     if not store:
         available = _discover_stores()
         if not available:
-            return "No feed stores found. Content feeds may not be configured yet."
-        return f"Missing required 'store' parameter. Available stores: {', '.join(available.keys())}"
+            return json.dumps({"error": "No feed stores found. Content feeds may not be configured yet."}, ensure_ascii=False)
+        return json.dumps({"error": f"Missing required 'store' parameter. Available stores: {', '.join(available.keys())}"}, ensure_ascii=False)
 
     stores = _discover_stores()
     if store not in stores:
         if not stores:
-            return "No feed stores found. Content feeds may not be configured yet."
-        return f"Store '{store}' not found. Available: {', '.join(stores.keys())}"
+            return json.dumps({"error": "No feed stores found. Content feeds may not be configured yet."}, ensure_ascii=False)
+        return json.dumps({"error": f"Store '{store}' not found. Available: {', '.join(stores.keys())}"}, ensure_ascii=False)
 
     if action == "reprocess":
         return _handle_reprocess(stores[store], source, reason_pattern, quarantine_ids)
@@ -130,19 +140,15 @@ async def query_feed_store(
     db = _open_readonly(stores[store])
     try:
         if action == "stats":
-            return json.dumps(db.get_feed_stats(source), indent=2, ensure_ascii=False)
+            return json.dumps({"stats": db.get_feed_stats(source)}, indent=2, ensure_ascii=False)
         elif action == "recent":
             items = db.get_recent_items(source, limit=limit)
-            if not items:
-                return f"No recent passed items{f' for source {source}' if source else ''}."
-            return json.dumps(items, indent=2, ensure_ascii=False)
+            return json.dumps({"items": items, "count": len(items)}, indent=2, ensure_ascii=False)
         elif action == "quarantine":
             items = db.get_quarantine_items(source, limit=limit)
-            if not items:
-                return f"No quarantined items{f' for source {source}' if source else ''}."
-            return json.dumps(items, indent=2, ensure_ascii=False)
+            return json.dumps({"items": items, "count": len(items)}, indent=2, ensure_ascii=False)
         else:
-            return f"Unknown action '{action}'. Use: stats, recent, quarantine, sources, reprocess."
+            return json.dumps({"error": f"Unknown action '{action}'. Use: stats, recent, quarantine, sources, reprocess."}, ensure_ascii=False)
     finally:
         db.close()
 
@@ -155,7 +161,7 @@ def _handle_reprocess(
 ) -> str:
     """Release quarantined items so they can be re-ingested."""
     if not reason_pattern and not quarantine_ids:
-        return "Reprocess requires either reason_pattern or quarantine_ids parameter."
+        return json.dumps({"error": "Reprocess requires either reason_pattern or quarantine_ids parameter."}, ensure_ascii=False)
 
     db = _open_readwrite(db_path)
     try:
@@ -163,14 +169,14 @@ def _handle_reprocess(
             try:
                 ids = [int(x.strip()) for x in quarantine_ids.split(",") if x.strip()]
             except ValueError:
-                return "quarantine_ids must be comma-separated integers."
+                return json.dumps({"error": "quarantine_ids must be comma-separated integers."}, ensure_ascii=False)
             count = db.unquarantine(ids)
         else:
             count = db.unquarantine_by_reason(reason_pattern, source)  # type: ignore[arg-type]
         return json.dumps({"released": count}, ensure_ascii=False)
     except Exception as exc:
         logger.error("Reprocess failed: %s", exc)
-        return f"Reprocess failed: {exc}"
+        return json.dumps({"error": f"Reprocess failed: {exc}"}, ensure_ascii=False)
     finally:
         db.close()
 
@@ -179,7 +185,7 @@ def _handle_sources() -> str:
     """List all discovered feed stores and their sources."""
     stores = _discover_stores()
     if not stores:
-        return "No feed stores found. Content feeds may not be configured yet."
+        return json.dumps({"error": "No feed stores found. Content feeds may not be configured yet."}, ensure_ascii=False)
 
     result = []
     for name, path in stores.items():
@@ -191,4 +197,4 @@ def _handle_sources() -> str:
         except (sqlite3.Error, OSError) as e:
             result.append({"store": name, "error": str(e), "path": str(path)})
 
-    return json.dumps(result, indent=2, ensure_ascii=False)
+    return json.dumps({"stores": result}, indent=2, ensure_ascii=False)

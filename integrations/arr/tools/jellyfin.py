@@ -110,7 +110,24 @@ async def _get_admin_user_id() -> str:
             "properties": {},
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "sessions": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def jellyfin_now_playing() -> str:
     if not settings.JELLYFIN_URL:
         return error("JELLYFIN_URL is not configured")
@@ -185,7 +202,27 @@ async def jellyfin_now_playing() -> str:
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "stats": {
+                "type": "object"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def jellyfin_library(
     action: str = "recent",
     search: str | None = None,
@@ -285,7 +322,36 @@ async def jellyfin_library(
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "users": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "status": {
+                "type": "string"
+            },
+            "user_id": {
+                "type": "string"
+            },
+            "username": {
+                "type": "string"
+            },
+            "message": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def jellyfin_users(
     action: str = "list",
     username: str | None = None,

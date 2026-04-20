@@ -39,6 +39,8 @@ export interface BotConfig {
   tool_retrieval?: boolean;
   tool_discovery?: boolean;
   tool_similarity_threshold?: number | null;
+  max_iterations?: number | null;
+  max_script_tool_calls?: number | null;
   tool_result_config?: Record<string, any>;
   persona?: boolean;
   persona_content?: string;
@@ -472,6 +474,13 @@ export interface WidgetDashboardPin {
   envelope: ToolResultEnvelope;
   display_label: string | null;
   grid_layout: GridLayoutItem | Record<string, never>;
+  /**
+   * When true, this pin claims the dashboard's main area in `panel` layout
+   * mode and the grid renders only rail-zone pins alongside it. At most one
+   * pin per dashboard may be the main panel (enforced by a partial unique
+   * index on the server).
+   */
+  is_main_panel: boolean;
   pinned_at: string | null;
   updated_at: string | null;
 }
@@ -694,6 +703,11 @@ export interface ToolResultEnvelope {
    *  time; the renderer merges them into the iframe's Content-Security-
    *  Policy (appending to baseline `'self'` + inline allowances). */
   extra_csp?: Record<string, string[]> | null;
+  /** Hint to the dashboard pinning UI: when "panel", pre-checks the
+   *  Promote-to-panel option in EditPinDrawer so the widget claims the
+   *  dashboard's main area instead of a normal grid tile. Only meaningful
+   *  for `application/vnd.spindrel.html+interactive` envelopes. */
+  display_mode?: "inline" | "panel" | null;
 }
 
 /** Action definition for interactive widget components (toggle, button, select, etc.) */

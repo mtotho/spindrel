@@ -599,7 +599,35 @@ async def _reload_integrations_inner(app=None) -> dict:
             "required": ["action"],
         },
     },
-}, safety_tier="control_plane")
+}, safety_tier="control_plane", returns={
+    "type": "object",
+    "properties": {
+        "integrations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "status": {"type": "string"},
+                    "has_process": {"type": "boolean"},
+                    "process_status": {"type": ["string", "null"]},
+                    "env_vars": {"type": "array"},
+                },
+            },
+        },
+        "ok": {"type": "boolean"},
+        "loaded": {"type": "array"},
+        "new_tools": {"type": "array"},
+        "integration_id": {"type": "string"},
+        "settings": {"type": "object"},
+        "path": {"type": "string"},
+        "capabilities": {"type": "array"},
+        "message": {"type": "string"},
+        "errors": {"type": "array"},
+        "error": {"type": "string"},
+    },
+})
 async def manage_integration(
     action: str,
     integration_id: str | None = None,
@@ -610,7 +638,7 @@ async def manage_integration(
         try:
             from integrations import discover_setup_status
             integrations = discover_setup_status()
-            return json.dumps([
+            return json.dumps({"integrations": [
                 {
                     "id": i["id"],
                     "name": i.get("name", i["id"]),
@@ -623,7 +651,7 @@ async def manage_integration(
                     ],
                 }
                 for i in integrations
-            ], ensure_ascii=False)
+            ]}, ensure_ascii=False)
         except Exception as e:
             return json.dumps({"error": f"Failed to discover integrations: {e}"}, ensure_ascii=False)
 

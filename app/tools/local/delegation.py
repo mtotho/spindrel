@@ -82,7 +82,15 @@ logger = logging.getLogger(__name__)
             "required": ["bot_id", "prompt"],
         },
     },
-}, safety_tier="control_plane", requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="control_plane", requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "task_id": {"type": "string"},
+        "carapace_id": {"type": ["string", "null"]},
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def delegate_to_agent(
     bot_id: str,
     prompt: str,
@@ -209,8 +217,8 @@ async def delegate_to_agent(
             model_tier=effective_tier,
         )
         if carapace_delegate:
-            return f"Carapace delegation task created: {task_id} (carapace: {target_carapace_id})"
-        return f"Delegation task created: {task_id}"
+            return json.dumps({"task_id": str(task_id), "carapace_id": target_carapace_id, "message": "Carapace delegation task created."}, ensure_ascii=False)
+        return json.dumps({"task_id": str(task_id), "message": "Delegation task created."}, ensure_ascii=False)
     except DelegationError as exc:
         return json.dumps({"error": str(exc)}, ensure_ascii=False)
     except Exception as exc:

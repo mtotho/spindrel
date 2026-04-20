@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, user-management, auth, scoping, ownership]
 status: active
-updated: 2026-04-19 (Phases 0-2 shipped; Phase 3 next)
+updated: 2026-04-19 (Phase 5 bot grants + share-drawer coverage warning shipped)
 ---
 
 # Track — User Management
@@ -38,9 +38,10 @@ This track tightens the existing pieces into a clean admin-vs-user experience. S
 | 1 | Baseline audit + scope hygiene (mutation endpoints gated; Scope Matrix doc) | ✅ shipped 2026-04-19 — 120+ endpoints classified, no leaks, 3 Loose Ends logged ([[Scope Matrix]]) |
 | 1.5 | Fail-closed `require_scopes` for JWT users with no resolved scopes (Phase 2 prerequisite) | ✅ shipped 2026-04-19 — admin bypass preserved; 36/36 auth tests green; see [[Fix Log]] |
 | 2 | `/auth/me` effective scopes + frontend hydration + `useScope()` hook | ✅ shipped 2026-04-19 — see [[Fix Log]] |
-| 3 | UI route guards + nav filtering + control hiding | ⏳ planned |
+| 2.5 | Widget dashboard rail scoping (per-user + everyone rail pins) | ✅ shipped 2026-04-19 — `dashboard_rail_pins` junction table, admin-only `scope='everyone'`, radio picker in Create/Edit drawers |
+| 3 | UI route guards + nav filtering + control hiding | ✅ shipped 2026-04-19 — `<AdminRoute>` wraps `/admin/*`, rail+palette filter admin chrome for non-admins, Privacy section hoisted, new-channel owner picker (admin), owner chip in ChannelHeader, bot owner picker, UI tsc + 4/4 new channel-ownership tests green |
 | 4 | Channel ownership enforcement (auto-populate user_id, edit/delete gating) | ⏳ planned |
-| 5 | Bot ownership + `bot_grants` table + view/manage roles + admin GrantsTab | ⏳ planned |
+| 5 | Bot ownership + `bot_grants` table + `view` role + admin GrantsSection + share-drawer coverage warning | ✅ shipped 2026-04-19 — migration 221, `apply_bot_visibility` helper, mint endpoint honors grants, `/bots` filtered for non-admins, GrantsSection tab on bot admin, `EditDashboardDrawer` shows "viewers can't use X" warning with one-click bulk grant, viewer-side mint 403 banner softened to amber with admin-vs-non-admin CTAs. 28/28 focused tests green. |
 | 6 | Integration binding final lockdown (audit, confirm admin-only writes) | ⏳ planned |
 | 7 | Non-admin self-service (`/settings/account`, `/settings/channels`, `/settings/bots`) | ⏳ planned |
 
@@ -71,15 +72,48 @@ Frontend:
 
 No behavior change on existing routes — this phase only plumbed the primitive. Phase 3 consumes `useScope()` to hide nav and gate routes.
 
-### Phase 3 — UI route guards + nav filtering + control hiding
+### Phase 2.5 — Widget dashboard rail scoping ✅ shipped 2026-04-19
 
-Goal: non-admins stop seeing admin chrome.
+Before diving into Phase 3 UI gating, filled a gap flagged mid-session: the `widget_dashboards.pin_to_rail: bool` column was a single toggle that forced the same sidebar rail on every user. Once non-admins can create dashboards, they'd be pinning personal projects into everyone's sidebar.
 
-- New `ui/src/components/routing/AdminRoute.tsx` wrapper; apply to `ui/app/(app)/admin/**/*.tsx` via route config.
-- Sidebar + OmniPanel + channel header settings menu filter items with `useScope()`.
-- Destructive/mutation buttons (delete channel, edit bot, create binding): disabled/hidden via `useScope()`.
-- Unauthorized URL access → friendly "no access" card, not raw 403.
-- End state: non-admin login → ONLY chat + settings + allowed surfaces. No admin tabs.
+- **Schema.** Migration 217 added `dashboard_rail_pins(dashboard_slug, user_id NULL|uuid, rail_position, created_at)` junction with partial unique indexes (`ix_drp_everyone WHERE user_id IS NULL`, `ix_drp_user WHERE user_id IS NOT NULL`). Backfilled NULL-user rows from every existing `pin_to_rail=TRUE` dashboard, then dropped the legacy `pin_to_rail` + `rail_position` columns. ORM `DashboardRailPin` mirrors the indexes via both `postgresql_where` and `sqlite_where` so SQLite tests honor them.
+- **Service.** New `app/services/dashboard_rail.py` — `set_rail_pin` / `unset_rail_pin` / `resolved_rail_state` / `resolved_rail_state_bulk`. `scope='everyone'` raises 403 unless `is_admin=True`; `scope='me'` requires a concrete `user_id`. Personal row wins the effective position when both exist.
+- **Router.** `app/routers/api_v1_dashboard.py` dropped `pin_to_rail` + `rail_position` from `CreateDashboardRequest` / `UpdateDashboardRequest` and exposed `PUT`/`DELETE /api/v1/widgets/dashboards/{slug}/rail`. Every `serialize_dashboard` call now carries a resolved `rail: {me_pinned, everyone_pinned, effective_position}` block per the current viewer, so the sidebar hits one `GET /dashboards` and filters locally. `_auth_identity()` helper maps `ApiKeyAuth` (admin only when `"admin"` in scopes) or `User` (`is_admin`) to `(user_id, is_admin)`.
+- **Frontend.** `Dashboard.pin_to_rail` / `rail_position` removed; replaced by `Dashboard.rail: DashboardRail` block. New `useDashboardsStore.setRailPin` / `unsetRailPin` actions. Sidebar filter reads `d.rail.me_pinned || d.rail.everyone_pinned`, sorts by `effective_position`. New `RailScopePicker.tsx` component (Off / For everyone / Just me radios) replaces the single checkbox in `EditDashboardDrawer` + `CreateDashboardSheet`. "For everyone" is admin-gated via `useIsAdmin()`; non-admins see an "Admins only" chip. Defaults on create: admin → "For everyone", non-admin → "Just me".
+- **Tests.** 11 new unit tests (`tests/unit/test_dashboard_rail.py`) covering admin gating, personal-vs-everyone coexistence, upsert, cascade-on-dashboard-delete. 8 new integration tests (`tests/integration/test_dashboard_rail.py`) covering rail-block hydration, PUT/DELETE, lazy channel-dashboard create, legacy-field stripping, invalid scope rejection, per-dashboard isolation. Existing `test_dashboards_api.py` + `test_dashboards_service.py` updated to drop rail-field assertions. 55/55 green across dashboard+rail, 84/84 green across adjacent widget modules, 56/56 green across auth modules.
+
+Plan: `~/.claude/plans/peaceful-sparking-spring.md` (status: executed).
+
+### Phase 3 — UI route guards + nav filtering + control hiding ✅ shipped 2026-04-19
+
+**Route guard + fallback card**
+- `ui/src/components/routing/AdminRoute.tsx` — wraps the admin `Outlet` in `ui/src/router.tsx`. Admin → children; non-admin → `<UnauthorizedCard />`. Matches backend invariant: `verify_admin_auth` already rejects non-admin JWTs at every `/api/v1/admin/*` endpoint; UI now stops showing chrome that would 403 on click.
+- `ui/src/components/shared/UnauthorizedCard.tsx` — small centered card: Lock + "Admin only" + "Back to home".
+
+**Navigation filtering** (`useIsAdmin()` gate)
+- `SidebarRail.tsx` — hides Tasks / Bots / Skills / Integrations / Activity / Learning for non-admins. Keeps Home + Widgets (widget dashboards are per-user via Phase 2.5).
+- `CommandPalette.tsx` — skips bot edit items, `ADMIN_ITEMS`, integration admin pages, and sidebar sections (which all point into `/admin/*`). Filters recent pages whose href starts with `/admin/`. Channels + widgets remain searchable.
+
+**Channel owner / private polish**
+- `ChannelList.tsx` was already Lock-vs-Hash; `CommandPalette` channel entries now mirror it. `ChannelHeader.tsx` swaps the hardcoded Hash icon for Lock when `channel.private`.
+- `GeneralTab.tsx` — Privacy `Section` lifted out of `AdvancedSection` into the main body between General and Channel Prompt. Owner dropdown (admin only) uses new shared `UserSelect`; non-admins see a read-only `Owned by <name>` line. Danger Zone (delete) gated on admin-or-owner (`form.user_id === currentUser.id`).
+- `channels/new.tsx` — admin-only "Owner" Section with `UserSelect`, default = current user. Non-admins rely on backend auto-populate.
+- `ChannelHeader.tsx` — subtle inline "Owner: {name}" chip shown to admins when viewing a channel owned by another user.
+- Backend `api_v1_channels.py::create_channel` — `ChannelCreate.user_id` field added; non-admin auth user always becomes owner, admin may pre-assign via body (invalid UUID → 400).
+
+**Bot owner UI**
+- `admin/bots/[botId]/index.tsx` — new "Owner" FormRow in Identity section using `UserSelect`, writes `draft.user_id`.
+- `admin/bots/index.tsx` — `BotCard` gains an "Owned by {name}" subtle line when `bot.user_id` is set; uses shared `useAdminUsers()` for name lookup.
+
+**Shared plumbing**
+- `ui/src/api/hooks/useAdminUsers.ts` — `useQuery(["admin-users"])`, gated to admins, 60s stale time. One cache across all consumers.
+- `ui/src/components/shared/UserSelect.tsx` — thin SelectInput wrapper.
+
+**Tests**
+- `test_channel_ownership.py::TestChannelOutSchema` — added `test_create_channel_honors_body_user_id_for_admin_key` + `test_create_channel_rejects_invalid_user_id`. 20/20 green.
+- UI `tsc --noEmit` clean.
+
+**Deferred to Phase 4**: backend 403 when a non-owner/non-admin JWT tries to `PATCH` / `DELETE` a channel they don't own — Phase 3 hides the UI, Phase 4 makes the enforcement match.
 
 ### Phase 4 — Channel ownership enforcement
 
@@ -91,22 +125,35 @@ Goal: non-admin creates a channel → only they (and admins) can edit/delete it.
 - Channel settings page: hide Integration Bindings + "Advanced" + "Tool Policies" tabs for non-admin.
 - Tests: ownership on create, edit denied for non-owner, private invisible cross-user, admin sees all.
 
-### Phase 5 — Bot ownership + grants (biggest phase)
+### Phase 5 — Bot ownership + grants ✅ shipped 2026-04-19
 
-Goal: admin designates bot owners and grants subsets of users view/manage access.
+Goal: admin designates bot owners and grants non-admin users access so widget dashboards shared via the "For everyone" rail don't 403.
 
-- **Schema**: Alembic migration — `bot_grants(bot_id, user_id, role, created_at, granted_by)`. Role enum `view` | `manage`. Unique `(bot_id, user_id)`. Cascade on bot + user delete.
-- **ORM**: `BotGrant` in `app/db/models.py`.
-- **Visibility helper**: `app/services/bots.py::apply_bot_visibility(stmt, user)` — admin bypass, else `bot.user_id == user.id OR bot.id IN (bot_grants subquery)`. Mirrors channel visibility.
-- **Role helpers**: `can_user_manage_bot(user, bot_id)`, `can_user_view_bot(user, bot_id)`.
-- **Bot admin endpoints** (`app/routers/api_v1_admin/bots.py`): list filters via visibility; update/delete require manage-or-admin; create admin-only with assignable owner.
-- **Grant endpoints** (new `app/routers/api_v1_admin/bot_grants.py`): `GET/POST/DELETE /api/v1/admin/bots/{id}/grants`. Admin-only.
-- **Admin UI**: new `GrantsTab` on `ui/app/(app)/admin/bots/[botId]/` — pick user, assign role, list grants, revoke.
-- **Non-admin UI**: `/admin/bots` scoped to visible; `/admin/bots/{id}` edit mode only if manage.
-- **Channel creation**: non-admin sees only visible bots in picker.
-- Tests: visibility (owner/grantee/stranger/admin), role enforcement (view cannot PATCH), revocation, cascade.
+**Scope delivered (single commit, not split 5a/5b):**
 
-**Split**: 5a backend + migration + tests, 5b UI + GrantsTab. Each a separate session.
+- **Schema.** Migration 221 adds `bot_grants(bot_id, user_id, role, granted_by, created_at)` with unique `(bot_id, user_id)`, `CASCADE` on bot + user delete, `SET NULL` on granter delete. `role` column kept for forward-compat; only `'view'` is accepted today (no non-admin edit UI exists yet, so `'manage'` is YAGNI).
+- **ORM.** `BotGrant` in `app/db/models.py` mirroring `ChannelMember` shape.
+- **Visibility helper.** `app/services/bots_visibility.py::apply_bot_visibility(stmt, user)` — admin bypass, else `Bot.user_id == user.id OR Bot.id IN (select bot_id from bot_grants where user_id == user.id)`. Mirrors `apply_channel_visibility`. `can_user_use_bot(db, user, bot)` companion helper.
+- **Mint endpoint.** `app/routers/api_v1_widget_auth.py::_caller_may_use_bot` now checks grants in addition to admin/owner. 403 payload carries `reason='bot_access_denied'` + `bot_id` + `bot_name` so the viewer-side banner can render specific copy.
+- **List endpoints.** Public `GET /bots` (`app/routers/chat/_routes.py`) filters by visibility for non-admin users. Channel-creation picker no longer shows bots non-admins can't use. Admin `GET /api/v1/admin/bots` is unchanged (router-level `verify_admin_auth`).
+- **Grants CRUD.** New `app/routers/api_v1_admin/bot_grants.py`: `GET`, `POST`, `DELETE /api/v1/admin/bots/{id}/grants`, plus `POST .../grants/bulk` for the dashboard coverage CTA. 409 on duplicate, 422 on unknown role, 404 on missing bot/grant.
+- **Admin UI.** `ui/app/(app)/admin/bots/[botId]/GrantsSection.tsx` + `useBotGrants` hook. New "Grants" section between "Permissions" and "Tool Policies" on the bot admin page. Shows owner chip (read-only), existing grants list with revoke, and a `UserSelect` + "Grant access" row that excludes admins + owner + already-granted users.
+- **Dashboard share discoverability.** `ui/app/(app)/widgets/DashboardShareWarning.tsx` — when `RailScopePicker` is set to `everyone`, scans dashboard pins for `source_bot_id`, cross-references each bot's grants against active non-admin users, and surfaces one amber warning with "Grant access to all" (calls bulk endpoint per gap bot). `dashboardBotCoverage.ts` is the pure helper.
+- **Viewer UX.** `InteractiveHtmlRenderer.tsx` mint-error banner keyed on `detail.reason`: `bot_access_denied` renders amber (not red) with "Viewers can't use '{bot}' yet — grant access…" for admins (links to `/admin/bots/{id}#grants`) or "Ask an admin for access to '{bot}'" for non-admins. Existing `bot_missing_api_key` path unchanged.
+
+**Deferred (NOT in Phase 5):**
+- `manage` role — schema supports it; no non-admin edit surface to gate, so no UI/enforcement work shipped.
+- Channel-creation bot-picker filtering on the admin side (admin sees all; non-admins already filtered via `/bots`).
+- Registry-only bots (no DB row) are not filtered — they stay admin-scoped. Flagged in Ideas & Investigations.
+- `/settings/bots` self-service landing for non-admins → Phase 7.
+
+**Tests (28/28 green):**
+- `tests/unit/test_bot_grants.py` — `apply_bot_visibility` (admin/owner/grantee/stranger), `can_user_use_bot`, ORM cascade declarations.
+- `tests/integration/test_bot_grants_api.py` — CRUD, 409 dup, 422 role, 404 missing, bulk idempotency, unknown-user rejection.
+- `tests/integration/test_widget_auth_mint.py` — new grantee test + updated non-owner test asserts `reason='bot_access_denied'` payload.
+- UI `tsc --noEmit` clean.
+
+References: plan `~/.claude/plans/buzzing-honking-pumpkin.md`. Commit: `886cbf58` (bundled with unrelated tool-composition work).
 
 ### Phase 6 — Integration binding final lockdown
 

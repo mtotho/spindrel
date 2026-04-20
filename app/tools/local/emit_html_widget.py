@@ -117,6 +117,20 @@ _SCHEMA = {
                         "dashboard pins + pinned-widget context injection."
                     ),
                 },
+                "display_mode": {
+                    "type": "string",
+                    "enum": ["inline", "panel"],
+                    "description": (
+                        "How the widget should claim space when pinned to a "
+                        "dashboard. `inline` (default) renders inside a "
+                        "normal grid tile sized by the user. `panel` is a "
+                        "hint to the pinning UI that this widget wants to "
+                        "fill the dashboard's main area — only one pin per "
+                        "dashboard can be the panel pin. The user still "
+                        "decides via the EditPinDrawer; the hint just "
+                        "pre-checks the 'Promote to panel' option."
+                    ),
+                },
                 "extra_csp": {
                     "type": "object",
                     "description": (
@@ -187,6 +201,14 @@ def _derive_plain_body(
     safety_tier="readonly",
     requires_bot_context=True,
     requires_channel_context=True,
+    returns={
+        "type": "object",
+        "properties": {
+            "llm": {"type": "string"},
+            "_envelope": {"type": "object"},
+            "error": {"type": "string"},
+        },
+    },
 )
 async def emit_html_widget(
     html: str | None = None,
@@ -195,6 +217,7 @@ async def emit_html_widget(
     css: str = "",
     display_label: str = "",
     extra_csp: dict | None = None,
+    display_mode: str = "inline",
 ) -> str:
     # Exactly-one validation. Reject both-set and neither-set.
     html_set = bool(html and html.strip())
@@ -206,6 +229,10 @@ async def emit_html_widget(
         )
 
     label = display_label.strip() or None
+
+    mode = (display_mode or "inline").strip().lower()
+    if mode not in ("inline", "panel"):
+        return _error("display_mode must be one of 'inline', 'panel'.")
 
     # Validate + normalize the CSP extension before we build the envelope so a
     # misspecified payload surfaces as a tool error (visible to the bot and
@@ -248,6 +275,8 @@ async def emit_html_widget(
             envelope["display_label"] = label
         if validated_csp:
             envelope["extra_csp"] = validated_csp
+        if mode == "panel":
+            envelope["display_mode"] = "panel"
         return json.dumps(
             {"_envelope": envelope, "llm": f"Emitted HTML widget ({len(body)} chars)."},
             ensure_ascii=False,
@@ -334,6 +363,8 @@ async def emit_html_widget(
         envelope["display_label"] = label
     if validated_csp:
         envelope["extra_csp"] = validated_csp
+    if mode == "panel":
+        envelope["display_mode"] = "panel"
     return json.dumps(
         {
             "_envelope": envelope,

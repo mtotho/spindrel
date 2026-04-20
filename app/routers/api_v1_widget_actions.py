@@ -18,7 +18,8 @@ import time
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.config import settings
@@ -119,6 +120,49 @@ async def dispatch_widget_action(req: WidgetActionRequest):
         return await _dispatch_widget_config(req)
     else:
         raise HTTPException(400, f"Unknown dispatch type: {req.dispatch}")
+
+
+@router.get("/stream")
+async def widget_event_stream_endpoint(
+    channel_id: uuid.UUID = Query(..., description="Channel whose event bus to tail"),
+    kinds: str | None = Query(
+        None,
+        description="Comma-separated ChannelEventKind values. Omit for no filter.",
+    ),
+    since: int | None = Query(
+        None,
+        description="Last seq seen; replay ring-buffered events after this seq.",
+    ),
+):
+    """SSE stream of channel events, consumable by ``window.spindrel.stream``.
+
+    Authenticates via the widget-actions router-level ``verify_auth_or_user``
+    dependency — widget JWTs (bot-scoped) and user JWTs both work. The bot's
+    ability to see the channel is the authorization ceiling; kind filtering
+    is a bandwidth optimization, not a scope gate.
+    """
+    from app.services.widget_action_stream import (
+        parse_kinds_csv,
+        widget_event_stream,
+    )
+
+    try:
+        kind_set = parse_kinds_csv(kinds)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return StreamingResponse(
+        widget_event_stream(
+            channel_id=channel_id,
+            kinds=kind_set,
+            since=since,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:

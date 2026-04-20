@@ -32,7 +32,15 @@ from integrations.slack.web_api import (
             "required": ["message_ts"],
         },
     },
-}, required_integrations=frozenset({"slack"}), requires_channel_context=True)
+}, required_integrations=frozenset({"slack"}), requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "pinned_ts": {"type": "string"},
+        "channel": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def slack_pin_message(message_ts: str) -> str:
     channel_uuid = current_channel_id.get()
     if channel_uuid is None:

@@ -87,6 +87,25 @@ async def _resolve_chat_guid() -> str | None:
             },
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "chats": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "guid": {"type": "string"},
+                    "display_name": {"type": ["string", "null"]},
+                    "participants": {"type": "array"},
+                    "last_message": {"type": ["string", "null"]},
+                    "is_group": {"type": "boolean"},
+                },
+            },
+        },
+        "count": {"type": "integer"},
+        "error": {"type": "string"},
+    },
 })
 async def bb_list_chats(limit: int = 25, offset: int = 0) -> str:
     try:
@@ -149,7 +168,27 @@ async def bb_list_chats(limit: int = 25, offset: int = 0) -> str:
             },
         },
     },
-}, requires_channel_context=True)
+}, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "messages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": ["string", "null"]},
+                    "sender": {"type": "string"},
+                    "date": {"type": "string"},
+                    "is_from_me": {"type": "boolean"},
+                    "has_attachments": {"type": "boolean"},
+                },
+            },
+        },
+        "count": {"type": "integer"},
+        "chat_guid": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def bb_get_messages(chat_guid: str = "", limit: int = 25, offset: int = 0) -> str:
     try:
         server_url, password = _credentials()
@@ -205,7 +244,15 @@ async def bb_get_messages(chat_guid: str = "", limit: int = 25, offset: int = 0)
             "required": ["message"],
         },
     },
-}, requires_channel_context=True)
+}, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "chat_guid": {"type": "string"},
+        "message_sent": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def bb_send_message(chat_guid: str = "", message: str = "") -> str:
     try:
         server_url, password = _credentials()
@@ -269,7 +316,15 @@ async def bb_send_message(chat_guid: str = "", message: str = "") -> str:
             "required": ["message_text", "reaction"],
         },
     },
-}, requires_channel_context=True)
+}, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "reaction": {"type": "string"},
+        "chat_guid": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def bb_send_reaction(message_text: str, reaction: str, chat_guid: str = "") -> str:
     try:
         server_url, password = _credentials()
@@ -312,6 +367,16 @@ async def bb_send_reaction(message_text: str, reaction: str, chat_guid: str = ""
             "type": "object",
             "properties": {},
         },
+    },
+}, returns={
+    "type": "object",
+    "properties": {
+        "devices": {"type": "array"},
+        "friends": {"type": "array"},
+        "device_count": {"type": "integer"},
+        "friend_count": {"type": "integer"},
+        "note": {"type": "string"},
+        "error": {"type": "string"},
     },
 })
 async def bb_find_my() -> str:
@@ -396,6 +461,17 @@ async def bb_find_my() -> str:
             "type": "object",
             "properties": {},
         },
+    },
+}, returns={
+    "type": "object",
+    "properties": {
+        "connected": {"type": "boolean"},
+        "os_version": {"type": "string"},
+        "server_version": {"type": "string"},
+        "private_api": {"type": "boolean"},
+        "helper_connected": {"type": "boolean"},
+        "proxy_service": {"type": "string"},
+        "error": {"type": "string"},
     },
 })
 async def bb_server_info() -> str:

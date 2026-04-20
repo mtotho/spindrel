@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Spindrel — Live Browser</title>
+    <style>
+      body { font: 14px/1.45 system-ui, sans-serif; padding: 24px; max-width: 480px; }
+      label { display: block; margin: 14px 0 4px; font-weight: 600; }
+      input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+      button { margin-top: 16px; padding: 8px 14px; border-radius: 6px; border: 0; background: #2563eb; color: #fff; cursor: pointer; }
+      .status { margin-top: 12px; font-size: 13px; color: #555; }
+    </style>
+  </head>
+  <body>
+    <h1>Pair this browser</h1>
+    <p>The bot will be able to navigate, click, type, and screenshot any tab in this browser. Only enable on a profile you trust.</p>
+    <label>Server URL <small>(e.g. https://spindrel.example.com)</small></label>
+    <input id="server_url" placeholder="https://..." />
+    <label>Pairing token</label>
+    <input id="token" type="password" placeholder="paste from Spindrel admin" />
+    <button id="save">Save & Connect</button>
+    <div id="status" class="status"></div>
+    <script src="options.js"></script>
+  </body>
+</html>

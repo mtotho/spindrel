@@ -40,7 +40,14 @@ from app.tools.registry import register
             "required": ["title", "items"],
         },
     },
-}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "plan_id": {"type": "string"},
+        "item_count": {"type": "integer"},
+    },
+    "required": ["plan_id", "item_count"],
+})
 async def create_plan(title: str, items: list[str], description: str | None = None) -> str:
     bot_id = current_bot_id.get() or "unknown"
     session_id = current_session_id.get()
@@ -88,6 +95,29 @@ async def create_plan(title: str, items: list[str], description: str | None = No
             },
             "required": ["plan_id"],
         },
+    },
+}, returns={
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "description": {"type": ["string", "null"]},
+        "status": {"type": "string"},
+        "created_at": {"type": "string"},
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "position": {"type": "integer"},
+                    "content": {"type": "string"},
+                    "status": {"type": "string"},
+                    "notes": {"type": ["string", "null"]},
+                },
+            },
+        },
+        "error": {"type": "string"},
     },
 })
 async def get_plan(plan_id: str) -> str:
@@ -140,7 +170,25 @@ async def get_plan(plan_id: str) -> str:
             "required": [],
         },
     },
-}, requires_bot_context=True)
+}, requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer"},
+        "plans": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "status": {"type": "string"},
+                },
+                "required": ["id", "title", "status"],
+            },
+        },
+    },
+    "required": ["count", "plans"],
+})
 async def list_plans(status: str = "active") -> str:
     bot_id = current_bot_id.get() or "unknown"
     session_id = current_session_id.get()
@@ -155,11 +203,8 @@ async def list_plans(status: str = "active") -> str:
             stmt = stmt.where(Plan.session_id == session_id)
         plans = (await db.execute(stmt)).scalars().all()
 
-    if not plans:
-        return f"No {status} plans found."
-
-    lines = [f"- {p.id} | {p.title} | {p.status}" for p in plans]
-    return "Plans:\n" + "\n".join(lines)
+    items = [{"id": str(p.id), "title": p.title, "status": p.status} for p in plans]
+    return json.dumps({"count": len(items), "plans": items}, ensure_ascii=False)
 
 
 @register({
@@ -191,7 +236,14 @@ async def list_plans(status: str = "active") -> str:
             "required": ["item_id"],
         },
     },
-}, safety_tier="mutating")
+}, safety_tier="mutating", returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "item_id": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def update_plan_item(
     item_id: str,
     status: str | None = None,
@@ -217,7 +269,7 @@ async def update_plan_item(
         item.updated_at = now
         await db.commit()
 
-    return f"Item {item_id} updated."
+    return json.dumps({"ok": True, "item_id": item_id}, ensure_ascii=False)
 
 
 @register({
@@ -262,7 +314,14 @@ async def update_plan_item(
             "required": ["plan_id"],
         },
     },
-}, safety_tier="mutating")
+}, safety_tier="mutating", returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "plan_id": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def edit_plan(
     plan_id: str,
     title: str | None = None,
@@ -316,4 +375,4 @@ async def edit_plan(
 
         await db.commit()
 
-    return f"Plan {plan_id} updated."
+    return json.dumps({"ok": True, "plan_id": plan_id}, ensure_ascii=False)

@@ -108,7 +108,18 @@ def _safe_jsonl_read(path: str) -> list[dict]:
             "required": ["experiment_id"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "experiment_id": {"type": "string"},
+        "spec": {"type": ["object", "null"]},
+        "baseline": {"type": ["object", "null"]},
+        "current_best": {"type": ["object", "null"]},
+        "history": {"type": "array", "items": {"type": "object"}},
+        "iterations_so_far": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+})
 async def read_experiment_state(experiment_id: str) -> str:
     resolved = _resolve_experiment_dir(experiment_id)
     if not resolved:
@@ -172,7 +183,14 @@ async def read_experiment_state(experiment_id: str) -> str:
             "required": ["experiment_id", "record_json"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "appended": {"type": "boolean"},
+        "path": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def append_experiment_history(experiment_id: str, record_json: str) -> str:
     resolved = _resolve_experiment_dir(experiment_id)
     if not resolved:
@@ -216,7 +234,13 @@ async def append_experiment_history(experiment_id: str, record_json: str) -> str
             "required": ["experiment_id", "record_json"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "updated": {"type": "boolean"},
+        "error": {"type": "string"},
+    },
+})
 async def update_current_best(experiment_id: str, record_json: str) -> str:
     resolved = _resolve_experiment_dir(experiment_id)
     if not resolved:
@@ -258,6 +282,15 @@ async def update_current_best(experiment_id: str, record_json: str) -> str:
             },
             "required": ["iteration_n", "variant_prompt", "scores_json"],
         },
+    },
+}, returns={
+    "type": "object",
+    "properties": {
+        "iteration_n": {"type": "integer"},
+        "variant": {"type": "object"},
+        "scores": {"type": "object"},
+        "created_at": {"type": "string"},
+        "error": {"type": "string"},
     },
 })
 async def build_experiment_record(
@@ -320,7 +353,16 @@ async def build_experiment_record(
             "required": ["experiment_id", "candidate_json"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "updated": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "previous": {"type": ["object", "null"]},
+        "current": {"type": "object"},
+        "error": {"type": "string"},
+    },
+})
 async def update_best_if_improved(experiment_id: str, candidate_json: str) -> str:
     resolved = _resolve_experiment_dir(experiment_id)
     if not resolved:
@@ -398,6 +440,14 @@ async def update_best_if_improved(experiment_id: str, candidate_json: str) -> st
             "required": ["metric_block_json", "eval_results_json"],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "primary": {"type": "object"},
+        "guards": {"type": "object"},
+        "variant_valid": {"type": "boolean"},
+        "error": {"type": "string"},
+    },
 })
 async def score_eval_results_tool(
     metric_block_json: str,
@@ -446,7 +496,17 @@ async def score_eval_results_tool(
             "required": ["experiment_id"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "status": {"type": "string", "enum": ["BUDGET_OK", "BUDGET_EXHAUSTED"]},
+        "iterations_used": {"type": "integer"},
+        "max_iterations": {"type": ["integer", "null"]},
+        "remaining": {"type": ["integer", "null"]},
+        "reason": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def check_experiment_budget(experiment_id: str) -> str:
     resolved = _resolve_experiment_dir(experiment_id)
     if not resolved:

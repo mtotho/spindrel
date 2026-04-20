@@ -97,7 +97,27 @@ async def _post(path: str, payload: dict | None = None, timeout: float = 15.0):
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "total": {
+                "type": "integer"
+            },
+            "page": {
+                "type": "object"
+            },
+            "requests": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def jellyseerr_requests(filter: str = "all", limit: int = 20, skip: int = 0, sort: str = "added") -> str:
     if not settings.JELLYSEERR_URL:
         return error("JELLYSEERR_URL is not configured")
@@ -195,7 +215,27 @@ def _request_status(code: int) -> str:
             "required": ["query"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "page": {
+                "type": "object"
+            },
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def jellyseerr_search(query: str, page: int = 1) -> str:
     if not settings.JELLYSEERR_URL:
         return error("JELLYSEERR_URL is not configured")
@@ -292,7 +332,24 @@ def _media_status(code: int) -> str:
             "required": ["action"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string"
+            },
+            "request_id": {
+                "type": "integer"
+            },
+            "message": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def jellyseerr_manage(
     action: str,
     request_id: int | None = None,

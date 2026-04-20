@@ -97,7 +97,33 @@ async def _post(path: str, payload: dict, params: dict | None = None, timeout: f
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "indexers": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "indexer_id": {
+                "type": "integer"
+            },
+            "name": {
+                "type": "string"
+            },
+            "test_result": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def prowlarr_indexers(
     action: str = "list",
     indexer_id: int | None = None,
@@ -213,7 +239,27 @@ async def prowlarr_indexers(
             "required": ["query"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "total_found": {
+                "type": "integer"
+            },
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def prowlarr_search(
     query: str,
     type: str = "search",
@@ -266,7 +312,24 @@ async def prowlarr_search(
             "properties": {},
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "apps": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def prowlarr_apps() -> str:
     if not settings.PROWLARR_URL:
         return error("PROWLARR_URL is not configured")
@@ -304,7 +367,24 @@ async def prowlarr_apps() -> str:
             "properties": {},
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "issues": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def prowlarr_health() -> str:
     if not settings.PROWLARR_URL:
         return error("PROWLARR_URL is not configured")
@@ -342,7 +422,24 @@ async def prowlarr_health() -> str:
             "properties": {},
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "tags": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def prowlarr_tags() -> str:
     if not settings.PROWLARR_URL:
         return error("PROWLARR_URL is not configured")
@@ -384,7 +481,24 @@ async def prowlarr_tags() -> str:
             },
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "count": {
+                "type": "integer"
+            },
+            "schemas": {
+                "type": "array",
+                "items": {
+                    "type": "object"
+                }
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def prowlarr_indexer_schemas(search: str | None = None) -> str:
     if not settings.PROWLARR_URL:
         return error("PROWLARR_URL is not configured")
@@ -524,7 +638,27 @@ async def _delete(path: str, timeout: float = 15.0):
             "required": ["action"],
         },
     },
-})
+}, returns={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string"
+            },
+            "indexer_id": {
+                "type": "integer"
+            },
+            "name": {
+                "type": "string"
+            },
+            "message": {
+                "type": "string"
+            },
+            "error": {
+                "type": "string"
+            }
+        }
+    }
+)
 async def prowlarr_indexer_manage(
     action: str,
     indexer_id: int | None = None,

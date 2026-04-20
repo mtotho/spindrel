@@ -93,6 +93,10 @@ async def patched_async_sessions(engine):
         "app.agent.recording.async_session", factory
     ), patch(
         "app.services.sessions.async_session", factory
+    ), patch(
+        "app.tools.local.plans.async_session", factory
+    ), patch(
+        "app.tools.local.todos.async_session", factory
     ):
         yield factory
 

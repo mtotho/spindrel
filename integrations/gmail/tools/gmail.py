@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from integrations import sdk as reg
@@ -19,7 +20,16 @@ logger = logging.getLogger(__name__)
         "type": "object",
         "properties": {},
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "connected": {"type": "boolean"},
+        "email": {"type": "string"},
+        "folder_count": {"type": "integer"},
+        "polling_folders": {"type": "array", "items": {"type": "string"}},
+        "error": {"type": "string"},
+    },
+})
 async def check_gmail_status() -> str:
     """Check Gmail IMAP connectivity."""
     import asyncio
@@ -28,23 +38,21 @@ async def check_gmail_status() -> str:
 
     email_addr = settings.GMAIL_EMAIL
     if not email_addr:
-        return "Gmail not configured — GMAIL_EMAIL is not set."
+        return json.dumps({"connected": False, "error": "Gmail not configured — GMAIL_EMAIL is not set."}, ensure_ascii=False)
 
-    def _check():
+    def _check() -> dict:
         try:
             conn = imaplib.IMAP4_SSL(settings.GMAIL_IMAP_HOST, settings.GMAIL_IMAP_PORT)
             conn.login(email_addr, settings.GMAIL_APP_PASSWORD)
             ok, folders = conn.list()
             folder_count = len(folders) if ok == "OK" and folders else 0
             conn.logout()
-            return (
-                f"Connected to {email_addr} — {folder_count} folders available. "
-                f"Polling folders: {', '.join(settings.GMAIL_FOLDERS)}"
-            )
+            return {"connected": True, "email": email_addr, "folder_count": folder_count, "polling_folders": settings.GMAIL_FOLDERS}
         except Exception as exc:
-            return f"Gmail connection failed for {email_addr}: {exc}"
+            return {"connected": False, "email": email_addr, "error": str(exc)}
 
-    return await asyncio.to_thread(_check)
+    result = await asyncio.to_thread(_check)
+    return json.dumps(result, ensure_ascii=False)
 
 
 @reg.register({"type": "function", "function": {
@@ -82,7 +90,20 @@ async def check_gmail_status() -> str:
             },
         },
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "fetched": {"type": "integer"},
+        "passed": {"type": "integer"},
+        "quarantined": {"type": "integer"},
+        "skipped": {"type": "integer"},
+        "delivered": {"type": "integer"},
+        "items": {"type": "array", "items": {"type": "object"}},
+        "errors": {"type": "array", "items": {"type": "string"}},
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def trigger_gmail_poll(
     deliver: bool = True,
     since_days: int | None = None,
@@ -96,7 +117,7 @@ async def trigger_gmail_poll(
 
     email_addr = settings.GMAIL_EMAIL
     if not email_addr:
-        return "Gmail not configured — GMAIL_EMAIL is not set."
+        return json.dumps({"error": "Gmail not configured — GMAIL_EMAIL is not set."}, ensure_ascii=False)
 
     folders_list = (
         [f.strip() for f in folders.split(",") if f.strip()]
@@ -122,19 +143,15 @@ async def trigger_gmail_poll(
         feed._disconnect()
         store.close()
 
-    parts = [
-        f"Gmail poll complete: {result.fetched} fetched, {result.passed} passed, "
-        f"{result.quarantined} quarantined, {result.skipped} skipped."
-    ]
-
     # Deliver passed items to bound channel workspaces
     delivered = 0
+    warnings: list[str] = []
     if deliver and result.items:
         binding_prefix = f"gmail:{email_addr}"
         channels = await agent_client.resolve_channels_for_binding(binding_prefix)
         if not channels:
-            parts.append(
-                f"Warning: No channels bound to {binding_prefix}. "
+            warnings.append(
+                f"No channels bound to {binding_prefix}. "
                 f"{len(result.items)} emails processed but not delivered."
             )
         else:
@@ -148,15 +165,23 @@ async def trigger_gmail_poll(
                     if ok:
                         delivered += 1
 
-    if result.items:
-        parts.append("New emails processed:")
-        for item in result.items:
-            parts.append(f"  - {item.title} → {item.suggested_path}")
-        if deliver and delivered > 0:
-            parts.append(f"Delivered {delivered} file(s) to workspace.")
-    if result.errors:
-        parts.append(f"Errors: {'; '.join(result.errors)}")
-    if not result.items and not result.errors:
-        parts.append("No new emails.")
-
-    return "\n".join(parts)
+    item_summaries = [
+        {"title": item.title, "path": item.suggested_path}
+        for item in (result.items or [])
+    ]
+    errors = list(result.errors or []) + warnings
+    return json.dumps({
+        "fetched": result.fetched,
+        "passed": result.passed,
+        "quarantined": result.quarantined,
+        "skipped": result.skipped,
+        "delivered": delivered,
+        "items": item_summaries,
+        "errors": errors,
+        "message": (
+            f"Gmail poll complete: {result.fetched} fetched, {result.passed} passed, "
+            f"{result.quarantined} quarantined, {result.skipped} skipped."
+            + (f" Delivered {delivered} file(s)." if delivered else "")
+            + (" No new emails." if not result.items and not errors else "")
+        ),
+    }, ensure_ascii=False)

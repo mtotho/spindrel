@@ -68,7 +68,23 @@ logger = logging.getLogger(__name__)
             "required": ["action"],
         },
     },
-}, safety_tier="exec_capable", requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="exec_capable", requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "stacks": {"type": "array"},
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "status": {"type": "string"},
+        "services": {"type": "array"},
+        "logs": {"type": "string"},
+        "stdout": {"type": "string"},
+        "stderr": {"type": "string"},
+        "exit_code": {"type": "integer"},
+        "ok": {"type": "boolean"},
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def manage_docker_stack(
     action: str,
     stack_id: str | None = None,

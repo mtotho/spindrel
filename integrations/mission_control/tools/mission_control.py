@@ -4,6 +4,7 @@ Thin wrappers around integrations.mission_control.services.
 """
 from __future__ import annotations
 
+import json
 import logging
 
 from integrations import sdk as reg
@@ -65,7 +66,16 @@ _append_timeline = append_timeline
         },
         "required": ["channel_id", "title"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "card_id": {"type": "string"},
+        "title": {"type": "string"},
+        "column": {"type": "string"},
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def create_task_card(
     channel_id: str,
     title: str,
@@ -81,7 +91,7 @@ async def create_task_card(
         channel_id, title, column=column, priority=priority,
         assigned=assigned, tags=tags, due=due, description=description,
     )
-    return f"Created task card '{title}' (id: {result['card_id']}) in column '{result['column']}'"
+    return json.dumps({"card_id": result["card_id"], "title": title, "column": result["column"], "message": f"Created task card '{title}' in column '{result['column']}'"}, ensure_ascii=False)
 
 
 @reg.register({"type": "function", "function": {
@@ -99,7 +109,16 @@ async def create_task_card(
         },
         "required": ["channel_id", "task_id", "to_column"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "card_id": {"type": "string"},
+        "title": {"type": "string"},
+        "from_column": {"type": "string"},
+        "to_column": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def move_task_card(
     channel_id: str,
     task_id: str,
@@ -109,8 +128,8 @@ async def move_task_card(
     try:
         result = await move_card(channel_id, task_id, to_column)
     except ValueError as e:
-        return str(e)
-    return f"Moved '{result['card']['title']}' from '{result['from_column']}' to '{result['to_column']}'"
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+    return json.dumps({"card_id": task_id, "title": result["card"]["title"], "from_column": result["from_column"], "to_column": result["to_column"]}, ensure_ascii=False)
 
 
 @reg.register({"type": "function", "function": {
@@ -139,11 +158,18 @@ async def move_task_card(
         },
         "required": ["channel_id", "event"],
     },
-}})
+}}, returns={
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "event": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def append_timeline_event(
     channel_id: str,
     event: str,
 ) -> str:
     """Log a notable event to the channel's timeline.md activity log."""
     await append_timeline(channel_id, event)
-    return f"Logged timeline event: {event}"
+    return json.dumps({"ok": True, "event": event}, ensure_ascii=False)

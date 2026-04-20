@@ -974,6 +974,39 @@ export function ToolsSection({
           </Row>
         </div>
       </AdvancedSection>
+
+      {/* Iteration Limits — per-bot overrides for loop cap + run_script inner budget. */}
+      <AdvancedSection title="Iteration Limits">
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 8 }}>
+          <div style={{ fontSize: 11, color: t.textDim }}>
+            Caps how many tool calls one turn (or one <code>run_script</code>)
+            can make. Blank = inherit server default. Tighter caps reduce cost
+            amplification from loops or prompt injection.
+          </div>
+          <Row gap={12}>
+            <Col>
+              <FormRow label="Max tool calls per turn">
+                <TextInput
+                  value={String(draft.max_iterations ?? "")}
+                  onChangeText={(v) => update({ max_iterations: v ? parseInt(v) : null })}
+                  placeholder="inherit (15)"
+                  type="number"
+                />
+              </FormRow>
+            </Col>
+            <Col>
+              <FormRow label="Max inner calls per run_script">
+                <TextInput
+                  value={String(draft.max_script_tool_calls ?? "")}
+                  onChangeText={(v) => update({ max_script_tool_calls: v ? parseInt(v) : null })}
+                  placeholder="inherit (50)"
+                  type="number"
+                />
+              </FormRow>
+            </Col>
+          </Row>
+        </div>
+      </AdvancedSection>
     </div>
   );
 }

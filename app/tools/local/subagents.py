@@ -97,7 +97,27 @@ _PRESET_SUMMARY = ", ".join(
             "required": ["agents"],
         },
     },
-}, safety_tier="readonly", requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="readonly", requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "status": {"type": "string"},
+                    "result": {"type": ["string", "null"]},
+                    "preset": {"type": "string"},
+                    "elapsed_ms": {"type": "number"},
+                },
+                "required": ["index", "status"],
+            },
+        },
+        "warning": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def spawn_subagents(agents: list[dict]) -> str:
     """Run sub-agents in parallel and return collected results."""
     from app.agent.subagents import run_subagents

@@ -81,7 +81,31 @@ logger = logging.getLogger(__name__)
             "required": ["action"],
         },
     },
-}, safety_tier="control_plane")
+}, safety_tier="control_plane", returns={
+    "type": "object",
+    "description": "Returns carapaces list, single carapace config, mutation result, or error",
+    "properties": {
+        "carapaces": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "description": {"type": ["string", "null"]},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "includes": {"type": "array", "items": {"type": "string"}},
+                    "tool_count": {"type": "integer"},
+                },
+            },
+        },
+        "ok": {"type": "boolean"},
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def manage_capability(
     action: str,
     id: str = "",

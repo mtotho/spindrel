@@ -60,6 +60,20 @@ interface DashboardPinsState {
   renamePin: (pinId: string, displayLabel: string | null) => Promise<void>;
 
   /**
+   * Promote a pin to claim the dashboard's main area (`layout_mode = 'panel'`).
+   * Server clears `is_main_panel` on every other pin in the same dashboard
+   * atomically. Optimistic local write; rollback on failure.
+   */
+  promotePinToPanel: (pinId: string) => Promise<void>;
+
+  /**
+   * Demote the panel pin back to a normal grid tile. Server reverts the
+   * dashboard's `grid_config.layout_mode` to `'grid'` if no other panel pin
+   * remains. Optimistic local write; rollback on failure.
+   */
+  demotePinFromPanel: (pinId: string) => Promise<void>;
+
+  /**
    * Commit a batch of {x, y, w, h} layout changes. Optimistic local write,
    * single bulk POST to the server, rollback on failure.
    */
@@ -168,6 +182,53 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config, merge: false }),
       });
+    } catch (err) {
+      set({ pins: prev });
+      throw err;
+    }
+  },
+
+  promotePinToPanel: async (pinId) => {
+    const prev = get().pins;
+    // Optimistically clear all other panel flags + set this one. Mirrors the
+    // server's atomic clear-then-set so the UI reflects the constraint
+    // immediately and a single failed call rolls everything back.
+    set({
+      pins: prev.map((p) => ({
+        ...p,
+        is_main_panel: p.id === pinId,
+      })),
+    });
+    try {
+      await apiFetch(
+        `/api/v1/widgets/dashboard/pins/${pinId}/promote-panel`,
+        { method: "POST" },
+      );
+      // Server flipped grid_config.layout_mode='panel'; trigger a dashboards
+      // refetch so the page render branches into panel mode without a manual
+      // reload. Lazy import to avoid a store-to-store cycle at module load.
+      const { useDashboardsStore } = await import("./dashboards");
+      void useDashboardsStore.getState().hydrate();
+    } catch (err) {
+      set({ pins: prev });
+      throw err;
+    }
+  },
+
+  demotePinFromPanel: async (pinId) => {
+    const prev = get().pins;
+    set({
+      pins: prev.map((p) =>
+        p.id === pinId ? { ...p, is_main_panel: false } : p,
+      ),
+    });
+    try {
+      await apiFetch(
+        `/api/v1/widgets/dashboard/pins/${pinId}/promote-panel`,
+        { method: "DELETE" },
+      );
+      const { useDashboardsStore } = await import("./dashboards");
+      void useDashboardsStore.getState().hydrate();
     } catch (err) {
       set({ pins: prev });
       throw err;

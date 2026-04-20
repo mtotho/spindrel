@@ -30,7 +30,31 @@ logger = logging.getLogger(__name__)
             },
         },
     },
-}, safety_tier="readonly", requires_bot_context=True)
+}, safety_tier="readonly", requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "endpoints": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "method": {"type": "string"},
+                    "path": {"type": "string"},
+                    "description": {"type": "string"},
+                    "params": {"type": "object"},
+                    "body": {"type": "object"},
+                    "response": {"type": "object"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["method", "path"],
+            },
+        },
+        "count": {"type": "integer"},
+        "scopes": {"type": "array", "items": {"type": "string"}},
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def list_api_endpoints(scope: str = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
@@ -105,7 +129,14 @@ async def list_api_endpoints(scope: str = "") -> str:
             "required": ["method", "path"],
         },
     },
-}, safety_tier="mutating", requires_bot_context=True)
+}, safety_tier="mutating", requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "body": {},
+        "error": {"type": "string"},
+    },
+})
 async def call_api(method: str, path: str, body: str = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:

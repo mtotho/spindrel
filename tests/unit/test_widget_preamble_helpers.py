@@ -1,0 +1,168 @@
+"""Pin Phase A SDK helpers in the InteractiveHtmlRenderer bootstrap.
+
+No Vitest/Jest is configured in `ui/`, so this presence-snapshot test is
+the backstop against "someone ripped out `spindrel.bus`" regressions. It
+reads the renderer source as text and asserts that each helper the skill
+doc promises is defined and exported on ``window.spindrel``.
+
+If a new helper lands or a name is renamed, update the asserts AND the
+corresponding section in ``skills/html_widgets.md`` in the same commit.
+
+For behaviour-level coverage (bus round-trips, form submit paths, error
+boundary), write a real UI test once vitest is wired — tracked in
+``Track - Widget SDK`` Phase A follow-ups.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+RENDERER = Path(__file__).resolve().parents[2] / (
+    "ui/src/components/chat/renderers/InteractiveHtmlRenderer.tsx"
+)
+
+
+@pytest.fixture(scope="module")
+def source() -> str:
+    assert RENDERER.exists(), f"renderer missing: {RENDERER}"
+    return RENDERER.read_text()
+
+
+# ── Helper *definitions* live inside the IIFE ─────────────────────────
+HELPER_DEFINITIONS = [
+    # Phase A additions
+    "function busPublish",
+    "function busSubscribe",
+    "function stream",
+    "function __streamNormalizeArgs",
+    "function cacheGet",
+    "function cacheSet",
+    "function cacheClear",
+    "function notify",
+    "function uiStatus",
+    "function uiTable",
+    "function uiChart",
+    "function stateLoad",
+    "function stateSave",
+    "function statePatch",
+    "function form",
+    # Pre-existing — listed so a careless refactor doesn't drop them silently
+    "function callTool",
+    "function dataLoad",
+    "function dataPatch",
+    "function renderMarkdown",
+    "function loadAsset",
+]
+
+
+@pytest.mark.parametrize("needle", HELPER_DEFINITIONS)
+def test_helper_function_defined(source: str, needle: str) -> None:
+    assert needle in source, f"bootstrap missing helper definition: `{needle}`"
+
+
+# ── window.spindrel exposure ──────────────────────────────────────────
+# The assignment `window.spindrel = {...}` has each exposed helper. Match
+# on the key name followed by a colon so we don't false-positive on a
+# standalone identifier elsewhere.
+SPINDREL_KEYS = [
+    # Phase A
+    "bus:",
+    "stream:",
+    "cache:",
+    "notify:",
+    "log:",
+    "ui:",
+    "state:",
+    "form:",
+    # Pre-existing — regression guard
+    "callTool:",
+    "data:",
+    "api:",
+    "apiFetch:",
+    "readWorkspaceFile:",
+    "writeWorkspaceFile:",
+    "loadAsset:",
+    "renderMarkdown:",
+    "onToolResult:",
+    "onConfig:",
+    "onTheme:",
+]
+
+
+@pytest.mark.parametrize("key", SPINDREL_KEYS)
+def test_window_spindrel_exposes(source: str, key: str) -> None:
+    # Grab the block between `window.spindrel = {` and the matching close
+    # so we're only checking the public surface, not random colons inside
+    # unrelated code.
+    marker = "window.spindrel = {"
+    start = source.index(marker)
+    # Find the first `};` after the marker. Naive — works because the
+    # object literal doesn't contain nested `};` at column-0 and the close
+    # is `  };`.
+    close = source.index("  };", start)
+    block = source[start:close]
+    assert key in block, f"window.spindrel missing key `{key}`"
+
+
+# ── Error boundary: uncaught errors + rejections forwarded to host ────
+def test_error_boundary_forwards_errors(source: str) -> None:
+    assert 'window.addEventListener("error"' in source
+    assert 'window.addEventListener("unhandledrejection"' in source
+    # Both post to parent with __spindrel marker so the host listener can
+    # filter by origin. If the marker name changes, the host receiver
+    # below must change too.
+    assert '__spindrel: true' in source
+    assert 'type: "error"' in source
+
+
+# ── Host-side postMessage receiver ────────────────────────────────────
+# The receiver in the React component demultiplexes notify / log / error
+# into toasts, the widget log ring, and the error banner respectively.
+def test_host_receiver_wired(source: str) -> None:
+    # message listener registered + scoped to iframe.contentWindow
+    assert 'window.addEventListener("message"' in source
+    assert "event.source !== iframe.contentWindow" in source
+    # Three branches the iframe emits
+    assert 'data.type === "notify"' in source
+    assert 'data.type === "error"' in source
+    assert 'data.type === "log"' in source
+    # Reload affordance for the error banner — remounts the iframe via key
+    assert "setReloadNonce" in source
+    assert "widget-iframe-${reloadNonce}" in source
+    # Log branch feeds the Dev Panel Widget log subtab via the store.
+    # Route: iframe postMessage → pushWidgetLog({ts, level, message, pinId, …}).
+    assert "pushWidgetLog" in source
+    assert 'from "../../../stores/widgetLog"' in source
+
+
+# ── ui.chart is exposed on the nested ui: object, not the top level ──
+def test_ui_chart_exposed_on_ui_namespace(source: str) -> None:
+    # Find the `ui: {` block inside window.spindrel and assert `chart:` is
+    # present. Narrow window so we don't pick up a `chart:` in some other
+    # object literal by accident.
+    marker = "ui: {"
+    start = source.rindex(marker)
+    close = source.index("}", start)
+    block = source[start:close]
+    assert "chart:" in block, "window.spindrel.ui missing `chart:` export"
+    assert "status:" in block and "table:" in block, "ui namespace regressed"
+
+
+# ── Skill doc must mention the new helpers so bots know they exist ────
+SKILL_DOC = Path(__file__).resolve().parents[2] / "skills/html_widgets.md"
+
+
+def test_skill_doc_documents_phase_a_helpers() -> None:
+    text = SKILL_DOC.read_text()
+    for needle in [
+        "window.spindrel.bus",
+        "window.spindrel.cache",
+        "window.spindrel.notify",
+        "window.spindrel.ui.table",
+        "window.spindrel.ui.status",
+        "window.spindrel.ui.chart",
+        "window.spindrel.state",
+        "window.spindrel.form",
+    ]:
+        assert needle in text, f"skills/html_widgets.md missing docs for `{needle}`"

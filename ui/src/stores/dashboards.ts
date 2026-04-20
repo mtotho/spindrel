@@ -42,9 +42,15 @@ export interface Dashboard {
   name: string;
   icon: string | null;
   rail: DashboardRail;
-  /** Per-dashboard layout config. NULL = `standard` preset (legacy + default).
-   *  Shape: `{ layout_type: "grid", preset: "standard" | "fine" }`. */
-  grid_config: { layout_type?: string; preset?: string } | null;
+  /** Per-dashboard layout config. NULL = `standard` preset + `grid` mode.
+   *  Shape: `{ layout_type, preset, layout_mode }`. `layout_mode` is `"grid"`
+   *  by default (RGL canvas) or `"panel"` when one pin claims the main area
+   *  and the rest surface in the rail strip. */
+  grid_config: {
+    layout_type?: string;
+    preset?: string;
+    layout_mode?: "grid" | "panel";
+  } | null;
   last_viewed_at: string | null;
   created_at: string | null;
   updated_at: string | null;

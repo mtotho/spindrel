@@ -33,7 +33,19 @@ logger = logging.getLogger(__name__)
             "required": ["id"],
         },
     },
-}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "status": {"type": "string", "enum": ["activated", "already_active"]},
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "message": {"type": "string"},
+        "instructions": {"type": "string"},
+        "tools_next_turn": {"type": "array", "items": {"type": "string"}},
+        "error": {"type": "string"},
+        "available": {"type": "array", "items": {"type": "string"}},
+    },
+})
 async def activate_capability(id: str, reason: str = "") -> str:
     """Activate a capability for this conversation session.
 

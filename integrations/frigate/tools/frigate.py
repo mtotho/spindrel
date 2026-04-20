@@ -55,6 +55,25 @@ def _error(msg: str) -> str:
             "properties": {},
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "cameras": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "enabled": {"type": "boolean"},
+                    "width": {"type": "integer"},
+                    "height": {"type": "integer"},
+                    "fps": {"type": "number"},
+                    "snapshot_url": {"type": "string"},
+                },
+            },
+        },
+        "error": {"type": "string"},
+    },
 })
 async def frigate_list_cameras() -> str:
     if not settings.FRIGATE_URL:
@@ -131,6 +150,14 @@ async def frigate_list_cameras() -> str:
                 },
             },
         },
+    },
+}, returns={
+    "type": "object",
+    "properties": {
+        "events": {"type": "array"},
+        "count": {"type": "integer"},
+        "next_before": {"type": "number"},
+        "error": {"type": "string"},
     },
 })
 async def frigate_get_events(
@@ -232,6 +259,14 @@ async def frigate_get_events(
             "required": ["camera"],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "camera": {"type": "string"},
+        "snapshot_url": {"type": "string"},
+        "note": {"type": "string"},
+        "error": {"type": "string"},
+    },
 })
 async def frigate_get_snapshot_url(
     camera: str,
@@ -271,6 +306,14 @@ async def frigate_get_snapshot_url(
             "type": "object",
             "properties": {},
         },
+    },
+}, returns={
+    "type": "object",
+    "properties": {
+        "cameras": {"type": "object"},
+        "detectors": {"type": "object"},
+        "service": {"type": "object"},
+        "error": {"type": "string"},
     },
 })
 async def frigate_get_stats() -> str:
@@ -435,7 +478,17 @@ async def _download_media(
             "required": ["camera"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "attachment_id": {"type": "string"},
+        "filename": {"type": "string"},
+        "size_bytes": {"type": "integer"},
+        "message": {"type": "string"},
+        "camera": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def frigate_snapshot(
     camera: str,
     bounding_box: bool = True,
@@ -484,7 +537,16 @@ async def frigate_snapshot(
             "required": ["event_id"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "attachment_id": {"type": "string"},
+        "filename": {"type": "string"},
+        "size_bytes": {"type": "integer"},
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def frigate_event_snapshot(event_id: str) -> str:
     if not settings.FRIGATE_URL:
         return _error("FRIGATE_URL is not configured")
@@ -522,7 +584,16 @@ async def frigate_event_snapshot(event_id: str) -> str:
             "required": ["event_id"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "attachment_id": {"type": "string"},
+        "filename": {"type": "string"},
+        "size_bytes": {"type": "integer"},
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def frigate_event_clip(event_id: str) -> str:
     if not settings.FRIGATE_URL:
         return _error("FRIGATE_URL is not configured")
@@ -570,7 +641,17 @@ async def frigate_event_clip(event_id: str) -> str:
             "required": ["camera", "start_time", "end_time"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "attachment_id": {"type": "string"},
+        "filename": {"type": "string"},
+        "size_bytes": {"type": "integer"},
+        "message": {"type": "string"},
+        "camera": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
 async def frigate_recording_clip(
     camera: str,
     start_time: float,

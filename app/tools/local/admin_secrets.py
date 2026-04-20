@@ -53,7 +53,31 @@ _NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
             "required": ["action"],
         },
     },
-}, safety_tier="control_plane")
+}, safety_tier="control_plane", returns={
+    "oneOf": [
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "description": {"type": ["string", "null"]},
+                    "created_by": {"type": ["string", "null"]},
+                    "created_at": {"type": ["string", "null"]},
+                },
+            },
+        },
+        {
+            "type": "object",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "name": {"type": "string"},
+                "message": {"type": "string"},
+                "error": {"type": "string"},
+            },
+        },
+    ],
+})
 async def manage_secret(
     action: str,
     name: str | None = None,

@@ -354,7 +354,18 @@ async def _deliver(data: bytes, filename: str, mime: str, *, tool_name: str) -> 
             "required": ["elements"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "message": {"type": "string"},
+        "attachment_id": {"type": "string"},
+        "filename": {"type": "string"},
+        "mime_type": {"type": "string"},
+        "size_bytes": {"type": "integer"},
+        "client_action": {"type": "object"},
+        "error": {"type": "string"},
+    },
+})
 async def create_excalidraw(
     elements: list,
     app_state: dict | None = None,
@@ -426,7 +437,18 @@ async def create_excalidraw(
             "required": ["mermaid"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True)
+}, requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "message": {"type": "string"},
+        "attachment_id": {"type": "string"},
+        "filename": {"type": "string"},
+        "mime_type": {"type": "string"},
+        "size_bytes": {"type": "integer"},
+        "client_action": {"type": "object"},
+        "error": {"type": "string"},
+    },
+})
 async def mermaid_to_excalidraw(
     mermaid: str,
     filename: str = "diagram",

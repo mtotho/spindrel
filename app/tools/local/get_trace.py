@@ -32,11 +32,33 @@ _USER_MESSAGE_PREVIEW_CHARS = 400
             "required": [],
         },
     },
+}, returns={
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer"},
+        "traces": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "correlation_id": {"type": "string"},
+                    "started_at": {"type": ["string", "null"]},
+                    "tool_count": {"type": "integer"},
+                    "event_count": {"type": "integer"},
+                    "error_count": {"type": "integer"},
+                    "user_message_preview": {"type": ["string", "null"]},
+                },
+                "required": ["correlation_id", "event_count"],
+            },
+        },
+        "message": {"type": "string"},
+    },
+    "required": ["count"],
 })
 async def list_session_traces(limit: int = 10) -> str:
     session_id = current_session_id.get()
     if not session_id:
-        return "No conversation context available."
+        return json.dumps({"count": 0, "traces": [], "message": "No conversation context available."}, ensure_ascii=False)
 
     limit = min(max(1, limit), 50)
 
@@ -55,7 +77,7 @@ async def list_session_traces(limit: int = 10) -> str:
         )).all()
 
         if not rows:
-            return "No trace events found for this conversation."
+            return json.dumps({"count": 0, "traces": [], "message": "No trace events found for this conversation."}, ensure_ascii=False)
 
         # Collect correlation_ids to look up errors and tool call counts
         corr_ids = [r.correlation_id for r in rows]
@@ -99,25 +121,43 @@ async def list_session_traces(limit: int = 10) -> str:
             if r.correlation_id not in user_msgs and r.content:
                 user_msgs[r.correlation_id] = r.content
 
-    lines = [f"Recent traces (newest first):\n"]
+    traces = []
     for r in rows:
-        ts = r.started_at.strftime("%m-%d %H:%M") if r.started_at else "?"
         errors = error_counts.get(r.correlation_id, 0)
         tools = tc_counts.get(r.correlation_id, 0)
         msg = user_msgs.get(r.correlation_id, "")
         msg_preview = (msg[:80] + "…") if len(msg) > 80 else msg
-        # Strip newlines for compact display
-        msg_preview = msg_preview.replace("\n", " ")
+        msg_preview = msg_preview.replace("\n", " ") if msg_preview else None
+        traces.append({
+            "correlation_id": str(r.correlation_id),
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "tool_count": tools,
+            "event_count": r.event_count,
+            "error_count": errors,
+            "user_message_preview": msg_preview or None,
+        })
 
-        error_flag = " ⚠ ERROR" if errors else ""
-        lines.append(
-            f"[{ts}] {r.correlation_id}{error_flag}\n"
-            f"  tools={tools} events={r.event_count}"
-            + (f" errors={errors}" if errors else "")
-            + (f"\n  user: {msg_preview}" if msg_preview else "")
-        )
+    return json.dumps({"count": len(traces), "traces": traces}, ensure_ascii=False)
 
-    return "\n".join(lines)
+_TIMELINE_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": ["tool_call", "trace_event"]},
+        "timestamp": {"type": ["string", "null"]},
+        "tool_name": {"type": "string"},
+        "tool_type": {"type": "string"},
+        "iteration": {"type": ["integer", "null"]},
+        "duration_ms": {"type": ["integer", "null"]},
+        "status": {"type": "string"},
+        "args": {"type": "object"},
+        "result_preview": {"type": "string"},
+        "event_type": {"type": "string"},
+        "event_name": {"type": ["string", "null"]},
+        "count": {"type": ["integer", "null"]},
+        "data": {"type": ["object", "null"]},
+    },
+    "required": ["type", "timestamp"],
+}
 
 @register({
     "type": "function",
@@ -183,6 +223,42 @@ async def list_session_traces(limit: int = 10) -> str:
             "required": [],
         },
     },
+}, returns={
+    "oneOf": [
+        {
+            "description": "List mode (event_type given) — array of matching trace events",
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "correlation_id": {"type": ["string", "null"]},
+                    "bot_id": {"type": ["string", "null"]},
+                    "event_type": {"type": "string"},
+                    "created_at": {"type": ["string", "null"]},
+                    "data": {},
+                    "user_message": {"type": ["string", "null"]},
+                },
+                "required": ["event_type"],
+            },
+        },
+        {
+            "description": "Detail mode — full timeline for one turn",
+            "type": "object",
+            "properties": {
+                "correlation_id": {"type": "string"},
+                "tool_call_count": {"type": "integer"},
+                "event_count": {"type": "integer"},
+                "timeline": {"type": "array", "items": _TIMELINE_ITEM_SCHEMA},
+            },
+            "required": ["correlation_id", "timeline"],
+        },
+        {
+            "description": "Error response",
+            "type": "object",
+            "properties": {"error": {"type": "string"}},
+            "required": ["error"],
+        },
+    ],
 })
 async def get_trace(
     correlation_id: str | None = None,
@@ -259,7 +335,7 @@ async def get_trace(
     else:
         corr_id = current_correlation_id.get()
         if not corr_id:
-            return "No correlation ID in context — trace not available for this turn."
+            return json.dumps({"error": "No correlation ID in context — trace not available for this turn."}, ensure_ascii=False)
 
     async with async_session() as db:
         tool_calls = (await db.execute(
@@ -275,7 +351,7 @@ async def get_trace(
         )).scalars().all()
 
     if not tool_calls and not trace_events:
-        return f"No trace data found for correlation_id={corr_id}."
+        return json.dumps({"error": f"No trace data found for correlation_id={corr_id}."}, ensure_ascii=False)
 
     # Merge by created_at
     merged: list[tuple[str, object, object]] = []
@@ -285,40 +361,44 @@ async def get_trace(
         merged.append(("trace_event", te.created_at, te))
     merged.sort(key=lambda x: x[1] or "")
 
-    lines = [f"Trace for correlation_id={corr_id}\n"]
+    timeline: list[dict] = []
     for kind, ts, obj in merged:
-        ts_str = ts.strftime("%H:%M:%S.%f")[:-3] if ts else "?"
+        ts_str = ts.isoformat() if ts else None
         if kind == "tool_call":
             tc = obj
-            args_str = json.dumps(tc.arguments or {}, ensure_ascii=False)
-            if len(args_str) > 500:
-                args_str = args_str[:500] + "…"
-            result_str = (tc.result or "")[:500]
+            args = tc.arguments or {}
+            args_str = json.dumps(args, ensure_ascii=False)
+            result_preview = (tc.result or "")[:500]
             if len(tc.result or "") > 500:
-                result_str += "…"
-            status = f"ERROR: {tc.error}" if tc.error else "ok"
-            lines.append(
-                f"[{ts_str}] TOOL {tc.tool_name} ({tc.tool_type}) "
-                f"iter={tc.iteration} dur={tc.duration_ms}ms status={status}\n"
-                f"  args: {args_str}\n"
-                f"  result: {result_str}"
-            )
+                result_preview += "…"
+            timeline.append({
+                "type": "tool_call",
+                "timestamp": ts_str,
+                "tool_name": tc.tool_name,
+                "tool_type": tc.tool_type,
+                "iteration": tc.iteration,
+                "duration_ms": tc.duration_ms,
+                "status": f"ERROR: {tc.error}" if tc.error else "ok",
+                "args": args if len(args_str) <= 2000 else {"_truncated": args_str[:2000] + "…"},
+                "result_preview": result_preview,
+            })
         else:
             te = obj
-            data_str = ""
-            if te.data:
-                data_str = json.dumps(te.data, ensure_ascii=False)
-                if len(data_str) > 500:
-                    data_str = data_str[:500] + "…"
-            parts = [f"[{ts_str}] EVENT {te.event_type}"]
-            if te.event_name:
-                parts.append(f"name={te.event_name}")
-            if te.count is not None:
-                parts.append(f"count={te.count}")
-            if te.duration_ms is not None:
-                parts.append(f"dur={te.duration_ms}ms")
-            if data_str:
-                parts.append(f"data={data_str}")
-            lines.append(" ".join(parts))
+            data = te.data
+            data_str = json.dumps(data, ensure_ascii=False) if data else ""
+            timeline.append({
+                "type": "trace_event",
+                "timestamp": ts_str,
+                "event_type": te.event_type,
+                "event_name": te.event_name,
+                "count": te.count,
+                "duration_ms": te.duration_ms,
+                "data": data if not data_str or len(data_str) <= 2000 else {"_truncated": data_str[:2000] + "…"},
+            })
 
-    return "\n".join(lines)
+    return json.dumps({
+        "correlation_id": str(corr_id),
+        "tool_call_count": len(tool_calls),
+        "event_count": len(trace_events),
+        "timeline": timeline,
+    }, ensure_ascii=False, default=str)

@@ -57,7 +57,46 @@ logger = logging.getLogger(__name__)
             "required": ["action"],
         },
     },
-}, safety_tier="control_plane")
+}, safety_tier="control_plane", returns={
+    "oneOf": [
+        {
+            "type": "array",
+            "description": "list action — array of channel summaries",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "bot_id": {"type": "string"},
+                    "client_id": {"type": "string"},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "type": "object",
+            "description": "create action",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "channel_id": {"type": "string"},
+                "name": {"type": "string"},
+                "bot_id": {"type": "string"},
+                "client_id": {"type": "string"},
+                "message": {"type": "string"},
+                "error": {"type": "string"},
+            },
+        },
+        {
+            "type": "object",
+            "description": "configure action",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "message": {"type": "string"},
+                "error": {"type": "string"},
+            },
+        },
+    ],
+})
 async def manage_channel(
     action: str,
     name: str | None = None,

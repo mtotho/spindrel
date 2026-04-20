@@ -53,7 +53,14 @@ from app.tools.registry import register
             "required": [],
         },
     },
-}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True, returns={
+    "type": "object",
+    "properties": {
+        "message": {"type": "string"},
+        "client_action": {"type": "object"},
+        "error": {"type": "string"},
+    },
+})
 async def send_file(
     path: str = "",
     attachment_id: str = "",
