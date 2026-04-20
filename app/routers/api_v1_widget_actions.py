@@ -11,6 +11,7 @@ in a tool result widget, the frontend sends the action here. Dispatch modes:
 - dispatch:"widget_config" — patch a pinned widget's config and return a refreshed envelope.
 - dispatch:"db_query" — read-only SQLite query against the pin's bundle DB (no lock).
 - dispatch:"db_exec" — write SQLite statement against the pin's bundle DB (acquires lock).
+- dispatch:"widget_handler" — invoke a @on_action handler in the pin's widget.py.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -78,10 +79,15 @@ _API_ALLOWLIST = [
 
 
 class WidgetActionRequest(BaseModel):
-    dispatch: Literal["tool", "api", "widget_config", "db_query", "db_exec"] = "tool"
+    dispatch: Literal[
+        "tool", "api", "widget_config", "db_query", "db_exec", "widget_handler",
+    ] = "tool"
     # For tool dispatch
     tool: str | None = None
     args: dict = {}
+    # For widget_handler dispatch — the @on_action handler name to invoke.
+    # ``args`` above carries the handler's argument dict.
+    handler: str | None = None
     # For API dispatch
     endpoint: str | None = None
     method: str = "POST"
@@ -115,6 +121,8 @@ class WidgetActionResponse(BaseModel):
     error: str | None = None
     api_response: dict | None = None
     db_result: dict | None = None
+    # widget_handler dispatch: handler's return value (JSON-able).
+    result: Any = None
 
 
 @router.post("", response_model=WidgetActionResponse)
@@ -129,6 +137,8 @@ async def dispatch_widget_action(req: WidgetActionRequest, db: AsyncSession = De
         return await _dispatch_widget_config(req)
     elif req.dispatch in ("db_query", "db_exec"):
         return await _dispatch_db(req, db)
+    elif req.dispatch == "widget_handler":
+        return await _dispatch_widget_handler(req, db)
     else:
         raise HTTPException(400, f"Unknown dispatch type: {req.dispatch}")
 
@@ -380,6 +390,62 @@ async def _dispatch_db(req: WidgetActionRequest, db: AsyncSession) -> WidgetActi
         return WidgetActionResponse(ok=False, error=f"db_exec failed: {exc}")
 
     return WidgetActionResponse(ok=True, db_result=result)
+
+
+async def _dispatch_widget_handler(
+    req: WidgetActionRequest, db: AsyncSession,
+) -> WidgetActionResponse:
+    """Invoke a ``@on_action`` Python handler declared in the pin's ``widget.py``.
+
+    Identity / scope flow:
+      iframe → POST /widget-actions → pin lookup → invoke_action(pin, handler)
+      Handler's ctx.tool(...) goes through the standard ``_check_tool_policy``
+      gate under the pin's ``source_bot_id``. No elevation.
+    """
+    if not req.dashboard_pin_id:
+        return WidgetActionResponse(
+            ok=False, error="widget_handler requires dashboard_pin_id",
+        )
+    if not req.handler:
+        return WidgetActionResponse(
+            ok=False, error="widget_handler requires 'handler' field",
+        )
+
+    from app.services.dashboard_pins import get_pin
+    from app.services.widget_py import invoke_action
+
+    try:
+        pin = await get_pin(db, req.dashboard_pin_id)
+    except HTTPException as exc:
+        return WidgetActionResponse(ok=False, error=str(exc.detail))
+    except Exception as exc:
+        logger.warning("widget_handler pin lookup failed: %s", exc, exc_info=True)
+        return WidgetActionResponse(ok=False, error="Pin not found")
+
+    try:
+        result = await invoke_action(pin, req.handler, req.args or {})
+    except FileNotFoundError as exc:
+        return WidgetActionResponse(ok=False, error=str(exc))
+    except KeyError as exc:
+        return WidgetActionResponse(ok=False, error=str(exc).strip("'\""))
+    except PermissionError as exc:
+        return WidgetActionResponse(ok=False, error=str(exc))
+    except ValueError as exc:
+        return WidgetActionResponse(ok=False, error=str(exc))
+    except asyncio.TimeoutError:
+        return WidgetActionResponse(
+            ok=False, error=f"handler {req.handler!r} timed out",
+        )
+    except Exception as exc:
+        logger.exception("widget_handler %s failed", req.handler)
+        return WidgetActionResponse(
+            ok=False, error=f"{type(exc).__name__}: {exc}",
+        )
+
+    logger.info(
+        "widget_handler dispatch: pin=%s handler=%s", req.dashboard_pin_id, req.handler,
+    )
+    return WidgetActionResponse(ok=True, result=result)
 
 
 def _build_result_envelope(

@@ -775,6 +775,35 @@ function spindrelBootstrap(
   }
 
   // ───────────────────────────────────────────────────────────────────────
+  // Phase B.2 SDK helper: spindrel.callHandler — invoke a @on_action Python
+  // handler declared in the pin's widget.py. Routes through
+  // POST /api/v1/widget-actions (dispatch:"widget_handler"). The handler
+  // runs in-process under the pin's bot scope.
+  // ───────────────────────────────────────────────────────────────────────
+
+  async function callHandler(name, args) {
+    if (!dashboardPinId) {
+      throw new Error("spindrel.callHandler requires a pinned widget (dashboardPinId is null)");
+    }
+    if (typeof name !== "string" || !name.trim()) {
+      throw new Error("spindrel.callHandler: name must be a non-empty string");
+    }
+    const resp = await api("/api/v1/widget-actions", {
+      method: "POST",
+      body: JSON.stringify({
+        dispatch: "widget_handler",
+        handler: name,
+        args: args || {},
+        dashboard_pin_id: dashboardPinId,
+      }),
+    });
+    if (!resp || resp.ok !== true) {
+      throw new Error((resp && resp.error) || "spindrel.callHandler '" + name + "' failed");
+    }
+    return resp.result;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
   // Phase A SDK helpers (2026-04-19). See Track - Widget SDK in the vault
   // for the full plan. These are pure client-side — no new backend infra.
   // Scope: widget↔widget bus, TTL cache with dedup, host-chrome toasts,
@@ -1350,6 +1379,7 @@ function spindrelBootstrap(
     revokeAttachment: revokeAttachment,
     renderMarkdown: renderMarkdown,
     callTool: callTool,
+    callHandler: callHandler,
     data: {
       load: dataLoad,
       save: dataSave,

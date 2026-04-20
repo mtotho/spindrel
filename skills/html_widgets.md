@@ -1396,4 +1396,53 @@ When a user unpins a widget that has a non-empty `data.sqlite`, the Unpin drawer
 
 ---
 
+### `widget.py` — server-side Python handlers
+
+A bundle can declare a sibling `widget.py` that exposes JS-callable handlers running in the server process under the pin's bot scope.
+
+```python
+# <bundle>/widget.py
+from spindrel.widget import on_action, ctx
+
+@on_action("save_item")
+async def save(args):
+    await ctx.db.execute(
+        "insert into items(text, created_at) values (?, datetime('now'))",
+        [args["text"]],
+    )
+    return {"ok": True}
+
+@on_action("search")
+async def search(args):
+    env = await ctx.tool("web_search", query=args["q"])
+    return env.get("results", [])[:5]
+```
+
+Call from iframe JS via `window.spindrel.callHandler`:
+
+```js
+const result = await window.spindrel.callHandler("save_item", { text: "hello" });
+```
+
+**Identity and scope.** Each handler invocation resolves the pin's `source_bot_id` and sets `current_bot_id` / `current_channel_id` ContextVars for the duration. `ctx.tool(name, **kwargs)` dispatches through the exact same policy gate as LLM-driven tool calls (`_check_tool_policy`); a bot missing a tool's scope gets a `scope_denied` error surfaced as `{ok: false, error: "scope_denied: ..."}` in the JS response. Handlers cannot elevate beyond the bot's own ceiling.
+
+**Manifest allowlist.** If `widget.yaml` declares `permissions.tools: [...]`, `ctx.tool(name, ...)` refuses any name not in that list — fail-loud, before the policy evaluator even runs. Leave `permissions.tools` empty to allow any tool the bot can already call.
+
+**Timeouts.** Each handler runs under `asyncio.wait_for(..., timeout=30)` by default. Override per-handler with `@on_action("slow", timeout=120)`. Long-running work should schedule a task via `ctx.tool("schedule_task", ...)` instead of blocking.
+
+**Hot reload.** Editing `widget.py` bumps its mtime; the next call re-imports the module — no server restart needed during development.
+
+**`ctx` surface (Phase B.2).**
+
+| Attribute | Purpose |
+|---|---|
+| `ctx.db.query(sql, params?)` | Returns list of row dicts. Migrations from `widget.yaml` auto-apply on first access. |
+| `ctx.db.execute(sql, params?)` | Returns `{lastInsertRowid, rowsAffected}`. Takes the per-path write lock. |
+| `await ctx.tool(name, **kwargs)` | Policy-checked tool dispatch under the pin's bot. Result is the parsed JSON envelope. |
+| `ctx.bot_id` / `ctx.channel_id` / `ctx.pin` | Read-only accessors for the current invocation. |
+
+`@on_cron` and `@on_event` decorators are importable now but wired in slices B.3 / B.4.
+
+---
+
 *If one of these ships, this skill is updated the same session. Until then: build with the primitives above.*

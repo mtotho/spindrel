@@ -31,6 +31,8 @@ def source() -> str:
 
 # ── Helper *definitions* live inside the IIFE ─────────────────────────
 HELPER_DEFINITIONS = [
+    # Phase B.2 additions
+    "function callHandler",
     # Phase B.1 additions
     "function dbQuery",
     "function dbExec",
@@ -70,6 +72,8 @@ def test_helper_function_defined(source: str, needle: str) -> None:
 # on the key name followed by a colon so we don't false-positive on a
 # standalone identifier elsewhere.
 SPINDREL_KEYS = [
+    # Phase B.2
+    "callHandler:",
     # Phase B.1
     "db:",
     # Phase A
@@ -171,5 +175,6 @@ def test_skill_doc_documents_phase_a_helpers() -> None:
         "window.spindrel.ui.chart",
         "window.spindrel.state",
         "window.spindrel.form",
+        "window.spindrel.callHandler",
     ]:
         assert needle in text, f"skills/html_widgets.md missing docs for `{needle}`"
