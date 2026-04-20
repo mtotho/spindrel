@@ -253,6 +253,23 @@ async def create_suite_pins(
                 f"{m!r} is not a member of suite {suite_id!r}",
             )
 
+    # Resolve source_kind + integration_id from the suite's on-disk location.
+    # Built-in suites live under ``app/tools/local/widgets/suites/``; integration
+    # suites live under ``integrations/<id>/widgets/suites/``. The iframe
+    # renderer dispatches to different content endpoints per source_kind, so
+    # stamping the right discriminator is load-bearing.
+    source_kind = "channel"
+    source_integration_id: str | None = None
+    if suite.source_path is not None:
+        parts = suite.source_path.parts
+        if "integrations" in parts:
+            idx = parts.index("integrations")
+            if idx + 1 < len(parts):
+                source_kind = "integration"
+                source_integration_id = parts[idx + 1]
+        else:
+            source_kind = "builtin"
+
     created: list[WidgetDashboardPin] = []
     try:
         for member in requested:
@@ -262,6 +279,8 @@ async def create_suite_pins(
                 "plain_body": member,
                 "display": "inline",
                 "source_path": f"widgets/{member}/index.html",
+                "source_kind": source_kind,
+                "source_integration_id": source_integration_id,
                 "source_channel_id": str(source_channel_id) if source_channel_id else None,
                 "source_bot_id": source_bot_id,
                 "display_label": member,

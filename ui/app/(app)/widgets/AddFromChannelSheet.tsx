@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { X, CheckCircle2, ChevronDown, Loader2, Wrench, Search, Pin, Clock } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
+import { useBots } from "@/src/api/hooks/useBots";
 import { envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { toast } from "@/src/stores/toast";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
@@ -107,6 +108,18 @@ export default function AddFromChannelSheet({
   const [suites, setSuites] = useState<SuiteEntry[] | null>(null);
   const [suitesError, setSuitesError] = useState<string | null>(null);
   const [pendingSuiteId, setPendingSuiteId] = useState<string | null>(null);
+
+  // Auth scope for adhoc interactive-HTML pins (HTML widgets tab + Suites tab).
+  // - "user": iframe uses the viewer's own bearer → per-viewer credentials.
+  // - {bot: id}: iframe mints a bot-scoped JWT → every viewer sees the same
+  //   data through the bot's ceiling (lets a pin expose something the viewer
+  //   couldn't read directly). Default "user" — matches the per-dashboard
+  //   mental model. No scope picker on "Recent calls" / "From channel" —
+  //   those pins already carry an emitting bot via the envelope.
+  const [pinScope, setPinScope] = useState<
+    { kind: "user" } | { kind: "bot"; botId: string }
+  >({ kind: "user" });
+  const { data: allBots } = useBots();
 
   // Close on Escape — standard modal UX.
   useEffect(() => {
@@ -273,6 +286,14 @@ export default function AddFromChannelSheet({
           </TabButton>
         </div>
 
+        {(tab === "html-widgets" || tab === "suites") && (
+          <ScopePicker
+            scope={pinScope}
+            onChange={setPinScope}
+            bots={allBots ?? null}
+          />
+        )}
+
         {(tab === "channel" || tab === "html-widgets") && (
           <div className="px-4 py-2.5">
             <label className="flex items-center gap-2 rounded-md border border-surface-border bg-surface px-2.5 py-1.5 focus-within:border-accent/60">
@@ -421,10 +442,15 @@ export default function AddFromChannelSheet({
                 // doesn't 400.
                 const pinChannelId =
                   envelope.source_channel_id ?? scopeChannelId ?? null;
+                // Envelope-carried bot (from a tool call) wins; otherwise
+                // honor the user's scope selection for adhoc catalog pins.
+                const pinBotId =
+                  (envelope.source_bot_id as string | null | undefined) ??
+                  (pinScope.kind === "bot" ? pinScope.botId : null);
                 const created = await pinWidget({
                   source_kind: entry.source === "channel" ? "channel" : "adhoc",
                   source_channel_id: pinChannelId,
-                  source_bot_id: null,
+                  source_bot_id: pinBotId,
                   tool_name: "emit_html_widget",
                   tool_args: toolArgs,
                   envelope,
@@ -455,7 +481,11 @@ export default function AddFromChannelSheet({
               onPin={async (suite) => {
                 setPendingSuiteId(suite.suite_id);
                 try {
-                  const created = await pinSuite(suite.suite_id);
+                  const created = await pinSuite(suite.suite_id, {
+                    source_bot_id:
+                      pinScope.kind === "bot" ? pinScope.botId : null,
+                    source_channel_id: scopeChannelId ?? null,
+                  });
                   toast({
                     kind: "success",
                     message: `Pinned ${suite.name} (${created.length} widget${created.length === 1 ? "" : "s"}) to ${dashboardName ?? "dashboard"}`,
@@ -486,6 +516,86 @@ export default function AddFromChannelSheet({
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** Auth-scope picker for adhoc interactive-HTML pins.
+ *
+ *  Two modes, labeled in plain language so the security posture is obvious:
+ *   - "Run as you" — iframe uses the viewer's own bearer. Everyone sees
+ *     data scoped to their own account (fewer permissions = less data).
+ *   - "Run as a bot" — iframe mints a bot-scoped JWT. Every viewer sees
+ *     the same data through the bot's ceiling (lets a shared widget expose
+ *     state no individual viewer may read directly). */
+function ScopePicker({
+  scope,
+  onChange,
+  bots,
+}: {
+  scope: { kind: "user" } | { kind: "bot"; botId: string };
+  onChange: (next: { kind: "user" } | { kind: "bot"; botId: string }) => void;
+  bots: { id: string; name?: string; display_name?: string | null }[] | null;
+}) {
+  const firstBotId = bots?.[0]?.id ?? "";
+  return (
+    <div className="mx-4 mt-2 rounded-md border border-surface-border bg-surface px-3 py-2">
+      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+        Runs as
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="flex items-start gap-2 cursor-pointer text-[12px]">
+          <input
+            type="radio"
+            name="pin-scope"
+            checked={scope.kind === "user"}
+            onChange={() => onChange({ kind: "user" })}
+            className="mt-0.5"
+          />
+          <span className="flex-1">
+            <span className="font-medium text-text">You</span>
+            <span className="block text-[11px] text-text-muted">
+              Each viewer sees data through their own account.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 cursor-pointer text-[12px]">
+          <input
+            type="radio"
+            name="pin-scope"
+            checked={scope.kind === "bot"}
+            onChange={() =>
+              onChange({
+                kind: "bot",
+                botId: scope.kind === "bot" ? scope.botId : firstBotId,
+              })
+            }
+            disabled={!bots || bots.length === 0}
+            className="mt-0.5"
+          />
+          <span className="flex-1">
+            <span className="font-medium text-text">A bot</span>
+            <span className="block text-[11px] text-text-muted">
+              Every viewer sees the same data through the bot's credentials.
+            </span>
+            {scope.kind === "bot" && bots && bots.length > 0 && (
+              <select
+                className="mt-1 w-full rounded border border-surface-border bg-surface-raised px-2 py-1 text-[12px] text-text"
+                value={scope.botId || firstBotId}
+                onChange={(e) =>
+                  onChange({ kind: "bot", botId: e.target.value })
+                }
+              >
+                {bots.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.display_name || b.name || b.id}
+                  </option>
+                ))}
+              </select>
+            )}
+          </span>
+        </label>
+      </div>
+    </div>
   );
 }
 

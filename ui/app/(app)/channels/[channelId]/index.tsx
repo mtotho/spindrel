@@ -623,20 +623,6 @@ export default function ChatScreen() {
     t,
   };
 
-  // Measured height of the header overlay (desktop) so the chat scroll can
-  // reserve matching top padding — content flows under the frosted header.
-  const headerOverlayRef = useRef<HTMLDivElement>(null);
-  const [headerOverlayHeight, setHeaderOverlayHeight] = useState(52);
-  useEffect(() => {
-    if (!headerOverlayRef.current) return;
-    const ro = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect.height;
-      if (h) setHeaderOverlayHeight(Math.ceil(h));
-    });
-    ro.observe(headerOverlayRef.current);
-    return () => ro.disconnect();
-  }, []);
-
   // Measured height of the composer overlay (input card + banners + strips)
   // so messages scroll BEHIND the frosted input at the bottom — Claude-style.
   const inputOverlayRef = useRef<HTMLDivElement>(null);
@@ -652,7 +638,7 @@ export default function ChatScreen() {
   }, []);
 
   const channelHeaderBlock = (
-    <div ref={headerOverlayRef} style={{
+    <div style={{
       flexShrink: 0,
       backdropFilter: "blur(12px)",
       WebkitBackdropFilter: "blur(12px)",
@@ -706,6 +692,17 @@ export default function ChatScreen() {
           channelId={channelId}
           onOpenFindings={() => setFindingsPanelOpen(true)}
         />
+      )}
+
+      {/* Header-zone pinned widgets — rendered as a full-width chip strip
+          beneath the ChannelHeader now that the header spans above the three
+          columns. Desktop only. */}
+      {!isMobile && channelId && hasHeaderChips && (
+        <div className="flex justify-center px-3 pt-1 pb-2">
+          <div className="px-3 py-1.5 rounded-full bg-surface-raised/50 backdrop-blur-md shadow-sm">
+            <ChannelHeaderChip channelId={channelId} />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -783,11 +780,13 @@ export default function ChatScreen() {
           />
         </div>
       ) : (
-        /* ---- Desktop/tablet: side-by-side layout ----
-           OmniPanel runs floor-to-ceiling (it owns its own header); the channel
-           header overlays ONLY the chat column so the panel feels like a
-           standalone card with its own top edge, per the Claude-style reference. */
-        <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", position: "relative" }}>
+        /* ---- Desktop/tablet: full-width header + side-by-side row ----
+           ChannelHeader spans above the three columns so the chat screen
+           mirrors the dashboard layout (header-row above rail/grid/dock).
+           The row beneath houses OmniPanel | chat | PinnedPanelsRail | WidgetDockRight. */
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
+          {channelHeaderBlock}
+        <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", position: "relative", minHeight: 0 }}>
           {/* OmniPanel — always rendered, animated via width clip.
               Hidden on system channels (orchestrator has no workspace files
               or channel-specific pinned widgets worth surfacing).
@@ -822,38 +821,15 @@ export default function ChatScreen() {
             />
           )}
 
-          {/* Chat column -- header + messages + input stacked vertically.
-              Header lives HERE (inside the column) on desktop so it doesn't
-              overlap the full-height OmniPanel. Messages and input cap at
-              820px centered for readability. */}
+          {/* Chat column — messages + input stacked vertically. The full-width
+              ChannelHeader now lives ABOVE this flex-row, so the column is
+              header-free and the message area doesn't need a top-offset. */}
           {(!showFileViewer || splitMode) && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
               <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-                {/* Header overlays the chat area so messages scroll behind
-                    the frosted bar (bg + blur applied to the wrapper). */}
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 5 }}>
-                  {channelHeaderBlock}
-                </div>
-                {/* Header-zone pinned widgets — float in a translucent strip
-                    anchored just under the header. Messages scroll behind
-                    the strip (same pattern as the header + composer), so the
-                    chips feel like decoration rather than chrome that blocks
-                    content. The strip's z-index sits below the header so if
-                    a chip's height briefly overlaps the header edge, the
-                    frosted header wins and no values get occluded. */}
-                {!isMobile && channelId && hasHeaderChips && (
-                  <div
-                    className="absolute left-0 right-0 z-[3] flex justify-center pointer-events-none"
-                    style={{ top: headerOverlayHeight + 4 }}
-                  >
-                    <div className="pointer-events-auto px-3 py-1.5 rounded-full bg-surface-raised/50 backdrop-blur-md shadow-sm">
-                      <ChannelHeaderChip channelId={channelId} />
-                    </div>
-                  </div>
-                )}
                 <ChatMessageArea
                   {...messageAreaProps}
-                  scrollPaddingTop={headerOverlayHeight + (hasHeaderChips ? 48 : 0)}
+                  scrollPaddingTop={0}
                   scrollPaddingBottom={inputOverlayHeight + 48}
                 />
                 {floatingActions.map((h) => (
@@ -955,6 +931,7 @@ export default function ChatScreen() {
               onClose={() => setFindingsPanelOpen(false)}
             />
           )}
+        </div>
         </div>
       )}
 

@@ -18,10 +18,18 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ApiKeyAuth:
-    """Represents an authenticated scoped API key."""
+    """Represents an authenticated scoped API key.
+
+    ``pin_id`` is set only for widget-minted JWTs (``kind: "widget"``) and
+    carries the dashboard pin the widget lives on. Endpoints that want to
+    grant implicit channel-scoped access to a widget without requiring
+    ``channels:read`` on the bot's API key can resolve the pin's dashboard
+    and compare its slug against the requested channel.
+    """
     key_id: UUID
     scopes: list[str]
     name: str
+    pin_id: UUID | None = None
 
 
 async def get_db() -> AsyncGenerator[AsyncSession]:
@@ -124,7 +132,17 @@ async def verify_auth_or_user(
             raise HTTPException(status_code=401, detail="Invalid widget token")
         if not bot_id:
             raise HTTPException(status_code=401, detail="Invalid widget token")
-        return ApiKeyAuth(key_id=key_id, scopes=list(scopes), name=f"widget:{bot_id}")
+        pin_id_raw = payload.get("pin_id")
+        try:
+            pin_id = UUID(pin_id_raw) if pin_id_raw else None
+        except (TypeError, ValueError):
+            pin_id = None
+        return ApiKeyAuth(
+            key_id=key_id,
+            scopes=list(scopes),
+            name=f"widget:{bot_id}",
+            pin_id=pin_id,
+        )
 
     try:
         user_id = UUID(payload["sub"])

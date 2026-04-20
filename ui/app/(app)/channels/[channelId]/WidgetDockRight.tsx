@@ -100,57 +100,29 @@ export function WidgetDockRight({ channelId }: Props) {
         invisible
       />
       <div
-        className="flex flex-col h-full overflow-hidden rounded-lg border border-surface-border/50"
-        style={{ width, flexShrink: 0, backgroundColor: t.surfaceRaised }}
+        className="group relative flex flex-col h-full overflow-hidden"
+        style={{ width, flexShrink: 0 }}
       >
-        <div
-          className="flex items-center gap-1 px-2 py-1.5"
-          style={{ borderBottom: `1px solid ${t.surfaceBorder}55` }}
-        >
-          <span
-            className="flex-1 text-[10px] font-medium uppercase tracking-wider"
-            style={{ color: t.textDim }}
-          >
-            Right dock
-          </span>
+        {/* Hover-revealed top-right controls — the bare column has no title
+            strip, so Settings + Collapse fade in only on hover to keep the
+            column calm at rest. */}
+        <div className="absolute top-1 right-1 z-10 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <Link
             to={dashboardHref}
             aria-label="Edit right dock on channel dashboard"
             title="Edit on channel dashboard"
-            className="flex items-center justify-center w-6 h-6 rounded-md transition-colors"
-            style={{ color: t.textDim, opacity: 0.55 }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.opacity = "1";
-              e.currentTarget.style.backgroundColor = t.surfaceOverlay;
-              e.currentTarget.style.color = t.text;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = "0.55";
-              e.currentTarget.style.backgroundColor = "transparent";
-              e.currentTarget.style.color = t.textDim;
-            }}
+            className="flex items-center justify-center w-6 h-6 rounded-md hover:bg-white/[0.06]"
+            style={{ color: t.textDim }}
           >
             <Settings2 size={12} />
           </Link>
-          {/* Collapse chevron — hides the dock; a peek-tab on the viewport's
-              right edge brings it back. */}
           <button
             type="button"
             onClick={() => setRightDockHidden(true)}
             aria-label="Collapse right dock"
             title="Collapse dock"
-            className="flex items-center justify-center w-6 h-6 rounded-md transition-colors"
-            style={{ color: t.textDim, opacity: 0.55 }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.opacity = "1";
-              e.currentTarget.style.backgroundColor = t.surfaceOverlay;
-              e.currentTarget.style.color = t.text;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = "0.55";
-              e.currentTarget.style.backgroundColor = "transparent";
-              e.currentTarget.style.color = t.textDim;
-            }}
+            className="flex items-center justify-center w-6 h-6 rounded-md hover:bg-white/[0.06]"
+            style={{ color: t.textDim }}
           >
             <ChevronRight size={14} />
           </button>

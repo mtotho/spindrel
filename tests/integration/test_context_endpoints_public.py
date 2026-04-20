@@ -143,3 +143,120 @@ class TestPublicContextBreakdown:
         ):
             assert key in body, f"missing key {key!r} in breakdown response"
         assert isinstance(body["categories"], list)
+
+
+class TestWidgetPinImplicitAuth:
+    """A widget JWT whose pin lives on channel:<channel_id>'s dashboard must
+    be able to read that channel's context without the bot carrying
+    `channels:read` — the pin itself is the authorization.
+
+    The `client` fixture overrides `verify_auth_or_user` to always return
+    admin, so we exercise the auth helper directly. That's the right
+    granularity anyway — we're asserting the auth decision, not the full
+    HTTP round trip."""
+
+    @pytest.mark.asyncio
+    async def test_widget_with_matching_pin_bypasses_scope_gate(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        from app.dependencies import ApiKeyAuth
+        from app.db.models import WidgetDashboard, WidgetDashboardPin
+        from app.routers.api_v1_channels import _auth_channel_context
+
+        cid = await _setup_channel_with_trace(db_session, budget=None)
+        db_session.add(WidgetDashboard(
+            slug=f"channel:{cid}",
+            name="Channel dashboard",
+        ))
+        await db_session.flush()
+        pin = WidgetDashboardPin(
+            dashboard_key=f"channel:{cid}",
+            position=0,
+            source_kind="builtin",
+            source_bot_id="test-bot",
+            tool_name="context_tracker",
+            envelope={"content_type": "application/vnd.spindrel.html+interactive", "body": ""},
+        )
+        db_session.add(pin)
+        await db_session.commit()
+        await db_session.refresh(pin)
+
+        auth = ApiKeyAuth(
+            key_id=uuid.uuid4(),
+            scopes=[],  # no channels:read
+            name="widget:test-bot",
+            pin_id=pin.id,
+        )
+        await _auth_channel_context(uuid.UUID(cid), auth, db_session)  # no raise
+
+    @pytest.mark.asyncio
+    async def test_widget_pin_on_different_channel_is_rejected(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        from fastapi import HTTPException
+        from app.dependencies import ApiKeyAuth
+        from app.db.models import WidgetDashboard, WidgetDashboardPin
+        from app.routers.api_v1_channels import _auth_channel_context
+
+        target_cid = await _setup_channel_with_trace(db_session, budget=None)
+        other_cid = await _setup_channel_with_trace(db_session, budget=None)
+        db_session.add(WidgetDashboard(
+            slug=f"channel:{other_cid}",
+            name="Other",
+        ))
+        await db_session.flush()
+        pin = WidgetDashboardPin(
+            dashboard_key=f"channel:{other_cid}",  # pin on OTHER channel
+            position=0,
+            source_kind="builtin",
+            source_bot_id="test-bot",
+            tool_name="context_tracker",
+            envelope={"content_type": "application/vnd.spindrel.html+interactive", "body": ""},
+        )
+        db_session.add(pin)
+        await db_session.commit()
+        await db_session.refresh(pin)
+
+        auth = ApiKeyAuth(
+            key_id=uuid.uuid4(),
+            scopes=[],
+            name="widget:test-bot",
+            pin_id=pin.id,
+        )
+        with pytest.raises(HTTPException) as exc:
+            await _auth_channel_context(uuid.UUID(target_cid), auth, db_session)
+        assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_widget_without_pin_id_requires_scope(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        from fastapi import HTTPException
+        from app.dependencies import ApiKeyAuth
+        from app.routers.api_v1_channels import _auth_channel_context
+
+        cid = await _setup_channel_with_trace(db_session, budget=None)
+        auth = ApiKeyAuth(
+            key_id=uuid.uuid4(),
+            scopes=[],
+            name="widget:test-bot",
+            pin_id=None,  # no pin → falls through to scope check → 403
+        )
+        with pytest.raises(HTTPException) as exc:
+            await _auth_channel_context(uuid.UUID(cid), auth, db_session)
+        assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_api_key_with_channels_read_passes(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        from app.dependencies import ApiKeyAuth
+        from app.routers.api_v1_channels import _auth_channel_context
+
+        cid = await _setup_channel_with_trace(db_session, budget=None)
+        auth = ApiKeyAuth(
+            key_id=uuid.uuid4(),
+            scopes=["channels:read"],
+            name="scoped-key",
+        )
+        await _auth_channel_context(uuid.UUID(cid), auth, db_session)  # no raise

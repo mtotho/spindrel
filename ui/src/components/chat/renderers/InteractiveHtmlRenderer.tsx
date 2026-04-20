@@ -44,6 +44,7 @@ import { apiFetch, ApiError } from "../../../api/client";
 import type { ToolResultEnvelope } from "../../../types/api";
 import type { ThemeTokens } from "../../../theme/tokens";
 import { useThemeStore } from "../../../stores/theme";
+import { getAuthToken } from "../../../stores/auth";
 import { pushWidgetLog } from "../../../stores/widgetLog";
 import { useIsAdmin } from "../../../hooks/useScope";
 import { buildWidgetThemeCss, buildWidgetThemeObject } from "./widgetTheme";
@@ -1641,7 +1642,17 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
   // tool-emitted widget template), so the weather-widget false-positive
   // banner is solved.
   const inlineNeedsAuth = !pathMode && bodyNeedsAuth(envelope.body);
-  const shouldMint = !!sourceBotId && (pathMode || inlineNeedsAuth);
+  const needsAuth = pathMode || inlineNeedsAuth;
+  // Two auth scopes: bot-scoped (mint via /widget-auth/mint) or user-scoped
+  // (inject the viewer's bearer directly; endpoints accept both via
+  // `verify_auth_or_user`). Pins with `source_bot_id` opted into the bot's
+  // ceiling; pins without it fall back to the viewer's own credentials so
+  // user-pinned suites work without a bot indirection.
+  const shouldMint = !!sourceBotId && needsAuth;
+  const userScopedToken = useMemo(
+    () => (!sourceBotId && needsAuth ? getAuthToken() || null : null),
+    [sourceBotId, needsAuth],
+  );
 
   const themeCss = useMemo(
     () => buildWidgetThemeCss({ tokens: t, isDark }),
@@ -1665,11 +1676,17 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
   // push the new value into the iframe via `window.spindrel.__setToken`
   // so the srcDoc doesn't reload (which would reset the widget's state).
   const tokenQuery = useQuery({
-    queryKey: ["widget-auth-mint", sourceBotId],
+    // Keyed on both bot and pin — the pin_id is baked into the minted JWT
+    // so endpoints can grant channel-scoped access implicitly based on the
+    // pin's dashboard. Different pins mean different tokens.
+    queryKey: ["widget-auth-mint", sourceBotId, dashboardPinId],
     queryFn: () =>
       apiFetch<WidgetTokenResponse>("/api/v1/widget-auth/mint", {
         method: "POST",
-        body: JSON.stringify({ source_bot_id: sourceBotId }),
+        body: JSON.stringify({
+          source_bot_id: sourceBotId,
+          ...(dashboardPinId ? { pin_id: dashboardPinId } : {}),
+        }),
       }),
     enabled: shouldMint,
     // 15-minute server TTL; re-mint at 12 min so the widget never sees a
@@ -1678,7 +1695,10 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
     refetchOnWindowFocus: false,
     retry: 1,
   });
-  const widgetToken = tokenQuery.data?.token ?? null;
+  // Effective bearer: minted bot token when available, else the viewer's
+  // token for user-scoped pins. Widget calls await this via `tokenReady`
+  // so initial-paint fetches don't race.
+  const widgetToken = tokenQuery.data?.token ?? userScopedToken ?? null;
   const botName = tokenQuery.data?.bot_name ?? null;
 
   // Push fresh tokens into the live iframe without reloading srcDoc.
@@ -2070,11 +2090,10 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
           </div>
         );
       })()}
-      {/* Subtle bot-origin chip — bottom-left so it doesn't collide with
-          the "updated Xm ago" indicator (top-right). Signals to the user
-          that whatever this widget's JS does, it runs with THIS bot's
-          permissions, not theirs. */}
-      {botName && (
+      {/* Subtle auth-scope chip — bottom-left so it doesn't collide with
+          the "updated Xm ago" indicator (top-right). Tells the viewer
+          whose credentials this widget's API calls use. */}
+      {(botName || userScopedToken) && (
         <div
           style={{
             position: "absolute",
@@ -2092,10 +2111,14 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
             opacity: 0.75,
             zIndex: 1,
           }}
-          title={`Widget runs as @${botName}. API calls use this bot's permissions, not yours.`}
+          title={
+            botName
+              ? `Widget runs as @${botName}. API calls use this bot's permissions, not yours.`
+              : "Widget runs as you. API calls use your own permissions."
+          }
         >
           <BotIcon size={10} />
-          <span>@{botName}</span>
+          <span>{botName ? `@${botName}` : "as you"}</span>
         </div>
       )}
       {pathMode && lastUpdated && (

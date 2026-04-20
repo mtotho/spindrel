@@ -44,8 +44,23 @@ interface DashboardPinsState {
     display_label?: string | null;
   }) => Promise<WidgetDashboardPin>;
 
-  /** Atomically pin every member of a widget suite onto the current dashboard. */
-  pinSuite: (suiteId: string, members?: string[]) => Promise<WidgetDashboardPin[]>;
+  /** Atomically pin every member of a widget suite onto the current dashboard.
+   *
+   *  ``source_bot_id`` selects the iframe auth scope:
+   *   - ``null`` (default) → each viewer sees data through their own account.
+   *   - ``<bot id>`` → every viewer sees data through that bot's credentials.
+   *  ``source_channel_id`` is required when the active dashboard is a
+   *  channel dashboard (``channel:<uuid>``); the backend rejects the pin
+   *  otherwise.
+   */
+  pinSuite: (
+    suiteId: string,
+    opts?: {
+      members?: string[];
+      source_bot_id?: string | null;
+      source_channel_id?: string | null;
+    },
+  ) => Promise<WidgetDashboardPin[]>;
 
   unpinWidget: (pinId: string) => Promise<void>;
 
@@ -142,7 +157,7 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
     return created;
   },
 
-  pinSuite: async (suiteId, members) => {
+  pinSuite: async (suiteId, opts) => {
     const slug = get().currentSlug;
     const resp = await apiFetch<{ pins: WidgetDashboardPin[] }>(
       "/api/v1/widgets/dashboard/pins/suite",
@@ -152,7 +167,9 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
         body: JSON.stringify({
           suite_id: suiteId,
           dashboard_key: slug,
-          members,
+          members: opts?.members,
+          source_bot_id: opts?.source_bot_id ?? null,
+          source_channel_id: opts?.source_channel_id ?? null,
         }),
       },
     );

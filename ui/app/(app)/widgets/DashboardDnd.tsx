@@ -95,27 +95,31 @@ interface DroppableCanvasProps {
   zone: ChatZone;
   /** Wrapper className for width/order responsive rules. */
   extraClass?: string;
+  /** Style forwarded to the wrapper (widths, flex sizing). */
+  extraStyle?: CSSProperties;
   /** Whether edit mode outline is shown. */
   editMode: boolean;
   /** True when any tile is being dragged anywhere in the DndContext. */
   anyDragging: boolean;
   /** True when this canvas is the current drop target. */
   isOver: boolean;
-  label: string;
   children: ReactNode;
   /** Exposed so the parent can resolve pointer → grid coords at drag end. */
   measureRef?: (el: HTMLDivElement | null) => void;
+  /** Rounded radius to match the enclosing card's radius (used on the ring). */
+  ringRadius?: string;
 }
 
 export function DroppableCanvas({
   zone,
   extraClass = "",
+  extraStyle,
   editMode,
   anyDragging,
   isOver,
-  label,
   children,
   measureRef,
+  ringRadius = "8px",
 }: DroppableCanvasProps) {
   const t = useThemeTokens();
   const { setNodeRef } = useDroppable({ id: `canvas:${zone}`, data: { zone } });
@@ -129,36 +133,40 @@ export function DroppableCanvas({
   );
 
   if (!editMode) {
-    return <div className={extraClass}>{children}</div>;
+    return (
+      <div className={extraClass} style={extraStyle}>
+        {children}
+      </div>
+    );
   }
 
-  // Calm default outline. When a drag is in flight somewhere on the page we
-  // firm up every canvas's border slightly so users can see valid targets.
-  // The current target gets the accent border only — no background wash
-  // (that was reading as an "ugly blue highlight").
-  const outlineColor = isOver
+  // Edit-mode chrome is just a dashed overlay ring — no card background, no
+  // label, no solid border. Ring lights up on `isOver` and warms up slightly
+  // when any drag is in flight so the user can see valid targets without the
+  // canvas masquerading as a piece of UI.
+  const ringColor = isOver
     ? t.accent
     : anyDragging
-      ? `${t.textDim}55`
-      : `${t.textDim}33`;
+      ? `${t.textDim}66`
+      : `${t.textDim}22`;
 
   return (
     <div
       ref={combinedRef}
       data-dashboard-canvas={zone}
-      className={`relative flex flex-col rounded border border-dashed ${extraClass}`}
-      style={{
-        borderColor: outlineColor,
-        transition: "border-color 120ms",
-      }}
+      className={`relative ${extraClass}`}
+      style={extraStyle}
     >
-      <span
-        className="absolute -top-2 left-2 z-10 px-1 text-[9px] uppercase tracking-wider opacity-60 select-none pointer-events-none"
-        style={{ color: t.textDim, backgroundColor: t.surface }}
-      >
-        {label}
-      </span>
       {children}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          borderRadius: ringRadius,
+          border: `1px dashed ${ringColor}`,
+          transition: "border-color 120ms",
+        }}
+      />
     </div>
   );
 }

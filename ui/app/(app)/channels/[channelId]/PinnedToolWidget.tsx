@@ -434,12 +434,33 @@ export function PinnedToolWidget({
 
   const cardBorderClass = showBorder ? "border" : "";
   if (isChip) {
+    // Edit mode (only reachable when the parent DndContext provides
+    // `externalDrag`) exposes a grip handle on the left edge + an unpin X on
+    // the right so header chips are DnD-actionable alongside rail/dock/grid
+    // tiles. View mode keeps the chip minimal — name + body text.
+    const chipEditable = editMode && !!externalDrag;
     return (
       <div
-        className="flex h-8 w-[180px] items-center rounded-md border border-surface-border/60 bg-surface-raised/40 px-2 overflow-hidden"
+        ref={externalDrag?.setNodeRef}
+        className={
+          "group flex h-8 items-center rounded-md border border-surface-border/60 bg-surface-raised/40 px-2 overflow-hidden "
+          + (externalDrag ? "w-full" : "w-[180px]")
+        }
         title={resolveDisplayName(widget)}
-        style={{ color: t.textMuted }}
+        style={{
+          color: t.textMuted,
+          ...(externalDrag?.style ?? {}),
+        }}
+        {...(externalDrag?.attributes ?? {})}
       >
+        {chipEditable && (
+          <GripVertical
+            size={11}
+            className="widget-drag-handle cursor-grab flex-shrink-0 mr-1 opacity-50 group-hover:opacity-100 transition-opacity"
+            aria-label="Drag to reorder"
+            {...(externalDrag?.listeners ?? {})}
+          />
+        )}
         <div
           className="flex-1 min-w-0 overflow-hidden [mask-image:linear-gradient(to_right,black_80%,transparent)]"
         >
@@ -452,6 +473,17 @@ export function PinnedToolWidget({
             t={t}
           />
         </div>
+        {chipEditable && (
+          <button
+            type="button"
+            onClick={() => onUnpin(widget.id)}
+            className="ml-1 p-0.5 rounded hover:bg-white/[0.06] flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            aria-label="Unpin chip"
+            title="Unpin"
+          >
+            <X size={11} style={{ color: t.textMuted, opacity: 0.6 }} />
+          </button>
+        )}
       </div>
     );
   }

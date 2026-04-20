@@ -8,6 +8,34 @@
 
 ## Key Decisions
 
+### Widget-JWT pins grant implicit channel-scoped read access
+**Decided 2026-04-20.** `app/dependencies.py::ApiKeyAuth` now carries an optional `pin_id` captured from the widget JWT (`kind: "widget"` tokens minted by `POST /api/v1/widget-auth/mint`). Channel-scoped read endpoints that opt into the pattern — starting with `/channels/{id}/context-budget` and `/context-breakdown` — accept the call when the caller's `pin_id` resolves to a dashboard with slug `channel:<channel_id>` matching the request path, **regardless of scope**. The UI renderer (`InteractiveHtmlRenderer.tsx`) now posts `pin_id` alongside `source_bot_id` at mint time, keyed on both so different pins mint different tokens.
+
+**Why.** Widgets authenticate as the emitting bot via a JWT inheriting that bot's API-key scopes. Requiring every widget-emitting bot to carry `channels:read` just so pinned widgets can render their host channel's context is overreach — the pin itself is already the authorization (the pin exists because an admin-ish operation placed it there). Forcing the scope push instead pushed users toward either (a) granting broader scopes than they wanted or (b) shipping 403-ing widgets. Architecturally: the pin proves the relationship; scope gating is redundant for widget reads scoped to their own host channel.
+
+**Load-bearing implementation choices.**
+- **Only channel-bound dashboards count.** The slug comparison `dashboard_key == f"channel:{channel_id}"` means widgets on a user/global dashboard *don't* get implicit access to any channel — they still need scope. The pattern applies exclusively to channel dashboards.
+- **Helper, not a dependency.** `_auth_channel_context(channel_id, auth, db)` in `app/routers/api_v1_channels.py` is a hand-rolled check invoked inside the endpoint after `verify_auth_or_user`. Not a reusable FastAPI `Depends(...)` wrapper — the helper needs the parsed `channel_id` path parameter and a DB session, which the dependency graph can't provide cleanly. Keep it narrow: each new channel-scoped widget-readable endpoint opts in explicitly by calling the helper.
+- **Scope gate still works.** Users with `channels:read` (or admin) still pass the same check via `has_scope()`; the pin path is an additional pass, not a replacement.
+
+### Channel-scoped context endpoints are public, not admin-only
+**Decided 2026-04-20.** Moved `GET /channels/{id}/context-budget` and `GET /channels/{id}/context-breakdown` out of the `admin/` prefix into the public `/api/v1/channels/` router, gated by `channels:read`. The admin-prefixed routes remain as thin aliases so the existing admin UI keeps working. Shared helper `fetch_latest_context_budget(channel_id, db)` lives in `app/services/context_breakdown.py` — both admin and public paths call it so they cannot drift.
+
+**Why.** The data is channel-scoped, not administratively privileged. Putting it under `admin/` meant bot-authenticated HTML widgets (e.g. Context Tracker) couldn't render a steady-state snapshot — they had to either subscribe purely to the event bus (blank until a turn fires) or require the bot to carry `admin` scope (overreach). The endpoints don't expose anything a bot with `channels:read` shouldn't already be able to derive from `/channels/{id}/state` + `/sessions/{id}/context`.
+
+**Load-bearing implementation choices.**
+- **Bot scope requirement is explicit.** Widgets need `channels:read` on their bot's API key; on 403 they degrade to a clear warning panel pointing at Admin → Bots → Permissions, not a silent failure. Default bot scopes unchanged — that's a separate policy call.
+- **No new service code.** Public routes reuse `compute_context_breakdown()` verbatim and the same trace-event query (now extracted as `fetch_latest_context_budget`).
+
+### `WidgetScope.dashboard` carries optional `channelId`
+**Decided 2026-04-20.** The TypeScript discriminator on `ui/src/types/api.ts` `WidgetScope` now allows `{kind:"dashboard", channelId?: string}` instead of the earlier channel-less `{kind:"dashboard"}`. Channel dashboards (`slug: channel:<uuid>`) plumb their channelId through `ChannelDashboardMultiCanvas` into every pin's scope so `window.spindrel.channelId` resolves correctly inside pinned HTML widgets across all four canvases (rail / dock / header / grid). Also deleted the `envelope.source_channel_id` fallback in `InteractiveHtmlRenderer` — the scope prop is authoritative now; the fallback was papering over the plumbing gap.
+
+**Why.** The original `{kind:"dashboard"}` modelled "dashboard-scope has no channel" — wrong. A channel dashboard IS channel-bound; throwing away that information at the scope boundary broke every HTML widget that needed `sp.channelId` when pinned to anything other than the chat rail (which had its own `{kind:"channel", channelId}` path). Catalog-synthesized `emit_html_widget` envelopes for HTML widgets didn't carry `source_channel_id`, so the envelope fallback worked for some pins and not others — classic silent plumbing bug. The fix is to stop treating the scope as channel-less when it isn't.
+
+**Load-bearing implementation choices.**
+- **User dashboards keep `channelId` optional.** Non-channel dashboards (`default`, user-created slugs) omit the field, and widgets pinned there render the "bind to a channel" empty state — correct behavior for widgets that need a channel.
+- **`HeaderCanvas.tileScope` no longer reads `p.source_channel_id`.** On a channel dashboard, the enclosing `channelId` is authoritative; per-pin `source_channel_id` was always either identical or irrelevant for chip rendering.
+
 ### Mission Control and generic Plan tables retired; widgets replace tasks/plans/timelines
 **Decided 2026-04-20.** Removed the entire `integrations/mission_control/` tree (router + Vite dashboard + SQLite DB + 6 tools + 5 skills + 18 channel-prompt seed templates + `mission-control` carapace) and, in the same sweep, the core `plans` / `plan_items` tables plus `app/tools/local/plans.py` and the `/sessions/{id}/plans` + admin channel-plans endpoints. The `plans.md` stall-detection block in `context_assembly.py` went with them. Migration 228 drops the two Postgres tables. `mission_control:read|write` scopes and the `Mission Control` scope bundle left `api_keys.py` at the same time.
 

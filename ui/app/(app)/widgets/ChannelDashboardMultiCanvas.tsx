@@ -1,26 +1,34 @@
 /**
  * ChannelDashboardMultiCanvas — four canvases, one DndContext.
  *
- * Every widget is drag-and-droppable directly by its grip icon:
+ * Each canvas mirrors its chat-runtime chrome so edit mode looks like
+ * reality:
+ *   - Rail   ↔ OmniPanel          (bare flex-col, ~300px, no card bg)
+ *   - Header ↔ ChannelHeaderChip  (centered chip pill strip)
+ *   - Grid   ↔ ChatMessageArea    (bare surface, fills height)
+ *   - Dock   ↔ WidgetDockRight    (bare flex-col, ~320px, no card bg)
  *
- *   - Within rail / header / dock (1-D lists): sortable reorder via
- *     `SortableContext`.
- *   - Within grid (2-D free placement): `useDraggable` + pointer-to-cell
- *     snap at drop time against the canvas's bounding rect.
- *   - Across any two canvases: dropping on another canvas's droppable zone
- *     issues `handleMoveZone(pinId, targetZone)` which writes the new zone
- *     + default coords atomically via `applyLayout`.
+ * Edit-mode affordances are layered on top as a dashed overlay ring that
+ * brightens on `isOver`. Widgets themselves still carry their own tile
+ * border — the only chrome on any canvas is the widgets.
  *
- * Resize is owned by pointer-event handles on each tile (south / east /
- * south-east). No second drag pipeline; no ZoneChip.
+ * Drag gestures:
+ *   - Within rail / dock (vertical): `SortableContext` (y-ordered).
+ *   - Within header (horizontal):    `SortableContext` (x-ordered).
+ *   - Within grid (2-D):             `useDraggable` + pointer-to-cell snap.
+ *   - Cross-canvas:                  drop onto another `DroppableCanvas`.
  *
- * Layout source of truth: every pin's `grid_layout.{x,y,w,h}` on the pin
- * row plus `zone`. This component is a pure renderer of that state.
+ * Resize:
+ *   - Rail / dock tiles:  south edge handle (h only; w locked to 1).
+ *   - Grid tiles:         south / east / south-east handles.
+ *   - Header chips:       east edge handle (w only; h locked to 1).
+ *
+ * Layout source of truth: every pin's `grid_layout.{x,y,w,h}` + `zone`.
+ * All persistence goes through `applyLayout([{id, zone, x, y, w, h}])`.
  */
 import {
   useCallback,
   useMemo,
-  useRef,
   useState,
   type CSSProperties,
 } from "react";
@@ -67,11 +75,13 @@ import {
   type ResizeEdge,
 } from "./DashboardDnd";
 
-const RAIL_CLASSES = "w-full lg:w-[280px] lg:shrink-0 order-2 lg:order-none";
-const DOCK_CLASSES = "w-full lg:w-[320px] lg:shrink-0 order-3 lg:order-none";
-const GRID_CLASSES = "flex-1 min-w-0 order-1 lg:order-none";
-const HEADER_CLASSES = "w-full";
-
+// Widths mirror the runtime OmniPanel (300px default) + WidgetDockRight (320px).
+const RAIL_WIDTH_PX = 300;
+const DOCK_WIDTH_PX = 320;
+// Header strip rendered as a compact 12-cell grid so chips can span 1-12 cells.
+const HEADER_COLS = 12;
+// Chip row height matches ChannelHeaderChip's h-8 pill.
+const HEADER_ROW_HEIGHT = 32;
 const GAP_PX = 12;
 
 function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
@@ -164,6 +174,7 @@ export function ChannelDashboardMultiCanvas({
   // One measure ref per canvas so drop-time pointer math knows each canvas's
   // bounding rect independently (lg: row is flex-row).
   const gridMeasure = useCanvasMeasure();
+  const headerMeasure = useCanvasMeasure();
 
   // Default tile sizes used when a cross-canvas drop needs to assign fresh
   // coords (the source canvas's x/y/w/h doesn't translate).
@@ -174,7 +185,7 @@ export function ChannelDashboardMultiCanvas({
         case "dock":
           return { x: 0, y: 0, w: 1, h: 6 };
         case "header":
-          return { x: 0, y: 0, w: 1, h: 1 };
+          return { x: 0, y: 0, w: 2, h: 1 };
         case "grid":
         default:
           return {
@@ -361,7 +372,7 @@ export function ChannelDashboardMultiCanvas({
       onDragOver={onDragOver}
       onDragEnd={onDragEnd}
     >
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3 h-full min-h-0">
         {error && (
           <div
             role="alert"
@@ -382,13 +393,13 @@ export function ChannelDashboardMultiCanvas({
           isOver={overZone === "header"}
           applyLayout={applyLayout}
           channelId={channelId}
+          measure={headerMeasure}
         />
 
-        <div className="flex flex-col gap-4 lg:flex-row lg:gap-3">
+        <div className="flex-1 flex flex-col gap-4 min-h-0 lg:flex-row lg:gap-3">
           <ListCanvas
             zone="rail"
-            label="Rail"
-            extraClass={RAIL_CLASSES}
+            widthPx={RAIL_WIDTH_PX}
             emptyMessage="Drop here to pin in the chat sidebar."
             pins={railPins}
             editMode={editMode}
@@ -400,6 +411,7 @@ export function ChannelDashboardMultiCanvas({
             isOver={overZone === "rail"}
             applyLayout={applyLayout}
             channelId={channelId}
+            rowHeight={preset.rowHeight}
           />
 
           <GridCanvas
@@ -420,8 +432,7 @@ export function ChannelDashboardMultiCanvas({
 
           <ListCanvas
             zone="dock"
-            label="Dock"
-            extraClass={DOCK_CLASSES}
+            widthPx={DOCK_WIDTH_PX}
             emptyMessage="Drop here to pin in the right-side dock."
             pins={dockPins}
             editMode={editMode}
@@ -433,6 +444,7 @@ export function ChannelDashboardMultiCanvas({
             isOver={overZone === "dock"}
             applyLayout={applyLayout}
             channelId={channelId}
+            rowHeight={preset.rowHeight}
           />
         </div>
       </div>
@@ -442,7 +454,11 @@ export function ChannelDashboardMultiCanvas({
           <div className="opacity-80 pointer-events-none">
             <PinnedToolWidget
               widget={asPinnedWidget(activePin)}
-              scope={{ kind: "dashboard", channelId }}
+              scope={
+                activePin.zone === "header"
+                  ? { kind: "channel", channelId, compact: "chip" }
+                  : { kind: "dashboard", channelId }
+              }
               onUnpin={() => {}}
               onEnvelopeUpdate={() => {}}
               editMode={editMode}
@@ -458,7 +474,7 @@ export function ChannelDashboardMultiCanvas({
 }
 
 // ---------------------------------------------------------------------------
-// Header canvas — horizontal sortable strip of 1x1 chips.
+// Header canvas — horizontal sortable strip of chips (12-cell grid).
 // ---------------------------------------------------------------------------
 
 interface CanvasSharedProps {
@@ -483,6 +499,10 @@ interface CanvasSharedProps {
   channelId: string;
 }
 
+interface HeaderCanvasProps extends CanvasSharedProps {
+  measure: ReturnType<typeof useCanvasMeasure>;
+}
+
 function HeaderCanvas({
   pins,
   editMode,
@@ -492,63 +512,118 @@ function HeaderCanvas({
   onEditPin,
   anyDragging,
   isOver,
+  applyLayout,
   channelId,
-}: CanvasSharedProps) {
+  measure,
+}: HeaderCanvasProps) {
   if (!editMode && pins.length === 0) return null;
-  // Edit mode shows the full dashboard tile (grip + edit + unpin controls).
-  // View mode renders each header pin as a compact chip — matches how
-  // ChannelHeaderChip surfaces the same pins in the chat strip.
-  const tileScope = (_p: WidgetDashboardPin): WidgetScope =>
-    editMode
-      ? { kind: "dashboard", channelId }
-      : {
-          kind: "channel",
-          channelId,
-          compact: "chip",
-        };
+  // Chip scope in BOTH modes so the author sees exactly what the chat shows.
+  const chipScope: WidgetScope = { kind: "channel", channelId, compact: "chip" };
   const ids = pins.map((p) => p.id);
+
+  // Live width resize preview — swap in the pending `w` so the chip snaps
+  // during the drag. Clears on commit; store's optimistic update takes over.
+  const [resizePreview, setResizePreview] = useState<{ id: string; w: number } | null>(null);
+
+  // Cell width in px — derived from the strip's measured inner width. Used
+  // by the chip's `e`-edge resize handle to convert pointer delta to column
+  // delta. Falls back until the first measure lands.
+  const cellWidthPx = useMemo(() => {
+    const innerW = measure.rect ? Math.max(0, measure.rect.width - 24) : 480;
+    return (innerW - (HEADER_COLS - 1) * 4) / HEADER_COLS;
+  }, [measure.rect]);
 
   return (
     <DroppableCanvas
       zone="header"
-      label="Header"
-      extraClass={HEADER_CLASSES}
+      extraClass="w-full flex justify-center"
       editMode={editMode}
       anyDragging={anyDragging}
       isOver={isOver}
+      ringRadius="9999px"
     >
-      <div className="relative flex-1 min-h-[56px] overflow-hidden p-3">
-        {editMode && <EditModeGridGuides cols={12} rowHeight={32} rowGap={GAP_PX} />}
+      <div
+        ref={measure.setRef}
+        className={
+          "relative inline-flex items-center justify-center px-3 py-1.5 rounded-full "
+          + (pins.length > 0 ? "bg-surface-raised/50 backdrop-blur-md shadow-sm" : "")
+        }
+        style={{ minHeight: HEADER_ROW_HEIGHT + 12 }}
+      >
         {pins.length === 0 ? (
           editMode ? (
             <EmptyCanvasHint message="Drop widgets here to show as compact chips above the channel chat." />
           ) : null
         ) : (
           <SortableContext items={ids} strategy={horizontalListSortingStrategy}>
-            <div className="relative flex flex-row gap-2 overflow-x-auto">
-              {pins.map((p) => (
-                <SortableTile key={p.id} id={p.id}>
-                  {(binding) => (
-                    <div
-                      ref={binding.setNodeRef}
-                      {...binding.attributes}
-                      style={binding.style}
-                    >
-                      <TileShell
-                        binding={{ ...binding, setNodeRef: () => {} }}
-                        pin={p}
-                        editMode={editMode}
-                        chrome={chrome}
-                        scope={tileScope(p)}
-                        onUnpin={onUnpin}
-                        onEnvelopeUpdate={onEnvelopeUpdate}
-                        onEditPin={onEditPin}
-                        resize={null}
-                      />
-                    </div>
-                  )}
-                </SortableTile>
-              ))}
+            <div
+              className="flex items-center gap-1.5"
+              style={{ minWidth: HEADER_COLS * cellWidthPx }}
+            >
+              {pins.map((p) => {
+                const gl = toGridLayout(p);
+                const effW = resizePreview?.id === p.id ? resizePreview.w : gl.w;
+                const tileWidthPx = Math.max(
+                  60,
+                  effW * cellWidthPx + (effW - 1) * 4,
+                );
+                return (
+                  <SortableTile key={p.id} id={p.id}>
+                    {(binding) => (
+                      <div
+                        ref={binding.setNodeRef}
+                        {...binding.attributes}
+                        className="relative"
+                        style={{
+                          ...binding.style,
+                          width: tileWidthPx,
+                          flex: `0 0 ${tileWidthPx}px`,
+                        }}
+                      >
+                        <TileShell
+                          binding={{ ...binding, setNodeRef: () => {} }}
+                          pin={p}
+                          editMode={editMode}
+                          chrome={chrome}
+                          scope={chipScope}
+                          onUnpin={onUnpin}
+                          onEnvelopeUpdate={onEnvelopeUpdate}
+                          onEditPin={onEditPin}
+                          resize={
+                            editMode
+                              ? {
+                                  edges: ["e"] as ResizeEdge[],
+                                  initial: { w: gl.w, h: 1 },
+                                  cellPx: {
+                                    w: cellWidthPx + 4,
+                                    h: HEADER_ROW_HEIGHT,
+                                  },
+                                  clampW: { min: 1, max: HEADER_COLS },
+                                  clampH: { min: 1, max: 1 },
+                                  onResizing: ({ w }) =>
+                                    setResizePreview({ id: p.id, w }),
+                                  onCommit: ({ w }) => {
+                                    setResizePreview(null);
+                                    void applyLayout([
+                                      {
+                                        id: p.id,
+                                        x: gl.x,
+                                        y: 0,
+                                        w,
+                                        h: 1,
+                                        zone: "header",
+                                      },
+                                    ]);
+                                  },
+                                }
+                              : null
+                          }
+                        />
+                      </div>
+                    )}
+                  </SortableTile>
+                );
+              })}
             </div>
           </SortableContext>
         )}
@@ -563,15 +638,14 @@ function HeaderCanvas({
 
 interface ListCanvasProps extends CanvasSharedProps {
   zone: "rail" | "dock";
-  label: string;
-  extraClass: string;
+  widthPx: number;
   emptyMessage: string;
+  rowHeight: number;
 }
 
 function ListCanvas({
   zone,
-  label,
-  extraClass,
+  widthPx,
   emptyMessage,
   pins,
   editMode,
@@ -583,98 +657,114 @@ function ListCanvas({
   isOver,
   applyLayout,
   channelId,
+  rowHeight,
 }: ListCanvasProps) {
   if (!editMode && pins.length === 0) return null;
   const ids = pins.map((p) => p.id);
   const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
-  const rowHeight = 30;
   const [resizePreview, setResizePreview] = useState<{ id: string; h: number } | null>(null);
 
+  // Bare column — matches OmniPanel (rail) / WidgetDockRight (dock) runtime
+  // chrome after those cards were stripped. Width mirrors the runtime default
+  // so tiles land where they will on the chat screen.
+  const extraStyle: CSSProperties = {
+    width: "100%",
+    flexShrink: 0,
+  };
+  const extraClass = "order-2 lg:order-none flex flex-col h-full";
+
   return (
-    <DroppableCanvas
-      zone={zone}
-      label={label}
-      extraClass={extraClass}
-      editMode={editMode}
-      anyDragging={anyDragging}
-      isOver={isOver}
+    <div
+      className="w-full lg:shrink-0"
+      style={{ width: widthPx }}
     >
-      <div className="relative flex-1 min-h-[200px] overflow-hidden p-3">
-        {editMode && <EditModeGridGuides cols={1} rowHeight={rowHeight} rowGap={GAP_PX} />}
-        {pins.length === 0 ? (
-          editMode ? <EmptyCanvasHint message={emptyMessage} /> : null
-        ) : (
-          <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-            <div className="relative flex flex-col gap-3">
-              {pins.map((p) => {
-              const gl = toGridLayout(p);
-              const effH =
-                resizePreview?.id === p.id ? resizePreview.h : gl.h;
-              const tileHeightPx = effH * (rowHeight + GAP_PX) - GAP_PX;
-              return (
-                <SortableTile key={p.id} id={p.id}>
-                  {(binding) => (
-                    <div
-                      ref={binding.setNodeRef}
-                      {...binding.attributes}
-                      className="relative"
-                      style={{
-                        ...binding.style,
-                        height: editMode ? tileHeightPx : undefined,
-                      }}
-                    >
-                      <TileShell
-                        binding={{ ...binding, setNodeRef: () => {} }}
-                        pin={p}
-                        editMode={editMode}
-                        chrome={chrome}
-                        scope={dashboardScope()}
-                        onUnpin={onUnpin}
-                        onEnvelopeUpdate={onEnvelopeUpdate}
-                        onEditPin={onEditPin}
-                        railMode
-                        resize={
-                          editMode
-                            ? {
-                                edges: ["s"],
-                                initial: { w: 1, h: gl.h },
-                                cellPx: { w: 280, h: rowHeight + GAP_PX },
-                                clampW: { min: 1, max: 1 },
-                                clampH: { min: 2 },
-                                onResizing: ({ h }) =>
-                                  setResizePreview({ id: p.id, h }),
-                                onCommit: ({ h }) => {
-                                  setResizePreview(null);
-                                  void applyLayout([
-                                    {
-                                      id: p.id,
-                                      x: 0,
-                                      y: gl.y,
-                                      w: 1,
-                                      h,
-                                      zone,
+      <DroppableCanvas
+        zone={zone}
+        extraClass={extraClass}
+        extraStyle={extraStyle}
+        editMode={editMode}
+        anyDragging={anyDragging}
+        isOver={isOver}
+      >
+        <div className="relative flex-1 min-h-[120px] overflow-y-auto px-2 py-2">
+          {editMode && <EditModeGridGuides cols={1} rowHeight={rowHeight} rowGap={GAP_PX} />}
+          {pins.length === 0 ? (
+            editMode ? <EmptyCanvasHint message={emptyMessage} /> : null
+          ) : (
+            <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+              <div className="relative flex flex-col gap-2">
+                {pins.map((p) => {
+                  const gl = toGridLayout(p);
+                  const effH =
+                    resizePreview?.id === p.id ? resizePreview.h : gl.h;
+                  const tileHeightPx = effH * (rowHeight + GAP_PX) - GAP_PX;
+                  return (
+                    <SortableTile key={p.id} id={p.id}>
+                      {(binding) => (
+                        <div
+                          ref={binding.setNodeRef}
+                          {...binding.attributes}
+                          className="relative"
+                          style={{
+                            ...binding.style,
+                            height: editMode ? tileHeightPx : undefined,
+                          }}
+                        >
+                          <TileShell
+                            binding={{ ...binding, setNodeRef: () => {} }}
+                            pin={p}
+                            editMode={editMode}
+                            chrome={chrome}
+                            scope={dashboardScope()}
+                            onUnpin={onUnpin}
+                            onEnvelopeUpdate={onEnvelopeUpdate}
+                            onEditPin={onEditPin}
+                            railMode
+                            resize={
+                              editMode
+                                ? {
+                                    edges: ["s"],
+                                    initial: { w: 1, h: gl.h },
+                                    cellPx: { w: widthPx, h: rowHeight + GAP_PX },
+                                    clampW: { min: 1, max: 1 },
+                                    clampH: { min: 2 },
+                                    onResizing: ({ h }) =>
+                                      setResizePreview({ id: p.id, h }),
+                                    onCommit: ({ h }) => {
+                                      setResizePreview(null);
+                                      void applyLayout([
+                                        {
+                                          id: p.id,
+                                          x: 0,
+                                          y: gl.y,
+                                          w: 1,
+                                          h,
+                                          zone,
+                                        },
+                                      ]);
                                     },
-                                  ]);
-                                },
-                              }
-                            : null
-                        }
-                      />
-                    </div>
-                  )}
-                </SortableTile>
-              );
-            })}
-            </div>
-          </SortableContext>
-        )}
-      </div>
-    </DroppableCanvas>
+                                  }
+                                : null
+                            }
+                          />
+                        </div>
+                      )}
+                    </SortableTile>
+                  );
+                })}
+              </div>
+            </SortableContext>
+          )}
+        </div>
+      </DroppableCanvas>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
 // Grid canvas — multi-column CSS grid with free 2-D placement + resize.
+// The inner grid div sits inside a flex-1 wrapper so the dashed drop ring +
+// grid guides extend over the full column height, even when pins are sparse.
 // ---------------------------------------------------------------------------
 
 interface GridCanvasProps extends CanvasSharedProps {
@@ -710,21 +800,6 @@ function GridCanvas({
     h: number;
   } | null>(null);
 
-  // Ensure enough grid rows are reserved so every pin has room and empty
-  // canvases still show a usable drop area. The row count is reflected in
-  // the canvas's min-height so the guides + tiles share the same vertical
-  // extent.
-  const rowCount = useMemo(() => {
-    let max = 0;
-    for (const p of pins) {
-      const gl = toGridLayout(p);
-      max = Math.max(max, gl.y + gl.h);
-    }
-    return Math.max(max + 2, 12);
-  }, [pins]);
-
-  const contentHeight = rowCount * preset.rowHeight + (rowCount - 1) * GAP_PX;
-
   // Cell width in px: canvas inner width (less the p-3 = 24px padding +
   // (cols-1) gaps) / cols. Used by ResizeHandles to convert pixel delta to
   // column delta. Falls back to a sensible default until the first measure.
@@ -738,33 +813,32 @@ function GridCanvas({
     gridTemplateColumns: `repeat(${preset.cols.lg}, minmax(0, 1fr))`,
     gridAutoRows: `${preset.rowHeight}px`,
     gap: `${GAP_PX}px`,
-    minHeight: contentHeight,
+    height: "100%",
+    minHeight: 0,
   };
 
   return (
     <DroppableCanvas
       zone="grid"
-      label="Grid"
-      extraClass={GRID_CLASSES}
+      extraClass="flex-1 min-w-0 order-1 lg:order-none flex"
       editMode={editMode}
       anyDragging={anyDragging}
       isOver={isOver}
       measureRef={measureRef}
     >
-      <div className="relative flex-1 flex flex-col overflow-hidden p-3">
+      <div className="relative flex-1 flex flex-col overflow-hidden p-3 min-h-[240px]">
+        {editMode && (
+          <EditModeGridGuides
+            cols={preset.cols.lg}
+            rowHeight={preset.rowHeight}
+            rowGap={GAP_PX}
+          />
+        )}
         <div style={gridStyle} className="relative flex-1">
-          {editMode && (
-            <EditModeGridGuides
-              cols={preset.cols.lg}
-              rowHeight={preset.rowHeight}
-              rowGap={GAP_PX}
-            />
-          )}
           {pins.length === 0 ? (
             editMode ? (
               <div
                 className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] text-center opacity-40 select-none px-4"
-                style={{ gridColumn: "1 / -1", gridRow: "1 / -1" }}
               >
                 Drop widgets here to keep them on this dashboard page without surfacing them on chat.
               </div>

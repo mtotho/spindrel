@@ -20,6 +20,7 @@ from app.dependencies import (
     get_db,
     require_admin_and_scope,
     require_scopes,
+    verify_auth_or_user,
 )
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
@@ -1179,20 +1180,69 @@ async def get_channel_chat_zones(
 
 
 # ---------------------------------------------------------------------------
-# Context introspection — channel-scoped, gated by ``channels:read``.
+# Context introspection — channel-scoped.
+#
+# Authentication accepts either:
+#   - ``channels:read`` scope (user JWTs, admin API keys, bot API keys that
+#     opt into the scope), OR
+#   - a widget-minted JWT whose ``pin_id`` resolves to a dashboard for this
+#     channel. The pin itself proves the widget is authorized to observe
+#     its host channel — scope is redundant in that path.
 #
 # These endpoints mirror the admin-prefixed ones in
-# ``app/routers/api_v1_admin/channels.py`` (which now delegate to the same
-# service helpers). Exposing them under the public ``/channels/`` prefix lets
-# bot-authenticated widgets (e.g. the Context Tracker HTML widget) render
-# steady-state snapshots without requiring the ``admin`` scope.
+# ``app/routers/api_v1_admin/channels.py`` (which delegate to the same
+# service helpers). Exposing them under the public ``/channels/`` prefix —
+# with the pin-implicit auth path — lets bot-authenticated HTML widgets
+# (e.g. the Context Tracker) render a steady-state snapshot without
+# demanding extra scopes on every bot's API key.
 # ---------------------------------------------------------------------------
+
+async def _auth_channel_context(
+    channel_id: uuid.UUID,
+    auth,
+    db: AsyncSession,
+) -> None:
+    """Raise 403 unless the caller has channel-scoped read access.
+
+    Access is granted when any of the following holds:
+
+    * ``auth`` is a :class:`~app.db.models.User` (hydrated with scopes — users
+      are allowed if they carry ``channels:read`` or are admin).
+    * ``auth`` is an :class:`ApiKeyAuth` with ``channels:read`` (or a broader
+      scope that covers it) on its key.
+    * ``auth`` is a widget-minted :class:`ApiKeyAuth` whose ``pin_id`` belongs
+      to a dashboard for *this* channel (slug ``channel:<channel_id>``).
+    """
+    from app.services.api_keys import has_scope
+    from app.db.models import WidgetDashboardPin, User as _User
+
+    # Static "admin" / bypass scopes — covered by `has_scope` below for
+    # ApiKeyAuth; separately handled for User.
+    if isinstance(auth, _User):
+        scopes = getattr(auth, "_resolved_scopes", None) or []
+        if auth.is_admin or "admin" in scopes or "channels:read" in scopes:
+            return
+    elif isinstance(auth, ApiKeyAuth):
+        if has_scope(auth.scopes, "channels:read"):
+            return
+        # Widget-token implicit-channel-access path. The pin proves the
+        # widget lives on this channel's dashboard; no further scope needed.
+        if auth.pin_id is not None:
+            pin = await db.get(WidgetDashboardPin, auth.pin_id)
+            if (
+                pin is not None
+                and pin.dashboard_key == f"channel:{channel_id}"
+            ):
+                return
+
+    raise HTTPException(status_code=403, detail="channels:read required")
+
 
 @router.get("/{channel_id}/context-budget")
 async def get_channel_context_budget(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:read")),
+    auth=Depends(verify_auth_or_user),
 ):
     """Latest context budget (utilization / consumed / total tokens) for this channel.
 
@@ -1203,6 +1253,7 @@ async def get_channel_context_budget(
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    await _auth_channel_context(channel_id, auth, db)
 
     from app.services.context_breakdown import fetch_latest_context_budget
     return await fetch_latest_context_budget(channel_id, db)
@@ -1212,9 +1263,11 @@ async def get_channel_context_budget(
 async def get_channel_context_breakdown(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:read")),
+    auth=Depends(verify_auth_or_user),
 ):
     """Per-category context breakdown for this channel's active session."""
+    await _auth_channel_context(channel_id, auth, db)
+
     from app.services.context_breakdown import compute_context_breakdown
     from dataclasses import asdict
 

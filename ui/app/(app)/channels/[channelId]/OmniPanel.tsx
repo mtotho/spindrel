@@ -217,19 +217,13 @@ export function OmniPanel({
 
   return (
     <div
-      className={
-        "flex flex-col h-full overflow-hidden" +
-        (fullWidth ? "" : " rounded-lg border border-surface-border/50")
-      }
-      style={{
-        ...(fullWidth ? { flex: 1 } : { width, flexShrink: 0 }),
-        backgroundColor: t.surfaceRaised,
-      }}
+      className="flex flex-col h-full overflow-hidden"
+      style={fullWidth ? { flex: 1 } : { width, flexShrink: 0 }}
     >
-      <div
-        className="flex items-center gap-0.5 px-1.5 pt-1.5 pb-1.5"
-        style={{ borderBottom: `1px solid ${t.surfaceBorder}55` }}
-      >
+      {/* Tab strip sits bare on the chat surface — no card bg, no bottom
+          border. The floating pill buttons provide their own active-state
+          contrast. */}
+      <div className="flex items-center gap-0.5 px-1.5 pt-1.5 pb-1.5">
         <TabButton
           label="Widgets"
           active={activeTab === "widgets"}
