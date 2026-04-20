@@ -2,6 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import { Search, Settings as SettingsIcon } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
 import { UsageHudBadge } from "../UsageHudBadge";
+import { useIsAdmin } from "../../../hooks/useScope";
 import { cn } from "../../../lib/cn";
 
 function SettingsRow() {
@@ -52,13 +53,16 @@ function SearchShortcutHint() {
 }
 
 export function SidebarFooter() {
+  const isAdmin = useIsAdmin();
   return (
     <footer className="px-2 pt-2 pb-3 flex flex-col gap-0.5 border-t border-surface-border/40">
-      <SettingsRow />
+      {isAdmin && <SettingsRow />}
       <SearchShortcutHint />
-      <div className="px-1 pt-1">
-        <UsageHudBadge collapsed={false} />
-      </div>
+      {isAdmin && (
+        <div className="px-1 pt-1">
+          <UsageHudBadge collapsed={false} />
+        </div>
+      )}
     </footer>
   );
 }
