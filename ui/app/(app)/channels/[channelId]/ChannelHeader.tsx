@@ -2,9 +2,8 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Settings, Menu, ArrowLeft, Hash, Lock, FolderOpen, LayoutDashboard,
-  PanelLeft, Columns2, Users, Wrench, Cog, PanelRight, Plug,
+  Columns2, Users, Wrench, Cog, PanelRight, Plug,
   MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle,
-  Minimize2,
   User as UserIcon,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -326,39 +325,12 @@ export function ChannelHeader({
         )}
       </div>
 
-      {/* OmniPanel toggle — stays visible as primary chrome. */}
-      {!isSystemChannel && (
-        <button
-          className="header-icon-btn"
-          style={{
-            width: isMobile ? 44 : 36,
-            height: isMobile ? 44 : 36,
-            backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent",
-          }}
-          onClick={toggleExplorer}
-          title={explorerOpen ? "Hide panel" : "Show panel"}
-        >
-          <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
-        </button>
-      )}
+      {/* OmniPanel (sidebar) toggle removed — its functionality lives on the
+          dock-edge peek-tab + in-dock chevron. Kept out of the header to give
+          the cross-view toggle (→ Dashboard) an unobstructed anchor. */}
 
       {/* Overflow — secondary actions. */}
       <ChannelHeaderOverflowMenu items={overflowItems} isMobile={isMobile} />
-
-      {/* Minimize — collapses the chat into the channel widget dashboard's
-          bottom-right dock. Skipped on mobile (no dock surface there; the
-          widget dashboard gates the dock on `!isMobile`). */}
-      {channelId && !isMobile && (
-        <button
-          className="header-icon-btn"
-          style={{ width: 36, height: 36 }}
-          onClick={() => navigate(`/widgets/channel/${channelId}?dock=expanded`)}
-          title="Minimize to dashboard dock"
-          aria-label="Minimize chat to widget dashboard dock"
-        >
-          <Minimize2 size={16} color={t.textDim} />
-        </button>
-      )}
 
       {/* Settings — primary chrome. */}
       {channelId && (
@@ -369,6 +341,23 @@ export function ChannelHeader({
           title="Channel settings"
         >
           <Settings size={isMobile ? 16 : 16} color={t.textDim} />
+        </button>
+      )}
+
+      {/* Switch to dashboard — RIGHTMOST button, mirrors the "Switch to chat"
+          button at the same spatial slot in the channel dashboard's top bar.
+          Click either and the cursor does not need to move — the other view
+          lands under the same pixel. `?dock=expanded` cues the dashboard's
+          dock to open expanded with its entry animation. */}
+      {channelId && !isMobile && (
+        <button
+          className="header-icon-btn"
+          style={{ width: 36, height: 36 }}
+          onClick={() => navigate(`/widgets/channel/${channelId}?dock=expanded`)}
+          title="Switch to dashboard view"
+          aria-label="Switch to dashboard view"
+        >
+          <LayoutDashboard size={16} color={t.textDim} />
         </button>
       )}
     </header>

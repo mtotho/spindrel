@@ -219,13 +219,23 @@ export default function WidgetsDashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [initialDockExpanded] = useState(() => searchParams.get("dock") === "expanded");
   useEffect(() => {
-    if (searchParams.get("dock") === "expanded") {
-      const next = new URLSearchParams(searchParams);
-      next.delete("dock");
-      setSearchParams(next, { replace: true });
+    const patch = new URLSearchParams(searchParams);
+    let changed = false;
+    if (patch.get("dock") === "expanded") {
+      patch.delete("dock");
+      changed = true;
     }
-    // Mount-only: subsequent ?dock changes are ignored; they'd only happen if
-    // the user manually edited the URL.
+    // `?kiosk=true` — presentation-mode deep link. No visible button in the
+    // top bar (removed to keep the toggle affordance unambiguous); kiosk is
+    // now a URL-level opt-in the user or automations can hit directly.
+    if (patch.get("kiosk") === "true") {
+      patch.delete("kiosk");
+      changed = true;
+      enterKiosk();
+    }
+    if (changed) setSearchParams(patch, { replace: true });
+    // Mount-only: subsequent ?dock / ?kiosk changes are ignored unless the
+    // user manually edits the URL.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -357,21 +367,6 @@ export default function WidgetsDashboardPage() {
 
   const actions = (
     <>
-      {/* Open chat — channel-scoped only. Paired with the Minimize button in
-          ChannelHeader so the user can ping-pong between dashboard + chat in
-          the same screen region. `?from=dock` cues the chat screen to play an
-          entrance animation (reverse of the dock collapse motion). */}
-      {isChannelScoped && channelScopedId && !isMobile && (
-        <button
-          type="button"
-          onClick={() => navigate(`/channels/${channelScopedId}?from=dock`)}
-          className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay transition-colors"
-          aria-label="Open chat view"
-          title="Open chat"
-        >
-          <MessageSquare size={13} />
-        </button>
-      )}
       {/* Edit layout — hidden on mobile where the grid is read-only anyway
           (the in-page banner explains why). */}
       {pins.length > 0 && !isMobile && (
@@ -422,20 +417,10 @@ export default function WidgetsDashboardPage() {
           </span>
         </button>
       )}
-      {/* Kiosk — presentation mode. Desktop-only (fullscreen API is flaky
-          on touch) and hidden while editing so we can't accidentally kiosk
-          mid-drag. */}
-      {pins.length > 0 && !isMobile && !editMode && (
-        <button
-          type="button"
-          onClick={kiosk ? exitKiosk : enterKiosk}
-          className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay transition-colors"
-          aria-label={kiosk ? "Exit kiosk mode" : "Enter kiosk mode"}
-          title={kiosk ? "Exit kiosk (Esc)" : "Kiosk (fullscreen presentation)"}
-        >
-          {kiosk ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-        </button>
-      )}
+      {/* Kiosk button intentionally removed from the top bar. Kiosk mode is
+          auto-entered via `?kiosk=true` in the URL — see the mount-time
+          handler that consumes the flag. Removed because the button clutters
+          the cross-view toggle affordance the user navigates with. */}
       <button
         type="button"
         onClick={() => setSheetOpen(true)}
@@ -462,6 +447,23 @@ export default function WidgetsDashboardPage() {
           <Wrench size={13} />
           <span className="hidden lg:inline">Developer panel</span>
         </Link>
+      )}
+      {/* Open chat — ALWAYS rendered as the rightmost button so it occupies
+          the mirror-image slot of the "Open dashboard" button in the channel
+          header. Clicking either lands you back at the same screen x/y
+          without the cursor moving. Icon is `MessageSquare` for direct
+          "chat view" affordance. `?from=dock` cues the chat screen to play
+          the reverse-of-collapse entrance animation. */}
+      {isChannelScoped && channelScopedId && !isMobile && (
+        <button
+          type="button"
+          onClick={() => navigate(`/channels/${channelScopedId}?from=dock`)}
+          className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
+          aria-label="Switch to chat view"
+          title="Switch to chat view"
+        >
+          <MessageSquare size={14} />
+        </button>
       )}
     </>
   );
