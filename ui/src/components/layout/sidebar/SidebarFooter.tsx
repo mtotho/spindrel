@@ -5,13 +5,13 @@ import { UsageHudBadge } from "../UsageHudBadge";
 import { useIsAdmin } from "../../../hooks/useScope";
 import { cn } from "../../../lib/cn";
 
-function SettingsRow() {
+function SettingsRow({ to }: { to: string }) {
   const { pathname } = useLocation();
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
-  const active = pathname === "/settings" || pathname.startsWith("/settings#");
+  const active = pathname === to || pathname.startsWith(`${to}/`) || pathname.startsWith("/settings");
   return (
     <Link
-      to="/settings"
+      to={to}
       onClick={closeMobile}
       className={cn(
         "flex flex-row items-center gap-2 px-3 py-1.5 rounded-md transition-colors",
@@ -56,7 +56,7 @@ export function SidebarFooter() {
   const isAdmin = useIsAdmin();
   return (
     <footer className="px-2 pt-2 pb-3 flex flex-col gap-0.5 border-t border-surface-border/40">
-      {isAdmin && <SettingsRow />}
+      <SettingsRow to={isAdmin ? "/settings" : "/settings/account"} />
       <SearchShortcutHint />
       {isAdmin && (
         <div className="px-1 pt-1">

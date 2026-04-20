@@ -1,4 +1,10 @@
-"""Integration tests for the chat-zones resolver and HTTP endpoint."""
+"""Integration tests for the chat-zones resolver and HTTP endpoint.
+
+Zone membership is now stored directly on each pin (``widget_dashboard_pins.zone``)
+and authored via the multi-canvas channel dashboard editor. The resolver is a
+trivial group-by; these tests drive the moves through the layout API (which
+accepts a ``zone`` field per-item).
+"""
 from __future__ import annotations
 
 import uuid
@@ -48,12 +54,15 @@ async def _pin_on_channel(client, ch_id, label: str = "pin") -> str:
     return r.json()["id"]
 
 
-async def _set_layout(client, ch_id, pin_id: str, x: int, y: int, w: int, h: int):
+async def _move_to_zone(
+    client, ch_id, pin_id: str, zone: str,
+    x: int = 0, y: int = 0, w: int = 1, h: int = 6,
+):
     r = await client.post(
         "/api/v1/widgets/dashboard/pins/layout",
         json={
             "dashboard_key": f"channel:{ch_id}",
-            "items": [{"id": pin_id, "x": x, "y": y, "w": w, "h": h}],
+            "items": [{"id": pin_id, "zone": zone, "x": x, "y": y, "w": w, "h": h}],
         },
         headers=AUTH_HEADERS,
     )
@@ -76,88 +85,76 @@ class TestChatZonesEndpoint:
         )
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data == {"rail": [], "dock_right": [], "header_chip": []}
+        assert data == {"rail": [], "header": [], "dock": []}
 
     @pytest.mark.asyncio
-    async def test_pin_in_rail_zone(self, client, db_session):
+    async def test_new_channel_pins_default_to_rail(self, client, db_session):
+        """Creating a pin on a channel dashboard lands it in the Rail canvas
+        by default — the sidebar is the most common destination for chat pins."""
         ch = await _make_channel(db_session)
-        pin_id = await _pin_on_channel(client, ch.id, "rail-a")
-        # standard preset: railZoneCols=3 — x=1 is inside the rail band.
-        await _set_layout(client, ch.id, pin_id, x=1, y=0, w=3, h=6)
-
+        pin_id = await _pin_on_channel(client, ch.id, "auto-rail")
         r = await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
         )
         data = r.json()
-        assert len(data["rail"]) == 1
-        assert data["rail"][0]["id"] == pin_id
-        assert data["dock_right"] == []
-        assert data["header_chip"] == []
-
-    @pytest.mark.asyncio
-    async def test_pin_in_dock_zone(self, client, db_session):
-        ch = await _make_channel(db_session)
-        pin_id = await _pin_on_channel(client, ch.id, "dock-a")
-        # standard preset: dock band starts at 12-3=9.
-        await _set_layout(client, ch.id, pin_id, x=9, y=2, w=3, h=6)
-
-        r = await client.get(
-            f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
-        )
-        data = r.json()
-        assert data["rail"] == []
-        assert len(data["dock_right"]) == 1
-        assert data["dock_right"][0]["id"] == pin_id
+        assert [p["id"] for p in data["rail"]] == [pin_id]
+        assert data["header"] == []
+        assert data["dock"] == []
 
     @pytest.mark.asyncio
     async def test_pin_in_header_zone(self, client, db_session):
         ch = await _make_channel(db_session)
         pin_id = await _pin_on_channel(client, ch.id, "chip-a")
-        # Top row (y=0, h=1) between rail and dock: x in [3,9)
-        await _set_layout(client, ch.id, pin_id, x=5, y=0, w=2, h=1)
-
+        await _move_to_zone(client, ch.id, pin_id, "header", x=0, y=0, w=1, h=1)
         r = await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
         )
         data = r.json()
         assert data["rail"] == []
-        assert data["dock_right"] == []
-        assert len(data["header_chip"]) == 1
-        assert data["header_chip"][0]["id"] == pin_id
+        assert data["dock"] == []
+        assert [p["id"] for p in data["header"]] == [pin_id]
 
     @pytest.mark.asyncio
-    async def test_grid_pins_excluded(self, client, db_session):
+    async def test_pin_in_dock_zone(self, client, db_session):
         ch = await _make_channel(db_session)
-        pin_id = await _pin_on_channel(client, ch.id, "grid-a")
-        # Middle of the dashboard, y > 0: plain grid.
-        await _set_layout(client, ch.id, pin_id, x=5, y=4, w=3, h=4)
-
+        pin_id = await _pin_on_channel(client, ch.id, "dock-a")
+        await _move_to_zone(client, ch.id, pin_id, "dock", x=0, y=0, w=1, h=6)
         r = await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
         )
         data = r.json()
-        assert data == {"rail": [], "dock_right": [], "header_chip": []}
+        assert data["rail"] == []
+        assert data["header"] == []
+        assert [p["id"] for p in data["dock"]] == [pin_id]
+
+    @pytest.mark.asyncio
+    async def test_grid_zone_excluded(self, client, db_session):
+        """Pins with zone='grid' are dashboard-only and absent from the response."""
+        ch = await _make_channel(db_session)
+        pin_id = await _pin_on_channel(client, ch.id, "grid-a")
+        await _move_to_zone(client, ch.id, pin_id, "grid", x=0, y=0, w=3, h=6)
+        r = await client.get(
+            f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
+        )
+        assert r.json() == {"rail": [], "header": [], "dock": []}
 
     @pytest.mark.asyncio
     async def test_moving_pin_shifts_zone(self, client, db_session):
-        """Zone membership recomputes on every read — no stored `chat_zone` state."""
         ch = await _make_channel(db_session)
         pin_id = await _pin_on_channel(client, ch.id, "mover")
 
-        # Start in dock
-        await _set_layout(client, ch.id, pin_id, x=10, y=0, w=2, h=4)
+        await _move_to_zone(client, ch.id, pin_id, "dock")
         data = (await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
         )).json()
-        assert len(data["dock_right"]) == 1
+        assert len(data["dock"]) == 1
 
-        # Move to rail
-        await _set_layout(client, ch.id, pin_id, x=0, y=0, w=3, h=4)
+        await _move_to_zone(client, ch.id, pin_id, "rail")
         data = (await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
         )).json()
         assert len(data["rail"]) == 1
-        assert data["dock_right"] == []
+        assert data["dock"] == []
 
     @pytest.mark.asyncio
     async def test_header_chip_ordering_by_x(self, client, db_session):
@@ -165,13 +162,26 @@ class TestChatZonesEndpoint:
         pin_a = await _pin_on_channel(client, ch.id, "a")
         pin_b = await _pin_on_channel(client, ch.id, "b")
         pin_c = await _pin_on_channel(client, ch.id, "c")
-        # Drop them in header band out of order: x=7, x=4, x=5.
-        await _set_layout(client, ch.id, pin_a, x=7, y=0, w=1, h=1)
-        await _set_layout(client, ch.id, pin_b, x=4, y=0, w=1, h=1)
-        await _set_layout(client, ch.id, pin_c, x=5, y=0, w=1, h=1)
+        await _move_to_zone(client, ch.id, pin_a, "header", x=7, y=0, w=1, h=1)
+        await _move_to_zone(client, ch.id, pin_b, "header", x=4, y=0, w=1, h=1)
+        await _move_to_zone(client, ch.id, pin_c, "header", x=5, y=0, w=1, h=1)
 
-        data = (await client.get(
+        chips = (await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
-        )).json()
-        chips = data["header_chip"]
+        )).json()["header"]
         assert [c["id"] for c in chips] == [pin_b, pin_c, pin_a]
+
+    @pytest.mark.asyncio
+    async def test_invalid_zone_rejected(self, client, db_session):
+        """The layout API rejects unknown zone values with 400."""
+        ch = await _make_channel(db_session)
+        pin_id = await _pin_on_channel(client, ch.id, "zp")
+        r = await client.post(
+            "/api/v1/widgets/dashboard/pins/layout",
+            json={
+                "dashboard_key": f"channel:{ch.id}",
+                "items": [{"id": pin_id, "zone": "bogus", "x": 0, "y": 0, "w": 1, "h": 6}],
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 400

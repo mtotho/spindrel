@@ -36,7 +36,7 @@ interface Props {
 
 export function ChannelHeaderChip({ channelId }: Props) {
   const t = useThemeTokens();
-  const { header_chip: pins } = useChannelChatZones(channelId);
+  const { header: pins } = useChannelChatZones(channelId);
   const unpin = useDashboardPinsStore((s) => s.unpinWidget);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
   const [overflowOpen, setOverflowOpen] = useState(false);

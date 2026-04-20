@@ -36,15 +36,13 @@ def _default_grid_layout(position: int, *, channel: bool = False) -> dict[str, i
     """Compute a day-0 layout slot for a pin at the given position.
 
     User dashboards alternate two columns (mirrors migration 211's backfill
-    formula). Channel dashboards stack pins vertically at ``x=0`` — chat
-    pins are almost always intended to surface in the channel sidebar,
-    and the OmniPanel's rail rule (`x < railZoneCols`) picks up anything
-    whose left edge is in the left half of the grid. Width stays at the
-    standard 6 cols so the widget renders the same on the dashboard as
-    every other pin; the user can drag it out of the rail later.
+    formula). Channel pins default to the Rail canvas — they're almost always
+    intended to surface in the channel sidebar — so coords are canvas-local
+    (Rail is 1-col; ``w=1`` always, ``y`` stacks by position). The user can
+    drag the pin into another canvas later.
     """
     if channel:
-        return {"x": 0, "y": position * 6, "w": 6, "h": 6}
+        return {"x": 0, "y": position * 6, "w": 1, "h": 6}
     return {
         "x": (position % 2) * 6,
         "y": (position // 2) * 6,
@@ -69,6 +67,7 @@ def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
         "display_label": pin.display_label,
         "grid_layout": pin.grid_layout or {},
         "is_main_panel": bool(pin.is_main_panel),
+        "zone": pin.zone or "grid",
         "pinned_at": pin.pinned_at.isoformat() if pin.pinned_at else None,
         "updated_at": pin.updated_at.isoformat() if pin.updated_at else None,
     }
@@ -190,11 +189,29 @@ async def create_pin(
         envelope=envelope,
         display_label=display_label or envelope.get("display_label"),
         grid_layout=_default_grid_layout(position, channel=is_channel),
+        zone=("rail" if is_channel else "grid"),
     )
     db.add(pin)
     await db.flush()
     await db.commit()
     await db.refresh(pin)
+
+    # Register any @on_cron handlers declared in the bundle's widget.yaml.
+    # Best-effort: a bundle with no manifest or no cron entries is a no-op.
+    try:
+        from app.services.widget_cron import register_pin_crons
+        await register_pin_crons(db, pin)
+    except Exception:
+        logger.exception("register_pin_crons failed for pin %s", pin.id)
+
+    # Register any @on_event handlers. Also best-effort; a failure here
+    # must not take down the pin write.
+    try:
+        from app.services.widget_events import register_pin_events
+        await register_pin_events(db, pin)
+    except Exception:
+        logger.exception("register_pin_events failed for pin %s", pin.id)
+
     return pin
 
 
@@ -250,6 +267,15 @@ async def delete_pin(
     orphan_info: dict | None = None
     if delete_bundle_data:
         orphan_info = await check_pin_db_content(pin)
+
+    # Cancel live event subscribers BEFORE the pin row drops — otherwise a
+    # subscriber might race on a missing pin in the brief window before the
+    # FK cascade fires. The call also drops widget_event_subscriptions rows.
+    try:
+        from app.services.widget_events import unregister_pin_events
+        await unregister_pin_events(db, pin_id)
+    except Exception:
+        logger.exception("unregister_pin_events failed for pin %s", pin_id)
 
     await db.delete(pin)
     await db.flush()
@@ -309,6 +335,24 @@ async def update_pin_envelope(
     flag_modified(pin, "envelope")
     await db.commit()
     await db.refresh(pin)
+
+    # Envelope change may have moved source_path to a new bundle — reconcile
+    # the pin's cron subscriptions against whatever widget.yaml lives there
+    # now (or clear them if the new bundle has none).
+    try:
+        from app.services.widget_cron import register_pin_crons
+        await register_pin_crons(db, pin)
+    except Exception:
+        logger.exception("register_pin_crons failed for pin %s on envelope update", pin.id)
+
+    # Same for @on_event subscriptions — cancel old live tasks and respawn
+    # against the new manifest.
+    try:
+        from app.services.widget_events import register_pin_events
+        await register_pin_events(db, pin)
+    except Exception:
+        logger.exception("register_pin_events failed for pin %s on envelope update", pin.id)
+
     return pin
 
 
@@ -331,7 +375,12 @@ async def rename_pin(
     return serialize_pin(pin)
 
 
-def _validate_layout_item(item: Any) -> tuple[uuid.UUID, dict[str, int]]:
+_VALID_ZONES = {"rail", "header", "dock", "grid"}
+
+
+def _validate_layout_item(
+    item: Any,
+) -> tuple[uuid.UUID, dict[str, int], str | None]:
     if not isinstance(item, dict):
         raise HTTPException(400, "layout item must be an object")
     raw_id = item.get("id")
@@ -349,7 +398,17 @@ def _validate_layout_item(item: Any) -> tuple[uuid.UUID, dict[str, int]]:
                 400, f"layout item '{key}' must be a non-negative integer",
             )
         coords[key] = value
-    return pin_id, coords
+    # Zone is optional — same-canvas reorders can omit it. When present it
+    # replaces the row's current zone so cross-canvas drops commit atomically
+    # with coord updates.
+    zone: str | None = None
+    if "zone" in item and item["zone"] is not None:
+        zone = str(item["zone"])
+        if zone not in _VALID_ZONES:
+            raise HTTPException(
+                400, f"layout item 'zone' must be one of {sorted(_VALID_ZONES)}",
+            )
+    return pin_id, coords, zone
 
 
 async def _set_dashboard_layout_mode(
@@ -454,7 +513,7 @@ async def apply_layout_bulk(
     if not parsed:
         return {"ok": True, "updated": 0}
 
-    pin_ids = [pid for pid, _ in parsed]
+    pin_ids = [pid for pid, _, _ in parsed]
     rows = (
         await db.execute(
             select(WidgetDashboardPin).where(
@@ -468,9 +527,11 @@ async def apply_layout_bulk(
     if missing:
         raise HTTPException(400, f"Unknown pin ids: {missing}")
 
-    for pin_id, coords in parsed:
+    for pin_id, coords, zone in parsed:
         row = by_id[pin_id]
         row.grid_layout = coords
         flag_modified(row, "grid_layout")
+        if zone is not None:
+            row.zone = zone
     await db.commit()
     return {"ok": True, "updated": len(parsed)}

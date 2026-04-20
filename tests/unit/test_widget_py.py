@@ -25,6 +25,7 @@ from app.services.widget_py import (
     clear_module_cache,
     ctx,
     invoke_action,
+    invoke_event,
     load_module,
     on_action,
     on_cron,
@@ -122,6 +123,40 @@ class TestDecorators:
             pass
 
         assert fn._spindrel_event_kind == "new_message"
+
+    def test_on_event_custom_timeout(self):
+        @on_event("turn_ended", timeout=90)
+        def fn(evt):
+            pass
+
+        assert fn._spindrel_event_timeout == 90
+
+    def test_on_event_default_timeout(self):
+        @on_event("new_message")
+        def fn(evt):
+            pass
+
+        assert fn._spindrel_event_timeout == 30
+
+    def test_harvests_events_keyed_by_kind_and_handler(self, tmp_path):
+        path = _write_widget_py(tmp_path, """
+            from spindrel.widget import on_event
+
+            @on_event("new_message")
+            def on_msg(evt): return None
+
+            @on_event("new_message")
+            def on_msg_also(evt): return None
+
+            @on_event("turn_ended")
+            def on_turn(evt): return None
+        """)
+        module = load_module(path)
+        assert set(module._spindrel_events.keys()) == {"new_message", "turn_ended"}
+        assert set(module._spindrel_events["new_message"].keys()) == {
+            "on_msg", "on_msg_also",
+        }
+        assert set(module._spindrel_events["turn_ended"].keys()) == {"on_turn"}
 
 
 # ---------------------------------------------------------------------------
@@ -462,3 +497,78 @@ class TestCtxTool:
                         new=mock.AsyncMock(return_value='{"echoed": "hi"}')):
             result = asyncio.run(invoke_action(pin, "ping"))
         assert result == {"echoed": "hi"}
+
+
+class TestInvokeEvent:
+    def test_dispatches_payload_to_handler(self, tmp_path):
+        ws_root = tmp_path / "workspace"
+        bundle_dir = ws_root / "data" / "widgets" / "evt"
+        bundle_dir.mkdir(parents=True)
+        (bundle_dir / "index.html").write_text("")
+        _write_widget_py(bundle_dir, """
+            from spindrel.widget import on_event
+
+            CALLS = []
+
+            @on_event("new_message")
+            def on_msg(payload):
+                CALLS.append(payload)
+                return {"seen": True}
+        """)
+
+        pin = _make_pin(
+            bundle_source_path="data/widgets/evt/index.html",
+            channel_id=uuid.uuid4(),
+        )
+        bot_patch, ws_patch = _ws_root_patches(ws_root)
+        with bot_patch, ws_patch:
+            result = asyncio.run(
+                invoke_event(pin, "new_message", "on_msg", {"a": 1}),
+            )
+        assert result == {"seen": True}
+
+    def test_unknown_handler_raises_keyerror(self, tmp_path):
+        ws_root = tmp_path / "workspace"
+        bundle_dir = ws_root / "data" / "widgets" / "evt"
+        bundle_dir.mkdir(parents=True)
+        (bundle_dir / "index.html").write_text("")
+        _write_widget_py(bundle_dir, """
+            from spindrel.widget import on_event
+
+            @on_event("new_message")
+            def on_msg(payload): return None
+        """)
+
+        pin = _make_pin(
+            bundle_source_path="data/widgets/evt/index.html",
+            channel_id=uuid.uuid4(),
+        )
+        bot_patch, ws_patch = _ws_root_patches(ws_root)
+        with bot_patch, ws_patch:
+            with pytest.raises(KeyError):
+                asyncio.run(
+                    invoke_event(pin, "new_message", "does_not_exist", {}),
+                )
+
+    def test_unknown_kind_raises_keyerror(self, tmp_path):
+        ws_root = tmp_path / "workspace"
+        bundle_dir = ws_root / "data" / "widgets" / "evt"
+        bundle_dir.mkdir(parents=True)
+        (bundle_dir / "index.html").write_text("")
+        _write_widget_py(bundle_dir, """
+            from spindrel.widget import on_event
+
+            @on_event("new_message")
+            def on_msg(payload): return None
+        """)
+
+        pin = _make_pin(
+            bundle_source_path="data/widgets/evt/index.html",
+            channel_id=uuid.uuid4(),
+        )
+        bot_patch, ws_patch = _ws_root_patches(ws_root)
+        with bot_patch, ws_patch:
+            with pytest.raises(KeyError):
+                asyncio.run(
+                    invoke_event(pin, "turn_ended", "on_msg", {}),
+                )

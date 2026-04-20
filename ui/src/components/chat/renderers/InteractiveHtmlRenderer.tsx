@@ -941,7 +941,7 @@ function spindrelBootstrap(
           const chunk = await reader.read();
           if (chunk.done || stopped) break;
           buffer += decoder.decode(chunk.value, { stream: true });
-          const lines = buffer.split("\n");
+          const lines = buffer.split("\\n");
           buffer = lines.pop() || "";
           for (const line of lines) {
             if (!line.startsWith("data: ")) continue;
@@ -1533,8 +1533,18 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
 
   const sourcePath = envelope.source_path || null;
   const sourceChannelId = envelope.source_channel_id || null;
+  const sourceIntegrationId = envelope.source_integration_id || null;
   const sourceBotId = envelope.source_bot_id || null;
-  const pathMode = !!sourcePath && !!sourceChannelId;
+  // Default to "channel" when omitted so pre-catalog envelopes keep working.
+  const sourceKind = envelope.source_kind
+    ?? (sourceIntegrationId ? "integration" : "channel");
+  const pathMode =
+    !!sourcePath
+    && (
+      (sourceKind === "channel" && !!sourceChannelId)
+      || sourceKind === "builtin"
+      || (sourceKind === "integration" && !!sourceIntegrationId)
+    );
   const effectiveChannelId = channelId ?? sourceChannelId;
 
   // For inline widgets we know the body at mount time and can skip minting
@@ -1600,19 +1610,33 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
     }
   }, [widgetToken]);
 
+  // Source-specific content endpoint. All three return ``{path, content}``
+  // so the downstream body-building code stays uniform.
+  const contentEndpoint = useMemo(() => {
+    if (!pathMode || !sourcePath) return null;
+    if (sourceKind === "builtin") {
+      return `/api/v1/widgets/html-widget-content/builtin?path=${encodeURIComponent(sourcePath)}`;
+    }
+    if (sourceKind === "integration" && sourceIntegrationId) {
+      return `/api/v1/widgets/html-widget-content/integrations/${encodeURIComponent(sourceIntegrationId)}?path=${encodeURIComponent(sourcePath)}`;
+    }
+    if (sourceChannelId) {
+      return `/api/v1/channels/${sourceChannelId}/workspace/files/content?path=${encodeURIComponent(sourcePath)}`;
+    }
+    return null;
+  }, [pathMode, sourcePath, sourceKind, sourceIntegrationId, sourceChannelId]);
+
   const fileQuery = useQuery({
     queryKey: [
       "interactive-html-widget-content",
+      sourceKind,
       sourceChannelId,
+      sourceIntegrationId,
       sourcePath,
     ],
     queryFn: () =>
-      apiFetch<{ path: string; content: string }>(
-        `/api/v1/channels/${sourceChannelId}/workspace/files/content?path=${encodeURIComponent(
-          sourcePath!,
-        )}`,
-      ),
-    enabled: pathMode,
+      apiFetch<{ path: string; content: string }>(contentEndpoint!),
+    enabled: pathMode && !!contentEndpoint,
     refetchInterval: 3000,
     refetchOnWindowFocus: true,
   });

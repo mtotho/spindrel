@@ -37,9 +37,15 @@ interface RailLinkProps {
   title: string;
   children: React.ReactNode;
   badge?: React.ReactNode;
+  /**
+   * Pinned user content (e.g. a widget dashboard) rather than a top-level app
+   * section. Gets a subtle inset ring so it scans as "bookmark / your stuff"
+   * instead of blending into the nav icons around it.
+   */
+  pinned?: boolean;
 }
 
-function RailLink({ href, active, title, children, badge }: RailLinkProps) {
+function RailLink({ href, active, title, children, badge, pinned }: RailLinkProps) {
   return (
     <Link
       to={href}
@@ -48,6 +54,7 @@ function RailLink({ href, active, title, children, badge }: RailLinkProps) {
       aria-current={active ? "page" : undefined}
       className={cn(
         "sidebar-rail-btn relative bg-transparent border-none p-0",
+        pinned && !active && "ring-1 ring-inset ring-surface-border/50 hover:ring-surface-border/80",
         active &&
           "bg-accent/[0.12] before:content-[''] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-[3px] before:h-4 before:rounded-full before:bg-accent",
       )}
@@ -177,7 +184,7 @@ export function SidebarRail() {
             ? `#${channelNameById.get(channelId) ?? d.name}`
             : d.name;
           return (
-            <RailLink key={d.slug} href={href} active={active} title={label}>
+            <RailLink key={d.slug} href={href} active={active} title={label} pinned>
               {isChannel && !d.icon ? (
                 <Hash size={18} className={active ? "text-accent" : "text-text-dim"} />
               ) : (
@@ -190,6 +197,13 @@ export function SidebarRail() {
             </RailLink>
           );
         })}
+
+        {/* Separator between user content (Tasks / Widgets / pinned dashboards)
+            and admin nav. Only renders when admin section is present; divider
+            above pinned cluster already exists above Tasks. */}
+        {isAdmin && railDashboards.length > 0 && (
+          <div className="h-px w-6 bg-surface-border/60 my-1" />
+        )}
 
         {isAdmin && (
           <>

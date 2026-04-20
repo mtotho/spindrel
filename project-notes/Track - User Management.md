@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, user-management, auth, scoping, ownership]
-status: active
-updated: 2026-04-19 (Phase 5 bot grants + share-drawer coverage warning shipped)
+status: complete
+updated: 2026-04-20 (Phase 7 shipped — non-admin self-service + own API key)
 ---
 
 # Track — User Management
@@ -40,10 +40,10 @@ This track tightens the existing pieces into a clean admin-vs-user experience. S
 | 2 | `/auth/me` effective scopes + frontend hydration + `useScope()` hook | ✅ shipped 2026-04-19 — see [[Fix Log]] |
 | 2.5 | Widget dashboard rail scoping (per-user + everyone rail pins) | ✅ shipped 2026-04-19 — `dashboard_rail_pins` junction table, admin-only `scope='everyone'`, radio picker in Create/Edit drawers |
 | 3 | UI route guards + nav filtering + control hiding | ✅ shipped 2026-04-19 — `<AdminRoute>` wraps `/admin/*`, rail+palette filter admin chrome for non-admins, Privacy section hoisted, new-channel owner picker (admin), owner chip in ChannelHeader, bot owner picker, UI tsc + 4/4 new channel-ownership tests green |
-| 4 | Channel ownership enforcement (auto-populate user_id, edit/delete gating) | ⏳ planned |
+| 4 | Channel ownership enforcement (auto-populate user_id, edit/delete gating) | ✅ shipped 2026-04-19 — `assert_admin_or_channel_owner` helper + PUT/PATCH/DELETE wired + GET visibility (404 cross-user-private). 12 new tests, 32/32 green. |
 | 5 | Bot ownership + `bot_grants` table + `view` role + admin GrantsSection + share-drawer coverage warning | ✅ shipped 2026-04-19 — migration 221, `apply_bot_visibility` helper, mint endpoint honors grants, `/bots` filtered for non-admins, GrantsSection tab on bot admin, `EditDashboardDrawer` shows "viewers can't use X" warning with one-click bulk grant, viewer-side mint 403 banner softened to amber with admin-vs-non-admin CTAs. 28/28 focused tests green. |
-| 6 | Integration binding final lockdown (audit, confirm admin-only writes) | ⏳ planned |
-| 7 | Non-admin self-service (`/settings/account`, `/settings/channels`, `/settings/bots`) | ⏳ planned |
+| 6 | Integration binding final lockdown (admin-only writes, parent-cover leak closed) | ✅ shipped 2026-04-19 — new `require_admin_and_scope` dep on 6 write endpoints + UI tab hidden for non-admins. 9 new tests (41/41 in `test_channel_ownership.py`). |
+| 7 | Non-admin self-service (`/settings/account`, `/settings/channels`, `/settings/bots`) | ✅ shipped 2026-04-20 — three self-service pages, own API key view + rotate, sidebar gear visible to non-admins |
 
 ## Phase detail
 
@@ -93,6 +93,7 @@ Plan: `~/.claude/plans/peaceful-sparking-spring.md` (status: executed).
 **Navigation filtering** (`useIsAdmin()` gate)
 - `SidebarRail.tsx` — hides Tasks / Bots / Skills / Integrations / Activity / Learning for non-admins. Keeps Home + Widgets (widget dashboards are per-user via Phase 2.5).
 - `CommandPalette.tsx` — skips bot edit items, `ADMIN_ITEMS`, integration admin pages, and sidebar sections (which all point into `/admin/*`). Filters recent pages whose href starts with `/admin/`. Channels + widgets remain searchable.
+- `SidebarFooter.tsx` — Settings gear (links to admin-only `/settings`) and `UsageHudBadge` (calls `/api/v1/admin/usage/forecast`) hidden from non-admins. Both produced 403s when a non-admin clicked them. Search shortcut row stays. (Patched 2026-04-19 follow-up.)
 
 **Channel owner / private polish**
 - `ChannelList.tsx` was already Lock-vs-Hash; `CommandPalette` channel entries now mirror it. `ChannelHeader.tsx` swaps the hardcoded Hash icon for Lock when `channel.private`.
@@ -115,15 +116,33 @@ Plan: `~/.claude/plans/peaceful-sparking-spring.md` (status: executed).
 
 **Deferred to Phase 4**: backend 403 when a non-owner/non-admin JWT tries to `PATCH` / `DELETE` a channel they don't own — Phase 3 hides the UI, Phase 4 makes the enforcement match.
 
-### Phase 4 — Channel ownership enforcement
+### Phase 4 — Channel ownership enforcement ✅ shipped 2026-04-19
 
 Goal: non-admin creates a channel → only they (and admins) can edit/delete it. Private channels isolated.
 
-- `POST /api/v1/channels`: non-admin JWT user → auto-populate `channel.user_id = request.user.id`. Admin: optional `user_id` in body, defaults NULL.
-- Edit/delete: new `require_admin_or_owner(channel)` helper in `app/dependencies.py`. 403 if non-admin and `channel.user_id != request.user.id`.
-- Verify `apply_channel_visibility` (`app/services/channels.py:361-378`) is called on every channel-list path — two preview paths confirmed already. Add test: non-admin cannot GET another user's private channel by UUID.
-- Channel settings page: hide Integration Bindings + "Advanced" + "Tool Policies" tabs for non-admin.
-- Tests: ownership on create, edit denied for non-owner, private invisible cross-user, admin sees all.
+**Backend**
+- `app/dependencies.py::assert_admin_or_channel_owner(channel, auth)` — new helper. `ApiKeyAuth` → bypass (keys have no ownership concept; row-level access for keys is gated by scope). `User.is_admin` → bypass. Otherwise requires `channel.user_id == user.id`. Channels with `user_id=NULL` (legacy/orphan) are admin-only edits.
+- Wired into:
+  - `DELETE /api/v1/channels/{id}` (`api_v1_channels.py:744`)
+  - `PUT /api/v1/channels/{id}` (`api_v1_channels.py:769`)
+  - `PUT|PATCH /api/v1/channels/{id}/config` (`api_v1_channels.py:577`)
+- `GET /api/v1/channels/{id}` now applies `apply_channel_visibility` to its single-row select — non-admin requesting another user's private channel returns **404** (not 403, to avoid leaking existence).
+- `POST /api/v1/channels` already auto-populates owner for non-admin JWT (Phase 3 work, lines 339-350).
+
+**Sub-resource endpoints not gated** (Phase 4 scope is the canonical channel itself):
+- `POST/DELETE /channels/{id}/bot-members/*`, `PATCH /channels/{id}/bot-members/{id}/config` — still scope-only. Bot-membership is "soft" channel state; revisit if a non-admin owner pattern emerges.
+- `POST/DELETE /channels/{id}/integrations/*` — Phase 6 covers integration lockdown.
+- `POST /channels/{id}/messages/{reset,compact,switch-session,inject}` — these are conversation operations, not channel mutations. Still scope-gated by `channels.messages:write`.
+
+**Tests** (`tests/integration/test_channel_ownership.py`)
+- New `jwt_client_factory` fixture mirrors the `client_factory` shape from `test_widget_auth_mint.py` so JWT-as-non-admin paths are testable. Auto-attaches the member-preset scopes (`chat`, `channels:read`, `channels:write`) to satisfy the existing scope gates.
+- `TestChannelOwnershipEnforcement` (8 tests): owner-can-update, non-owner-cannot-update, non-owner-cannot-delete, owner-can-delete, admin-can-update-any, admin-can-delete-any, unowned-channel-rejects-non-admin, non-owner-cannot-update-config.
+- `TestChannelGetVisibility` (4 tests): non-admin-cannot-get-other-private-404, owner-gets-own-private, non-owner-gets-public, admin-gets-any-private.
+- 32/32 green in `test_channel_ownership.py`. 5 join-test failures in `test_channel_members.py::TestJoinLeaveAPI` exist on baseline (verified by stash + rebuild) — unrelated to Phase 4.
+
+**Deferred to Phase 6** Confirmed `apply_channel_visibility` use on the canonical list (`GET /channels`) and single GET. Did NOT audit every read sub-resource (`/messages/search`, `/state`, `/events`, `/integrations`, `/bot-members`); those still 200 for any user with the read scope. Most are admin-tier scopes today, so the surface is small, but Phase 6's audit should sweep them.
+
+**UI work not in Phase 4** Hiding Integration Bindings / Advanced / Tool Policies tabs in `ChannelSettings.tsx` for non-admin. Backend matches the route guard now; the UI tabs are a separate small change.
 
 ### Phase 5 — Bot ownership + grants ✅ shipped 2026-04-19
 
@@ -155,24 +174,64 @@ Goal: admin designates bot owners and grants non-admin users access so widget da
 
 References: plan `~/.claude/plans/buzzing-honking-pumpkin.md`. Commit: `886cbf58` (bundled with unrelated tool-composition work).
 
-### Phase 6 — Integration binding final lockdown
+### Phase 6 — Integration binding final lockdown ✅ shipped 2026-04-19
 
-Goal: non-admins cannot touch `ChannelIntegration` rows.
+Goal: non-admins cannot mutate `ChannelIntegration` rows, regardless of scope-preset nuances.
 
-- Audit all `ChannelIntegration` write paths: `db.add(ChannelIntegration`, `.delete()` on query, `activated = ...`. Confirm every one sits behind `require_scopes("integrations:write")` (admin-preset only).
-- Remove `integrations:write` from any non-admin preset if leaked.
-- UI: channel settings Integration Bindings tab admin-only (Phase 3 gates visually; Phase 6 confirms backend matches).
-- Tests: non-admin `POST /api/v1/admin/integrations/bindings` → 403; GET own channel's binding → 200 read-only.
+**The bug** (Loose End #2, filed at Phase 1). `has_scope()` at `app/services/api_keys.py:518-566` implements parent-covers-child — `channels:write` transitively satisfies `channels.integrations:write`. Every preset that carried `channels:write` (`member_user`, `slack_integration`, `chat_client`) therefore passed the generic `require_scopes("channels.integrations:write")` gate on the 6 binding endpoints. Net effect: a non-admin member JWT (or any integration-shape key) could POST/DELETE/PATCH integration bindings on their own channel despite the Phase 0 "admin-only" decision.
 
-### Phase 7 — Non-admin self-service
+**The fix.** New `app/dependencies.py::require_admin_and_scope(scope)` — wraps `require_scopes(scope)` and adds an admin assertion on top (`"admin" in ApiKeyAuth.scopes` OR `User.is_admin=True`). Applied to the 6 write endpoints in `app/routers/api_v1_channels.py`:
+- `POST /api/v1/channels/{id}/integrations` — bind
+- `DELETE /api/v1/channels/{id}/integrations/{binding_id}` — unbind
+- `POST /api/v1/channels/{id}/integrations/{binding_id}/adopt`
+- `POST /api/v1/channels/{id}/integrations/{integration_type}/activate`
+- `POST /api/v1/channels/{id}/integrations/{integration_type}/deactivate`
+- `PATCH /api/v1/channels/{id}/integrations/{integration_type}/config`
+
+Read endpoints (`GET /channels/{id}/integrations`, `GET /channels/{id}/integrations/available`) stay on `require_scopes("channels.integrations:read")` — non-admins still see what's bound to their channel, read-only.
+
+**Why not globally tighten `has_scope`?** Option (a) from the Loose End would change parent-cover semantics for every `*:*` preset in the system — wide blast radius for what's really a per-endpoint policy call. Option (b) (rewrite `member_user` to enumerate sub-scopes and omit `channels.integrations:*`) is honest but brittle — every new sub-scope is a drift risk. Option (c) — narrow admin assertion at the handler — is the tightest fix and leaves the reusable `require_admin_and_scope` dep for any future sub-scope that must remain admin-only despite the parent.
+
+**UI match.** `ui/app/(app)/channels/[channelId]/settings.tsx` gains `adminOnly: true` on the `Integrations` tab definition; `visibleTabs = ALL_TABS.filter(tb => !tb.adminOnly || isAdmin)` drives both the rendered tab list and the content branch. Non-admin users no longer see the tab or its content. Matches the Phase 3 sidebar-rail / command-palette admin-chrome hiding pattern.
+
+**Admin-router endpoints** (`api_v1_admin/channels.py:2233,2278`) are unchanged — those were always router-gated by `verify_admin_auth` and only held `:read` scopes anyway.
+
+**Tests** (9 new in `tests/integration/test_channel_ownership.py::TestChannelIntegrationBindingAdminGate`):
+- Non-admin JWT + default member scopes → 403 on POST bind / DELETE unbind / POST adopt / POST activate / POST deactivate / PATCH config; detail contains "admin".
+- Non-admin JWT → 200 + `[]` on GET list (reads remain permitted).
+- Admin JWT → 201 on POST bind (the gate passes; endpoint returns successfully).
+- `ApiKeyAuth(scopes=["chat","channels:read","channels:write"])` — the `slack_integration`/`chat_client` shape — → 403 on POST bind, asserting the scoped-key path of the leak is also sealed.
+
+41/41 green in `test_channel_ownership.py` (32 prior + 9 new). 7/7 still green in `test_integration_activation.py` (static-admin-key path unchanged). UI `tsc --noEmit` clean.
+
+### Phase 7 — Non-admin self-service ✅ shipped 2026-04-20
 
 Goal: non-admin has a coherent "this is my stuff" landing.
 
-- `/settings/account`: profile edit, password change, own API key.
-- `/settings/channels`: owned + private.
-- `/settings/bots`: owned + granted, role badge per row.
-- Navigation: replace "Admin" gear with "Settings" gear for non-admins → `/settings/account`.
-- Tests: user-updates-own-profile (verify existing), user-cannot-update-another.
+**Backend**
+- `GET /auth/me/api-key` — metadata only (id, name, key_prefix, scopes, is_active, created_at, last_used_at). Never returns plaintext. Returns `null` for users without provisioned keys.
+- `POST /auth/me/api-key/rotate` — mints fresh key with the caller's role preset (`admin_user` vs `member_user`), soft-revokes the prior key (`is_active=False`), reassigns `user.api_key_id`, returns plaintext **once** in `ApiKeyRotateResponse{key, full_key}`. Same flow handles "no prior key" as first-mint.
+- `GET /auth/me/bots` — owned + granted bots with `role: "owner" | "view" | "manage"` badge. Owner wins when the user both owns and has a grant. Shape is separate from the visibility-filtered `GET /bots` so the UI gets role info without a join.
+- No new endpoint for channels — the self-service page filters `GET /api/v1/channels` client-side by `channel.user_id === me.id`. That list is already scoped by `apply_channel_visibility`, so no data leak.
+
+**Frontend**
+- New `ui/app/(app)/settings/SettingsShell.tsx` — tab bar (Account / Channels / Bots; plus a "System" tab that links out to the existing `/settings` admin page for admins). Shared `PageHeader` + tab bar wraps the three self-service routes via an `<Outlet />`.
+- `ui/app/(app)/settings/account.tsx` — consolidates the old `/profile` page (Account / Integrations / Security sections) and adds `ApiKeySection`: shows prefix + scopes + active status, "Rotate key" → confirmation → plaintext banner with Copy button (dismisses; no persistence).
+- `ui/app/(app)/settings/channels.tsx` — "My Channels" list (owner-filtered). Public/private icon + Private badge, links to channel. "Create your first channel" CTA when empty.
+- `ui/app/(app)/settings/bots.tsx` — "My Bots" list using `/auth/me/bots`. Bot avatar + display name + model + `RoleBadge` (Owner / Manage / View). Admin row links to `/admin/bots/{id}`, non-admin links to `/channels/new?bot_id={id}` (safest default since they can't edit the bot).
+- Router: `{ path: "settings", element: <SettingsShell />, children: [account, channels, bots] }` sits alongside the existing `/settings` → `SettingsPage` route; react-router v6 matches `/settings` to the admin page and `/settings/*` to the shell. `/profile` now redirects to `/settings/account`; `profile.tsx` deleted. `AvatarMenu` "Profile" link renamed to "Account" → `/settings/account`.
+- `SidebarFooter.tsx` — gear visible to all users (previously admin-only). Admin → `/settings` (system config unchanged); non-admin → `/settings/account`.
+
+**Tests** (10 new, 19/19 green in `test_auth_profile.py`)
+- `TestAuthMeApiKey` (5): null when unprovisioned, metadata shape (no plaintext leak), rotate mints new + revokes old + repoints user, admin rotation gets admin preset, rotate handles first-mint for orphaned user.
+- `TestAuthMeBots` (4): owned returns `role="owner"`, grantee returns `role="view"`, owner wins when both apply, empty list for no bots.
+
+**Intentionally deferred**
+- No user-specific API-key CRUD beyond one key — `user.api_key_id` is 1:1 by design (`app/services/auth.py::_provision_user_api_key`).
+- No "reveal stored plaintext" — `create_api_key(store_key_value=False)` means plaintext is shown at rotation and never recoverable. Matches admin-created keys.
+- "User-cannot-update-another-user's-profile" was not added as a new test — `/auth/me` PUT/GET are structurally self-only (they act on `verify_user`'s return), and `/api/v1/admin/users/{id}` is already protected by `verify_admin_auth`. Covered by existing admin-route tests, not re-asserted here.
+
+References: plan scope landed directly without a `~/.claude/plans/` file — the Track spec plus this session log are authoritative.
 
 ## Critical invariants
 

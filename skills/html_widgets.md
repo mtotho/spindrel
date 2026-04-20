@@ -1441,7 +1441,64 @@ const result = await window.spindrel.callHandler("save_item", { text: "hello" })
 | `await ctx.tool(name, **kwargs)` | Policy-checked tool dispatch under the pin's bot. Result is the parsed JSON envelope. |
 | `ctx.bot_id` / `ctx.channel_id` / `ctx.pin` | Read-only accessors for the current invocation. |
 
-`@on_cron` and `@on_event` decorators are importable now but wired in slices B.3 / B.4.
+#### `@on_cron` — scheduled handlers (Phase B.3)
+
+Declare a schedule in `widget.yaml` and the handler with the matching name in `widget.py`; the server's task scheduler fires the handler under the pin's `source_bot_id` each time `next_fire_at` falls due.
+
+```python
+# <bundle>/widget.py
+from spindrel.widget import on_cron, ctx
+
+@on_cron("hourly_roll")
+async def hourly_roll():
+    env = await ctx.tool("fetch_url", url="https://example.com/status")
+    await ctx.db.execute("update state set last = ? where id = 1", [env["body"]])
+```
+
+```yaml
+# <bundle>/widget.yaml
+cron:
+  - name: hourly_roll
+    schedule: "0 * * * *"
+    handler: hourly_roll
+```
+
+Per-handler timeout defaults to 5 minutes — override with `@on_cron("name", timeout=N)`. The scheduler advances `next_fire_at` BEFORE invoking, so a crashed handler cannot cause a re-fire storm. An invalid cron schedule disables its row (`enabled=False`) without failing the pin write.
+
+#### `@on_event` — channel event subscriptions (Phase B.4)
+
+Subscribe a handler to a channel-event stream. One live `asyncio.Task` per `(pin, kind, handler)` row subscribes to `channel_events.subscribe(pin.source_channel_id)` and fires the handler with the event's serialised payload dict.
+
+```python
+# <bundle>/widget.py
+from spindrel.widget import on_event, ctx
+
+@on_event("new_message")
+async def on_msg(payload):
+    await ctx.db.execute(
+        "insert into log(ts, body) values (datetime('now'), ?)",
+        [payload.get("message", {}).get("content", "")],
+    )
+```
+
+```yaml
+# <bundle>/widget.yaml
+permissions:
+  events: [new_message]              # ChannelEventKind allowlist — required
+events:
+  - kind: new_message
+    handler: on_msg
+```
+
+Key behaviour:
+
+- **Allowlist is fail-loud.** A handler declared for a `kind` not in `permissions.events` persists as `enabled=False` (visible in the DB, no task spawned). Missing from the allowlist ≠ oversight — widgets must declare what they listen to.
+- **No replay.** Subscribers use `since=None`; handlers see only events that happen *after* pin creation / lifespan-startup registration. Events published before the server booted are not delivered.
+- **Per-handler timeout** defaults to 30 s — override with `@on_event("kind", timeout=N)`. One slow or raising handler cannot stall the subscriber loop; exceptions are logged and the loop keeps listening.
+- **Survives restarts.** On server boot, `app/main.py` lifespan iterates every pinned bundle with a manifest and re-registers its event subscribers. Shutdown cancels them cleanly.
+- **Envelope update rebinds.** Swapping `source_path` (or the manifest behind it) cancels old subscriber tasks and respawns against the new manifest — no pin delete/recreate needed.
+
+Valid `kind` values are everything in `app.domain.channel_events.ChannelEventKind` (common ones: `new_message`, `turn_started`, `turn_ended`, `tool_activity`, `heartbeat_tick`, `approval_requested`, `message_updated`). The manifest validator rejects unknown kinds at load time.
 
 ---
 

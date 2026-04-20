@@ -66,12 +66,12 @@ export function AvatarMenu({ anchorRef, open, onClose, version }: Props) {
 
       <div className="py-1">
         <Link
-          to="/profile"
+          to="/settings/account"
           onClick={onClose}
           className="flex flex-row items-center gap-2.5 px-4 py-2 text-[13px] text-text-muted hover:bg-surface-overlay/60 hover:text-text transition-colors"
         >
           <User size={14} className="text-text-dim" />
-          Profile
+          Account
         </Link>
       </div>
 

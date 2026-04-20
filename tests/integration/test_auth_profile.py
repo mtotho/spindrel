@@ -259,3 +259,250 @@ class TestAuthMeScopes:
         resp = await client.get("/auth/me", headers={"Authorization": "Bearer fake"})
         assert resp.status_code == 200
         assert resp.json()["scopes"] == ["admin"]
+
+
+# ---------------------------------------------------------------------------
+# /auth/me/api-key — self-service API key (Track - User Management Phase 7)
+# ---------------------------------------------------------------------------
+
+class TestAuthMeApiKey:
+    async def test_get_returns_null_when_no_key(self, auth_client, db_session):
+        client, app = auth_client
+        user = User(
+            id=uuid.uuid4(),
+            email=f"no-key-{uuid.uuid4().hex[:6]}@test.com",
+            display_name="No Key",
+            auth_method="local",
+            password_hash="x",
+            is_admin=False,
+            integration_config={},
+            api_key_id=None,
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+
+        app.dependency_overrides[verify_user] = lambda: user
+        resp = await client.get("/auth/me/api-key", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        assert resp.json() is None
+
+    async def test_get_returns_metadata_for_provisioned_user(
+        self, auth_client, db_session
+    ):
+        from app.services.auth import create_local_user
+
+        client, app = auth_client
+        user = await create_local_user(
+            db_session, f"kmeta-{uuid.uuid4().hex[:6]}@test.com", "Keyed", "pw12345678"
+        )
+        app.dependency_overrides[verify_user] = lambda: user
+
+        resp = await client.get("/auth/me/api-key", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data is not None
+        assert data["id"]
+        assert data["name"].startswith("user:")
+        assert data["is_active"] is True
+        # Never leaks plaintext
+        assert "full_key" not in data
+        assert "key_hash" not in data
+        assert "key_value" not in data
+        # Scopes reflect member preset
+        assert "chat" in data["scopes"]
+        assert "admin" not in data["scopes"]
+        # key_prefix is 12 chars (SCOPE_PRESETS generate_key format)
+        assert len(data["key_prefix"]) == 12
+
+    async def test_rotate_mints_new_key_and_revokes_old(
+        self, auth_client, db_session
+    ):
+        from app.services.auth import create_local_user
+        from app.db.models import ApiKey as ApiKeyRow
+
+        client, app = auth_client
+        user = await create_local_user(
+            db_session, f"rot-{uuid.uuid4().hex[:6]}@test.com", "Rotator", "pw12345678"
+        )
+        old_key_id = user.api_key_id
+        assert old_key_id is not None
+
+        app.dependency_overrides[verify_user] = lambda: user
+        resp = await client.post(
+            "/auth/me/api-key/rotate", headers={"Authorization": "Bearer fake"}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["full_key"]  # plaintext returned ONCE
+        assert data["full_key"].startswith(data["key"]["key_prefix"])
+        new_key_id = data["key"]["id"]
+        assert new_key_id != str(old_key_id)
+
+        # user now points at the new key
+        await db_session.refresh(user)
+        assert str(user.api_key_id) == new_key_id
+
+        # old key is deactivated (soft-revoke)
+        old_row = await db_session.get(ApiKeyRow, old_key_id)
+        assert old_row is not None
+        assert old_row.is_active is False
+
+        # new key is active and has the right scopes
+        new_row = await db_session.get(ApiKeyRow, uuid.UUID(new_key_id))
+        assert new_row is not None
+        assert new_row.is_active is True
+        assert "chat" in (new_row.scopes or [])
+
+    async def test_rotate_admin_gets_admin_preset(self, auth_client, db_session):
+        from app.services.auth import create_local_user
+
+        client, app = auth_client
+        user = await create_local_user(
+            db_session,
+            f"arot-{uuid.uuid4().hex[:6]}@test.com",
+            "Admin Rot",
+            "pw12345678",
+            is_admin=True,
+        )
+        app.dependency_overrides[verify_user] = lambda: user
+
+        resp = await client.post(
+            "/auth/me/api-key/rotate", headers={"Authorization": "Bearer fake"}
+        )
+        assert resp.status_code == 200
+        scopes = resp.json()["key"]["scopes"]
+        assert "admin" in scopes
+
+    async def test_rotate_mints_first_key_when_none_exists(
+        self, auth_client, db_session
+    ):
+        client, app = auth_client
+        orphan = User(
+            id=uuid.uuid4(),
+            email=f"orphan-rot-{uuid.uuid4().hex[:6]}@test.com",
+            display_name="Orphan Rot",
+            auth_method="local",
+            password_hash="x",
+            is_admin=False,
+            integration_config={},
+            api_key_id=None,
+        )
+        db_session.add(orphan)
+        await db_session.commit()
+        await db_session.refresh(orphan)
+        assert orphan.api_key_id is None
+
+        app.dependency_overrides[verify_user] = lambda: orphan
+        resp = await client.post(
+            "/auth/me/api-key/rotate", headers={"Authorization": "Bearer fake"}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["full_key"]
+        await db_session.refresh(orphan)
+        assert orphan.api_key_id is not None
+
+
+# ---------------------------------------------------------------------------
+# /auth/me/bots — owned + granted (Track - User Management Phase 7)
+# ---------------------------------------------------------------------------
+
+class TestAuthMeBots:
+    async def test_returns_owned_bots_with_owner_role(self, auth_client, db_session):
+        from app.db.models import Bot as BotRow
+        from app.services.auth import create_local_user
+
+        client, app = auth_client
+        user = await create_local_user(
+            db_session, f"mybots-{uuid.uuid4().hex[:6]}@test.com", "Owner", "pw12345678"
+        )
+        bot = BotRow(
+            id=f"bot-{uuid.uuid4().hex[:8]}",
+            name="My Bot",
+            model="test-model",
+            system_prompt="",
+            user_id=user.id,
+        )
+        db_session.add(bot)
+        await db_session.commit()
+
+        app.dependency_overrides[verify_user] = lambda: user
+        resp = await client.get("/auth/me/bots", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["id"] == bot.id
+        assert data[0]["role"] == "owner"
+
+    async def test_returns_granted_bots_with_grant_role(self, auth_client, db_session):
+        from app.db.models import Bot as BotRow, BotGrant
+        from app.services.auth import create_local_user
+
+        client, app = auth_client
+        owner = await create_local_user(
+            db_session, f"owner-{uuid.uuid4().hex[:6]}@test.com", "Owner", "pw12345678"
+        )
+        grantee = await create_local_user(
+            db_session, f"grantee-{uuid.uuid4().hex[:6]}@test.com", "Grantee", "pw12345678"
+        )
+        bot = BotRow(
+            id=f"bot-{uuid.uuid4().hex[:8]}",
+            name="Shared Bot",
+            model="test-model",
+            system_prompt="",
+            user_id=owner.id,
+        )
+        db_session.add(bot)
+        await db_session.flush()
+        db_session.add(BotGrant(bot_id=bot.id, user_id=grantee.id, role="view"))
+        await db_session.commit()
+
+        app.dependency_overrides[verify_user] = lambda: grantee
+        resp = await client.get("/auth/me/bots", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["id"] == bot.id
+        assert data[0]["role"] == "view"
+
+    async def test_owner_role_wins_when_user_is_both_owner_and_grantee(
+        self, auth_client, db_session
+    ):
+        from app.db.models import Bot as BotRow, BotGrant
+        from app.services.auth import create_local_user
+
+        client, app = auth_client
+        user = await create_local_user(
+            db_session, f"dual-{uuid.uuid4().hex[:6]}@test.com", "Dual", "pw12345678"
+        )
+        bot = BotRow(
+            id=f"bot-{uuid.uuid4().hex[:8]}",
+            name="Self-granted",
+            model="test-model",
+            system_prompt="",
+            user_id=user.id,
+        )
+        db_session.add(bot)
+        await db_session.flush()
+        db_session.add(BotGrant(bot_id=bot.id, user_id=user.id, role="view"))
+        await db_session.commit()
+
+        app.dependency_overrides[verify_user] = lambda: user
+        resp = await client.get("/auth/me/bots", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["role"] == "owner"
+
+    async def test_returns_empty_for_user_with_no_bots(self, auth_client, db_session):
+        from app.services.auth import create_local_user
+
+        client, app = auth_client
+        user = await create_local_user(
+            db_session, f"nobots-{uuid.uuid4().hex[:6]}@test.com", "Empty", "pw12345678"
+        )
+        app.dependency_overrides[verify_user] = lambda: user
+        resp = await client.get("/auth/me/bots", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        assert resp.json() == []

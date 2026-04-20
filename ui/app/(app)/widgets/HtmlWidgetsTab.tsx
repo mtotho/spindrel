@@ -1,24 +1,31 @@
-/** Lists standalone HTML widgets scanned from a channel's workspace.
+/** Lists standalone HTML widgets from every source — built-in, integration,
+ *  and channel workspaces — so a user pinning to a dashboard can see the
+ *  whole library regardless of which dashboard they're on.
  *
- *  Unlike Recent calls (tool-output renderers) or From channel (pins already
- *  placed elsewhere), this surfaces bot/user-authored `.html` files as
- *  first-class catalog entries. Pinning synthesizes an `emit_html_widget`
- *  path-mode envelope so the existing renderer handles it with no extra
- *  backend plumbing. */
+ *  Pinning synthesizes an `emit_html_widget`-shaped envelope carrying the
+ *  widget's provenance (`source_kind` + source-specific id) so the
+ *  renderer fetches content from the right endpoint. */
 import { useMemo, useState } from "react";
 import {
-  CheckCircle2,
-  ChevronDown,
-  Loader2,
-  Pin,
   Activity,
   AlertTriangle,
+  Boxes,
+  CheckCircle2,
+  ChevronDown,
+  Hash,
   LayoutDashboard,
+  Loader2,
+  Package,
+  Pin,
   Tag,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import * as LucideIcons from "lucide-react";
-import type { HtmlWidgetEntry, ToolResultEnvelope } from "@/src/types/api";
+import type {
+  HtmlWidgetCatalog,
+  HtmlWidgetEntry,
+  ToolResultEnvelope,
+} from "@/src/types/api";
 
 const HTML_INTERACTIVE_CONTENT_TYPE = "application/vnd.spindrel.html+interactive";
 
@@ -35,21 +42,42 @@ function resolveIcon(name: string | null): LucideIcon {
   return icons[pascal] ?? LayoutDashboard;
 }
 
-/** Build the identity string we use to suppress already-pinned widgets.
- *  Mirrors how the existing `envelopeIdentityKey` treats path-mode HTML
- *  widgets: tool=emit_html_widget, key on source_path+channel. */
-export function htmlWidgetPinIdentity(channelId: string, path: string): string {
-  return `emit_html_widget::${channelId}::${path}`;
+/** Stable dedup key for a catalog entry, used to suppress already-pinned
+ *  widgets from the picker. Keys on (source, source-id, path). */
+export function catalogEntryIdentity(entry: HtmlWidgetEntry): string {
+  if (entry.source === "builtin") return `builtin::${entry.path}`;
+  if (entry.source === "integration") {
+    return `integration::${entry.integration_id ?? ""}::${entry.path}`;
+  }
+  // Channel source — path alone isn't enough since the same slug can exist
+  // in multiple channels; caller passes the channel id in for that case.
+  return `channel::${entry.path}`;
 }
 
-/** Synthesize a path-mode `emit_html_widget` envelope from a scanner entry.
- *  The renderer then fetches the file through the existing
- *  `/channels/{id}/workspace/files/content` endpoint + polls for changes. */
+/** Identity for an existing pin — matches what ``catalogEntryIdentity``
+ *  produces for freshly-scanned catalog rows so we can cheaply O(1) look up
+ *  "is this widget already on the dashboard?" per pin. */
+export function pinIdentity(envelope: ToolResultEnvelope): string | null {
+  if (!envelope?.source_path) return null;
+  const kind = envelope.source_kind
+    ?? (envelope.source_integration_id ? "integration" : "channel");
+  if (kind === "builtin") return `builtin::${envelope.source_path}`;
+  if (kind === "integration" && envelope.source_integration_id) {
+    return `integration::${envelope.source_integration_id}::${envelope.source_path}`;
+  }
+  if (kind === "channel" && envelope.source_channel_id) {
+    return `channel::${envelope.source_channel_id}::${envelope.source_path}`;
+  }
+  return null;
+}
+
+/** Synthesize the envelope that will be persisted on the pin. Uses the
+ *  entry's provenance to pick the right `source_kind` + id. */
 function envelopeForEntry(
   entry: HtmlWidgetEntry,
-  channelId: string,
+  channelId: string | null,
 ): ToolResultEnvelope {
-  return {
+  const base: ToolResultEnvelope = {
     content_type: HTML_INTERACTIVE_CONTENT_TYPE,
     body: "",
     plain_body: entry.description || entry.display_label,
@@ -59,42 +87,69 @@ function envelopeForEntry(
     byte_size: entry.size,
     display_label: entry.display_label,
     source_path: entry.path,
-    source_channel_id: channelId,
     source_bot_id: null,
+  };
+  if (entry.source === "builtin") {
+    return { ...base, source_kind: "builtin" };
+  }
+  if (entry.source === "integration") {
+    return {
+      ...base,
+      source_kind: "integration",
+      source_integration_id: entry.integration_id,
+    };
+  }
+  // "channel" — we need a channel id. If the caller doesn't have one we
+  // can't pin this entry; the row is disabled upstream.
+  return {
+    ...base,
+    source_kind: "channel",
+    source_channel_id: channelId,
   };
 }
 
+/** Identity tag for a catalog entry against a pins list. Channel entries
+ *  need the caller's channel id since the catalog's ``channels[]`` group
+ *  carries the channel id separately from the entry. */
+function entryIdentityForChannel(
+  entry: HtmlWidgetEntry,
+  channelId: string,
+): string {
+  if (entry.source === "channel") {
+    return `channel::${channelId}::${entry.path}`;
+  }
+  return catalogEntryIdentity(entry);
+}
+
 export interface HtmlWidgetsTabProps {
-  loaded: HtmlWidgetEntry[] | null;
+  catalog: HtmlWidgetCatalog | null;
   loadError: string | null;
   query: string;
-  channelId: string;
-  existingPaths: Set<string>;
+  /** Identity set of already-pinned widgets (via ``pinIdentity``). Matching
+   *  rows render as disabled "Pinned" chips. */
+  existingIdentities: Set<string>;
   onPin: (entry: HtmlWidgetEntry, envelope: ToolResultEnvelope) => Promise<void>;
 }
 
 export function HtmlWidgetsTab({
-  loaded,
+  catalog,
   loadError,
   query,
-  channelId,
-  existingPaths,
+  existingIdentities,
   onPin,
 }: HtmlWidgetsTabProps) {
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  const filtered = useMemo(() => {
-    if (!loaded) return [];
-    const q = query.trim().toLowerCase();
-    if (!q) return loaded;
-    return loaded.filter((e) => {
-      if (e.name.toLowerCase().includes(q)) return true;
-      if (e.description.toLowerCase().includes(q)) return true;
-      if (e.path.toLowerCase().includes(q)) return true;
-      if (e.tags.some((t) => t.toLowerCase().includes(q))) return true;
-      return false;
-    });
-  }, [loaded, query]);
+  const q = query.trim().toLowerCase();
+  const match = (entry: HtmlWidgetEntry) => {
+    if (!q) return true;
+    return (
+      entry.name.toLowerCase().includes(q)
+      || entry.description.toLowerCase().includes(q)
+      || entry.slug.toLowerCase().includes(q)
+      || entry.tags.some((t) => t.toLowerCase().includes(q))
+    );
+  };
 
   if (loadError) {
     return (
@@ -103,67 +158,137 @@ export function HtmlWidgetsTab({
       </p>
     );
   }
-  if (loaded === null) {
+  if (catalog === null) {
     return (
       <div className="space-y-2 p-4">
         {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className="h-14 animate-pulse rounded-md bg-surface-overlay/40"
-          />
+          <div key={i} className="h-14 animate-pulse rounded-md bg-surface-overlay/40" />
         ))}
       </div>
     );
   }
-  if (filtered.length === 0) {
+
+  const builtinMatches = catalog.builtin.filter(match);
+  const integrationGroups = catalog.integrations
+    .map((g) => ({ ...g, entries: g.entries.filter(match) }))
+    .filter((g) => g.entries.length > 0);
+  const channelGroups = catalog.channels
+    .map((g) => ({ ...g, entries: g.entries.filter(match) }))
+    .filter((g) => g.entries.length > 0);
+
+  const totalMatches =
+    builtinMatches.length
+    + integrationGroups.reduce((n, g) => n + g.entries.length, 0)
+    + channelGroups.reduce((n, g) => n + g.entries.length, 0);
+
+  if (totalMatches === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
         <div className="rounded-full bg-surface-overlay p-3">
           <Activity size={16} className="text-text-dim" />
         </div>
         <p className="text-[13px] font-medium text-text">
-          {query ? "No matches" : "No HTML widgets here yet"}
+          {q ? "No matches" : "No HTML widgets available"}
         </p>
         <p className="max-w-[280px] text-[11px] text-text-muted">
-          {query
+          {q
             ? "Try a different name, tag, or description."
-            : "Ask your bot to create one — the emit_html_widget skill walks through the bundle layout and frontmatter."}
+            : "The app ships built-ins at app/tools/local/widgets/; integrations can bundle their own under integrations/<id>/widgets/; bots/users can drop .html into a channel workspace."}
         </p>
       </div>
     );
   }
 
+  const renderEntry = (
+    entry: HtmlWidgetEntry,
+    channelIdForEntry: string | null,
+  ) => {
+    const key = `${entry.source}:${entry.integration_id ?? channelIdForEntry ?? ""}:${entry.path}`;
+    const identity = channelIdForEntry && entry.source === "channel"
+      ? entryIdentityForChannel(entry, channelIdForEntry)
+      : catalogEntryIdentity(entry);
+    const already = existingIdentities.has(identity);
+    const selected = selectedKey === key;
+    return (
+      <li key={key} className="px-3 py-1.5">
+        <HtmlWidgetRow
+          entry={entry}
+          already={already}
+          selected={selected}
+          onSelect={() => setSelectedKey(selected ? null : key)}
+          onConfirm={async () => {
+            await onPin(entry, envelopeForEntry(entry, channelIdForEntry));
+          }}
+          onCancel={() => setSelectedKey(null)}
+        />
+      </li>
+    );
+  };
+
   return (
-    <ul className="divide-y divide-surface-border">
-      {filtered.map((entry) => {
-        const identity = htmlWidgetPinIdentity(channelId, entry.path);
-        const already = existingPaths.has(identity);
-        const selected = selectedPath === entry.path;
-        return (
-          <li key={entry.path} className="px-3 py-1.5">
-            <HtmlWidgetRow
-              entry={entry}
-              channelId={channelId}
-              already={already}
-              selected={selected}
-              onSelect={() =>
-                setSelectedPath(selected ? null : entry.path)
-              }
-              onConfirm={async () => {
-                await onPin(entry, envelopeForEntry(entry, channelId));
-              }}
-              onCancel={() => setSelectedPath(null)}
-            />
-          </li>
-        );
-      })}
-    </ul>
+    <div className="pb-2">
+      {builtinMatches.length > 0 && (
+        <SectionHeader
+          icon={<Package size={11} />}
+          label="Built-in"
+          subtitle="Ship with the app"
+          count={builtinMatches.length}
+        />
+      )}
+      {builtinMatches.length > 0 && (
+        <ul className="divide-y divide-surface-border/50">
+          {builtinMatches.map((e) => renderEntry(e, null))}
+        </ul>
+      )}
+      {integrationGroups.map((g) => (
+        <div key={g.integration_id}>
+          <SectionHeader
+            icon={<Boxes size={11} />}
+            label={g.integration_id}
+            subtitle="Integration"
+            count={g.entries.length}
+          />
+          <ul className="divide-y divide-surface-border/50">
+            {g.entries.map((e) => renderEntry(e, null))}
+          </ul>
+        </div>
+      ))}
+      {channelGroups.map((g) => (
+        <div key={g.channel_id}>
+          <SectionHeader
+            icon={<Hash size={11} />}
+            label={g.channel_name}
+            subtitle="Channel workspace"
+            count={g.entries.length}
+          />
+          <ul className="divide-y divide-surface-border/50">
+            {g.entries.map((e) => renderEntry(e, g.channel_id))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SectionHeader({
+  icon, label, subtitle, count,
+}: { icon: React.ReactNode; label: string; subtitle: string; count: number }) {
+  return (
+    <div className="flex items-center justify-between px-4 pt-3 pb-1">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+        {icon}
+        <span className="text-text">{label}</span>
+        <span>· {subtitle}</span>
+      </div>
+      <span className="text-[10px] text-text-dim">
+        {count} widget{count === 1 ? "" : "s"}
+      </span>
+    </div>
   );
 }
 
 function HtmlWidgetRow({
   entry,
-  channelId: _channelId,
   already,
   selected,
   onSelect,
@@ -171,7 +296,6 @@ function HtmlWidgetRow({
   onCancel,
 }: {
   entry: HtmlWidgetEntry;
-  channelId: string;
   already: boolean;
   selected: boolean;
   onSelect: () => void;
@@ -183,10 +307,8 @@ function HtmlWidgetRow({
   return (
     <div
       className={[
-        "rounded-md border transition-colors",
-        selected
-          ? "border-accent/50 bg-surface"
-          : "border-transparent bg-surface",
+        "rounded-md transition-colors",
+        selected ? "bg-surface-overlay" : "bg-surface",
         already && "opacity-70",
       ]
         .filter(Boolean)
@@ -302,13 +424,13 @@ function ConfirmFooter({
   };
 
   return (
-    <div className="border-t border-surface-border/70 px-3 py-2">
+    <div className="px-3 py-2">
       <p className="text-[11px] text-text-muted">
-        Pins this workspace file as a path-mode HTML widget. Edits to the file
-        refresh the pinned widget within a few seconds.
+        Pins the file as a path-mode HTML widget. Edits to the source refresh
+        the pinned widget within a few seconds.
       </p>
       {error && (
-        <div className="mt-2 rounded-md border border-danger/30 bg-danger/10 px-2 py-1 text-[11px] text-danger">
+        <div className="mt-2 rounded-md bg-danger/10 px-2 py-1 text-[11px] text-danger">
           {error}
         </div>
       )}
@@ -317,7 +439,7 @@ function ConfirmFooter({
           type="button"
           onClick={onCancel}
           disabled={busy}
-          className="rounded-md border border-surface-border px-2.5 py-1 text-[11px] font-medium text-text-muted hover:bg-surface-overlay disabled:opacity-50"
+          className="rounded-md bg-surface-overlay px-2.5 py-1 text-[11px] font-medium text-text-muted hover:text-text disabled:opacity-50"
         >
           Cancel
         </button>

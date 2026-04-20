@@ -12,7 +12,8 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { useWidgetAction } from "@/src/api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "@/src/api/hooks/useWidgetAction";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
-import type { PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/api";
+import type { ChatZone, PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/api";
+import { ZoneChip } from "@/app/(app)/widgets/ZoneChip";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { apiFetch } from "@/src/api/client";
@@ -53,6 +54,10 @@ interface PinnedToolWidgetProps {
    *  persistent scrollbar — matches legacy behavior for every other surface. */
   borderless?: boolean;
   hoverScrollbars?: boolean;
+  /** Channel multi-canvas dashboard: render a small zone-picker chip in the
+   *  tile header (edit mode only) so the user can move the pin between
+   *  canvases (rail / header / dock / grid) without dragging across grids. */
+  zoneChip?: { current: ChatZone; onSelect: (z: ChatZone) => void };
 }
 
 export function PinnedToolWidget({
@@ -65,6 +70,7 @@ export function PinnedToolWidget({
   railMode = false,
   borderless = false,
   hoverScrollbars = false,
+  zoneChip,
 }: PinnedToolWidgetProps) {
   const isDashboard = scope.kind === "dashboard";
   const channelId = scope.kind === "channel" ? scope.channelId : null;
@@ -359,10 +365,12 @@ export function PinnedToolWidget({
     return null;
   }
 
-  // Borderless mode (dashboard-scope flag) drops the border color entirely so
-  // the neighboring tiles read as a clean grid of content blocks instead of
-  // a bordered admin chrome. Channel scope keeps its border unconditionally.
-  const showBorder = !(isDashboard && borderless);
+  // Borderless mode drops the border + borderColor entirely so the tiles read
+  // as a clean grid of content blocks rather than admin chrome. Callers pass
+  // this from the per-dashboard `grid_config.borderless` flag — applies
+  // consistently across all rendering surfaces (dashboard grid, OmniPanel
+  // rail, WidgetDockRight).
+  const showBorder = !borderless;
   const borderColorStyle = showBorder ? { borderColor: `${t.surfaceBorder}80` } : {};
   const sortableStyle = isDashboard
     ? {
@@ -455,6 +463,9 @@ export function PinnedToolWidget({
         >
           {resolveDisplayName(widget)}
         </span>
+        {zoneChip && editMode && (
+          <ZoneChip current={zoneChip.current} onSelect={zoneChip.onSelect} />
+        )}
         {isDashboard && editMode && onEdit && (
           <button
             type="button"
@@ -503,7 +514,7 @@ export function PinnedToolWidget({
           (isDashboard
             ? "px-2 pb-2 flex-1 min-h-0 "
             : "px-2 pb-2 max-h-[350px] ")
-          + (isDashboard && hoverScrollbars
+          + (hoverScrollbars
             ? "overflow-y-auto scroll-subtle"
             : "overflow-y-auto")
         }

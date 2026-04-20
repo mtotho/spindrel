@@ -11,8 +11,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Maximize2, Minimize2, Trash2, X } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
-import type { ChatZone, GridLayoutItem } from "@/src/types/api";
-import { classifyPin, type GridPreset } from "@/src/lib/dashboardGrid";
+import type { GridLayoutItem } from "@/src/types/api";
+import type { GridPreset } from "@/src/lib/dashboardGrid";
 
 const HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive";
 
@@ -107,6 +107,17 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   const jsonError = parsedConfig === null;
   const isOpen = !!pinId;
 
+  const currentLayout = (pin?.grid_layout as GridLayoutItem | undefined) ?? null;
+  /** Match the current pin's {w,h} against a preset. Used to highlight the
+   *  active chip. Falls back to null when the pin has a custom size. */
+  const activeSizeId = useMemo(() => {
+    if (!currentLayout || !preset) return null;
+    const hit = preset.sizePresets.find(
+      (p) => p.w === currentLayout.w && p.h === currentLayout.h,
+    );
+    return hit?.id ?? null;
+  }, [currentLayout, preset]);
+
   if (!isOpen) return null;
 
   const currentLabel = pin?.display_label ?? "";
@@ -147,21 +158,11 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   const isHtmlWidget = pin?.envelope?.content_type === HTML_INTERACTIVE_CT;
   const isPanelPin = !!pin?.is_main_panel;
 
-  const currentLayout = (pin?.grid_layout as GridLayoutItem | undefined) ?? null;
   const isFullWidth =
     !!currentLayout
     && !!preset
     && currentLayout.x === 0
     && currentLayout.w === preset.cols.lg;
-  /** Match the current pin's {w,h} against a preset. Used to highlight the
-   *  active chip. Falls back to null when the pin has a custom size. */
-  const activeSizeId = useMemo(() => {
-    if (!currentLayout || !preset) return null;
-    const hit = preset.sizePresets.find(
-      (p) => p.w === currentLayout.w && p.h === currentLayout.h,
-    );
-    return hit?.id ?? null;
-  }, [currentLayout, preset]);
 
   const applyTileSize = async (w: number, h: number, resetX: boolean) => {
     if (!pin || !currentLayout) return;
@@ -321,10 +322,6 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
               Leave empty to fall back to the widget's own label.
             </span>
           </label>
-
-          {pin && preset && pin.dashboard_key.startsWith("channel:") && (
-            <ChatPlacementRow pin={pin} preset={preset} />
-          )}
 
           {isHtmlWidget && (
             <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
@@ -510,50 +507,3 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   );
 }
 
-const ZONE_COPY: Record<ChatZone, { label: string; text: string }> = {
-  rail: {
-    label: "Chat sidebar",
-    text: "Appears in the chat sidebar rail alongside the OmniPanel.",
-  },
-  dock_right: {
-    label: "Chat right dock",
-    text: "Appears in the right-side dock on the chat screen.",
-  },
-  header_chip: {
-    label: "Chat header",
-    text: "Appears as a compact chip in the channel header.",
-  },
-  grid: {
-    label: "Dashboard only",
-    text: "Not visible on the chat screen. Drag to a rail, dock, or header band in edit mode to surface it.",
-  },
-};
-
-function ChatPlacementRow({
-  pin,
-  preset,
-}: {
-  pin: { grid_layout: GridLayoutItem | Record<string, never> };
-  preset: GridPreset;
-}) {
-  const zone = classifyPin(pin, preset);
-  const { label, text } = ZONE_COPY[zone];
-  return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
-          Chat placement
-        </span>
-        <span
-          className={
-            "text-[10px] font-medium "
-            + (zone === "grid" ? "text-text-dim" : "text-accent")
-          }
-        >
-          {label}
-        </span>
-      </div>
-      <p className="text-[11px] text-text-muted leading-snug">{text}</p>
-    </div>
-  );
-}

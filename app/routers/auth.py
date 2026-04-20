@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import ApiKey as ApiKeyRow
 from app.dependencies import get_db, verify_user
 from app.services.auth import (
     create_access_token,
@@ -131,6 +133,30 @@ class UpdateProfileRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class ApiKeyMetaResponse(BaseModel):
+    id: str
+    name: str
+    key_prefix: str
+    scopes: list[str]
+    is_active: bool
+    created_at: datetime
+    last_used_at: datetime | None = None
+
+
+class ApiKeyRotateResponse(BaseModel):
+    key: ApiKeyMetaResponse
+    full_key: str
+
+
+class MyBotEntry(BaseModel):
+    id: str
+    name: str
+    display_name: str | None = None
+    avatar_url: str | None = None
+    model: str
+    role: str  # "owner" | "view" | "manage"
 
 
 def _user_response(user, scopes: list[str] | None = None) -> UserResponse:
@@ -313,3 +339,114 @@ async def auth_change_password(
     user.password_hash = hash_password(req.new_password)
     await db.commit()
     return {"status": "ok"}
+
+
+def _api_key_meta(row: ApiKeyRow) -> ApiKeyMetaResponse:
+    return ApiKeyMetaResponse(
+        id=str(row.id),
+        name=row.name,
+        key_prefix=row.key_prefix,
+        scopes=list(row.scopes or []),
+        is_active=row.is_active,
+        created_at=row.created_at,
+        last_used_at=row.last_used_at,
+    )
+
+
+@router.get("/me/api-key", response_model=ApiKeyMetaResponse | None)
+async def auth_me_api_key(
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_user),
+):
+    """Metadata for the caller's own API key. Never returns plaintext."""
+    if not user.api_key_id:
+        return None
+    row = await db.get(ApiKeyRow, user.api_key_id)
+    if row is None:
+        return None
+    return _api_key_meta(row)
+
+
+@router.get("/me/bots", response_model=list[MyBotEntry])
+async def auth_me_bots(
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_user),
+):
+    """Bots the caller owns or has been granted access to.
+
+    Admins see the same shape — bots they personally own plus any explicit
+    grants. It's the "my stuff" landing, not the superuser list (which lives
+    at /api/v1/admin/bots).
+    """
+    from sqlalchemy import select
+    from app.db.models import Bot as BotRow, BotGrant
+
+    owned_rows = (await db.execute(
+        select(BotRow).where(BotRow.user_id == user.id)
+    )).scalars().all()
+
+    grant_rows = (await db.execute(
+        select(BotRow, BotGrant.role)
+        .join(BotGrant, BotGrant.bot_id == BotRow.id)
+        .where(BotGrant.user_id == user.id)
+    )).all()
+
+    entries: dict[str, MyBotEntry] = {}
+    for bot in owned_rows:
+        entries[bot.id] = MyBotEntry(
+            id=bot.id,
+            name=bot.name,
+            display_name=bot.display_name,
+            avatar_url=bot.avatar_url,
+            model=bot.model,
+            role="owner",
+        )
+    for bot, role in grant_rows:
+        # Owner wins if both apply.
+        if bot.id in entries:
+            continue
+        entries[bot.id] = MyBotEntry(
+            id=bot.id,
+            name=bot.name,
+            display_name=bot.display_name,
+            avatar_url=bot.avatar_url,
+            model=bot.model,
+            role=str(role) if role else "view",
+        )
+    return sorted(entries.values(), key=lambda b: (b.display_name or b.name).lower())
+
+
+@router.post("/me/api-key/rotate", response_model=ApiKeyRotateResponse)
+async def auth_me_rotate_api_key(
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_user),
+):
+    """Mint a fresh API key for the caller, soft-revoking any prior key.
+
+    Returns the plaintext key exactly once. Scope preset is derived from the
+    user's role (admin_user vs member_user), matching provisioning.
+    """
+    from app.services.api_keys import SCOPE_PRESETS, create_api_key
+
+    user = await get_user_by_id(db, user.id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.api_key_id:
+        prior = await db.get(ApiKeyRow, user.api_key_id)
+        if prior is not None and prior.is_active:
+            prior.is_active = False
+
+    preset_name = "admin_user" if user.is_admin else "member_user"
+    scopes = list(SCOPE_PRESETS[preset_name]["scopes"])
+    row, full_key = await create_api_key(
+        db,
+        name=f"user:{user.email}",
+        scopes=scopes,
+        user_id=user.id,
+        store_key_value=False,
+    )
+    user.api_key_id = row.id
+    await db.commit()
+    await db.refresh(row)
+    return ApiKeyRotateResponse(key=_api_key_meta(row), full_key=full_key)

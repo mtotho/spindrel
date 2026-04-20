@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  ChatZone,
   GridLayoutItem,
   WidgetDashboardPin,
   ToolResultEnvelope,
@@ -9,6 +10,8 @@ import { apiFetch } from "../api/client";
 
 interface LayoutUpdateItem extends GridLayoutItem {
   id: string;
+  /** Set only for cross-canvas moves; omit to keep the pin's current zone. */
+  zone?: ChatZone;
 }
 
 /** Matching key for a dashboard pin — `${prefix}::${identity}`. */
@@ -263,8 +266,12 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
       pins: prev.map((p) => {
         const update = byId.get(p.id);
         if (!update) return p;
-        const { x, y, w, h } = update;
-        return { ...p, grid_layout: { x, y, w, h } };
+        const { x, y, w, h, zone } = update;
+        return {
+          ...p,
+          grid_layout: { x, y, w, h },
+          zone: zone ?? p.zone,
+        };
       }),
     });
     try {

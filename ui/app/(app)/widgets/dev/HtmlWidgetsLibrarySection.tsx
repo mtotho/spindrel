@@ -1,186 +1,276 @@
 /** HTML widgets section of the dev-panel Library.
  *
- *  Sibling to the tool-renderer list shown by `WidgetLibraryTab`. Scans a
- *  selected channel's workspace for standalone `.html` widgets and exposes
- *  authoring affordances — copy path, open in file editor, preview.
- *
- *  Distinct from the "HTML widgets" tab on `AddFromChannelSheet`, which is
- *  end-user pinning; this is the authoring/inventory surface for template
- *  developers. */
+ *  Renders the unified widget catalog — built-in (ships with the repo),
+ *  per-integration (under ``integrations/<id>/widgets/``), and per-channel
+ *  workspace — as one scannable inventory with a provenance pill on every
+ *  row. Replaces the earlier single-channel picker view: the point of the
+ *  Library is "what can I pin?", and the answer should not depend on which
+ *  channel happens to be selected. */
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
+  Boxes,
   Copy,
   ExternalLink,
   FileCode,
+  Hash,
+  Package,
   ScrollText,
+  Search,
   Tag,
 } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
-import { ChannelPicker } from "@/src/components/shared/ChannelPicker";
-import { useChannels } from "@/src/api/hooks/useChannels";
-import { useBots } from "@/src/api/hooks/useBots";
-import {
-  channelIdFromSlug,
-  isChannelSlug,
-} from "@/src/stores/dashboards";
-import type { HtmlWidgetEntry } from "@/src/types/api";
+import type {
+  HtmlWidgetCatalog,
+  HtmlWidgetEntry,
+} from "@/src/types/api";
 
-const STORAGE_KEY = "widgets.dev.library.html.channel_id";
-
-/** Resolve the initial channel for this section, in order:
- *    1. `?from=channel:<uuid>` query param (dev panel was opened from a channel dashboard)
- *    2. Last-selected channel from localStorage
- *    3. Empty string (user will pick from the dropdown) */
-function useInitialChannelId(): string {
-  const [params] = useSearchParams();
-  return useMemo(() => {
-    const fromSlug = params.get("from");
-    if (fromSlug && isChannelSlug(fromSlug)) {
-      const cid = channelIdFromSlug(fromSlug);
-      if (cid) return cid;
-    }
-    try {
-      return localStorage.getItem(STORAGE_KEY) ?? "";
-    } catch {
-      return "";
-    }
-  }, [params]);
-}
+type SourceFilter = "all" | "builtin" | "integration" | "channel";
 
 export function HtmlWidgetsLibrarySection() {
-  const initialChannelId = useInitialChannelId();
-  const [channelId, setChannelId] = useState<string>(initialChannelId);
-  const [widgets, setWidgets] = useState<HtmlWidgetEntry[] | null>(null);
+  const [catalog, setCatalog] = useState<HtmlWidgetCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const { data: channels } = useChannels();
-  const { data: bots } = useBots();
-
-  useEffect(() => {
-    try {
-      if (channelId) localStorage.setItem(STORAGE_KEY, channelId);
-    } catch {
-      /* localStorage disabled — safe to ignore */
-    }
-  }, [channelId]);
+  const [query, setQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
 
   useEffect(() => {
-    if (!channelId) {
-      setWidgets(null);
-      return;
-    }
     let cancelled = false;
-    setWidgets(null);
+    setCatalog(null);
     setError(null);
-    apiFetch<{ widgets: HtmlWidgetEntry[] }>(
-      `/api/v1/channels/${encodeURIComponent(channelId)}/workspace/html-widgets`,
-    )
-      .then((resp) => { if (!cancelled) setWidgets(resp.widgets ?? []); })
+    apiFetch<HtmlWidgetCatalog>("/api/v1/widgets/html-widget-catalog")
+      .then((resp) => { if (!cancelled) setCatalog(resp); })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       });
     return () => { cancelled = true; };
-  }, [channelId]);
+  }, []);
+
+  const totals = useMemo(() => {
+    if (!catalog) return { builtin: 0, integration: 0, channel: 0, all: 0 };
+    const intCount = catalog.integrations.reduce((n, g) => n + g.entries.length, 0);
+    const chCount = catalog.channels.reduce((n, g) => n + g.entries.length, 0);
+    return {
+      builtin: catalog.builtin.length,
+      integration: intCount,
+      channel: chCount,
+      all: catalog.builtin.length + intCount + chCount,
+    };
+  }, [catalog]);
+
+  const q = query.trim().toLowerCase();
+  const match = (e: HtmlWidgetEntry) => {
+    if (!q) return true;
+    return (
+      e.name.toLowerCase().includes(q)
+      || e.slug.toLowerCase().includes(q)
+      || e.description.toLowerCase().includes(q)
+      || e.tags.some((t) => t.toLowerCase().includes(q))
+    );
+  };
+
+  const showBuiltin = sourceFilter === "all" || sourceFilter === "builtin";
+  const showIntegration = sourceFilter === "all" || sourceFilter === "integration";
+  const showChannel = sourceFilter === "all" || sourceFilter === "channel";
 
   return (
-    <section className="rounded-lg border border-surface-border bg-surface-raised">
-      <header className="flex flex-col gap-2 border-b border-surface-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+    <section className="rounded-lg bg-surface-raised">
+      <header className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h3 className="text-[13px] font-semibold text-text">
             HTML widgets{" "}
-            {widgets && (
+            {catalog && (
               <span className="ml-1 text-[11px] font-normal text-text-dim">
-                ({widgets.length})
+                ({totals.all})
               </span>
             )}
           </h3>
           <p className="mt-0.5 text-[11px] text-text-muted">
-            Standalone dashboard surfaces authored as <span className="font-mono">.html</span> in a channel workspace.
-            Pinned directly — no tool call required.
+            Standalone dashboard surfaces. Shipped with the app, included in an integration, or authored as <span className="font-mono">.html</span> in a channel workspace.
           </p>
         </div>
-        <div className="shrink-0 sm:min-w-[260px]">
-          <ChannelPicker
-            value={channelId}
-            onChange={setChannelId}
-            channels={channels ?? []}
-            bots={bots ?? []}
-            allowNone
-            placeholder="Pick a channel to scan…"
+        <div className="flex items-center gap-1.5 rounded-md bg-surface px-1.5 py-1 text-[11px]">
+          <FilterChip
+            label={`All (${totals.all})`}
+            active={sourceFilter === "all"}
+            onClick={() => setSourceFilter("all")}
+          />
+          <FilterChip
+            icon={<Package size={10} />}
+            label={`Built-in (${totals.builtin})`}
+            active={sourceFilter === "builtin"}
+            onClick={() => setSourceFilter("builtin")}
+          />
+          <FilterChip
+            icon={<Boxes size={10} />}
+            label={`Integration (${totals.integration})`}
+            active={sourceFilter === "integration"}
+            onClick={() => setSourceFilter("integration")}
+          />
+          <FilterChip
+            icon={<Hash size={10} />}
+            label={`Channel (${totals.channel})`}
+            active={sourceFilter === "channel"}
+            onClick={() => setSourceFilter("channel")}
           />
         </div>
       </header>
 
-      {!channelId && (
-        <div className="p-6 text-center text-[12px] text-text-muted">
-          Pick a channel above to scan its workspace for HTML widgets.
-          Non-channel widget roots (shared across channels) are not yet available — that unlocks with DX-5b.
+      <div className="px-4 pb-3">
+        <label className="flex items-center gap-2 rounded-md bg-surface px-2.5 py-1.5 focus-within:ring-1 focus-within:ring-accent/60">
+          <Search size={13} className="text-text-dim" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter widgets…"
+            className="flex-1 bg-transparent text-[12px] text-text placeholder-text-dim outline-none"
+          />
+        </label>
+      </div>
+
+      {error && (
+        <div className="px-4 pb-4 text-[12px] text-danger">
+          Failed to load catalog: {error}
         </div>
       )}
 
-      {channelId && error && (
-        <div className="p-5 text-[12px] text-danger">
-          Failed to load widgets: {error}
-        </div>
-      )}
-
-      {channelId && !error && widgets === null && (
-        <div className="space-y-2 p-4">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className="h-14 animate-pulse rounded-md bg-surface-overlay/40"
-            />
+      {!error && catalog === null && (
+        <div className="space-y-2 px-4 pb-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-14 animate-pulse rounded-md bg-surface-overlay/40" />
           ))}
         </div>
       )}
 
-      {channelId && !error && widgets && widgets.length === 0 && (
-        <div className="p-6 text-center text-[12px] text-text-muted">
-          No HTML widgets in this channel's workspace. Ask a bot to emit one,
-          or drop a <span className="font-mono">data/widgets/&lt;slug&gt;/index.html</span> file yourself.
-        </div>
-      )}
-
-      {channelId && widgets && widgets.length > 0 && (
-        <ul className="divide-y divide-surface-border">
-          {widgets.map((w) => (
-            <HtmlWidgetLibraryRow
-              key={w.path}
-              entry={w}
-              channelId={channelId}
+      {catalog && (
+        <div className="flex flex-col gap-4 pb-4">
+          {showBuiltin && catalog.builtin.length > 0 && (
+            <Group
+              icon={<Package size={13} className="text-accent" />}
+              title="Built-in"
+              subtitle="Ship with the app"
+              entries={catalog.builtin.filter(match)}
+              sourceLink={null}
             />
-          ))}
-        </ul>
+          )}
+          {showIntegration && catalog.integrations.map((group) => {
+            const filtered = group.entries.filter(match);
+            if (filtered.length === 0) return null;
+            return (
+              <Group
+                key={group.integration_id}
+                icon={<Boxes size={13} className="text-accent" />}
+                title={group.integration_id}
+                subtitle={`integrations/${group.integration_id}/widgets/`}
+                entries={filtered}
+                sourceLink={null}
+              />
+            );
+          })}
+          {showChannel && catalog.channels.map((group) => {
+            const filtered = group.entries.filter(match);
+            if (filtered.length === 0) return null;
+            return (
+              <Group
+                key={group.channel_id}
+                icon={<Hash size={13} className="text-accent" />}
+                title={group.channel_name}
+                subtitle="Channel workspace"
+                entries={filtered}
+                sourceLink={null}
+              />
+            );
+          })}
+          {totals.all === 0 && (
+            <p className="px-4 py-6 text-center text-[12px] text-text-muted">
+              No HTML widgets found anywhere. Drop a <span className="font-mono">.html</span> into a channel workspace, bundle one into an integration, or author one under <span className="font-mono">app/tools/local/widgets/</span>.
+            </p>
+          )}
+        </div>
       )}
     </section>
   );
 }
 
-function HtmlWidgetLibraryRow({
-  entry,
-  channelId,
+function FilterChip({
+  label, active, onClick, icon,
 }: {
-  entry: HtmlWidgetEntry;
-  channelId: string;
+  label: string; active: boolean; onClick: () => void; icon?: React.ReactNode;
 }) {
-  const absPath = `/workspace/channels/${channelId}/${entry.path}`;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "inline-flex items-center gap-1 rounded px-2 py-1 transition-colors",
+        active
+          ? "bg-accent/15 text-accent"
+          : "text-text-muted hover:bg-surface-overlay hover:text-text",
+      ].join(" ")}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function Group({
+  icon, title, subtitle, entries,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  entries: HtmlWidgetEntry[];
+  sourceLink: string | null;
+}) {
+  return (
+    <div className="mx-4 overflow-hidden rounded-md bg-surface">
+      <div className="flex items-baseline gap-2 px-3 py-2">
+        {icon}
+        <span className="text-[12px] font-semibold text-text">{title}</span>
+        <span className="text-[11px] text-text-dim">· {subtitle}</span>
+        <span className="ml-auto text-[10px] text-text-dim">
+          {entries.length} widget{entries.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <ul className="divide-y divide-surface-border/40">
+        {entries.map((e) => (
+          <HtmlWidgetLibraryRow key={`${e.source}:${e.integration_id ?? ""}:${e.path}`} entry={e} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function HtmlWidgetLibraryRow({ entry }: { entry: HtmlWidgetEntry }) {
   const [copied, setCopied] = useState(false);
+
+  const fullyQualifiedPath = useMemo(() => {
+    if (entry.source === "builtin") return `app/tools/local/widgets/${entry.path}`;
+    if (entry.source === "integration") {
+      return `integrations/${entry.integration_id}/widgets/${entry.path}`;
+    }
+    return entry.path;
+  }, [entry]);
+
+  const rawHref = useMemo(() => {
+    if (entry.source === "builtin") {
+      return `/api/v1/widgets/html-widget-content/builtin?path=${encodeURIComponent(entry.path)}`;
+    }
+    if (entry.source === "integration" && entry.integration_id) {
+      return `/api/v1/widgets/html-widget-content/integrations/${encodeURIComponent(entry.integration_id)}?path=${encodeURIComponent(entry.path)}`;
+    }
+    return null;
+  }, [entry]);
 
   const copyPath = async () => {
     try {
-      await navigator.clipboard.writeText(absPath);
+      await navigator.clipboard.writeText(fullyQualifiedPath);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       /* clipboard permission denied — silent */
     }
   };
-
-  const rawHref =
-    `/api/v1/channels/${encodeURIComponent(channelId)}/workspace/files/content?path=${encodeURIComponent(entry.path)}`;
 
   return (
     <li className="flex items-start gap-3 px-4 py-3">
@@ -226,29 +316,31 @@ function HtmlWidgetLibraryRow({
               <Tag size={8} /> {t}
             </span>
           ))}
-          <span className="truncate font-mono">{entry.path}</span>
+          <span className="truncate font-mono">{fullyQualifiedPath}</span>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
           onClick={copyPath}
-          className="inline-flex items-center gap-1 rounded-md border border-surface-border px-2 py-1 text-[11px] text-text-muted hover:bg-surface-overlay hover:text-text"
-          title="Copy the absolute workspace path (use it as emit_html_widget's `path` argument)"
+          className="inline-flex items-center gap-1 rounded-md bg-surface-overlay px-2 py-1 text-[11px] text-text-muted hover:text-text"
+          title="Copy the repo path"
         >
           <Copy size={11} />
-          {copied ? "Copied" : "Copy path"}
+          {copied ? "Copied" : "Copy"}
         </button>
-        <a
-          href={rawHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 rounded-md border border-surface-border px-2 py-1 text-[11px] text-text-muted hover:bg-surface-overlay hover:text-text"
-          title="Open the raw HTML source in a new tab"
-        >
-          <ExternalLink size={11} />
-          Source
-        </a>
+        {rawHref && (
+          <a
+            href={rawHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-md bg-surface-overlay px-2 py-1 text-[11px] text-text-muted hover:text-text"
+            title="Open raw HTML source"
+          >
+            <ExternalLink size={11} />
+            Source
+          </a>
+        )}
       </div>
     </li>
   );

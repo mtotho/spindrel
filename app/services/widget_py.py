@@ -7,12 +7,14 @@ LLM-driven tool dispatch.
 
 Public surface
 --------------
-on_action(name=None, *, timeout=30)   — decorator, register a JS-callable handler
-on_cron(name)                          — decorator (surface for B.3; stored but unused here)
-on_event(kind)                         — decorator (surface for B.4; stored but unused here)
-ctx                                    — per-invocation context object (db, tool, pin, ...)
-load_module(widget_py_path)            — import (and hot-reload) a widget.py
-invoke_action(pin, handler_name, args) — resolve + call a handler; returns JSON-able result
+on_action(name=None, *, timeout=30)           — decorator, register a JS-callable handler
+on_cron(name, *, timeout=300)                  — decorator, wire via scheduler (B.3)
+on_event(kind, *, timeout=30)                  — decorator, wire via channel event bus (B.4)
+ctx                                            — per-invocation context object (db, tool, pin, ...)
+load_module(widget_py_path)                    — import (and hot-reload) a widget.py
+invoke_action(pin, handler_name, args)         — resolve + call an @on_action handler
+invoke_cron(pin, cron_name)                    — resolve + call an @on_cron handler (no args)
+invoke_event(pin, event_kind, handler, payload) — resolve + call an @on_event handler
 """
 from __future__ import annotations
 
@@ -76,21 +78,40 @@ def on_action(name: str | Callable | None = None, *, timeout: int = 30):
     return decorator
 
 
-def on_cron(name: str):
-    """Mark a handler as cron-triggered. Wired in B.3."""
+def on_cron(name: str, *, timeout: int = 300):
+    """Mark a handler as cron-triggered.
+
+    ``timeout`` is generous by default (5 min) — cron work tends to do real
+    I/O (``ctx.tool`` fetches, DB writes) that can take longer than an
+    interactive ``@on_action``. Widget authors can lower or raise it per
+    handler.
+    """
 
     def decorator(func: Callable) -> Callable:
         func._spindrel_cron_name = name  # type: ignore[attr-defined]
+        func._spindrel_cron_timeout = timeout  # type: ignore[attr-defined]
         return func
 
     return decorator
 
 
-def on_event(kind: str):
-    """Mark a handler as event-triggered. Wired in B.4."""
+def on_event(kind: str, *, timeout: int = 30):
+    """Mark a handler as event-triggered.
+
+    When a pin's channel publishes a matching ``ChannelEvent``, the
+    subscriber task in ``app/services/widget_events.py`` invokes the
+    decorated handler with a single ``payload`` argument (JSON-serialised
+    dict derived from the event's typed payload). Handlers run under the
+    pin's ``source_bot_id``.
+
+    ``timeout`` (seconds, default 30) bounds the per-event handler run.
+    One buggy handler cannot stall the subscriber loop — the loop catches
+    exceptions (including ``asyncio.TimeoutError``) and keeps listening.
+    """
 
     def decorator(func: Callable) -> Callable:
         func._spindrel_event_kind = kind  # type: ignore[attr-defined]
+        func._spindrel_event_timeout = timeout  # type: ignore[attr-defined]
         return func
 
     return decorator
@@ -259,10 +280,18 @@ def _module_name_for(path: Path) -> str:
 
 
 def _harvest(module: ModuleType) -> None:
-    """Scan the module for decorated handlers and populate registries."""
+    """Scan the module for decorated handlers and populate registries.
+
+    ``_spindrel_events`` is keyed as ``{event_kind: {handler_name: fn}}``
+    so B.4's ``invoke_event(pin, event_kind, handler_name, payload)`` can
+    resolve the exact function row the DB subscription row referenced.
+    Multiple handlers for the same ``kind`` are supported as long as each
+    has a distinct function name (Python's module namespace already
+    enforces this).
+    """
     actions: dict[str, Callable] = {}
     crons: dict[str, Callable] = {}
-    events: dict[str, list[Callable]] = {}
+    events: dict[str, dict[str, Callable]] = {}
 
     for attr in dir(module):
         fn = getattr(module, attr, None)
@@ -284,7 +313,9 @@ def _harvest(module: ModuleType) -> None:
             crons[cron_name] = fn
         event_kind = getattr(fn, "_spindrel_event_kind", None)
         if event_kind is not None:
-            events.setdefault(event_kind, []).append(fn)
+            handler_name = getattr(fn, "__name__", attr)
+            bucket = events.setdefault(event_kind, {})
+            bucket[handler_name] = fn
 
     module._spindrel_actions = actions  # type: ignore[attr-defined]
     module._spindrel_crons = crons  # type: ignore[attr-defined]
@@ -368,15 +399,12 @@ def _resolve_bundle_dir(pin) -> Path:
     return bundle_dir
 
 
-async def invoke_action(pin, handler_name: str, args: dict | None = None) -> Any:
-    """Resolve and run the ``@on_action(handler_name)`` handler on a pin's widget.py.
+def _load_pin_module(pin) -> tuple[Path, ModuleType, Any]:
+    """Resolve ``<bundle>/widget.py`` + parse manifest for a pin.
 
-    ContextVars set for the call: ``_current_pin`` and ``_current_manifest``
-    (from the bundle's widget.yaml if present). Sync handlers run inline;
-    async handlers are awaited with the per-action timeout.
-
-    Raises ``FileNotFoundError`` / ``KeyError`` / ``ValueError`` / ``PermissionError``
-    / ``asyncio.TimeoutError`` for the dispatch router to serialise.
+    Returns ``(py_path, module, manifest_or_None)``. Raises
+    ``FileNotFoundError`` if no widget.py, ``ValueError`` on manifest parse
+    errors, and propagates import errors from ``load_module``.
     """
     from app.services.widget_manifest import ManifestError, parse_manifest
 
@@ -394,19 +422,86 @@ async def invoke_action(pin, handler_name: str, args: dict | None = None) -> Any
             raise ValueError(f"widget.yaml invalid: {exc}") from exc
 
     module = load_module(py_path)
-    handler = module._spindrel_actions.get(handler_name)  # type: ignore[attr-defined]
-    if handler is None:
-        raise KeyError(f"no @on_action({handler_name!r}) in {py_path}")
+    return py_path, module, manifest
 
-    timeout = getattr(handler, "_spindrel_action_timeout", 30)
 
+async def _run_handler(pin, manifest, handler, call_args: tuple, timeout: int) -> Any:
+    """Set ContextVars, call handler, await coroutines with timeout, cleanup."""
     pin_tok = _current_pin.set(pin)
     man_tok = _current_manifest.set(manifest)
     try:
-        result = handler(args or {})
+        result = handler(*call_args)
         if inspect.iscoroutine(result):
             result = await asyncio.wait_for(result, timeout=timeout)
         return result
     finally:
         _current_pin.reset(pin_tok)
         _current_manifest.reset(man_tok)
+
+
+async def invoke_action(pin, handler_name: str, args: dict | None = None) -> Any:
+    """Resolve and run the ``@on_action(handler_name)`` handler on a pin's widget.py.
+
+    ContextVars set for the call: ``_current_pin`` and ``_current_manifest``
+    (from the bundle's widget.yaml if present). Sync handlers run inline;
+    async handlers are awaited with the per-action timeout.
+
+    Raises ``FileNotFoundError`` / ``KeyError`` / ``ValueError`` / ``PermissionError``
+    / ``asyncio.TimeoutError`` for the dispatch router to serialise.
+    """
+    py_path, module, manifest = _load_pin_module(pin)
+
+    handler = module._spindrel_actions.get(handler_name)  # type: ignore[attr-defined]
+    if handler is None:
+        raise KeyError(f"no @on_action({handler_name!r}) in {py_path}")
+
+    timeout = getattr(handler, "_spindrel_action_timeout", 30)
+    return await _run_handler(pin, manifest, handler, ((args or {}),), timeout)
+
+
+async def invoke_cron(pin, cron_name: str) -> Any:
+    """Resolve and run the ``@on_cron(cron_name)`` handler on a pin's widget.py.
+
+    Called by the task scheduler when ``WidgetCronSubscription.next_fire_at``
+    falls due. Runs under the pin's ``source_bot_id`` (same identity flow as
+    ``invoke_action``); cron handlers take no args.
+
+    Raises ``FileNotFoundError`` / ``KeyError`` / ``ValueError`` /
+    ``PermissionError`` / ``asyncio.TimeoutError`` — the scheduler catches
+    and logs; the next scheduled fire still runs.
+    """
+    py_path, module, manifest = _load_pin_module(pin)
+
+    handler = module._spindrel_crons.get(cron_name)  # type: ignore[attr-defined]
+    if handler is None:
+        raise KeyError(f"no @on_cron({cron_name!r}) in {py_path}")
+
+    timeout = getattr(handler, "_spindrel_cron_timeout", 300)
+    return await _run_handler(pin, manifest, handler, (), timeout)
+
+
+async def invoke_event(
+    pin, event_kind: str, handler_name: str, payload: dict,
+) -> Any:
+    """Resolve and run an ``@on_event(event_kind)`` handler on a pin's widget.py.
+
+    Called by the event subscriber loop in ``app/services/widget_events.py``
+    when a matching ``ChannelEvent`` is received. Runs under the pin's
+    ``source_bot_id`` (same identity flow as ``invoke_action`` / ``invoke_cron``).
+    The handler receives ``payload`` as its single argument.
+
+    Raises ``FileNotFoundError`` / ``KeyError`` / ``ValueError`` /
+    ``PermissionError`` / ``asyncio.TimeoutError`` — the subscriber loop
+    catches and logs; future events on the subscription continue to fire.
+    """
+    py_path, module, manifest = _load_pin_module(pin)
+
+    kind_bucket = module._spindrel_events.get(event_kind, {})  # type: ignore[attr-defined]
+    handler = kind_bucket.get(handler_name)
+    if handler is None:
+        raise KeyError(
+            f"no @on_event({event_kind!r}) handler named {handler_name!r} in {py_path}"
+        )
+
+    timeout = getattr(handler, "_spindrel_event_timeout", 30)
+    return await _run_handler(pin, manifest, handler, (payload,), timeout)

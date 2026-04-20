@@ -29,6 +29,7 @@ import { CreateDashboardSheet } from "./CreateDashboardSheet";
 import { EditDashboardDrawer } from "./EditDashboardDrawer";
 import { ChannelDashboardBreadcrumb } from "./ChannelDashboardBreadcrumb";
 import { EditModeGridGuides } from "./EditModeGridGuides";
+import { ChannelDashboardMultiCanvas } from "./ChannelDashboardMultiCanvas";
 import { KioskExitChip } from "./KioskExitChip";
 import {
   channelIdFromSlug,
@@ -40,22 +41,12 @@ import { resolveChrome, resolvePreset, type DashboardChrome, type GridPreset } f
 // EphemeralSession import removed — dock disabled pending React #185 fix (see Track - Task Sub-Sessions §4.0c)
 // import { EphemeralSession } from "@/src/components/chat/EphemeralSession";
 
-/** A pin lives in the sidebar "rail zone" when its left edge sits inside the
- *  leftmost band of the dashboard grid. Width and right-edge are intentionally
- *  ignored — placement is the gesture, not size. The zone width depends on
- *  the active preset (6 of 12 cols in standard, 12 of 24 in fine).
- *
- *  Pins with a missing/empty `grid_layout` (legacy rows that bypass the
- *  Alembic backfill) don't qualify — they need a real coordinate before we
- *  can decide. */
-export function isRailPin(pin: WidgetDashboardPin, railZoneCols = 6): boolean {
-  const gl = pin.grid_layout as GridLayoutItem | undefined;
-  return (
-    !!gl
-    && typeof gl === "object"
-    && typeof gl.x === "number"
-    && gl.x < railZoneCols
-  );
+/** True when a pin currently lives on the chat sidebar rail canvas. Zone
+ *  is stored explicitly on the pin; this is a convenience predicate so the
+ *  dashboard breadcrumb can count rail pins without re-implementing the
+ *  filter. */
+export function isRailPin(pin: WidgetDashboardPin): boolean {
+  return pin.zone === "rail";
 }
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
@@ -118,8 +109,11 @@ export default function WidgetsDashboardPage() {
   const unpinWidget = useDashboardPinsStore((s) => s.unpinWidget);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
-  const { list: dashboards } = useDashboards();
-  const currentDashboard = dashboards.find((d) => d.slug === slug);
+  // `allDashboards` rather than `list` — channel dashboards are filtered out
+  // of the tab-bar-friendly `list` slice, but we still need to read their
+  // `grid_config` (preset + chrome flags) when rendering `/widgets/channel/<id>`.
+  const { allDashboards } = useDashboards();
+  const currentDashboard = allDashboards.find((d) => d.slug === slug);
   const preset = useMemo(
     () => resolvePreset(currentDashboard?.grid_config ?? null),
     [currentDashboard?.grid_config],
@@ -138,8 +132,8 @@ export default function WidgetsDashboardPage() {
     if (name) enrichRecentPage(loc.pathname, name);
   }, [currentDashboard?.name, channelRow?.name, isChannelScoped, loc.pathname, enrichRecentPage]);
   const railCount = useMemo(
-    () => pins.filter((p) => isRailPin(p, preset.railZoneCols)).length,
-    [pins, preset.railZoneCols],
+    () => pins.filter((p) => isRailPin(p)).length,
+    [pins],
   );
   /** Panel-mode short-circuit: when the dashboard's `grid_config.layout_mode`
    *  is `'panel'` AND a panel pin exists, the right side becomes the panel
@@ -154,22 +148,11 @@ export default function WidgetsDashboardPage() {
     [pins],
   );
   const inPanelMode = layoutMode === "panel" && panelPin !== null;
-  /** While a widget is being dragged in edit mode, this tracks the dragging
-   *  item's grid coords. Drives the three chat-zone bands' active state in
-   *  `EditModeGridGuides`. Cleared on drag stop. */
-  const [dragCoords, setDragCoords] = useState<
-    { x: number; y: number; h: number } | null
-  >(null);
-  const dragging = dragCoords !== null;
-  const dragXInRail = dragging && dragCoords.x < preset.railZoneCols;
-  const dragXInDockRight =
-    dragging && dragCoords.x >= preset.cols.lg - preset.dockRightCols;
-  const dragInHeader =
-    dragging
-    && dragCoords.y === 0
-    && dragCoords.h === 1
-    && dragCoords.x >= preset.railZoneCols
-    && dragCoords.x < preset.cols.lg - preset.dockRightCols;
+  /** While a widget is being dragged in edit mode, this tracks that a
+   *  drag is in progress so `EditModeGridGuides` can show its column-index
+   *  tick row. The channel dashboard now uses the multi-canvas editor, so
+   *  chat-zone bands are gone — guide state is dragging/not-dragging. */
+  const [dragging, setDragging] = useState(false);
   const gridRowCount = useMemo(() => {
     let max = 0;
     for (const p of pins) {
@@ -535,21 +518,26 @@ export default function WidgetsDashboardPage() {
             onEditPin={(id) => setEditingPinId(id)}
           />
         )}
-        {!isLoading && !error && pins.length > 0 && !inPanelMode && (
+        {!isLoading && !error && pins.length > 0 && !inPanelMode && isChannelScoped && (
+          <ChannelDashboardMultiCanvas
+            pins={pins}
+            preset={preset}
+            chrome={chrome}
+            editMode={layoutEditable}
+            onUnpin={handleUnpin}
+            onEnvelopeUpdate={handleEnvelopeUpdate}
+            onEditPin={(id) => setEditingPinId(id)}
+          />
+        )}
+        {!isLoading && !error && pins.length > 0 && !inPanelMode && !isChannelScoped && (
           <div className="relative">
             {layoutEditable && breakpoint === "lg" && (
               <EditModeGridGuides
                 cols={preset.cols.lg}
                 rowHeight={preset.rowHeight}
                 rowGap={GRID_MARGIN[1]}
-                railZoneCols={preset.railZoneCols}
-                dockRightCols={preset.dockRightCols}
                 gridRowCount={Math.max(gridRowCount, 6)}
-                dragXInRail={dragXInRail}
-                dragXInDockRight={dragXInDockRight}
-                dragInHeader={dragInHeader}
                 dragging={dragging}
-                showChatZones={isChannelScoped}
               />
             )}
             <ResponsiveGridLayout
@@ -564,12 +552,8 @@ export default function WidgetsDashboardPage() {
               draggableHandle=".widget-drag-handle"
               compactType="vertical"
               preventCollision={false}
-              onDrag={(_layout, _oldItem, newItem) => {
-                if (newItem) {
-                  setDragCoords({ x: newItem.x, y: newItem.y, h: newItem.h });
-                }
-              }}
-              onDragStop={() => setDragCoords(null)}
+              onDragStart={() => setDragging(true)}
+              onDragStop={() => setDragging(false)}
               onBreakpointChange={(bp) => setBreakpoint(bp)}
               onLayoutChange={(current) => {
                 if (layoutEditable && breakpoint === "lg") scheduleCommit(current);

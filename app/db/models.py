@@ -1883,6 +1883,13 @@ class WidgetDashboardPin(Base):
     is_main_panel: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("FALSE"), default=False,
     )
+    # Chat-surface zone the pin lives on when its dashboard is a channel
+    # dashboard. ``rail`` = OmniPanel sidebar; ``header`` = ChannelHeader chip
+    # row; ``dock`` = right-side WidgetDock; ``grid`` = dashboard-only (not
+    # on the chat screen). User dashboards always carry ``grid``.
+    zone: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'grid'"), default="grid",
+    )
     pinned_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()"),
     )
@@ -1905,6 +1912,107 @@ class WidgetDashboardPin(Base):
             postgresql_where=text("is_main_panel = TRUE"),
             sqlite_where=text("is_main_panel = 1"),
         ),
+    )
+
+
+class WidgetCronSubscription(Base):
+    """One scheduled ``@on_cron`` handler declared by a pinned widget bundle.
+
+    Rows are reconciled against a pin's ``widget.yaml`` on pin create and
+    envelope change (``app/services/widget_cron.py::register_pin_crons``).
+    The task scheduler tick (``app/agent/tasks.py::task_worker`` →
+    ``spawn_due_widget_crons``) advances ``next_fire_at`` and invokes
+    ``widget_py.invoke_cron(pin, cron_name)`` under the pin's
+    ``source_bot_id``. Pin deletion cascades to these rows.
+    """
+
+    __tablename__ = "widget_cron_subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    pin_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("widget_dashboard_pins.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    cron_name: Mapped[str] = mapped_column(Text, nullable=False)
+    schedule: Mapped[str] = mapped_column(Text, nullable=False)
+    handler: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("TRUE"), default=True,
+    )
+    next_fire_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True,
+    )
+    last_fired_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "pin_id", "cron_name",
+            name="uq_widget_cron_subscriptions_pin_name",
+        ),
+        Index("ix_widget_cron_subscriptions_pin", "pin_id"),
+        Index(
+            "ix_widget_cron_subscriptions_due",
+            "next_fire_at",
+            postgresql_where=text("enabled = TRUE AND next_fire_at IS NOT NULL"),
+            sqlite_where=text("enabled = 1 AND next_fire_at IS NOT NULL"),
+        ),
+    )
+
+
+class WidgetEventSubscription(Base):
+    """One ``@on_event`` handler declared by a pinned widget bundle.
+
+    Rows are reconciled against a pin's ``widget.yaml`` on pin create and
+    envelope change (``app/services/widget_events.py::register_pin_events``).
+    Unlike cron (which polls this table every 5s), event subscribers are
+    push-based: a live ``asyncio.Task`` per row reads
+    ``channel_events.subscribe(pin.source_channel_id)`` and fires
+    ``widget_py.invoke_event(pin, event_kind, payload)`` under the pin's
+    ``source_bot_id``. Pin deletion cascades these rows (and must also
+    cancel the live task — see ``unregister_pin_events``).
+    """
+
+    __tablename__ = "widget_event_subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    pin_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("widget_dashboard_pins.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    handler: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("TRUE"), default=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "pin_id", "event_kind", "handler",
+            name="uq_widget_event_subscriptions_pin_kind_handler",
+        ),
+        Index("ix_widget_event_subscriptions_pin", "pin_id"),
     )
 
 

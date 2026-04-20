@@ -35,7 +35,7 @@ import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useDashboards, channelSlug } from "@/src/stores/dashboards";
 import { useUIStore } from "@/src/stores/ui";
-import { resolvePreset, type GridPreset } from "@/src/lib/dashboardGrid";
+import { resolveChrome, resolvePreset, type DashboardChrome, type GridPreset } from "@/src/lib/dashboardGrid";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import type {
   GridLayoutItem,
@@ -119,11 +119,19 @@ export function OmniPanel({
   const dashboardCurrentSlug = useDashboardPinsStore((s) => s.currentSlug);
 
   // Resolve the grid preset so the mini-grid uses the same column count and
-  // proportions as whatever the user picked on the dashboard page.
-  const { list: dashboards } = useDashboards();
-  const dashboardRow = dashboards.find((d) => d.slug === slug);
+  // proportions as whatever the user picked on the dashboard page. Channel
+  // dashboards are excluded from the tab-bar `list` slice, so use
+  // `allDashboards` (unfiltered) for this lookup.
+  const { allDashboards } = useDashboards();
+  const dashboardRow = allDashboards.find((d) => d.slug === slug);
   const preset = useMemo(
     () => resolvePreset(dashboardRow?.grid_config ?? null),
+    [dashboardRow?.grid_config],
+  );
+  // Chrome (borderless / hover-scrollbars) is a per-dashboard preference,
+  // so the rail mirrors whatever the channel dashboard is configured for.
+  const chrome = useMemo(
+    () => resolveChrome(dashboardRow?.grid_config ?? null),
     [dashboardRow?.grid_config],
   );
 
@@ -171,6 +179,7 @@ export function OmniPanel({
       railPins={railPins}
       hasWidgets={hasWidgets}
       preset={preset}
+      chrome={chrome}
       handleUnpin={handleUnpin}
       handleEnvelopeUpdate={handleEnvelopeUpdate}
       applyLayout={applyLayout}
@@ -289,6 +298,7 @@ interface WidgetsSectionProps {
   railPins: WidgetDashboardPin[];
   hasWidgets: boolean;
   preset: GridPreset;
+  chrome: DashboardChrome;
   handleUnpin: (id: string) => void;
   handleEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
   applyLayout: (
@@ -302,6 +312,7 @@ function WidgetsSection({
   railPins,
   hasWidgets,
   preset,
+  chrome,
   handleUnpin,
   handleEnvelopeUpdate,
   applyLayout,
@@ -407,6 +418,8 @@ function WidgetsSection({
               scope={{ kind: "dashboard" }}
               onUnpin={handleUnpin}
               onEnvelopeUpdate={handleEnvelopeUpdate}
+              borderless={chrome.borderless}
+              hoverScrollbars={chrome.hoverScrollbars}
               railMode
             />
           </div>

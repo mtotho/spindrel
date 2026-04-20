@@ -31,10 +31,17 @@ export function LibraryTab() {
           <h2 className="text-[14px] font-semibold text-text">Widget library</h2>
           <p className="mt-1 text-[12px] text-text-muted">
             Two kinds of widgets live in the product.
+            {" "}<span className="font-medium text-text">HTML widgets</span> are standalone dashboard surfaces — shipped with the app, included in an integration, or authored as <span className="font-mono">.html</span> in a channel workspace.
             {" "}<span className="font-medium text-text">Tool renderers</span> shape a specific tool's output and pin via the tool's result.
-            {" "}<span className="font-medium text-text">HTML widgets</span> are standalone dashboard surfaces pinned directly from a channel workspace.
           </p>
         </div>
+      </div>
+
+      {/* HTML widgets first — these are the end-user-pinnable surfaces and
+          the catalog needs to make them findable regardless of which channel
+          you happen to be viewing. */}
+      <div className="mx-auto w-full max-w-6xl px-4 pt-4 md:px-6">
+        <HtmlWidgetsLibrarySection />
       </div>
 
       <section className="mx-auto w-full max-w-6xl px-4 pt-4 md:px-6">
@@ -59,10 +66,8 @@ export function LibraryTab() {
       </section>
 
       {/* Tool-renderer inventory — the existing shared component, unmodified. */}
-      <WidgetLibraryTab initialToolFilter={initialToolFilter} />
-
-      <div className="mx-auto w-full max-w-6xl px-4 py-4 md:px-6">
-        <HtmlWidgetsLibrarySection />
+      <div className="pb-4">
+        <WidgetLibraryTab initialToolFilter={initialToolFilter} />
       </div>
     </div>
   );

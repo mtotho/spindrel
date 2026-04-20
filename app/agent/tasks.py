@@ -1655,6 +1655,9 @@ async def task_worker() -> None:
             await spawn_due_schedules()
             # Then fire any per-channel subscriptions whose cron is due
             await spawn_due_subscriptions()
+            # Then fire any widget @on_cron handlers whose schedule is due
+            from app.services.widget_cron import spawn_due_widget_crons
+            await spawn_due_widget_crons()
             # Then fetch and run all due concrete tasks
             due = await fetch_due_tasks()
             for task in due:

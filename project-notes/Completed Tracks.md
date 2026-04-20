@@ -6,6 +6,32 @@ status: monitor
 
 Reference doc for tracks that have shipped and are in monitor-only mode. Compressed from per-track files. For active/in-flight work, see [[Roadmap]]. For load-bearing decisions, see [[Architecture Decisions]].
 
+## User Management
+**Shipped**: April 19 – 20, 2026 (8 phases).
+
+Half-built user-management surface tightened into a coherent admin-vs-user experience. Backend is the source of truth; UI hiding is UX polish.
+
+- **Phase 1 + 1.5 — Scope hygiene** (2026-04-19). 120+ mutation endpoints classified ([[Scope Matrix]]). `require_scopes` now fails closed for JWT users with no resolved scopes (admin bypass preserved via `is_admin`).
+- **Phase 2 — `/auth/me` scopes + frontend hydration** (2026-04-19). `UserResponse.scopes: list[str]`; `ui/src/hooks/useScope.ts` ports backend `has_scope()` semantics (parent-covers-child, write-implies-read, wildcard, admin bypass).
+- **Phase 2.5 — Widget dashboard rail scoping** (2026-04-19). Migration 217 `dashboard_rail_pins(slug, user_id NULL|uuid, rail_position)` junction replaces single-row `pin_to_rail`; admin-only `scope='everyone'`, any-user `scope='me'`; `PUT/DELETE /api/v1/widgets/dashboards/{slug}/rail`; `RailScopePicker` radio.
+- **Phase 3 — UI guards + nav + owner UX** (2026-04-19). `<AdminRoute>` wraps `/admin/*`; `SidebarRail` + `CommandPalette` filter admin chrome for non-admins; channel owner picker (admin), owner chip in ChannelHeader, bot owner picker, Lock-vs-Hash based on `channel.private`.
+- **Phase 4 — Channel ownership enforcement** (2026-04-19). `assert_admin_or_channel_owner(channel, auth)` wired into DELETE/PUT/PATCH channel endpoints; `GET /api/v1/channels/{id}` returns 404 for cross-user private. 12 new tests.
+- **Phase 5 — Bot ownership + grants** (2026-04-19). Migration 221 `bot_grants(bot_id, user_id, role='view', granted_by, created_at)`; `apply_bot_visibility` honored by `/bots` + widget mint; admin `GrantsSection` + dashboard share warning with bulk-grant CTA. 28 new tests.
+- **Phase 6 — Integration binding lockdown** (2026-04-19). New `require_admin_and_scope(scope)` dep closes the `channels:write` → `channels.integrations:write` parent-cover leak. 6 write endpoints gated admin-only; reads stay scope-only. UI Integrations tab `adminOnly`. 9 new tests.
+- **Phase 7 — Non-admin self-service** (2026-04-20). `SettingsShell` with Account / Channels / Bots tabs; `settings/account.tsx` consolidates `/profile` (deleted) + adds `ApiKeySection` (view metadata + rotate). New `GET /auth/me/api-key`, `POST /auth/me/api-key/rotate`, `GET /auth/me/bots` (returns owner/view/manage role badges). `SidebarFooter` gear visible to all. 10 new tests.
+
+**Critical invariants** (preserved throughout):
+1. `is_admin=true` bypasses all ownership/grant checks everywhere.
+2. Backend is the source of truth; every UI guard has a matching 403.
+3. Scopes govern API surface; ownership governs row access. Scope is necessary but not sufficient.
+4. Private channels are the only place ownership is load-bearing for reads.
+5. No user → channel deletion cascade (admin reassigns); deleting a user DOES cascade `bot_grants`.
+6. First-user-is-admin rule preserved (`/auth/setup`).
+
+**Test coverage**: `test_channel_ownership.py` (41), `test_bot_grants.py` + `test_bot_grants_api.py` + `test_widget_auth_mint.py` grant tests (28), `test_auth_profile.py::TestAuthMeApiKey` + `TestAuthMeBots` (9 new), `test_dashboard_rail.py` (19). See [[Track - User Management]] for phase detail and the intentionally-deferred list (multi-user channels, SSO, audit log, invitation emails, JWT-claims scope cache, session revocation on role change).
+
+**Load-bearing decisions**: single `Bot.user_id` owner + `bot_grants` (not channel-scoped); public-by-default channels with private opt-in; admin-only integration binding; frontend reads effective scopes from `/auth/me` and computes visibility with `useScope()`.
+
 ## Chat State Rehydration
 **Shipped**: April 18, 2026 (single day, three phases).
 

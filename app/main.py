@@ -809,9 +809,26 @@ async def lifespan(application: FastAPI):
         logger.exception("outbox: stale IN_FLIGHT recovery failed (drainer will continue)")
     _workers.append(safe_create_task(outbox_drainer_worker(), name="outbox_drainer"))
 
+    # Widget SDK Phase B.4 — restore widget.py @on_event subscribers for every
+    # pin whose bundle declares events. Best-effort: a single broken bundle
+    # must not block server boot.
+    try:
+        from app.services.widget_events import register_all_pins_on_startup
+        await register_all_pins_on_startup()
+    except Exception:
+        logger.exception("widget_events: startup registration failed")
+
     try:
         yield
     finally:
+        # Cancel every live widget @on_event subscriber task before SSE shutdown
+        # so we don't spend shutdown time waiting on subscribe() generators.
+        try:
+            from app.services.widget_events import unregister_all_on_shutdown
+            await unregister_all_on_shutdown()
+        except Exception:
+            logger.exception("widget_events: shutdown cancellation failed")
+
         # Signal SSE connections to close. By the time we get here, uvicorn's
         # --timeout-graceful-shutdown has already force-closed connections, but
         # this ensures clean subscriber cleanup for any stragglers.

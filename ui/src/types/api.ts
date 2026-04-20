@@ -459,6 +459,32 @@ export interface HtmlWidgetEntry {
   has_manifest: boolean;
   size: number;
   modified_at: number;
+  /** Provenance: which root was scanned to find this widget. Drives the
+   *  catalog pill + the renderer's content-fetch endpoint dispatch. */
+  source: "builtin" | "integration" | "channel";
+  /** Set only for ``source === "integration"`` — the integration directory
+   *  name (``frigate``, ``bennie``, …). */
+  integration_id: string | null;
+}
+
+/** One entry per integration that ships standalone HTML widgets. */
+export interface IntegrationHtmlWidgets {
+  integration_id: string;
+  entries: HtmlWidgetEntry[];
+}
+
+/** One entry per channel whose workspace holds standalone HTML widgets. */
+export interface ChannelHtmlWidgets {
+  channel_id: string;
+  channel_name: string;
+  entries: HtmlWidgetEntry[];
+}
+
+/** Response shape of ``GET /api/v1/widgets/html-widget-catalog``. */
+export interface HtmlWidgetCatalog {
+  builtin: HtmlWidgetEntry[];
+  integrations: IntegrationHtmlWidgets[];
+  channels: ChannelHtmlWidgets[];
 }
 
 /** A widget pinned to the chat-less `/widgets` dashboard. Row shape mirrors
@@ -483,6 +509,10 @@ export interface WidgetDashboardPin {
    * index on the server).
    */
   is_main_panel: boolean;
+  /** Chat-surface zone the pin lives on. Authored directly by dragging the
+   *  tile between the four canvases on a channel dashboard. User dashboards
+   *  always carry ``"grid"``. */
+  zone: ChatZone;
   pinned_at: string | null;
   updated_at: string | null;
 }
@@ -502,11 +532,11 @@ export type WidgetScope =
   | { kind: "channel"; channelId: string; compact?: false | "chip" }
   | { kind: "dashboard" };
 
-/** Chat-side zone a dashboard pin resolves into, based purely on its
- *  ``grid_layout``. ``"grid"`` means dashboard-only — the pin does not
- *  surface on the chat screen. See `classifyPin` in `lib/dashboardGrid`
- *  (and the Python mirror in `app/services/channel_chat_zones.py`). */
-export type ChatZone = "rail" | "dock_right" | "header_chip" | "grid";
+/** Chat-side zone a dashboard pin belongs to. Stored directly on the pin
+ *  (``widget_dashboard_pins.zone``) and authored via the multi-canvas
+ *  channel dashboard. ``"grid"`` means dashboard-only — the pin does not
+ *  surface on the chat screen. */
+export type ChatZone = "rail" | "header" | "dock" | "grid";
 
 // Full channel settings (matches server ChannelSettingsOut)
 export interface ChannelSettings {
@@ -696,11 +726,21 @@ export interface ToolResultEnvelope {
   refreshable?: boolean;
   /** If set, pinned widgets should auto-refresh on this interval (seconds) */
   refresh_interval_seconds?: number | null;
-  /** For file-backed widgets (emit_html_widget path-mode): workspace-relative path
-   *  the renderer fetches content from. Paired with `source_channel_id`. */
+  /** For file-backed widgets (emit_html_widget path-mode): source-relative path
+   *  the renderer fetches content from. Paired with `source_channel_id` for
+   *  channel-sourced widgets, or with `source_integration_id` for integration-
+   *  sourced widgets. Built-in widgets resolve ``source_path`` against
+   *  ``app/tools/local/widgets/`` server-side. */
   source_path?: string | null;
-  /** Channel id scoping `source_path` to its channel workspace. */
+  /** Provenance of a path-backed widget. When omitted, the envelope behaves
+   *  as if ``"channel"`` — back-compat default for existing pins. */
+  source_kind?: "channel" | "builtin" | "integration" | null;
+  /** Channel id scoping `source_path` to its channel workspace. Required
+   *  for ``source_kind === "channel"`` envelopes. */
   source_channel_id?: string | null;
+  /** Integration id scoping `source_path` to ``integrations/<id>/widgets/``.
+   *  Set only for ``source_kind === "integration"`` envelopes. */
+  source_integration_id?: string | null;
   /** Bot that emitted the envelope. Drives the widget-auth mint so
    *  interactive HTML widgets authenticate as this bot, not as the
    *  viewing user. */

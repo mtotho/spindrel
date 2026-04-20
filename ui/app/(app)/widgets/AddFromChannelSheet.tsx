@@ -9,8 +9,13 @@ import { toast } from "@/src/stores/toast";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
-import type { HtmlWidgetEntry, ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
-import { HtmlWidgetsTab, htmlWidgetPinIdentity } from "./HtmlWidgetsTab";
+import type {
+  HtmlWidgetCatalog,
+  HtmlWidgetEntry,
+  ToolResultEnvelope,
+  WidgetDashboardPin,
+} from "@/src/types/api";
+import { HtmlWidgetsTab, pinIdentity } from "./HtmlWidgetsTab";
 
 /** Previews are read-only — widget `callTool` dispatches inside the sheet
  *  don't mutate anything. A no-op dispatcher makes that explicit. */
@@ -64,10 +69,10 @@ export default function AddFromChannelSheet({
   // redundant (you ARE that channel's board) so the tab hides, and Recent
   // calls becomes the natural landing.
   const showChannelTab = !scopeChannelId;
-  // "HTML widgets" scans the current channel's workspace — only meaningful
-  // when we have a channel scope. On the global dashboard there's no
-  // workspace to walk, so hide the tab until DX-5b ships a cross-channel root.
-  const showHtmlWidgetsTab = !!scopeChannelId;
+  // "HTML widgets" exposes the unified catalog (built-in + integration +
+  // channel-workspace), so it's always available — even on the global
+  // dashboard where there's no channel scope.
+  const showHtmlWidgetsTab = true;
   const [tab, setTab] = useState<Tab>(
     scopeChannelId ? "recent" : "channel",
   );
@@ -85,8 +90,8 @@ export default function AddFromChannelSheet({
   const [recent, setRecent] = useState<RecentCall[] | null>(null);
   const [recentError, setRecentError] = useState<string | null>(null);
 
-  // HTML widgets scanned from the current channel's workspace.
-  const [htmlWidgets, setHtmlWidgets] = useState<HtmlWidgetEntry[] | null>(null);
+  // Full HTML-widget catalog: built-in + per-integration + per-channel.
+  const [htmlCatalog, setHtmlCatalog] = useState<HtmlWidgetCatalog | null>(null);
   const [htmlError, setHtmlError] = useState<string | null>(null);
 
   // Close on Escape — standard modal UX.
@@ -135,43 +140,36 @@ export default function AddFromChannelSheet({
     return () => { cancelled = true; };
   }, [open, scopeChannelId]);
 
-  // Fetch workspace HTML widgets for the current channel. Only fires when
-  // the tab is visible; cheap enough to run on every sheet-open since the
-  // backend mtime-caches parsed frontmatter.
+  // Fetch the unified HTML-widget catalog — built-in, per-integration, and
+  // per-channel. Mtime-cached on the backend so re-firing on every sheet
+  // open is cheap. Same endpoint backs the dev-panel Library section.
   useEffect(() => {
-    if (!open || !showHtmlWidgetsTab || !scopeChannelId) return;
+    if (!open || !showHtmlWidgetsTab) return;
     let cancelled = false;
-    setHtmlWidgets(null);
+    setHtmlCatalog(null);
     setHtmlError(null);
-    apiFetch<{ widgets: HtmlWidgetEntry[] }>(
-      `/api/v1/channels/${encodeURIComponent(scopeChannelId)}/workspace/html-widgets`,
-    )
-      .then((resp) => {
-        if (!cancelled) setHtmlWidgets(resp.widgets ?? []);
-      })
+    apiFetch<HtmlWidgetCatalog>("/api/v1/widgets/html-widget-catalog")
+      .then((resp) => { if (!cancelled) setHtmlCatalog(resp); })
       .catch((e) => {
         if (!cancelled) setHtmlError(e instanceof Error ? e.message : String(e));
       });
     return () => { cancelled = true; };
-  }, [open, showHtmlWidgetsTab, scopeChannelId]);
+  }, [open, showHtmlWidgetsTab]);
 
   const existingIdentities = useMemo(
     () => new Set(pins.map((p) => envelopeIdentityKey(p.tool_name, p.envelope))),
     [pins],
   );
 
-  // Identity set for HTML-widget pins — keyed by (channel_id, source_path)
-  // since emit_html_widget path-mode envelopes share the same tool name.
-  const existingHtmlPaths = useMemo(() => {
+  // Identity set for path-mode HTML-widget pins — now source-kind aware so
+  // built-in / integration / channel entries all dedup correctly against an
+  // existing pin.
+  const existingHtmlIdentities = useMemo(() => {
     const set = new Set<string>();
     for (const p of pins) {
-      if (
-        p.tool_name === "emit_html_widget"
-        && p.envelope?.source_path
-        && p.envelope?.source_channel_id
-      ) {
-        set.add(htmlWidgetPinIdentity(p.envelope.source_channel_id, p.envelope.source_path));
-      }
+      if (p.tool_name !== "emit_html_widget") continue;
+      const id = pinIdentity(p.envelope);
+      if (id) set.add(id);
     }
     return set;
   }, [pins]);
@@ -347,21 +345,47 @@ export default function AddFromChannelSheet({
               }}
             />
           )}
-          {tab === "html-widgets" && showHtmlWidgetsTab && scopeChannelId && (
+          {tab === "html-widgets" && showHtmlWidgetsTab && (
             <HtmlWidgetsTab
-              loaded={htmlWidgets}
+              catalog={htmlCatalog}
               loadError={htmlError}
               query={query}
-              channelId={scopeChannelId}
-              existingPaths={existingHtmlPaths}
+              existingIdentities={existingHtmlIdentities}
               onPin={async (entry, envelope) => {
-                const absPath = `/workspace/channels/${scopeChannelId}/${entry.path}`;
+                // Tool args carry a source-specific marker so the pin can be
+                // rehydrated later even if the renderer evolves. For channel
+                // entries we keep the legacy absolute-path form that
+                // emit_html_widget already understands; for built-in / integration
+                // entries the envelope's source_kind + path is the source of
+                // truth.
+                const toolArgs: Record<string, unknown> = (() => {
+                  if (entry.source === "channel") {
+                    // Channel entries require a channel id; envelopeForEntry
+                    // attached it. Fall back to the scope if present.
+                    const cid =
+                      envelope.source_channel_id ?? scopeChannelId ?? null;
+                    if (cid) {
+                      return { path: `/workspace/channels/${cid}/${entry.path}` };
+                    }
+                  }
+                  if (entry.source === "builtin") {
+                    return { source: "builtin", path: entry.path };
+                  }
+                  if (entry.source === "integration") {
+                    return {
+                      source: "integration",
+                      integration_id: entry.integration_id,
+                      path: entry.path,
+                    };
+                  }
+                  return { path: entry.path };
+                })();
                 const created = await pinWidget({
-                  source_kind: "channel",
-                  source_channel_id: scopeChannelId,
+                  source_kind: entry.source === "channel" ? "channel" : "adhoc",
+                  source_channel_id: envelope.source_channel_id ?? null,
                   source_bot_id: null,
                   tool_name: "emit_html_widget",
-                  tool_args: { path: absPath },
+                  tool_args: toolArgs,
                   envelope,
                   display_label: entry.display_label,
                 });

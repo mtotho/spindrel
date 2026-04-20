@@ -16,6 +16,8 @@ import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
+import { useDashboards, channelSlug } from "@/src/stores/dashboards";
+import { resolveChrome } from "@/src/lib/dashboardGrid";
 import type { PinnedWidget, ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
 import { PinnedToolWidget } from "./PinnedToolWidget";
 
@@ -43,9 +45,14 @@ interface Props {
 
 export function WidgetDockRight({ channelId }: Props) {
   const t = useThemeTokens();
-  const { dock_right: pins } = useChannelChatZones(channelId);
+  const { dock: pins } = useChannelChatZones(channelId);
   const unpin = useDashboardPinsStore((s) => s.unpinWidget);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
+  // Use `allDashboards` rather than `list` — channel dashboards are filtered
+  // out of the tab-bar-friendly `list` slice.
+  const { allDashboards } = useDashboards();
+  const dashboardRow = allDashboards.find((d) => d.slug === channelSlug(channelId));
+  const chrome = resolveChrome(dashboardRow?.grid_config ?? null);
 
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === "undefined") return DEFAULT_WIDTH;
@@ -79,7 +86,7 @@ export function WidgetDockRight({ channelId }: Props) {
 
   if (pins.length === 0) return null;
 
-  const dashboardHref = `/widgets/channel/${encodeURIComponent(channelId)}?zone=dock_right`;
+  const dashboardHref = `/widgets/channel/${encodeURIComponent(channelId)}?zone=dock`;
 
   return (
     <>
@@ -132,6 +139,8 @@ export function WidgetDockRight({ channelId }: Props) {
               scope={{ kind: "channel", channelId }}
               onUnpin={handleUnpin}
               onEnvelopeUpdate={handleEnvelopeUpdate}
+              borderless={chrome.borderless}
+              hoverScrollbars={chrome.hoverScrollbars}
             />
           ))}
         </div>

@@ -1149,8 +1149,8 @@ async def get_channel_state(
 
 class ChatZonesOut(BaseModel):
     rail: list[dict]
-    dock_right: list[dict]
-    header_chip: list[dict]
+    header: list[dict]
+    dock: list[dict]
 
 
 @router.get("/{channel_id}/chat-zones", response_model=ChatZonesOut)
@@ -1159,12 +1159,11 @@ async def get_channel_chat_zones(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels:read")),
 ):
-    """Channel dashboard pins grouped by chat-side zone (positional).
+    """Channel dashboard pins grouped by chat-side zone.
 
-    Pin placement on the channel dashboard grid determines membership:
-    leftmost rail cols → ``rail``, rightmost dock cols → ``dock_right``,
-    top row between them → ``header_chip``. Pins in the middle of the grid
-    are dashboard-only and excluded from the response.
+    Zone is stored on each pin (``widget_dashboard_pins.zone``) and authored
+    directly via the multi-canvas editor at ``/widgets/channel/:id``. Pins
+    whose zone is ``grid`` are dashboard-only and excluded from the response.
     """
     channel = await db.get(Channel, channel_id)
     if not channel:
@@ -1174,8 +1173,8 @@ async def get_channel_chat_zones(
     zones = await resolve_chat_zones(db, channel_id)
     return ChatZonesOut(
         rail=zones["rail"],
-        dock_right=zones["dock_right"],
-        header_chip=zones["header_chip"],
+        header=zones["header"],
+        dock=zones["dock"],
     )
 
 

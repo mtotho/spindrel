@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir ".[dev]"
 COPY app/ app/
 COPY integrations/ integrations/
 COPY packages/ packages/
+COPY spindrel/ spindrel/
 COPY tests/ tests/
 COPY skills/ skills/
 COPY migrations/ migrations/

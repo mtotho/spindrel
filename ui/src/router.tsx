@@ -23,7 +23,14 @@ const SetupPage = lazy(() => import("@/app/(auth)/setup"));
 // App root
 const HomePage = lazy(() => import("@/app/(app)/index"));
 const SettingsPage = lazy(() => import("@/app/(app)/settings"));
-const ProfilePage = lazy(() => import("@/app/(app)/profile"));
+const SettingsShell = lazy(() =>
+  import("@/app/(app)/settings/SettingsShell").then((m) => ({
+    default: m.SettingsShell,
+  })),
+);
+const SettingsAccountPage = lazy(() => import("@/app/(app)/settings/account"));
+const SettingsChannelsPage = lazy(() => import("@/app/(app)/settings/channels"));
+const SettingsBotsPage = lazy(() => import("@/app/(app)/settings/bots"));
 
 // Channels
 const NewChannelPage = lazy(() => import("@/app/(app)/channels/new"));
@@ -110,7 +117,16 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <HomePage /> },
           { path: "settings", element: <SettingsPage /> },
-          { path: "profile", element: <ProfilePage /> },
+          {
+            path: "settings",
+            element: <SettingsShell />,
+            children: [
+              { path: "account", element: <SettingsAccountPage /> },
+              { path: "channels", element: <SettingsChannelsPage /> },
+              { path: "bots", element: <SettingsBotsPage /> },
+            ],
+          },
+          { path: "profile", element: <Navigate to="/settings/account" replace /> },
 
           // Channels
           { path: "channels", element: <Navigate to="/" replace /> },

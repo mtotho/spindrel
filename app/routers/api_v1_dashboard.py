@@ -187,6 +187,138 @@ async def list_channel_dashboard_pins(db: AsyncSession = Depends(get_db)):
     return {"channels": out}
 
 
+# ---------------------------------------------------------------------------
+# HTML widget catalog — unified view across built-in, integration, and
+# channel-workspace sources so the Library + Add-widget sheet can render a
+# single grouped list with provenance badges.
+# ---------------------------------------------------------------------------
+@router.get(
+    "/html-widget-catalog",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def html_widget_catalog(db: AsyncSession = Depends(get_db)):
+    """Full HTML-widget catalog, grouped by source.
+
+    Shape::
+
+        {
+          "builtin":      [HtmlWidgetEntry, ...],
+          "integrations": [{"integration_id": str, "entries": [...]}],
+          "channels":     [{"channel_id": str, "channel_name": str,
+                            "entries": [HtmlWidgetEntry, ...]}]
+        }
+
+    Channel scans walk every channel's workspace (mtime-cached; cheap). The
+    client uses the ``source`` field on each entry (``"builtin"`` /
+    ``"integration"`` / ``"channel"``) to render the provenance pill.
+    """
+    from sqlalchemy import select
+    from app.agent.bots import get_bot
+    from app.db.models import Channel
+    from app.services.html_widget_scanner import (
+        scan_all_integrations,
+        scan_builtin,
+        scan_channel,
+    )
+
+    builtin = scan_builtin()
+
+    integrations = [
+        {"integration_id": integ_id, "entries": entries}
+        for integ_id, entries in scan_all_integrations()
+    ]
+
+    # Channel workspaces — iterate every channel with a bot. Empty-result
+    # channels are dropped from the response.
+    rows = (
+        await db.execute(
+            select(Channel.id, Channel.name, Channel.bot_id)
+            .order_by(Channel.name.asc())
+        )
+    ).all()
+
+    channel_groups: list[dict] = []
+    for channel_id, channel_name, bot_id in rows:
+        if not bot_id:
+            continue
+        bot = get_bot(bot_id)
+        if bot is None:
+            continue
+        entries = scan_channel(str(channel_id), bot)
+        if not entries:
+            continue
+        channel_groups.append({
+            "channel_id": str(channel_id),
+            "channel_name": channel_name or "(unnamed channel)",
+            "entries": entries,
+        })
+
+    return {
+        "builtin": builtin,
+        "integrations": integrations,
+        "channels": channel_groups,
+    }
+
+
+@router.get(
+    "/html-widget-content/builtin",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def read_builtin_widget_content(path: str = Query(...)):
+    """Serve the raw HTML of a built-in widget at ``app/tools/local/widgets/<path>``.
+
+    Path is resolved against ``BUILTIN_WIDGET_ROOT``; any target outside
+    that root (via ``..``/symlinks) is rejected with 404.
+    """
+    from app.services.html_widget_scanner import BUILTIN_WIDGET_ROOT
+    return _serve_widget_file(str(BUILTIN_WIDGET_ROOT), path)
+
+
+@router.get(
+    "/html-widget-content/integrations/{integration_id}",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def read_integration_widget_content(
+    integration_id: str,
+    path: str = Query(...),
+):
+    """Serve the raw HTML of an integration widget at
+    ``integrations/<integration_id>/widgets/<path>``."""
+    import os as _os
+    from app.services.html_widget_scanner import INTEGRATIONS_ROOT
+    integration_dir = (INTEGRATIONS_ROOT / integration_id).resolve()
+    # Guard against `..` or absolute integration_id escaping INTEGRATIONS_ROOT.
+    try:
+        integration_dir.relative_to(INTEGRATIONS_ROOT)
+    except ValueError:
+        raise HTTPException(404, "Integration not found")
+    widgets_dir = str(integration_dir / "widgets")
+    if not _os.path.isdir(widgets_dir):
+        raise HTTPException(404, "Integration widgets dir not found")
+    return _serve_widget_file(widgets_dir, path)
+
+
+def _serve_widget_file(root: str, rel_path: str) -> dict:
+    """Shared read-and-return body with path-traversal guards.
+
+    Returns ``{path, content}`` to match the channel-workspace read endpoint
+    shape so the renderer can dispatch without per-source body-shape branching.
+    """
+    import os as _os
+    root_real = _os.path.realpath(root)
+    target = _os.path.realpath(_os.path.join(root, rel_path))
+    if not (target == root_real or target.startswith(root_real + _os.sep)):
+        raise HTTPException(404, "File not found")
+    if not _os.path.isfile(target):
+        raise HTTPException(404, "File not found")
+    try:
+        with open(target, encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except OSError:
+        raise HTTPException(404, "File not found")
+    return {"path": rel_path, "content": content}
+
+
 @router.get(
     "/dashboards/{slug}",
 )
@@ -463,6 +595,12 @@ class LayoutItem(BaseModel):
     y: int
     w: int
     h: int
+    # Optional chat-side zone for cross-canvas moves on channel dashboards.
+    # Omit to keep the pin's current zone (same-canvas reorders). Allowed:
+    # 'rail' | 'header' | 'dock' | 'grid'. Validation lives in
+    # ``dashboard_pins._validate_layout_item`` so the error shape stays
+    # consistent with the rest of the layout API.
+    zone: str | None = None
 
 
 class LayoutBulkRequest(BaseModel):
