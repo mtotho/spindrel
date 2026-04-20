@@ -88,18 +88,22 @@ class TestChatZonesEndpoint:
         assert data == {"rail": [], "header": [], "dock": []}
 
     @pytest.mark.asyncio
-    async def test_new_channel_pins_default_to_rail(self, client, db_session):
-        """Creating a pin on a channel dashboard lands it in the Rail canvas
-        by default — the sidebar is the most common destination for chat pins."""
+    async def test_new_channel_pins_default_to_grid(self, client, db_session):
+        """Creating a pin on a channel dashboard lands it in the Grid (main)
+        canvas by default — "Add widget" drops into the page the user is
+        looking at; moves to Rail / Dock / Header happen via the zone chip."""
         ch = await _make_channel(db_session)
-        pin_id = await _pin_on_channel(client, ch.id, "auto-rail")
+        pin_id = await _pin_on_channel(client, ch.id, "auto-grid")
         r = await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
         )
         data = r.json()
-        assert [p["id"] for p in data["rail"]] == [pin_id]
-        assert data["header"] == []
-        assert data["dock"] == []
+        # Grid-zoned pins are dashboard-only — absent from the chat-zones
+        # response across all three chat-side buckets.
+        assert data == {"rail": [], "header": [], "dock": []}
+        # The pin itself still exists on the dashboard, just not surfaced in
+        # chat.
+        _ = pin_id
 
     @pytest.mark.asyncio
     async def test_pin_in_header_zone(self, client, db_session):

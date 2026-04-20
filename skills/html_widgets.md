@@ -309,6 +309,10 @@ window.spindrel.stream("new_message", cb)               // single kind
 window.spindrel.stream(["turn_started","turn_ended"], cb)
 window.spindrel.stream(["tool_activity"], filter, cb)   // + client-side predicate
 
+// Widget reload signal — widget.py handler called ctx.notify_reload()
+window.spindrel.autoReload(renderFn)     // runs renderFn() now + on every reload; returns unsubscribe
+window.spindrel.onReload(cb)             // lower level: cb fires on each reload only; returns unsubscribe
+
 // TTL cache with inflight dedup — drop-in for "fetch X but only once per 30s"
 window.spindrel.cache.get(key, ttlMs, fetcher)  // returns cached | awaits fetcher | dedups concurrent callers
 window.spindrel.cache.set(key, value, ttlMs)
@@ -1499,6 +1503,51 @@ Key behaviour:
 - **Envelope update rebinds.** Swapping `source_path` (or the manifest behind it) cancels old subscriber tasks and respawns against the new manifest — no pin delete/recreate needed.
 
 Valid `kind` values are everything in `app.domain.channel_events.ChannelEventKind` (common ones: `new_message`, `turn_started`, `turn_ended`, `tool_activity`, `heartbeat_tick`, `approval_requested`, `message_updated`). The manifest validator rejects unknown kinds at load time.
+
+#### `ctx.notify_reload()` + `spindrel.autoReload` — the reload loop (Phase B.5)
+
+Handlers mutate bundle state (`ctx.db`, `ctx.state`) but the iframe doesn't know it changed. `ctx.notify_reload()` closes the loop: the pin's iframe re-runs whatever render function the widget registered, without a full unmount.
+
+The **preferred DX is `spindrel.autoReload`** — one function that doubles as "initial render" and "reload handler", so mount and reload share one code path:
+
+```html
+<!-- <bundle>/index.html -->
+<div id="list">Loading…</div>
+<script>
+  spindrel.autoReload(async () => {
+    const rows = await spindrel.db.query("select ts, body from log order by ts desc limit 50");
+    document.getElementById("list").innerHTML =
+      rows.map(r => `<div>${r.ts} — ${r.body}</div>`).join("");
+  });
+</script>
+```
+
+```python
+# <bundle>/widget.py
+from spindrel.widget import on_event, ctx
+
+@on_event("new_message")
+async def on_msg(payload):
+    await ctx.db.execute(
+        "insert into log(ts, body) values (datetime('now'), ?)",
+        [payload.get("message", {}).get("content", "")],
+    )
+    await ctx.notify_reload()
+```
+
+That's it. Every `new_message` → row inserted → iframe re-queries → DOM updates. No polling, no manual subscription.
+
+If you need more control (e.g. conditionally skip reloads), use the lower-level `spindrel.onReload(cb)` — registers a callback only; you're responsible for the initial render. Returns an `unsubscribe()`.
+
+Key behaviour:
+
+- **Scope is per-pin.** `ctx.notify_reload()` publishes a `widget_reload` event carrying the pin's id; the iframe filters by `pin_id === self.dashboardPinId`. Peer pins of the same bundle on the same channel don't react to each other automatically — use `spindrel.bus.publish()` if you want cross-pin sync.
+- **Fire-and-forget.** `ctx.notify_reload()` returns as soon as the event is on the bus. Safe to call from any handler flavor (`@on_action` / `@on_cron` / `@on_event`). Safe to call multiple times — each fires; if you're in a tight loop, debounce manually.
+- **Rides existing SSE plumbing.** Widget iframes subscribe to `widget_reload` through the same `spindrel.stream` multiplexer the bus already exposes, so reconnect + replay-on-lapse are free.
+- **Inline widgets (no `dashboardPinId`) are a no-op.** `autoReload` still runs once at mount; the subscription is just skipped.
+- **Call `notify_reload` AFTER committing your DB work**, not before — otherwise the iframe's re-query races and sees stale data.
+
+Quick-reference placement: `spindrel.onReload` and `spindrel.autoReload` live on `window.spindrel` alongside `stream` / `bus`. `ctx.notify_reload()` lives on the Python `ctx` alongside `ctx.db` / `ctx.tool`.
 
 ---
 

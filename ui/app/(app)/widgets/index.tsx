@@ -38,8 +38,7 @@ import {
   useDashboards,
 } from "@/src/stores/dashboards";
 import { resolveChrome, resolvePreset, type DashboardChrome, type GridPreset } from "@/src/lib/dashboardGrid";
-// EphemeralSession import removed — dock disabled pending React #185 fix (see Track - Task Sub-Sessions §4.0c)
-// import { EphemeralSession } from "@/src/components/chat/EphemeralSession";
+import { ChatSession } from "@/src/components/chat/ChatSession";
 
 /** True when a pin currently lives on the chat sidebar rail canvas. Zone
  *  is stored explicitly on the pin; this is a convenience predicate so the
@@ -207,10 +206,12 @@ export default function WidgetsDashboardPage() {
     window.setTimeout(() => setHighlightPinId((cur) => (cur === pinId ? null : cur)), 1400);
   }, []);
 
-  // EphemeralSession context vars disabled — dock removed pending React #185 fix (Track §4.0c)
-  // const pinnedWidgetIds = useMemo(() => pins.map((p) => p.id), [pins]);
-  // const ephemeralContext = useMemo(() => ({ ... }), [slug, pinnedWidgetIds]);
-  // const ephemeralNoop = useCallback(() => {}, []);
+  /** ChatSession dock — channel mode on channel-scoped widget dashboards.
+   *  Mirrors the channel's main chat (same session, same store slot, same SSE).
+   *  The dock's Maximize button navigates to `/channels/:channelId`. Not
+   *  mounted on global dashboards yet — ephemeral mode there is still blocked
+   *  by the streaming / React #185 bugs on the ephemeral path (Track §4.0a/c). */
+  const chatDockNoop = useCallback(() => {}, []);
 
   const handleUnpin = async (pinId: string) => {
     try {
@@ -603,8 +604,19 @@ export default function WidgetsDashboardPage() {
         onClose={() => setManageSlug(null)}
       />
 
-      {/* EphemeralSession dock disabled — React #185 loop on FAB click, fix tracked in Track - Task Sub-Sessions §4.0c */}
-      {/* <EphemeralSession shape="dock" open onClose={ephemeralNoop} sessionStorageKey={`widgets:${slug}`} parentChannelId={channelScopedId ?? undefined} title="Dashboard assistant" context={ephemeralContext} /> */}
+      {/* ChatSession dock — channel-scoped dashboards only. Streams the same
+          chat as the channel's full screen; maximize navigates there. Kiosk +
+          mobile omit the dock to keep the presentation / small-screen layouts
+          unchanged. */}
+      {isChannelScoped && channelScopedId && !kiosk && !isMobile && (
+        <ChatSession
+          source={{ kind: "channel", channelId: channelScopedId }}
+          shape="dock"
+          open
+          onClose={chatDockNoop}
+          title={channelRow?.name ? `#${channelRow.name}` : "Channel chat"}
+        />
+      )}
     </div>
   );
 }

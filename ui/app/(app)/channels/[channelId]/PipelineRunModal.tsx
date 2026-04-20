@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { EphemeralSessionModal } from "@/src/components/chat/EphemeralSessionModal";
+import { ChatSessionModal } from "@/src/components/chat/ChatSessionModal";
 import { PipelineRunPreRun } from "./PipelineRunPreRun";
 import { PipelineRunLive } from "./PipelineRunLive";
 
@@ -19,8 +19,8 @@ export interface PipelineRunModalProps {
  *   - /channels/:channelId/pipelines/:pipelineId → pre-run (description + params)
  *   - /channels/:channelId/runs/:taskId         → live or complete transcript
  *
- * Thin wrapper around EphemeralSessionModal — the portal shell now lives there
- * so ephemeral sessions and pipeline modals share identical chrome.
+ * Thin wrapper around ChatSessionModal — the portal shell lives there so
+ * ChatSession and pipeline modals share identical chrome.
  */
 export function PipelineRunModal({ channelId, mode, pipelineId, taskId }: PipelineRunModalProps) {
   const navigate = useNavigate();
@@ -34,7 +34,7 @@ export function PipelineRunModal({ channelId, mode, pipelineId, taskId }: Pipeli
   };
 
   return (
-    <EphemeralSessionModal open title="Pipeline run" onClose={handleClose}>
+    <ChatSessionModal open title="Pipeline run" onClose={handleClose}>
       {mode === "prerun" && pipelineId ? (
         <PipelineRunPreRun
           pipelineId={pipelineId}
@@ -51,6 +51,6 @@ export function PipelineRunModal({ channelId, mode, pipelineId, taskId }: Pipeli
           onClose={handleClose}
         />
       ) : null}
-    </EphemeralSessionModal>
+    </ChatSessionModal>
   );
 }

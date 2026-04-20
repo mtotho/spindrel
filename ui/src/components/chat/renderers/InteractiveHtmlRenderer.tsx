@@ -870,7 +870,7 @@ function spindrelBootstrap(
     "delivery_failed","workflow_progress","heartbeat_tick","tool_activity",
     "shutdown","replay_lapsed","context_budget","memory_scheme_bootstrap",
     "pinned_file_updated","skill_auto_inject","llm_status","ephemeral_message",
-    "modal_submitted",
+    "modal_submitted","widget_reload",
   ]);
   function __streamNormalizeArgs(a, b, c) {
     // Overloaded:
@@ -977,6 +977,84 @@ function spindrelBootstrap(
       stopped = true;
       try { controller.abort(); } catch (_) {}
     };
+  }
+
+  // --- onReload / autoReload: the lazy-author DX layer over widget_reload.
+  //
+  //   Widget author pattern:
+  //     spindrel.autoReload(async () => {
+  //       const rows = await spindrel.db.query("select ...");
+  //       render(rows);
+  //     });
+  //
+  //   Behind the scenes the preamble starts a single SSE subscription filtered
+  //   by kind=widget_reload and pin_id===self.dashboardPinId. Every registered
+  //   callback fires when a reload arrives. autoReload additionally runs the
+  //   render function once at registration time so "mount" and "reload" share
+  //   a single code path.
+  //
+  //   No-op (but returns a callable unsubscribe) when the widget is not pin-
+  //   scoped (dashboardPinId === null) or has no channelId — there's no bus
+  //   to subscribe to. Widget authors don't need to guard.
+  const __reloadHandlers = new Set();
+  let __reloadStreamUnsub = null;
+  function __ensureReloadStream() {
+    if (__reloadStreamUnsub || !dashboardPinId || !channelId) return;
+    try {
+      __reloadStreamUnsub = stream(
+        { kinds: ["widget_reload"], channelId: channelId },
+        function (event) {
+          const payload = event && event.payload;
+          return !!payload && payload.pin_id === dashboardPinId;
+        },
+        function (event) {
+          for (const cb of Array.from(__reloadHandlers)) {
+            try {
+              const r = cb(event);
+              if (r && typeof r.then === "function") {
+                r.catch(function (err) {
+                  console.error("spindrel.onReload handler rejected:", err);
+                });
+              }
+            } catch (err) {
+              console.error("spindrel.onReload handler threw:", err);
+            }
+          }
+        }
+      );
+    } catch (err) {
+      // Stream setup failed (e.g. channelId absent). Don't block the widget;
+      // next onReload() call retries.
+      console.error("spindrel.onReload: could not subscribe:", err);
+    }
+  }
+  function onReload(cb) {
+    if (typeof cb !== "function") throw new Error("spindrel.onReload: callback required");
+    __reloadHandlers.add(cb);
+    __ensureReloadStream();
+    return function unsubscribe() {
+      __reloadHandlers.delete(cb);
+      if (__reloadHandlers.size === 0 && __reloadStreamUnsub) {
+        try { __reloadStreamUnsub(); } catch (_) {}
+        __reloadStreamUnsub = null;
+      }
+    };
+  }
+  function autoReload(renderFn) {
+    if (typeof renderFn !== "function") {
+      throw new Error("spindrel.autoReload: render function required");
+    }
+    try {
+      const r = renderFn();
+      if (r && typeof r.then === "function") {
+        r.catch(function (err) {
+          console.error("spindrel.autoReload initial render rejected:", err);
+        });
+      }
+    } catch (err) {
+      console.error("spindrel.autoReload initial render threw:", err);
+    }
+    return onReload(function () { return renderFn(); });
   }
 
   // --- Cache: TTL'd Map with inflight dedup so concurrent get() for the
@@ -1395,6 +1473,8 @@ function spindrelBootstrap(
       subscribe: busSubscribe,
     },
     stream: stream,
+    onReload: onReload,
+    autoReload: autoReload,
     cache: {
       get: cacheGet,
       set: cacheSet,

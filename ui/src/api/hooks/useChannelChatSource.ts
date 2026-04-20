@@ -1,0 +1,210 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { apiFetch } from "../client";
+import { useChatStore } from "../../stores/chat";
+import { useChannel } from "./useChannels";
+import { useChannelEvents } from "./useChannelEvents";
+import { useSubmitChat } from "./useChat";
+import { extractDisplayText } from "@/src/components/chat/MessageBubble";
+import { MessagePage, PAGE_SIZE } from "@/app/(app)/channels/[channelId]/chatUtils";
+import type { ChatRequest, Message } from "../../types/api";
+
+export interface UseChannelChatSourceReturn {
+  channelId: string;
+  bot_id: string | undefined;
+  sessionId: string | undefined;
+  chatState: ReturnType<typeof useChatStore.getState>["channels"][string];
+  invertedData: Message[];
+  isLoading: boolean;
+  isFetchingNextPage: boolean;
+  hasNextPage: boolean | undefined;
+  fetchNextPage: () => void;
+  handleSend: (text: string) => void;
+  isStreaming: boolean;
+  sendError: string | null;
+  modelOverride: string | undefined;
+  modelProviderIdOverride: string | null | undefined;
+  setModelOverride: (m: string | undefined, providerId?: string | null) => void;
+}
+
+/**
+ * Minimal chat-source hook for the channel-mode dock variant of ``ChatSession``.
+ *
+ * Deliberately a subset of ``useChannelChat`` — read, subscribe, simple send.
+ * Queue / slash commands / secret-check / audio / file-explorer side effects
+ * are intentionally excluded; the full channel screen remains the canonical
+ * place for those.
+ *
+ * Shares the ``["session-messages", active_session_id]`` TanStack query key
+ * and the channel-keyed chat-store slot with the full channel view, so the
+ * two mounts (on different routes) see the same transcript + in-flight turns.
+ */
+export function useChannelChatSource(channelId: string): UseChannelChatSourceReturn {
+  const { data: channel } = useChannel(channelId);
+  const activeSessionId = channel?.active_session_id ?? undefined;
+
+  const chatState = useChatStore((s) => s.getChannel(channelId));
+  const setMessages = useChatStore((s) => s.setMessages);
+  const addMessage = useChatStore((s) => s.addMessage);
+
+  useChannelEvents(channelId, channel?.bot_id, {
+    sessionFilter: activeSessionId,
+  });
+
+  const {
+    data: pages,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["session-messages", activeSessionId],
+    queryFn: async ({ pageParam }) => {
+      if (!activeSessionId) return { messages: [], has_more: false };
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+      if (pageParam) params.set("before", pageParam);
+      return apiFetch<MessagePage>(
+        `/sessions/${activeSessionId}/messages?${params}`,
+      );
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.has_more || lastPage.messages.length === 0) return undefined;
+      return lastPage.messages[0].id;
+    },
+    enabled: !!activeSessionId,
+  });
+
+  const turnsCount = Object.keys(chatState.turns).length;
+
+  // Sync DB pages → chat-store slot. Mirrors the gate in useChannelChat:
+  // skip while a turn is streaming (so synthetic content isn't clobbered),
+  // but always run on initial load (empty slot) to unblock the rehydrate path.
+  useEffect(() => {
+    const storeEmpty = (chatState.messages?.length ?? 0) === 0;
+    const canSync = turnsCount === 0 && !chatState.isProcessing;
+    if (pages && (canSync || storeEmpty)) {
+      const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages)
+        .filter((m) => {
+          const meta = (m as any).metadata ?? {};
+          if (meta.kind === "task_run") return true;
+          if (m.role !== "user" && m.role !== "assistant") return false;
+          if (meta.passive && !meta.delegated_by) return false;
+          if (m.role === "user" && meta.is_heartbeat) return false;
+          if (meta.hidden) return false;
+          if (
+            m.role === "assistant" &&
+            !extractDisplayText(m.content) &&
+            (!m.attachments || m.attachments.length === 0)
+          )
+            return false;
+          return true;
+        });
+
+      // Preserve synthetic streaming messages that haven't persisted yet.
+      // Content-prefix match drops synthetic rows the DB has already
+      // canonicalised. Logic mirrors useChannelChat.ts.
+      const current = useChatStore.getState().channels[channelId]?.messages ?? [];
+      const dbCorrelationIds = new Set(
+        allMessages.map((m) => m.correlation_id).filter(Boolean),
+      );
+      const CONTENT_PREFIX_LEN = 120;
+      const prefix = (raw: unknown): string => {
+        if (typeof raw !== "string") return "";
+        return extractDisplayText(raw).trim().replace(/\s+/g, "").slice(0, CONTENT_PREFIX_LEN);
+      };
+      const dbPrefixes = new Set<string>();
+      for (const m of allMessages) {
+        if (m.role !== "assistant") continue;
+        const p = prefix(m.content);
+        if (p) dbPrefixes.add(p);
+      }
+      const syntheticKeep = current.filter((m) => {
+        if (!(m.id.startsWith("turn-") || m.id.startsWith("msg-"))) return false;
+        if (m.role !== "assistant") return false;
+        if (m.correlation_id && dbCorrelationIds.has(m.correlation_id)) return false;
+        const p = prefix(m.content);
+        if (p && dbPrefixes.has(p)) return false;
+        return true;
+      });
+
+      setMessages(channelId, [...allMessages, ...syntheticKeep]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelId, pages]);
+
+  const submitChat = useSubmitChat();
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  const [modelOverride, setModelOverrideState] = useState<string | undefined>();
+  const [modelProviderIdOverride, setModelProviderIdOverrideState] = useState<
+    string | null | undefined
+  >();
+  const setModelOverride = useCallback(
+    (m: string | undefined, providerId?: string | null) => {
+      setModelOverrideState(m);
+      setModelProviderIdOverrideState(m ? providerId : undefined);
+    },
+    [],
+  );
+
+  const isStreaming = turnsCount > 0 || chatState.isProcessing || submitChat.isPending;
+
+  const handleSend = useCallback(
+    (text: string) => {
+      if (!channel || !channelId) return;
+      setSendError(null);
+      addMessage(channelId, {
+        id: `msg-${Date.now()}`,
+        session_id: channel.active_session_id ?? "",
+        role: "user",
+        content: text,
+        created_at: new Date().toISOString(),
+      });
+      const req: ChatRequest = {
+        message: text,
+        bot_id: channel.bot_id,
+        client_id: channel.client_id ?? "",
+        channel_id: channelId,
+        ...(modelOverride ? { model_override: modelOverride } : {}),
+        ...(modelProviderIdOverride != null
+          ? { model_provider_id_override: modelProviderIdOverride }
+          : {}),
+      };
+      submitChat.mutate(req, {
+        onError: (err) =>
+          setSendError(err instanceof Error ? err.message : "Failed to send"),
+      });
+      setModelOverrideState(undefined);
+      setModelProviderIdOverrideState(undefined);
+    },
+    [channel, channelId, addMessage, submitChat, modelOverride, modelProviderIdOverride],
+  );
+
+  const invertedData = useMemo(
+    () => [...chatState.messages].reverse(),
+    [chatState.messages],
+  );
+
+  const fetchNextPageCb = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  return {
+    channelId,
+    bot_id: channel?.bot_id,
+    sessionId: activeSessionId,
+    chatState,
+    invertedData,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage: fetchNextPageCb,
+    handleSend,
+    isStreaming,
+    sendError,
+    modelOverride,
+    modelProviderIdOverride,
+    setModelOverride,
+  };
+}

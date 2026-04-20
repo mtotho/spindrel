@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 
-interface EphemeralSessionModalProps {
+interface ChatSessionModalProps {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
@@ -10,8 +10,8 @@ interface EphemeralSessionModalProps {
 }
 
 /** Generic portal modal shell: centered on desktop, full-screen on mobile.
-    Extracted from PipelineRunModal so ephemeral sessions can reuse the same shell. */
-export function EphemeralSessionModal({ open, onClose, children, title }: EphemeralSessionModalProps) {
+    Shared by PipelineRunModal and ChatSession's modal shape. */
+export function ChatSessionModal({ open, onClose, children, title }: ChatSessionModalProps) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {

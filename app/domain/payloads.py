@@ -418,6 +418,25 @@ class EphemeralMessagePayload:
 
 
 @dataclass(frozen=True)
+class WidgetReloadPayload:
+    """Payload for `widget_reload` events — a dashboard-pinned widget's
+    backend handler asked the iframe to re-fetch its data.
+
+    Phase B.5 of the Widget SDK. Published by ``ctx.notify_reload()`` from
+    inside a ``widget.py`` handler. Consumed only by iframes (via the
+    ``spindrel.stream`` SSE multiplexer + a generated preamble auto-
+    subscription); not delivered to integration renderers.
+
+    ``pin_id`` identifies which pinned instance the signal targets. Widget
+    iframes filter by ``pin_id === self.dashboardPinId`` so peer pins of
+    the same bundle on the same channel don't react unless the handler
+    fires once per pin.
+    """
+
+    pin_id: uuid.UUID
+
+
+@dataclass(frozen=True)
 class ModalSubmittedPayload:
     """Payload for ``modal_submitted`` events — the user filled out a form.
 
@@ -459,4 +478,5 @@ ChannelEventPayload = (
     | LlmStatusPayload
     | EphemeralMessagePayload
     | ModalSubmittedPayload
+    | WidgetReloadPayload
 )

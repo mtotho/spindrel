@@ -46,6 +46,7 @@ from app.domain.payloads import (
     TurnStreamToolResultPayload,
     TurnStreamToolStartPayload,
     TurnStreamTokenPayload,
+    WidgetReloadPayload,
     WorkflowProgressPayload,
 )
 
@@ -75,6 +76,7 @@ class ChannelEventKind(StrEnum):
     LLM_STATUS = "llm_status"
     EPHEMERAL_MESSAGE = "ephemeral_message"
     MODAL_SUBMITTED = "modal_submitted"
+    WIDGET_RELOAD = "widget_reload"
 
     def required_capabilities(self) -> frozenset[Capability]:
         """The capability set a renderer must declare to receive this kind.
@@ -146,6 +148,10 @@ _REQUIRED_CAPS: dict[ChannelEventKind, frozenset[Capability]] = {
     # ingested by the agent-side waiter, not rendered to the user, so
     # no capability gate is needed on the dispatcher path.
     ChannelEventKind.MODAL_SUBMITTED: frozenset(),
+    # WIDGET_RELOAD is consumed only by iframe SSE subscribers (the
+    # ``spindrel.stream`` auto-subscription in the widget preamble).
+    # No integration renderer cares about it.
+    ChannelEventKind.WIDGET_RELOAD: frozenset(),
 }
 
 
@@ -183,6 +189,7 @@ _KIND_PAYLOAD: dict[ChannelEventKind, type] = {
     ChannelEventKind.LLM_STATUS: LlmStatusPayload,
     ChannelEventKind.EPHEMERAL_MESSAGE: EphemeralMessagePayload,
     ChannelEventKind.MODAL_SUBMITTED: ModalSubmittedPayload,
+    ChannelEventKind.WIDGET_RELOAD: WidgetReloadPayload,
 }
 
 

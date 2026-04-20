@@ -31,6 +31,10 @@ def source() -> str:
 
 # ── Helper *definitions* live inside the IIFE ─────────────────────────
 HELPER_DEFINITIONS = [
+    # Phase B.5 additions
+    "function onReload",
+    "function autoReload",
+    "function __ensureReloadStream",
     # Phase B.2 additions
     "function callHandler",
     # Phase B.1 additions
@@ -72,6 +76,9 @@ def test_helper_function_defined(source: str, needle: str) -> None:
 # on the key name followed by a colon so we don't false-positive on a
 # standalone identifier elsewhere.
 SPINDREL_KEYS = [
+    # Phase B.5
+    "onReload:",
+    "autoReload:",
     # Phase B.2
     "callHandler:",
     # Phase B.1
@@ -144,6 +151,44 @@ def test_host_receiver_wired(source: str) -> None:
     # Route: iframe postMessage → pushWidgetLog({ts, level, message, pinId, …}).
     assert "pushWidgetLog" in source
     assert 'from "../../../stores/widgetLog"' in source
+
+
+# ── Phase B.5: widget_reload auto-subscription wiring ────────────────
+def test_widget_reload_kind_whitelisted(source: str) -> None:
+    """`spindrel.stream("widget_reload", ...)` must not throw on unknown kind."""
+    # The stream kind whitelist is a JS Set literal; a missing entry would
+    # cause the `throw new Error("spindrel.stream: unknown event kind ...")`
+    # path to fire. Pin the presence.
+    assert '"widget_reload"' in source, "stream kind whitelist missing widget_reload"
+
+
+def test_reload_stream_filters_by_pin_id(source: str) -> None:
+    """The auto-subscription filter MUST compare payload.pin_id to dashboardPinId.
+
+    Without the filter every pin of a bundle would reload whenever any peer
+    called ctx.notify_reload() — a noisy multi-pin footgun. If this assertion
+    fires, someone relaxed the filter; check that peer-pin sync still works
+    via spindrel.bus instead.
+    """
+    assert "payload.pin_id === dashboardPinId" in source
+
+
+def test_autoreload_runs_initial_render(source: str) -> None:
+    """autoReload runs renderFn() once at registration — mount + reload share path.
+
+    Concretely: autoReload's body calls `renderFn()` synchronously, handles a
+    returned Promise, then delegates to onReload. Pin the outer call so a
+    refactor that drops the initial render (making autoReload a plain alias
+    for onReload) fails the snapshot.
+    """
+    # Find the autoReload function body and confirm it invokes renderFn()
+    # before returning the onReload subscription.
+    marker = "function autoReload("
+    start = source.index(marker)
+    end = source.index("\n  }\n", start)
+    body = source[start:end]
+    assert "renderFn()" in body, "autoReload no longer runs renderFn() on registration"
+    assert "return onReload(" in body, "autoReload must delegate subscription to onReload"
 
 
 # ── ui.chart is exposed on the nested ui: object, not the top level ──

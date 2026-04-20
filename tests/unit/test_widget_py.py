@@ -572,3 +572,69 @@ class TestInvokeEvent:
                 asyncio.run(
                     invoke_event(pin, "turn_ended", "on_msg", {}),
                 )
+
+
+# ---------------------------------------------------------------------------
+# ctx.notify_reload — Phase B.5
+# ---------------------------------------------------------------------------
+
+
+class TestNotifyReload:
+    def test_publishes_widget_reload_event(self, tmp_path):
+        """Calling ``ctx.notify_reload()`` inside a handler fires a WIDGET_RELOAD
+        event on the pin's channel carrying the pin id. End-to-end plumbing:
+        handler → ctx → channel_events bus → subscriber sees typed event.
+        """
+        from app.domain.channel_events import ChannelEventKind
+        from app.domain.payloads import WidgetReloadPayload
+        from app.services import channel_events as ce
+
+        ws_root = tmp_path / "workspace"
+        bundle_dir = ws_root / "data" / "widgets" / "reloader"
+        bundle_dir.mkdir(parents=True)
+        (bundle_dir / "index.html").write_text("")
+        _write_widget_py(bundle_dir, """
+            from spindrel.widget import on_action, ctx
+
+            @on_action("go")
+            async def go(args):
+                await ctx.notify_reload()
+                return {"ok": True}
+        """)
+
+        channel_id = uuid.uuid4()
+        pin_id = uuid.uuid4()
+        pin = _make_pin(
+            bundle_source_path="data/widgets/reloader/index.html",
+            channel_id=channel_id,
+        )
+        pin.id = pin_id
+
+        captured: list = []
+
+        async def _run():
+            bot_patch, ws_patch = _ws_root_patches(ws_root)
+            with bot_patch, ws_patch:
+                result = await invoke_action(pin, "go", {})
+            assert result == {"ok": True}
+            # Replay the buffered event (publish happened before subscribe).
+            agen = ce.subscribe(channel_id, since=0)
+            try:
+                event = await asyncio.wait_for(agen.__anext__(), timeout=1.0)
+                captured.append(event)
+            finally:
+                await agen.aclose()
+
+        asyncio.run(_run())
+
+        assert len(captured) == 1
+        event = captured[0]
+        assert event.kind == ChannelEventKind.WIDGET_RELOAD
+        assert isinstance(event.payload, WidgetReloadPayload)
+        assert event.payload.pin_id == pin_id
+        assert event.channel_id == channel_id
+
+    def test_outside_handler_raises(self):
+        """``ctx.notify_reload()`` has no pin outside an invocation — raise."""
+        with pytest.raises(RuntimeError, match="outside of a widget handler"):
+            asyncio.run(ctx.notify_reload())

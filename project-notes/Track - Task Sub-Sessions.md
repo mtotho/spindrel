@@ -1,10 +1,55 @@
 ---
 tags: [agent-server, track, architecture]
 status: active
-updated: 2026-04-19 (session 14 — Phase 3.13 dock UX polish + streaming observer fix)
+updated: 2026-04-20 (session 12 — Phase 3.14 ChatSession primitive + channel-mode dock)
 ---
 
 # Track — Task Sub-Sessions (pipeline-as-chat refactor)
+
+## Phase 3.14 — `ChatSession` primitive + channel-mode dock (shipped 2026-04-20)
+
+User ask: evolve `EphemeralSession` into a more general `ChatSession` component that can tap into any channel/session. First consumer: the channel widget dashboard at `/widgets/channel/:channelId` — its bottom-right dock should **be** the channel's chat, not a separate ephemeral. Maximize → full channel screen.
+
+### What shipped
+
+- **Renames** — `EphemeralSession.tsx` → `ChatSession.tsx`, `EphemeralSessionDock.tsx` → `ChatSessionDock.tsx`, `EphemeralSessionModal.tsx` → `ChatSessionModal.tsx`. Export names track the filenames. `PipelineRunModal` import path updated; behavior unchanged.
+- **Source discriminator** — `ChatSession` props now take `source: { kind: "channel"; channelId } | { kind: "ephemeral"; ... }`. The controller dispatches to one of two internal components (`ChannelChatSession` / `EphemeralChatSession`) so hook calls stay stable across renders.
+- **Channel mode** — new `useChannelChatSource(channelId)` hook (`ui/src/api/hooks/useChannelChatSource.ts`). Pulls `active_session_id` + `bot_id` via `useChannel`, subscribes to the channel's SSE with a session filter (identical to `useChannelChat`), fetches DB pages via `useInfiniteQuery(["session-messages", active_session_id])` — deduping with the full screen's query by key, submits via `useSubmitChat` with `channel_id`. Chat store slot keyed by `channelId` — shared with the full channel view.
+- **Channel-mode header** — no bot picker (channel has a fixed bot; a subtle `@botname` chip shows instead). Maximize button navigates to `/channels/:channelId` (single behavior, no intermediate modal size). Reset button hidden (channel reset belongs to `/clear` on the full screen). Overhead dot reuses `useChannelConfigOverhead`.
+- **Mount** — `ui/app/(app)/widgets/index.tsx` renders `<ChatSession source={{kind:"channel", channelId}} shape="dock">` when `isChannelScoped && !kiosk && !isMobile`. Commented-out ephemeral block + stale bookkeeping deleted.
+- **Ephemeral mode** — unchanged behavior from the pre-rename `EphemeralSession`. Pipelines still render through `ChatSessionModal` (shape-only shell). Global-dashboard ephemeral mount stays deferred.
+
+### Key decision
+
+**Channel mode does NOT reuse `SessionChatView`.** SessionChatView owns its own SSE via `useSessionEvents` and routes dispatches under a non-channel key. Channel mode renders `ChatMessageArea` directly against the channel store slot — the same way the full channel screen does, minus the queue/slash/secret-check chrome.
+
+### Files touched
+
+- `ui/src/components/chat/ChatSession.tsx` (new — source discriminator)
+- `ui/src/components/chat/ChatSessionDock.tsx` (rename of EphemeralSessionDock)
+- `ui/src/components/chat/ChatSessionModal.tsx` (rename of EphemeralSessionModal)
+- `ui/src/api/hooks/useChannelChatSource.ts` (new)
+- `ui/app/(app)/channels/[channelId]/PipelineRunModal.tsx` (import rename)
+- `ui/app/(app)/widgets/index.tsx` (mount + cleanup)
+- Deleted: `ui/src/components/chat/EphemeralSession{,Dock,Modal}.tsx`
+
+### Verification
+
+- `cd ui && npx tsc --noEmit` — clean.
+- Manual smoke on test server still pending (React #185 FAB-click reproduction + cross-page continuity + maximize navigation). Plan: `~/.claude/plans/hazy-growing-sketch.md`.
+
+### Invariants preserved
+
+- No parallel chat renderer — `ChatMessageArea` + `MessageInput` shared across channel-mode dock, ephemeral dock, and full channel screen.
+- No backend changes, no DB, no migration.
+- Channel chat store slot keyed by `channelId` — full screen and dock share it transparently.
+- Pipeline modal chrome unchanged (Modal shell is shape-only).
+
+### Scope explicitly deferred
+
+- Re-enabling ephemeral dock on global (non-channel) widget dashboards — still blocked by §4.0a (first-turn streaming) + §4.0c (React #185 FAB loop) below.
+- App-shell ephemeral dock across settings pages — Phase 4.1 (see below) now builds on `ChatSession`, not `EphemeralSession`.
+- Queue / slash / secret-check in the dock composer — users keep the full channel screen for those.
 
 ## Phase 3.13 — Dock UX polish + streaming observer fix (shipped 2026-04-19)
 

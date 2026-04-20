@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { MessageSquare } from "lucide-react";
 
-interface EphemeralSessionDockProps {
+interface ChatSessionDockProps {
   open: boolean;
   /** Controlled expansion — FAB vs panel. Lifted so the controller's
       header X button can collapse back to FAB. */
@@ -12,13 +12,13 @@ interface EphemeralSessionDockProps {
 }
 
 /**
- * Bottom-right FAB dock shell for ephemeral sessions.
+ * Bottom-right FAB dock shell for ChatSession.
  *
  * open=false → hidden entirely.
  * open=true  → FAB (``expanded=false``) or expanded panel (``expanded=true``).
  * The controller owns ``expanded`` so its header controls can collapse.
  */
-export function EphemeralSessionDock({ open, expanded, onExpandedChange, title, children }: EphemeralSessionDockProps) {
+export function ChatSessionDock({ open, expanded, onExpandedChange, title, children }: ChatSessionDockProps) {
   useEffect(() => {
     if (!expanded) return;
     const handler = (e: KeyboardEvent) => {

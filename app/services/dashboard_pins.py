@@ -35,14 +35,13 @@ _VALID_LAYOUT_KEYS = {"x", "y", "w", "h"}
 def _default_grid_layout(position: int, *, channel: bool = False) -> dict[str, int]:
     """Compute a day-0 layout slot for a pin at the given position.
 
-    User dashboards alternate two columns (mirrors migration 211's backfill
-    formula). Channel pins default to the Rail canvas — they're almost always
-    intended to surface in the channel sidebar — so coords are canvas-local
-    (Rail is 1-col; ``w=1`` always, ``y`` stacks by position). The user can
-    drag the pin into another canvas later.
+    User + channel dashboards both land new pins in the main grid canvas by
+    default (2-col flow, mirrors migration 211's backfill formula). The
+    ``channel`` flag is kept for call-site intent and test compatibility but
+    no longer selects a Rail-specific 1-col slot — "Add widget" should drop
+    into the page the user is looking at, which is the Grid canvas. Moves
+    to Rail / Dock / Header happen via the zone chip.
     """
-    if channel:
-        return {"x": 0, "y": position * 6, "w": 1, "h": 6}
     return {
         "x": (position % 2) * 6,
         "y": (position // 2) * 6,
@@ -189,7 +188,7 @@ async def create_pin(
         envelope=envelope,
         display_label=display_label or envelope.get("display_label"),
         grid_layout=_default_grid_layout(position, channel=is_channel),
-        zone=("rail" if is_channel else "grid"),
+        zone="grid",
     )
     db.add(pin)
     await db.flush()

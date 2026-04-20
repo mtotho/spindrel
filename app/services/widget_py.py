@@ -225,6 +225,45 @@ class _WidgetCtx:
         except (json.JSONDecodeError, TypeError):
             return raw
 
+    async def notify_reload(self) -> None:
+        """Tell the pin's iframe to re-run its reload handler.
+
+        Publishes a ``ChannelEventKind.WIDGET_RELOAD`` event on the pin's
+        channel carrying ``pin_id``. The iframe preamble auto-subscribes
+        to this kind, filters by ``pin_id === self.dashboardPinId``, and
+        invokes whatever callback the widget registered via
+        ``spindrel.onReload(cb)`` / ``spindrel.autoReload(renderFn)``.
+
+        Peer pins of the same bundle on the same channel do *not* reload
+        automatically — the filter is strict-equality on ``pin_id``. If
+        you need cross-pin sync, publish on ``spindrel.bus`` from a peer's
+        ``onReload`` callback.
+
+        Fire-and-forget: returns after the event is queued on the bus. If
+        the widget's channel_id is missing (shouldn't happen for a real
+        pin), raises ``RuntimeError`` — callers should let it propagate.
+        """
+        pin = _require_pin("ctx.notify_reload")
+        channel_id = getattr(pin, "source_channel_id", None)
+        if not channel_id:
+            raise RuntimeError(
+                "ctx.notify_reload: pin has no source_channel_id; nothing to notify"
+            )
+        pin_id = getattr(pin, "id", None)
+        if pin_id is None:
+            raise RuntimeError("ctx.notify_reload: pin has no id")
+
+        from app.domain.channel_events import ChannelEvent, ChannelEventKind
+        from app.domain.payloads import WidgetReloadPayload
+        from app.services.channel_events import publish_typed
+
+        event = ChannelEvent(
+            channel_id=channel_id,
+            kind=ChannelEventKind.WIDGET_RELOAD,
+            payload=WidgetReloadPayload(pin_id=pin_id),
+        )
+        publish_typed(channel_id, event)
+
 
 ctx = _WidgetCtx()
 

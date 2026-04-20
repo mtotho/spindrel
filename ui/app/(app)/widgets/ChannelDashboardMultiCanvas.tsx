@@ -42,8 +42,13 @@ import { EditModeGridGuides } from "./EditModeGridGuides";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
-const RAIL_CLASSES = "w-full lg:w-[280px] lg:shrink-0";
-const DOCK_CLASSES = "w-full lg:w-[320px] lg:shrink-0";
+/** Responsive stacking order: below the `lg` breakpoint the canvases stack
+ *  vertically. Preferred stack: header (rendered outside this row, above),
+ *  then main grid first (the primary content), then rail, then dock. At
+ *  `lg`+, DOM order (rail | grid | dock) wins via `lg:order-none`. */
+const RAIL_CLASSES = "w-full lg:w-[280px] lg:shrink-0 order-2 lg:order-none";
+const DOCK_CLASSES = "w-full lg:w-[320px] lg:shrink-0 order-3 lg:order-none";
+const GRID_EXTRA_CLASSES = "flex-1 min-w-0 order-1 lg:order-none";
 const HEADER_COLS = 12;
 const HEADER_ROW_HEIGHT = 32;
 const RAIL_ROW_HEIGHT = 30;
@@ -160,6 +165,7 @@ function HeaderCanvas({
         ) : null
       ) : (
         <ResponsiveGridLayout
+          className={editMode ? "rgl-edit-mode" : ""}
           layouts={{ lg: layout }}
           breakpoints={{ lg: 0 }}
           cols={{ lg: HEADER_COLS }}
@@ -245,10 +251,11 @@ function VerticalCanvas({
             cols={1}
             rowHeight={rowHeight}
             rowGap={12}
-            gridRowCount={Math.max(rowCount, 8)}
+            gridRowCount={Math.max(rowCount + 6, 24)}
             dragging={false}
           />
           <ResponsiveGridLayout
+            className="rgl-edit-mode"
             layouts={{ lg: layout }}
             breakpoints={{ lg: 0 }}
             cols={{ lg: 1 }}
@@ -364,7 +371,7 @@ function GridCanvas({
   if (!editMode && pins.length === 0) return null;
 
   return (
-    <EditOutline editMode={editMode} label="Grid" extraClass="flex-1 min-w-0">
+    <EditOutline editMode={editMode} label="Grid" extraClass={GRID_EXTRA_CLASSES}>
       {pins.length === 0 ? (
         editMode ? (
           <EmptyCanvasHint message="Drop widgets here to keep them on this dashboard page without surfacing them on chat." />
@@ -376,11 +383,12 @@ function GridCanvas({
               cols={preset.cols.lg}
               rowHeight={preset.rowHeight}
               rowGap={12}
-              gridRowCount={Math.max(rowCount, 8)}
+              gridRowCount={Math.max(rowCount + 6, 24)}
               dragging={false}
             />
           )}
           <ResponsiveGridLayout
+            className={editMode ? "rgl-edit-mode" : ""}
             layouts={layouts}
             breakpoints={{ lg: 0 }}
             cols={{ lg: preset.cols.lg }}
@@ -389,8 +397,24 @@ function GridCanvas({
             isDraggable={editMode}
             isResizable={editMode}
             draggableHandle=".widget-drag-handle"
-            compactType="vertical"
+            // `compactType=null` = free placement. The previous "vertical"
+            // setting packed every tile toward y=0 after drop, so dragging
+            // a lone widget anywhere snapped it straight back to the top.
+            // On a dashboard the user authored coords to mean, so we keep
+            // them exactly where they released. Collisions are still
+            // allowed via `preventCollision=false` for manual overlap fixes.
+            compactType={null}
             preventCollision={false}
+            onDragStop={(current) => {
+              void applyLayout(
+                current.map((it) => ({ id: it.i, x: it.x, y: it.y, w: it.w, h: it.h })),
+              );
+            }}
+            onResizeStop={(current) => {
+              void applyLayout(
+                current.map((it) => ({ id: it.i, x: it.x, y: it.y, w: it.w, h: it.h })),
+              );
+            }}
             onLayoutChange={scheduleCommit}
           >
             {pins.map((p) => (
