@@ -106,6 +106,38 @@ def _integration_dirs() -> list[Path]:
     return dirs
 
 
+def _walk_skill_files(base: Path, prefix: str = "") -> list[tuple[Path, str]]:
+    """Return (path, skill_id) for every .md under `base`, supporting folder-layout skills.
+
+    Layout:
+      <base>/*.md                          → skill_id = prefix + stem
+      <base>/<name>/index.md | README.md   → skill_id = prefix + <name>   (folder entry)
+      <base>/<name>/<sub>.md               → skill_id = prefix + <name>/<sub>
+      <base>/<name>/<sub>/<child>.md       → skill_id = prefix + <name>/<sub>/<child>
+
+    Folder layout lets one skill fan out into sub-skills loadable on demand
+    via `get_skill("parent/child")`. Both layouts coexist.
+    """
+    results: list[tuple[Path, str]] = []
+    if not base.is_dir():
+        return results
+    for p in sorted(base.glob("*.md")):
+        results.append((p, f"{prefix}{p.stem}"))
+    for sub in sorted(base.iterdir()):
+        if not sub.is_dir():
+            continue
+        for p in sorted(sub.rglob("*.md")):
+            rel = p.relative_to(base)
+            parts = list(rel.parts)
+            parts[-1] = parts[-1][:-3]  # strip ".md"
+            if parts[-1].lower() in ("index", "readme"):
+                parts = parts[:-1]
+            if not parts:
+                continue  # defensive — shouldn't happen given the .rglob
+            results.append((p, prefix + "/".join(parts)))
+    return results
+
+
 def _collect_skill_files() -> list[tuple[Path, str, str]]:
     """Return (path, skill_id, source_type) for all discoverable skill .md files.
 
@@ -114,11 +146,9 @@ def _collect_skill_files() -> list[tuple[Path, str, str]]:
     """
     items: list[tuple[Path, str, str]] = []
 
-    # skills/*.md (global)
-    skills_dir = Path("skills")
-    if skills_dir.is_dir():
-        for p in sorted(skills_dir.glob("*.md")):
-            items.append((p, p.stem, SOURCE_FILE))
+    # skills/*.md + skills/<name>/**/*.md (global, flat or folder-layout)
+    for p, skill_id in _walk_skill_files(Path("skills")):
+        items.append((p, skill_id, SOURCE_FILE))
 
     # bots/{id}/skills/*.md
     bots_dir = Path("bots")

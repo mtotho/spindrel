@@ -1,9 +1,12 @@
 """Widget template engine — renders tool results as interactive components.
 
-Integrations declare `tool_widgets:` in their YAML, and core tools use
-co-located `*.widgets.yaml` files. When a tool returns JSON, the engine
-checks for a matching template, substitutes variables from the result data,
-and produces a ToolResultEnvelope.
+Integrations declare `tool_widgets:` in their YAML, and core tools live
+under ``app/tools/local/widgets/<tool_name>/template.yaml`` — one folder
+per tool, the folder name IS the tool name, the YAML body is the widget
+definition with fields (``template`` / ``html_template`` / ``state_poll``
+/ etc.) at the top level. When a tool returns JSON, the engine checks for
+a matching template, substitutes variables from the result data, and
+produces a ToolResultEnvelope.
 
 Template syntax:
   - {{key}}          — simple key lookup from the parsed tool result JSON
@@ -215,7 +218,7 @@ def load_widget_templates_from_manifests() -> None:
 
     Priority order (first-registered wins):
     1. Integration manifests (tool_widgets in integration.yaml)
-    2. Core tool templates (*.widgets.yaml co-located with tool files)
+    2. Core tool templates (``widgets/<tool_name>/template.yaml``)
     """
     from app.services.integration_manifests import get_all_manifests
 
@@ -232,18 +235,29 @@ def load_widget_templates_from_manifests() -> None:
                 f"integration:{integration_id}", tool_widgets, base_dir=base_dir,
             )
 
-    # 2. Core tool widget templates — co-located *.widgets.yaml
-    core_dir = Path(__file__).parent.parent / "tools" / "local"
-    if core_dir.is_dir():
-        for yaml_path in sorted(core_dir.glob("*.widgets.yaml")):
+    # 2. Core tool widget templates — ``widgets/<tool_name>/template.yaml``.
+    # The folder name is the tool name; html_template.path resolves against
+    # the widget folder itself.
+    widgets_root = Path(__file__).parent.parent / "tools" / "local" / "widgets"
+    if widgets_root.is_dir():
+        for entry in sorted(widgets_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            tmpl_path = entry / "template.yaml"
+            if not tmpl_path.is_file():
+                continue
             try:
-                raw = yaml.safe_load(yaml_path.read_text())
-                if isinstance(raw, dict):
-                    total += _register_widgets(
-                        f"core:{yaml_path.stem}", raw, base_dir=core_dir,
-                    )
+                widget_def = yaml.safe_load(tmpl_path.read_text())
             except Exception:
-                logger.warning("Failed to load core widget template %s", yaml_path, exc_info=True)
+                logger.warning(
+                    "Failed to load core widget template %s", tmpl_path, exc_info=True,
+                )
+                continue
+            if not isinstance(widget_def, dict):
+                continue
+            total += _register_widgets(
+                f"core:{entry.name}", {entry.name: widget_def}, base_dir=entry,
+            )
 
     if total:
         logger.info("Loaded %d widget templates", total)

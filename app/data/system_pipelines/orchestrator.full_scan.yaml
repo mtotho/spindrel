@@ -10,7 +10,7 @@ title: Full System Scan
 task_type: pipeline
 prompt: "[System pipeline: orchestrator full scan]"
 execution_config:
-  featured: true
+  featured: false
   description: >-
     Audit every bot's configuration (system_prompt, memory_scheme,
     pinned_tools) for drift and propose fixes.

@@ -7,9 +7,10 @@ Walks three widget sources and parses their frontmatter metadata so the
   - ``source="integration"`` — ``integrations/<id>/widgets/`` (per-integration)
   - ``source="channel"`` — ``<channel_workspace>/`` (user/bot-authored)
 
-Files that a ``*.widgets.yaml`` / ``integration.yaml`` ``tool_widgets`` block
-references as ``html_template.path`` are **tool renderers**, not standalone
-catalog entries, and are excluded from built-in / integration scans so they
+Files that a core ``widgets/<tool>/template.yaml`` or an integration's
+``integration.yaml`` ``tool_widgets`` block references as
+``html_template.path`` are **tool renderers**, not standalone catalog
+entries, and are excluded from built-in / integration scans so they
 don't double-surface in the Library.
 
 Two discovery rules, union'd and de-duped:
@@ -325,18 +326,18 @@ def scan_channel(channel_id: str, bot: "BotConfig") -> list[dict]:
 # Tool-renderer exclusion set
 # ---------------------------------------------------------------------------
 #
-# Files referenced as ``html_template.path`` by a ``*.widgets.yaml`` (built-in)
-# or an integration's ``tool_widgets`` block are tool renderers — they render
-# a specific tool's output and are already surfaced in the Library under the
-# "Tool renderers" section. They must NOT also appear in the standalone
-# widget catalog.
+# Files referenced as ``html_template.path`` by a core
+# ``widgets/<tool>/template.yaml`` or an integration's ``tool_widgets``
+# block are tool renderers — they render a specific tool's output and are
+# already surfaced in the Library under the "Tool renderers" section. They
+# must NOT also appear in the standalone widget catalog.
 
 def _collect_tool_renderer_paths() -> set[str]:
     """Return absolute paths of every HTML file registered as a tool renderer.
 
     Two sources:
-      - ``app/tools/local/*.widgets.yaml`` — ``<tool>.html_template.path``
-        resolved against ``app/tools/local/``.
+      - ``<BUILTIN_WIDGET_ROOT>/<tool>/template.yaml`` —
+        ``html_template.path`` resolved against the per-tool widget folder.
       - ``integrations/<id>/integration.yaml`` — each
         ``tool_widgets.<tool>.html_template.path`` resolved against
         ``integrations/<id>/``.
@@ -346,11 +347,14 @@ def _collect_tool_renderer_paths() -> set[str]:
     """
     paths: set[str] = set()
 
-    # Built-in tool renderers live at app/tools/local/*.widgets.yaml.
-    core_tools_dir = BUILTIN_WIDGET_ROOT.parent  # -> app/tools/local
-    if core_tools_dir.is_dir():
-        for yaml_path in core_tools_dir.glob("*.widgets.yaml"):
-            paths.update(_extract_html_template_paths(yaml_path, core_tools_dir))
+    # Built-in tool renderers: widgets/<tool>/template.yaml.
+    if BUILTIN_WIDGET_ROOT.is_dir():
+        for entry in BUILTIN_WIDGET_ROOT.iterdir():
+            if not entry.is_dir():
+                continue
+            yaml_path = entry / "template.yaml"
+            if yaml_path.is_file():
+                paths.update(_extract_html_template_paths(yaml_path, entry))
 
     # Per-integration tool renderers live under integrations/<id>/integration.yaml.
     if INTEGRATIONS_ROOT.is_dir():
@@ -365,12 +369,13 @@ def _collect_tool_renderer_paths() -> set[str]:
 
 
 def _extract_html_template_paths(yaml_path: Path, base_dir: Path) -> set[str]:
-    """Parse a widgets.yaml or integration.yaml and return absolute
-    html_template paths it references.
+    """Parse a widget yaml and return absolute html_template paths it references.
 
-    Handles both shapes:
-      - Core widgets.yaml: top-level is ``{tool_name: {html_template: {path: ...}}}``
-      - Integration yaml: same shape under the ``tool_widgets`` key.
+    Handles three shapes:
+      - Core ``widgets/<tool>/template.yaml``: top-level IS the widget_def
+        (``{html_template: {path: ...}, ...}``).
+      - Integration yaml: ``{tool_widgets: {<tool>: widget_def, ...}}``.
+      - Legacy/compat: ``{<tool>: widget_def, ...}``.
     """
     try:
         with open(yaml_path, encoding="utf-8") as f:
@@ -381,14 +386,16 @@ def _extract_html_template_paths(yaml_path: Path, base_dir: Path) -> set[str]:
     if not isinstance(data, dict):
         return set()
 
-    # Normalize to a ``{tool_name: widget_def}`` mapping.
-    if "tool_widgets" in data and isinstance(data["tool_widgets"], dict):
-        widgets_map = data["tool_widgets"]
+    # Unwrapped widget_def: top-level has widget fields directly.
+    if "html_template" in data or "template" in data:
+        widget_defs = [data]
+    elif "tool_widgets" in data and isinstance(data["tool_widgets"], dict):
+        widget_defs = list(data["tool_widgets"].values())
     else:
-        widgets_map = data
+        widget_defs = list(data.values())
 
     out: set[str] = set()
-    for widget_def in widgets_map.values():
+    for widget_def in widget_defs:
         if not isinstance(widget_def, dict):
             continue
         html_template = widget_def.get("html_template")

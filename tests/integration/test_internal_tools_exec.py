@@ -7,7 +7,6 @@ Coverage:
 - a successful tool dispatch returns the parsed JSON result
 - unknown tool returns 404
 - ContextVars (current_bot_id) are set so tools that need them work
-- list_tool_signatures HTTP mirror returns the same shape as the tool
 """
 import json
 import uuid
@@ -192,39 +191,3 @@ async def test_list_tool_signatures_dispatches_through_endpoint(bot_bound_client
     assert "count" in body["result"]
 
 
-async def test_signatures_endpoint_returns_catalog(bot_bound_client):
-    """The HTTP mirror endpoint returns the same data shape as the tool, so
-    a script can self-discover composable tools without round-tripping
-    through tool dispatch."""
-    ac, _auth, _key_id = bot_bound_client
-    import app.tools.local.discovery  # noqa: F401
-    import app.tools.local.pipelines  # noqa: F401  (registers list_pipelines with returns)
-
-    r = await ac.get("/api/v1/internal/tools/signatures")
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert "signatures" in body
-    assert "count" in body
-    # At least the tools we know we backfilled in Phase 1 should appear.
-    names = {s["name"] for s in body["signatures"]}
-    assert "list_tool_signatures" in names
-    assert "list_pipelines" in names
-    # Every entry must declare a returns_schema (that's the whole point).
-    for sig in body["signatures"]:
-        assert sig["returns_schema"] is not None
-
-
-async def test_signatures_endpoint_filters_by_category(bot_bound_client):
-    ac, _auth, _key_id = bot_bound_client
-    import app.tools.local.pipelines  # noqa: F401
-
-    r = await ac.get("/api/v1/internal/tools/signatures", params={"category": "pipeline"})
-    assert r.status_code == 200
-    names = {s["name"] for s in r.json()["signatures"]}
-    # All matching names should contain "pipeline" in name OR source_integration.
-    for n in names:
-        assert "pipeline" in n.lower() or any(
-            "pipeline" in (s.get("source_integration") or "").lower()
-            for s in r.json()["signatures"]
-            if s["name"] == n
-        )

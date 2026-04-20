@@ -5,7 +5,7 @@ result into a reasonable component tree so it can be pinned to the dashboard
 as a card. Pin-only — not wired into chat rendering.
 
 Output shape mirrors hand-authored templates like ``get_system_status``
-(``app/tools/local/admin.widgets.yaml``):
+(``app/tools/local/widgets/get_system_status/template.yaml``):
 
   heading  (tool name, when provided)
   status   (summary pill — top-level collection counts, when derivable)

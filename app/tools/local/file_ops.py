@@ -122,6 +122,16 @@ def _resolve_path(path: str, ws_root: str, bot=None) -> str:
             shared_workspace_service.get_host_root(bot.shared_workspace_id)
         )
 
+    # widget:// virtual paths sit outside the normal workspace namespace.
+    # Delegate to the shared resolver and return its absolute path directly;
+    # the write-vs-read-only check is enforced in file() before op dispatch.
+    from app.services.widget_paths import is_widget_uri, resolve_widget_uri
+    if is_widget_uri(path):
+        resolved_path, _scope, _name, _read_only = resolve_widget_uri(
+            path, ws_root=ws_root, shared_root=shared_root
+        )
+        return resolved_path
+
     # Translate container-style /workspace/... paths
     if path.startswith("/workspace/") or path == "/workspace":
         path = workspace_service.translate_path(
@@ -427,6 +437,29 @@ async def file(
     effective_ws_root, effective_bot = await _maybe_resolve_cross_channel(
         path, bot, ws_root,
     )
+
+    # widget:// core scope is read-only to bots; block write ops before
+    # _resolve_path executes anything IO-side. widget://bot and widget://workspace
+    # are writable under the standard workspace / shared-workspace boundaries.
+    from app.services.widget_paths import WIDGET_URI_RE
+    _WRITE_OPS_WIDGET = {
+        "create", "overwrite", "append", "edit",
+        "json_patch", "restore", "delete", "mkdir", "move",
+    }
+    _widget_match = WIDGET_URI_RE.match(path.strip())
+    if _widget_match and _widget_match.group(1) == "core" and operation in _WRITE_OPS_WIDGET:
+        return _error(
+            "widget://core/... is read-only — the core library ships with "
+            "the server. Author new widgets under widget://bot/<name>/... "
+            "(bot-private) or widget://workspace/<name>/... (shared)."
+        )
+    if operation == "move" and destination:
+        _dest_match = WIDGET_URI_RE.match(destination.strip())
+        if _dest_match and _dest_match.group(1) == "core":
+            return _error(
+                "Cannot move files into widget://core/... — the core library "
+                "ships with the server and is read-only to bots."
+            )
 
     try:
         resolved = _resolve_path(path, effective_ws_root, effective_bot)

@@ -8,6 +8,22 @@
 
 ## Key Decisions
 
+### Configurator skill + `propose_config_change` replaces featured audit pipelines
+**Decided 2026-04-20.** The ambient "fix my config" UX is now an organic chat-driven path, not a launchpad of structured audit pipelines. Six featured `analyze_*` / `full_scan` pipelines accumulated noise because "audit everything in one pass" can't meet the ≥2-correlation_id evidence contract; only `analyze_discovery` produced apply-worthy proposals. The replacement:
+
+- **Skill**: new folder layout `skills/configurator/{index,bot,channel,integration}.md`. `index.md` teaches a per-scope decision table + evidence rule; sub-skills `bot.md` / `channel.md` / `integration.md` carry the scope-specific investigate-and-propose playbook + field allowlists. Loadable via `get_skill("configurator/bot")` etc.
+- **Tool**: new `app/tools/local/propose_config_change.py`. `safety_tier="mutating"` so the existing tool-policy approval gate fires (`TOOL_POLICY_DEFAULT_ACTION=require_approval` default). Per-scope allowlists mirror the pipeline PATCH whitelists — bot: 7 fields, channel: `pipeline_mode / layout_mode / config.<whitelist>`, integration: `enabled / config.<key>`. On approve, the tool PATCHes via direct SQLAlchemy / `set_status` / `update_settings`. Evidence is a required argument (≥1 signal string; skill enforces ≥2 correlation_ids).
+- **Pipeline surface**: five YAMLs flipped to `featured: false`. They stay on disk for Library-drawer use; only `analyze_discovery` remains featured.
+
+**Why this shape.** Narrow tool with validation + per-scope allowlist beats bespoke pipelines (one multi-step audit per knob) beats a giant `call_api` that mutates anything. Tool-policy approval gate is already wired; a structured `InlineApprovalReview`-style widget is a follow-up but not required for v1. Skill folder layout is a pre-req that also unblocks Widget Library Phase 3's planned `skills/widgets/` reorg — same loader change, no duplicated work.
+
+**Load-bearing implementation choices.**
+- **Skill loader walks folders.** `app/services/file_sync.py::_walk_skill_files` + `app/agent/skills.py::list_available_skills` recognize `skills/<name>/index.md` (or `README.md`) as the folder entry; `skills/<name>/<sub>.md` registers as `<name>/<sub>`. Flat `skills/<name>.md` still works. Both layouts coexist.
+- **Tool is `mutating`, not a bespoke "proposal" type.** Every call routes through the standard approval gate; the approval UI shows args. No new DB table, no new endpoint, no new renderer required for v1. A nicer widget-based review is deferred to when it's clear the plain approval prompt is insufficient.
+- **Per-scope PATCH is done directly, not via HTTP.** Bot: setattr + commit. Channel: deepcopy config JSONB + set key + `flag_modified`. Integration: `set_status` or `update_settings`. No internal HTTP → no auth token plumbing.
+
+Plan: `~/.claude/plans/scalable-prancing-music.md`. Superseded: [[Track - Task Sub-Sessions#Phase 4 — Orchestrator "Home" redesign: settings lattice + ubiquitous ephemeral chat (PARKED 2026-04-20)]] (parked; the skill answers the same ask at a fraction of the scope).
+
 ### Mobile hamburger on channel routes opens a tabbed drawer; desktop keeps plain palette
 **Decided 2026-04-20.** On the channel chat screen, the mobile hamburger no longer opens the global CommandPalette — it opens a new `MobileChannelDrawer` (`ui/app/(app)/channels/[channelId]/MobileChannelDrawer.tsx`) with three tabs: `[Widgets (N)] [Files] [Jump]`. Default tab = Jump, which embeds `CommandPaletteContent variant="modal"` inline so muscle memory for the palette keeps working. Widgets tab shows every channel-dashboard pin grouped by zone (Header / Rail / Dock / Grid) so mobile users see full dashboard contents regardless of the chat-screen layout mode. Files tab = existing `FilesTabPanel`. Desktop ⌘K and mobile non-channel hamburger still open the plain CommandPalette — no tab-strip chrome there.
 

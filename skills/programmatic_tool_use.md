@@ -8,7 +8,7 @@ category: tool-use
 # Programmatic Tool Use — When to Reach for `run_script`
 
 You have an exec-capable tool, `run_script`, that runs a short Python script in your
-workspace. From inside the script you can call any tool you're authorized for as
+workspace. From inside the script you call any tool you're authorized for as
 `tools.NAME(**kwargs)` — the call routes back through the same policy and tier gate
 the LLM-side dispatch uses, with your per-bot scoped API key.
 
@@ -36,9 +36,8 @@ Before writing a script, find the tools you want and their return shapes:
 - `list_tool_signatures()` — compact catalog of tools that declare a return schema. Filter with `category="..."` (matches name or integration). Cheap to call repeatedly.
 - `get_tool_info(tool_name="...")` — full input + output JSON Schema for one tool. Use when you need exact field names.
 
-Tools without a declared return schema work too, but you'll be guessing field
-names — call `get_tool_info` first to confirm the shape, or run an exploratory
-script that just prints the raw result.
+Call these directly from the chat turn *before* writing your script — that's
+cheaper than embedding catalog lookups inside the script.
 
 ## Writing a script
 
@@ -88,30 +87,20 @@ in the result tells you where to look. Otherwise it's cleaned up.
 
 Many tools — every MCP tool, plus the long tail of local tools that haven't been
 backfilled with a `returns` schema yet — are still callable from scripts but
-their return shape isn't documented. Two ways to deal with it:
-
-**1. Explore first (one extra script call).** Before writing the real script,
-run a tiny script that calls the tool once and prints a shape preview. Then
-write the real script against the shape you saw.
+their return shape isn't documented. Run a two-line probe script first:
 
 ```python
 from spindrel import tools
-# Two-line probe — tells you what fields exist before you compose.
-tools.explore("some_mcp_tool", arg1="...", arg2=10)
-# Prints: {"tool": "some_mcp_tool", "shape_preview": {"_type": "object", "keys": [...]}}
+import json
+
+result = tools.some_unschematized_tool(arg1="...", limit=1)
+print(json.dumps(result, indent=2)[:2000])
 ```
 
-`tools.explore(name, **kwargs)` calls the tool, prints a structural summary
-(top-level keys, array lengths, first-element keys), and also returns the raw
-result. Cheap insurance — one round trip vs. five wrong attempts.
-
-**2. List unschematized tools.** `tools.signatures(include_unschematized=True)`
-returns local tools without a return schema PLUS every MCP tool. Each entry has
-`returns_summary: "? (MCP — explore by calling)"` — that's your cue to
-explore-first.
+You'll see the real shape, then write the composing script against it.
 
 Tools that DO declare a return schema are always preferred for composition —
-look there first via `tools.signatures()` (no flag).
+check `list_tool_signatures()` first.
 
 ## Limits
 
@@ -121,8 +110,9 @@ look there first via `tools.signatures()` (no flag).
 - Approval-required tools raise `ToolError(409, ...)` — you can't auto-wait inside
   a script. Surface it back, or call something that doesn't require approval.
 - The script's Python is plain stdlib (no `requests`, no project imports). Use
-  `tools.NAME()` for everything that needs the agent — don't try to call the
-  internal HTTP endpoints directly.
+  `tools.NAME(...)` for everything that needs the agent — don't try to call the
+  internal HTTP endpoints directly. For arbitrary API access, go through the
+  `call_api` tool: `tools.call_api(method="GET", path="/api/v1/...")`.
 
 ## What this is NOT
 

@@ -1,0 +1,59 @@
+# Widget template for get_task_result
+
+content_type: application/vnd.spindrel.components+json
+display: inline
+sample_payload:
+  title: Weekly digest
+  status: completed
+  task_type: recurring
+  bot_id: kai
+  run_count: 12
+  run_at: "2026-04-18T09:00:00Z"
+  completed_at: "2026-04-18T09:00:12Z"
+  child_task_count: 0
+  result: "Digest sent to #home with 6 new items."
+  error: null
+template:
+  v: 1
+  components:
+    - type: heading
+      text: "{{title | default: Task Result}}"
+      level: 3
+    - type: status
+      text: "{{status}}"
+      color: "{{status | status_color}}"
+    - type: properties
+      layout: inline
+      items:
+        - label: Type
+          value: "{{task_type}}"
+        - label: Bot
+          value: "{{bot_id}}"
+        - label: Run count
+          value: "{{run_count}}"
+          when: "{{run_count | not_empty}}"
+        - label: Last run
+          value: "{{run_at}}"
+          when: "{{run_at | not_empty}}"
+        - label: Completed
+          value: "{{completed_at}}"
+          when: "{{completed_at | not_empty}}"
+        - label: Child tasks
+          value: "{{child_task_count}}"
+          when: "{{child_task_count | not_empty}}"
+    - type: section
+      label: Error
+      collapsible: true
+      defaultOpen: true
+      when: "{{error | not_empty}}"
+      children:
+        - type: code
+          content: "{{error}}"
+    - type: section
+      label: Result
+      collapsible: true
+      defaultOpen: false
+      when: "{{result | not_empty}}"
+      children:
+        - type: text
+          content: "{{result}}"

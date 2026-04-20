@@ -10,7 +10,7 @@ title: Analyze Skill Quality
 task_type: pipeline
 prompt: "[System pipeline: analyze skill quality]"
 execution_config:
-  featured: true
+  featured: false
   description: >-
     Audit a bot's enrolled skills — which ones ranked high but were
     never fetched, which fired on the wrong turns, which drifted stale —

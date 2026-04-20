@@ -42,10 +42,27 @@ _loaded_skills: set[str] = set()
 
 
 def list_available_skills(skills_dir: Path = SKILLS_DIR) -> list[str]:
-    """List skill IDs from DB (for backward compat, falls back to filesystem)."""
+    """List skill IDs from the filesystem (flat + folder-layout).
+
+    Flat: `skills/foo.md` → `foo`.
+    Folder: `skills/foo/index.md` → `foo`; `skills/foo/bar.md` → `foo/bar`.
+    Matches `_walk_skill_files` in `app/services/file_sync.py`.
+    """
     if not skills_dir.exists():
         return []
-    return [p.stem for p in skills_dir.glob("*.md")]
+    ids: list[str] = [p.stem for p in skills_dir.glob("*.md")]
+    for sub in sorted(skills_dir.iterdir()):
+        if not sub.is_dir():
+            continue
+        for p in sorted(sub.rglob("*.md")):
+            rel = p.relative_to(skills_dir)
+            parts = list(rel.parts)
+            parts[-1] = parts[-1][:-3]
+            if parts[-1].lower() in ("index", "readme"):
+                parts = parts[:-1]
+            if parts:
+                ids.append("/".join(parts))
+    return ids
 
 
 def _parse_frontmatter(content: str) -> tuple[dict, str]:

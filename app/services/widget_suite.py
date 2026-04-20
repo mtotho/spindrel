@@ -2,8 +2,8 @@
 
 A *suite* is a group of widget bundles that share a server-side SQLite DB.
 Members opt in via ``db.shared: <suite_id>`` in their per-bundle widget.yaml;
-the matching ``suite.yaml`` at ``app/tools/local/widgets/suites/<suite_id>/``
-(or ``integrations/*/widgets/suites/<suite_id>/``) owns the shared schema.
+the matching ``suite.yaml`` at ``app/tools/local/widgets/<suite_id>/``
+(or ``integrations/*/widgets/<suite_id>/``) owns the shared schema.
 
 Public surface
 --------------
@@ -49,8 +49,8 @@ class SuiteManifest:
 # Discovery roots
 # ---------------------------------------------------------------------------
 
-_BUILTIN_SUITES_DIR = (
-    Path(__file__).resolve().parents[1] / "tools" / "local" / "widgets" / "suites"
+_BUILTIN_WIDGETS_DIR = (
+    Path(__file__).resolve().parents[1] / "tools" / "local" / "widgets"
 ).resolve()
 
 _INTEGRATIONS_DIR = (
@@ -59,13 +59,18 @@ _INTEGRATIONS_DIR = (
 
 
 def _discovery_roots() -> list[Path]:
-    """Return every directory that may contain ``<suite_id>/suite.yaml`` files."""
+    """Return every directory whose subfolders may contain ``<id>/suite.yaml``.
+
+    Suites are identified by the presence of ``suite.yaml`` at the top of
+    each subdirectory — they live alongside standalone widgets under
+    ``widgets/``, not in a dedicated ``suites/`` folder.
+    """
     roots: list[Path] = []
-    if _BUILTIN_SUITES_DIR.is_dir():
-        roots.append(_BUILTIN_SUITES_DIR)
+    if _BUILTIN_WIDGETS_DIR.is_dir():
+        roots.append(_BUILTIN_WIDGETS_DIR)
     if _INTEGRATIONS_DIR.is_dir():
         for integ in _INTEGRATIONS_DIR.iterdir():
-            candidate = integ / "widgets" / "suites"
+            candidate = integ / "widgets"
             if candidate.is_dir():
                 roots.append(candidate.resolve())
     return roots

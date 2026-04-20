@@ -2,11 +2,21 @@
 tags: [agent-server, track, automations]
 status: active
 created: 2026-04-15
-updated: 2026-04-17 (session 15)
+updated: 2026-04-20 (5 audit pipelines demoted to Library; configurator skill path shipped)
 ---
 # Track — Automations (Task Pipelines)
 
 Task pipelines are the automation primitive — multi-step sequences (shell → tool → LLM) stored inline on the Task model. Decision documented in [[Architecture Decisions#Task Pipelines as Automation Primitive]].
+
+## 2026-04-20 — Audit pipelines demoted; configurator skill replaces ambient surface
+
+Five featured audit pipelines (`full_scan`, `analyze_skill_quality`, `analyze_memory_quality`, `analyze_tool_usage`, `analyze_costs`) flipped to `featured: false` in their YAML. Only `orchestrator.analyze_discovery` remains featured (evidence-backed, produces apply-worthy proposals). Demoted YAMLs stay on disk — users who want a structured batch-audit run them from the Library drawer. No subscriptions were touched.
+
+The driving problem: Full System Scan accumulated 18 stuck awaiting-review findings because "audit every knob in one pass" can't produce ≥2 real correlation_ids per proposal, so the foreach step either refused to emit or emitted weak proposals that the user couldn't confidently approve. Analyze Discovery works because its scope is narrow (one bot, one RAG knob, quantitative trace evidence).
+
+Replacement for the ambient "fix my config" UX is the **configurator skill + `propose_config_change` tool** (new in `skills/configurator/` folder layout + `app/tools/local/propose_config_change.py`). The tool uses the existing tool-policy approval gate (`safety_tier="mutating"`, `TOOL_POLICY_DEFAULT_ACTION=require_approval` default) rather than a bespoke review widget. Structured `InlineApprovalReview`-style widget is a follow-up.
+
+Plan: `~/.claude/plans/scalable-prancing-music.md`. Side effect: skill loader now supports folder layout (`skills/<name>/index.md` + `skills/<name>/<sub>.md`), unblocking Widget Library Phase 3.
 
 ## Current State (2026-04-15)
 - Backend: `app/services/step_executor.py` — pipeline runner, shared condition/prompt/context functions

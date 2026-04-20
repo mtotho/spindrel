@@ -510,17 +510,22 @@ export function OrchestratorLaunchpad({
                   No featured pipelines. Try the Library tab.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {featured.map((pipeline) => (
-                    <PipelineTile
-                      key={pipeline.id}
-                      pipeline={pipeline}
-                      onLaunch={handleLaunch}
-                      launchingId={launchingId}
-                      onOpenFindings={onOpenFindings}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {featured.map((pipeline) => (
+                      <PipelineTile
+                        key={pipeline.id}
+                        pipeline={pipeline}
+                        onLaunch={handleLaunch}
+                        launchingId={launchingId}
+                        onOpenFindings={onOpenFindings}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-text-dim mt-2.5 px-0.5 leading-snug">
+                    Or just ask — e.g. <span className="text-text">"help me fix crumb's tool discovery"</span>.
+                  </p>
+                </>
               )}
             </div>
           )}

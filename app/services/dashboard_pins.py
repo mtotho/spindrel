@@ -271,8 +271,8 @@ async def create_suite_pins(
             )
 
     # Resolve source_kind + integration_id from the suite's on-disk location.
-    # Built-in suites live under ``app/tools/local/widgets/suites/``; integration
-    # suites live under ``integrations/<id>/widgets/suites/``. The iframe
+    # Built-in suites live under ``app/tools/local/widgets/<suite_id>/``; integration
+    # suites live under ``integrations/<id>/widgets/<suite_id>/``. The iframe
     # renderer dispatches to different content endpoints per source_kind, so
     # stamping the right discriminator is load-bearing.
     source_kind = "channel"

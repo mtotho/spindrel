@@ -1,6 +1,6 @@
 """Widget state-poll transforms for task tools.
 
-Consumed by ``tasks.widgets.yaml`` -> ``schedule_task.state_poll.transform``.
+Consumed by ``widgets/schedule_task/template.yaml`` -> ``state_poll.transform``.
 Reshapes ``list_tasks`` detail output into a dict whose timestamp fields are
 formatted in the server's local timezone so the template renders a human
 string instead of a raw ISO value.

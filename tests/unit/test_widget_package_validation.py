@@ -251,7 +251,7 @@ class TestComponentTree:
 
 
 class TestRealCoreWidgets:
-    """Load every shipped core *.widgets.yaml and assert it validates."""
+    """Load every shipped core ``widgets/<tool>/template.yaml`` and assert it validates."""
 
     def test_all_core_widgets_validate(self):
         import pathlib
@@ -259,23 +259,24 @@ class TestRealCoreWidgets:
 
         from app.services.widget_package_validation import _validate_parsed_definition
 
-        core_dir = pathlib.Path(__file__).resolve().parents[2] / "app" / "tools" / "local"
-        yaml_files = sorted(core_dir.glob("*.widgets.yaml"))
-        assert yaml_files, "no core widget yaml files found"
+        widgets_root = (
+            pathlib.Path(__file__).resolve().parents[2]
+            / "app" / "tools" / "local" / "widgets"
+        )
+        yaml_files = sorted(widgets_root.glob("*/template.yaml"))
+        assert yaml_files, "no core widget template.yaml files found"
 
         failures: list[str] = []
         for path in yaml_files:
             with open(path) as f:
-                parsed = yamllib.safe_load(f)
-            if not isinstance(parsed, dict):
+                widget_def = yamllib.safe_load(f)
+            if not isinstance(widget_def, dict):
                 continue
-            for tool_name, widget_def in parsed.items():
-                if tool_name.startswith("_") or not isinstance(widget_def, dict):
-                    continue
-                errs, _ = _validate_parsed_definition(widget_def)
-                if errs:
-                    for e in errs:
-                        failures.append(f"{path.name}:{tool_name}: {e.message}")
+            tool_name = path.parent.name
+            errs, _ = _validate_parsed_definition(widget_def)
+            if errs:
+                for e in errs:
+                    failures.append(f"{tool_name}: {e.message}")
         assert not failures, "Core widget validation failures:\n" + "\n".join(failures)
 
     def test_all_integration_widgets_validate(self):

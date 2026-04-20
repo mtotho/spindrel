@@ -87,6 +87,9 @@ def _helper_source() -> str:
                 shape the LLM sees — top-level ``error`` keys surface as
                 ToolError too so scripts can ``try/except`` instead of
                 inspecting the body.
+
+                Need catalog? Call the ``list_tool_signatures`` tool through
+                this same proxy — there is no separate signatures endpoint.
                 """
                 body = {
                     "name": name,
@@ -118,69 +121,6 @@ def _helper_source() -> str:
                 if not payload.get("ok"):
                     raise ToolError(200, payload.get("error") or payload.get("result"))
                 return payload.get("result")
-
-            def signatures(self, category=None, limit=200, include_unschematized=False):
-                """List composable tools. Returns the same shape as the
-                list_tool_signatures tool — ``{count, signatures: [...]}``.
-
-                Set ``include_unschematized=True`` to also see local tools
-                that don't declare a return schema PLUS MCP tools. Those
-                require an explore-first call (see the skill) — you'll need
-                to print and inspect the result to learn the shape.
-                """
-                qs = {}
-                if category:
-                    qs["category"] = category
-                if limit:
-                    qs["limit"] = str(limit)
-                if include_unschematized:
-                    qs["include_unschematized"] = "true"
-                from urllib.parse import urlencode
-                url = f"{AGENT_SERVER_URL}/api/v1/internal/tools/signatures"
-                if qs:
-                    url += "?" + urlencode(qs)
-                req = urllib.request.Request(url, headers={
-                    "Authorization": f"Bearer {AGENT_SERVER_API_KEY}",
-                })
-                with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
-
-            def explore(self, name, **kwargs):
-                """Call a tool and return a compact preview of its result shape.
-
-                Use this when you're about to compose against a tool whose
-                return schema isn't declared (MCP tools, or any local tool
-                without a ``returns`` block). Prints the top-level keys / list
-                shape so you know what fields to access in your real script.
-
-                Example:
-                    tools.explore("some_unschematized_tool", limit=1)
-                    # → prints: {"keys": ["records", "next_cursor"], "first_record_keys": ["id", "name"]}
-                """
-                result = self.call(name, **kwargs)
-                preview = _summarize_value(result)
-                print(json.dumps({"tool": name, "shape_preview": preview}, indent=2))
-                return result
-
-
-        def _summarize_value(value, depth=0):
-            if depth > 3:
-                return "<deep>"
-            if isinstance(value, dict):
-                summary = {"_type": "object", "keys": list(value.keys())[:12]}
-                # Recurse one level into the first non-empty list field for hint value.
-                for k, v in value.items():
-                    if isinstance(v, list) and v:
-                        summary[f"{k}[0]"] = _summarize_value(v[0], depth + 1)
-                        break
-                return summary
-            if isinstance(value, list):
-                if not value:
-                    return {"_type": "array", "length": 0}
-                return {"_type": "array", "length": len(value), "item": _summarize_value(value[0], depth + 1)}
-            if isinstance(value, str):
-                return f"<string len={len(value)}>"
-            return type(value).__name__
 
 
         tools = _ToolsProxy()

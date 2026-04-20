@@ -84,14 +84,14 @@ class TestScanBuiltin:
             assert e["is_loose"] is False
 
     def test_scan_excludes_tool_renderer_html(self, tmp_path, monkeypatch):
-        """HTML files referenced by a sibling ``*.widgets.yaml``
+        """HTML files referenced by a per-tool ``template.yaml``
         ``html_template.path`` are tool renderers, not standalone widgets.
         They must not surface in the built-in catalog."""
         from app.services import html_widget_scanner
 
-        # tool/local layout: widgets/ is the root, its parent holds *.widgets.yaml.
-        tools_local = tmp_path / "tools" / "local"
-        widgets_root = tools_local / "widgets"
+        # New layout: widgets/<tool>/template.yaml lives alongside the html
+        # file it references.
+        widgets_root = tmp_path / "tools" / "local" / "widgets"
         monkeypatch.setattr(html_widget_scanner, "BUILTIN_WIDGET_ROOT", widgets_root)
         monkeypatch.setattr(html_widget_scanner, "INTEGRATIONS_ROOT", tmp_path / "missing")
 
@@ -100,24 +100,24 @@ class TestScanBuiltin:
             widgets_root / "notes" / "index.html",
             WIDGET_HTML_WITH_FRONTMATTER.format(name="Notes", desc="", ver="0.0.0"),
         )
-        # Tool-renderer widget — referenced by image.widgets.yaml, must be
-        # excluded.
+        # Tool-renderer widget — referenced by generate_image/template.yaml,
+        # must be excluded.
         _write(
-            widgets_root / "image.html",
+            widgets_root / "generate_image" / "image.html",
             WIDGET_HTML_WITH_FRONTMATTER.format(name="Image", desc="", ver="0.0.0"),
         )
         _write(
-            tools_local / "image.widgets.yaml",
-            "generate_image:\n"
-            "  content_type: application/vnd.spindrel.html+interactive\n"
-            "  html_template:\n"
-            "    path: widgets/image.html\n",
+            widgets_root / "generate_image" / "template.yaml",
+            "content_type: application/vnd.spindrel.html+interactive\n"
+            "html_template:\n"
+            "  path: image.html\n",
         )
 
         entries = html_widget_scanner.scan_builtin()
         slugs = {e["slug"] for e in entries}
         assert "notes" in slugs
         assert "image" not in slugs
+        assert "generate_image" not in slugs
 
     def test_scan_empty_when_root_missing(self, tmp_path, monkeypatch):
         from app.services import html_widget_scanner

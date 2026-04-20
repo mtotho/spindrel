@@ -1,0 +1,106 @@
+# list_tasks handles both modes:
+#   - Detail mode (task_id given): returns {id, status, bot_id, title, ...}
+#   - List mode (no task_id): returns {tasks: [...], count: N}
+
+content_type: application/vnd.spindrel.components+json
+display: inline
+sample_payload:
+  count: 3
+  tasks:
+    - title: Nightly roadmap sync
+      status: pending
+      bot_id: kai
+      recurrence: "0 2 * * *"
+    - title: E2E smoke run
+      status: active
+      bot_id: fox
+      recurrence: null
+    - title: Weekly digest
+      status: completed
+      bot_id: kai
+      recurrence: "0 9 * * 1"
+  message: null
+template:
+  v: 1
+  components:
+    # ── List mode (tasks array present) ──
+    - type: heading
+      text: "Tasks ({{count}})"
+      level: 3
+      when: "{{tasks | not_empty}}"
+    - type: table
+      columns: ["Title", "Status", "Bot", "Recurrence"]
+      rows:
+        each: "{{tasks}}"
+        template: ["{{_.title | default: —}}", "{{_.status}}", "{{_.bot_id}}", "{{_.recurrence | default: —}}"]
+      compact: true
+      when: "{{tasks | not_empty}}"
+    - type: status
+      text: "{{message}}"
+      color: muted
+      when: "{{message | not_empty}}"
+
+    # ── Detail mode (single task, has id field) ──
+    - type: heading
+      text: "{{title | default: Task}}"
+      level: 3
+      when: "{{id | not_empty}}"
+    - type: status
+      text: "{{status}}"
+      color: "{{status | status_color}}"
+      when: "{{id | not_empty}}"
+    - type: properties
+      layout: inline
+      when: "{{id | not_empty}}"
+      items:
+        - label: Bot
+          value: "{{bot_id}}"
+        - label: Recurrence
+          value: "{{recurrence}}"
+          when: "{{recurrence | not_empty}}"
+        - label: Run count
+          value: "{{run_count}}"
+          when: "{{run_count | not_empty}}"
+        - label: Last run
+          value: "{{run_at}}"
+          when: "{{run_at | not_empty}}"
+        - label: Completed
+          value: "{{completed_at}}"
+          when: "{{completed_at | not_empty}}"
+        - label: Next run
+          value: "{{scheduled_at}}"
+          when: "{{scheduled_at | not_empty}}"
+        - label: Template
+          value: "{{prompt_template}}"
+          when: "{{prompt_template | not_empty}}"
+        - label: File
+          value: "{{workspace_file_path}}"
+          when: "{{workspace_file_path | not_empty}}"
+        - label: Dispatch
+          value: "{{dispatch_type}}"
+          when: "{{dispatch_type | not_empty}}"
+    - type: section
+      label: Error
+      collapsible: true
+      defaultOpen: true
+      when: "{{error | not_empty}}"
+      children:
+        - type: code
+          content: "{{error}}"
+    - type: section
+      label: Last result
+      collapsible: true
+      defaultOpen: false
+      when: "{{result | not_empty}}"
+      children:
+        - type: text
+          content: "{{result}}"
+    - type: button
+      label: Cancel
+      variant: danger
+      when: "{{status | in: pending,active}}"
+      action:
+        dispatch: tool
+        tool: cancel_task
+        args:
+          task_id: "{{id}}"

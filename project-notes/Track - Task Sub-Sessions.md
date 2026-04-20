@@ -72,7 +72,13 @@ that was mis-scoped as "monitor only" in Phase 3.12.
 
 **Closes §4.0a** — first-turn streaming should have been working all along; the reported failure was the same observer-timer bug on a long first turn.
 
-## Phase 4 — Orchestrator "Home" redesign: settings lattice + ubiquitous ephemeral chat (planned, not started)
+## Phase 4 — Orchestrator "Home" redesign: settings lattice + ubiquitous ephemeral chat (PARKED 2026-04-20)
+
+**Status: parked.** Superseded for now by the configurator skill path shipped 2026-04-20 (see [[Roadmap#Configurator skill + `propose_config_change` (2026-04-20)]] and `~/.claude/plans/scalable-prancing-music.md`). The skill-driven organic approach — "user asks in chat → skill loads → bot investigates + emits `propose_config_change` → user approves inline" — answers the same "configure the system conversationally" ask without needing the app-shell dock primitive, the route-level settings pages, or the `change_setting` tool from sub-phase 4.6.
+
+Revisit Phase 4 only if the skill path falls over for use cases that genuinely need ambient chat bound to a specific settings page (e.g. a multi-turn investigation that benefits from staying mounted while the user tabs between Dreaming / Memory / Schedules views). The three ephemeral-dock bugs (§4.0a streaming, §4.0b model dropdown, §4.0c React #185) still block Phase 4 whenever it resumes — configurator doesn't need the dock, so they stay parked.
+
+### Original plan (for reference if Phase 4 resumes)
 
 **Big idea:** replace the orchestrator's standard channel chat view on the home/landing screen with a **lattice of domain pages** (Pipelines, Dreaming, Integrations, Memory, Schedules, etc.). Each page is light-chrome, shows its domain's settings/state, and mounts the **ephemeral session dock (bottom-right only)** pre-seeded with that page's context and a curated `tool_hints` list. The chat dock follows the user across pages — same session, context updates per page — and the bot can propose setting changes that surface through the existing approval UI before applying.
 

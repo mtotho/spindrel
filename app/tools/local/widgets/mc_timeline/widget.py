@@ -1,7 +1,7 @@
 """MC Timeline handlers — add manual timeline events from the iframe.
 
 Shares its SQLite DB with `mc_kanban` and `mc_tasks` via the Mission Control
-suite (see `suites/mission-control/suite.yaml`).
+suite (see `mission-control/suite.yaml`).
 """
 from __future__ import annotations
 

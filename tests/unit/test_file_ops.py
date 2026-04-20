@@ -289,6 +289,103 @@ class TestResolvePathSharedWorkspace:
                 _resolve_path("/etc/passwd", ws_root, bot)
 
 
+class TestResolvePathWidgetUri:
+    """widget:// virtual paths resolve outside the normal workspace boundary.
+
+    Phase 1b of the Widget Library track: ``widget://core/<name>/...`` points
+    at the in-repo core library (read-only at dispatch time), while
+    ``widget://bot/<name>/...`` and ``widget://workspace/<name>/...`` resolve
+    under the corresponding workspace's ``.widget_library/`` dir.
+    """
+
+    def test_widget_bot_uri_resolves_under_ws_widget_library(self, ws):
+        result = _resolve_path("widget://bot/my_widget/index.html", str(ws))
+        assert result == os.path.realpath(
+            str(ws / ".widget_library" / "my_widget" / "index.html")
+        )
+
+    def test_widget_core_uri_resolves_to_in_repo_dir(self, ws):
+        result = _resolve_path("widget://core/notes/index.html", str(ws))
+        assert result.endswith("/widgets/notes/index.html")
+        # Lives under the in-repo tree, not the bot workspace.
+        assert "/app/tools/local/widgets/" in result
+
+    def test_widget_workspace_uri_requires_shared_workspace(self, ws):
+        bot = _mock_bot(str(ws), workspace_type="host")  # no shared_workspace_id
+        with pytest.raises(ValueError, match="shared workspace"):
+            _resolve_path("widget://workspace/foo/index.html", str(ws), bot)
+
+    def test_widget_bot_traversal_blocked(self, ws):
+        with pytest.raises(ValueError, match="escapes bundle"):
+            _resolve_path("widget://bot/foo/../bar", str(ws))
+
+
+class TestFileToolWidgetUri:
+    """End-to-end: the `file` tool honors widget:// URIs, enforces core's
+    read-only status, and lets a bot author a bundle that widget_library_list
+    can then discover."""
+
+    @pytest.fixture
+    def bot_ctx(self, ws):
+        from app.agent.context import current_bot_id
+        bot = _mock_bot(str(ws), workspace_type="host", bot_id="crumb")
+        token = current_bot_id.set("crumb")
+        with patch("app.agent.bots.get_bot", return_value=bot), \
+             patch("app.services.workspace.workspace_service.get_workspace_root", return_value=str(ws)):
+            yield bot
+        current_bot_id.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_create_under_widget_bot_scope(self, ws, bot_ctx):
+        result = await file_tool(
+            operation="create",
+            path="widget://bot/my_toggle/index.html",
+            content="<div>toggle</div>",
+        )
+        parsed = json.loads(result)
+        assert parsed.get("ok") is True
+        on_disk = ws / ".widget_library" / "my_toggle" / "index.html"
+        assert on_disk.read_text() == "<div>toggle</div>"
+
+    @pytest.mark.asyncio
+    async def test_create_under_widget_core_scope_blocked(self, ws, bot_ctx):
+        result = await file_tool(
+            operation="create",
+            path="widget://core/hacked/index.html",
+            content="evil",
+        )
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "read-only" in parsed["error"]
+
+    @pytest.mark.asyncio
+    async def test_read_from_widget_core_scope_allowed(self, ws, bot_ctx):
+        # Read is allowed — bots can study core widgets as examples.
+        # Uses the real in-repo `notes` widget.
+        result = await file_tool(
+            operation="read",
+            path="widget://core/notes/index.html",
+        )
+        parsed = json.loads(result)
+        # Either returned the envelope (wrapped) or the raw numbered text —
+        # both branches signal a successful read.
+        assert "error" not in parsed
+
+    @pytest.mark.asyncio
+    async def test_move_into_widget_core_blocked(self, ws, bot_ctx):
+        # First create a bot-scope file, then try to move it INTO core.
+        (ws / ".widget_library" / "tmp").mkdir(parents=True)
+        (ws / ".widget_library" / "tmp" / "index.html").write_text("<x/>")
+        result = await file_tool(
+            operation="move",
+            path="widget://bot/tmp/index.html",
+            destination="widget://core/injected/index.html",
+        )
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "read-only" in parsed["error"]
+
+
 # ---------------------------------------------------------------------------
 # Read
 # ---------------------------------------------------------------------------

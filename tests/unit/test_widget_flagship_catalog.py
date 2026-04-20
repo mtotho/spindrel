@@ -2,7 +2,7 @@
 
 Covers the four widgets shipped on 2026-04-19:
 
-- ``generate_image``  → app/tools/local/image.widgets.yaml
+- ``generate_image``  → app/tools/local/widgets/generate_image/template.yaml
 - ``get_weather``     → integrations/openweather/integration.yaml
 - ``web_search``      → integrations/web_search/integration.yaml
 - ``frigate_list_cameras`` → integrations/frigate/integration.yaml
@@ -41,15 +41,23 @@ def _load_integration_manifest(integration_id: str) -> tuple[dict, Path]:
     return yaml.safe_load(path.read_text()), path.parent
 
 
-def _load_core_widgets(stem: str) -> tuple[dict, Path]:
-    path = REPO_ROOT / "app" / "tools" / "local" / f"{stem}.widgets.yaml"
-    return yaml.safe_load(path.read_text()), REPO_ROOT / "app" / "tools" / "local"
+def _load_core_widgets(tool_name: str) -> tuple[dict, Path]:
+    """Load a core widget template under the new per-tool layout.
+
+    Returns ``({tool_name: widget_def}, base_dir)`` so the existing tests
+    that iterate ``raw["<tool>"]["sample_payload"]`` keep working without
+    reshaping.  ``base_dir`` is the widget folder itself — that's what
+    ``html_template.path`` resolves against.
+    """
+    widget_dir = REPO_ROOT / "app" / "tools" / "local" / "widgets" / tool_name
+    widget_def = yaml.safe_load((widget_dir / "template.yaml").read_text())
+    return {tool_name: widget_def}, widget_dir
 
 
 class TestGenerateImageWidget:
     def test_registers_from_yaml(self):
-        raw, base = _load_core_widgets("image")
-        count = _register_widgets("core:image", raw, base_dir=base)
+        raw, base = _load_core_widgets("generate_image")
+        count = _register_widgets("core:generate_image", raw, base_dir=base)
         assert count == 1
         tmpl = _widget_templates["generate_image"]
         assert tmpl["content_type"] == "application/vnd.spindrel.html+interactive"
@@ -59,8 +67,8 @@ class TestGenerateImageWidget:
         assert "toolResult" in tmpl["html_template_body"]
 
     def test_sample_payload_renders(self):
-        raw, base = _load_core_widgets("image")
-        _register_widgets("core:image", raw, base_dir=base)
+        raw, base = _load_core_widgets("generate_image")
+        _register_widgets("core:generate_image", raw, base_dir=base)
         sample = raw["generate_image"]["sample_payload"]
         env = apply_widget_template("generate_image", json.dumps(sample))
         assert env is not None
@@ -198,8 +206,8 @@ class TestConfigRidesIntoHtmlToolResult:
     """Slice 0: merged config must land in toolResult.config for widgets."""
 
     def test_generate_image_gets_empty_default_config(self):
-        raw, base = _load_core_widgets("image")
-        _register_widgets("core:image", raw, base_dir=base)
+        raw, base = _load_core_widgets("generate_image")
+        _register_widgets("core:generate_image", raw, base_dir=base)
         env = apply_widget_template(
             "generate_image",
             json.dumps({"prompt": "x", "images": []}),

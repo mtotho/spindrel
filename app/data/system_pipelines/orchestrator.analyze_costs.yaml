@@ -10,7 +10,7 @@ title: Analyze Costs
 task_type: pipeline
 prompt: "[System pipeline: analyze costs]"
 execution_config:
-  featured: true
+  featured: false
   description: >-
     Audit a bot's token usage and retry/fallback patterns. Propose
     compaction tuning or model fallback reordering when tokens drift or

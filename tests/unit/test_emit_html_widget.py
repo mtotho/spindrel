@@ -404,3 +404,187 @@ class TestDisplayMode:
         )
         d = env.compact_dict()
         assert "display_mode" not in d
+
+
+class TestLibraryRefMode:
+    """``library_ref`` mode — render a named widget from the core library."""
+
+    @pytest.mark.asyncio
+    async def test_library_ref_resolves_core_widget(self):
+        # ``notes`` ships in core — confirm its index.html lands in the body.
+        result = await emit_html_widget(library_ref="notes")
+        parsed = _parse(result)
+        assert "error" not in parsed, parsed.get("error")
+        env = parsed["_envelope"]
+        assert env["content_type"] == INTERACTIVE_HTML_CONTENT_TYPE
+        assert env["source_library_ref"] == "core/notes"
+        # Body is the real bundle's index.html content.
+        assert "<" in env["body"] and env["body"].strip()
+
+    @pytest.mark.asyncio
+    async def test_library_ref_accepts_explicit_core_prefix(self):
+        result = await emit_html_widget(library_ref="core/notes")
+        env = _envelope(result)
+        assert env["source_library_ref"] == "core/notes"
+
+    @pytest.mark.asyncio
+    async def test_library_ref_picks_up_display_label_from_yaml(self):
+        # When display_label is not overridden, the widget.yaml name/label wins.
+        result = await emit_html_widget(library_ref="notes")
+        env = _envelope(result)
+        assert env.get("display_label")  # bundle supplies one
+
+    @pytest.mark.asyncio
+    async def test_library_ref_caller_display_label_wins(self):
+        result = await emit_html_widget(
+            library_ref="notes", display_label="My Notes"
+        )
+        env = _envelope(result)
+        assert env["display_label"] == "My Notes"
+
+    @pytest.mark.asyncio
+    async def test_library_ref_bot_scope_renders_authored_widget(
+        self, tmp_path, monkeypatch,
+    ):
+        """A bot that wrote widget://bot/foo/index.html can emit it by ref."""
+        from app.tools.local import emit_html_widget as ehw
+
+        (tmp_path / ".widget_library" / "foo").mkdir(parents=True)
+        (tmp_path / ".widget_library" / "foo" / "index.html").write_text(
+            "<p>authored</p>"
+        )
+        (tmp_path / ".widget_library" / "foo" / "widget.yaml").write_text(
+            "display_label: Foo Widget\n"
+        )
+        monkeypatch.setattr(
+            ehw, "_resolve_scope_roots", lambda: (str(tmp_path), None),
+        )
+
+        ctx = current_bot_id.set("crumb")
+        try:
+            result = await emit_html_widget(library_ref="bot/foo")
+            env = _envelope(result)
+            assert env["body"] == "<p>authored</p>"
+            assert env["source_library_ref"] == "bot/foo"
+            assert env["display_label"] == "Foo Widget"
+        finally:
+            current_bot_id.reset(ctx)
+
+    @pytest.mark.asyncio
+    async def test_library_ref_workspace_scope_renders_shared_widget(
+        self, tmp_path, monkeypatch,
+    ):
+        from app.tools.local import emit_html_widget as ehw
+
+        shared = tmp_path / "shared"
+        (shared / ".widget_library" / "team").mkdir(parents=True)
+        (shared / ".widget_library" / "team" / "index.html").write_text(
+            "<p>shared</p>"
+        )
+        monkeypatch.setattr(
+            ehw, "_resolve_scope_roots",
+            lambda: (str(shared / "bots" / "b1"), str(shared)),
+        )
+
+        ctx = current_bot_id.set("crumb")
+        try:
+            result = await emit_html_widget(library_ref="workspace/team")
+            env = _envelope(result)
+            assert env["body"] == "<p>shared</p>"
+            assert env["source_library_ref"] == "workspace/team"
+        finally:
+            current_bot_id.reset(ctx)
+
+    @pytest.mark.asyncio
+    async def test_library_ref_implicit_prefers_bot_over_core(
+        self, tmp_path, monkeypatch,
+    ):
+        """Implicit ref (no scope prefix) walks bot → workspace → core so a
+        bot-authored widget shadows a core widget with the same name."""
+        from app.tools.local import emit_html_widget as ehw
+
+        (tmp_path / ".widget_library" / "notes").mkdir(parents=True)
+        (tmp_path / ".widget_library" / "notes" / "index.html").write_text(
+            "<p>bot notes</p>"
+        )
+        monkeypatch.setattr(
+            ehw, "_resolve_scope_roots", lambda: (str(tmp_path), None),
+        )
+
+        ctx = current_bot_id.set("crumb")
+        try:
+            # Core ships a `notes` widget, but implicit ref should land on the
+            # bot-authored shadow, not the core one.
+            result = await emit_html_widget(library_ref="notes")
+            env = _envelope(result)
+            assert env["body"] == "<p>bot notes</p>"
+            assert env["source_library_ref"] == "bot/notes"
+        finally:
+            current_bot_id.reset(ctx)
+
+    @pytest.mark.asyncio
+    async def test_library_ref_explicit_bot_miss_hints_scope(
+        self, tmp_path, monkeypatch,
+    ):
+        """`bot/nonexistent` surfaces a scope-specific not-found message."""
+        from app.tools.local import emit_html_widget as ehw
+        monkeypatch.setattr(
+            ehw, "_resolve_scope_roots", lambda: (str(tmp_path), None),
+        )
+        ctx = current_bot_id.set("crumb")
+        try:
+            result = await emit_html_widget(library_ref="bot/nope")
+            err = _parse(result).get("error", "")
+            assert "bot/nope" in err
+            assert 'scope="bot"' in err
+        finally:
+            current_bot_id.reset(ctx)
+
+    @pytest.mark.asyncio
+    async def test_library_ref_unknown_widget_errors(self):
+        result = await emit_html_widget(library_ref="nonexistent_widget_xyz")
+        err = _parse(result).get("error", "")
+        assert "not found" in err
+        assert "widget_library_list" in err  # guide bot to the listing tool
+
+    @pytest.mark.asyncio
+    async def test_library_ref_rejects_path_traversal(self):
+        result = await emit_html_widget(library_ref="../secret")
+        err = _parse(result).get("error", "")
+        assert "Invalid" in err
+
+    @pytest.mark.asyncio
+    async def test_library_ref_rejects_invalid_scope(self):
+        result = await emit_html_widget(library_ref="rogue/thing")
+        err = _parse(result).get("error", "")
+        assert "Invalid library_ref scope" in err
+
+    @pytest.mark.asyncio
+    async def test_library_ref_mutually_exclusive_with_html(self):
+        result = await emit_html_widget(
+            library_ref="notes", html="<p>x</p>",
+        )
+        err = _parse(result).get("error", "")
+        assert "exactly one" in err
+
+    @pytest.mark.asyncio
+    async def test_library_ref_mutually_exclusive_with_path(self):
+        result = await emit_html_widget(
+            library_ref="notes", path="foo.html",
+        )
+        err = _parse(result).get("error", "")
+        assert "exactly one" in err
+
+    @pytest.mark.asyncio
+    async def test_library_ref_bakes_bot_and_channel_context(self):
+        channel_id = uuid.uuid4()
+        ctx_chan = current_channel_id.set(channel_id)
+        ctx_bot = current_bot_id.set("crumb")
+        try:
+            result = await emit_html_widget(library_ref="notes")
+            env = _envelope(result)
+            assert env["source_channel_id"] == str(channel_id)
+            assert env["source_bot_id"] == "crumb"
+        finally:
+            current_channel_id.reset(ctx_chan)
+            current_bot_id.reset(ctx_bot)

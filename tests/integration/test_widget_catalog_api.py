@@ -34,10 +34,9 @@ def seeded_catalog(tmp_path, monkeypatch):
     builtin_root = tmp_path / "builtin"
     integrations_root = tmp_path / "integrations"
 
-    # Built-in: one standalone, one excluded tool renderer (referenced by a
-    # sibling *.widgets.yaml). The scanner's tool-renderer collector reads
-    # from BUILTIN_WIDGET_ROOT.parent, so place image.widgets.yaml in the
-    # *parent* dir to match the real repo layout.
+    # Built-in: one standalone, one excluded tool renderer. Under the new
+    # layout the tool renderer lives in its own per-tool folder alongside
+    # a template.yaml that references it.
     tools_local = builtin_root.parent / "local_tools_fake"
     tools_local.mkdir()
     widgets_root = tools_local / "widgets"
@@ -47,13 +46,13 @@ def seeded_catalog(tmp_path, monkeypatch):
     (widgets_root / "notes" / "index.html").write_text(
         _widget_html("Notes", "2.0.0"), encoding="utf-8",
     )
-    (widgets_root / "image.html").write_text(
+    (widgets_root / "generate_image").mkdir(parents=True)
+    (widgets_root / "generate_image" / "image.html").write_text(
         _widget_html("Image renderer"), encoding="utf-8",
     )
-    (tools_local / "image.widgets.yaml").write_text(
-        "generate_image:\n"
-        "  html_template:\n"
-        "    path: widgets/image.html\n",
+    (widgets_root / "generate_image" / "template.yaml").write_text(
+        "html_template:\n"
+        "  path: image.html\n",
         encoding="utf-8",
     )
 

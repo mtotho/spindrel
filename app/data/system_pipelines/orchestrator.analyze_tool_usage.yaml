@@ -10,7 +10,7 @@ title: Analyze Tool Usage
 task_type: pipeline
 prompt: "[System pipeline: analyze tool usage]"
 execution_config:
-  featured: true
+  featured: false
   description: >-
     Audit which tools a bot actually calls — zombies never called,
     always-called pin candidates, error-heavy tools. Propose pinned_tools

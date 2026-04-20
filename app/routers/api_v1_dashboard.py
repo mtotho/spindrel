@@ -696,8 +696,8 @@ async def create_dashboard_pin(
 async def list_suites():
     """List every discoverable widget suite on this server.
 
-    Each suite is a directory under ``app/tools/local/widgets/suites/`` or
-    ``integrations/*/widgets/suites/`` containing a ``suite.yaml``. Members
+    Each suite is a widget folder under ``app/tools/local/widgets/`` or
+    ``integrations/*/widgets/`` that contains a ``suite.yaml``. Members
     are the bundle slugs that declare ``db.shared: <suite_id>`` in their
     own ``widget.yaml``.
     """

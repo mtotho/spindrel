@@ -1,7 +1,7 @@
 """MC Kanban handlers — columns, cards, drag-between-columns, timeline echo.
 
 Shares its SQLite DB with `mc_timeline` and `mc_tasks` via the Mission
-Control suite (see `suites/mission-control/suite.yaml`).
+Control suite (see `mission-control/suite.yaml`).
 """
 from __future__ import annotations
 

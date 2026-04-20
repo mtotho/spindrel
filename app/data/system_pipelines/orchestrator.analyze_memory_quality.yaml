@@ -21,7 +21,7 @@ title: Analyze Memory Quality
 task_type: pipeline
 prompt: "[System pipeline: analyze memory quality]"
 execution_config:
-  featured: true
+  featured: false
   description: >-
     Audit a bot's memory — what's stored, how often it gets curated,
     how compaction is running, and whether the bot has enough traffic

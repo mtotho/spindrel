@@ -26,8 +26,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+from pathlib import Path
 
 from app.agent.context import current_bot_id, current_channel_id
+from app.services.widget_paths import scope_root
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,131 @@ INTERACTIVE_HTML_CONTENT_TYPE = "application/vnd.spindrel.html+interactive"
 _CHANNEL_PATH_RE = re.compile(
     r"^/workspace/channels/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(/.*)?$"
 )
+
+# Library widgets live alongside this module.  Core bundles ship with the
+# server; bot- and workspace-scoped bundles live under the corresponding
+# workspace's ``.widget_library/`` directory (see ``app/services/widget_paths.py``).
+_CORE_WIDGETS_DIR = Path(__file__).parent / "widgets"
+_LIBRARY_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _resolve_scope_roots() -> tuple[str | None, str | None]:
+    """Resolve (ws_root, shared_root) for the current bot context.
+
+    Returns ``(None, None)`` when no bot context is active — callers then see
+    only the core scope, matching ``widget_library_list`` semantics.
+    """
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return None, None
+    try:
+        from app.agent.bots import get_bot
+        bot = get_bot(bot_id)
+    except Exception:  # noqa: BLE001 — unknown bot id = no writable scopes
+        return None, None
+    if bot is None:
+        return None, None
+    from app.services.workspace import workspace_service
+    ws_root = workspace_service.get_workspace_root(bot_id, bot)
+    shared_root: str | None = None
+    if bot.shared_workspace_id:
+        import os
+        from app.services.shared_workspace import shared_workspace_service
+        shared_root = os.path.realpath(
+            shared_workspace_service.get_host_root(bot.shared_workspace_id)
+        )
+    return ws_root, shared_root
+
+
+def _load_library_widget(ref: str) -> tuple[str, dict]:
+    """Resolve a ``library_ref`` to (body_html, metadata).
+
+    Accepts ``"name"`` (defaults to core scope) or ``"<scope>/<name>"`` where
+    scope is ``core`` / ``bot`` / ``workspace``. Bot- and workspace-scoped
+    refs resolve against the same ``widget://bot|workspace/<name>/`` virtual
+    path the file tool writes to — so a widget authored with
+    ``file(op="create", path="widget://bot/foo/index.html", ...)`` is
+    immediately renderable via ``library_ref="bot/foo"`` (or just ``"foo"``
+    if no core widget shadows the name).
+    """
+    ref = ref.strip().strip("/")
+    if "/" in ref:
+        scope, _, name = ref.partition("/")
+        if scope not in {"core", "bot", "workspace"}:
+            raise ValueError(
+                f"Invalid library_ref scope '{scope}'. Use 'core', 'bot', or 'workspace'."
+            )
+    else:
+        scope, name = None, ref  # implicit — try bot, workspace, then core.
+
+    if not _LIBRARY_NAME_RE.match(name):
+        raise ValueError(
+            f"Invalid library widget name '{name}'. "
+            f"Names must contain only letters, digits, '_', or '-'."
+        )
+
+    # Resolve the on-disk directory for the requested scope.  For implicit
+    # refs, walk bot → workspace → core in that order so bot-authored widgets
+    # naturally shadow core names (matches the editor's override semantics).
+    widget_dir: Path | None = None
+    resolved_scope: str | None = None
+    search: list[str] = [scope] if scope else ["bot", "workspace", "core"]
+    ws_root, shared_root = _resolve_scope_roots()
+    for candidate in search:
+        if candidate == "core":
+            root_dir = str(_CORE_WIDGETS_DIR)
+        else:
+            root_dir = scope_root(candidate, ws_root=ws_root, shared_root=shared_root)
+        if not root_dir:
+            continue
+        dir_candidate = Path(root_dir) / name
+        if dir_candidate.is_dir():
+            widget_dir = dir_candidate
+            resolved_scope = candidate
+            break
+
+    if widget_dir is None:
+        # Explicit scope that simply had no match — surface a scope-specific
+        # hint; for implicit refs fall back to the generic not-found message.
+        if scope:
+            raise LookupError(
+                f"Library widget not found: '{scope}/{name}'. Call "
+                f"`widget_library_list(scope=\"{scope}\")` to see what's "
+                f"available."
+            )
+        raise LookupError(
+            f"Library widget not found: '{name}'. Call `widget_library_list()` "
+            f"to see available names across scopes."
+        )
+
+    index_path = widget_dir / "index.html"
+    if not index_path.is_file():
+        raise LookupError(
+            f"Library widget '{ref}' has no index.html — it may be a template "
+            f"or suite bundle, which this tool cannot emit directly."
+        )
+
+    body = index_path.read_text()
+    meta: dict = {"name": name, "scope": resolved_scope or "core"}
+    yaml_path = widget_dir / "widget.yaml"
+    if yaml_path.is_file():
+        try:
+            import yaml
+            raw = yaml_path.read_text()
+            if "\n---" in raw:
+                raw = raw.split("\n---", 1)[0]
+            parsed = yaml.safe_load(raw) or {}
+            if isinstance(parsed, dict):
+                yaml_name = parsed.get("name")
+                if yaml_name and not parsed.get("display_label"):
+                    meta["display_label"] = str(yaml_name)
+                for key in ("display_label", "description", "version"):
+                    value = parsed.get(key)
+                    if value is not None and key not in meta:
+                        meta[key] = value
+        except Exception:  # noqa: BLE001
+            logger.debug("Failed parsing %s", yaml_path, exc_info=True)
+    return body, meta
 
 _SCHEMA = {
     "type": "function",
@@ -62,21 +189,42 @@ _SCHEMA = {
             "img.src = url;`. Do NOT use `/api/v1/attachments/<id>` directly in "
             "<img src> — that endpoint requires an Authorization header the browser "
             "won't send. Always use loadAttachment() for attachment images.\n\n"
-            "Provide EITHER `html` (one-off inline HTML) OR `path` (points "
-            "at an existing workspace file; the widget re-renders when the "
-            "file changes — good for iterative work). Exactly one is "
-            "required. In inline mode, optional `js` and `css` are wrapped "
-            "into the document for you; in path mode the file should "
-            "contain the complete HTML document and js/css are ignored."
+            "Provide EXACTLY ONE of: `library_ref` (render a named widget "
+            "from the library — prefer this for reusable widgets; call "
+            "`widget_library_list` to see what's available), `html` (one-off "
+            "inline HTML — snapshot at emit time), or `path` (workspace file "
+            "— re-renders when the file changes). In inline mode, optional "
+            "`js` and `css` are wrapped into the document for you; in path "
+            "and library modes the bundle should contain the complete HTML "
+            "and js/css are ignored."
         ),
         "parameters": {
             "type": "object",
             "properties": {
+                "library_ref": {
+                    "type": "string",
+                    "description": (
+                        "Name of a library widget to render, e.g. `notes`, "
+                        "`core/notes`, `bot/my_toggle`, or `workspace/team_board`. "
+                        "Implicit refs (no scope prefix) resolve in the order "
+                        "bot → workspace → core, so bot-authored widgets "
+                        "naturally shadow core names. Use `widget_library_list` "
+                        "to discover what's available. Bot/workspace widgets "
+                        "are authored via the file tool against "
+                        "`widget://bot/<name>/...` or `widget://workspace/<name>/...` "
+                        "(write `index.html` + `widget.yaml`, then emit by ref). "
+                        "Preferred emission path — library widgets are reusable "
+                        "and editable in place. Mutually exclusive with `html` "
+                        "and `path`."
+                    ),
+                },
                 "html": {
                     "type": "string",
                     "description": (
                         "Raw HTML body content. Inline mode — snapshot at "
-                        "emit time. Mutually exclusive with `path`."
+                        "emit time, not reusable. Prefer `library_ref` for "
+                        "anything you might want to update. Mutually "
+                        "exclusive with `path` and `library_ref`."
                     ),
                 },
                 "path": {
@@ -214,19 +362,22 @@ def _derive_plain_body(
 async def emit_html_widget(
     html: str | None = None,
     path: str | None = None,
+    library_ref: str | None = None,
     js: str = "",
     css: str = "",
     display_label: str = "",
     extra_csp: dict | None = None,
     display_mode: str = "inline",
 ) -> str:
-    # Exactly-one validation. Reject both-set and neither-set.
+    # Exactly-one validation across html / path / library_ref.
     html_set = bool(html and html.strip())
     path_set = bool(path and path.strip())
-    if html_set == path_set:  # both True or both False
+    library_ref_set = bool(library_ref and library_ref.strip())
+    modes_set = sum([html_set, path_set, library_ref_set])
+    if modes_set != 1:
         return _error(
-            "Provide exactly one of `html` (inline mode) or `path` "
-            "(workspace file mode)."
+            "Provide exactly one of `library_ref` (preferred — named library "
+            "widget), `html` (inline), or `path` (workspace file)."
         )
 
     label = display_label.strip() or None
@@ -257,6 +408,45 @@ async def emit_html_widget(
     emit_channel = current_channel_id.get()
     emit_channel_id = str(emit_channel) if emit_channel else None
     emit_bot_id = current_bot_id.get()
+
+    if library_ref_set:
+        try:
+            body, ref_meta = _load_library_widget(library_ref)
+        except LookupError as exc:
+            return _error(str(exc))
+        except ValueError as exc:
+            return _error(str(exc))
+
+        resolved_label = label or ref_meta.get("display_label") or ref_meta.get("name")
+        envelope = {
+            "content_type": INTERACTIVE_HTML_CONTENT_TYPE,
+            "body": body,
+            "plain_body": _derive_plain_body(
+                display_label=resolved_label, path=None, body_len=len(body)
+            ),
+            "display": "inline",
+            "source_library_ref": f"{ref_meta['scope']}/{ref_meta['name']}",
+        }
+        if emit_channel_id:
+            envelope["source_channel_id"] = emit_channel_id
+        if emit_bot_id:
+            envelope["source_bot_id"] = emit_bot_id
+        if resolved_label:
+            envelope["display_label"] = resolved_label
+        if validated_csp:
+            envelope["extra_csp"] = validated_csp
+        if mode == "panel":
+            envelope["display_mode"] = "panel"
+        return json.dumps(
+            {
+                "_envelope": envelope,
+                "llm": (
+                    f"Emitted library widget '{ref_meta['scope']}/"
+                    f"{ref_meta['name']}' ({len(body)} chars)."
+                ),
+            },
+            ensure_ascii=False,
+        )
 
     if html_set:
         body = _assemble_inline_body(html, js or "", css or "")

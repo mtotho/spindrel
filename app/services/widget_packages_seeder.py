@@ -36,9 +36,9 @@ def _dump_yaml(widget_def: dict) -> str:
 def _collect_sources() -> list[tuple[str, dict, str | None, str | None]]:
     """Yield all (tool_name, widget_def, source_file, source_integration) tuples.
 
-    Matches the two sources the legacy loader walked:
+    Matches the two sources the template loader walks:
       1. Integration manifests (``tool_widgets`` key)
-      2. Core ``app/tools/local/*.widgets.yaml`` files
+      2. Core ``app/tools/local/widgets/<tool_name>/template.yaml`` files
 
     ``widget_def`` may carry a top-level ``sample_payload`` key. It is not
     part of the template body — the caller pops it before the YAML is dumped
@@ -77,32 +77,34 @@ def _collect_sources() -> list[tuple[str, dict, str | None, str | None]]:
                 continue
             out.append((tool_name, resolved, None, integration_id))
 
-    # 2. Core *.widgets.yaml files
-    core_dir = Path(__file__).resolve().parent.parent / "tools" / "local"
-    if core_dir.is_dir():
-        for yaml_path in sorted(core_dir.glob("*.widgets.yaml")):
+    # 2. Core widget templates: widgets/<tool_name>/template.yaml
+    widgets_root = (
+        Path(__file__).resolve().parent.parent / "tools" / "local" / "widgets"
+    )
+    if widgets_root.is_dir():
+        for entry in sorted(widgets_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            yaml_path = entry / "template.yaml"
+            if not yaml_path.is_file():
+                continue
             try:
-                raw = yaml.safe_load(yaml_path.read_text())
+                widget_def = yaml.safe_load(yaml_path.read_text())
             except Exception:
                 logger.warning(
                     "Failed to parse core widget file %s", yaml_path, exc_info=True,
                 )
                 continue
-            if not isinstance(raw, dict):
+            if not _is_widget(widget_def):
                 continue
-            for tool_name, widget_def in raw.items():
-                if tool_name.startswith("_"):
-                    continue
-                if not _is_widget(widget_def):
-                    continue
-                resolved, err = _resolve_html_template_paths(widget_def, core_dir)
-                if err:
-                    logger.warning(
-                        "core:%s tool_widgets[%s]: %s",
-                        yaml_path.stem, tool_name, err,
-                    )
-                    continue
-                out.append((tool_name, resolved, str(yaml_path), None))
+            tool_name = entry.name
+            resolved, err = _resolve_html_template_paths(widget_def, entry)
+            if err:
+                logger.warning(
+                    "core:%s tool_widgets[%s]: %s", tool_name, tool_name, err,
+                )
+                continue
+            out.append((tool_name, resolved, str(yaml_path), None))
 
     return out
 

@@ -39,9 +39,8 @@ logger = logging.getLogger(__name__)
             "tool work — 'for each X, get Y' loops, filtering across lists, "
             "joining results from two tools — instead of a chain of individual "
             "tool calls. Only what you `print()` returns to context, so intermediate "
-            "data stays out. Call `list_tool_signatures()` first if you don't know "
-            "the return shape of the tools you want to compose. Use `tools.signatures()` "
-            "or `tools.call(name, **kwargs)` from inside the script too."
+            "data stays out. Call `list_tool_signatures` first if you don't know "
+            "the return shape of the tools you want to compose."
         ),
         "parameters": {
             "type": "object",
