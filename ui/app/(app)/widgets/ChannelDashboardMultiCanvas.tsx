@@ -7,16 +7,17 @@
  *   Main Grid     — flex-1 multi-column RGL       (zone: 'grid')  [dashboard-only]
  *   Dock          — fixed-width right column     (zone: 'dock')
  *
- * A pin's ``zone`` is stored on the row; this component just filters the
- * global pin list per canvas. Intra-canvas drag is handled by each
- * ResponsiveGridLayout natively. Cross-canvas moves happen two ways:
- *   (a) HTML5 drag — each tile exposes a small "move between canvases"
- *       grip in edit mode; canvas bodies act as drop targets.
- *   (b) Zone-chip dropdown on the tile header (accessibility fallback).
+ * A pin's ``zone`` is stored on the row; this component filters the global
+ * pin list per canvas. Intra-canvas drag and resize are driven by each
+ * ResponsiveGridLayout's `.widget-drag-handle` / resize handles — we do NOT
+ * override the child's `position` (RGL sets `position: absolute` on tiles
+ * and any Tailwind `relative` applied here will break the drag math).
  *
- * Edit vs view chrome: the canvas labels / borders / empty-state hints
- * only render while editing. In view mode the four canvases collapse to
- * a single fluid dashboard — no region chrome, no empty placeholders.
+ * Cross-canvas moves go through the ZoneChip dropdown in the tile header.
+ *
+ * Chrome: edit mode draws faint dashed outlines around each canvas with a
+ * tiny corner label — no opaque header bars. View mode collapses to bare
+ * widgets so the dashboard reads as one fluid page.
  */
 import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import {
@@ -26,7 +27,6 @@ import {
   type LayoutItem,
 } from "react-grid-layout/legacy";
 import "react-grid-layout/css/styles.css";
-import { ArrowRight, LayoutDashboard, PanelLeft, PanelTop } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { PinnedToolWidget } from "@/app/(app)/channels/[channelId]/PinnedToolWidget";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
@@ -42,18 +42,12 @@ import { EditModeGridGuides } from "./EditModeGridGuides";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
-/** Tailwind width classes per vertical canvas. Below the `lg` breakpoint
- *  (<1024px) each canvas becomes full width and the three-column layout
- *  stacks vertically — see the outer flex container's `flex-col lg:flex-row`
- *  switch. Using classes (not inline `style.width`) so the responsive
- *  breakpoint wins over a fixed pixel value. */
 const RAIL_CLASSES = "w-full lg:w-[280px] lg:shrink-0";
 const DOCK_CLASSES = "w-full lg:w-[320px] lg:shrink-0";
 const HEADER_COLS = 12;
 const HEADER_ROW_HEIGHT = 32;
 const RAIL_ROW_HEIGHT = 30;
 const DOCK_ROW_HEIGHT = 30;
-const DND_MIME = "application/x-spindrel-pin";
 
 function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
   return {
@@ -76,156 +70,60 @@ interface CanvasProps {
   onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
   onEditPin: (id: string) => void;
   onMoveZone: (id: string, zone: ChatZone) => void;
-  /** id of a pin currently being dragged between canvases (HTML5 drag).
-   *  null when no cross-canvas drag is active. */
-  dragPinId: string | null;
-  onDragStartPin: (id: string) => void;
-  onDragEndPin: () => void;
 }
 
-/** A thin, persistent label on top of each canvas so the authoring surface
- *  is self-describing — users can always see which region they're editing
- *  without reading documentation. Only rendered in edit mode. */
-function CanvasLabel({
-  icon,
+/** Edit-mode affordance: a very thin dashed outline wrapper with a tiny
+ *  floating corner label. No opaque bars, no rounded headers, no count
+ *  bubbles. In view mode the outline + label disappear entirely. */
+function EditOutline({
+  editMode,
   label,
-  count,
-  description,
+  children,
+  extraClass = "",
 }: {
-  icon: React.ReactNode;
+  editMode: boolean;
   label: string;
-  count: number;
-  description: string;
+  children: React.ReactNode;
+  extraClass?: string;
 }) {
   const t = useThemeTokens();
+  if (!editMode) {
+    return <div className={extraClass}>{children}</div>;
+  }
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-1 rounded-t-md"
-      style={{
-        backgroundColor: t.surfaceRaised,
-        borderBottom: `1px solid ${t.surfaceBorder}55`,
-      }}
-      title={description}
+      className={`relative rounded border border-dashed ${extraClass}`}
+      style={{ borderColor: `${t.textDim}33` }}
     >
-      <span style={{ color: t.textDim }} className="flex items-center">
-        {icon}
-      </span>
       <span
-        className="text-[10px] font-semibold uppercase tracking-wider flex-1"
-        style={{ color: t.textDim }}
+        className="absolute -top-2 left-2 z-10 px-1 text-[9px] uppercase tracking-wider opacity-60 select-none pointer-events-none"
+        style={{ color: t.textDim, backgroundColor: t.surface }}
       >
         {label}
       </span>
-      <span
-        className="text-[10px] tabular-nums rounded-full px-1.5 py-0.5"
-        style={{
-          color: t.textMuted,
-          backgroundColor: `${t.textMuted}18`,
-        }}
-      >
-        {count}
-      </span>
+      {children}
     </div>
   );
 }
 
-/** Empty-canvas hint — shown only in edit mode. Without this, empty canvases
- *  look like bugs during authoring. In view mode the canvas is hidden outright. */
+/** Empty-canvas hint — tiny faint text centered in the outline, edit mode
+ *  only. View mode hides the whole canvas via a null return in the parent. */
 function EmptyCanvasHint({ message }: { message: string }) {
   const t = useThemeTokens();
   return (
     <div
-      className="flex items-center justify-center py-6 px-4 text-[11px] text-center"
-      style={{ color: t.textDim, opacity: 0.6 }}
+      className="flex items-center justify-center py-4 px-3 text-[10px] text-center opacity-40 select-none"
+      style={{ color: t.textDim }}
     >
       {message}
     </div>
   );
 }
 
-/** Per-tile wrapper. Cross-canvas drag is handled inside PinnedToolWidget via
- *  the `crossCanvasDrag` prop — that renders a grip in the tile header that
- *  emits HTML5 dragstart/dragend. We just style the outer div so the
- *  currently-dragged tile is visually highlighted as the drag source. */
-function TileWrapper({
-  pin,
-  children,
-  highlight,
-}: {
-  pin: WidgetDashboardPin;
-  children: React.ReactNode;
-  highlight?: boolean;
-}) {
-  const t = useThemeTokens();
-  return (
-    <div
-      data-pin-id={pin.id}
-      className="group relative min-w-0 h-full"
-      style={
-        highlight
-          ? { outline: `2px dashed ${t.accent}`, outlineOffset: "2px", borderRadius: 8 }
-          : undefined
-      }
-    >
-      {children}
-    </div>
-  );
-}
-
-/** Shared drop-target handlers for a canvas body. */
-function useCanvasDropHandlers(
-  zone: ChatZone,
-  editMode: boolean,
-  dragPinId: string | null,
-  onMoveZone: (id: string, zone: ChatZone) => void,
-  onDragEndPin: () => void,
-) {
-  const [dragOver, setDragOver] = useState(false);
-  const handlers = useMemo(() => {
-    if (!editMode) return {};
-    return {
-      onDragOver: (e: React.DragEvent) => {
-        if (!dragPinId) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        setDragOver(true);
-      },
-      onDragEnter: (e: React.DragEvent) => {
-        if (!dragPinId) return;
-        e.preventDefault();
-        setDragOver(true);
-      },
-      onDragLeave: (e: React.DragEvent) => {
-        // Only clear when leaving the element itself, not when crossing into
-        // a child. `currentTarget.contains(relatedTarget)` filters children.
-        const rel = e.relatedTarget as Node | null;
-        if (rel && e.currentTarget.contains(rel)) return;
-        setDragOver(false);
-      },
-      onDrop: (e: React.DragEvent) => {
-        const id = e.dataTransfer.getData(DND_MIME) || dragPinId;
-        setDragOver(false);
-        if (!id) return;
-        e.preventDefault();
-        onMoveZone(id, zone);
-        onDragEndPin();
-      },
-    };
-  }, [dragPinId, editMode, onDragEndPin, onMoveZone, zone]);
-  return { dragOver, handlers };
-}
-
-/** Header-row canvas. One fixed chip-height row; each pin forced to ``h=1``
- *  and rendered in compact chip mode. */
 function HeaderCanvas({
   pins, editMode, chrome, onUnpin, onEnvelopeUpdate, onEditPin, onMoveZone,
-  dragPinId, onDragStartPin, onDragEndPin,
 }: CanvasProps) {
-  const t = useThemeTokens();
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
-  const { dragOver, handlers } = useCanvasDropHandlers(
-    "header", editMode, dragPinId, onMoveZone, onDragEndPin,
-  );
 
   const layout: LayoutItem[] = useMemo(
     () => pins.map((p, i) => {
@@ -252,97 +150,61 @@ function HeaderCanvas({
     [applyLayout],
   );
 
-  // View mode with no pins: render nothing.
   if (!editMode && pins.length === 0) return null;
 
-  const wrapperClass = editMode
-    ? "flex flex-col rounded-md border"
-    : "flex flex-col";
-  const wrapperStyle = editMode
-    ? {
-        borderColor: dragOver ? t.accent : `${t.surfaceBorder}55`,
-        backgroundColor: t.surface,
-        boxShadow: dragOver ? `inset 0 0 0 2px ${t.accent}55` : undefined,
-      }
-    : {};
-
   return (
-    <div className={wrapperClass} style={wrapperStyle} {...handlers}>
-      {editMode && (
-        <CanvasLabel
-          icon={<PanelTop size={12} />}
-          label="Chat header row"
-          count={pins.length}
-          description="Compact chips above the channel chat, left-to-right."
-        />
+    <EditOutline editMode={editMode} label="Header">
+      {pins.length === 0 ? (
+        editMode ? (
+          <EmptyCanvasHint message="Drop widgets here to show as compact chips above the channel chat." />
+        ) : null
+      ) : (
+        <ResponsiveGridLayout
+          layouts={{ lg: layout }}
+          breakpoints={{ lg: 0 }}
+          cols={{ lg: HEADER_COLS }}
+          rowHeight={HEADER_ROW_HEIGHT}
+          margin={[8, 8]}
+          isDraggable={editMode}
+          isResizable={editMode}
+          draggableHandle=".widget-drag-handle"
+          resizeHandles={["e"]}
+          compactType="horizontal"
+          preventCollision={false}
+          onDragStop={onDragStop}
+          onResizeStop={onDragStop}
+        >
+          {pins.map((p) => (
+            <div key={p.id} data-pin-id={p.id} className="min-w-0">
+              <PinnedToolWidget
+                widget={asPinnedWidget(p)}
+                scope={{ kind: "channel", channelId: p.source_channel_id ?? "", compact: "chip" }}
+                onUnpin={onUnpin}
+                onEnvelopeUpdate={onEnvelopeUpdate}
+                editMode={editMode}
+                onEdit={() => onEditPin(p.id)}
+                borderless={chrome.borderless}
+                hoverScrollbars={chrome.hoverScrollbars}
+                zoneChip={editMode ? { current: "header", onSelect: (z) => onMoveZone(p.id, z) } : undefined}
+              />
+            </div>
+          ))}
+        </ResponsiveGridLayout>
       )}
-      <div className={editMode ? "relative min-h-[48px]" : "relative"}>
-        {pins.length === 0 ? (
-          editMode ? (
-            <EmptyCanvasHint message="Drop widgets here to show as compact chips above the channel chat." />
-          ) : null
-        ) : (
-          <ResponsiveGridLayout
-            layouts={{ lg: layout }}
-            breakpoints={{ lg: 0 }}
-            cols={{ lg: HEADER_COLS }}
-            rowHeight={HEADER_ROW_HEIGHT}
-            margin={[8, 8]}
-            isDraggable={editMode}
-            isResizable={editMode}
-            draggableHandle=".widget-drag-handle"
-            resizeHandles={["e"]}
-            compactType="horizontal"
-            preventCollision={false}
-            onDragStop={onDragStop}
-            onResizeStop={onDragStop}
-          >
-            {pins.map((p) => (
-              <TileWrapper
-                key={p.id}
-                pin={p}
-                highlight={dragPinId === p.id}
-              >
-                <PinnedToolWidget
-                  widget={asPinnedWidget(p)}
-                  scope={{ kind: "channel", channelId: p.source_channel_id ?? "", compact: "chip" }}
-                  onUnpin={onUnpin}
-                  onEnvelopeUpdate={onEnvelopeUpdate}
-                  editMode={editMode}
-                  onEdit={() => onEditPin(p.id)}
-                  borderless={chrome.borderless}
-                  hoverScrollbars={chrome.hoverScrollbars}
-                  zoneChip={editMode ? { current: "header", onSelect: (z) => onMoveZone(p.id, z) } : undefined}
-                  crossCanvasDrag={editMode ? { pinId: p.id, onStart: onDragStartPin, onEnd: onDragEndPin } : undefined}
-                />
-              </TileWrapper>
-            ))}
-          </ResponsiveGridLayout>
-        )}
-      </div>
-    </div>
+    </EditOutline>
   );
 }
 
-/** Single-column vertical canvas (Rail or Dock). */
 function VerticalCanvas({
   pins, editMode, chrome, onUnpin, onEnvelopeUpdate, onEditPin, onMoveZone,
-  dragPinId, onDragStartPin, onDragEndPin,
-  zone, label, icon, description, widthClass, emptyMessage,
+  zone, label, widthClass, emptyMessage,
 }: CanvasProps & {
   zone: "rail" | "dock";
   label: string;
-  icon: React.ReactNode;
-  description: string;
-  /** Tailwind responsive width class (full width on narrow, fixed px on `lg`). */
   widthClass: string;
   emptyMessage: string;
 }) {
-  const t = useThemeTokens();
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
-  const { dragOver, handlers } = useCanvasDropHandlers(
-    zone, editMode, dragPinId, onMoveZone, onDragEndPin,
-  );
 
   const layout: LayoutItem[] = useMemo(() => {
     let y = 0;
@@ -372,90 +234,90 @@ function VerticalCanvas({
   if (!editMode && pins.length === 0) return null;
 
   const rowHeight = zone === "rail" ? RAIL_ROW_HEIGHT : DOCK_ROW_HEIGHT;
-  const wrapperClass = editMode
-    ? `flex flex-col rounded-md border ${widthClass}`
-    : `flex flex-col ${widthClass}`;
-  const wrapperStyle = editMode
-    ? {
-        borderColor: dragOver ? t.accent : `${t.surfaceBorder}55`,
-        backgroundColor: t.surface,
-        boxShadow: dragOver ? `inset 0 0 0 2px ${t.accent}55` : undefined,
-      }
-    : {};
 
   return (
-    <div className={wrapperClass} style={wrapperStyle} {...handlers}>
-      {editMode && (
-        <CanvasLabel icon={icon} label={label} count={pins.length} description={description} />
-      )}
-      <div className={editMode ? "flex-1 min-h-0 overflow-y-auto px-2 py-2" : "flex-1 min-h-0 overflow-y-auto"}>
-        {pins.length === 0 ? (
-          editMode ? <EmptyCanvasHint message={emptyMessage} /> : null
-        ) : (
-          <div className="relative">
-            {editMode && (
-              <EditModeGridGuides
-                cols={1}
-                rowHeight={rowHeight}
-                rowGap={12}
-                gridRowCount={Math.max(rowCount, 8)}
-                dragging={!!dragPinId}
+    <EditOutline editMode={editMode} label={label} extraClass={widthClass}>
+      {pins.length === 0 ? (
+        editMode ? <EmptyCanvasHint message={emptyMessage} /> : null
+      ) : editMode ? (
+        <div className="relative">
+          <EditModeGridGuides
+            cols={1}
+            rowHeight={rowHeight}
+            rowGap={12}
+            gridRowCount={Math.max(rowCount, 8)}
+            dragging={false}
+          />
+          <ResponsiveGridLayout
+            layouts={{ lg: layout }}
+            breakpoints={{ lg: 0 }}
+            cols={{ lg: 1 }}
+            rowHeight={rowHeight}
+            margin={[0, 12]}
+            isDraggable={editMode}
+            isResizable={editMode}
+            draggableHandle=".widget-drag-handle"
+            resizeHandles={["s"]}
+            compactType="vertical"
+            preventCollision={false}
+            onDragStop={onStop}
+            onResizeStop={onStop}
+          >
+            {pins.map((p) => (
+              <div key={p.id} data-pin-id={p.id} className="min-w-0">
+                <PinnedToolWidget
+                  widget={asPinnedWidget(p)}
+                  scope={{ kind: "dashboard" }}
+                  onUnpin={onUnpin}
+                  onEnvelopeUpdate={onEnvelopeUpdate}
+                  editMode={editMode}
+                  onEdit={() => onEditPin(p.id)}
+                  borderless={chrome.borderless}
+                  hoverScrollbars={chrome.hoverScrollbars}
+                  railMode
+                  zoneChip={editMode ? { current: zone, onSelect: (z) => onMoveZone(p.id, z) } : undefined}
+                />
+              </div>
+            ))}
+          </ResponsiveGridLayout>
+        </div>
+      ) : (
+        <ResponsiveGridLayout
+          layouts={{ lg: layout }}
+          breakpoints={{ lg: 0 }}
+          cols={{ lg: 1 }}
+          rowHeight={rowHeight}
+          margin={[0, 12]}
+          isDraggable={false}
+          isResizable={false}
+          compactType="vertical"
+          preventCollision={false}
+        >
+          {pins.map((p) => (
+            <div key={p.id} data-pin-id={p.id} className="min-w-0">
+              <PinnedToolWidget
+                widget={asPinnedWidget(p)}
+                scope={{ kind: "dashboard" }}
+                onUnpin={onUnpin}
+                onEnvelopeUpdate={onEnvelopeUpdate}
+                editMode={false}
+                onEdit={() => onEditPin(p.id)}
+                borderless={chrome.borderless}
+                hoverScrollbars={chrome.hoverScrollbars}
+                railMode
               />
-            )}
-            <ResponsiveGridLayout
-              layouts={{ lg: layout }}
-              breakpoints={{ lg: 0 }}
-              cols={{ lg: 1 }}
-              rowHeight={rowHeight}
-              margin={[0, 12]}
-              isDraggable={editMode}
-              isResizable={editMode}
-              draggableHandle=".widget-drag-handle"
-              resizeHandles={["s"]}
-              compactType="vertical"
-              preventCollision={false}
-              onDragStop={onStop}
-              onResizeStop={onStop}
-            >
-              {pins.map((p) => (
-                <TileWrapper
-                  key={p.id}
-                  pin={p}
-                  highlight={dragPinId === p.id}
-                >
-                  <PinnedToolWidget
-                    widget={asPinnedWidget(p)}
-                    scope={{ kind: "dashboard" }}
-                    onUnpin={onUnpin}
-                    onEnvelopeUpdate={onEnvelopeUpdate}
-                    editMode={editMode}
-                    onEdit={() => onEditPin(p.id)}
-                    borderless={chrome.borderless}
-                    hoverScrollbars={chrome.hoverScrollbars}
-                    railMode
-                    zoneChip={editMode ? { current: zone, onSelect: (z) => onMoveZone(p.id, z) } : undefined}
-                    crossCanvasDrag={editMode ? { pinId: p.id, onStart: onDragStartPin, onEnd: onDragEndPin } : undefined}
-                  />
-                </TileWrapper>
-              ))}
-            </ResponsiveGridLayout>
-          </div>
-        )}
-      </div>
-    </div>
+            </div>
+          ))}
+        </ResponsiveGridLayout>
+      )}
+    </EditOutline>
   );
 }
 
-/** Main-grid canvas — the dashboard-only surface. Uses the full preset. */
 function GridCanvas({
-  pins, editMode, chrome, onUnpin, onEnvelopeUpdate, onEditPin, onMoveZone,
-  dragPinId, onDragStartPin, onDragEndPin, preset,
+  pins, editMode, chrome, onUnpin, onEnvelopeUpdate, onEditPin, onMoveZone, preset,
 }: CanvasProps & { preset: GridPreset }) {
-  const t = useThemeTokens();
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
-  const { dragOver, handlers } = useCanvasDropHandlers(
-    "grid", editMode, dragPinId, onMoveZone, onDragEndPin,
-  );
 
   const layouts = useMemo(() => {
     const lg: LayoutItem[] = pins.map((p, idx) => {
@@ -501,81 +363,55 @@ function GridCanvas({
 
   if (!editMode && pins.length === 0) return null;
 
-  const wrapperClass = editMode
-    ? "flex-1 flex flex-col rounded-md border min-w-0"
-    : "flex-1 flex flex-col min-w-0";
-  const wrapperStyle = editMode
-    ? {
-        borderColor: dragOver ? t.accent : `${t.surfaceBorder}55`,
-        backgroundColor: t.surface,
-        boxShadow: dragOver ? `inset 0 0 0 2px ${t.accent}55` : undefined,
-      }
-    : {};
-
   return (
-    <div className={wrapperClass} style={wrapperStyle} {...handlers}>
-      {editMode && (
-        <CanvasLabel
-          icon={<LayoutDashboard size={12} />}
-          label="Main grid · dashboard only"
-          count={pins.length}
-          description="Widgets here are authoring-surface only — they do NOT appear on the channel chat."
-        />
-      )}
-      <div className={editMode ? "flex-1 min-h-0 overflow-auto px-2 py-2" : "flex-1 min-h-0 overflow-auto"}>
-        {pins.length === 0 ? (
-          editMode ? (
-            <EmptyCanvasHint message="Drop widgets here to keep them on this dashboard page without surfacing them on chat." />
-          ) : null
-        ) : (
-          <div className="relative">
-            {editMode && (
-              <EditModeGridGuides
-                cols={preset.cols.lg}
-                rowHeight={preset.rowHeight}
-                rowGap={12}
-                gridRowCount={Math.max(rowCount, 8)}
-                dragging={!!dragPinId}
-              />
-            )}
-            <ResponsiveGridLayout
-              layouts={layouts}
-              breakpoints={{ lg: 0 }}
-              cols={{ lg: preset.cols.lg }}
+    <EditOutline editMode={editMode} label="Grid" extraClass="flex-1 min-w-0">
+      {pins.length === 0 ? (
+        editMode ? (
+          <EmptyCanvasHint message="Drop widgets here to keep them on this dashboard page without surfacing them on chat." />
+        ) : null
+      ) : (
+        <div className="relative">
+          {editMode && (
+            <EditModeGridGuides
+              cols={preset.cols.lg}
               rowHeight={preset.rowHeight}
-              margin={[12, 12]}
-              isDraggable={editMode}
-              isResizable={editMode}
-              draggableHandle=".widget-drag-handle"
-              compactType="vertical"
-              preventCollision={false}
-              onLayoutChange={scheduleCommit}
-            >
-              {pins.map((p) => (
-                <TileWrapper
-                  key={p.id}
-                  pin={p}
-                  highlight={dragPinId === p.id}
-                >
-                  <PinnedToolWidget
-                    widget={asPinnedWidget(p)}
-                    scope={{ kind: "dashboard" }}
-                    onUnpin={onUnpin}
-                    onEnvelopeUpdate={onEnvelopeUpdate}
-                    editMode={editMode}
-                    onEdit={() => onEditPin(p.id)}
-                    borderless={chrome.borderless}
-                    hoverScrollbars={chrome.hoverScrollbars}
-                    zoneChip={editMode ? { current: "grid", onSelect: (z) => onMoveZone(p.id, z) } : undefined}
-                    crossCanvasDrag={editMode ? { pinId: p.id, onStart: onDragStartPin, onEnd: onDragEndPin } : undefined}
-                  />
-                </TileWrapper>
-              ))}
-            </ResponsiveGridLayout>
-          </div>
-        )}
-      </div>
-    </div>
+              rowGap={12}
+              gridRowCount={Math.max(rowCount, 8)}
+              dragging={false}
+            />
+          )}
+          <ResponsiveGridLayout
+            layouts={layouts}
+            breakpoints={{ lg: 0 }}
+            cols={{ lg: preset.cols.lg }}
+            rowHeight={preset.rowHeight}
+            margin={[12, 12]}
+            isDraggable={editMode}
+            isResizable={editMode}
+            draggableHandle=".widget-drag-handle"
+            compactType="vertical"
+            preventCollision={false}
+            onLayoutChange={scheduleCommit}
+          >
+            {pins.map((p) => (
+              <div key={p.id} data-pin-id={p.id} className="min-w-0">
+                <PinnedToolWidget
+                  widget={asPinnedWidget(p)}
+                  scope={{ kind: "dashboard" }}
+                  onUnpin={onUnpin}
+                  onEnvelopeUpdate={onEnvelopeUpdate}
+                  editMode={editMode}
+                  onEdit={() => onEditPin(p.id)}
+                  borderless={chrome.borderless}
+                  hoverScrollbars={chrome.hoverScrollbars}
+                  zoneChip={editMode ? { current: "grid", onSelect: (z) => onMoveZone(p.id, z) } : undefined}
+                />
+              </div>
+            ))}
+          </ResponsiveGridLayout>
+        </div>
+      )}
+    </EditOutline>
   );
 }
 
@@ -594,7 +430,6 @@ export function ChannelDashboardMultiCanvas({
 }: Props) {
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
   const [error, setError] = useState<string | null>(null);
-  const [dragPinId, setDragPinId] = useState<string | null>(null);
 
   const railPins = useMemo(() => pins.filter((p) => p.zone === "rail"), [pins]);
   const headerPins = useMemo(() => pins.filter((p) => p.zone === "header"), [pins]);
@@ -605,7 +440,6 @@ export function ChannelDashboardMultiCanvas({
     async (pinId: string, zone: ChatZone) => {
       const pin = pins.find((p) => p.id === pinId);
       if (pin && pin.zone === zone) return;
-      // Canvas-local default coords per destination.
       const defaults: Record<ChatZone, { x: number; y: number; w: number; h: number }> = {
         rail: { x: 0, y: 0, w: 1, h: 6 },
         dock: { x: 0, y: 0, w: 1, h: 6 },
@@ -622,19 +456,13 @@ export function ChannelDashboardMultiCanvas({
     [applyLayout, pins, preset.defaultTile],
   );
 
-  const handleDragStartPin = useCallback((id: string) => setDragPinId(id), []);
-  const handleDragEndPin = useCallback(() => setDragPinId(null), []);
-
   const canvasCommon = {
     editMode, chrome, onUnpin, onEnvelopeUpdate, onEditPin,
     onMoveZone: handleMoveZone,
-    dragPinId,
-    onDragStartPin: handleDragStartPin,
-    onDragEndPin: handleDragEndPin,
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {error && (
         <div
           role="alert"
@@ -644,32 +472,23 @@ export function ChannelDashboardMultiCanvas({
         </div>
       )}
       <HeaderCanvas pins={headerPins} {...canvasCommon} />
-      <div
-        className={
-          "flex flex-col gap-3 lg:flex-row " +
-          (editMode ? "lg:min-h-[320px]" : "")
-        }
-      >
+      <div className="flex flex-col gap-4 lg:flex-row lg:gap-3">
         <VerticalCanvas
           pins={railPins}
           {...canvasCommon}
           zone="rail"
-          label="Chat sidebar rail"
-          icon={<PanelLeft size={12} />}
-          description="Widgets in the OmniPanel rail on the left side of the channel chat."
+          label="Rail"
           widthClass={RAIL_CLASSES}
-          emptyMessage="Drop widgets here to pin them in the chat sidebar."
+          emptyMessage="Drop here to pin in the chat sidebar."
         />
         <GridCanvas pins={gridPins} preset={preset} {...canvasCommon} />
         <VerticalCanvas
           pins={dockPins}
           {...canvasCommon}
           zone="dock"
-          label="Chat right dock"
-          icon={<ArrowRight size={12} />}
-          description="Widgets in the right-side dock on the channel chat."
+          label="Dock"
           widthClass={DOCK_CLASSES}
-          emptyMessage="Drop widgets here to pin them on the right side of the channel chat."
+          emptyMessage="Drop here to pin in the right-side dock."
         />
       </div>
     </div>

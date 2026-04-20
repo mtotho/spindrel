@@ -5,7 +5,7 @@
  * but adapted for side panel: drag handle, refresh, unpin controls.
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { Pencil, X, GripVertical, Move, RefreshCw } from "lucide-react";
+import { Pencil, X, GripVertical, RefreshCw } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -58,13 +58,6 @@ interface PinnedToolWidgetProps {
    *  tile header (edit mode only) so the user can move the pin between
    *  canvases (rail / header / dock / grid) without dragging across grids. */
   zoneChip?: { current: ChatZone; onSelect: (z: ChatZone) => void };
-  /** Channel multi-canvas dashboard: render a small HTML5-draggable grip in
-   *  the tile header that canvases accept as a drop target. Fires `onStart`
-   *  on `dragstart` and `onEnd` on `dragend`; the parent owns the tracked
-   *  drag state. Distinct from the react-grid-layout `widget-drag-handle`
-   *  above to keep intra-canvas mousedown-drag and cross-canvas HTML5-drag
-   *  on two non-conflicting gestures. */
-  crossCanvasDrag?: { pinId: string; onStart: (id: string) => void; onEnd: () => void };
 }
 
 export function PinnedToolWidget({
@@ -78,7 +71,6 @@ export function PinnedToolWidget({
   borderless = false,
   hoverScrollbars = false,
   zoneChip,
-  crossCanvasDrag,
 }: PinnedToolWidgetProps) {
   const isDashboard = scope.kind === "dashboard";
   const channelId = scope.kind === "channel" ? scope.channelId : null;
@@ -471,25 +463,6 @@ export function PinnedToolWidget({
         >
           {resolveDisplayName(widget)}
         </span>
-        {crossCanvasDrag && editMode && (
-          <span
-            role="button"
-            aria-label="Drag widget to another canvas"
-            title="Drag to another canvas"
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.effectAllowed = "move";
-              e.dataTransfer.setData("application/x-spindrel-pin", crossCanvasDrag.pinId);
-              e.dataTransfer.setData("text/plain", crossCanvasDrag.pinId);
-              crossCanvasDrag.onStart(crossCanvasDrag.pinId);
-            }}
-            onDragEnd={() => crossCanvasDrag.onEnd()}
-            className="flex items-center justify-center cursor-grab active:cursor-grabbing px-0.5 opacity-60 hover:opacity-100 transition-opacity"
-            style={{ color: t.accent }}
-          >
-            <Move size={ctrlIconSize} />
-          </span>
-        )}
         {zoneChip && editMode && (
           <ZoneChip current={zoneChip.current} onSelect={zoneChip.onSelect} />
         )}
