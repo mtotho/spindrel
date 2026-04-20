@@ -1,9 +1,9 @@
 <!--
 ---
 name: Context Tracker
-description: Live context window fill for this channel — gauge, per-bot breakdown, and turn activity stream from the channel event bus
+description: Live channel context snapshot — window fill gauge, per-category breakdown, and turn activity from the channel event bus
 display_label: Context tracker
-version: 1.0.0
+version: 1.1.0
 author: spindrel
 tags: [observability, context, live, spindrel-sdk]
 icon: gauge
@@ -28,6 +28,7 @@ icon: gauge
   #ctx-root .ctx-pct { font-variant-numeric: tabular-nums; font-weight: 600; }
   #ctx-root .ctx-spark-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--sd-text-muted); font-variant-numeric: tabular-nums; margin-top: 2px; }
   #ctx-root .ctx-spark-host { min-height: 36px; }
+  #ctx-root .ctx-warn { background: var(--sd-surface-raised); border: 1px solid var(--sd-warning); color: var(--sd-text); padding: 8px 10px; border-radius: 6px; font-size: var(--sd-font-size-sm); }
 </style>
 <div class="sd-card" id="ctx-root">
   <header class="sd-card-header sd-hstack-between">
@@ -48,8 +49,8 @@ icon: gauge
       </div>
       <div class="sd-progress" id="ctx-bar" style="--p: 0"></div>
       <div class="sd-hstack-between" style="margin-top: 4px;">
-        <span class="sd-meta" id="ctx-tokens">awaiting first turn…</span>
-        <span class="sd-meta" id="ctx-last-bot">—</span>
+        <span class="sd-meta" id="ctx-tokens">—</span>
+        <span class="sd-meta" id="ctx-session">—</span>
       </div>
       <div class="ctx-spark-host" id="ctx-spark" style="margin-top: 6px;"></div>
       <div class="ctx-spark-meta" id="ctx-spark-meta" hidden>
@@ -60,8 +61,8 @@ icon: gauge
     </section>
 
     <section>
-      <h4 class="sd-label">Per-bot latest</h4>
-      <div id="ctx-bots"></div>
+      <h4 class="sd-label">Breakdown</h4>
+      <div id="ctx-breakdown"></div>
     </section>
 
     <section>
@@ -80,30 +81,37 @@ icon: gauge
   const pctEl = document.getElementById("ctx-util-pct");
   const barEl = document.getElementById("ctx-bar");
   const tokensEl = document.getElementById("ctx-tokens");
-  const lastBotEl = document.getElementById("ctx-last-bot");
-  const botsEl = document.getElementById("ctx-bots");
+  const sessionEl = document.getElementById("ctx-session");
+  const breakdownEl = document.getElementById("ctx-breakdown");
   const activityEl = document.getElementById("ctx-activity");
 
   if (!sp.channelId) {
     sp.ui.status(root, "empty", {
-      message: "Pin this widget on a channel to see live context usage.",
+      message: "Bind this widget to a channel dashboard to see live context usage.",
     });
     return;
   }
 
-  // Per-bot latest snapshot (bot_id → {consumed, total, util, model, ts})
-  const bots = new Map();
-  // Per-turn running state (turn_id → {bot_id, started, tool})
+  // Per-turn running state for the status dot + activity list (live overlay).
   const turns = new Map();
-  // Recent activity — newest first, cap 8
+  // Recent activity — newest first, cap 8.
   const activity = [];
-  // Utilization sparkline series — oldest → newest, cap 20
+  // Utilization sparkline series — oldest → newest, cap 20.
   const util = [];
   const UTIL_CAP = 20;
 
-  const fmtPct = (u) => (u * 100).toFixed(0) + "%";
-  const fmtTokens = (c, t) => c.toLocaleString() + " / " + t.toLocaleString();
-  const shortBot = (id) => id.length > 12 ? id.slice(0, 10) + "…" : id;
+  let pollTimer = null;
+  let pollInFlight = false;
+  let pollingDisabled = false;
+  const POLL_MS = 15_000;
+
+  const fmtPct = (u) => (u == null ? "—" : (u * 100).toFixed(0) + "%");
+  const fmtTokens = (c, t) => (c || 0).toLocaleString() + " / " + (t || 0).toLocaleString();
+  const fmtChars = (c) => {
+    const n = Number(c || 0);
+    if (Math.abs(n) >= 1000) return (n / 1000).toFixed(1) + "k";
+    return String(n);
+  };
 
   function setStatus(label, tone) {
     statusEl.textContent = label;
@@ -113,20 +121,20 @@ icon: gauge
     else if (tone === "err") dot.classList.add("ctx-dot-err");
   }
 
-  function barToneClass(util) {
-    if (util >= 0.9) return "sd-progress-danger";
-    if (util >= 0.75) return "sd-progress-warning";
+  function barToneClass(u) {
+    if (u >= 0.9) return "sd-progress-danger";
+    if (u >= 0.75) return "sd-progress-warning";
     return "";
   }
 
-  function renderGauge(entry) {
-    const u = Math.max(0, Math.min(1, entry.utilization || 0));
-    pctEl.textContent = fmtPct(u);
+  function renderGauge(budget) {
+    const u = Math.max(0, Math.min(1, budget && typeof budget.utilization === "number" ? budget.utilization : 0));
+    pctEl.textContent = fmtPct(budget && budget.utilization);
     barEl.style.setProperty("--p", String(Math.round(u * 100)));
     barEl.className = "sd-progress " + barToneClass(u);
-    tokensEl.textContent = fmtTokens(entry.consumed_tokens || 0, entry.total_tokens || 0);
-    lastBotEl.textContent = shortBot(entry.bot_id || "") + (entry.model ? " · " + entry.model : "");
-    if (entry.model) modelEl.textContent = entry.model;
+    tokensEl.textContent = budget && budget.total_tokens
+      ? fmtTokens(budget.consumed_tokens, budget.total_tokens)
+      : "no turns yet";
   }
 
   const sparkEl = document.getElementById("ctx-spark");
@@ -134,6 +142,7 @@ icon: gauge
   const sparkRangeEl = document.getElementById("ctx-spark-range");
 
   function pushUtil(u) {
+    if (u == null || Number.isNaN(u)) return;
     util.push(Math.max(0, Math.min(1, u)));
     if (util.length > UTIL_CAP) util.splice(0, util.length - UTIL_CAP);
     renderSpark();
@@ -157,33 +166,33 @@ icon: gauge
     sparkRangeEl.textContent = util.length + " pts · " + fmtPct(util[util.length - 1]);
   }
 
-  function renderBots() {
-    const rows = Array.from(bots.values()).sort((a, b) => b.ts - a.ts);
-    if (!rows.length) {
-      sp.ui.status(botsEl, "empty", { message: "No turns observed yet." });
+  function renderBreakdown(breakdown) {
+    if (!breakdown || !Array.isArray(breakdown.categories) || breakdown.categories.length === 0) {
+      sp.ui.status(breakdownEl, "empty", { message: "No categories reported." });
       return;
     }
+    const total = breakdown.total_chars || 0;
     const frag = document.createElement("div");
     frag.className = "ctx-bots";
-    for (const r of rows) {
+    for (const cat of breakdown.categories) {
+      const pct = total > 0 ? (cat.chars / total) : 0;
       const name = document.createElement("span");
       name.className = "ctx-bot-name";
-      name.textContent = shortBot(r.bot_id);
-      name.title = r.bot_id + (r.model ? " — " + r.model : "");
-      const tokens = document.createElement("span");
-      tokens.className = "ctx-bot-util";
-      tokens.textContent = fmtTokens(r.consumed_tokens, r.total_tokens);
-      const pct = document.createElement("span");
-      pct.className = "ctx-pct";
-      pct.textContent = fmtPct(r.utilization);
-      if (r.utilization >= 0.9) pct.style.color = "var(--sd-danger)";
-      else if (r.utilization >= 0.75) pct.style.color = "var(--sd-warning)";
+      name.textContent = cat.label || cat.key;
+      name.title = cat.description || cat.key;
+      const chars = document.createElement("span");
+      chars.className = "ctx-bot-util";
+      chars.textContent = fmtChars(cat.chars);
+      const share = document.createElement("span");
+      share.className = "ctx-pct";
+      share.textContent = (pct * 100).toFixed(0) + "%";
+      if (pct >= 0.5) share.style.color = "var(--sd-warning)";
       frag.appendChild(name);
-      frag.appendChild(tokens);
-      frag.appendChild(pct);
+      frag.appendChild(chars);
+      frag.appendChild(share);
     }
-    botsEl.innerHTML = "";
-    botsEl.appendChild(frag);
+    breakdownEl.innerHTML = "";
+    breakdownEl.appendChild(frag);
   }
 
   function renderActivity() {
@@ -211,41 +220,87 @@ icon: gauge
     renderActivity();
   }
 
-  renderBots();
+  function showScopeWarning(message) {
+    pollingDisabled = true;
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    breakdownEl.innerHTML = "";
+    const warn = document.createElement("div");
+    warn.className = "ctx-warn";
+    warn.textContent = message;
+    breakdownEl.appendChild(warn);
+  }
+
+  async function pollOnce() {
+    if (pollInFlight || pollingDisabled) return;
+    pollInFlight = true;
+    try {
+      const [budget, breakdown] = await Promise.all([
+        sp.api("/api/v1/channels/" + encodeURIComponent(sp.channelId) + "/context-budget"),
+        sp.api("/api/v1/channels/" + encodeURIComponent(sp.channelId) + "/context-breakdown"),
+      ]);
+      renderGauge(budget);
+      if (budget && typeof budget.utilization === "number") pushUtil(budget.utilization);
+      renderBreakdown(breakdown);
+      if (breakdown && breakdown.bot_id) {
+        sessionEl.textContent = breakdown.bot_id;
+      }
+    } catch (err) {
+      const msg = String(err && err.message || err);
+      if (msg.indexOf("API 403") === 0) {
+        showScopeWarning(
+          "This bot is missing the `channels:read` scope. Grant it under Admin → Bots → Permissions, then reload.",
+        );
+      } else if (msg.indexOf("API 404") === 0) {
+        // Active session may not exist yet — benign, retry on next tick.
+      } else {
+        setStatus("error", "err");
+      }
+    } finally {
+      pollInFlight = false;
+    }
+  }
+
+  function startPolling() {
+    if (pollingDisabled) return;
+    pollOnce();
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(pollOnce, POLL_MS);
+  }
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") stopPolling();
+    else startPolling();
+  });
+
+  // Kick off steady-state render immediately — do not wait for a turn to fire.
+  startPolling();
   renderActivity();
 
-  // Subscribe to the channel bus. Kinds we care about:
-  //   context_budget          — primary, updates the gauge
-  //   turn_started / turn_ended — status dot + activity log
-  //   turn_stream_tool_start  — "using tool X" status
+  // Live overlay: turn events drive the status dot + recent-turns list; a
+  // `context_budget` event triggers an immediate refetch so the gauge stays
+  // consistent with the server-computed snapshot (rather than maintaining a
+  // parallel in-widget derivation).
   sp.stream(
     ["context_budget", "turn_started", "turn_ended", "turn_stream_tool_start"],
     (event) => {
       const p = event.payload || {};
       if (event.kind === "context_budget") {
-        const entry = {
-          bot_id: p.bot_id || "",
-          consumed_tokens: p.consumed_tokens || 0,
-          total_tokens: p.total_tokens || 0,
-          utilization: p.utilization || 0,
-          model: p.model || "",
-          ts: Date.now(),
-        };
-        renderGauge(entry);
-        pushUtil(entry.utilization || 0);
-        if (entry.bot_id) bots.set(entry.bot_id, entry);
-        renderBots();
+        if (p.model) modelEl.textContent = p.model;
+        pollOnce();
         return;
       }
       if (event.kind === "turn_started") {
         const tid = p.turn_id;
         if (tid) turns.set(tid, { bot_id: p.bot_id, started: Date.now() });
-        setStatus(shortBot(p.bot_id || "bot") + " thinking…", "live");
-        pushActivity("▶ " + shortBot(p.bot_id || "bot") + " started", p.reason || "");
+        setStatus((p.bot_id || "bot") + " thinking…", "live");
+        pushActivity("▶ " + (p.bot_id || "bot") + " started", p.reason || "");
         return;
       }
       if (event.kind === "turn_stream_tool_start") {
-        setStatus(shortBot(p.bot_id || "bot") + " · " + (p.tool_name || "tool"), "tool");
+        setStatus((p.bot_id || "bot") + " · " + (p.tool_name || "tool"), "tool");
         return;
       }
       if (event.kind === "turn_ended") {
@@ -256,20 +311,15 @@ icon: gauge
         const ok = !p.error;
         setStatus("idle", ok ? "" : "err");
         pushActivity(
-          (ok ? "■ " : "✕ ") + shortBot(p.bot_id || "bot") + (ok ? " finished" : " failed"),
+          (ok ? "■ " : "✕ ") + (p.bot_id || "bot") + (ok ? " finished" : " failed"),
           elapsed,
         );
+        // Refetch after turn end so the breakdown reflects the new state
+        // (compaction may have fired, new messages landed, etc.).
+        pollOnce();
         return;
       }
     },
   );
-
-  // If nothing arrives for a while, soften the dot back to idle so an
-  // orphaned "thinking…" state (renderer raced an event) clears itself.
-  setInterval(() => {
-    if (turns.size === 0 && statusEl.textContent !== "idle") {
-      setStatus("idle");
-    }
-  }, 10000);
 })();
 </script>

@@ -76,7 +76,8 @@ export function PinnedToolWidget({
   externalDrag,
 }: PinnedToolWidgetProps) {
   const isDashboard = scope.kind === "dashboard";
-  const channelId = scope.kind === "channel" ? scope.channelId : null;
+  const channelId =
+    scope.kind === "channel" ? scope.channelId : scope.channelId ?? null;
   const isChip = scope.kind === "channel" && scope.compact === "chip";
 
   const t = useThemeTokens();
@@ -444,6 +445,7 @@ export function PinnedToolWidget({
         >
           <RichToolResult
             envelope={currentEnvelope}
+            channelId={channelId ?? undefined}
             dispatcher={dispatcher}
             fillHeight={false}
             dashboardPinId={widget.id}
@@ -541,6 +543,7 @@ export function PinnedToolWidget({
       >
         <RichToolResult
           envelope={currentEnvelope}
+          channelId={channelId ?? undefined}
           dispatcher={dispatcher}
           fillHeight={isDashboard}
           dashboardPinId={widget.id}

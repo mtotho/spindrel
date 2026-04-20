@@ -527,10 +527,15 @@ export interface GridLayoutItem {
 
 /** Discriminator telling `PinnedToolWidget` which surface it lives on.
  *  ``compact`` is only meaningful for channel-scope pins:
- *    - ``"chip"`` — minimal 180×32 rendering used by `ChannelHeaderChip`. */
+ *    - ``"chip"`` — minimal 180×32 rendering used by `ChannelHeaderChip`.
+ *
+ *  ``kind: "dashboard"`` carries an optional ``channelId`` — set when the
+ *  dashboard is a channel dashboard (slug ``channel:<uuid>``), omitted for
+ *  user/global dashboards. This is the canonical source for ``window.spindrel.channelId``
+ *  inside pinned HTML widgets; do not re-derive it from envelope fields. */
 export type WidgetScope =
   | { kind: "channel"; channelId: string; compact?: false | "chip" }
-  | { kind: "dashboard" };
+  | { kind: "dashboard"; channelId?: string };
 
 /** Chat-side zone a dashboard pin belongs to. Stored directly on the pin
  *  (``widget_dashboard_pins.zone``) and authored via the multi-canvas

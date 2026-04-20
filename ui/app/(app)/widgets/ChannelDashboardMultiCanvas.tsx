@@ -108,6 +108,10 @@ interface Props {
   onUnpin: (id: string) => void;
   onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
   onEditPin: (id: string) => void;
+  /** Channel uuid parsed from the dashboard slug (``channel:<uuid>``).
+   *  Plumbed into every pin's `scope.channelId` so `window.spindrel.channelId`
+   *  resolves correctly for pinned HTML widgets. */
+  channelId: string;
 }
 
 export function ChannelDashboardMultiCanvas({
@@ -118,15 +122,43 @@ export function ChannelDashboardMultiCanvas({
   onUnpin,
   onEnvelopeUpdate,
   onEditPin,
+  channelId,
 }: Props) {
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
   const [error, setError] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [overZone, setOverZone] = useState<ChatZone | null>(null);
 
-  const railPins = useMemo(() => pins.filter((p) => p.zone === "rail"), [pins]);
-  const headerPins = useMemo(() => pins.filter((p) => p.zone === "header"), [pins]);
-  const dockPins = useMemo(() => pins.filter((p) => p.zone === "dock"), [pins]);
+  // Sortable canvases render in grid_layout order so reorder commits (which
+  // only update x or y) actually change the render position. Without the
+  // sort, `arrayMove` writes new x/y into the store but the filter keeps the
+  // original pin-insertion order and tiles "pop back" visually on drop. The
+  // grid canvas uses CSS Grid positioning via `gridColumn`/`gridRow`, so the
+  // filter order there is irrelevant.
+  const railPins = useMemo(
+    () =>
+      pins
+        .filter((p) => p.zone === "rail")
+        .slice()
+        .sort((a, b) => toGridLayout(a).y - toGridLayout(b).y),
+    [pins],
+  );
+  const headerPins = useMemo(
+    () =>
+      pins
+        .filter((p) => p.zone === "header")
+        .slice()
+        .sort((a, b) => toGridLayout(a).x - toGridLayout(b).x),
+    [pins],
+  );
+  const dockPins = useMemo(
+    () =>
+      pins
+        .filter((p) => p.zone === "dock")
+        .slice()
+        .sort((a, b) => toGridLayout(a).y - toGridLayout(b).y),
+    [pins],
+  );
   const gridPins = useMemo(() => pins.filter((p) => p.zone === "grid"), [pins]);
 
   // One measure ref per canvas so drop-time pointer math knows each canvas's
@@ -196,7 +228,16 @@ export function ChannelDashboardMultiCanvas({
 
   const commitSortableReorder = useCallback(
     async (zone: "rail" | "dock" | "header", fromId: string, toId: string) => {
-      const zonePins = pins.filter((p) => p.zone === zone);
+      // Match the filter/sort used by the render so arrayMove operates on the
+      // same array the user sees. Otherwise the reorder index math drifts
+      // from the visual order.
+      const sortKey = zone === "header"
+        ? (p: WidgetDashboardPin) => toGridLayout(p).x
+        : (p: WidgetDashboardPin) => toGridLayout(p).y;
+      const zonePins = pins
+        .filter((p) => p.zone === zone)
+        .slice()
+        .sort((a, b) => sortKey(a) - sortKey(b));
       const ids = zonePins.map((p) => p.id);
       const from = ids.indexOf(fromId);
       const to = ids.indexOf(toId);
@@ -340,6 +381,7 @@ export function ChannelDashboardMultiCanvas({
           anyDragging={activeDragId !== null}
           isOver={overZone === "header"}
           applyLayout={applyLayout}
+          channelId={channelId}
         />
 
         <div className="flex flex-col gap-4 lg:flex-row lg:gap-3">
@@ -357,6 +399,7 @@ export function ChannelDashboardMultiCanvas({
             anyDragging={activeDragId !== null}
             isOver={overZone === "rail"}
             applyLayout={applyLayout}
+            channelId={channelId}
           />
 
           <GridCanvas
@@ -372,6 +415,7 @@ export function ChannelDashboardMultiCanvas({
             applyLayout={applyLayout}
             measureRef={gridMeasure.setRef}
             measuredRect={gridMeasure.rect}
+            channelId={channelId}
           />
 
           <ListCanvas
@@ -388,6 +432,7 @@ export function ChannelDashboardMultiCanvas({
             anyDragging={activeDragId !== null}
             isOver={overZone === "dock"}
             applyLayout={applyLayout}
+            channelId={channelId}
           />
         </div>
       </div>
@@ -397,7 +442,7 @@ export function ChannelDashboardMultiCanvas({
           <div className="opacity-80 pointer-events-none">
             <PinnedToolWidget
               widget={asPinnedWidget(activePin)}
-              scope={{ kind: "dashboard" }}
+              scope={{ kind: "dashboard", channelId }}
               onUnpin={() => {}}
               onEnvelopeUpdate={() => {}}
               editMode={editMode}
@@ -433,6 +478,9 @@ interface CanvasSharedProps {
     h: number;
     zone?: ChatZone;
   }>) => Promise<void>;
+  /** Enclosing channel dashboard's channel uuid — carried into every pin's
+   *  `WidgetScope.dashboard.channelId` so `window.spindrel.channelId` resolves. */
+  channelId: string;
 }
 
 function HeaderCanvas({
@@ -444,17 +492,18 @@ function HeaderCanvas({
   onEditPin,
   anyDragging,
   isOver,
+  channelId,
 }: CanvasSharedProps) {
   if (!editMode && pins.length === 0) return null;
   // Edit mode shows the full dashboard tile (grip + edit + unpin controls).
   // View mode renders each header pin as a compact chip — matches how
   // ChannelHeaderChip surfaces the same pins in the chat strip.
-  const tileScope = (p: WidgetDashboardPin): WidgetScope =>
+  const tileScope = (_p: WidgetDashboardPin): WidgetScope =>
     editMode
-      ? { kind: "dashboard" }
+      ? { kind: "dashboard", channelId }
       : {
           kind: "channel",
-          channelId: p.source_channel_id ?? "",
+          channelId,
           compact: "chip",
         };
   const ids = pins.map((p) => p.id);
@@ -468,7 +517,7 @@ function HeaderCanvas({
       anyDragging={anyDragging}
       isOver={isOver}
     >
-      <div className="relative min-h-[56px] overflow-hidden p-3">
+      <div className="relative flex-1 min-h-[56px] overflow-hidden p-3">
         {editMode && <EditModeGridGuides cols={12} rowHeight={32} rowGap={GAP_PX} />}
         {pins.length === 0 ? (
           editMode ? (
@@ -533,10 +582,11 @@ function ListCanvas({
   anyDragging,
   isOver,
   applyLayout,
+  channelId,
 }: ListCanvasProps) {
   if (!editMode && pins.length === 0) return null;
   const ids = pins.map((p) => p.id);
-  const dashboardScope = (): WidgetScope => ({ kind: "dashboard" });
+  const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
   const rowHeight = 30;
   const [resizePreview, setResizePreview] = useState<{ id: string; h: number } | null>(null);
 
@@ -549,7 +599,7 @@ function ListCanvas({
       anyDragging={anyDragging}
       isOver={isOver}
     >
-      <div className="relative min-h-[200px] overflow-hidden p-3">
+      <div className="relative flex-1 min-h-[200px] overflow-hidden p-3">
         {editMode && <EditModeGridGuides cols={1} rowHeight={rowHeight} rowGap={GAP_PX} />}
         {pins.length === 0 ? (
           editMode ? <EmptyCanvasHint message={emptyMessage} /> : null
@@ -646,9 +696,10 @@ function GridCanvas({
   applyLayout,
   measureRef,
   measuredRect,
+  channelId,
 }: GridCanvasProps) {
   if (!editMode && pins.length === 0) return null;
-  const dashboardScope = (): WidgetScope => ({ kind: "dashboard" });
+  const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
 
   // Live resize preview — updates immediately as the user drags the handle.
   // Clears on commit; the store's optimistic update from `applyLayout` takes
@@ -700,8 +751,8 @@ function GridCanvas({
       isOver={isOver}
       measureRef={measureRef}
     >
-      <div className="relative overflow-hidden p-3">
-        <div style={gridStyle} className="relative">
+      <div className="relative flex-1 flex flex-col overflow-hidden p-3">
+        <div style={gridStyle} className="relative flex-1">
           {editMode && (
             <EditModeGridGuides
               cols={preset.cols.lg}

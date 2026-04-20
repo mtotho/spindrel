@@ -19,6 +19,7 @@ from app.db.models import (
     ConversationSection,
     Message,
     Session,
+    TraceEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,41 @@ def _chars_to_tokens(chars: int) -> int:
     elif chars < 0:
         return min(-1, -int(math.ceil(abs(chars) / 3.5)))
     return 0
+
+
+async def fetch_latest_context_budget(
+    channel_id: str | Any,
+    db: AsyncSession,
+) -> dict[str, Any]:
+    """Latest `context_budget` across any session in this channel.
+
+    Reads the most recent ``context_injection_summary`` TraceEvent on any of
+    the channel's sessions and returns its ``context_budget`` dict, or a
+    sentinel with null fields when no turn has been recorded yet.
+
+    Shared by the admin endpoint (``/api/v1/admin/channels/{id}/context-budget``)
+    and the public endpoint (``/api/v1/channels/{id}/context-budget``) so the
+    two cannot drift.
+    """
+    row = await db.execute(
+        select(TraceEvent.data)
+        .join(Session, TraceEvent.session_id == Session.id)
+        .where(
+            Session.channel_id == channel_id,
+            TraceEvent.event_type == "context_injection_summary",
+        )
+        .order_by(TraceEvent.created_at.desc())
+        .limit(1)
+    )
+    data = row.scalar_one_or_none()
+    budget = data.get("context_budget") if data else None
+    if not budget:
+        return {"utilization": None, "consumed_tokens": None, "total_tokens": None}
+    return {
+        "utilization": budget.get("utilization"),
+        "consumed_tokens": budget.get("consumed_tokens"),
+        "total_tokens": budget.get("total_tokens"),
+    }
 
 
 def _resolve_setting(channel_val, bot_val, global_val, channel_attr: str) -> EffectiveSetting:

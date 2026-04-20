@@ -146,7 +146,7 @@ export function DroppableCanvas({
     <div
       ref={combinedRef}
       data-dashboard-canvas={zone}
-      className={`relative rounded border border-dashed ${extraClass}`}
+      className={`relative flex flex-col rounded border border-dashed ${extraClass}`}
       style={{
         borderColor: outlineColor,
         transition: "border-color 120ms",
@@ -259,7 +259,13 @@ export function ResizeHandles({
     edge: ResizeEdge;
   } | null>(null);
   const currentRef = useRef<{ w: number; h: number }>(initial);
-  currentRef.current = initial;
+  // Only sync to the `initial` prop when NOT actively dragging. Parent state
+  // updates during resize (live-preview) would otherwise stomp the in-flight
+  // w/h back to the persisted value, and on pointerup we'd commit the
+  // original size → "pops back" bug.
+  if (!startRef.current) {
+    currentRef.current = initial;
+  }
 
   const beginResize = useCallback(
     (edge: ResizeEdge) => (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -269,12 +275,13 @@ export function ResizeHandles({
       startRef.current = {
         x: e.clientX,
         y: e.clientY,
-        w: currentRef.current.w,
-        h: currentRef.current.h,
+        w: initial.w,
+        h: initial.h,
         edge,
       };
+      currentRef.current = { w: initial.w, h: initial.h };
     },
-    [],
+    [initial.w, initial.h],
   );
 
   const onMove = useCallback(

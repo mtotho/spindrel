@@ -255,40 +255,16 @@ export function OmniPanel({
           compact
           t={t}
         />
-        {activeTab === "widgets" && (
-          <Link
-            to={dashboardHref}
-            aria-label="Open channel dashboard"
-            title="Open channel dashboard"
-            className="ml-auto flex items-center justify-center w-6 h-6 rounded-md transition-colors"
-            style={{
-              color: t.textDim,
-              opacity: 0.55,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.opacity = "1";
-              e.currentTarget.style.backgroundColor = t.surfaceOverlay;
-              e.currentTarget.style.color = t.text;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = "0.55";
-              e.currentTarget.style.backgroundColor = "transparent";
-              e.currentTarget.style.color = t.textDim;
-            }}
-          >
-            <LayoutDashboard size={12} />
-          </Link>
-        )}
         {/* Collapse chevron — tucks the panel away; a peek-tab at the
-            viewport's left edge brings it back. Sits at the far-right of the
-            tab bar so it's the first thing the eye finds when the user wants
-            to reclaim the horizontal room. */}
+            viewport's left edge brings it back. The dashboard link that
+            used to live here is redundant now that the channel header has a
+            dedicated Switch-to-Dashboard toggle. */}
         <button
           type="button"
           onClick={() => setFileExplorerOpen(false)}
           aria-label="Collapse widgets panel"
           title="Collapse panel"
-          className={`flex items-center justify-center w-6 h-6 rounded-md transition-colors ${activeTab === "widgets" ? "" : "ml-auto"}`}
+          className="ml-auto flex items-center justify-center w-6 h-6 rounded-md transition-colors"
           style={{ color: t.textDim, opacity: 0.55 }}
           onMouseEnter={(e) => {
             e.currentTarget.style.opacity = "1";

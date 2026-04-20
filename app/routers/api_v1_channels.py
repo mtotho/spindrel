@@ -1178,6 +1178,65 @@ async def get_channel_chat_zones(
     )
 
 
+# ---------------------------------------------------------------------------
+# Context introspection — channel-scoped, gated by ``channels:read``.
+#
+# These endpoints mirror the admin-prefixed ones in
+# ``app/routers/api_v1_admin/channels.py`` (which now delegate to the same
+# service helpers). Exposing them under the public ``/channels/`` prefix lets
+# bot-authenticated widgets (e.g. the Context Tracker HTML widget) render
+# steady-state snapshots without requiring the ``admin`` scope.
+# ---------------------------------------------------------------------------
+
+@router.get("/{channel_id}/context-budget")
+async def get_channel_context_budget(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:read")),
+):
+    """Latest context budget (utilization / consumed / total tokens) for this channel.
+
+    Reads the most recent ``context_injection_summary`` trace event on any
+    session. Returns sentinel ``{"utilization": null, ...}`` when no turn
+    has fired yet.
+    """
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    from app.services.context_breakdown import fetch_latest_context_budget
+    return await fetch_latest_context_budget(channel_id, db)
+
+
+@router.get("/{channel_id}/context-breakdown")
+async def get_channel_context_breakdown(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:read")),
+):
+    """Per-category context breakdown for this channel's active session."""
+    from app.services.context_breakdown import compute_context_breakdown
+    from dataclasses import asdict
+
+    try:
+        result = await compute_context_breakdown(str(channel_id), db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return {
+        "channel_id": result.channel_id,
+        "session_id": result.session_id,
+        "bot_id": result.bot_id,
+        "categories": [asdict(c) for c in result.categories],
+        "total_chars": result.total_chars,
+        "total_tokens_approx": result.total_tokens_approx,
+        "compaction": asdict(result.compaction),
+        "reranking": asdict(result.reranking),
+        "context_budget": result.context_budget,
+        "disclaimer": result.disclaimer,
+    }
+
+
 async def _snapshot_pending_approvals(db: AsyncSession, channel_id: uuid.UUID) -> list[dict]:
     """Reuse the shape Phase 1 already returns for pending approvals.
 

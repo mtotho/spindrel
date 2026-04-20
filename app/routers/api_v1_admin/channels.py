@@ -1843,29 +1843,15 @@ async def admin_channel_context_budget(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("channels:read")),
 ):
-    """Return the latest context budget for this channel (from trace events)."""
-    from app.db.models import TraceEvent
+    """Return the latest context budget for this channel (from trace events).
 
-    # Find latest context_injection_summary trace for any session in this channel
-    result = await db.execute(
-        select(TraceEvent.data)
-        .join(Session, TraceEvent.session_id == Session.id)
-        .where(
-            Session.channel_id == channel_id,
-            TraceEvent.event_type == "context_injection_summary",
-        )
-        .order_by(TraceEvent.created_at.desc())
-        .limit(1)
-    )
-    data = result.scalar_one_or_none()
-    budget = data.get("context_budget") if data else None
-    if not budget:
-        return {"utilization": None, "consumed_tokens": None, "total_tokens": None}
-    return {
-        "utilization": budget.get("utilization"),
-        "consumed_tokens": budget.get("consumed_tokens"),
-        "total_tokens": budget.get("total_tokens"),
-    }
+    Thin alias over :func:`fetch_latest_context_budget`. The admin UI already
+    consumes this path; the public mirror lives at
+    ``/api/v1/channels/{id}/context-budget``.
+    """
+    from app.services.context_breakdown import fetch_latest_context_budget
+
+    return await fetch_latest_context_budget(channel_id, db)
 
 
 @router.get("/channels/{channel_id}/context-preview")

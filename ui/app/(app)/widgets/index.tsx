@@ -374,7 +374,7 @@ export default function WidgetsDashboardPage() {
           type="button"
           onClick={() => setEditMode((v) => !v)}
           className={
-            "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-medium transition-colors " +
+            "inline-flex items-center gap-1.5 h-8 rounded-md border px-2.5 text-[12px] font-medium transition-colors " +
             (editMode
               ? "border-accent/60 bg-accent/10 text-accent"
               : "border-surface-border text-text-muted hover:bg-surface-overlay")
@@ -398,7 +398,7 @@ export default function WidgetsDashboardPage() {
           type="button"
           onClick={handleResetLayout}
           className={
-            "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-medium transition-colors "
+            "inline-flex items-center gap-1.5 h-8 rounded-md border px-2.5 text-[12px] font-medium transition-colors "
             + (resetArmed
               ? "border-danger/60 bg-danger/10 text-danger"
               : "border-surface-border text-text-muted hover:bg-surface-overlay")
@@ -424,7 +424,7 @@ export default function WidgetsDashboardPage() {
       <button
         type="button"
         onClick={() => setSheetOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-white hover:opacity-90 transition-opacity"
+        className="inline-flex items-center gap-1.5 h-8 rounded-md bg-accent px-2.5 text-[12px] font-medium text-white hover:opacity-90 transition-opacity"
         aria-label="Add widget"
         title="Add widget"
       >
@@ -440,7 +440,7 @@ export default function WidgetsDashboardPage() {
       {!isChannelScoped && (
         <Link
           to={`/widgets/dev?from=${encodeURIComponent(slug)}`}
-          className="hidden sm:inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
+          className="hidden sm:inline-flex items-center gap-1.5 h-8 rounded-md border border-surface-border px-2.5 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
           aria-label="Developer panel"
           title="Developer panel"
         >
@@ -453,12 +453,13 @@ export default function WidgetsDashboardPage() {
           header. Clicking either lands you back at the same screen x/y
           without the cursor moving. Icon is `MessageSquare` for direct
           "chat view" affordance. `?from=dock` cues the chat screen to play
-          the reverse-of-collapse entrance animation. */}
+          the reverse-of-collapse entrance animation. Sized to match the
+          other dashboard-bar buttons (h-8) so the row reads as one set. */}
       {isChannelScoped && channelScopedId && !isMobile && (
         <button
           type="button"
           onClick={() => navigate(`/channels/${channelScopedId}?from=dock`)}
-          className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
+          className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
           aria-label="Switch to chat view"
           title="Switch to chat view"
         >
@@ -558,7 +559,7 @@ export default function WidgetsDashboardPage() {
             onEditPin={(id) => setEditingPinId(id)}
           />
         )}
-        {!isLoading && !error && pins.length > 0 && !inPanelMode && isChannelScoped && (
+        {!isLoading && !error && pins.length > 0 && !inPanelMode && isChannelScoped && channelScopedId && (
           <ChannelDashboardMultiCanvas
             pins={pins}
             preset={preset}
@@ -567,6 +568,7 @@ export default function WidgetsDashboardPage() {
             onUnpin={handleUnpin}
             onEnvelopeUpdate={handleEnvelopeUpdate}
             onEditPin={(id) => setEditingPinId(id)}
+            channelId={channelScopedId}
           />
         )}
         {!isLoading && !error && pins.length > 0 && !inPanelMode && !isChannelScoped && (

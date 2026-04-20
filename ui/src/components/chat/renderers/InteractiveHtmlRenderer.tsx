@@ -1625,7 +1625,14 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
       || sourceKind === "builtin"
       || (sourceKind === "integration" && !!sourceIntegrationId)
     );
-  const effectiveChannelId = channelId ?? sourceChannelId;
+  // The `channelId` prop is the authoritative source — set by every render
+  // surface that knows which channel the widget lives on (chat view, channel
+  // dashboards via `ChannelDashboardMultiCanvas`). We deliberately do NOT
+  // fall back to `envelope.source_channel_id` here: that field points at the
+  // channel the widget was *emitted from*, which is not always the channel
+  // the widget is *being viewed in*, and relying on it previously masked a
+  // genuine plumbing gap in `WidgetScope` for channel dashboards.
+  const effectiveChannelId = channelId ?? null;
 
   // For inline widgets we know the body at mount time and can skip minting
   // when the widget won't use it. PathMode widgets fetch their body later,
