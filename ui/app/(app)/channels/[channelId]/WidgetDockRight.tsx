@@ -11,12 +11,13 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Settings2 } from "lucide-react";
+import { ChevronRight, Settings2 } from "lucide-react";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useDashboards, channelSlug } from "@/src/stores/dashboards";
+import { useUIStore } from "@/src/stores/ui";
 import { resolveChrome } from "@/src/lib/dashboardGrid";
 import type { PinnedWidget, ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
 import { PinnedToolWidget } from "./PinnedToolWidget";
@@ -48,6 +49,7 @@ export function WidgetDockRight({ channelId }: Props) {
   const { dock: pins } = useChannelChatZones(channelId);
   const unpin = useDashboardPinsStore((s) => s.unpinWidget);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
+  const setRightDockHidden = useUIStore((s) => s.setRightDockHidden);
   // Use `allDashboards` rather than `list` — channel dashboards are filtered
   // out of the tab-bar-friendly `list` slice.
   const { allDashboards } = useDashboards();
@@ -130,6 +132,28 @@ export function WidgetDockRight({ channelId }: Props) {
           >
             <Settings2 size={12} />
           </Link>
+          {/* Collapse chevron — hides the dock; a peek-tab on the viewport's
+              right edge brings it back. */}
+          <button
+            type="button"
+            onClick={() => setRightDockHidden(true)}
+            aria-label="Collapse right dock"
+            title="Collapse dock"
+            className="flex items-center justify-center w-6 h-6 rounded-md transition-colors"
+            style={{ color: t.textDim, opacity: 0.55 }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = "1";
+              e.currentTarget.style.backgroundColor = t.surfaceOverlay;
+              e.currentTarget.style.color = t.text;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = "0.55";
+              e.currentTarget.style.backgroundColor = "transparent";
+              e.currentTarget.style.color = t.textDim;
+            }}
+          >
+            <ChevronRight size={14} />
+          </button>
         </div>
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto gap-2 px-2 py-2">
           {pins.map((p) => (

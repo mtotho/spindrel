@@ -1,12 +1,14 @@
 ---
 tags: [agent-server, track, widgets, sdk, framework]
 status: active
-updated: 2026-04-20 (Phase B.3 shipped — @on_cron scheduler integration)
+updated: 2026-04-20 (Phase B.6 backend — Mission Control suite + shared-DB primitive shipped; UI Suites tab parked behind parallel DnD refactor)
 ---
 
 # Track — Widget SDK (from scripts to a framework)
 
-> **Phase A complete 2026-04-19.** Plans: `~/.claude/plans/drifting-purring-kahan.md` (A.1), `~/.claude/plans/witty-waddling-moonbeam.md` (A.2b). Sessions 25–30 collectively shipped the full iframe-only SDK: `bus`, `cache`, `notify`, `log`, `ui.status`, `ui.table`, `ui.chart`, `form`, `stream`, `state`, error boundary, host-chrome toast listener, Dev Panel "Widget log" subtab, and three showcase widgets (web_search rewrite, Context Tracker, Notes). Session 30 shipped the last A.2 slice — **`spindrel.state`** (versioned `data.load` + forward migrations + per-path in-iframe mutex + downgrade refusal) plus `app/tools/local/widgets/notes/` as the real showcase (pinned-channel scratchpad with v1→v2 schema migration from `{text}` to `{markdown, createdAt, updatedAt}`). Phase B (`widget.yaml` + `widget.py` handlers + `spindrel.db` SQLite + cron/event wiring) and Phase C (DX-5b unblock + integration widget catalog + Frigate dog-food) not started — do not close this track until Phase C's exit criteria land.
+> **Phase A complete 2026-04-19.** Plans: `~/.claude/plans/drifting-purring-kahan.md` (A.1), `~/.claude/plans/witty-waddling-moonbeam.md` (A.2b). Sessions 25–30 collectively shipped the full iframe-only SDK: `bus`, `cache`, `notify`, `log`, `ui.status`, `ui.table`, `ui.chart`, `form`, `stream`, `state`, error boundary, host-chrome toast listener, Dev Panel "Widget log" subtab, and three showcase widgets.
+>
+> **Phase B in flight — B.0–B.4 shipped 2026-04-19/04-20.** Plan: `~/.claude/plans/modular-sparking-naur.md`. Manifest parsing (B.0), `spindrel.db` server SQLite per bundle (B.1), `widget.py` `@on_action` in-process handlers (B.2), `@on_cron` scheduler (B.3), `@on_event` channel-event subscribers (B.4) all live. Remaining: B.5 `widget_reload` SSE signal, B.6 showcase widget (Cost Tracker scope rethought — plan to re-target when we get there; see B-row status). Phase C.0 (unified widget catalog) also shipped; rest of Phase C (DX-5b unblock + integration admin-page widgets tab + version upgrades) still pending — do not close this track until Phase C's exit criteria land.
 
 ## North Star
 
@@ -49,8 +51,9 @@ Three pressures:
 | A.2b.state | `spindrel.state` versioning + migrations | Layered on `spindrel.data` — `schema_version` + ordered `{from, to, apply}` migrations. Per-path in-iframe mutex (`__stateLocks[path]`) serialises concurrent `load`/`save`/`patch`. File's `__schema_version__` field is the source of truth; missing = v1, newer than declared = throws (downgrade refusal). Cross-iframe RMW inherits the existing `data.patch` limitation (documented; Phase B's `spindrel.db` is the durable fix). Showcase: `app/tools/local/widgets/notes/` — a pinned-channel scratchpad whose schema upgrades `{text}` → `{markdown, createdAt, updatedAt}`. | **done** (2026-04-19 session 30) |
 | A.2b.chart | `spindrel.ui.chart` | Minimal inline-SVG line / bar / area helper. Sparkline-first defaults (40px tall, no axis, `spindrel.theme.accent`, fills container width via `viewBox` + `vector-effect="non-scaling-stroke"`). Accepts `number[]`, `{y}[]`, or `{x,y}[]`. Opts: `type`, `height`, `color`, `min`/`max`, `showAxis`, `strokeWidth`, `format`, `emptyMessage`, `label`. Context Tracker extended with a rolling 20-point utilization sparkline under the gauge. | **done** (2026-04-19 session 28) |
 | A.2b.log | Dev Panel "Widget log" subtab | New Zustand store (`ui/src/stores/widgetLog.ts`, cap 500) consumes the existing `spindrel.log` postMessage contract. Host handler in `InteractiveHtmlRenderer.tsx` enriches each entry with `{pinId, channelId, botId, botName, widgetPath}` via a ref (so the one-time `useEffect` doesn't stale-close over token-late `botName`) before calling `pushWidgetLog(...)`. New `ui/app/(app)/widgets/dev/WidgetLogView.tsx` rendered via a segmented "Tool calls / Widget log" toggle in RecentTab — two-pane list/detail, level filter (All/Info/Warn/Error), Clear button, per-pin attribution row. Skill doc's log section + common-mistakes row updated to point at the new subtab. | **done** (2026-04-19 session 29) |
-| B | Backend process layer | `widget.yaml` manifest, `widget.py` handler dispatch (in-process async, NOT subprocess per plan D2), `spindrel.db` SQLite per bundle, cron → Task scheduler, event subscriptions → channel bus, `widget_reload` SSE signal. Plan: `~/.claude/plans/modular-sparking-naur.md` — 6 ordered slices (B.0 manifest → B.1 db → B.2 handlers → B.3 cron → B.4 events → B.5 reload → B.6 **Bot Cost & Activity Tracker** showcase). | **B.0 done** (2026-04-19); **B.1 done** (2026-04-20); **B.2 done** (2026-04-20); **B.3 done** (2026-04-20); B.4+ not started |
-| C | Integration presentation layer | DX-5b unblock (non-channel `/workspace/widgets/<slug>/` root), integration widget catalog, "Widgets" tab on integration admin pages with one-click pin, version-bump notifications + auto-migrations. Dog-food: Frigate. | not started |
+| B | Backend process layer | `widget.yaml` manifest, `widget.py` handler dispatch (in-process async, NOT subprocess per plan D2), `spindrel.db` SQLite per bundle, cron → Task scheduler, event subscriptions → channel bus, `widget_reload` SSE signal. Plan: `~/.claude/plans/modular-sparking-naur.md` — 6 ordered slices (B.0 manifest → B.1 db → B.2 handlers → B.3 cron → B.4 events → B.5 reload → B.6 showcase). | **B.0 done** (2026-04-19); **B.1 done** (2026-04-20); **B.2 done** (2026-04-20); **B.3 done** (2026-04-20); **B.4 done** (2026-04-20); **B.5 done** (2026-04-20 — `ctx.notify_reload()` + `spindrel.autoReload` DX shipped); **B.6 backend done** (2026-04-20 — Mission Control suite: three member bundles `mc_timeline` / `mc_kanban` / `mc_tasks` sharing one dashboard-scoped SQLite DB via a new `suite.yaml` primitive + `db.shared:` manifest key + `create_suite_pins` bulk-pin + `pin_suite`/`list_suites` bot tools. UI Suites tab parked mid-session because a parallel DnD-refactor session is rewriting `PinnedToolWidget.tsx` + `ChannelDashboardMultiCanvas.tsx` — global tsc hook blocks UI edits until that lands). Plan: `~/.claude/plans/tender-stirring-thompson.md`. |
+| C.0 | Unified widget catalog | Multi-source scanner (`scan_builtin` + `scan_integration` + existing `scan_channel`) + tool-renderer exclusion set + `GET /api/v1/widgets/html-widget-catalog` + builtin/integration content endpoints + `source_kind` on `ToolResultEnvelope`. Dev-panel Library surfaces Built-in + Integration + Channel in one scannable view; AddFromChannelSheet HTML widgets tab always visible (even on global dashboard). 16 new tests. | **done** (2026-04-20) |
+| C | Integration presentation layer | DX-5b unblock (non-channel `/workspace/widgets/<slug>/` root), "Widgets" tab on integration admin pages with one-click pin, version-bump notifications + auto-migrations. Dog-food: Frigate. C.0 (above) shipped the catalog layer; what remains is the bot-writable non-channel root + admin-page integration UX + version upgrade flow. | partial — C.0 done, rest not started |
 | D | Widget → Integration promotion | *Documented only, not built here.* Future track: one-click promote a pinned widget into `integrations/<slug>/` with seeded `integration.yaml`. | deferred |
 
 ## Phase detail
@@ -468,6 +471,112 @@ No elevation path; the pin's `source_bot_id` is the ceiling — same as `spindre
 
 **Next slice:** B.4 — `@on_event` subscriptions against the channel event bus (register on pin create / envelope update, fan out per-event using the pattern the cron scheduler just established, cascade on pin delete).
 
+### Phase B.4 detail — @on_event channel event subscriptions (shipped 2026-04-20)
+
+**Files shipped.**
+
+- `migrations/versions/227_widget_event_subscriptions.py` (new) — new table with `id`, `pin_id` (FK `widget_dashboard_pins.id` ondelete CASCADE), `event_kind`, `handler`, `enabled`, `created_at`, `updated_at`. Unique `(pin_id, event_kind, handler)` + plain index on `pin_id` for the unregister path. Deliberately no partial "due" index — unlike cron, this table is not swept; subscribers are live `asyncio.Task`s and the only DB query is the startup scan.
+- `app/db/models.py` — `WidgetEventSubscription` ORM model, symmetric with `WidgetCronSubscription`.
+- `app/services/widget_py.py` — `on_event(kind, *, timeout=30)` decorator gains a per-handler timeout; `_harvest` now keys events as `{event_kind: {handler_name: fn}}` so `invoke_event(pin, kind, handler_name, payload)` can resolve the DB row's handler string to the exact function. New `invoke_event(pin, event_kind, handler_name, payload)` mirrors `invoke_cron` — sets `_current_pin` / `_current_manifest`, awaits coroutine under `asyncio.wait_for`, cleans up in `finally`.
+- `app/services/widget_events.py` (new) — full public surface:
+  - `_subscriber_tasks: dict[UUID, list[asyncio.Task]]` — in-process registry keyed by pin_id.
+  - `register_pin_events(db, pin)` — reconciles rows (insert/update-enabled/delete) against manifest, then cancels existing subscriber tasks and respawns one `asyncio.Task` per enabled row. Handlers whose `kind` is missing from `permissions.events` persist as `enabled=False` and do NOT spawn a task.
+  - `unregister_pin_events(db, pin_id)` — cancels live tasks, deletes rows in the caller's transaction.
+  - `_event_subscriber_loop(pin_id, channel_id, kind, handler_name)` — wraps `channel_events.subscribe(channel_id)` in an outer retry loop; filters by `event.kind.value == kind`; skips `SHUTDOWN` (exits cleanly) and `REPLAY_LAPSED` (resubscribes with a warning); re-enters on any `Exception` with a 1s backoff so a crashed handler can't kill the subscriber permanently; exits cleanly on `CancelledError`.
+  - `register_all_pins_on_startup()` / `unregister_all_on_shutdown()` — lifespan entry- and exit-points.
+- `app/services/dashboard_pins.py` — `create_pin` + `update_pin_envelope` call `register_pin_events(db, pin)` in their own try/except after the existing `register_pin_crons`; `delete_pin` calls `unregister_pin_events(db, pin_id)` BEFORE `db.delete(pin)` so a live subscriber can't briefly observe a deleted pin (the FK cascade still handles the subscription row, but the in-memory task needs an explicit cancel).
+- `app/main.py` — lifespan startup adds `await register_all_pins_on_startup()`; shutdown adds `await unregister_all_on_shutdown()`. Both try/except'd so widget event wiring cannot gate server boot.
+- `skills/html_widgets.md` — new `#### @on_event — channel event subscriptions (Phase B.4)` subsection under the `widget.py` heading, plus a `#### @on_cron — scheduled handlers (Phase B.3)` subsection that retroactively documents B.3. Covers: minimal example, `permissions.events` fail-loud posture, `since=None` no-replay semantics, per-handler timeout, restart survival, envelope-update rebind, and the list of common valid kinds.
+- `spindrel/widget.py` — no change; `on_event` was already re-exported. Widget authors write `from spindrel.widget import on_event, ctx`.
+- `tests/unit/test_widget_events.py` (new, 9 tests) — register inserts + spawns, `permissions.events` allowlist gating (insert-as-disabled), reconcile on manifest change, no-manifest no-op, unregister cancels + drops, subscriber loop matching / non-matching / SHUTDOWN exit, FK cascade on pin delete.
+- `tests/unit/test_widget_py.py` — extensions: `on_event` timeout default + custom, `_harvest` keyed by kind→handler_name with multiple handlers per kind, new `TestInvokeEvent` class (3 tests: dispatches to handler; unknown handler → KeyError; unknown kind → KeyError).
+- `tests/integration/test_widget_event_dispatch.py` (new, 5 tests) — full roundtrip via `create_pin` → published `HEARTBEAT_TICK` → handler writes to `ctx.db`; non-matching `TURN_ENDED` does not fire; `unregister_pin_events` cancels the live task; pin delete cascades the subscription row.
+
+**Key design choices.**
+
+- **Live `asyncio.Task` per (pin, kind, handler), not a sweeper.** Events push, so subscribers must be listening when the event fires. The DB-state pattern from B.3 does not port — it would lose every event that arrived between two polls. The cost is in-memory task registration, which is why B.4 needs startup lifespan scan + explicit unregister on delete.
+- **Startup lifespan scan, not lazy registration.** `app/main.py` lifespan iterates every pinned bundle with a manifest and re-registers its events. Lazy registration ("register on first event") would lose the first event after restart — the replay ring holds the event but a late subscriber doesn't see it.
+- **`permissions.events` is fail-loud at registration, not at validation.** Manifest validator (B.0) already rejects unknown `ChannelEventKind` values. B.4 adds the second gate: a handler declared for a valid kind that's missing from `permissions.events` persists as `enabled=False` — visible in the DB, no task spawned. Matches `permissions.tools`'s posture in B.2.
+- **`REPLAY_LAPSED` triggers resubscribe, not exit.** The `channel_events.subscribe()` generator closes after yielding a `REPLAY_LAPSED(reason=subscriber_overflow)` sentinel. Without a retry wrapper, a single noisy-publisher burst would permanently silence the widget. The subscriber loop catches the sentinel, logs a warning, and re-enters `subscribe()` with fresh state.
+- **Handler exception contained per-invocation.** `FileNotFoundError` / `KeyError` / `PermissionError` / generic `Exception` are all caught inside the loop — log and keep listening. Only `CancelledError` exits the loop. Mirrors `_fire_widget_cron`'s contract.
+- **`unregister_pin_events(db, pin_id)` takes a session.** Earlier sketch used its own `async_session()` for the row delete, but tests that run on an in-memory SQLite engine can't see those rows (the standalone factory binds to a different engine). Taking the caller's session fixes the test story and is consistent with how `register_pin_events` already runs.
+- **Envelope update rebinds.** `update_pin_envelope` calls `register_pin_events` after `register_pin_crons`; inside `register_pin_events`, the first step is cancelling any live tasks for the pin, so swapping `source_path` to a new bundle takes effect immediately — no pin delete/recreate.
+- **Cron showcase rethink surfaced before implementation.** A research sweep before starting B.4 found that the planned Phase B.6 "Bot Cost & Activity Tracker" would accumulate what `app/routers/api_v1_admin/usage.py` already computes at query time (summary / breakdown / timeseries / forecast). B.6's scope is re-tabled for when we get there; B.4's infrastructure is correct regardless — `@on_event` is needed for widgets like Frigate event counters and channel-activity tickers where no prior aggregation exists.
+
+**Authorization posture.**
+
+```
+channel_events.publish_typed(channel_id, event)
+  └─ in-memory fanout → per-channel queues
+       └─ widget event subscriber task (one per row)
+            ├─ filter: event.kind.value == row.event_kind
+            ├─ skip SHUTDOWN (exit) / REPLAY_LAPSED (resubscribe)
+            └─ invoke_event(pin, kind, handler_name, payload)
+                 ├─ ContextVars: _current_pin / _current_manifest
+                 ├─ resolve module._spindrel_events[kind][handler_name]
+                 └─ asyncio.wait_for(handler(payload), timeout)
+                        └─ handler may call ctx.tool(name, **kwargs)
+                               ├─ manifest.permissions.tools allowlist
+                               ├─ _check_tool_policy(pin.source_bot_id, ...)
+                               └─ call_local_tool / call_mcp_tool under
+                                  current_bot_id = pin.source_bot_id
+```
+
+Same ceiling as B.2 / B.3: pin's `source_bot_id` is the identity; `permissions.tools` is the existing fail-loud gate; `permissions.events` is the new B.4 gate that declares which event streams the widget is even allowed to observe.
+
+**Verification.**
+
+- `pytest tests/unit/test_widget_events.py tests/unit/test_widget_py.py tests/unit/test_widget_cron.py tests/unit/test_widget_manifest.py tests/unit/test_widget_db.py tests/integration/test_widget_event_dispatch.py tests/integration/test_widget_handler_dispatch.py tests/integration/test_widget_cron.py tests/integration/test_widget_db_dispatch.py` in Docker → **108/108 passed**.
+- UI `cd ui && npx tsc --noEmit` — B.4 touches no UI files. Pre-existing errors in `ui/app/(app)/widgets/ZoneChip.tsx` + `ChannelDashboardMultiCanvas.tsx` belong to the parallel chat-zones session (untracked files, not in this change set).
+- **NOT done**: manual smoke — pin a widget declaring `@on_event("new_message")` on a real channel, send a message, watch the handler fire. User handles deploy.
+
+**Next slice:** B.5 — `widget_reload` signal. Iframe re-fetches poll data without a full reload so cron / event handlers can refresh a pinned widget's visible state without unmounting.
+
+### Phase B.5 detail — widget_reload + autoReload DX (shipped 2026-04-20)
+
+**Files shipped.**
+
+- `app/domain/payloads.py` — new `WidgetReloadPayload(pin_id: uuid.UUID)` dataclass, added to `ChannelEventPayload` union. Frozen, JSON-serialisable (fits the outbox contract even though this kind never flows outbox-ward).
+- `app/domain/channel_events.py` — new `ChannelEventKind.WIDGET_RELOAD = "widget_reload"`; `_REQUIRED_CAPS[WIDGET_RELOAD] = frozenset()` with a comment documenting "iframe SSE subscribers only, no integration renderer cares"; `_KIND_PAYLOAD` extended so `ChannelEvent.__post_init__` validates the pairing.
+- `app/services/widget_py.py` — new `async def notify_reload(self)` on `_WidgetCtx`. Reads `_current_pin`, errors if missing; errors if `pin.source_channel_id` or `pin.id` absent; publishes a `ChannelEvent(WIDGET_RELOAD, WidgetReloadPayload(pin_id=pin.id))` on the pin's channel via the existing `channel_events.publish_typed`. Fire-and-forget from the caller's perspective (publish is sync; the coroutine wrapper keeps `ctx.*` symmetric with `ctx.db.query` / `ctx.tool`).
+- `ui/src/components/chat/renderers/InteractiveHtmlRenderer.tsx` — iframe preamble gains `window.spindrel.onReload(cb)` + `window.spindrel.autoReload(renderFn)`. `widget_reload` added to `__STREAM_KIND_WHITELIST`. A lazily-established SSE subscription filters by `event.payload.pin_id === dashboardPinId` and fans out to every registered handler; the subscription is torn down when the last handler unsubscribes. `autoReload` runs `renderFn()` synchronously at registration (so mount + reload share one code path) then delegates to `onReload`. Inline widgets (`dashboardPinId === null`) get a no-op subscription but still run the initial render — widget authors never branch on "am I pinned?".
+- `skills/html_widgets.md` — new `#### ctx.notify_reload() + spindrel.autoReload — the reload loop (Phase B.5)` subsection under `widget.py`. Leads with the `autoReload` one-liner pattern (one function for mount + reload), lower-level `onReload` below for conditional skips, plus the pin_id-scoped behaviour, fire-and-forget semantics, and "call after DB commit" gotcha. Quick-reference expanded with `window.spindrel.autoReload(renderFn)` and `window.spindrel.onReload(cb)`.
+- `tests/unit/test_widget_py.py::TestNotifyReload` — 2 tests: `ctx.notify_reload` inside an `@on_action` publishes a typed `WIDGET_RELOAD` event on the pin's channel with the correct `pin_id`; calling outside a handler raises `RuntimeError`.
+- `tests/unit/test_widget_preamble_helpers.py` — `HELPER_DEFINITIONS` += `onReload` / `autoReload` / `__ensureReloadStream`; `SPINDREL_KEYS` += `onReload:` / `autoReload:`; three new structural asserts pin the kind whitelist, the `payload.pin_id === dashboardPinId` filter (so a future refactor can't silently relax the peer-pin isolation), and `autoReload` delegating to `onReload` via an initial `renderFn()` call.
+
+**Key design choices.**
+
+- **`autoReload(renderFn)` is the promoted surface, not `onReload(cb)`.** Every widget that reacts to a handler's DB write wants "render on mount, re-render on reload." Providing a lower-level-only API forces widget authors to write that branch manually and pray they don't forget the initial render. `autoReload` collapses both cases into one declaration; `onReload` stays around for the 10% case that needs to decide "should I even reload?" before running.
+- **Per-pin filter on the iframe, not on the server.** The publisher side does not know which pins are on which iframes; the filter lives in the widget preamble where `dashboardPinId` is already baked into the bootstrap IIFE. Peer pins of the same bundle on the same channel are isolated by default — cross-pin sync is an opt-in via `spindrel.bus.publish()`.
+- **`notify_reload` is async even though `publish_typed` is sync.** Matches the shape of the rest of `ctx.*` (`ctx.db.query` / `ctx.tool` are awaitables). Reserves the option to flush to the outbox or do a cross-instance fanout later without changing the widget-author-facing signature.
+- **Subscription is lazy + refcounted.** The SSE connection is only opened on the first `onReload` / `autoReload` call and torn down when the last handler unsubscribes. Inline widgets that never pin don't open a stream; a widget that calls `onReload` once and never drops the handler holds exactly one connection.
+- **Inline widgets still run `autoReload`'s initial render.** The subscription no-ops (no `dashboardPinId`), but the one-shot `renderFn()` at registration time fires — so the same widget code renders in a dashboard pin and as an emitted tool-result envelope.
+- **Synchronous initial render is wrapped in try/catch + Promise-catch.** `autoReload` swallows sync throws and rejected Promises with `console.error` so a bad first render doesn't kill the subscription for every subsequent reload. Mirrors the handler-loop error posture in `onReload`.
+
+**Authorization posture.**
+
+```
+widget.py handler (running under pin.source_bot_id)
+  └─ ctx.notify_reload()
+       └─ channel_events.publish_typed(pin.source_channel_id, WIDGET_RELOAD(pin_id=pin.id))
+             └─ replay buffer append + per-channel fanout
+                  └─ widget-action stream SSE (auth = widget JWT, scope = bot's channels:read)
+                       └─ iframe preamble filter: event.payload.pin_id === dashboardPinId
+                            └─ __reloadHandlers.forEach(cb) → renderFn()
+                                 └─ spindrel.db.query / spindrel.api / etc. (bot's existing ceiling)
+```
+
+No new identity surface. The subscription rides the existing `/api/v1/widget-actions/stream` endpoint + widget JWT; scoping falls out of the bot's existing API key permissions. `publish_typed` itself is not authz-gated (it's a local in-process bus).
+
+**Verification.**
+
+- `docker run --rm agent-server-test pytest tests/unit/test_widget_py.py tests/unit/test_widget_events.py tests/unit/test_widget_cron.py tests/unit/test_widget_manifest.py tests/unit/test_widget_db.py tests/integration/test_widget_event_dispatch.py tests/integration/test_widget_handler_dispatch.py tests/integration/test_widget_cron.py tests/integration/test_widget_db_dispatch.py` → **110 passed** (up from B.4's 108: +2 `TestNotifyReload`).
+- `pytest tests/unit/test_widget_preamble_helpers.py` (host) → **57 passed** (up from 49: +3 helper defs, +2 exposure keys, +3 structural asserts).
+- `cd ui && npx tsc --noEmit` → clean.
+- **NOT done**: manual smoke — pin a widget that does `@on_event` → `ctx.db.execute(...)` → `ctx.notify_reload()` and watch the iframe re-render without unmounting. User handles the deploy cycle.
+
+**Next slice:** B.6 — showcase widget. The Cost Tracker design is a dead end (see B.4 research note in the track row). Pick a genuinely event-driven dogfood next: Frigate event counter (per-camera motion counts via `@on_event("tool_activity")` on the frigate tools) or a channel-activity light (who-spoke-when). Then close Phase B.
+
 ### Phase B.3 detail — @on_cron scheduler integration (shipped 2026-04-20)
 
 **Files shipped.**
@@ -549,6 +658,48 @@ Same identity ceiling as `invoke_action`. A cron handler cannot elevate beyond t
 - `cd ui && npx tsc --noEmit` → clean (hook-enforced).
 - **NOT done**: manual smoke — pin a widget with a `widget.yaml` declaring a `db` block, call `spindrel.db.exec(CREATE TABLE...)` + `spindrel.db.query(SELECT...)` from a widget, confirm data persists. User handles deploy.
 
+### Phase C.0 detail — unified widget catalog (shipped 2026-04-20)
+
+**Why this slice ran ahead of the rest of Phase C.** Built-in widgets (`notes`, `context_tracker`, `sdk-smoke`) had been shipping for sessions, but the scanner only walked channel workspaces. Result: nothing shipped with the repo surfaced in the Library or the Add-widget sheet — users had to know the file paths and copy them into a channel to pin them. That's a visibility bug, not a DX-5b feature. This phase closes the bug without touching `emit_html_widget` path grammar or the non-channel workspace root.
+
+**Shipped.**
+
+- `app/services/html_widget_scanner.py` — extended with:
+  - `BUILTIN_WIDGET_ROOT` / `INTEGRATIONS_ROOT` path constants.
+  - `scan_builtin()` walking `app/tools/local/widgets/`.
+  - `scan_integration(integration_id)` walking `integrations/<id>/widgets/` with path-traversal guard.
+  - `scan_all_integrations()` iterating every integration, omitting empty groups.
+  - `_collect_tool_renderer_paths()` building an exclusion set from `*.widgets.yaml` (core) + `tool_widgets` in `integration.yaml`. Tool renderers never double-surface in the standalone catalog.
+  - `_scan_metadata_for(..., force_include=True)` — new flag so scans whose root IS a widgets dir skip the "widgets/ parent OR spindrel.* ref" heuristic. Without it, `context_tracker` (no `spindrel.*` ref) would be filtered out.
+  - `_entry_from_metadata` gained `source: "builtin" | "integration" | "channel"` + `integration_id: string | None`.
+  - Cache key re-scoped — was `(channel_id, rel_path)`, now `(scope, rel_path)` where scope is a channel uuid or `__builtin__` / `__integration__:<id>`. `invalidate_cache(scope=...)` signature updated.
+- `app/routers/api_v1_dashboard.py` — three new endpoints (all `channels:read`):
+  - `GET /api/v1/widgets/html-widget-catalog` — returns `{builtin, integrations, channels}` grouped response. Fan-out is cheap because scans are mtime-cached.
+  - `GET /api/v1/widgets/html-widget-content/builtin?path=...` — serves raw HTML from `BUILTIN_WIDGET_ROOT`.
+  - `GET /api/v1/widgets/html-widget-content/integrations/{id}?path=...` — serves from `integrations/<id>/widgets/`. Both guard against path traversal via `os.path.realpath` + prefix check.
+- `ui/src/types/api.ts` — `HtmlWidgetEntry` gains `source` + `integration_id`. `ToolResultEnvelope` gains `source_kind` (`"channel" | "builtin" | "integration"`) + `source_integration_id`. New `HtmlWidgetCatalog`, `IntegrationHtmlWidgets`, `ChannelHtmlWidgets` shapes.
+- `ui/src/components/chat/renderers/InteractiveHtmlRenderer.tsx` — path-mode content fetch dispatches on `source_kind`: `builtin` / `integration` / `channel` each route to their matching endpoint. Query key updated to include `source_kind` + `source_integration_id` so cached responses don't bleed across sources.
+- `ui/app/(app)/widgets/dev/HtmlWidgetsLibrarySection.tsx` — rewritten. Was a single-channel picker; now a three-source catalog with filter chips (All / Built-in / Integration / Channel) + a text search. Built-in section floats to the top.
+- `ui/app/(app)/widgets/dev/LibraryTab.tsx` — HTML widgets section elevated above Tool renderers (it's the end-user-pinnable surface).
+- `ui/app/(app)/widgets/HtmlWidgetsTab.tsx` — rewritten to consume the full catalog, render grouped sections per source, and build source-aware envelopes on pin. Exports `pinIdentity(envelope)` + `catalogEntryIdentity(entry)` for dedup.
+- `ui/app/(app)/widgets/AddFromChannelSheet.tsx` — HTML widgets tab now always visible (previously hidden on the global dashboard). Fetches the catalog once per sheet open. Pin flow builds source-specific `tool_args` for the pin row so pins can be rehydrated later.
+
+**Tests.** 16 new green:
+
+- `tests/unit/test_html_widget_scanner_sources.py` (7) — `scan_builtin` happy path + tool-renderer exclusion + missing root; `scan_integration` source/id + tool-renderer exclusion + path-traversal guard; `scan_all_integrations` omits empty groups.
+- `tests/integration/test_widget_catalog_api.py` (9) — catalog endpoint returns three groups, lists built-in + excludes tool renderers, groups integration widgets; built-in content endpoint round-trips + rejects traversal + 404s missing; integration content endpoint round-trips + rejects traversal + rejects unknown integration.
+
+Regression sweep — 73/73 green across `test_html_widget_scanner.py`, `test_widget_scanner_endpoint.py`, `test_emit_html_widget.py`, `test_widget_manifest.py`. UI typecheck clean.
+
+**Today's built-in inventory (surfacing that was previously invisible):** `Notes` (with `widget.yaml` manifest), `Context Tracker`, `SDK smoke`. No integration ships a standalone widget yet — every existing `integrations/*/widgets/*.html` is a tool renderer, which is the correct default. The scaffolding is there the moment an integration drops a standalone `.html` into its `widgets/` dir.
+
+**Known gap (carried into remaining Phase C).**
+
+- `emit_html_widget` path grammar still rejects `/workspace/widgets/<slug>/...` (non-channel root). Bots can't *emit* a built-in / integration widget by path — the catalog is pin-only from the UI. Unblocking emission is DX-5b proper and belongs to the rest of Phase C.
+- `widget_db.py` `_BUILTIN_WIDGET_DIR` uses `parents[2]` but should be `parents[1]` (resolves to a non-existent `agent-server/tools/local/widgets/`). Unrelated latent bug — flagged in Loose Ends, fix out of scope for C.0.
+
+**Plan.** No plan file — implemented from user direction in the session.
+
 ### Phase C — Integration presentation layer
 
 **Goal.** Integrations ship widgets as first-class UI. Widgets can live outside a channel workspace. Integration admin pages gain a "Widgets" tab with one-click pin.
@@ -624,6 +775,58 @@ Deferred to a future track. The architecture above is designed to make promotion
 - `app/domain/channel_events.py` — event kinds for subscriptions
 - `app/services/html_widget_scanner.py` — catalog discovery (extend for integration widgets in Phase C)
 - `app/services/dashboard_pins.py` — pin lifecycle; add cron+event cleanup on delete
+
+### Phase B.6 detail — Mission Control suite + shared-DB primitive (shipped 2026-04-20, backend + bot tools)
+
+**Context.** B.5 closed the reload loop. B.6 was the showcase slice meant to exercise every new SDK primitive under real multi-widget pressure. The original Cost Tracker target was dead (would reinvent `app/routers/api_v1_admin/usage.py`). Instead, aligned with a parallel session removing the legacy Mission Control integration: rebuild MC's primary surfaces (Timeline, Kanban, Tasks) as a modular **widget suite** — separate bundles sharing state. Deliberately attacked the SDK's three open gaps (no shared DB across bundles, no suite-level manifest, no bulk-pin).
+
+**Scope model — dashboard slug IS the scope.** A pin's `dashboard_key` partitions its suite DB. No per-bot, no per-user, no new column. Channel dashboard → `widget_db/suites/channel_<uuid>/<suite_id>/data.sqlite`. Global dashboard (`default`, or any user-created slug) → `widget_db/suites/<slug>/<suite_id>/data.sqlite`. Access inherits dashboard permissions for free. Bot can swap; data stays. No fragility corner.
+
+**Files shipped.**
+
+- `app/services/widget_manifest.py` — `DbConfig.shared: str | None` field. Mutually exclusive with `schema_version` / `migrations` at the bundle level (suite owns schema).
+- `app/services/widget_suite.py` (**new**) — `SuiteManifest` dataclass + `parse_suite_manifest` + `load_suite(suite_id)` (mtime-cached) + `scan_suites()`. Walks `app/tools/local/widgets/suites/` + `integrations/*/widgets/suites/`. Migration entries support inline `sql:` or `sql_file:` with path-traversal refusal.
+- `app/services/widget_db.py` — new `resolve_suite_db_path(pin, suite_id)`. `resolve_db_path(pin, manifest=None)` short-circuits to the suite path when `manifest.db.shared` is set. `run_migrations(conn, ...)` accepts both the legacy `db_config` positional and the new `schema_version=/migrations=` keyword form so suite + bundle migrations share one runner. `acquire_db` grew a `suite_manifest=` kwarg and lazy-loads the suite manifest via `load_suite()` when `db_config.shared` is set.
+- `app/services/widget_py.py` — `ctx.db` now calls `resolve_db_path(pin, manifest)` (previously `resolve_db_path(pin)`); ditto `_run_query` / `_run_execute`.
+- `app/routers/api_v1_widget_actions.py` — `_dispatch_db` loads the pin's manifest via a new `_load_pin_manifest_safely(pin)` helper and threads it into the resolver. `db_query` path also routes through `acquire_db` when a manifest is present so migrations fire on a first-read even before any write.
+- `app/services/dashboard_pins.py` — new `create_suite_pins(db, suite_id, dashboard_key, source_bot_id, source_channel_id, member_slugs?)` helper. Iterates `suite.members`, calls `create_pin` for each with a minimal path-mode envelope (`source_path: widgets/<member>/index.html`), uses `_default_grid_layout(position)` so pins append below existing ones. Rolls back any partial on failure.
+- `app/routers/api_v1_dashboard.py` — new `GET /api/v1/widgets/suites` (lists discoverable suites) + `POST /api/v1/widgets/dashboard/pins/suite` (atomic bulk pin).
+- `app/tools/local/pin_suite.py` (**new**) — `list_suites` (readonly) + `pin_suite` (mutating, `requires_bot_context=True`) bot tools. Defaults `dashboard_key` to the current channel's `channel:<uuid>` when invoked from a channel; errors cleanly when invoked outside a channel with no explicit slug.
+
+**Suite bundles (new, built-in).**
+
+- `app/tools/local/widgets/suites/mission-control/suite.yaml` — name/members/migrations. Members: `mc_timeline`, `mc_kanban`, `mc_tasks`.
+- `app/tools/local/widgets/suites/mission-control/migrations/001_items.sql` — unified `items` table (`kind` discriminator: `timeline_event | kanban_card | task`, plus shared `title / body / column_id / position / done / due_at / tags / source_kind / source_id / created_at / updated_at`) + `kanban_columns` table + three indexes.
+- `app/tools/local/widgets/mc_timeline/{widget.yaml, widget.py, index.html}` — chronological feed. `@on_action("add_event")` and `delete_event`. `spindrel.autoReload(loadAndRender)`.
+- `app/tools/local/widgets/mc_kanban/{widget.yaml, widget.py, index.html}` — columns + cards + native HTML5 drag. `seed_default_columns` / `add_column` / `delete_column` / `add_card` / `move_card` / `delete_card`. `move_card` inserts a `timeline_event` row as a side effect — Timeline's next autoReload picks it up via the shared DB, which is the interop showcase.
+- `app/tools/local/widgets/mc_tasks/{widget.yaml, widget.py, index.html}` — flat list with checkbox + delete + "Promote to Kanban" action that inserts a `kanban_card` row referencing the task id and writes a timeline echo.
+
+**Store + tests.**
+
+- `ui/src/stores/dashboardPins.ts` — new `pinSuite(suiteId, members?)` action calling the suite-pin endpoint and appending returned pins.
+- `tests/unit/test_widget_suite.py` (**new**, 9 tests) — minimal manifest + sql_file resolution + path-traversal refusal + invalid slug + missing/duplicate members + migration gap + final-version mismatch + missing db block.
+- `tests/unit/test_widget_db.py` — appended `TestResolveSuiteDbPath` (7 tests): channel slug, global slug, same-dashboard same-DB, different-dashboard different-DB, dashboard path-traversal refusal, suite_id path-traversal refusal, `resolve_db_path` manifest delegation.
+- `tests/unit/test_widget_manifest.py` — 3 new cases for `db.shared` (accepted alone / rejected with migrations / invalid slug refused).
+- `tests/integration/test_mc_suite.py` (**new**, 3 tests) — real HTTP round-trip: mc_timeline + mc_tasks on the same channel dashboard share a DB (a task written through mc_tasks's `add_task` handler is visible to a `db_query` against mc_timeline); different-dashboard isolation; kanban `move_card` emits a `timeline_event` row visible through the timeline pin.
+- `tests/integration/test_pin_suite_endpoint.py` (**new**, 4 tests) — `GET /suites` lists mission-control; `POST /pins/suite` creates all members atomically; unknown suite 404; narrow-members happy-path + bad-member 400.
+
+**Bugs hit.**
+
+- **`_BUILTIN_WIDGET_DIR` uses `parents[2]` — computes the wrong path in both dev and Docker.** The shipped `widget_db._BUILTIN_WIDGET_DIR` resolves to `<repo>/tools/local/widgets` (missing a `/app`) but the actual bundles live at `<repo>/app/tools/local/widgets`. Existing `test_builtin_bundle_redirects` tested path math, not file access, so the bug hid. For suite discovery the actual filesystem location matters — `widget_suite._BUILTIN_SUITES_DIR` uses `parents[1]` (the correct depth). **Did not retrofit `widget_db`** to avoid touching the DB-redirect logic under time pressure; future cleanup.
+- **`run_migrations` signature change broke existing tests.** First cut made the new form keyword-only; broke `test_widget_db::TestRunMigrations` (legacy `run_migrations(conn, db_config)` callers). Fix: keep `db_config` as a compatible positional.
+- **`db_query` path was lock-free** (WAL allows concurrent readers). First read of a fresh suite DB before any write would hit an empty file with no schema. Fix: when manifest declares `db.shared`, route `db_query` through `acquire_db` so migrations fire on first-read.
+
+**UI Suites tab shipped (same-session unblock).**
+
+Once the parallel DnD-refactor session at `~/.claude/plans/velvety-spinning-catmull.md` reached a clean tsc state, the UI slice landed: `ui/app/(app)/widgets/AddFromChannelSheet.tsx` grew a new `Suites` tab that fetches `/api/v1/widgets/suites` on open, renders each suite's name + description + member list as a card, and wires a single "Pin suite" button through the new `pinSuite(suiteId)` store action. Tab auto-hides when no suites are installed. Bulk-pin toast surfaces the created count and offers "View" which scroll-focuses the first new pin via the existing `onPinned` channel. No new file (kept the component inline in `AddFromChannelSheet` — a separate `useSuites` hook + SuitesTab module would be a premature split for ~80 lines). The scope chip on `PinnedToolWidget` was dropped outright — would merge-conflict with the DnD plan's `zoneChip` removal; the dashboard slug is already visible in the breadcrumb + URL.
+
+**Verification.**
+
+- Docker: `pytest tests/unit/test_widget_suite.py tests/unit/test_widget_db.py tests/unit/test_widget_manifest.py tests/unit/test_widget_py.py tests/unit/test_widget_events.py tests/unit/test_widget_cron.py tests/integration/test_widget_db_dispatch.py tests/integration/test_widget_handler_dispatch.py tests/integration/test_widget_event_dispatch.py tests/integration/test_widget_cron.py tests/integration/test_mc_suite.py tests/integration/test_pin_suite_endpoint.py -q` → **139 passed** (132 regression + 7 new).
+- Host: `pytest tests/unit/test_widget_preamble_helpers.py -q` → **57 passed** (no regression on the UI-reading presence-snapshot).
+- **NOT done:** UI tsc clean (blocked by parallel session), manual smoke on test server (user owns deploy).
+
+**Plan reference.** `~/.claude/plans/tender-stirring-thompson.md` — updated in-session as the scope clarified through three rounds of user questions (per-bot → per-user → dashboard-slug = scope).
 
 ## References
 

@@ -410,3 +410,110 @@ class TestAcquireDb:
         async with acquire_db(db_path) as conn:
             count = conn.execute("SELECT COUNT(*) FROM log").fetchone()[0]
         assert count == 3
+
+
+# ---------------------------------------------------------------------------
+# resolve_suite_db_path (Phase B.6 — dashboard-scoped shared DB)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveSuiteDbPath:
+    def _pin(self, dashboard_key: str):
+        from app.db.models import WidgetDashboardPin
+        pin = mock.MagicMock(spec=WidgetDashboardPin)
+        pin.dashboard_key = dashboard_key
+        return pin
+
+    def test_channel_dashboard_slug(self, tmp_path):
+        from app.services.widget_db import resolve_suite_db_path
+        from app.services import paths as paths_mod
+
+        with mock.patch.object(
+            paths_mod, "local_workspace_base", return_value=str(tmp_path)
+        ):
+            p = resolve_suite_db_path(
+                self._pin("channel:abc-123"), "mission-control",
+            )
+        expected = tmp_path / "widget_db" / "suites" / "channel_abc-123" / "mission-control" / "data.sqlite"
+        assert p == expected.resolve()
+
+    def test_global_dashboard_slug(self, tmp_path):
+        from app.services.widget_db import resolve_suite_db_path
+        from app.services import paths as paths_mod
+
+        with mock.patch.object(
+            paths_mod, "local_workspace_base", return_value=str(tmp_path)
+        ):
+            p = resolve_suite_db_path(self._pin("default"), "mission-control")
+        expected = tmp_path / "widget_db" / "suites" / "default" / "mission-control" / "data.sqlite"
+        assert p == expected.resolve()
+
+    def test_same_dashboard_same_db(self, tmp_path):
+        """Two different bundles on the same dashboard must resolve to the
+        same DB when both declare the same suite slug."""
+        from app.services.widget_db import resolve_suite_db_path
+        from app.services import paths as paths_mod
+
+        with mock.patch.object(
+            paths_mod, "local_workspace_base", return_value=str(tmp_path)
+        ):
+            a = resolve_suite_db_path(self._pin("work-board"), "mission-control")
+            b = resolve_suite_db_path(self._pin("work-board"), "mission-control")
+        assert a == b
+
+    def test_different_dashboards_different_db(self, tmp_path):
+        from app.services.widget_db import resolve_suite_db_path
+        from app.services import paths as paths_mod
+
+        with mock.patch.object(
+            paths_mod, "local_workspace_base", return_value=str(tmp_path)
+        ):
+            a = resolve_suite_db_path(self._pin("channel:aaaa"), "mission-control")
+            b = resolve_suite_db_path(self._pin("channel:bbbb"), "mission-control")
+        assert a != b
+
+    def test_rejects_dashboard_traversal(self, tmp_path):
+        from app.services.widget_db import resolve_suite_db_path
+
+        with pytest.raises(ValueError, match="path-traversal"):
+            resolve_suite_db_path(self._pin("../etc"), "mission-control")
+
+    def test_rejects_suite_id_traversal(self, tmp_path):
+        from app.services.widget_db import resolve_suite_db_path
+
+        with pytest.raises(ValueError, match="path-traversal"):
+            resolve_suite_db_path(self._pin("default"), "../etc")
+
+    def test_resolve_db_path_delegates_when_shared(self, tmp_path):
+        """resolve_db_path must route suite-manifest pins to the shared path."""
+        from app.services.widget_db import resolve_db_path
+        from app.services.widget_manifest import DbConfig, WidgetManifest, Permissions
+        from app.services import paths as paths_mod
+        from app.db.models import WidgetDashboardPin
+
+        pin = mock.MagicMock(spec=WidgetDashboardPin)
+        pin.dashboard_key = "default"
+        # Envelope / bot / channel should be irrelevant for suite paths.
+        pin.envelope = {}
+        pin.source_channel_id = None
+        pin.source_bot_id = None
+
+        manifest = WidgetManifest(
+            name="X",
+            version="1.0.0",
+            description="",
+            permissions=Permissions(),
+            cron=[],
+            events=[],
+            db=DbConfig(schema_version=0, migrations=[], shared="mission-control"),
+            source_path=None,
+        )
+
+        with mock.patch.object(
+            paths_mod, "local_workspace_base", return_value=str(tmp_path)
+        ):
+            p = resolve_db_path(pin, manifest)
+
+        assert "suites" in p.parts
+        assert "mission-control" in p.parts
+        assert p.name == "data.sqlite"

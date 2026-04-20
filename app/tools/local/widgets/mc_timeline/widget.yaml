@@ -1,0 +1,5 @@
+name: MC Timeline
+version: 1.0.0
+description: Chronological feed of Mission Control events across the dashboard.
+db:
+  shared: mission-control

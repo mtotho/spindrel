@@ -214,6 +214,82 @@ async def create_pin(
     return pin
 
 
+async def create_suite_pins(
+    db: AsyncSession,
+    *,
+    suite_id: str,
+    dashboard_key: str,
+    source_bot_id: str | None = None,
+    source_channel_id: uuid.UUID | None = None,
+    member_slugs: list[str] | None = None,
+) -> list[WidgetDashboardPin]:
+    """Bulk-pin every member of a suite onto a dashboard in one transaction.
+
+    Each member is pinned via the existing ``create_pin`` validation pipeline,
+    so the usual guards (bot identity, API-key scopes, channel-dashboard
+    reservation) apply. If any member fails, nothing is committed.
+
+    ``member_slugs`` may narrow the set (e.g. pin only `mc_kanban` + `mc_tasks`,
+    skip the timeline). Defaults to the full suite member list.
+
+    The envelope for each member is a minimal shape that matches what
+    ``emit_html_widget`` produces for a path-mode widget: ``content_type``
+    is the interactive-HTML tag, ``source_path`` is
+    ``widgets/<member>/index.html`` relative to the workspace, plus the
+    bot / channel identity fields. Widget JWT minting + runtime scoping
+    fall out of these fields at render time.
+    """
+    from app.services.widget_suite import load_suite
+
+    suite = load_suite(suite_id)
+    if suite is None:
+        raise HTTPException(404, f"Unknown suite: {suite_id!r}")
+
+    requested = member_slugs or suite.members
+    for m in requested:
+        if m not in suite.members:
+            raise HTTPException(
+                400,
+                f"{m!r} is not a member of suite {suite_id!r}",
+            )
+
+    created: list[WidgetDashboardPin] = []
+    try:
+        for member in requested:
+            envelope = {
+                "content_type": _HTML_INTERACTIVE_CT,
+                "body": "",
+                "plain_body": member,
+                "display": "inline",
+                "source_path": f"widgets/{member}/index.html",
+                "source_channel_id": str(source_channel_id) if source_channel_id else None,
+                "source_bot_id": source_bot_id,
+                "display_label": member,
+            }
+            pin = await create_pin(
+                db,
+                source_kind="adhoc",
+                tool_name="emit_html_widget",
+                envelope=envelope,
+                source_channel_id=source_channel_id,
+                source_bot_id=source_bot_id,
+                display_label=member,
+                dashboard_key=dashboard_key,
+            )
+            created.append(pin)
+    except Exception:
+        # create_pin commits per pin; roll back by deleting what we added.
+        for p in created:
+            try:
+                await db.delete(p)
+                await db.commit()
+            except Exception:
+                logger.exception("suite pin rollback failed for pin %s", p.id)
+        raise
+
+    return created
+
+
 async def get_pin(
     db: AsyncSession, pin_id: uuid.UUID,
 ) -> WidgetDashboardPin:
@@ -235,7 +311,17 @@ async def check_pin_db_content(pin: WidgetDashboardPin) -> dict | None:
     """
     try:
         from app.services.widget_db import has_content, resolve_db_path
-        db_path = resolve_db_path(pin)
+        manifest = None
+        try:
+            from app.services.widget_py import _resolve_bundle_dir
+            from app.services.widget_manifest import parse_manifest
+            bundle_dir = _resolve_bundle_dir(pin)
+            yaml_path = bundle_dir / "widget.yaml"
+            if yaml_path.is_file():
+                manifest = parse_manifest(yaml_path)
+        except Exception:
+            manifest = None
+        db_path = resolve_db_path(pin, manifest)
         if has_content(db_path):
             return {"path": str(db_path), "has_content": True}
     except (ValueError, Exception):

@@ -2,7 +2,6 @@ name: "agent-server"
 services:
   agent-server:
     build: .
-    hostname: agent-server
     ports:
       - "8000:8000"
     env_file: .env
@@ -10,6 +9,7 @@ services:
       - FASTEMBED_CACHE_DIR=/app/.fastembed-cache
       - WORKSPACE_LOCAL_DIR=/workspace-data
       - HOME_LOCAL_DIR=/app/home
+      - SPINDREL_INSTANCE_ID=local
     volumes:
       - ./.env:/app/.env                                    # settings sync (SPINDREL_HOME → HOME_HOST_DIR)
       - ./bots:/app/bots

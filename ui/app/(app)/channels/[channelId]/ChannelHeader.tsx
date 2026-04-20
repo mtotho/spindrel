@@ -17,7 +17,6 @@ import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { prettyIntegrationName } from "@/src/utils/format";
 import { ChannelHeaderOverflowMenu, type OverflowItem } from "./ChannelHeaderOverflowMenu";
-import { ChannelHeaderChip } from "./ChannelHeaderChip";
 
 const INTEGRATION_ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
   MessageSquare, Code2, Mail, Camera, LayoutDashboard, Tv, Terminal, MessageCircle, Plug,
@@ -342,9 +341,6 @@ export function ChannelHeader({
           <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
         </button>
       )}
-
-      {/* Dashboard header-band pins — hidden on mobile (contested real estate). */}
-      {!isMobile && channelId && <ChannelHeaderChip channelId={channelId} />}
 
       {/* Overflow — secondary actions. */}
       <ChannelHeaderOverflowMenu items={overflowItems} isMobile={isMobile} />

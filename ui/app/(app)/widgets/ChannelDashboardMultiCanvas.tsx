@@ -1,36 +1,45 @@
 /**
- * ChannelDashboardMultiCanvas — four canvases, ONE Canvas primitive.
+ * ChannelDashboardMultiCanvas — four canvases, one DndContext.
  *
- * Every canvas (Header / Rail / Grid / Dock) uses the same `Canvas`
- * component — same RGL config, same compactType, same resize handles where
- * meaningful, same drag/drop wiring. Zone-specific differences are pure
- * data: column count, row height, optional w/h clamps, tile scope. There
- * is no "custom implementation per drop area."
+ * Every widget is drag-and-droppable directly by its grip icon:
  *
- * Layout source of truth: every tile's `grid_layout.{x,y,w,h}` on the pin
- * row. We do not re-stack or re-compute positions client-side — if the
- * user drags a rail widget to y=40, that's where it stays. `compactType`
- * is always `null` so drop coords persist exactly.
+ *   - Within rail / header / dock (1-D lists): sortable reorder via
+ *     `SortableContext`.
+ *   - Within grid (2-D free placement): `useDraggable` + pointer-to-cell
+ *     snap at drop time against the canvas's bounding rect.
+ *   - Across any two canvases: dropping on another canvas's droppable zone
+ *     issues `handleMoveZone(pinId, targetZone)` which writes the new zone
+ *     + default coords atomically via `applyLayout`.
  *
- * Cross-canvas drag: the ZoneChip button is HTML5-draggable in edit mode
- * (`dragstart` fires a pin id into `dataTransfer`). Each canvas's
- * EditOutline wrapper is a drop target and commits via the same
- * `onMoveZone` path the dropdown uses. The widget-drag-handle inside each
- * tile continues to drive intra-canvas RGL drag via mousedown — two
- * non-conflicting event pipelines.
+ * Resize is owned by pointer-event handles on each tile (south / east /
+ * south-east). No second drag pipeline; no ZoneChip.
  *
- * IMPORTANT: do NOT add `position: relative` (or any class that could
- * override RGL's `position: absolute`) to the direct RGL child divs.
- * That is what breaks drag/resize math.
+ * Layout source of truth: every pin's `grid_layout.{x,y,w,h}` on the pin
+ * row plus `zone`. This component is a pure renderer of that state.
  */
-import { useCallback, useMemo, useState } from "react";
 import {
-  Responsive,
-  WidthProvider,
-  type Layout,
-  type LayoutItem,
-} from "react-grid-layout/legacy";
-import "react-grid-layout/css/styles.css";
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+  type DragOverEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { PinnedToolWidget } from "@/app/(app)/channels/[channelId]/PinnedToolWidget";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
@@ -44,16 +53,26 @@ import type {
 } from "@/src/types/api";
 import type { GridPreset, DashboardChrome } from "@/src/lib/dashboardGrid";
 import { EditModeGridGuides } from "./EditModeGridGuides";
-import { PIN_DND_MIME } from "./ZoneChip";
-
-const ResponsiveGridLayout = WidthProvider(Responsive);
+import {
+  DroppableCanvas,
+  GridTile,
+  ResizeHandles,
+  SortableTile,
+  pointerToCell,
+  clampPlacement,
+  sequentialXLayout,
+  sequentialYLayout,
+  useCanvasMeasure,
+  type ExternalDragBinding,
+  type ResizeEdge,
+} from "./DashboardDnd";
 
 const RAIL_CLASSES = "w-full lg:w-[280px] lg:shrink-0 order-2 lg:order-none";
 const DOCK_CLASSES = "w-full lg:w-[320px] lg:shrink-0 order-3 lg:order-none";
 const GRID_CLASSES = "flex-1 min-w-0 order-1 lg:order-none";
 const HEADER_CLASSES = "w-full";
 
-type ResizeHandle = "s" | "w" | "e" | "n" | "sw" | "nw" | "se" | "ne";
+const GAP_PX = 12;
 
 function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
   return {
@@ -68,254 +87,17 @@ function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
   };
 }
 
-/** Drop-aware outline shown around each canvas in edit mode. */
-function EditOutline({
-  editMode,
-  label,
-  children,
-  extraClass = "",
-  zone,
-  dragPinId = null,
-  onDropTo,
-}: {
-  editMode: boolean;
-  label: string;
-  children: React.ReactNode;
-  extraClass?: string;
-  zone?: ChatZone;
-  dragPinId?: string | null;
-  onDropTo?: (pinId: string, zone: ChatZone) => void;
-}) {
-  const t = useThemeTokens();
-  const [dragOver, setDragOver] = useState(false);
-
-  if (!editMode) {
-    return <div className={extraClass}>{children}</div>;
+function toGridLayout(pin: WidgetDashboardPin): GridLayoutItem {
+  const gl = pin.grid_layout as GridLayoutItem | Record<string, never>;
+  if (
+    typeof (gl as GridLayoutItem).x === "number"
+    && typeof (gl as GridLayoutItem).y === "number"
+    && typeof (gl as GridLayoutItem).w === "number"
+    && typeof (gl as GridLayoutItem).h === "number"
+  ) {
+    return gl as GridLayoutItem;
   }
-
-  const dropHandlers = zone && onDropTo
-    ? {
-        onDragOver: (e: React.DragEvent) => {
-          if (!dragPinId) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          setDragOver(true);
-        },
-        onDragEnter: (e: React.DragEvent) => {
-          if (!dragPinId) return;
-          e.preventDefault();
-          setDragOver(true);
-        },
-        onDragLeave: (e: React.DragEvent) => {
-          const rel = e.relatedTarget as Node | null;
-          if (rel && e.currentTarget.contains(rel)) return;
-          setDragOver(false);
-        },
-        onDrop: (e: React.DragEvent) => {
-          const id =
-            e.dataTransfer.getData(PIN_DND_MIME) ||
-            e.dataTransfer.getData("text/plain") ||
-            dragPinId;
-          setDragOver(false);
-          if (!id) return;
-          e.preventDefault();
-          onDropTo(id, zone);
-        },
-      }
-    : {};
-
-  const borderColor = dragOver ? t.accent : `${t.textDim}33`;
-  const boxShadow = dragOver ? `inset 0 0 0 2px ${t.accent}55` : undefined;
-
-  return (
-    <div
-      {...dropHandlers}
-      className={`relative rounded border border-dashed ${extraClass}`}
-      style={{
-        borderColor,
-        boxShadow,
-        transition: "border-color 120ms, box-shadow 120ms",
-      }}
-    >
-      <span
-        className="absolute -top-2 left-2 z-10 px-1 text-[9px] uppercase tracking-wider opacity-60 select-none pointer-events-none"
-        style={{ color: t.textDim, backgroundColor: t.surface }}
-      >
-        {label}
-      </span>
-      {children}
-    </div>
-  );
-}
-
-function EmptyCanvasHint({ message }: { message: string }) {
-  const t = useThemeTokens();
-  return (
-    <div
-      className="flex items-center justify-center py-4 px-3 text-[10px] text-center opacity-40 select-none"
-      style={{ color: t.textDim }}
-    >
-      {message}
-    </div>
-  );
-}
-
-/** Per-canvas configuration — the ONLY place zone-specific numbers live. */
-interface CanvasConfig {
-  zone: ChatZone;
-  label: string;
-  cols: number;
-  rowHeight: number;
-  /** Tailwind width/order classes for the canvas wrapper. */
-  extraClass: string;
-  /** Resize handles available on tiles in this canvas. */
-  resizeHandles: ResizeHandle[];
-  /** Empty-state copy for edit mode. */
-  emptyMessage: string;
-  /** Scope passed to PinnedToolWidget for this canvas. */
-  scope: (p: WidgetDashboardPin) => WidgetScope;
-  /** Force widget to the compact rail style (hover-only chrome). */
-  railMode?: boolean;
-  /** Clamp every tile to this width (Rail/Dock are 1-col → 1). */
-  clampW?: number;
-  /** Clamp every tile to this height (Header is a 1-row chip strip → 1). */
-  clampH?: number;
-  /** Default tile size for pins without stored layout. */
-  defaultTile: { w: number; h: number };
-}
-
-interface CanvasProps {
-  pins: WidgetDashboardPin[];
-  editMode: boolean;
-  chrome: DashboardChrome;
-  onUnpin: (id: string) => void;
-  onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
-  onEditPin: (id: string) => void;
-  onMoveZone: (id: string, zone: ChatZone) => void;
-  dragPinId: string | null;
-  onDragStartPin: (id: string) => void;
-  onDragEndPin: () => void;
-  config: CanvasConfig;
-}
-
-function Canvas({
-  pins, editMode, chrome, onUnpin, onEnvelopeUpdate, onEditPin, onMoveZone,
-  dragPinId, onDragStartPin, onDragEndPin, config,
-}: CanvasProps) {
-  const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
-
-  const layout: LayoutItem[] = useMemo(
-    () => pins.map((p, idx) => {
-      const gl = p.grid_layout as GridLayoutItem | undefined;
-      const dw = config.defaultTile.w;
-      const dh = config.defaultTile.h;
-      const x = typeof gl?.x === "number" ? gl.x : (idx % 2) * dw;
-      const y = typeof gl?.y === "number" ? gl.y : Math.floor(idx / 2) * dh;
-      const w = config.clampW ?? (typeof gl?.w === "number" ? gl.w : dw);
-      const h = config.clampH ?? Math.max(2, typeof gl?.h === "number" ? gl.h : dh);
-      const item: LayoutItem = {
-        i: p.id,
-        x,
-        y,
-        w,
-        h,
-        minW: config.clampW,
-        maxW: config.clampW ?? config.cols,
-        minH: config.clampH ?? 2,
-        maxH: config.clampH,
-      };
-      return item;
-    }),
-    [pins, config],
-  );
-
-  const rowCount = useMemo(
-    () => layout.reduce((acc, it) => Math.max(acc, it.y + it.h), 0),
-    [layout],
-  );
-
-  const onStop = useCallback(
-    (current: Layout) => {
-      void applyLayout(
-        current.map((it) => ({
-          id: it.i,
-          x: it.x,
-          y: it.y,
-          w: config.clampW ?? it.w,
-          h: config.clampH ?? it.h,
-        })),
-      );
-    },
-    [applyLayout, config.clampW, config.clampH],
-  );
-
-  if (!editMode && pins.length === 0) return null;
-
-  return (
-    <EditOutline
-      editMode={editMode}
-      label={config.label}
-      extraClass={config.extraClass}
-      zone={config.zone}
-      dragPinId={dragPinId}
-      onDropTo={(id, z) => { onMoveZone(id, z); onDragEndPin(); }}
-    >
-      {pins.length === 0 ? (
-        editMode ? <EmptyCanvasHint message={config.emptyMessage} /> : null
-      ) : (
-        <div className="relative">
-          {editMode && (
-            <EditModeGridGuides
-              cols={config.cols}
-              rowHeight={config.rowHeight}
-              rowGap={12}
-              gridRowCount={Math.max(rowCount + 6, 24)}
-              dragging={false}
-            />
-          )}
-          <ResponsiveGridLayout
-            className={editMode ? "rgl-edit-mode" : ""}
-            layouts={{ lg: layout }}
-            breakpoints={{ lg: 0 }}
-            cols={{ lg: config.cols }}
-            rowHeight={config.rowHeight}
-            margin={[12, 12]}
-            isDraggable={editMode}
-            isResizable={editMode}
-            draggableHandle=".widget-drag-handle"
-            resizeHandles={config.resizeHandles}
-            compactType={null}
-            preventCollision={false}
-            onDragStop={onStop}
-            onResizeStop={onStop}
-          >
-            {pins.map((p) => (
-              <div key={p.id} data-pin-id={p.id} className="min-w-0">
-                <PinnedToolWidget
-                  widget={asPinnedWidget(p)}
-                  scope={config.scope(p)}
-                  onUnpin={onUnpin}
-                  onEnvelopeUpdate={onEnvelopeUpdate}
-                  editMode={editMode}
-                  onEdit={() => onEditPin(p.id)}
-                  borderless={chrome.borderless}
-                  hoverScrollbars={chrome.hoverScrollbars}
-                  railMode={config.railMode}
-                  zoneChip={editMode ? {
-                    current: config.zone,
-                    onSelect: (z) => onMoveZone(p.id, z),
-                    pinId: p.id,
-                    onDragStart: onDragStartPin,
-                    onDragEnd: onDragEndPin,
-                  } : undefined}
-                />
-              </div>
-            ))}
-          </ResponsiveGridLayout>
-        </div>
-      )}
-    </EditOutline>
-  );
+  return { x: 0, y: 0, w: 1, h: 6 };
 }
 
 interface Props {
@@ -329,116 +111,713 @@ interface Props {
 }
 
 export function ChannelDashboardMultiCanvas({
-  pins, preset, chrome, editMode, onUnpin, onEnvelopeUpdate, onEditPin,
+  pins,
+  preset,
+  chrome,
+  editMode,
+  onUnpin,
+  onEnvelopeUpdate,
+  onEditPin,
 }: Props) {
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
   const [error, setError] = useState<string | null>(null);
-  const [dragPinId, setDragPinId] = useState<string | null>(null);
-  const onDragStartPin = useCallback((id: string) => setDragPinId(id), []);
-  const onDragEndPin = useCallback(() => setDragPinId(null), []);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [overZone, setOverZone] = useState<ChatZone | null>(null);
 
   const railPins = useMemo(() => pins.filter((p) => p.zone === "rail"), [pins]);
   const headerPins = useMemo(() => pins.filter((p) => p.zone === "header"), [pins]);
   const dockPins = useMemo(() => pins.filter((p) => p.zone === "dock"), [pins]);
   const gridPins = useMemo(() => pins.filter((p) => p.zone === "grid"), [pins]);
 
-  const handleMoveZone = useCallback(
-    async (pinId: string, zone: ChatZone) => {
+  // One measure ref per canvas so drop-time pointer math knows each canvas's
+  // bounding rect independently (lg: row is flex-row).
+  const gridMeasure = useCanvasMeasure();
+
+  // Default tile sizes used when a cross-canvas drop needs to assign fresh
+  // coords (the source canvas's x/y/w/h doesn't translate).
+  const defaultForZone = useCallback(
+    (zone: ChatZone): { x: number; y: number; w: number; h: number } => {
+      switch (zone) {
+        case "rail":
+        case "dock":
+          return { x: 0, y: 0, w: 1, h: 6 };
+        case "header":
+          return { x: 0, y: 0, w: 1, h: 1 };
+        case "grid":
+        default:
+          return {
+            x: 0,
+            y: 0,
+            w: preset.defaultTile.w,
+            h: preset.defaultTile.h,
+          };
+      }
+    },
+    [preset.defaultTile],
+  );
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
+
+  const onDragStart = useCallback((e: DragStartEvent) => {
+    setActiveDragId(String(e.active.id));
+    setError(null);
+  }, []);
+
+  const onDragOver = useCallback((e: DragOverEvent) => {
+    const overId = e.over?.id;
+    if (typeof overId === "string" && overId.startsWith("canvas:")) {
+      setOverZone(overId.slice("canvas:".length) as ChatZone);
+      return;
+    }
+    // Hovering over a sibling tile: the sibling's zone is its source zone.
+    if (typeof overId === "string") {
+      const pin = pins.find((p) => p.id === overId);
+      setOverZone(pin?.zone ?? null);
+      return;
+    }
+    setOverZone(null);
+  }, [pins]);
+
+  const commitCrossCanvasMove = useCallback(
+    async (pinId: string, targetZone: ChatZone) => {
       const pin = pins.find((p) => p.id === pinId);
-      if (pin && pin.zone === zone) return;
-      const defaults: Record<ChatZone, { x: number; y: number; w: number; h: number }> = {
-        rail: { x: 0, y: 0, w: 1, h: 6 },
-        dock: { x: 0, y: 0, w: 1, h: 6 },
-        header: { x: 0, y: 0, w: 1, h: 1 },
-        grid: { x: 0, y: 0, w: preset.defaultTile.w, h: preset.defaultTile.h },
-      };
+      if (!pin) return;
+      if (pin.zone === targetZone) return;
       try {
-        await applyLayout([{ id: pinId, zone, ...defaults[zone] }]);
-        setError(null);
+        await applyLayout([{ id: pinId, zone: targetZone, ...defaultForZone(targetZone) }]);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to move widget");
       }
     },
-    [applyLayout, pins, preset.defaultTile],
+    [pins, applyLayout, defaultForZone],
   );
 
-  const headerConfig: CanvasConfig = {
-    zone: "header",
-    label: "Header",
-    cols: 12,
-    rowHeight: 32,
-    extraClass: HEADER_CLASSES,
-    resizeHandles: ["e"],
-    emptyMessage: "Drop widgets here to show as compact chips above the channel chat.",
-    scope: (p) => ({ kind: "channel", channelId: p.source_channel_id ?? "", compact: "chip" }),
-    clampH: 1,
-    defaultTile: { w: 1, h: 1 },
-  };
+  const commitSortableReorder = useCallback(
+    async (zone: "rail" | "dock" | "header", fromId: string, toId: string) => {
+      const zonePins = pins.filter((p) => p.zone === zone);
+      const ids = zonePins.map((p) => p.id);
+      const from = ids.indexOf(fromId);
+      const to = ids.indexOf(toId);
+      if (from < 0 || to < 0 || from === to) return;
+      const reordered = arrayMove(ids, from, to);
+      const byId = new Map<string, GridLayoutItem>(
+        zonePins.map((p) => [p.id, toGridLayout(p)]),
+      );
+      const nextLayout =
+        zone === "header"
+          ? sequentialXLayout(reordered, byId)
+          : sequentialYLayout(reordered, 6, byId);
+      const items = reordered.map((id) => {
+        const coords = nextLayout.get(id)!;
+        return { id, ...coords };
+      });
+      try {
+        await applyLayout(items);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to reorder");
+      }
+    },
+    [pins, applyLayout],
+  );
 
-  const railConfig: CanvasConfig = {
-    zone: "rail",
-    label: "Rail",
-    cols: 1,
-    rowHeight: 30,
-    extraClass: RAIL_CLASSES,
-    resizeHandles: ["s"],
-    emptyMessage: "Drop here to pin in the chat sidebar.",
-    scope: () => ({ kind: "dashboard" }),
-    railMode: true,
-    clampW: 1,
-    defaultTile: { w: 1, h: 6 },
-  };
+  const commitGridMove = useCallback(
+    async (pinId: string, clientX: number, clientY: number) => {
+      const rect = gridMeasure.rect;
+      if (!rect) return;
+      const pin = pins.find((p) => p.id === pinId);
+      if (!pin) return;
+      const existing = toGridLayout(pin);
+      const cfg = {
+        cols: preset.cols.lg,
+        rowHeight: preset.rowHeight,
+        gap: GAP_PX,
+        canvasWidth: rect.width,
+      };
+      const { x, y } = pointerToCell(clientX - rect.left, clientY - rect.top, cfg);
+      const placement = clampPlacement(x, y, existing.w, existing.h, cfg.cols);
+      // No-op if the tile didn't actually move cells.
+      if (
+        pin.zone === "grid"
+        && placement.x === existing.x
+        && placement.y === existing.y
+        && placement.w === existing.w
+        && placement.h === existing.h
+      ) {
+        return;
+      }
+      try {
+        await applyLayout([{ id: pinId, zone: "grid", ...placement }]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to place widget");
+      }
+    },
+    [pins, applyLayout, preset.cols.lg, preset.rowHeight, gridMeasure],
+  );
 
-  const dockConfig: CanvasConfig = {
-    zone: "dock",
-    label: "Dock",
-    cols: 1,
-    rowHeight: 30,
-    extraClass: DOCK_CLASSES,
-    resizeHandles: ["s"],
-    emptyMessage: "Drop here to pin in the right-side dock.",
-    scope: () => ({ kind: "dashboard" }),
-    railMode: true,
-    clampW: 1,
-    defaultTile: { w: 1, h: 6 },
-  };
+  const onDragEnd = useCallback(
+    async (e: DragEndEvent) => {
+      const activeId = String(e.active.id);
+      const overId = e.over?.id != null ? String(e.over.id) : null;
+      setActiveDragId(null);
+      setOverZone(null);
+      if (!overId) return;
 
-  const gridConfig: CanvasConfig = {
-    zone: "grid",
-    label: "Grid",
-    cols: preset.cols.lg,
-    rowHeight: preset.rowHeight,
-    extraClass: GRID_CLASSES,
-    resizeHandles: ["se", "s", "e"],
-    emptyMessage: "Drop widgets here to keep them on this dashboard page without surfacing them on chat.",
-    scope: () => ({ kind: "dashboard" }),
-    defaultTile: { w: preset.defaultTile.w, h: preset.defaultTile.h },
-  };
+      const active = pins.find((p) => p.id === activeId);
+      if (!active) return;
 
-  const canvasCommon = {
-    editMode, chrome, onUnpin, onEnvelopeUpdate, onEditPin,
-    onMoveZone: handleMoveZone,
-    dragPinId,
-    onDragStartPin,
-    onDragEndPin,
+      // Resolve the target zone: `canvas:<zone>` droppable or a sibling tile.
+      let targetZone: ChatZone;
+      if (overId.startsWith("canvas:")) {
+        targetZone = overId.slice("canvas:".length) as ChatZone;
+      } else {
+        const overPin = pins.find((p) => p.id === overId);
+        if (!overPin) return;
+        targetZone = overPin.zone;
+      }
+
+      if (targetZone !== active.zone) {
+        // Cross-canvas move — use defaults for the target zone.
+        await commitCrossCanvasMove(activeId, targetZone);
+        return;
+      }
+
+      // Same-zone move:
+      if (targetZone === "grid") {
+        // Free placement: snap pointer to a cell.
+        const pe = (e.activatorEvent as PointerEvent | null);
+        // Activator event holds the starting pointer; we want the release
+        // point, which dnd-kit exposes via `e.delta`.
+        const startX = pe?.clientX ?? 0;
+        const startY = pe?.clientY ?? 0;
+        await commitGridMove(
+          activeId,
+          startX + e.delta.x,
+          startY + e.delta.y,
+        );
+        return;
+      }
+
+      // Sortable reorder within rail / header / dock:
+      if (overId !== activeId && !overId.startsWith("canvas:")) {
+        await commitSortableReorder(
+          targetZone,
+          activeId,
+          overId,
+        );
+      }
+    },
+    [pins, commitCrossCanvasMove, commitGridMove, commitSortableReorder],
+  );
+
+  const activePin = activeDragId ? pins.find((p) => p.id === activeDragId) ?? null : null;
+
+  return (
+    <DndContext
+      sensors={sensors}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
+    >
+      <div className="flex flex-col gap-4">
+        {error && (
+          <div
+            role="alert"
+            className="rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 text-[12px] text-danger"
+          >
+            {error}
+          </div>
+        )}
+
+        <HeaderCanvas
+          pins={headerPins}
+          editMode={editMode}
+          chrome={chrome}
+          onUnpin={onUnpin}
+          onEnvelopeUpdate={onEnvelopeUpdate}
+          onEditPin={onEditPin}
+          anyDragging={activeDragId !== null}
+          isOver={overZone === "header"}
+          applyLayout={applyLayout}
+        />
+
+        <div className="flex flex-col gap-4 lg:flex-row lg:gap-3">
+          <ListCanvas
+            zone="rail"
+            label="Rail"
+            extraClass={RAIL_CLASSES}
+            emptyMessage="Drop here to pin in the chat sidebar."
+            pins={railPins}
+            editMode={editMode}
+            chrome={chrome}
+            onUnpin={onUnpin}
+            onEnvelopeUpdate={onEnvelopeUpdate}
+            onEditPin={onEditPin}
+            anyDragging={activeDragId !== null}
+            isOver={overZone === "rail"}
+            applyLayout={applyLayout}
+          />
+
+          <GridCanvas
+            pins={gridPins}
+            preset={preset}
+            editMode={editMode}
+            chrome={chrome}
+            onUnpin={onUnpin}
+            onEnvelopeUpdate={onEnvelopeUpdate}
+            onEditPin={onEditPin}
+            anyDragging={activeDragId !== null}
+            isOver={overZone === "grid"}
+            applyLayout={applyLayout}
+            measureRef={gridMeasure.setRef}
+          />
+
+          <ListCanvas
+            zone="dock"
+            label="Dock"
+            extraClass={DOCK_CLASSES}
+            emptyMessage="Drop here to pin in the right-side dock."
+            pins={dockPins}
+            editMode={editMode}
+            chrome={chrome}
+            onUnpin={onUnpin}
+            onEnvelopeUpdate={onEnvelopeUpdate}
+            onEditPin={onEditPin}
+            anyDragging={activeDragId !== null}
+            isOver={overZone === "dock"}
+            applyLayout={applyLayout}
+          />
+        </div>
+      </div>
+
+      <DragOverlay dropAnimation={null}>
+        {activePin && (
+          <div className="opacity-80 pointer-events-none">
+            <PinnedToolWidget
+              widget={asPinnedWidget(activePin)}
+              scope={{ kind: "dashboard" }}
+              onUnpin={() => {}}
+              onEnvelopeUpdate={() => {}}
+              editMode={editMode}
+              borderless={chrome.borderless}
+              hoverScrollbars={chrome.hoverScrollbars}
+              railMode={activePin.zone === "rail" || activePin.zone === "dock"}
+            />
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Header canvas — horizontal sortable strip of 1x1 chips.
+// ---------------------------------------------------------------------------
+
+interface CanvasSharedProps {
+  pins: WidgetDashboardPin[];
+  editMode: boolean;
+  chrome: DashboardChrome;
+  onUnpin: (id: string) => void;
+  onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
+  onEditPin: (id: string) => void;
+  anyDragging: boolean;
+  isOver: boolean;
+  applyLayout: (items: Array<{
+    id: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    zone?: ChatZone;
+  }>) => Promise<void>;
+}
+
+function HeaderCanvas({
+  pins,
+  editMode,
+  chrome,
+  onUnpin,
+  onEnvelopeUpdate,
+  onEditPin,
+  anyDragging,
+  isOver,
+  applyLayout,
+}: CanvasSharedProps) {
+  if (!editMode && pins.length === 0) return null;
+  const channelScope = (p: WidgetDashboardPin): WidgetScope => ({
+    kind: "channel",
+    channelId: p.source_channel_id ?? "",
+    compact: "chip",
+  });
+  const ids = pins.map((p) => p.id);
+
+  return (
+    <DroppableCanvas
+      zone="header"
+      label="Header"
+      extraClass={HEADER_CLASSES}
+      editMode={editMode}
+      anyDragging={anyDragging}
+      isOver={isOver}
+    >
+      {editMode && (
+        <EditModeGridGuides
+          cols={12}
+          rowHeight={32}
+          rowGap={GAP_PX}
+          gridRowCount={3}
+          dragging={anyDragging}
+        />
+      )}
+      {pins.length === 0 ? (
+        editMode ? (
+          <EmptyCanvasHint message="Drop widgets here to show as compact chips above the channel chat." />
+        ) : null
+      ) : (
+        <SortableContext items={ids} strategy={horizontalListSortingStrategy}>
+          <div className="relative flex flex-row gap-2 p-2 overflow-x-auto">
+            {pins.map((p) => (
+              <SortableTile key={p.id} id={p.id}>
+                {(binding) => (
+                  <TileShell
+                    binding={binding}
+                    pin={p}
+                    editMode={editMode}
+                    chrome={chrome}
+                    scope={channelScope(p)}
+                    onUnpin={onUnpin}
+                    onEnvelopeUpdate={onEnvelopeUpdate}
+                    onEditPin={onEditPin}
+                    resize={null}
+                  />
+                )}
+              </SortableTile>
+            ))}
+          </div>
+        </SortableContext>
+      )}
+    </DroppableCanvas>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// List canvas — used by rail + dock (vertical 1-column lists with resizable H).
+// ---------------------------------------------------------------------------
+
+interface ListCanvasProps extends CanvasSharedProps {
+  zone: "rail" | "dock";
+  label: string;
+  extraClass: string;
+  emptyMessage: string;
+}
+
+function ListCanvas({
+  zone,
+  label,
+  extraClass,
+  emptyMessage,
+  pins,
+  editMode,
+  chrome,
+  onUnpin,
+  onEnvelopeUpdate,
+  onEditPin,
+  anyDragging,
+  isOver,
+  applyLayout,
+}: ListCanvasProps) {
+  if (!editMode && pins.length === 0) return null;
+  const ids = pins.map((p) => p.id);
+  const dashboardScope = (): WidgetScope => ({ kind: "dashboard" });
+  const rowHeight = 30;
+
+  return (
+    <DroppableCanvas
+      zone={zone}
+      label={label}
+      extraClass={extraClass}
+      editMode={editMode}
+      anyDragging={anyDragging}
+      isOver={isOver}
+    >
+      {editMode && (
+        <EditModeGridGuides
+          cols={1}
+          rowHeight={rowHeight}
+          rowGap={GAP_PX}
+          gridRowCount={Math.max(pins.length * 6 + 6, 24)}
+          dragging={anyDragging}
+        />
+      )}
+      {pins.length === 0 ? (
+        editMode ? <EmptyCanvasHint message={emptyMessage} /> : null
+      ) : (
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+          <div className="relative flex flex-col gap-3 p-2">
+            {pins.map((p) => {
+              const gl = toGridLayout(p);
+              const tileHeightPx = gl.h * (rowHeight + GAP_PX) - GAP_PX;
+              return (
+                <SortableTile key={p.id} id={p.id}>
+                  {(binding) => (
+                    <div
+                      ref={binding.setNodeRef}
+                      {...binding.attributes}
+                      className="relative"
+                      style={{
+                        ...binding.style,
+                        height: editMode ? tileHeightPx : undefined,
+                      }}
+                    >
+                      <TileShell
+                        binding={{ ...binding, setNodeRef: () => {} }}
+                        pin={p}
+                        editMode={editMode}
+                        chrome={chrome}
+                        scope={dashboardScope()}
+                        onUnpin={onUnpin}
+                        onEnvelopeUpdate={onEnvelopeUpdate}
+                        onEditPin={onEditPin}
+                        railMode
+                        resize={
+                          editMode
+                            ? {
+                                edges: ["s"],
+                                initial: { w: 1, h: gl.h },
+                                cellPx: { w: 280, h: rowHeight + GAP_PX },
+                                clampW: { min: 1, max: 1 },
+                                clampH: { min: 2 },
+                                onCommit: ({ h }) =>
+                                  applyLayout([
+                                    {
+                                      id: p.id,
+                                      x: 0,
+                                      y: gl.y,
+                                      w: 1,
+                                      h,
+                                      zone,
+                                    },
+                                  ]),
+                              }
+                            : null
+                        }
+                      />
+                    </div>
+                  )}
+                </SortableTile>
+              );
+            })}
+          </div>
+        </SortableContext>
+      )}
+    </DroppableCanvas>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Grid canvas — multi-column CSS grid with free 2-D placement + resize.
+// ---------------------------------------------------------------------------
+
+interface GridCanvasProps extends CanvasSharedProps {
+  preset: GridPreset;
+  measureRef: (el: HTMLDivElement | null) => void;
+}
+
+function GridCanvas({
+  pins,
+  preset,
+  editMode,
+  chrome,
+  onUnpin,
+  onEnvelopeUpdate,
+  onEditPin,
+  anyDragging,
+  isOver,
+  applyLayout,
+  measureRef,
+}: GridCanvasProps) {
+  if (!editMode && pins.length === 0) return null;
+  const dashboardScope = (): WidgetScope => ({ kind: "dashboard" });
+
+  const rowCount = useMemo(() => {
+    let max = 0;
+    for (const p of pins) {
+      const gl = toGridLayout(p);
+      max = Math.max(max, gl.y + gl.h);
+    }
+    return Math.max(max + 6, 24);
+  }, [pins]);
+
+  const gridStyle: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: `repeat(${preset.cols.lg}, minmax(0, 1fr))`,
+    gridAutoRows: `${preset.rowHeight}px`,
+    gap: GAP_PX,
+    padding: GAP_PX,
   };
 
   return (
-    <div className="flex flex-col gap-4">
-      {error && (
-        <div
-          role="alert"
-          className="rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 text-[12px] text-danger"
-        >
-          {error}
+    <DroppableCanvas
+      zone="grid"
+      label="Grid"
+      extraClass={GRID_CLASSES}
+      editMode={editMode}
+      anyDragging={anyDragging}
+      isOver={isOver}
+      measureRef={measureRef}
+    >
+      {editMode && (
+        <EditModeGridGuides
+          cols={preset.cols.lg}
+          rowHeight={preset.rowHeight}
+          rowGap={GAP_PX}
+          gridRowCount={rowCount}
+          dragging={anyDragging}
+        />
+      )}
+      {pins.length === 0 ? (
+        editMode ? (
+          <EmptyCanvasHint message="Drop widgets here to keep them on this dashboard page without surfacing them on chat." />
+        ) : null
+      ) : (
+        <div style={gridStyle} className="relative">
+          {pins.map((p) => {
+            const gl = toGridLayout(p);
+            const gridColumn = `${gl.x + 1} / span ${gl.w}`;
+            const gridRow = `${gl.y + 1} / span ${gl.h}`;
+            return (
+              <GridTile
+                key={p.id}
+                id={p.id}
+                gridColumn={gridColumn}
+                gridRow={gridRow}
+              >
+                {(binding) => (
+                  <div
+                    ref={binding.setNodeRef}
+                    {...binding.attributes}
+                    className="relative min-w-0 min-h-0"
+                    style={binding.style}
+                  >
+                    <TileShell
+                      binding={{ ...binding, setNodeRef: () => {} }}
+                      pin={p}
+                      editMode={editMode}
+                      chrome={chrome}
+                      scope={dashboardScope()}
+                      onUnpin={onUnpin}
+                      onEnvelopeUpdate={onEnvelopeUpdate}
+                      onEditPin={onEditPin}
+                      resize={
+                        editMode
+                          ? {
+                              edges: ["s", "e", "se"] as ResizeEdge[],
+                              initial: { w: gl.w, h: gl.h },
+                              cellPx: { w: 80, h: preset.rowHeight + GAP_PX },
+                              clampW: { min: 1, max: preset.cols.lg },
+                              clampH: { min: 2 },
+                              onCommit: ({ w, h }) =>
+                                applyLayout([
+                                  {
+                                    id: p.id,
+                                    x: gl.x,
+                                    y: gl.y,
+                                    w,
+                                    h,
+                                    zone: "grid",
+                                  },
+                                ]),
+                            }
+                          : null
+                      }
+                    />
+                  </div>
+                )}
+              </GridTile>
+            );
+          })}
         </div>
       )}
-      <Canvas pins={headerPins} config={headerConfig} {...canvasCommon} />
-      <div className="flex flex-col gap-4 lg:flex-row lg:gap-3">
-        <Canvas pins={railPins} config={railConfig} {...canvasCommon} />
-        <Canvas pins={gridPins} config={gridConfig} {...canvasCommon} />
-        <Canvas pins={dockPins} config={dockConfig} {...canvasCommon} />
-      </div>
+    </DroppableCanvas>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tile shell — wraps PinnedToolWidget + (optional) resize handles.
+// ---------------------------------------------------------------------------
+
+interface TileShellProps {
+  binding: ExternalDragBinding;
+  pin: WidgetDashboardPin;
+  editMode: boolean;
+  chrome: DashboardChrome;
+  scope: WidgetScope;
+  onUnpin: (id: string) => void;
+  onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
+  onEditPin: (id: string) => void;
+  railMode?: boolean;
+  resize:
+    | null
+    | {
+        edges: ResizeEdge[];
+        initial: { w: number; h: number };
+        cellPx: { w: number; h: number };
+        clampW: { min: number; max: number };
+        clampH: { min: number; max?: number };
+        onCommit: (size: { w: number; h: number }) => void;
+      };
+}
+
+function TileShell({
+  binding,
+  pin,
+  editMode,
+  chrome,
+  scope,
+  onUnpin,
+  onEnvelopeUpdate,
+  onEditPin,
+  railMode,
+  resize,
+}: TileShellProps) {
+  return (
+    <>
+      <PinnedToolWidget
+        widget={asPinnedWidget(pin)}
+        scope={scope}
+        onUnpin={onUnpin}
+        onEnvelopeUpdate={onEnvelopeUpdate}
+        editMode={editMode}
+        onEdit={() => onEditPin(pin.id)}
+        borderless={chrome.borderless}
+        hoverScrollbars={chrome.hoverScrollbars}
+        railMode={railMode}
+        externalDrag={binding}
+      />
+      {resize && (
+        <ResizeHandles
+          edges={resize.edges}
+          initial={resize.initial}
+          cellPx={resize.cellPx}
+          clampW={resize.clampW}
+          clampH={resize.clampH}
+          onCommit={resize.onCommit}
+        />
+      )}
+    </>
+  );
+}
+
+function EmptyCanvasHint({ message }: { message: string }) {
+  const t = useThemeTokens();
+  return (
+    <div
+      className="flex items-center justify-center py-4 px-3 text-[10px] text-center opacity-40 select-none"
+      style={{ color: t.textDim }}
+    >
+      {message}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation, useMatch } from "react-router-dom";
 import { PipelineRunModal } from "./PipelineRunModal";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { OmniPanel } from "./OmniPanel";
 import { WidgetDockRight } from "./WidgetDockRight";
@@ -42,6 +42,8 @@ import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnText } from ".
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
+import { ChannelHeaderChip } from "./ChannelHeaderChip";
+import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { OrchestratorLaunchpad } from "./OrchestratorEmptyState";
 import { useChannelPipelines } from "@/src/api/hooks/useChannelPipelines";
 import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
@@ -50,6 +52,41 @@ import { useChannelChat } from "./useChannelChat";
 import type { Message } from "@/src/types/api";
 
 import type { ActiveHud } from "@/src/api/hooks/useChatHud";
+
+/** Peek tab — thin floating chevron on the viewport edge that re-opens a
+ *  collapsed dock. Sits above most chat chrome but below modals/drawers so it
+ *  doesn't fight a slide-in panel. */
+function DockPeekTab({
+  side,
+  onClick,
+  title,
+}: {
+  side: "left" | "right";
+  onClick: () => void;
+  title: string;
+}) {
+  const positionClass = side === "left" ? "left-0" : "right-0";
+  const radiusClass = side === "left" ? "rounded-r-md" : "rounded-l-md";
+  const Icon = side === "left" ? ChevronRight : ChevronLeft;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={title}
+      title={title}
+      className={`fixed top-1/2 -translate-y-1/2 ${positionClass} ${radiusClass} z-[25]
+                  flex items-center justify-center
+                  w-4 h-16
+                  bg-surface-raised/80 hover:bg-surface-raised
+                  border border-surface-border/60
+                  text-text-dim hover:text-text
+                  transition-colors shadow-md
+                  backdrop-blur-sm`}
+    >
+      <Icon size={12} />
+    </button>
+  );
+}
 
 /** Collapsible wrapper around HUD status strips with a toggle icon.
  *
@@ -312,7 +349,14 @@ export default function ChatScreen() {
   const setExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
   const splitMode = useUIStore((s) => s.fileExplorerSplit);
   const toggleSplit = useUIStore((s) => s.toggleFileExplorerSplit);
+  const rightDockHidden = useUIStore((s) => s.rightDockHidden);
+  const setRightDockHidden = useUIStore((s) => s.setRightDockHidden);
   const fileDirtyRef = useRef(false);
+  // Header-zone pins — read here so the floating strip below the header
+  // renders only when there's something to show (empty translucent pill is
+  // visual noise).
+  const { header: headerChipPins } = useChannelChatZones(channelId ?? "");
+  const hasHeaderChips = headerChipPins.length > 0;
 
   // "Browse files" gesture — opens the OmniPanel on the Files tab and
   // auto-focuses its filter input. Replaces the old BrowseFilesModal.
@@ -763,9 +807,26 @@ export default function ChatScreen() {
                 <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 5 }}>
                   {channelHeaderBlock}
                 </div>
+                {/* Header-zone pinned widgets — float in a translucent strip
+                    anchored just under the header. Messages scroll behind
+                    the strip (same pattern as the header + composer), so the
+                    chips feel like decoration rather than chrome that blocks
+                    content. The strip's z-index sits below the header so if
+                    a chip's height briefly overlaps the header edge, the
+                    frosted header wins and no values get occluded. */}
+                {!isMobile && channelId && hasHeaderChips && (
+                  <div
+                    className="absolute left-0 right-0 z-[3] flex justify-center pointer-events-none"
+                    style={{ top: headerOverlayHeight + 4 }}
+                  >
+                    <div className="pointer-events-auto px-3 py-1.5 rounded-full bg-surface-raised/50 backdrop-blur-md shadow-sm">
+                      <ChannelHeaderChip channelId={channelId} />
+                    </div>
+                  </div>
+                )}
                 <ChatMessageArea
                   {...messageAreaProps}
-                  scrollPaddingTop={headerOverlayHeight}
+                  scrollPaddingTop={headerOverlayHeight + (hasHeaderChips ? 48 : 0)}
                   scrollPaddingBottom={inputOverlayHeight + 48}
                 />
                 {floatingActions.map((h) => (
@@ -831,9 +892,23 @@ export default function ChatScreen() {
 
           {/* Right-side widget dock — surfaces channel-dashboard pins whose
               left edge sits in the dock-right band. Hidden on system channels
-              (no channel dashboard) and when the band is empty. */}
-          {!isMobile && channelId && !isSystemChannel && (
-            <WidgetDockRight channelId={channelId} />
+              (no channel dashboard) and when the band is empty. Outer
+              `pr-2.5 py-2.5` mirrors the left dock's `pl-2.5 py-2.5` so the
+              floating-card gap is symmetric on both sides. */}
+          {!isMobile && channelId && !isSystemChannel && !rightDockHidden && (
+            <div className="pr-2.5 py-2.5 flex">
+              <WidgetDockRight channelId={channelId} />
+            </div>
+          )}
+
+          {/* Peek tabs — floating chevrons on the viewport edges so the user
+              can always un-hide a collapsed dock. The existing in-dock
+              chevrons handle the hide direction; these handle un-hide. */}
+          {!isMobile && !explorerOpen && channelId && !isSystemChannel && (
+            <DockPeekTab side="left" onClick={() => setExplorerOpen(true)} title="Show widgets panel" />
+          )}
+          {!isMobile && rightDockHidden && channelId && !isSystemChannel && (
+            <DockPeekTab side="right" onClick={() => setRightDockHidden(false)} title="Show right dock" />
           )}
 
           {/* Participants panel (multi-bot channels) */}

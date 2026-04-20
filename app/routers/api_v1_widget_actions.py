@@ -45,6 +45,28 @@ from app.services.widget_templates import (
 
 logger = logging.getLogger(__name__)
 
+
+def _load_pin_manifest_safely(pin):
+    """Load the pin's bundle widget.yaml if present; None on any failure.
+
+    Used by the db-dispatch path to decide whether to route a query at the
+    bundle-local DB path or at a shared-suite DB path. Errors are non-fatal
+    — an unparseable or missing manifest just means "no suite", which is
+    the same fallback as a bundle that never had a manifest.
+    """
+    try:
+        from app.services.widget_py import _resolve_bundle_dir
+        from app.services.widget_manifest import parse_manifest
+
+        bundle_dir = _resolve_bundle_dir(pin)
+        yaml_path = bundle_dir / "widget.yaml"
+        if not yaml_path.is_file():
+            return None
+        return parse_manifest(yaml_path)
+    except Exception:
+        logger.debug("manifest load failed for pin %s", getattr(pin, "id", "?"), exc_info=True)
+        return None
+
 # Widget-actions is a dispatch proxy; each mode enforces its own authorization:
 #   - dispatch:"tool" → tool registry + approval pipeline
 #   - dispatch:"api"  → proxied endpoint's require_scopes(...) gate
@@ -345,7 +367,11 @@ async def _dispatch_db(req: WidgetActionRequest, db: AsyncSession) -> WidgetActi
 
     try:
         pin = await get_pin(db, req.dashboard_pin_id)
-        db_path = resolve_db_path(pin)
+        # Load the pin's manifest so suite-shared bundles route to the
+        # dashboard-scoped DB. Best-effort: if the manifest can't be parsed
+        # we fall back to the bundle-local path resolver.
+        manifest = _load_pin_manifest_safely(pin)
+        db_path = resolve_db_path(pin, manifest)
     except ValueError as exc:
         return WidgetActionResponse(ok=False, error=str(exc))
     except Exception as exc:
@@ -356,7 +382,22 @@ async def _dispatch_db(req: WidgetActionRequest, db: AsyncSession) -> WidgetActi
     sql = req.sql
 
     if req.dispatch == "db_query":
-        # Read-only: open without the per-path write lock.
+        # For bundles with a manifest (especially suite-shared DBs) we route
+        # through acquire_db so migrations run on first open even if no
+        # writer has opened the file yet. For unmanifested bundles we keep
+        # the lock-free read path (WAL allows concurrent readers).
+        if manifest is not None and manifest.db is not None:
+            db_config = manifest.db
+            try:
+                async with acquire_db(db_path, db_config) as conn:
+                    def _query_locked() -> list[dict]:
+                        cursor = conn.execute(sql, params)
+                        return [dict(row) for row in cursor.fetchall()]
+                    rows = await _asyncio.to_thread(_query_locked)
+            except Exception as exc:
+                return WidgetActionResponse(ok=False, error=f"db_query failed: {exc}")
+            return WidgetActionResponse(ok=True, db_result={"rows": rows})
+
         def _query() -> list[dict]:
             db_path.parent.mkdir(parents=True, exist_ok=True)
             conn = _sqlite3.connect(str(db_path), check_same_thread=False)
@@ -383,8 +424,9 @@ async def _dispatch_db(req: WidgetActionRequest, db: AsyncSession) -> WidgetActi
             "rowsAffected": cursor.rowcount,
         }
 
+    db_config = manifest.db if manifest is not None else None
     try:
-        async with acquire_db(db_path) as conn:
+        async with acquire_db(db_path, db_config) as conn:
             result = await _asyncio.to_thread(_exec, conn)
     except Exception as exc:
         return WidgetActionResponse(ok=False, error=f"db_exec failed: {exc}")

@@ -44,6 +44,9 @@ interface DashboardPinsState {
     display_label?: string | null;
   }) => Promise<WidgetDashboardPin>;
 
+  /** Atomically pin every member of a widget suite onto the current dashboard. */
+  pinSuite: (suiteId: string, members?: string[]) => Promise<WidgetDashboardPin[]>;
+
   unpinWidget: (pinId: string) => Promise<void>;
 
   /** Update a single pin's envelope in-place (after refresh or action response). */
@@ -136,6 +139,25 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
       },
     );
     set((s) => ({ pins: [...s.pins, created] }));
+    return created;
+  },
+
+  pinSuite: async (suiteId, members) => {
+    const slug = get().currentSlug;
+    const resp = await apiFetch<{ pins: WidgetDashboardPin[] }>(
+      "/api/v1/widgets/dashboard/pins/suite",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          suite_id: suiteId,
+          dashboard_key: slug,
+          members,
+        }),
+      },
+    );
+    const created = resp.pins ?? [];
+    set((s) => ({ pins: [...s.pins, ...created] }));
     return created;
   },
 

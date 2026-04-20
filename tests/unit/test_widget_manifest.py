@@ -105,6 +105,56 @@ class TestHappyPath:
         assert m.name == "Notes"
         assert m.version == "2.0.0"
 
+    def test_db_shared_accepted(self, tmp_path):
+        """`db.shared` on its own is valid — the suite manifest owns schema."""
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: MC Timeline
+            version: 1.0.0
+            description: ""
+            db:
+              shared: mission-control
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.db is not None
+        assert m.db.shared == "mission-control"
+        assert m.db.schema_version == 0
+        assert m.db.migrations == []
+
+    def test_db_shared_with_migrations_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: W
+            version: 1.0.0
+            description: ""
+            db:
+              shared: mission-control
+              migrations:
+                - from: 0
+                  to: 1
+                  sql: "select 1;"
+            """,
+        )
+        with pytest.raises(ManifestError, match="mutually exclusive"):
+            parse_manifest(p)
+
+    def test_db_shared_invalid_slug_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: W
+            version: 1.0.0
+            description: ""
+            db:
+              shared: "BAD SLUG"
+            """,
+        )
+        with pytest.raises(ManifestError, match="slug"):
+            parse_manifest(p)
+
     def test_db_no_migrations(self, tmp_path):
         p = write_yaml(
             tmp_path,

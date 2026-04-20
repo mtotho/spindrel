@@ -279,7 +279,7 @@ async def _run_query(pin, manifest, sql: str, params) -> list[dict]:
     from app.services.widget_db import acquire_db, resolve_db_path
 
     db_config = manifest.db if manifest is not None else None
-    path = resolve_db_path(pin)
+    path = resolve_db_path(pin, manifest)
     async with acquire_db(path, db_config) as conn:
         def _q():
             cur = conn.execute(sql, params)
@@ -291,7 +291,7 @@ async def _run_execute(pin, manifest, sql: str, params) -> dict:
     from app.services.widget_db import acquire_db, resolve_db_path
 
     db_config = manifest.db if manifest is not None else None
-    path = resolve_db_path(pin)
+    path = resolve_db_path(pin, manifest)
     async with acquire_db(path, db_config) as conn:
         def _e():
             cur = conn.execute(sql, params)

@@ -37,6 +37,7 @@ class MigrationEntry:
 class DbConfig:
     schema_version: int
     migrations: list[MigrationEntry] = field(default_factory=list)
+    shared: str | None = None
 
 
 @dataclass
@@ -86,9 +87,30 @@ def _valid_event_kinds() -> frozenset[str]:
     return _VALID_EVENT_KINDS
 
 
+_SHARED_SLUG_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
+
+
 def _validate_db(raw: dict) -> DbConfig:
     if not isinstance(raw, dict):
         raise ManifestError("db must be a mapping")
+
+    shared = raw.get("shared")
+    if shared is not None:
+        if not isinstance(shared, str) or not _SHARED_SLUG_RE.match(shared):
+            raise ManifestError(
+                "db.shared must be a slug matching ^[a-z0-9][a-z0-9-]{0,47}$"
+            )
+        # When opting into a suite-shared DB, the bundle MUST NOT declare
+        # schema_version or migrations — the suite manifest owns those. A
+        # bundle that both points at a shared DB and tries to migrate it
+        # would race other members of the suite.
+        if "schema_version" in raw or raw.get("migrations"):
+            raise ManifestError(
+                "db.shared is mutually exclusive with db.schema_version / db.migrations "
+                "— the suite manifest owns the schema"
+            )
+        return DbConfig(schema_version=0, migrations=[], shared=shared)
+
     sv = raw.get("schema_version")
     if not isinstance(sv, int) or sv < 1:
         raise ManifestError("db.schema_version must be an integer >= 1")

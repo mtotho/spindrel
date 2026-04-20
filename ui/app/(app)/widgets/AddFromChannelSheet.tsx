@@ -36,7 +36,15 @@ interface Props {
   scopeChannelId?: string | null;
 }
 
-type Tab = "channel" | "recent" | "html-widgets" | "build";
+type Tab = "channel" | "recent" | "html-widgets" | "suites" | "build";
+
+interface SuiteEntry {
+  suite_id: string;
+  name: string;
+  description: string;
+  members: string[];
+  schema_version: number;
+}
 
 interface RecentCall {
   id: string;
@@ -79,6 +87,7 @@ export default function AddFromChannelSheet({
   const [query, setQuery] = useState("");
   const pins = useDashboardPinsStore((s) => s.pins);
   const pinWidget = useDashboardPinsStore((s) => s.pinWidget);
+  const pinSuite = useDashboardPinsStore((s) => s.pinSuite);
 
   // Single batch query: channel dashboards with ≥1 pin, grouped and named.
   // Replaces the old per-channel fan-out against ``channel.config.pinned_widgets``
@@ -93,6 +102,11 @@ export default function AddFromChannelSheet({
   // Full HTML-widget catalog: built-in + per-integration + per-channel.
   const [htmlCatalog, setHtmlCatalog] = useState<HtmlWidgetCatalog | null>(null);
   const [htmlError, setHtmlError] = useState<string | null>(null);
+
+  // Discoverable widget suites (groups of bundles that share a dashboard-scoped DB).
+  const [suites, setSuites] = useState<SuiteEntry[] | null>(null);
+  const [suitesError, setSuitesError] = useState<string | null>(null);
+  const [pendingSuiteId, setPendingSuiteId] = useState<string | null>(null);
 
   // Close on Escape — standard modal UX.
   useEffect(() => {
@@ -155,6 +169,20 @@ export default function AddFromChannelSheet({
       });
     return () => { cancelled = true; };
   }, [open, showHtmlWidgetsTab]);
+
+  // Fetch installed suites. Cheap endpoint (file-mtime cached server-side).
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setSuites(null);
+    setSuitesError(null);
+    apiFetch<{ suites: SuiteEntry[] }>("/api/v1/widgets/suites")
+      .then((resp) => { if (!cancelled) setSuites(resp.suites ?? []); })
+      .catch((e) => {
+        if (!cancelled) setSuitesError(e instanceof Error ? e.message : String(e));
+      });
+    return () => { cancelled = true; };
+  }, [open]);
 
   const existingIdentities = useMemo(
     () => new Set(pins.map((p) => envelopeIdentityKey(p.tool_name, p.envelope))),
@@ -233,6 +261,11 @@ export default function AddFromChannelSheet({
           {showHtmlWidgetsTab && (
             <TabButton active={tab === "html-widgets"} onClick={() => setTab("html-widgets")}>
               HTML widgets
+            </TabButton>
+          )}
+          {suites && suites.length > 0 && (
+            <TabButton active={tab === "suites"} onClick={() => setTab("suites")}>
+              Suites
             </TabButton>
           )}
           <TabButton active={tab === "build"} onClick={() => setTab("build")}>
@@ -411,6 +444,40 @@ export default function AddFromChannelSheet({
                     : undefined,
                 });
                 onPinned?.(created.id);
+              }}
+            />
+          )}
+          {tab === "suites" && (
+            <SuitesTab
+              suites={suites}
+              loadError={suitesError}
+              pendingSuiteId={pendingSuiteId}
+              onPin={async (suite) => {
+                setPendingSuiteId(suite.suite_id);
+                try {
+                  const created = await pinSuite(suite.suite_id);
+                  toast({
+                    kind: "success",
+                    message: `Pinned ${suite.name} (${created.length} widget${created.length === 1 ? "" : "s"}) to ${dashboardName ?? "dashboard"}`,
+                    action: onPinned && created.length > 0
+                      ? {
+                          label: "View",
+                          onClick: () => {
+                            onPinned(created[0].id);
+                            onClose();
+                          },
+                        }
+                      : undefined,
+                  });
+                  if (created.length > 0) onPinned?.(created[0].id);
+                } catch (err) {
+                  toast({
+                    kind: "error",
+                    message: `Pin suite failed: ${err instanceof Error ? err.message : String(err)}`,
+                  });
+                } finally {
+                  setPendingSuiteId(null);
+                }
               }}
             />
           )}
@@ -616,6 +683,87 @@ function PinRow({
     </div>
   );
 }
+
+function SuitesTab({
+  suites,
+  loadError,
+  pendingSuiteId,
+  onPin,
+}: {
+  suites: SuiteEntry[] | null;
+  loadError: string | null;
+  pendingSuiteId: string | null;
+  onPin: (suite: SuiteEntry) => void;
+}) {
+  if (loadError) {
+    return (
+      <div className="p-6 text-[12px] text-text-muted">
+        Failed to load suites: {loadError}
+      </div>
+    );
+  }
+  if (suites === null) {
+    return (
+      <div className="flex items-center justify-center p-6 text-[12px] text-text-muted">
+        <Loader2 size={13} className="mr-2 animate-spin" /> Loading…
+      </div>
+    );
+  }
+  if (suites.length === 0) {
+    return (
+      <div className="p-6 text-[12px] text-text-muted">
+        No widget suites installed on this server.
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2 p-4">
+      <p className="text-[11px] text-text-dim">
+        A suite pins several widgets that share a dashboard-scoped SQLite DB — install once, every
+        member sees the same data on this dashboard. Other dashboards get their own isolated copy.
+      </p>
+      {suites.map((suite) => {
+        const pending = pendingSuiteId === suite.suite_id;
+        return (
+          <div
+            key={suite.suite_id}
+            className="rounded-md bg-surface p-3 shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1">
+                <h3 className="text-[13px] font-semibold text-text">{suite.name}</h3>
+                {suite.description && (
+                  <p className="mt-0.5 text-[11px] text-text-muted">{suite.description}</p>
+                )}
+                <p className="mt-1.5 text-[11px] text-text-dim">
+                  {suite.members.length} member{suite.members.length === 1 ? "" : "s"}:{" "}
+                  {suite.members.join(", ")}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => onPin(suite)}
+                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {pending ? (
+                  <>
+                    <Loader2 size={12} className="animate-spin" /> Pinning…
+                  </>
+                ) : (
+                  <>
+                    <Pin size={12} /> Pin suite
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 
 function BuildTab({ onClose }: { onClose: () => void }) {
   return (

@@ -589,6 +589,14 @@ class WidgetConfigPatch(BaseModel):
     merge: bool = True
 
 
+class PinSuiteRequest(BaseModel):
+    suite_id: str
+    dashboard_key: str
+    source_bot_id: str | None = None
+    source_channel_id: uuid.UUID | None = None
+    members: list[str] | None = None
+
+
 class LayoutItem(BaseModel):
     id: uuid.UUID
     x: int
@@ -670,6 +678,63 @@ async def create_dashboard_pin(
         pin.id, pin.dashboard_key, pin.tool_name, pin.source_kind,
     )
     return serialize_pin(pin)
+
+
+@router.get(
+    "/suites",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def list_suites():
+    """List every discoverable widget suite on this server.
+
+    Each suite is a directory under ``app/tools/local/widgets/suites/`` or
+    ``integrations/*/widgets/suites/`` containing a ``suite.yaml``. Members
+    are the bundle slugs that declare ``db.shared: <suite_id>`` in their
+    own ``widget.yaml``.
+    """
+    from app.services.widget_suite import scan_suites
+
+    out = []
+    for s in scan_suites():
+        out.append({
+            "suite_id": s.suite_id,
+            "name": s.name,
+            "description": s.description,
+            "members": s.members,
+            "schema_version": s.schema_version,
+        })
+    return {"suites": out}
+
+
+@router.post(
+    "/dashboard/pins/suite",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def pin_suite_endpoint(
+    body: PinSuiteRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Atomically pin every member of a suite onto a dashboard.
+
+    Layout: each member appends below the existing pins via the standard
+    ``_default_grid_layout(position)`` helper — same behavior as pinning a
+    single widget repeatedly. Users rearrange from there.
+    """
+    from app.services.dashboard_pins import create_suite_pins
+
+    pins = await create_suite_pins(
+        db,
+        suite_id=body.suite_id,
+        dashboard_key=body.dashboard_key,
+        source_bot_id=body.source_bot_id,
+        source_channel_id=body.source_channel_id,
+        member_slugs=body.members,
+    )
+    return {
+        "pins": [serialize_pin(p) for p in pins],
+        "suite_id": body.suite_id,
+        "dashboard_key": body.dashboard_key,
+    }
 
 
 @router.get(

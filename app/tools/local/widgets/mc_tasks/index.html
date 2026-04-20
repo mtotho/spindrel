@@ -1,0 +1,146 @@
+<!--
+---
+name: MC Tasks
+description: Task list with checkbox done + promote-to-kanban — part of Mission Control suite.
+display_label: Tasks
+version: 1.0.0
+author: spindrel
+tags: [mission-control, tasks, spindrel-sdk, suite]
+icon: check-square
+suite_id: mission-control
+---
+-->
+<style>
+  #mcta-root .mcta-list { display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow-y: auto; }
+  #mcta-root .mcta-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--sd-border-subtle); font-size: 13px; }
+  #mcta-root .mcta-row:first-child { border-top: none; }
+  #mcta-root .mcta-row.done .mcta-title { text-decoration: line-through; color: var(--sd-text-muted); }
+  #mcta-root .mcta-checkbox { width: 16px; height: 16px; flex: 0 0 auto; }
+  #mcta-root .mcta-title { flex: 1; }
+  #mcta-root .mcta-actions { display: flex; gap: 4px; opacity: 0; }
+  #mcta-root .mcta-row:hover .mcta-actions { opacity: 1; }
+  #mcta-root .mcta-input { display: flex; gap: 6px; }
+  #mcta-root .mcta-input input { flex: 1; }
+  #mcta-root .mcta-empty { padding: 16px 0; text-align: center; color: var(--sd-text-muted); font-size: 12px; }
+</style>
+<div class="sd-card" id="mcta-root">
+  <header class="sd-card-header sd-hstack-between">
+    <div class="sd-stack" style="gap: 0;">
+      <h3 class="sd-title">Tasks</h3>
+      <span class="sd-meta" id="mcta-sub">Mission Control list</span>
+    </div>
+    <span class="sd-chip" id="mcta-count">0 / 0</span>
+  </header>
+  <div class="sd-card-body sd-stack">
+    <form class="mcta-input" id="mcta-form">
+      <input type="text" class="sd-input" id="mcta-title" placeholder="Add a task…" maxlength="200" required />
+      <button type="submit" class="sd-btn sd-btn-primary" id="mcta-submit">Add</button>
+    </form>
+    <div class="mcta-list" id="mcta-list">
+      <div class="mcta-empty" id="mcta-empty">No tasks yet. Add one above.</div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const sp = window.spindrel;
+  const listEl = document.getElementById("mcta-list");
+  const emptyEl = document.getElementById("mcta-empty");
+  const countEl = document.getElementById("mcta-count");
+  const formEl = document.getElementById("mcta-form");
+  const titleEl = document.getElementById("mcta-title");
+  const submitEl = document.getElementById("mcta-submit");
+
+  function esc(s) {
+    return String(s || "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  async function wrap(fn) {
+    try { await fn(); }
+    catch (e) { sp.notify("error", e && e.message || String(e)); }
+  }
+
+  function render(rows) {
+    const doneCount = rows.filter((r) => r.done).length;
+    countEl.textContent = doneCount + " / " + rows.length;
+
+    if (rows.length === 0) {
+      emptyEl.hidden = false;
+      Array.from(listEl.querySelectorAll(".mcta-row")).forEach((n) => n.remove());
+      return;
+    }
+    emptyEl.hidden = true;
+
+    const html = rows.map((r) => {
+      const checked = r.done ? "checked" : "";
+      const doneClass = r.done ? " done" : "";
+      return `
+        <div class="mcta-row${doneClass}" data-id="${esc(r.id)}">
+          <input type="checkbox" class="mcta-checkbox" data-toggle="${esc(r.id)}" ${checked} />
+          <span class="mcta-title">${esc(r.title)}</span>
+          <span class="mcta-actions">
+            <button class="sd-btn sd-btn-ghost" data-promote="${esc(r.id)}" title="Promote to kanban">→ Kanban</button>
+            <button class="sd-btn sd-btn-ghost" data-delete="${esc(r.id)}" title="Delete">✕</button>
+          </span>
+        </div>
+      `;
+    }).join("");
+    Array.from(listEl.querySelectorAll(".mcta-row")).forEach((n) => n.remove());
+    const frag = document.createElement("div");
+    frag.innerHTML = html;
+    while (frag.firstChild) listEl.appendChild(frag.firstChild);
+
+    listEl.querySelectorAll("input[data-toggle]").forEach((inp) => {
+      inp.addEventListener("change", () => {
+        wrap(async () => {
+          await sp.callHandler("toggle_done", { id: inp.dataset.toggle });
+        });
+      });
+    });
+    listEl.querySelectorAll("button[data-delete]").forEach((b) => {
+      b.addEventListener("click", () => {
+        wrap(async () => {
+          await sp.callHandler("delete_task", { id: b.dataset.delete });
+        });
+      });
+    });
+    listEl.querySelectorAll("button[data-promote]").forEach((b) => {
+      b.addEventListener("click", () => {
+        wrap(async () => {
+          const res = await sp.callHandler("promote_to_card", { id: b.dataset.promote });
+          if (res && res.column) {
+            sp.notify("info", "Promoted to " + res.column);
+          }
+        });
+      });
+    });
+  }
+
+  async function loadAndRender() {
+    const rows = await sp.db.query(
+      "SELECT id, title, done FROM items WHERE kind = 'task' "
+      + "ORDER BY done ASC, position ASC, datetime(created_at) ASC"
+    );
+    render(rows);
+  }
+
+  formEl.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = titleEl.value.trim();
+    if (!title) return;
+    submitEl.disabled = true;
+    try {
+      await sp.callHandler("add_task", { title });
+      titleEl.value = "";
+    } catch (err) {
+      sp.notify("error", "Add failed: " + (err && err.message));
+    } finally {
+      submitEl.disabled = false;
+    }
+  });
+
+  sp.autoReload(loadAndRender);
+})();
+</script>

@@ -42,6 +42,19 @@ export function EditModeGridGuides({
   );
   const cellLineColor = "rgba(148, 163, 184, 0.10)"; // slate-400 @ 10%
 
+  // 1-col canvases (rail / dock) only need horizontal row lines — a vertical
+  // gradient at the single column boundary looks like a rogue edge. Skip it.
+  const verticalGradient =
+    cols > 1
+      ? `repeating-linear-gradient(
+          to right,
+          transparent 0,
+          transparent calc(${cellPitch} - 1px),
+          ${cellLineColor} calc(${cellPitch} - 1px),
+          ${cellLineColor} ${cellPitch}
+        ),`
+      : "";
+
   return (
     <div
       aria-hidden
@@ -52,13 +65,7 @@ export function EditModeGridGuides({
         className="absolute inset-0"
         style={{
           backgroundImage: `
-            repeating-linear-gradient(
-              to right,
-              transparent 0,
-              transparent calc(${cellPitch} - 1px),
-              ${cellLineColor} calc(${cellPitch} - 1px),
-              ${cellLineColor} ${cellPitch}
-            ),
+            ${verticalGradient}
             repeating-linear-gradient(
               to bottom,
               transparent 0,

@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
+  ChevronLeft,
   Layers,
   LayoutDashboard,
   Plus,
@@ -207,6 +208,7 @@ export function OmniPanel({
   // button) can flip the tab via `setOmniPanelTab`/`requestFilesFocus`.
   const tab = useUIStore((s) => s.omniPanelTab);
   const setTab = useUIStore((s) => s.setOmniPanelTab);
+  const setFileExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
   useEffect(() => {
     if (!hasWorkspace && tab === "files") setTab("widgets");
   }, [hasWorkspace, tab, setTab]);
@@ -277,6 +279,30 @@ export function OmniPanel({
             <LayoutDashboard size={12} />
           </Link>
         )}
+        {/* Collapse chevron — tucks the panel away; a peek-tab at the
+            viewport's left edge brings it back. Sits at the far-right of the
+            tab bar so it's the first thing the eye finds when the user wants
+            to reclaim the horizontal room. */}
+        <button
+          type="button"
+          onClick={() => setFileExplorerOpen(false)}
+          aria-label="Collapse widgets panel"
+          title="Collapse panel"
+          className={`flex items-center justify-center w-6 h-6 rounded-md transition-colors ${activeTab === "widgets" ? "" : "ml-auto"}`}
+          style={{ color: t.textDim, opacity: 0.55 }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.opacity = "1";
+            e.currentTarget.style.backgroundColor = t.surfaceOverlay;
+            e.currentTarget.style.color = t.text;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.opacity = "0.55";
+            e.currentTarget.style.backgroundColor = "transparent";
+            e.currentTarget.style.color = t.textDim;
+          }}
+        >
+          <ChevronLeft size={14} />
+        </button>
       </div>
 
       {activeTab === "files" && hasWorkspace ? (

@@ -5,15 +5,16 @@
  * but adapted for side panel: drag handle, refresh, unpin controls.
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import type { CSSProperties } from "react";
 import { Pencil, X, GripVertical, RefreshCw } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import type { ExternalDragBinding } from "@/app/(app)/widgets/DashboardDnd";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useWidgetAction } from "@/src/api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "@/src/api/hooks/useWidgetAction";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
-import type { ChatZone, PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/api";
-import { ZoneChip } from "@/app/(app)/widgets/ZoneChip";
+import type { PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/api";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { apiFetch } from "@/src/api/client";
@@ -54,17 +55,12 @@ interface PinnedToolWidgetProps {
    *  persistent scrollbar — matches legacy behavior for every other surface. */
   borderless?: boolean;
   hoverScrollbars?: boolean;
-  /** Channel multi-canvas dashboard: render a small zone-picker chip in the
-   *  tile header (edit mode only) so the user can move the pin between
-   *  canvases (rail / header / dock / grid). The chip supports both a click
-   *  (opens dropdown) and HTML5 drag (drop onto another canvas). */
-  zoneChip?: {
-    current: ChatZone;
-    onSelect: (z: ChatZone) => void;
-    pinId?: string;
-    onDragStart?: (pinId: string) => void;
-    onDragEnd?: () => void;
-  };
+  /** Channel multi-canvas dashboard: the enclosing `DndContext` supplies a
+   *  pre-wired draggable binding (useSortable or useDraggable) so the grip
+   *  icon becomes the single drag handle — intra-canvas AND cross-canvas.
+   *  When omitted, the widget falls back to its own internal useSortable
+   *  (used by the channel-scope OmniPanel rail in runtime chat). */
+  externalDrag?: ExternalDragBinding;
 }
 
 export function PinnedToolWidget({
@@ -77,7 +73,7 @@ export function PinnedToolWidget({
   railMode = false,
   borderless = false,
   hoverScrollbars = false,
-  zoneChip,
+  externalDrag,
 }: PinnedToolWidgetProps) {
   const isDashboard = scope.kind === "dashboard";
   const channelId = scope.kind === "channel" ? scope.channelId : null;
@@ -258,14 +254,19 @@ export function PinnedToolWidget({
     refreshState();
   }, [sharedEnvelope, refreshState]);
 
-  // dnd-kit powers channel-scope OmniPanel reorder. Dashboard scope defers to
-  // react-grid-layout for drag/resize, so we call the hook unconditionally
-  // (React hook order) but discard its outputs when isDashboard. Applying
-  // `transform` / `setNodeRef` / `attributes` outside a DndContext is
-  // harmless but can collide with react-grid-layout's own transforms.
-  const sortable = useSortable({ id: widget.id });
-  const { attributes, listeners, setNodeRef, transform, transition } = sortable;
-  const isDragging = isDashboard ? false : sortable.isDragging;
+  // Fallback drag binding for surfaces that don't pass `externalDrag` (the
+  // channel-scope OmniPanel rail uses dnd-kit's SortableContext internally).
+  // Dashboard-scope edit mode supplies its own binding from the enclosing
+  // DndContext in `ChannelDashboardMultiCanvas` via the `externalDrag` prop.
+  const fallbackSortable = useSortable({ id: widget.id });
+  const {
+    attributes: fbAttrs,
+    listeners: fbListeners,
+    setNodeRef: fbSetRef,
+    transform: fbTransform,
+    transition: fbTransition,
+  } = fallbackSortable;
+  const fallbackIsDragging = isDashboard ? false : fallbackSortable.isDragging;
 
   // Pass the current display_label so the backend can fetch fresh polled state
   // after the action and return that envelope (instead of the action template's
@@ -353,10 +354,10 @@ export function PinnedToolWidget({
     if (!hasEverLoadedRef.current || awaitingFirstPollForRefreshable) {
       return (
         <div
-          ref={setNodeRef}
+          ref={externalDrag?.setNodeRef ?? fbSetRef}
           className="rounded-lg border animate-pulse"
           style={{ borderColor: `${t.surfaceBorder}80` }}
-          {...attributes}
+          {...(externalDrag?.attributes ?? fbAttrs)}
         >
           <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-0.5">
             <div className="w-3 h-3 rounded bg-skeleton/[0.04]" />
@@ -379,23 +380,38 @@ export function PinnedToolWidget({
   // rail, WidgetDockRight).
   const showBorder = !borderless;
   const borderColorStyle = showBorder ? { borderColor: `${t.surfaceBorder}80` } : {};
-  const sortableStyle = isDashboard
-    ? {
-        ...borderColorStyle,
-        opacity: refreshing ? 0.6 : 1,
-      }
-    : {
-        transform: CSS.Transform.toString(transform),
-        transition,
-        ...borderColorStyle,
-        opacity: isDragging ? 0.5 : refreshing ? 0.6 : 1,
-      };
+  // Edit-mode dashboard pins get their drag transform/transition from the
+  // external DndContext; view-mode dashboard pins skip all drag styling;
+  // channel-scope falls back to the internal sortable. Keep opacity
+  // coordination here so refresh-in-flight tiles dim consistently across
+  // surfaces.
+  const dragStyle: CSSProperties = externalDrag
+    ? externalDrag.style
+    : isDashboard
+      ? {}
+      : {
+          transform: CSS.Transform.toString(fbTransform),
+          transition: fbTransition,
+          opacity: fallbackIsDragging ? 0.5 : 1,
+        };
+  const sortableStyle: CSSProperties = {
+    ...dragStyle,
+    ...borderColorStyle,
+    opacity:
+      (dragStyle.opacity as number | undefined) !== undefined && (dragStyle.opacity as number) < 1
+        ? (dragStyle.opacity as number)
+        : refreshing
+          ? 0.6
+          : 1,
+  };
 
-  // In dashboard scope react-grid-layout owns the DOM node via its own wrapper;
-  // skip dnd-kit's ref/attrs to avoid double-registering.
-  const rootRef = isDashboard ? undefined : setNodeRef;
-  const rootAttrs = isDashboard ? {} : attributes;
-  const handleListeners = isDashboard ? undefined : listeners;
+  // Drag wiring: prefer the enclosing DndContext's binding (`externalDrag`)
+  // when provided — that's the channel-dashboard edit-mode case. Otherwise
+  // fall back to the internal sortable (channel-scope OmniPanel rail). View
+  // mode dashboard pins skip drag entirely.
+  const rootRef = externalDrag?.setNodeRef ?? (isDashboard ? undefined : fbSetRef);
+  const rootAttrs = externalDrag?.attributes ?? (isDashboard ? {} : fbAttrs);
+  const handleListeners = externalDrag?.listeners ?? (isDashboard ? undefined : fbListeners);
 
   const updatedLabel = lastRefreshedAt ? formatRelativeTime(lastRefreshedAt) : "";
   const refreshTooltip = lastRefreshedAt
@@ -470,15 +486,6 @@ export function PinnedToolWidget({
         >
           {resolveDisplayName(widget)}
         </span>
-        {zoneChip && editMode && (
-          <ZoneChip
-            current={zoneChip.current}
-            onSelect={zoneChip.onSelect}
-            pinId={zoneChip.pinId}
-            onDragStart={zoneChip.onDragStart}
-            onDragEnd={zoneChip.onDragEnd}
-          />
-        )}
         {isDashboard && editMode && onEdit && (
           <button
             type="button"

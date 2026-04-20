@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, AsyncGenerator
 
 if TYPE_CHECKING:
     from app.db.models import WidgetDashboardPin
-    from app.services.widget_manifest import DbConfig
+    from app.services.widget_manifest import DbConfig, WidgetManifest
 
 logger = logging.getLogger(__name__)
 
@@ -62,18 +62,66 @@ def _builtin_db_root() -> Path:
 # ---------------------------------------------------------------------------
 
 
-def resolve_db_path(pin: "WidgetDashboardPin") -> Path:
+def resolve_suite_db_path(pin: "WidgetDashboardPin", suite_id: str) -> Path:
+    """Return the shared-suite DB path for the dashboard this pin lives on.
+
+    The suite DB is keyed by ``pin.dashboard_key`` — every dashboard (channel
+    or global) automatically gets its own suite partition. Two bundles whose
+    manifests both declare ``db.shared: <suite_id>`` and that are pinned on
+    the same dashboard see the same DB; pin the same bundles on a different
+    dashboard, get a different DB.
+
+    Path: ``{local_workspace_base()}/widget_db/suites/<safe_slug>/<suite_id>/data.sqlite``
+
+    ``safe_slug`` replaces the channel slug's colon with an underscore
+    (``channel:<uuid>`` → ``channel_<uuid>``). The existing ``dashboard_key``
+    regex rules out path-traversal characters.
+    """
+    from app.services.paths import local_workspace_base
+
+    dashboard_key = getattr(pin, "dashboard_key", None)
+    if not dashboard_key or not isinstance(dashboard_key, str):
+        raise ValueError(
+            "pin missing dashboard_key — cannot resolve suite DB path"
+        )
+    if ".." in dashboard_key or "/" in dashboard_key or "\\" in dashboard_key:
+        raise ValueError(
+            f"dashboard_key {dashboard_key!r} contains path-traversal characters"
+        )
+    if not suite_id or not isinstance(suite_id, str):
+        raise ValueError("suite_id must be a non-empty string")
+    if ".." in suite_id or "/" in suite_id or "\\" in suite_id:
+        raise ValueError(
+            f"suite_id {suite_id!r} contains path-traversal characters"
+        )
+
+    safe_slug = dashboard_key.replace(":", "_")
+    root = Path(local_workspace_base()) / "widget_db" / "suites" / safe_slug / suite_id
+    root.mkdir(parents=True, exist_ok=True)
+    return (root / "data.sqlite").resolve()
+
+
+def resolve_db_path(
+    pin: "WidgetDashboardPin",
+    manifest: "WidgetManifest | None" = None,
+) -> Path:
     """Derive the ``data.sqlite`` path for the bundle this pin references.
 
-    Uses ``pin.envelope.source_path`` (workspace-relative) + ``source_channel_id``
+    If ``manifest.db.shared`` is set, delegates to :func:`resolve_suite_db_path`
+    (the dashboard-scoped suite DB). Otherwise uses
+    ``pin.envelope.source_path`` (workspace-relative) + ``source_channel_id``
     + ``source_bot_id`` to compute the channel workspace root and then the
     bundle directory.
 
     Raises ``ValueError`` for:
-    - Inline widgets (no ``source_path`` in envelope)
-    - Missing channel/bot identity
+    - Inline widgets (no ``source_path`` in envelope) without a shared-DB manifest
+    - Missing channel/bot identity (non-suite case)
     - Path traversal outside the channel workspace
     """
+    # Suite-shared DB short-circuits the per-bundle resolution entirely.
+    if manifest is not None and manifest.db is not None and manifest.db.shared:
+        return resolve_suite_db_path(pin, manifest.db.shared)
+
     envelope: dict = pin.envelope or {}
     source_path: str | None = envelope.get("source_path")
     if not source_path:
@@ -132,28 +180,51 @@ def resolve_db_path(pin: "WidgetDashboardPin") -> Path:
 # ---------------------------------------------------------------------------
 
 
-def run_migrations(conn: sqlite3.Connection, db_config: "DbConfig") -> None:
-    """Apply pending schema migrations from a widget manifest's ``db`` block.
+def run_migrations(
+    conn: sqlite3.Connection,
+    db_config=None,
+    *,
+    schema_version: int | None = None,
+    migrations=None,
+) -> None:
+    """Apply pending schema migrations.
+
+    Two calling conventions:
+    - ``run_migrations(conn, db_config)`` — legacy, pulls ``schema_version``
+      and ``migrations`` off the DbConfig. Kept for backwards compat with
+      callers that already have a DbConfig.
+    - ``run_migrations(conn, schema_version=N, migrations=[...])`` — direct
+      form; accepts any iterable of objects with ``from_version``,
+      ``to_version``, ``sql`` attributes (both ``MigrationEntry`` shapes
+      satisfy this).
 
     Uses SQLite ``PRAGMA user_version`` as the authoritative schema-version
-    counter.  Each migration step runs via ``executescript`` (which
-    auto-commits) then bumps ``user_version``.
+    counter.  Each step runs via ``executescript`` (auto-commits) then bumps
+    ``user_version``.
 
     Raises ``ValueError`` on:
-    - Downgrade attempt (on-disk version > manifest version)
+    - Downgrade attempt (on-disk version > target)
     - Migration gap (missing intermediate step)
     - SQL execution error
     """
+    if db_config is not None:
+        schema_version = db_config.schema_version
+        migrations = db_config.migrations
+    if schema_version is None or migrations is None:
+        raise ValueError(
+            "run_migrations requires either db_config or (schema_version, migrations)"
+        )
+
     current: int = conn.execute("PRAGMA user_version").fetchone()[0]
-    target: int = db_config.schema_version
+    target: int = schema_version
 
     if current > target:
         raise ValueError(
-            f"DB user_version ({current}) is newer than manifest "
+            f"DB user_version ({current}) is newer than declared "
             f"schema_version ({target}) — downgrade refused"
         )
 
-    for step in db_config.migrations:
+    for step in migrations:
         if step.from_version < current:
             continue  # already applied
         if step.from_version != current:
@@ -167,12 +238,9 @@ def run_migrations(conn: sqlite3.Connection, db_config: "DbConfig") -> None:
             raise ValueError(
                 f"Migration {step.from_version}→{step.to_version} failed: {exc}"
             ) from exc
-        # executescript auto-commits, so we can set user_version directly.
         conn.execute(f"PRAGMA user_version = {step.to_version}")
         current = step.to_version
 
-    # If no migration steps were declared but user_version < target, that's
-    # a manifest error (would have been caught at parse time, but double-check).
     if current != target:
         raise ValueError(
             f"Migrations incomplete: ended at version {current}, "
@@ -189,6 +257,8 @@ def run_migrations(conn: sqlite3.Connection, db_config: "DbConfig") -> None:
 async def acquire_db(
     path: Path,
     db_config: "DbConfig | None" = None,
+    *,
+    suite_manifest=None,
 ) -> AsyncGenerator[sqlite3.Connection, None]:
     """Open the widget SQLite DB, run pending migrations, yield the connection.
 
@@ -197,6 +267,14 @@ async def acquire_db(
     a thread executor to keep the event loop free.
 
     WAL mode is set on every open — safe to call repeatedly.
+
+    Migration resolution order:
+    - If ``suite_manifest`` is passed (caller already loaded it), use its
+      schema_version + migrations — this is the suite-shared-DB path.
+    - Else if ``db_config`` is set and has a ``shared`` slug, load the suite
+      manifest by id and use it.
+    - Else if ``db_config`` has its own (non-shared) migrations, use those.
+    - Else no migrations run.
     """
     lock = await _get_lock(path)
     async with lock:
@@ -207,8 +285,28 @@ async def acquire_db(
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
-            if db_config is not None:
-                run_migrations(conn, db_config)
+
+            resolved_suite = suite_manifest
+            if resolved_suite is None and db_config is not None and db_config.shared:
+                from app.services.widget_suite import load_suite
+                resolved_suite = load_suite(db_config.shared)
+                if resolved_suite is None:
+                    raise ValueError(
+                        f"db.shared references unknown suite {db_config.shared!r}"
+                    )
+
+            if resolved_suite is not None:
+                run_migrations(
+                    conn,
+                    schema_version=resolved_suite.schema_version,
+                    migrations=resolved_suite.migrations,
+                )
+            elif db_config is not None and not db_config.shared:
+                run_migrations(
+                    conn,
+                    schema_version=db_config.schema_version,
+                    migrations=db_config.migrations,
+                )
             return conn
 
         conn: sqlite3.Connection = await asyncio.to_thread(_open)

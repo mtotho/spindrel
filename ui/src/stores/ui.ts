@@ -26,6 +26,11 @@ interface UIState {
   hiddenSidebarSections: string[];
   fileExplorerOpen: boolean;
   fileExplorerSplit: boolean;
+  /** Channel screen's right-hand widget dock hidden-state. Toggled from the
+   *  dock's own header chevron and from the peek-tab on the viewport's
+   *  right edge. Persisted globally (not per-channel) to match the left
+   *  dock's `fileExplorerOpen` semantics. */
+  rightDockHidden: boolean;
   /** OmniPanel active tab. Persisted so the last-used tab sticks across
    *  channel navigation. Default = Widgets (the primary reason to open the
    *  rail). The channel page can flip this to "files" via `requestFilesFocus`
@@ -57,6 +62,8 @@ interface UIState {
   toggleFileExplorer: () => void;
   setFileExplorerOpen: (open: boolean) => void;
   toggleFileExplorerSplit: () => void;
+  toggleRightDock: () => void;
+  setRightDockHidden: (hidden: boolean) => void;
   setOmniPanelTab: (tab: "widgets" | "files" | "jump") => void;
   /** Open the OmniPanel, switch to the Files tab, and bump filesFocusTick
    *  so FilesTabPanel auto-focuses its search filter. Composite action so
@@ -79,6 +86,7 @@ export const useUIStore = create<UIState>()(
       hiddenSidebarSections: [],
       fileExplorerOpen: false,
       fileExplorerSplit: false,
+      rightDockHidden: false,
       omniPanelTab: "widgets",
       filesFocusTick: 0,
       hudCollapsedChannels: [],
@@ -106,6 +114,8 @@ export const useUIStore = create<UIState>()(
       toggleFileExplorer: () => set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen })),
       setFileExplorerOpen: (open) => set({ fileExplorerOpen: open }),
       toggleFileExplorerSplit: () => set((s) => ({ fileExplorerSplit: !s.fileExplorerSplit })),
+      toggleRightDock: () => set((s) => ({ rightDockHidden: !s.rightDockHidden })),
+      setRightDockHidden: (hidden) => set({ rightDockHidden: hidden }),
       setOmniPanelTab: (tab) => set({ omniPanelTab: tab }),
       requestFilesFocus: () =>
         set((s) => ({
@@ -150,6 +160,7 @@ export const useUIStore = create<UIState>()(
         hiddenSidebarSections: state.hiddenSidebarSections,
         fileExplorerOpen: state.fileExplorerOpen,
         fileExplorerSplit: state.fileExplorerSplit,
+        rightDockHidden: state.rightDockHidden,
         omniPanelTab: state.omniPanelTab,
         hudCollapsedChannels: state.hudCollapsedChannels,
         hudExpandedOnMobile: state.hudExpandedOnMobile,

@@ -122,24 +122,10 @@ Periodic background scheduler creates agent tasks to curate workspace-files memo
 
 **Key files**: `app/services/memory_hygiene.py`, `app/config.py` (`DEFAULT_MEMORY_HYGIENE_PROMPT`), `app/routers/api_v1_admin/bots.py` (admin API), `ui/app/(app)/admin/bots/[botId]/MemoryKnowledgeSections.tsx`.
 
-## Mission Control
-**Status**: working, DB-backed, frozen. Make what's there work, don't extend.
+## Mission Control (REMOVED 2026-04-20)
+**Status**: retired. Entire `integrations/mission_control/` tree + `plans` / `plan_items` core tables removed in one sweep. See [[Architecture Decisions#Mission Control and generic Plan tables retired; widgets replace tasks/plans/timelines]] for rationale.
 
-Separate integration (`integrations/mission_control/`) providing kanban + timeline + structured plans. NOT core app code.
-
-- **Own SQLite DB** at `~/.agent-workspaces/mission_control/mc.db`. Models: `McKanbanColumn`, `McKanbanCard`, `McTimelineEvent`, `McPlan`, `McPlanStep`.
-- **Write-through markdown rendering**: every DB mutation regenerates `tasks.md` (kanban), `timeline.md` (activity), `plans.md` (structured plans). Workspace .md files auto-injected into context. Bot reads markdown, mutations go through tools → DB → re-render.
-- **Tools**: `create_task_card`, `move_task_card`, `append_timeline_event`, `draft_plan`, `update_plan_step`, `update_plan_status`.
-- **Plan execution engine** (`plan_executor.py`): when plan approved, creates core Tasks to execute steps. `hooks.py` advances plan on task completion. Approval gates on certain steps.
-- **Skills**: `mission_control.md`, `planning.md`, `project-management.md`, `content_feeds.md`, `integration-builder.md`.
-- **Dashboard**: React/Vite app at `:9100`. Read-only access to workspace files.
-- **Activation flow**: `channel_integrations.activated=true` → context assembly injects `mission-control` capability → capability pulls in MC tools + skills + system prompt fragment.
-
-**Router migrated out of core** (1765-line monolith deleted). **Template step removed from channel creation**. **MC capability extended with workspace file organization guidance**.
-
-**Known issue**: dashboard container restarts (~172 silent restarts since March 31). Crash handlers added (`uncaughtException` + `unhandledRejection` in `server.ts`, auto-restart loop with backoff in `container.py`). Pending: rebuild MC image and deploy to capture root cause.
-
-**Frozen**: dashboard enhancements, MC as separate product, multi-workspace for MC. `app/services/task_board.py` may be dead code now that MC has its own services — not worth moving.
+Left behind: nothing — no DB rows, no endpoints, no tools, no carapaces, no sidebar entry, no Vite dashboard, no skills. Replacement kanban / plans / timeline widgets (if/when needed) get built against the Widget SDK on their own tracks.
 
 ## Multi-Bot Channels
 **Status**: stabilized, structural rewrite complete. 5+ rounds of identity/routing bug fixes culminated in the unified pipeline + post-marker reinforcement.

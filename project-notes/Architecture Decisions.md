@@ -8,6 +8,20 @@
 
 ## Key Decisions
 
+### Mission Control and generic Plan tables retired; widgets replace tasks/plans/timelines
+**Decided 2026-04-20.** Removed the entire `integrations/mission_control/` tree (router + Vite dashboard + SQLite DB + 6 tools + 5 skills + 18 channel-prompt seed templates + `mission-control` carapace) and, in the same sweep, the core `plans` / `plan_items` tables plus `app/tools/local/plans.py` and the `/sessions/{id}/plans` + admin channel-plans endpoints. The `plans.md` stall-detection block in `context_assembly.py` went with them. Migration 228 drops the two Postgres tables. `mission_control:read|write` scopes and the `Mission Control` scope bundle left `api_keys.py` at the same time.
+
+**Why.** MC was frozen since 2026-04-07 ("make what's there work, don't extend") and had sat incomplete. The Widget SDK (Phases A + B.0–B.4) — per-pin SQLite, `@on_cron`, `@on_event`, bot-scoped auth, chat-zone placement, multi-canvas dashboards — now covers everything MC's kanban/timeline/plans tried to be, with better ergonomics and zero parallel data model. Keeping MC alongside the SDK meant carrying two dashboards, two data-model languages, and a Roadmap tech-debt line ("two parallel plans systems"). The generic `Plan`/`PlanItem` tables were a mostly-unused mirror of MC's plan executor and had drifted out of the product entirely — sessions.py routes, one admin endpoint, no active UI.
+
+**Load-bearing implementation choices.**
+- **No data migration** from MC → widgets. Single-user deployment, freeze policy. Users re-author kanban / plans / timelines as widgets if and when they need them.
+- **Tool names not preserved.** `draft_plan` / `update_plan_step` / `create_task_card` are gone. Replacement widgets get fresh verb names that fit their actual storage model (per-pin SQLite, not workspace markdown).
+- **`channel_prompt` (core column) stays.** Orthogonal to MC. The 18 MC channel-prompt seed templates under `integrations/mission_control/prompts/` were already unwired by migration 134; their deletion is a tree cleanup, not a behavioral change.
+- **Cross-integration MC references pruned.** `integrations/arr/integration.yaml` dropped `includes: [mission_control]`; `integrations/gmail/carapaces/gmail-feeds.yaml` dropped `includes: mission-control` and its MC tool mentions; `carapaces/orchestrator/carapace.yaml` dropped `includes: mission-control`; `integrations/gmail/agent_client.write_workspace_file` switched from `/integrations/mission_control/channels/.../files/content` to the core `PUT /api/v1/channels/.../workspace/files/content`.
+- **Future widgets on their own tracks.** Kanban / plans / timeline widgets queued as separate track stubs, not in this commit.
+
+**Non-goals** (explicitly not done): porting any MC logic into widgets, preserving MC content for any existing user, building replacement widgets in the same change.
+
 ### Knowledge-base convention replaces manual segment UI as the default
 **Decided 2026-04-19.** Users had ≥4 overlapping knobs to teach a bot about files (`bot.workspace.indexing.segments`, `channel.index_segments`, legacy `bot.filesystem_indexes`, and auto-injected channel workspace files). All routed to the same backend; the surface was the mess. Replaced the defaults with a single convention: every channel has `channels/<id>/knowledge-base/`, every bot has `knowledge-base/` (standalone) or `bots/<id>/knowledge-base/` (shared-workspace). Both are auto-created on provisioning, auto-indexed under the default `**/*.md` patterns, auto-retrieved by the existing `_inject_workspace_rag` + `_inject_channel_workspace` paths, and have a narrow search tool each (`search_bot_knowledge`, `search_channel_knowledge`) that scopes `hybrid_memory_search` to the KB prefix.
 

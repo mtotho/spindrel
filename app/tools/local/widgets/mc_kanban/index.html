@@ -1,0 +1,209 @@
+<!--
+---
+name: MC Kanban
+description: Drag-and-drop kanban board — part of the Mission Control suite, shares data with Timeline and Tasks.
+display_label: Kanban
+version: 1.0.0
+author: spindrel
+tags: [mission-control, kanban, spindrel-sdk, suite]
+icon: columns
+suite_id: mission-control
+---
+-->
+<style>
+  #mck-root .mck-board { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0; min-height: 240px; }
+  #mck-root .mck-col { flex: 0 0 220px; background: var(--sd-surface-raised); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; min-height: 220px; }
+  #mck-root .mck-col.drag-over { outline: 2px dashed var(--sd-accent); }
+  #mck-root .mck-col-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--sd-text-muted); }
+  #mck-root .mck-col-body { flex: 1; display: flex; flex-direction: column; gap: 4px; min-height: 40px; }
+  #mck-root .mck-card { background: var(--sd-surface); border: 1px solid var(--sd-border-subtle); border-radius: 6px; padding: 6px 8px; font-size: 13px; cursor: grab; }
+  #mck-root .mck-card.dragging { opacity: 0.4; }
+  #mck-root .mck-card:hover { border-color: var(--sd-border); }
+  #mck-root .mck-card-title { display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+  #mck-root .mck-card-del { opacity: 0; background: none; border: none; cursor: pointer; color: var(--sd-text-muted); font-size: 11px; padding: 0; }
+  #mck-root .mck-card:hover .mck-card-del { opacity: 1; }
+  #mck-root .mck-add { font-size: 11px; color: var(--sd-text-muted); border: 1px dashed var(--sd-border-subtle); border-radius: 6px; padding: 6px; cursor: text; }
+  #mck-root .mck-add input { width: 100%; border: none; background: transparent; font: inherit; color: inherit; outline: none; }
+  #mck-root .mck-empty { padding: 20px 12px; text-align: center; }
+  #mck-root .mck-new-col { flex: 0 0 220px; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 8px; border: 1px dashed var(--sd-border-subtle); border-radius: 8px; font-size: 12px; color: var(--sd-text-muted); }
+  #mck-root .mck-new-col input { width: 100%; }
+</style>
+<div class="sd-card" id="mck-root">
+  <header class="sd-card-header sd-hstack-between">
+    <div class="sd-stack" style="gap: 0;">
+      <h3 class="sd-title">Kanban</h3>
+      <span class="sd-meta" id="mck-sub">Mission Control board</span>
+    </div>
+    <span class="sd-chip" id="mck-count">0 cards</span>
+  </header>
+  <div class="sd-card-body">
+    <div id="mck-empty" class="mck-empty" hidden>
+      <p class="sd-text-muted" style="margin-bottom: 12px;">No columns yet.</p>
+      <button class="sd-btn sd-btn-primary" id="mck-seed">Start with Backlog / Doing / Done</button>
+    </div>
+    <div class="mck-board" id="mck-board"></div>
+  </div>
+</div>
+<script>
+(function () {
+  const sp = window.spindrel;
+  const boardEl = document.getElementById("mck-board");
+  const emptyEl = document.getElementById("mck-empty");
+  const countEl = document.getElementById("mck-count");
+  const seedBtn = document.getElementById("mck-seed");
+
+  function esc(s) {
+    return String(s || "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  async function wrap(fn) {
+    try { await fn(); }
+    catch (e) { sp.notify("error", e && e.message || String(e)); }
+  }
+
+  seedBtn.addEventListener("click", () => wrap(async () => {
+    await sp.callHandler("seed_default_columns", {});
+  }));
+
+  // Track drag state on the window so we can look it up in drop handlers.
+  let dragCardId = null;
+
+  function renderBoard(columns, cards) {
+    const cardsByCol = {};
+    let totalCards = 0;
+    for (const c of cards) {
+      if (!cardsByCol[c.column_id]) cardsByCol[c.column_id] = [];
+      cardsByCol[c.column_id].push(c);
+      totalCards += 1;
+    }
+    countEl.textContent = totalCards + (totalCards === 1 ? " card" : " cards");
+
+    if (columns.length === 0) {
+      emptyEl.hidden = false;
+      boardEl.innerHTML = "";
+      return;
+    }
+    emptyEl.hidden = true;
+
+    boardEl.innerHTML = columns.map((col) => {
+      const colCards = cardsByCol[col.id] || [];
+      const cardsHtml = colCards.map((card) => `
+        <div class="mck-card" draggable="true" data-card-id="${esc(card.id)}">
+          <div class="mck-card-title">
+            <span>${esc(card.title)}</span>
+            <button class="mck-card-del" data-del-card="${esc(card.id)}" title="Delete">✕</button>
+          </div>
+        </div>
+      `).join("");
+      return `
+        <div class="mck-col" data-col-id="${esc(col.id)}">
+          <div class="mck-col-header">
+            <span>${esc(col.name)}</span>
+            <button class="mck-card-del" data-del-col="${esc(col.id)}" title="Delete column">✕</button>
+          </div>
+          <div class="mck-col-body">${cardsHtml}</div>
+          <div class="mck-add">
+            <input type="text" data-add-card="${esc(col.id)}" placeholder="+ new card" maxlength="160" />
+          </div>
+        </div>
+      `;
+    }).join("") + `
+      <div class="mck-new-col">
+        <span>Add column</span>
+        <input type="text" id="mck-new-col-input" placeholder="Column name" maxlength="40" />
+      </div>
+    `;
+
+    // Wire drag / drop.
+    boardEl.querySelectorAll(".mck-card").forEach((cardEl) => {
+      cardEl.addEventListener("dragstart", (e) => {
+        dragCardId = cardEl.dataset.cardId;
+        cardEl.classList.add("dragging");
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      });
+      cardEl.addEventListener("dragend", () => {
+        dragCardId = null;
+        cardEl.classList.remove("dragging");
+      });
+    });
+    boardEl.querySelectorAll(".mck-col").forEach((colEl) => {
+      colEl.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        colEl.classList.add("drag-over");
+      });
+      colEl.addEventListener("dragleave", () => colEl.classList.remove("drag-over"));
+      colEl.addEventListener("drop", (e) => {
+        e.preventDefault();
+        colEl.classList.remove("drag-over");
+        const colId = colEl.dataset.colId;
+        if (!dragCardId || !colId) return;
+        wrap(async () => {
+          await sp.callHandler("move_card", { card_id: dragCardId, column_id: colId });
+        });
+      });
+    });
+
+    // Add-card inputs.
+    boardEl.querySelectorAll("input[data-add-card]").forEach((inp) => {
+      inp.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        const title = inp.value.trim();
+        if (!title) return;
+        const colId = inp.dataset.addCard;
+        inp.value = "";
+        wrap(async () => {
+          await sp.callHandler("add_card", { column_id: colId, title });
+        });
+      });
+    });
+
+    // Add-column input.
+    const newColInp = boardEl.querySelector("#mck-new-col-input");
+    if (newColInp) {
+      newColInp.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        const name = newColInp.value.trim();
+        if (!name) return;
+        newColInp.value = "";
+        wrap(async () => {
+          await sp.callHandler("add_column", { name });
+        });
+      });
+    }
+
+    // Delete buttons (cards + columns).
+    boardEl.querySelectorAll("button[data-del-card]").forEach((b) => {
+      b.addEventListener("click", () => {
+        wrap(async () => {
+          await sp.callHandler("delete_card", { id: b.dataset.delCard });
+        });
+      });
+    });
+    boardEl.querySelectorAll("button[data-del-col]").forEach((b) => {
+      b.addEventListener("click", () => {
+        if (!confirm("Delete this column? Cards will move to the leftmost column, or be deleted if this is the last column.")) return;
+        wrap(async () => {
+          await sp.callHandler("delete_column", { id: b.dataset.delCol });
+        });
+      });
+    });
+  }
+
+  async function loadAndRender() {
+    const [columns, cards] = await Promise.all([
+      sp.db.query("SELECT id, name, position FROM kanban_columns ORDER BY position ASC"),
+      sp.db.query(
+        "SELECT id, title, column_id, position FROM items "
+        + "WHERE kind = 'kanban_card' "
+        + "ORDER BY column_id, position ASC"
+      ),
+    ]);
+    renderBoard(columns, cards);
+  }
+
+  sp.autoReload(loadAndRender);
+})();
+</script>
