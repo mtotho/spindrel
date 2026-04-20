@@ -379,6 +379,12 @@ textarea::placeholder {
   background: rgb(var(--color-text-dim) / 0.55);
 }
 
+/* Widget chip (timestamp, auth scope) — only visible when the enclosing
+   .group (widget tile) is hovered. Keeps tiles visually calm at rest. */
+.widget-hover-chip { opacity: 0; transition: opacity 150ms ease; }
+.group:hover .widget-hover-chip,
+.group:focus-within .widget-hover-chip { opacity: 1; }
+
 /* Dot toggle — half-circle clip for "inherit" state */
 .clip-half { clip-path: inset(0 50% 0 0); }
 

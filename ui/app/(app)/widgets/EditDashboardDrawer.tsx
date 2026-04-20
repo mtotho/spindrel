@@ -73,6 +73,7 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   const [presetId, setPresetId] = useState<GridPresetId>("standard");
   const [borderless, setBorderless] = useState(false);
   const [hoverScrollbars, setHoverScrollbars] = useState(false);
+  const [hideTitles, setHideTitles] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -87,6 +88,7 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
     const chrome = resolveChrome(dashboard.grid_config ?? null);
     setBorderless(chrome.borderless);
     setHoverScrollbars(chrome.hoverScrollbars);
+    setHideTitles(chrome.hideTitles);
     setError(null);
     setDeleteConfirm("");
   }, [dashboard?.slug]);
@@ -130,7 +132,8 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   // admin-gated "For everyone" option.
   const chromeDirty =
     borderless !== currentChrome.borderless
-    || hoverScrollbars !== currentChrome.hoverScrollbars;
+    || hoverScrollbars !== currentChrome.hoverScrollbars
+    || hideTitles !== currentChrome.hideTitles;
   const dirty = isChannel
     ? (icon ?? null) !== (dashboard.icon ?? null)
       || railChoice !== initialRailChoice
@@ -170,7 +173,7 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
       // Chrome (borderless / hover_scrollbars) is a sibling of `preset` in the
       // same grid_config blob. We can only collapse to `null` when the dashboard
       // is fully default — otherwise the non-default chrome bits would be lost.
-      const chromeDefault = !borderless && !hoverScrollbars;
+      const chromeDefault = !borderless && !hoverScrollbars && !hideTitles;
       const gridConfig =
         presetId === "standard" && chromeDefault
           ? null
@@ -179,6 +182,7 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
               preset: presetId,
               ...(borderless ? { borderless: true } : {}),
               ...(hoverScrollbars ? { hover_scrollbars: true } : {}),
+              ...(hideTitles ? { hide_titles: true } : {}),
             };
       const patch = isChannel
         ? { icon: icon ?? null, grid_config: gridConfig }
@@ -341,6 +345,20 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
                 <div className="text-[12.5px] font-medium text-text">Scrollbars on hover</div>
                 <div className="mt-0.5 text-[11px] text-text-dim leading-snug">
                   Widget scrollbars stay hidden until you hover over the tile.
+                </div>
+              </div>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
+              <input
+                type="checkbox"
+                checked={hideTitles}
+                onChange={(e) => setHideTitles(e.target.checked)}
+                className="mt-0.5 h-3.5 w-3.5 accent-accent"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-[12.5px] font-medium text-text">Hide widget titles</div>
+                <div className="mt-0.5 text-[11px] text-text-dim leading-snug">
+                  Tiles render without their uppercase title bar. Per-widget override lives in each pin&apos;s edit drawer. Edit mode always shows titles.
                 </div>
               </div>
             </label>

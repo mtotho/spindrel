@@ -692,6 +692,7 @@ export function ChannelDashboardMultiCanvas({
               editMode={editMode}
               borderless={chrome.borderless}
               hoverScrollbars={chrome.hoverScrollbars}
+              hideTitles={chrome.hideTitles}
               railMode={activePin.zone === "rail" || activePin.zone === "dock"}
             />
           </div>
@@ -1318,6 +1319,7 @@ function TileShell({
         onEdit={() => onEditPin(pin.id)}
         borderless={chrome.borderless}
         hoverScrollbars={chrome.hoverScrollbars}
+        hideTitles={chrome.hideTitles}
         railMode={railMode}
         externalDrag={binding}
       />

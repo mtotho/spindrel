@@ -259,12 +259,14 @@ function WidgetsTab({
   }
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-4">
+      {/* Mobile drawer renders header pins as full tiles (not compact chips) —
+          the chip shape exists to keep the chat header slim, but the drawer
+          is a dedicated widget surface where readability beats compactness. */}
       <ZoneSection
         title="Header"
-        subtitle="Compact chips above the chat"
+        subtitle="Chips shown above the chat"
         pins={header}
         channelId={channelId}
-        chipMode
         onUnpin={onUnpin}
         onEnvelopeUpdate={onEnvelopeUpdate}
       />

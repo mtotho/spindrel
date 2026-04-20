@@ -68,6 +68,9 @@ interface Props {
    *  has posted a ``ready`` handshake. PinnedToolWidget uses this to drop
    *  its pre-load skeleton in lockstep with the iframe's first paint. */
   onIframeReady?: () => void;
+  /** Forwarded to the interactive-HTML iframe so its document-level
+   *  scrollbar follows the dashboard's "Scrollbars on hover" toggle. */
+  hoverScrollbars?: boolean;
   t: ThemeTokens;
 }
 
@@ -81,6 +84,7 @@ export function RichToolResult({
   dashboardPinId,
   gridDimensions,
   onIframeReady,
+  hoverScrollbars,
   t,
 }: Props) {
   const [fetched, setFetched] = useState<string | null>(null);
@@ -196,6 +200,7 @@ export function RichToolResult({
             dashboardPinId={dashboardPinId}
             gridDimensions={gridDimensions}
             onIframeReady={onIframeReady}
+            hoverScrollbars={hoverScrollbars}
             t={t}
           />
         );

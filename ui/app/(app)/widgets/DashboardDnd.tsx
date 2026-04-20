@@ -373,9 +373,9 @@ export function ResizeHandles({
   );
 
   // In edit mode the affordance should be discoverable at rest; we land at
-  // ~45% opacity and bump to full on hover. Outside edit mode, stays hover-
+  // ~65% opacity and bump to full on hover. Outside edit mode, stays hover-
   // only so view-mode tiles read as calm content.
-  const restOpacity = showRest ? "opacity-40" : "opacity-0";
+  const restOpacity = showRest ? "opacity-60" : "opacity-0";
   const base = `absolute z-20 select-none ${restOpacity} hover:opacity-100 transition-opacity duration-150 pointer-events-auto`;
   // Neutral gray — keeps the corner/edge handle from competing with the
   // drop-target accent outline.

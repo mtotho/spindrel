@@ -173,6 +173,21 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
     setJsonText("{}");
   };
 
+  // Title-visibility override — read/write `show_title` on the parsed config.
+  // Disabled when the JSON is unparseable so we don't stomp the user's edit.
+  const currentTitleOverride: "inherit" | "show" | "hide" = (() => {
+    const raw = parsedConfig?.show_title;
+    if (raw === "show" || raw === "hide") return raw;
+    return "inherit";
+  })();
+  const setTitleOverride = (next: "inherit" | "show" | "hide") => {
+    if (!parsedConfig) return;
+    const nextConfig: Record<string, unknown> = { ...parsedConfig };
+    if (next === "inherit") delete nextConfig.show_title;
+    else nextConfig.show_title = next;
+    setJsonText(prettyJson(nextConfig));
+  };
+
   const isHtmlWidget = pin?.envelope?.content_type === HTML_INTERACTIVE_CT;
   const isPanelPin = !!pin?.is_main_panel;
 
@@ -455,6 +470,38 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
               </button>
             </div>
           )}
+
+          <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+              Title bar
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {(["inherit", "show", "hide"] as const).map((opt) => {
+                const active = currentTitleOverride === opt;
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    disabled={jsonError}
+                    onClick={() => setTitleOverride(opt)}
+                    className={
+                      "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-medium capitalize transition-colors "
+                      + (active
+                        ? "border-accent/60 bg-accent/10 text-accent"
+                        : "border-surface-border text-text-muted hover:bg-surface-overlay")
+                      + " disabled:opacity-50 disabled:cursor-not-allowed"
+                    }
+                    aria-pressed={active}
+                  >
+                    {opt === "inherit" ? "Inherit dashboard" : opt}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-text-muted leading-snug">
+              Override the dashboard&apos;s &quot;Hide widget titles&quot; setting for this one pin.
+            </p>
+          </div>
 
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between">

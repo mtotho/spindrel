@@ -569,13 +569,46 @@ def _build_html_widget_body(html_template_body: str, tool_result_json: dict) -> 
         .replace("\u2028", "\\u2028")
         .replace("\u2029", "\\u2029")
     )
+    # Mirrors `.scroll-subtle` in ui/global.css. The host flips
+    # `documentElement.dataset.hoverScrollbars = "1"` on the iframe once it's
+    # loaded when the dashboard has `grid_config.hover_scrollbars` on, so the
+    # widget's own document-level scrollbar follows the same hover-reveal
+    # behavior as the tile's outer scroll container.
+    scrollbar_style = (
+        "<style>"
+        "html[data-hover-scrollbars=\"1\"] {"
+        " scrollbar-width: thin;"
+        " scrollbar-color: transparent transparent;"
+        " transition: scrollbar-color 200ms ease;"
+        "}"
+        "html[data-hover-scrollbars=\"1\"]:hover,"
+        "html[data-hover-scrollbars=\"1\"]:focus-within {"
+        " scrollbar-color: rgba(153,163,180,0.35) transparent;"
+        "}"
+        "html[data-hover-scrollbars=\"1\"]::-webkit-scrollbar {"
+        " width: 6px; height: 6px;"
+        "}"
+        "html[data-hover-scrollbars=\"1\"]::-webkit-scrollbar-track {"
+        " background: transparent;"
+        "}"
+        "html[data-hover-scrollbars=\"1\"]::-webkit-scrollbar-thumb {"
+        " background: transparent;"
+        " border-radius: 3px;"
+        " transition: background-color 200ms ease;"
+        "}"
+        "html[data-hover-scrollbars=\"1\"]:hover::-webkit-scrollbar-thumb,"
+        "html[data-hover-scrollbars=\"1\"]:focus-within::-webkit-scrollbar-thumb {"
+        " background: rgba(153,163,180,0.35);"
+        "}"
+        "</style>\n"
+    )
     preamble = (
         "<script>"
         "window.spindrel = window.spindrel || {};"
         f"window.spindrel.toolResult = {safe_json};"
         "</script>\n"
     )
-    return preamble + html_template_body
+    return scrollbar_style + preamble + html_template_body
 
 
 def get_state_poll_config(tool_name: str) -> dict | None:

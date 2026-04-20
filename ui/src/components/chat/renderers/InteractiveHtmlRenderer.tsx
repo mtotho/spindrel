@@ -90,6 +90,13 @@ interface Props {
    *  to drop its pre-load skeleton so dashboard↔chat switches stay visually
    *  stable instead of popping through the 200px default. */
   onIframeReady?: () => void;
+  /** Dashboard chrome flag — when true, host flips
+   *  ``documentElement.dataset.hoverScrollbars`` on the iframe once it's
+   *  loaded so the widget's own scrollbar hides at rest and reveals on
+   *  hover (mirrors the `.scroll-subtle` class applied to the outer tile
+   *  body in `PinnedToolWidget`). CSS for this is injected by the widget
+   *  preamble (see `app/services/widget_templates.py::_build_html_widget_body`). */
+  hoverScrollbars?: boolean;
   t: ThemeTokens;
 }
 
@@ -1783,6 +1790,7 @@ export function InteractiveHtmlRenderer({
   dashboardPinId,
   gridDimensions,
   onIframeReady,
+  hoverScrollbars,
   t,
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -2133,6 +2141,14 @@ export function InteractiveHtmlRenderer({
       try {
         const doc = iframe.contentDocument;
         if (!doc?.body || observer) return;
+        // Flip the html attribute that the preamble's scrollbar CSS keys on.
+        // Toggling here (rather than in srcDoc) keeps iframe identity stable
+        // when the dashboard setting changes at runtime.
+        if (hoverScrollbars) {
+          doc.documentElement.setAttribute("data-hover-scrollbars", "1");
+        } else {
+          doc.documentElement.removeAttribute("data-hover-scrollbars");
+        }
         const root = doc.getElementById("__sd_root") ?? doc.body;
         observer = new ResizeObserver(updateHeight);
         observer.observe(root);
@@ -2146,6 +2162,19 @@ export function InteractiveHtmlRenderer({
       if (observer) observer.disconnect();
     };
   }, [bodyWithoutPreamble]);
+
+  // Keep the hover-scrollbars attribute in sync when the dashboard toggle
+  // flips after the iframe has already loaded. Tolerates contentDocument
+  // being null (same-origin guard mid-navigation).
+  useEffect(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc?.documentElement) return;
+    if (hoverScrollbars) {
+      doc.documentElement.setAttribute("data-hover-scrollbars", "1");
+    } else {
+      doc.documentElement.removeAttribute("data-hover-scrollbars");
+    }
+  }, [hoverScrollbars]);
 
   const errorOverlay =
     pathMode && fileQuery.error ? (
@@ -2296,6 +2325,7 @@ export function InteractiveHtmlRenderer({
           whose credentials this widget's API calls use. */}
       {(botName || userScopedToken) && (
         <div
+          className="widget-hover-chip"
           style={{
             position: "absolute",
             bottom: 6,
@@ -2309,7 +2339,6 @@ export function InteractiveHtmlRenderer({
             display: "flex",
             alignItems: "center",
             gap: 4,
-            opacity: 0.75,
             zIndex: 1,
           }}
           title={
@@ -2325,6 +2354,7 @@ export function InteractiveHtmlRenderer({
       {pathMode && lastUpdated && (
         <div
           aria-hidden
+          className="widget-hover-chip"
           style={{
             position: "absolute",
             top: 6,

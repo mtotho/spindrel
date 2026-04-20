@@ -21,16 +21,19 @@ export interface GridConfig {
   preset: GridPresetId;
   borderless?: boolean;
   hover_scrollbars?: boolean;
+  hide_titles?: boolean;
 }
 
 export interface DashboardChrome {
   borderless: boolean;
   hoverScrollbars: boolean;
+  hideTitles: boolean;
 }
 
 export const DEFAULT_CHROME: DashboardChrome = {
   borderless: false,
   hoverScrollbars: false,
+  hideTitles: false,
 };
 
 export function resolveChrome(grid_config: unknown): DashboardChrome {
@@ -39,7 +42,25 @@ export function resolveChrome(grid_config: unknown): DashboardChrome {
   return {
     borderless: cfg.borderless === true,
     hoverScrollbars: cfg.hover_scrollbars === true,
+    hideTitles: cfg.hide_titles === true,
   };
+}
+
+/** Per-pin override for the title bar.
+ *  - "inherit" (default): follow the dashboard's `hide_titles`
+ *  - "show": force visible regardless of dashboard
+ *  - "hide": force hidden regardless of dashboard
+ */
+export type TitleVisibilityOverride = "inherit" | "show" | "hide";
+
+export function resolveShowTitle(
+  chrome: DashboardChrome,
+  widgetConfig: Record<string, unknown> | null | undefined,
+): boolean {
+  const raw = widgetConfig?.show_title;
+  if (raw === "show") return true;
+  if (raw === "hide") return false;
+  return !chrome.hideTitles;
 }
 
 export type SizePresetId = "S" | "M" | "L" | "XL";

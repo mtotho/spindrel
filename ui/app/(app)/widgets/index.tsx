@@ -614,6 +614,7 @@ export default function WidgetsDashboardPage() {
                     onEdit={() => setEditingPinId(p.id)}
                     borderless={chrome.borderless}
                     hoverScrollbars={chrome.hoverScrollbars}
+                    hideTitles={chrome.hideTitles}
                   />
                 </div>
               ))}
@@ -749,6 +750,7 @@ function PanelModeView({
                 onEdit={onEditPin}
                 borderless={chrome.borderless}
                 hoverScrollbars={chrome.hoverScrollbars}
+                hideTitles={chrome.hideTitles}
               />
             </div>
           ))}
@@ -771,6 +773,7 @@ function PanelModeView({
           onEdit={onEditPin}
           borderless={chrome.borderless}
           hoverScrollbars={chrome.hoverScrollbars}
+          hideTitles={chrome.hideTitles}
         />
       </div>
     </div>

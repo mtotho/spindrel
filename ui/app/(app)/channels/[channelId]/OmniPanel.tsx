@@ -416,6 +416,7 @@ function WidgetsSection({
               onEnvelopeUpdate={handleEnvelopeUpdate}
               borderless={chrome.borderless}
               hoverScrollbars={chrome.hoverScrollbars}
+              hideTitles={chrome.hideTitles}
               railMode
             />
           </div>

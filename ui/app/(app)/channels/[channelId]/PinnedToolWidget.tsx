@@ -19,6 +19,7 @@ import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedW
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { apiFetch } from "@/src/api/client";
 import { formatRelativeTime } from "@/src/utils/format";
+import { DEFAULT_CHROME, resolveShowTitle } from "@/src/lib/dashboardGrid";
 
 /** Strip MCP server prefix: "homeassistant-HassTurnOn" → "HassTurnOn" */
 function cleanToolName(name: string): string {
@@ -51,10 +52,11 @@ interface PinnedToolWidgetProps {
    *  in-place reorder + resize; everything else stays calm. */
   railMode?: boolean;
   /** Dashboard-level chrome flags (`grid_config.borderless` /
-   *  `grid_config.hover_scrollbars`). Default to a bordered card with a
-   *  persistent scrollbar — matches legacy behavior for every other surface. */
+   *  `grid_config.hover_scrollbars` / `grid_config.hide_titles`). Default to
+   *  a bordered card with a persistent scrollbar and the title row shown. */
   borderless?: boolean;
   hoverScrollbars?: boolean;
+  hideTitles?: boolean;
   /** Channel multi-canvas dashboard: the enclosing `DndContext` supplies a
    *  pre-wired draggable binding (useSortable or useDraggable) so the grip
    *  icon becomes the single drag handle — intra-canvas AND cross-canvas.
@@ -73,6 +75,7 @@ export function PinnedToolWidget({
   railMode = false,
   borderless = false,
   hoverScrollbars = false,
+  hideTitles = false,
   externalDrag,
 }: PinnedToolWidgetProps) {
   const isDashboard = scope.kind === "dashboard";
@@ -489,6 +492,18 @@ export function PinnedToolWidget({
   const ctrlIconSize = isDashboard ? 14 : 12;
 
   const cardBorderClass = showBorder ? "border" : "";
+
+  // Title row is always present in channel-scope chips (for drag DOM).
+  // Dashboard + rail tiles honor the dashboard's hide_titles flag plus the
+  // per-pin `widget_config.show_title` override ("inherit" / "show" / "hide").
+  // Edit mode always shows the title so pencil/unpin controls are reachable
+  // even when the dashboard has hide_titles on.
+  const showTitle =
+    editMode
+    || resolveShowTitle(
+      { ...DEFAULT_CHROME, hideTitles },
+      (widgetConfig ?? null) as Record<string, unknown> | null,
+    );
   if (isChip) {
     // Edit mode (only reachable when the parent DndContext provides
     // `externalDrag`) exposes a grip handle on the left edge + an unpin X on
@@ -499,7 +514,11 @@ export function PinnedToolWidget({
       <div
         ref={externalDrag?.setNodeRef}
         className={
-          "group flex h-8 items-center rounded-md border border-surface-border/60 bg-surface-raised/40 px-2 overflow-hidden "
+          "group flex h-8 items-center rounded-md border px-2 overflow-hidden transition-colors "
+          + (chipEditable
+            ? "border-accent/50 bg-accent/[0.08] hover:bg-accent/[0.14]"
+            : "border-surface-border/60 bg-surface-raised/40")
+          + " "
           + (externalDrag ? "w-full" : "w-[180px]")
         }
         title={resolveDisplayName(widget)}
@@ -511,8 +530,9 @@ export function PinnedToolWidget({
       >
         {chipEditable && (
           <GripVertical
-            size={11}
-            className="widget-drag-handle cursor-grab flex-shrink-0 mr-1 opacity-50 group-hover:opacity-100 transition-opacity"
+            size={12}
+            className="widget-drag-handle cursor-grab flex-shrink-0 mr-1 opacity-90 hover:opacity-100 transition-opacity"
+            style={{ color: t.accent }}
             aria-label="Drag to reorder"
             {...(externalDrag?.listeners ?? {})}
           />
@@ -535,11 +555,11 @@ export function PinnedToolWidget({
           <button
             type="button"
             onClick={() => onUnpin(widget.id)}
-            className="ml-1 p-0.5 rounded hover:bg-white/[0.06] flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            className="ml-1 p-0.5 rounded hover:bg-white/[0.06] flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
             aria-label="Unpin chip"
             title="Unpin"
           >
-            <X size={11} style={{ color: t.textMuted, opacity: 0.6 }} />
+            <X size={12} style={{ color: t.textMuted }} />
           </button>
         )}
       </div>
@@ -555,9 +575,9 @@ export function PinnedToolWidget({
       {/* Header */}
       <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-0.5">
         {/* In dashboard scope the handle is gated by editMode so view mode
-            stays calm; channel scope always shows it (the OmniPanel dnd-kit
-            reorder flow relies on it). Rail mode reveals the handle too, but
-            hover-only so the tile stays calm at rest. */}
+            stays calm; channel scope and rail tiles keep the handle in the
+            DOM (the OmniPanel dnd-kit / RGL flow relies on it) but hover-
+            reveal it so tiles are visually empty at rest. */}
         {(!isDashboard || editMode || railMode) && (
           <GripVertical
             size={ctrlIconSize}
@@ -565,19 +585,23 @@ export function PinnedToolWidget({
               "widget-drag-handle text-text-muted cursor-grab transition-opacity duration-150 flex-shrink-0 " +
               (editMode
                 ? "opacity-80 hover:opacity-100"
-                : "opacity-50 group-hover:opacity-100") +
+                : "opacity-0 group-hover:opacity-100") +
               (isDashboard ? " p-0.5 -m-0.5" : "")
             }
             aria-label="Drag to reorder"
             {...(handleListeners ?? {})}
           />
         )}
-        <span
-          className="flex-1 text-[10px] font-medium uppercase tracking-wider truncate"
-          style={{ color: t.textDim }}
-        >
-          {resolveDisplayName(widget)}
-        </span>
+        {showTitle ? (
+          <span
+            className="flex-1 text-[10px] font-medium uppercase tracking-wider truncate"
+            style={{ color: t.textDim }}
+          >
+            {resolveDisplayName(widget)}
+          </span>
+        ) : (
+          <div className="flex-1" />
+        )}
         {isDashboard && editMode && onEdit && (
           <button
             type="button"
@@ -640,6 +664,7 @@ export function PinnedToolWidget({
           dashboardPinId={widget.id}
           gridDimensions={measuredSize ?? undefined}
           onIframeReady={handleIframeReady}
+          hoverScrollbars={hoverScrollbars}
           t={t}
         />
         {showIframeSkeleton && (
