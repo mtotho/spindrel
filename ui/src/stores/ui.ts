@@ -70,6 +70,12 @@ interface UIState {
    *  call sites can invoke one thing from a keyboard shortcut / header
    *  button. */
   requestFilesFocus: () => void;
+  /** Mobile channel-header widget button: force-open the drawer on the
+   *  Widgets tab. Second click while the drawer is open on Widgets closes
+   *  it, so the same button toggles the widget view. Does NOT change the
+   *  persisted tab when closing — hamburger still reopens wherever the user
+   *  last explicitly navigated. */
+  toggleDrawerToWidgets: () => void;
   toggleHudCollapsed: (channelId: string) => void;
   toggleHudExpandedOnMobile: (channelId: string) => void;
   recordPageVisit: (href: string) => void;
@@ -123,6 +129,13 @@ export const useUIStore = create<UIState>()(
           omniPanelTab: "files",
           filesFocusTick: s.filesFocusTick + 1,
         })),
+      toggleDrawerToWidgets: () =>
+        set((s) => {
+          if (s.fileExplorerOpen && s.omniPanelTab === "widgets") {
+            return { fileExplorerOpen: false };
+          }
+          return { fileExplorerOpen: true, omniPanelTab: "widgets" };
+        }),
       toggleHudCollapsed: (channelId) =>
         set((s) => ({
           hudCollapsedChannels: s.hudCollapsedChannels.includes(channelId)

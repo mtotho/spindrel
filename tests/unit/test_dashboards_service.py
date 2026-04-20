@@ -262,14 +262,16 @@ async def test_channel_dashboard_pin_stacks_in_rail_zone(db_session):
         source_channel_id=ch.id, dashboard_key=slug,
     )
 
-    assert a.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 6}
-    assert b.grid_layout == {"x": 0, "y": 6, "w": 6, "h": 6}
+    # Channel + user dashboards share the same 2-col auto-pack formula —
+    # new pins land in the grid canvas by default and get moved to Rail /
+    # Dock / Header via the zone chip in the editor.
+    assert a.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 10}
+    assert b.grid_layout == {"x": 6, "y": 0, "w": 6, "h": 10}
 
 
 @pytest.mark.asyncio
 async def test_user_dashboard_pin_uses_alternating_columns(db_session):
-    """User dashboards keep the original 2-column-pack tile layout —
-    only channel dashboards stack at x=0."""
+    """User dashboards and channel dashboards both 2-col-pack new pins."""
     await create_dashboard(db_session, slug="home", name="Home")
     a = await create_pin(
         db_session, source_kind="adhoc", tool_name="a", envelope=_env(),
@@ -280,8 +282,8 @@ async def test_user_dashboard_pin_uses_alternating_columns(db_session):
         dashboard_key="home",
     )
     # Position 0 → (x=0, y=0); position 1 → (x=6, y=0). Alternating.
-    assert a.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 6}
-    assert b.grid_layout == {"x": 6, "y": 0, "w": 6, "h": 6}
+    assert a.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 10}
+    assert b.grid_layout == {"x": 6, "y": 0, "w": 6, "h": 10}
 
 
 @pytest.mark.asyncio

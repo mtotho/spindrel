@@ -576,5 +576,101 @@ class TestPanelMode:
                 current_bot_id.reset(bot_tok)
 
 
+class TestSetDashboardChrome:
+    @pytest.mark.asyncio
+    async def test_set_borderless_only(self, engine, channel_id, bot_with_key):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import (
+            describe_dashboard, set_dashboard_chrome,
+        )
+
+        with _patch_tool_engine(engine):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                raw = await set_dashboard_chrome(borderless=True)
+                described = json.loads(await describe_dashboard())
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        result = json.loads(raw)
+        assert "error" not in result, result
+        assert result["grid_config"].get("borderless") is True
+        # hover_scrollbars not set → absent or False.
+        assert result["grid_config"].get("hover_scrollbars") in (None, False)
+        # Dashboard actually persists the update.
+        assert described["dashboard"]["grid_config"].get("borderless") is True
+
+    @pytest.mark.asyncio
+    async def test_set_both_flags(self, engine, channel_id, bot_with_key):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import set_dashboard_chrome
+
+        with _patch_tool_engine(engine):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                raw = await set_dashboard_chrome(
+                    borderless=True, hover_scrollbars=True,
+                )
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        result = json.loads(raw)
+        assert result["grid_config"]["borderless"] is True
+        assert result["grid_config"]["hover_scrollbars"] is True
+
+    @pytest.mark.asyncio
+    async def test_preserves_preset(self, engine, channel_id, bot_with_key):
+        """Chrome change must NOT clobber existing preset."""
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.services.dashboards import ensure_channel_dashboard, update_dashboard
+        from app.tools.local.dashboard_tools import set_dashboard_chrome
+        from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with factory() as db:
+            await ensure_channel_dashboard(db, channel_id)
+            await update_dashboard(
+                db, f"channel:{channel_id}",
+                {"grid_config": {"layout_type": "grid", "preset": "fine"}},
+            )
+
+        with _patch_tool_engine(engine):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                raw = await set_dashboard_chrome(borderless=True)
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        result = json.loads(raw)
+        assert result["grid_config"]["borderless"] is True
+        # Preset preserved.
+        assert result["grid_config"]["preset"] == "fine"
+        assert result["grid_config"]["layout_type"] == "grid"
+
+    @pytest.mark.asyncio
+    async def test_empty_call_is_rejected(self, engine, channel_id, bot_with_key):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import set_dashboard_chrome
+
+        with _patch_tool_engine(engine):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                raw = await set_dashboard_chrome()
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        result = json.loads(raw)
+        assert "error" in result
+        assert "at least one" in result["error"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -19,6 +19,7 @@ Six tools cover the full surface:
 | `unpin_widget` | Remove a pin |
 | `promote_panel` | Flip a pin into panel mode (fills the dashboard's main area) |
 | `demote_panel` | Clear a pin's panel-mode flag |
+| `set_dashboard_chrome` | Toggle dashboard-wide `borderless` / `hover_scrollbars` |
 
 ## The dashboard model
 
@@ -126,6 +127,25 @@ Panel mode is all-or-nothing per dashboard:
 - `demote_panel(pin_id)` clears the flag. If the dashboard has no other panel pin, it reverts to `grid` mode.
 
 Use panel mode sparingly — it suppresses the grid matrix entirely. Good for a single-purpose dashboard (one big Kanban, one live camera feed); bad for dashboards with multiple first-class widgets.
+
+## `set_dashboard_chrome` — dashboard-wide visual prefs
+
+Two dashboard-wide toggles live on `grid_config`:
+
+| Field | What it does |
+|---|---|
+| `borderless` | Drops the per-tile border. Good for kiosk / media-wall layouts where tile chrome competes with content. |
+| `hover_scrollbars` | Hides scrollbars until the user hovers. Cleaner look on dense dashboards. |
+
+Both default `false`. Omit a field in the call to leave it unchanged:
+
+```python
+set_dashboard_chrome(borderless=true)              # flip just borders
+set_dashboard_chrome(hover_scrollbars=true)        # flip just scrollbars
+set_dashboard_chrome(borderless=true, hover_scrollbars=true)  # both
+```
+
+These are **render preferences, not layout**. They don't move pins and don't affect zone/coord math. If the user says "make the dashboard look cleaner" or "no borders please", reach for this. Preset switches (standard ↔ fine) are a separate, heavier operation that rescales every pin — not wired as a bot tool today; ask the user to switch presets in the dashboard editor if they want that.
 
 ## Relation to `emit_html_widget`
 

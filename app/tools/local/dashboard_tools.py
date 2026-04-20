@@ -281,6 +281,50 @@ _DEMOTE_SCHEMA = {
 }
 
 
+_SET_CHROME_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "set_dashboard_chrome",
+        "description": (
+            "Toggle a dashboard's visual chrome options — currently "
+            "`borderless` (drop the per-tile border) and `hover_scrollbars` "
+            "(hide scrollbars until hover). Both are dashboard-wide render "
+            "preferences, not per-pin. Omit a field to leave it unchanged.\n\n"
+            "Only touches `grid_config.borderless` / `.hover_scrollbars` — "
+            "preset and layout_type are preserved."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "dashboard_key": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Defaults to the current channel's "
+                        "dashboard."
+                    ),
+                },
+                "borderless": {
+                    "type": "boolean",
+                    "description": (
+                        "True: drop the visible border around each tile. "
+                        "Good for kiosk / media-wall layouts where chrome "
+                        "competes with content. False: restore borders."
+                    ),
+                },
+                "hover_scrollbars": {
+                    "type": "boolean",
+                    "description": (
+                        "True: hide scrollbars until the user hovers. "
+                        "Cleaner look on dense dashboards. False: always "
+                        "show scrollbars."
+                    ),
+                },
+            },
+        },
+    },
+}
+
+
 # ---------------------------------------------------------------------------
 # Returns schemas
 # ---------------------------------------------------------------------------
@@ -370,6 +414,17 @@ _PROMOTE_DEMOTE_RETURNS = {
     "properties": {
         "llm": {"type": "string"},
         "pin": _PIN_RESULT_SCHEMA,
+        "error": {"type": "string"},
+    },
+}
+
+
+_SET_CHROME_RETURNS = {
+    "type": "object",
+    "properties": {
+        "llm": {"type": "string"},
+        "dashboard_key": {"type": "string"},
+        "grid_config": {"type": "object"},
         "error": {"type": "string"},
     },
 }
@@ -930,4 +985,74 @@ async def demote_panel(pin_id: str) -> str:
     return json.dumps({
         "pin": {**pin_dict, "visible_in_chat": _visible_in_chat(pin_dict.get("zone") or "grid")},
         "llm": f"Demoted {label!r} from panel mode.",
+    })
+
+
+@register(
+    _SET_CHROME_SCHEMA,
+    safety_tier="mutating",
+    requires_bot_context=True,
+    returns=_SET_CHROME_RETURNS,
+)
+async def set_dashboard_chrome(
+    dashboard_key: str | None = None,
+    borderless: bool | None = None,
+    hover_scrollbars: bool | None = None,
+) -> str:
+    if borderless is None and hover_scrollbars is None:
+        return json.dumps({
+            "error": (
+                "at least one of borderless / hover_scrollbars must be "
+                "provided."
+            ),
+        })
+
+    channel_id = current_channel_id.get()
+    key, err = _resolve_dashboard_key(dashboard_key, channel_id)
+    if err:
+        return json.dumps({"error": err, "llm": err})
+
+    from app.db.engine import async_session
+    from app.services.dashboards import (
+        ensure_channel_dashboard, get_dashboard, update_dashboard,
+    )
+
+    async with async_session() as db:
+        if key.startswith("channel:") and channel_id is not None:
+            await ensure_channel_dashboard(db, channel_id)
+
+        try:
+            row = await get_dashboard(db, key)
+        except Exception as exc:
+            logger.exception("set_dashboard_chrome: get_dashboard failed")
+            return json.dumps({"error": str(exc)})
+
+        # Merge the toggles into the existing grid_config so we don't clobber
+        # preset or layout_type. ``update_dashboard`` is authoritative — it
+        # handles preset rescaling (skipped here since preset is unchanged).
+        current = dict(row.grid_config or {})
+        merged = dict(current)
+        if borderless is not None:
+            merged["borderless"] = bool(borderless)
+        if hover_scrollbars is not None:
+            merged["hover_scrollbars"] = bool(hover_scrollbars)
+
+        try:
+            updated = await update_dashboard(db, key, {"grid_config": merged})
+        except Exception as exc:
+            logger.exception("set_dashboard_chrome: update_dashboard failed")
+            return json.dumps({"error": str(exc)})
+
+    changes: list[str] = []
+    if borderless is not None:
+        changes.append(f"borderless={borderless}")
+    if hover_scrollbars is not None:
+        changes.append(f"hover_scrollbars={hover_scrollbars}")
+    narrative = (
+        f"Updated dashboard {key!r} chrome: {', '.join(changes)}."
+    )
+    return json.dumps({
+        "dashboard_key": key,
+        "grid_config": updated.grid_config or {},
+        "llm": narrative,
     })

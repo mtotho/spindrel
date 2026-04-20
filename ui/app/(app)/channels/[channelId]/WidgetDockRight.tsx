@@ -86,23 +86,36 @@ export function WidgetDockRight({ channelId }: Props) {
     [updateEnvelope],
   );
 
-  if (pins.length === 0) return null;
-
+  // Reserve the gutter the instant we know a dock pin exists — don't wait for
+  // each pin's widget envelope/body to hydrate. Width transitions smoothly
+  // between 0 and the user-chosen width so a late-arriving pin doesn't
+  // displace the chat column with a hard reflow. Viewport responsiveness
+  // is preserved because the outer container honors its parent's flex rules.
+  const hasPins = pins.length > 0;
+  const targetWidth = hasPins ? width : 0;
   const dashboardHref = `/widgets/channel/${encodeURIComponent(channelId)}?zone=dock`;
 
   return (
     <>
-      <ResizeHandle
-        direction="horizontal"
-        onResize={(delta: number) =>
-          setWidth((w) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w - delta)))
-        }
-        invisible
-      />
+      {hasPins && (
+        <ResizeHandle
+          direction="horizontal"
+          onResize={(delta: number) =>
+            setWidth((w) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w - delta)))
+          }
+          invisible
+        />
+      )}
       <div
         className="group relative flex flex-col h-full overflow-hidden"
-        style={{ width, flexShrink: 0 }}
+        style={{
+          width: targetWidth,
+          flexShrink: 0,
+          transition: "width 220ms cubic-bezier(0.4, 0, 0.2, 1)",
+        }}
+        aria-hidden={!hasPins}
       >
+        {hasPins && <>
         {/* Hover-revealed top-right controls — the bare column has no title
             strip, so Settings + Collapse fade in only on hover to keep the
             column calm at rest. */}
@@ -140,6 +153,7 @@ export function WidgetDockRight({ channelId }: Props) {
             />
           ))}
         </div>
+        </>}
       </div>
     </>
   );

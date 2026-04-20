@@ -135,7 +135,7 @@ async def test_serialize_pin_shape(db_session):
     assert data["tool_args"] == {"id": "abc"}
     assert data["widget_config"] == {"x": 1}
     assert data["display_label"] == "L"
-    assert data["grid_layout"] == {"x": 0, "y": 0, "w": 6, "h": 6}
+    assert data["grid_layout"] == {"x": 0, "y": 0, "w": 6, "h": 10}
 
 
 @pytest.mark.asyncio

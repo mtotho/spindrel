@@ -41,6 +41,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragStartEvent,
   type DragOverEvent,
 } from "@dnd-kit/core";
@@ -75,6 +76,7 @@ import {
   useCanvasMeasure,
   type ExternalDragBinding,
   type ResizeEdge,
+  type TileBox,
 } from "./DashboardDnd";
 
 // Widths mirror the runtime OmniPanel (300px default) + WidgetDockRight (320px).
@@ -85,6 +87,9 @@ const HEADER_COLS = 12;
 // Chip row height matches ChannelHeaderChip's h-8 pill.
 const HEADER_ROW_HEIGHT = 32;
 const GAP_PX = 12;
+// Matches the inner `p-3` padding on the canvas content wrappers — kept in a
+// constant so pointerToCell math and the ghost target overlay agree.
+const CANVAS_INNER_PADDING = 12;
 
 function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
   return {
@@ -140,6 +145,25 @@ export function ChannelDashboardMultiCanvas({
   const [error, setError] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [overZone, setOverZone] = useState<ChatZone | null>(null);
+  /** Live pointer position during a drag. Updated by `onDragMove` and used
+   *  by the ghost target overlay in each canvas to show where the active
+   *  tile will land on release. Cleared on drag end. */
+  const [dragPointer, setDragPointer] = useState<{ x: number; y: number } | null>(null);
+  /** Pin id that was just committed (moved or resized). Drives a brief
+   *  `pin-flash` pulse so the user sees confirmation at the landing spot.
+   *  Cleared ~1200 ms after set. */
+  const [justMovedId, setJustMovedId] = useState<string | null>(null);
+  const justMovedTimerRef = useRef<number | null>(null);
+  const pulseMoved = useCallback((pinId: string) => {
+    if (justMovedTimerRef.current) window.clearTimeout(justMovedTimerRef.current);
+    setJustMovedId(pinId);
+    justMovedTimerRef.current = window.setTimeout(() => {
+      setJustMovedId((cur) => (cur === pinId ? null : cur));
+    }, 1200);
+  }, []);
+  useEffect(() => () => {
+    if (justMovedTimerRef.current) window.clearTimeout(justMovedTimerRef.current);
+  }, []);
 
   // Sortable canvases render in grid_layout order so reorder commits (which
   // only update x or y) actually change the render position. Without the
@@ -178,27 +202,59 @@ export function ChannelDashboardMultiCanvas({
   const gridMeasure = useCanvasMeasure();
   const headerMeasure = useCanvasMeasure();
 
-  // Default tile sizes used when a cross-canvas drop needs to assign fresh
-  // coords (the source canvas's x/y/w/h doesn't translate).
-  const defaultForZone = useCallback(
-    (zone: ChatZone): { x: number; y: number; w: number; h: number } => {
+  // Default w/h used when a cross-canvas drop creates fresh coords (the
+  // source canvas's dimensions don't translate — a chip can't stay a chip
+  // after landing in the main grid). x/y are derived pointer-aware.
+  const defaultSizeForZone = useCallback(
+    (zone: ChatZone): { w: number; h: number } => {
       switch (zone) {
         case "rail":
         case "dock":
-          return { x: 0, y: 0, w: 1, h: 6 };
+          return { w: 1, h: 6 };
         case "header":
-          return { x: 0, y: 0, w: 2, h: 1 };
+          return { w: 2, h: 1 };
         case "grid":
         default:
-          return {
-            x: 0,
-            y: 0,
-            w: preset.defaultTile.w,
-            h: preset.defaultTile.h,
-          };
+          return { w: preset.defaultTile.w, h: preset.defaultTile.h };
       }
     },
     [preset.defaultTile],
+  );
+
+  /** DOM-measure the insertion index for a vertical list canvas (rail/dock).
+   *  Walks every tile's bounding rect and returns how many sit above the
+   *  pointer's midline. Works regardless of scroll, padding, or CSS flex
+   *  gaps — no extra measure hook needed. */
+  const insertionIndexByY = useCallback(
+    (zone: "rail" | "dock", pointerY: number): number => {
+      const tiles = document.querySelectorAll<HTMLElement>(
+        `[data-dashboard-canvas="${zone}"] [data-pin-id]`,
+      );
+      let idx = 0;
+      for (const tile of Array.from(tiles)) {
+        const r = tile.getBoundingClientRect();
+        if (pointerY > r.top + r.height / 2) idx += 1;
+        else break;
+      }
+      return idx;
+    },
+    [],
+  );
+
+  const insertionIndexByX = useCallback(
+    (pointerX: number): number => {
+      const tiles = document.querySelectorAll<HTMLElement>(
+        `[data-dashboard-canvas="header"] [data-pin-id]`,
+      );
+      let idx = 0;
+      for (const tile of Array.from(tiles)) {
+        const r = tile.getBoundingClientRect();
+        if (pointerX > r.left + r.width / 2) idx += 1;
+        else break;
+      }
+      return idx;
+    },
+    [],
   );
 
   const sensors = useSensors(
@@ -208,6 +264,22 @@ export function ChannelDashboardMultiCanvas({
   const onDragStart = useCallback((e: DragStartEvent) => {
     setActiveDragId(String(e.active.id));
     setError(null);
+    const pe = e.activatorEvent as PointerEvent | null;
+    if (pe && typeof pe.clientX === "number") {
+      setDragPointer({ x: pe.clientX, y: pe.clientY });
+    }
+  }, []);
+
+  const onDragMove = useCallback((e: DragMoveEvent) => {
+    // `activatorEvent.clientX/Y` is the start; add the running delta to get
+    // the live pointer position. dnd-kit doesn't expose a direct client-xy
+    // stream during the drag, so this is the canonical reconstruction.
+    const pe = e.activatorEvent as PointerEvent | null;
+    if (!pe || typeof pe.clientX !== "number") return;
+    setDragPointer({
+      x: pe.clientX + e.delta.x,
+      y: pe.clientY + e.delta.y,
+    });
   }, []);
 
   const onDragOver = useCallback((e: DragOverEvent) => {
@@ -226,17 +298,100 @@ export function ChannelDashboardMultiCanvas({
   }, [pins]);
 
   const commitCrossCanvasMove = useCallback(
-    async (pinId: string, targetZone: ChatZone) => {
+    async (
+      pinId: string,
+      targetZone: ChatZone,
+      clientX: number,
+      clientY: number,
+    ) => {
       const pin = pins.find((p) => p.id === pinId);
       if (!pin) return;
       if (pin.zone === targetZone) return;
+      const size = defaultSizeForZone(targetZone);
+
+      // Grid: pointer-snap the pin's top-left to a cell; coords are absolute
+      // so no sibling rewrite is needed (grid uses CSS Grid positioning).
+      if (targetZone === "grid") {
+        const rect = gridMeasure.rect;
+        if (!rect) return;
+        const { x, y } = pointerToCell(
+          clientX - rect.left,
+          clientY - rect.top,
+          {
+            cols: preset.cols.lg,
+            rowHeight: preset.rowHeight,
+            gap: GAP_PX,
+            canvasWidth: rect.width,
+            paddingLeft: CANVAS_INNER_PADDING,
+            paddingTop: CANVAS_INNER_PADDING,
+          },
+        );
+        const placement = clampPlacement(x, y, size.w, size.h, preset.cols.lg);
+        try {
+          await applyLayout([{ id: pinId, zone: "grid", ...placement }]);
+          pulseMoved(pinId);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to move widget");
+        }
+        return;
+      }
+
+      // Rail / dock / header: determine insertion index by DOM-measured
+      // midpoints, then repack the whole list via the existing sequential
+      // layout helpers so siblings shift to accommodate the new tile.
+      const existing = pins
+        .filter((p) => p.zone === targetZone)
+        .slice()
+        .sort((a, b) => {
+          const ga = toGridLayout(a);
+          const gb = toGridLayout(b);
+          return targetZone === "header" ? ga.x - gb.x : ga.y - gb.y;
+        });
+      const idx =
+        targetZone === "header"
+          ? insertionIndexByX(clientX)
+          : insertionIndexByY(targetZone, clientY);
+      const existingIds = existing.map((p) => p.id);
+      const reordered = [
+        ...existingIds.slice(0, idx),
+        pinId,
+        ...existingIds.slice(idx),
+      ];
+      const byId = new Map<string, GridLayoutItem>(
+        existing.map((p) => [p.id, toGridLayout(p)]),
+      );
+      // The incoming pin uses the zone's fresh default size since its
+      // source coords don't translate (e.g. a grid tile becoming a chip).
+      byId.set(pinId, { x: 0, y: 0, w: size.w, h: size.h });
+
+      const nextLayout =
+        targetZone === "header"
+          ? sequentialXLayout(reordered, byId)
+          : sequentialYLayout(reordered, size.h, byId);
+      const items = reordered.map((id) => {
+        const coords = nextLayout.get(id)!;
+        // Only the moved pin carries an explicit `zone` — siblings stay in
+        // their own zone, which they're already in by filter.
+        return id === pinId ? { id, zone: targetZone, ...coords } : { id, ...coords };
+      });
       try {
-        await applyLayout([{ id: pinId, zone: targetZone, ...defaultForZone(targetZone) }]);
+        await applyLayout(items);
+        pulseMoved(pinId);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to move widget");
       }
     },
-    [pins, applyLayout, defaultForZone],
+    [
+      pins,
+      applyLayout,
+      defaultSizeForZone,
+      pulseMoved,
+      gridMeasure.rect,
+      preset.cols.lg,
+      preset.rowHeight,
+      insertionIndexByX,
+      insertionIndexByY,
+    ],
   );
 
   const commitSortableReorder = useCallback(
@@ -269,11 +424,12 @@ export function ChannelDashboardMultiCanvas({
       });
       try {
         await applyLayout(items);
+        pulseMoved(fromId);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to reorder");
       }
     },
-    [pins, applyLayout],
+    [pins, applyLayout, pulseMoved],
   );
 
   const commitGridMove = useCallback(
@@ -288,10 +444,13 @@ export function ChannelDashboardMultiCanvas({
         rowHeight: preset.rowHeight,
         gap: GAP_PX,
         canvasWidth: rect.width,
+        paddingLeft: CANVAS_INNER_PADDING,
+        paddingTop: CANVAS_INNER_PADDING,
       };
       const { x, y } = pointerToCell(clientX - rect.left, clientY - rect.top, cfg);
       const placement = clampPlacement(x, y, existing.w, existing.h, cfg.cols);
-      // No-op if the tile didn't actually move cells.
+      // No-op if the tile didn't actually move cells — still trigger the
+      // confirmation pulse so the user knows their drop registered.
       if (
         pin.zone === "grid"
         && placement.x === existing.x
@@ -299,15 +458,17 @@ export function ChannelDashboardMultiCanvas({
         && placement.w === existing.w
         && placement.h === existing.h
       ) {
+        pulseMoved(pinId);
         return;
       }
       try {
         await applyLayout([{ id: pinId, zone: "grid", ...placement }]);
+        pulseMoved(pinId);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to place widget");
       }
     },
-    [pins, applyLayout, preset.cols.lg, preset.rowHeight, gridMeasure],
+    [pins, applyLayout, preset.cols.lg, preset.rowHeight, gridMeasure, pulseMoved],
   );
 
   const onDragEnd = useCallback(
@@ -316,6 +477,7 @@ export function ChannelDashboardMultiCanvas({
       const overId = e.over?.id != null ? String(e.over.id) : null;
       setActiveDragId(null);
       setOverZone(null);
+      setDragPointer(null);
       if (!overId) return;
 
       const active = pins.find((p) => p.id === activeId);
@@ -331,25 +493,22 @@ export function ChannelDashboardMultiCanvas({
         targetZone = overPin.zone;
       }
 
+      // Release pointer position — dnd-kit doesn't expose it directly, so
+      // reconstruct from the activator start + running delta.
+      const pe = (e.activatorEvent as PointerEvent | null);
+      const releaseX = (pe?.clientX ?? 0) + e.delta.x;
+      const releaseY = (pe?.clientY ?? 0) + e.delta.y;
+
       if (targetZone !== active.zone) {
-        // Cross-canvas move — use defaults for the target zone.
-        await commitCrossCanvasMove(activeId, targetZone);
+        // Cross-canvas move — pointer-aware placement.
+        await commitCrossCanvasMove(activeId, targetZone, releaseX, releaseY);
         return;
       }
 
       // Same-zone move:
       if (targetZone === "grid") {
         // Free placement: snap pointer to a cell.
-        const pe = (e.activatorEvent as PointerEvent | null);
-        // Activator event holds the starting pointer; we want the release
-        // point, which dnd-kit exposes via `e.delta`.
-        const startX = pe?.clientX ?? 0;
-        const startY = pe?.clientY ?? 0;
-        await commitGridMove(
-          activeId,
-          startX + e.delta.x,
-          startY + e.delta.y,
-        );
+        await commitGridMove(activeId, releaseX, releaseY);
         return;
       }
 
@@ -367,10 +526,34 @@ export function ChannelDashboardMultiCanvas({
 
   const activePin = activeDragId ? pins.find((p) => p.id === activeDragId) ?? null : null;
 
+  /** Ghost target box for the grid canvas — the snapped cell where the
+   *  active drag will land on release. Null unless dragging over the grid.
+   *  Rendered as a dashed accent outline inside GridCanvas. */
+  const gridGhost = useMemo(() => {
+    if (overZone !== "grid" || !dragPointer || !activePin) return null;
+    const rect = gridMeasure.rect;
+    if (!rect) return null;
+    const existing = toGridLayout(activePin);
+    const { x, y } = pointerToCell(
+      dragPointer.x - rect.left,
+      dragPointer.y - rect.top,
+      {
+        cols: preset.cols.lg,
+        rowHeight: preset.rowHeight,
+        gap: GAP_PX,
+        canvasWidth: rect.width,
+        paddingLeft: CANVAS_INNER_PADDING,
+        paddingTop: CANVAS_INNER_PADDING,
+      },
+    );
+    return clampPlacement(x, y, existing.w, existing.h, preset.cols.lg);
+  }, [overZone, dragPointer, activePin, gridMeasure.rect, preset.cols.lg, preset.rowHeight]);
+
   return (
     <DndContext
       sensors={sensors}
       onDragStart={onDragStart}
+      onDragMove={onDragMove}
       onDragOver={onDragOver}
       onDragEnd={onDragEnd}
     >
@@ -396,6 +579,8 @@ export function ChannelDashboardMultiCanvas({
           applyLayout={applyLayout}
           channelId={channelId}
           measure={headerMeasure}
+          justMovedId={justMovedId}
+          onTileMoved={pulseMoved}
         />
 
         <div className="flex-1 flex flex-col gap-4 min-h-0 lg:flex-row lg:gap-3">
@@ -414,6 +599,8 @@ export function ChannelDashboardMultiCanvas({
             applyLayout={applyLayout}
             channelId={channelId}
             rowHeight={preset.rowHeight}
+            justMovedId={justMovedId}
+            onTileMoved={pulseMoved}
           />
 
           <GridCanvas
@@ -430,6 +617,9 @@ export function ChannelDashboardMultiCanvas({
             measureRef={gridMeasure.setRef}
             measuredRect={gridMeasure.rect}
             channelId={channelId}
+            justMovedId={justMovedId}
+            onTileMoved={pulseMoved}
+            ghost={gridGhost}
           />
 
           <ListCanvas
@@ -447,6 +637,8 @@ export function ChannelDashboardMultiCanvas({
             applyLayout={applyLayout}
             channelId={channelId}
             rowHeight={preset.rowHeight}
+            justMovedId={justMovedId}
+            onTileMoved={pulseMoved}
           />
         </div>
       </div>
@@ -499,6 +691,13 @@ interface CanvasSharedProps {
   /** Enclosing channel dashboard's channel uuid — carried into every pin's
    *  `WidgetScope.dashboard.channelId` so `window.spindrel.channelId` resolves. */
   channelId: string;
+  /** Pin id whose wrapper should briefly apply the `pin-flash` accent pulse
+   *  — set by the parent after every successful layout commit so the user
+   *  sees where the tile landed. */
+  justMovedId?: string | null;
+  /** Parent-supplied hook to start a post-commit pulse from inside a canvas
+   *  (e.g. after a resize finishes — the parent owns the timer). */
+  onTileMoved?: (pinId: string) => void;
 }
 
 interface HeaderCanvasProps extends CanvasSharedProps {
@@ -517,6 +716,8 @@ function HeaderCanvas({
   applyLayout,
   channelId,
   measure,
+  justMovedId,
+  onTileMoved,
 }: HeaderCanvasProps) {
   if (!editMode && pins.length === 0) return null;
   // Chip scope in BOTH modes so the author sees exactly what the chat shows.
@@ -597,7 +798,11 @@ function HeaderCanvas({
                       <div
                         ref={binding.setNodeRef}
                         {...binding.attributes}
-                        className="relative"
+                        data-pin-id={p.id}
+                        className={
+                          "relative "
+                          + (justMovedId === p.id ? "pin-flash" : "")
+                        }
                         style={{
                           ...binding.style,
                           width: tileWidthPx,
@@ -616,28 +821,29 @@ function HeaderCanvas({
                           resize={
                             editMode
                               ? {
-                                  edges: ["e"] as ResizeEdge[],
-                                  initial: { w: gl.w, h: 1 },
+                                  edges: ["e", "w"] as ResizeEdge[],
+                                  initial: { x: gl.x, y: 0, w: gl.w, h: 1 },
                                   cellPx: {
                                     w: cellWidthPx + 4,
                                     h: HEADER_ROW_HEIGHT,
                                   },
                                   clampW: { min: 1, max: HEADER_COLS },
                                   clampH: { min: 1, max: 1 },
+                                  showRest: true,
                                   onResizing: ({ w }) =>
                                     setResizePreview({ id: p.id, w }),
-                                  onCommit: ({ w }) => {
+                                  onCommit: ({ x, w }) => {
                                     setResizePreview(null);
                                     void applyLayout([
                                       {
                                         id: p.id,
-                                        x: gl.x,
+                                        x,
                                         y: 0,
                                         w,
                                         h: 1,
                                         zone: "header",
                                       },
-                                    ]);
+                                    ]).then(() => onTileMoved?.(p.id));
                                   },
                                 }
                               : null
@@ -682,6 +888,8 @@ function ListCanvas({
   applyLayout,
   channelId,
   rowHeight,
+  justMovedId,
+  onTileMoved,
 }: ListCanvasProps) {
   if (!editMode && pins.length === 0) return null;
   const ids = pins.map((p) => p.id);
@@ -728,7 +936,11 @@ function ListCanvas({
                         <div
                           ref={binding.setNodeRef}
                           {...binding.attributes}
-                          className="relative"
+                          data-pin-id={p.id}
+                          className={
+                            "relative "
+                            + (justMovedId === p.id ? "pin-flash" : "")
+                          }
                           style={{
                             ...binding.style,
                             height: tileHeightPx,
@@ -748,10 +960,11 @@ function ListCanvas({
                               editMode
                                 ? {
                                     edges: ["s"],
-                                    initial: { w: 1, h: gl.h },
+                                    initial: { x: 0, y: gl.y, w: 1, h: gl.h },
                                     cellPx: { w: widthPx, h: rowHeight + GAP_PX },
                                     clampW: { min: 1, max: 1 },
                                     clampH: { min: 2 },
+                                    showRest: true,
                                     onResizing: ({ h }) =>
                                       setResizePreview({ id: p.id, h }),
                                     onCommit: ({ h }) => {
@@ -765,7 +978,7 @@ function ListCanvas({
                                           h,
                                           zone,
                                         },
-                                      ]);
+                                      ]).then(() => onTileMoved?.(p.id));
                                     },
                                   }
                                 : null
@@ -795,6 +1008,9 @@ interface GridCanvasProps extends CanvasSharedProps {
   preset: GridPreset;
   measureRef: (el: HTMLDivElement | null) => void;
   measuredRect: DOMRect | null;
+  /** Snapped target cell for the in-flight drag — dashed outline overlays
+   *  the grid at this position so the user sees where the tile will land. */
+  ghost: { x: number; y: number; w: number; h: number } | null;
 }
 
 function GridCanvas({
@@ -811,15 +1027,21 @@ function GridCanvas({
   measureRef,
   measuredRect,
   channelId,
+  justMovedId,
+  onTileMoved,
+  ghost,
 }: GridCanvasProps) {
+  const t = useThemeTokens();
   if (!editMode && pins.length === 0) return null;
   const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
 
   // Live resize preview — updates immediately as the user drags the handle.
   // Clears on commit; the store's optimistic update from `applyLayout` takes
-  // over from there.
+  // over from there. `x` tracks west-edge resizes so the tile visibly slides
+  // left as the pointer pulls, rather than snapping only on commit.
   const [resizePreview, setResizePreview] = useState<{
     id: string;
+    x: number;
     w: number;
     h: number;
   } | null>(null);
@@ -859,6 +1081,21 @@ function GridCanvas({
           />
         )}
         <div style={gridStyle} className="relative flex-1">
+          {ghost && (
+            <div
+              aria-hidden
+              className="pointer-events-none"
+              style={{
+                gridColumn: `${ghost.x + 1} / span ${ghost.w}`,
+                gridRow: `${ghost.y + 1} / span ${ghost.h}`,
+                border: `1.5px dashed ${t.accent}`,
+                borderRadius: 8,
+                background: `${t.accent}14`,
+                transition: "grid-column 90ms ease-out, grid-row 90ms ease-out",
+                zIndex: 2,
+              }}
+            />
+          )}
           {pins.length === 0 ? (
             editMode ? (
               <div
@@ -874,9 +1111,10 @@ function GridCanvas({
               // tile expands/contracts in real time. Commit reverts to the
               // persisted grid_layout when the pointer is released.
               const isResizing = resizePreview?.id === p.id;
+              const effX = isResizing ? resizePreview!.x : gl.x;
               const effW = isResizing ? resizePreview!.w : gl.w;
               const effH = isResizing ? resizePreview!.h : gl.h;
-              const gridColumn = `${gl.x + 1} / span ${effW}`;
+              const gridColumn = `${effX + 1} / span ${effW}`;
               const gridRow = `${gl.y + 1} / span ${effH}`;
               return (
                 <GridTile
@@ -889,7 +1127,11 @@ function GridCanvas({
                     <div
                       ref={binding.setNodeRef}
                       {...binding.attributes}
-                      className="relative min-w-0 min-h-0"
+                      data-pin-id={p.id}
+                      className={
+                        "relative min-w-0 min-h-0 "
+                        + (justMovedId === p.id ? "pin-flash" : "")
+                      }
                       style={binding.style}
                     >
                       <TileShell
@@ -904,28 +1146,34 @@ function GridCanvas({
                         resize={
                           editMode
                             ? {
-                                edges: ["s", "e", "se"] as ResizeEdge[],
-                                initial: { w: gl.w, h: gl.h },
+                                edges: ["s", "e", "se", "w", "sw"] as ResizeEdge[],
+                                initial: { x: gl.x, y: gl.y, w: gl.w, h: gl.h },
                                 cellPx: {
                                   w: cellWidthPx + GAP_PX,
                                   h: preset.rowHeight + GAP_PX,
                                 },
-                                clampW: { min: 1, max: preset.cols.lg - gl.x },
+                                // clampW.max is the canvas column count — the
+                                // handle's west-edge math keeps `x + w` pinned
+                                // to the tile's right boundary, so growing
+                                // leftward can occupy all cols 0..rightEdge-1
+                                // without overflowing.
+                                clampW: { min: 1, max: preset.cols.lg },
                                 clampH: { min: 2 },
-                                onResizing: ({ w, h }) =>
-                                  setResizePreview({ id: p.id, w, h }),
-                                onCommit: ({ w, h }) => {
+                                showRest: true,
+                                onResizing: ({ x, w, h }) =>
+                                  setResizePreview({ id: p.id, x, w, h }),
+                                onCommit: ({ x, w, h }) => {
                                   setResizePreview(null);
                                   void applyLayout([
                                     {
                                       id: p.id,
-                                      x: gl.x,
+                                      x,
                                       y: gl.y,
                                       w,
                                       h,
                                       zone: "grid",
                                     },
-                                  ]);
+                                  ]).then(() => onTileMoved?.(p.id));
                                 },
                               }
                             : null
@@ -961,12 +1209,13 @@ interface TileShellProps {
     | null
     | {
         edges: ResizeEdge[];
-        initial: { w: number; h: number };
+        initial: TileBox;
         cellPx: { w: number; h: number };
         clampW: { min: number; max: number };
         clampH: { min: number; max?: number };
-        onResizing?: (size: { w: number; h: number }) => void;
-        onCommit: (size: { w: number; h: number }) => void;
+        showRest?: boolean;
+        onResizing?: (box: TileBox) => void;
+        onCommit: (box: TileBox) => void;
       };
 }
 

@@ -58,6 +58,13 @@ export interface GridSnapConfig {
   gap: number;
   /** Total pixel width of the canvas's grid area. */
   canvasWidth: number;
+  /** Pixel padding between the `canvasWidth` reference rect and the actual
+   *  grid cells. Needed when the measured rect includes wrapper padding
+   *  (e.g. the grid canvas uses `p-3 = 12px`); without it, pointer math is
+   *  biased by one cell near the canvas edges. Defaults to 0 for callers
+   *  that pass already-inner rect widths. */
+  paddingLeft?: number;
+  paddingTop?: number;
 }
 
 /** Snap a pointer position (relative to the canvas top-left) to `{x, y}`
@@ -67,10 +74,13 @@ export function pointerToCell(
   relY: number,
   cfg: GridSnapConfig,
 ): { x: number; y: number } {
-  const cellW = (cfg.canvasWidth + cfg.gap) / cfg.cols;
+  const padX = cfg.paddingLeft ?? 0;
+  const padY = cfg.paddingTop ?? 0;
+  const innerW = Math.max(1, cfg.canvasWidth - padX * 2);
+  const cellW = (innerW + cfg.gap) / cfg.cols;
   const cellH = cfg.rowHeight + cfg.gap;
-  const x = Math.max(0, Math.min(cfg.cols - 1, Math.floor(relX / cellW)));
-  const y = Math.max(0, Math.floor(relY / cellH));
+  const x = Math.max(0, Math.min(cfg.cols - 1, Math.floor((relX - padX) / cellW)));
+  const y = Math.max(0, Math.floor((relY - padY) / cellH));
   return { x, y };
 }
 
@@ -230,12 +240,20 @@ export function GridTile({ id, gridColumn, gridRow, children }: GridTileProps) {
 // Resize handles — pointer-event-based, bypass DnD entirely.
 // ---------------------------------------------------------------------------
 
-export type ResizeEdge = "s" | "e" | "se";
+export type ResizeEdge = "s" | "e" | "se" | "w" | "sw";
+
+export interface TileBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 interface ResizeHandleProps {
   edges: ResizeEdge[];
-  /** Initial persisted w/h for this tile. */
-  initial: { w: number; h: number };
+  /** Initial persisted {x,y,w,h} for this tile — needed so west-edge
+   *  resizes can anchor the right boundary and emit an updated x. */
+  initial: TileBox;
   /** Cell width + row height in pixels; used to convert pointer delta to
    *  cell delta. */
   cellPx: { w: number; h: number };
@@ -243,10 +261,14 @@ interface ResizeHandleProps {
   clampW: { min: number; max: number };
   /** Min row height (header clamps to 1). */
   clampH: { min: number; max?: number };
+  /** When true, handles sit at partial opacity instead of being invisible
+   *  until hover. Edit mode flips this on so the affordances are discoverable
+   *  without probing every tile. */
+  showRest?: boolean;
   /** Live callback during drag so the preview frame tracks the pointer. */
-  onResizing?: (size: { w: number; h: number }) => void;
-  /** Called once on pointerup with the final size. */
-  onCommit: (size: { w: number; h: number }) => void;
+  onResizing?: (box: TileBox) => void;
+  /** Called once on pointerup with the final box. */
+  onCommit: (box: TileBox) => void;
 }
 
 export function ResizeHandles({
@@ -255,21 +277,24 @@ export function ResizeHandles({
   cellPx,
   clampW,
   clampH,
+  showRest = false,
   onResizing,
   onCommit,
 }: ResizeHandleProps) {
   const t = useThemeTokens();
   const startRef = useRef<{
-    x: number;
-    y: number;
+    pointerX: number;
+    pointerY: number;
+    tx: number;
+    ty: number;
     w: number;
     h: number;
     edge: ResizeEdge;
   } | null>(null);
-  const currentRef = useRef<{ w: number; h: number }>(initial);
+  const currentRef = useRef<TileBox>(initial);
   // Only sync to the `initial` prop when NOT actively dragging. Parent state
   // updates during resize (live-preview) would otherwise stomp the in-flight
-  // w/h back to the persisted value, and on pointerup we'd commit the
+  // box back to the persisted value, and on pointerup we'd commit the
   // original size → "pops back" bug.
   if (!startRef.current) {
     currentRef.current = initial;
@@ -281,41 +306,57 @@ export function ResizeHandles({
       e.stopPropagation();
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
       startRef.current = {
-        x: e.clientX,
-        y: e.clientY,
+        pointerX: e.clientX,
+        pointerY: e.clientY,
+        tx: initial.x,
+        ty: initial.y,
         w: initial.w,
         h: initial.h,
         edge,
       };
-      currentRef.current = { w: initial.w, h: initial.h };
+      currentRef.current = { ...initial };
     },
-    [initial.w, initial.h],
+    [initial.x, initial.y, initial.w, initial.h],
   );
 
   const onMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       const s = startRef.current;
       if (!s) return;
-      const dx = e.clientX - s.x;
-      const dy = e.clientY - s.y;
+      const dxCells = Math.round((e.clientX - s.pointerX) / cellPx.w);
+      const dyCells = Math.round((e.clientY - s.pointerY) / cellPx.h);
+      let nextX = s.tx;
+      const nextY = s.ty;
       let nextW = s.w;
       let nextH = s.h;
+      const rightBoundary = s.tx + s.w;
+
       if (s.edge === "e" || s.edge === "se") {
         nextW = Math.max(
           clampW.min,
-          Math.min(clampW.max, s.w + Math.round(dx / cellPx.w)),
+          Math.min(clampW.max, s.w + dxCells),
         );
       }
-      if (s.edge === "s" || s.edge === "se") {
+      if (s.edge === "w" || s.edge === "sw") {
+        // Anchor the right edge; x moves with the pointer and w inverts.
+        // nextX is bounded so:
+        //   - nextX ≥ 0 (can't go past canvas left)
+        //   - nextW = right - nextX stays within [clampW.min, clampW.max]
+        const minX = Math.max(0, rightBoundary - clampW.max);
+        const maxX = rightBoundary - clampW.min;
+        nextX = Math.max(minX, Math.min(maxX, s.tx + dxCells));
+        nextW = rightBoundary - nextX;
+      }
+      if (s.edge === "s" || s.edge === "se" || s.edge === "sw") {
+        const candidateH = s.h + dyCells;
         nextH = Math.max(
           clampH.min,
-          clampH.max == null
-            ? s.h + Math.round(dy / cellPx.h)
-            : Math.min(clampH.max, s.h + Math.round(dy / cellPx.h)),
+          clampH.max == null ? candidateH : Math.min(clampH.max, candidateH),
         );
       }
-      currentRef.current = { w: nextW, h: nextH };
-      onResizing?.({ w: nextW, h: nextH });
+      const nextBox = { x: nextX, y: nextY, w: nextW, h: nextH };
+      currentRef.current = nextBox;
+      onResizing?.(nextBox);
     },
     [cellPx.w, cellPx.h, clampW.min, clampW.max, clampH.min, clampH.max, onResizing],
   );
@@ -331,11 +372,15 @@ export function ResizeHandles({
     [onCommit],
   );
 
-  const base = "absolute z-20 select-none opacity-0 hover:opacity-100 transition-opacity duration-150";
-  const visible = `pointer-events-auto`;
+  // In edit mode the affordance should be discoverable at rest; we land at
+  // ~45% opacity and bump to full on hover. Outside edit mode, stays hover-
+  // only so view-mode tiles read as calm content.
+  const restOpacity = showRest ? "opacity-40" : "opacity-0";
+  const base = `absolute z-20 select-none ${restOpacity} hover:opacity-100 transition-opacity duration-150 pointer-events-auto`;
   // Neutral gray — keeps the corner/edge handle from competing with the
   // drop-target accent outline.
   const tint = `${t.textDim}55`;
+  const cornerTint = `${t.textDim}88`;
 
   return (
     <>
@@ -343,7 +388,7 @@ export function ResizeHandles({
         <div
           role="separator"
           aria-label="Resize vertically"
-          className={`${base} ${visible} left-2 right-2 bottom-0 h-2 cursor-ns-resize`}
+          className={`${base} left-3 right-3 bottom-0 h-2 cursor-ns-resize`}
           style={{ background: `linear-gradient(to top, ${tint}, transparent)` }}
           onPointerDown={beginResize("s")}
           onPointerMove={onMove}
@@ -355,9 +400,21 @@ export function ResizeHandles({
         <div
           role="separator"
           aria-label="Resize horizontally"
-          className={`${base} ${visible} top-2 bottom-2 right-0 w-2 cursor-ew-resize`}
+          className={`${base} top-3 bottom-3 right-0 w-2 cursor-ew-resize`}
           style={{ background: `linear-gradient(to left, ${tint}, transparent)` }}
           onPointerDown={beginResize("e")}
+          onPointerMove={onMove}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
+        />
+      )}
+      {edges.includes("w") && (
+        <div
+          role="separator"
+          aria-label="Resize horizontally"
+          className={`${base} top-3 bottom-3 left-0 w-2 cursor-ew-resize`}
+          style={{ background: `linear-gradient(to right, ${tint}, transparent)` }}
+          onPointerDown={beginResize("w")}
           onPointerMove={onMove}
           onPointerUp={endResize}
           onPointerCancel={endResize}
@@ -367,9 +424,21 @@ export function ResizeHandles({
         <div
           role="separator"
           aria-label="Resize"
-          className={`${base} ${visible} bottom-0 right-0 w-3 h-3 cursor-nwse-resize rounded-tl`}
-          style={{ background: tint }}
+          className={`${base} bottom-0 right-0 w-3 h-3 cursor-nwse-resize rounded-tl`}
+          style={{ background: cornerTint }}
           onPointerDown={beginResize("se")}
+          onPointerMove={onMove}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
+        />
+      )}
+      {edges.includes("sw") && (
+        <div
+          role="separator"
+          aria-label="Resize"
+          className={`${base} bottom-0 left-0 w-3 h-3 cursor-nesw-resize rounded-tr`}
+          style={{ background: cornerTint }}
+          onPointerDown={beginResize("sw")}
           onPointerMove={onMove}
           onPointerUp={endResize}
           onPointerCancel={endResize}

@@ -632,12 +632,11 @@ export default function ChatScreen() {
   }, []);
 
   const channelHeaderBlock = (
-    <div style={{
-      flexShrink: 0,
-      backdropFilter: "blur(12px)",
-      WebkitBackdropFilter: "blur(12px)",
-      backgroundColor: `${t.surface}cc`,
-    }}>
+    // Transparent wrapper — header, HUD strip, and launchpad sit directly
+    // on the page surface like the rail/dock/chat columns below. Previously
+    // framed with a backdrop-blur + surface/cc tint that made the top
+    // section read as a separate card; spacing alone now separates regions.
+    <div style={{ flexShrink: 0 }}>
         <ChannelHeader
           channelId={channelId!}
           displayName={displayName}

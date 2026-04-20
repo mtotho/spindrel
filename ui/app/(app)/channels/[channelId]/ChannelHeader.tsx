@@ -66,6 +66,14 @@ export function ChannelHeader({
   // content inline, so channel-route mobile users get one surface with nav
   // + widgets + files all reachable from a single tap.
   const openChannelDrawer = useUIStore((s) => s.setFileExplorerOpen);
+  // Mobile-only: the top-right widget button toggles the same drawer but
+  // force-pins it to the Widgets tab. Hamburger still opens wherever the
+  // user last explicitly navigated (persisted `omniPanelTab`), so the two
+  // buttons don't clobber each other.
+  const toggleDrawerToWidgets = useUIStore((s) => s.toggleDrawerToWidgets);
+  const drawerOpen = useUIStore((s) => s.fileExplorerOpen);
+  const drawerTab = useUIStore((s) => s.omniPanelTab);
+  const widgetsDrawerActive = isMobile && drawerOpen && drawerTab === "widgets";
 
   const { data: channelData } = useChannel(channelId);
   const { data: activatable } = useActivatableIntegrations(channelId);
@@ -315,12 +323,21 @@ export function ChannelHeader({
       {showDashboardButton && (
         <button
           className="header-icon-btn"
-          style={{ width: iconSize, height: iconSize }}
-          onClick={() => navigate(`/widgets/channel/${channelId}?dock=expanded`)}
-          title="Switch to dashboard view"
-          aria-label="Switch to dashboard view"
+          style={{
+            width: iconSize,
+            height: iconSize,
+            backgroundColor: widgetsDrawerActive ? t.surfaceOverlay : undefined,
+          }}
+          onClick={
+            isMobile
+              ? toggleDrawerToWidgets
+              : () => navigate(`/widgets/channel/${channelId}?dock=expanded`)
+          }
+          title={isMobile ? "Widgets" : "Switch to dashboard view"}
+          aria-label={isMobile ? "Widgets" : "Switch to dashboard view"}
+          aria-pressed={isMobile ? widgetsDrawerActive : undefined}
         >
-          <LayoutDashboard size={16} color={t.textDim} />
+          <LayoutDashboard size={16} color={widgetsDrawerActive ? t.accent : t.textDim} />
         </button>
       )}
     </header>

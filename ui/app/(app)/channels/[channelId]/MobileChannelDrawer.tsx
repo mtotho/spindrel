@@ -24,7 +24,7 @@
  */
 import { useCallback, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
-import { Layers, Search, Files, X } from "lucide-react";
+import { Layers, Search, Files, X, LayoutDashboard } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
@@ -202,6 +202,7 @@ export function MobileChannelDrawer({
             grid={gridPins}
             onUnpin={handleUnpin}
             onEnvelopeUpdate={handleEnvelopeUpdate}
+            onClose={onClose}
           />
         )}
         {activeTab === "files" && hasWorkspace && (
@@ -238,6 +239,7 @@ interface WidgetsTabProps {
   grid: WidgetDashboardPin[];
   onUnpin: (id: string) => void;
   onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
+  onClose: () => void;
 }
 
 function WidgetsTab({
@@ -248,7 +250,9 @@ function WidgetsTab({
   grid,
   onUnpin,
   onEnvelopeUpdate,
+  onClose,
 }: WidgetsTabProps) {
+  const t = useThemeTokens();
   const total = rail.length + header.length + dock.length + grid.length;
   if (total === 0) {
     return <EmptyWidgetsMessage channelId={channelId} />;
@@ -288,6 +292,19 @@ function WidgetsTab({
         onUnpin={onUnpin}
         onEnvelopeUpdate={onEnvelopeUpdate}
       />
+      <a
+        href={`/widgets/channel/${encodeURIComponent(channelId)}`}
+        onClick={onClose}
+        className="mt-1 mb-2 flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-[12px] font-medium border"
+        style={{
+          color: t.textMuted,
+          borderColor: t.surfaceBorder,
+          backgroundColor: t.surfaceRaised,
+        }}
+      >
+        <LayoutDashboard size={14} />
+        Open in dashboard
+      </a>
     </div>
   );
 }

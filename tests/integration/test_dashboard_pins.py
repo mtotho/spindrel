@@ -543,8 +543,8 @@ class TestLayoutBulk:
         )
         assert r.status_code == 200
         layout = r.json()["grid_layout"]
-        # First pin lands at origin with a 6x6 tile.
-        assert layout == {"x": 0, "y": 0, "w": 6, "h": 6}
+        # First pin lands at origin with a 6x10 tile (half-width, ~300px tall).
+        assert layout == {"x": 0, "y": 0, "w": 6, "h": 10}
 
 
 class TestRefresh:

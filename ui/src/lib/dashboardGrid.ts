@@ -72,7 +72,7 @@ export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
     description: "12-column grid, 30px rows. Good for most dashboards.",
     cols: { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 },
     rowHeight: 30,
-    defaultTile: { w: 3, h: 6 },
+    defaultTile: { w: 6, h: 10 },
     minTile: { w: 2, h: 3 },
     sizePresets: [
       { id: "S", label: "S", w: 3, h: 6 },
@@ -88,7 +88,7 @@ export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
       "24-column grid, 15px rows. Twice as granular — snap to finer positions.",
     cols: { lg: 24, md: 20, sm: 12, xs: 8, xxs: 4 },
     rowHeight: 15,
-    defaultTile: { w: 6, h: 12 },
+    defaultTile: { w: 12, h: 20 },
     minTile: { w: 4, h: 6 },
     sizePresets: [
       { id: "S", label: "S", w: 6, h: 12 },

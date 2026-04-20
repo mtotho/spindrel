@@ -44,9 +44,9 @@ def _default_grid_layout(position: int, *, channel: bool = False) -> dict[str, i
     """
     return {
         "x": (position % 2) * 6,
-        "y": (position // 2) * 6,
+        "y": (position // 2) * 10,
         "w": 6,
-        "h": 6,
+        "h": 10,
     }
 
 

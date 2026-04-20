@@ -42,6 +42,7 @@ RUN pip install --no-cache-dir \
     toml beautifulsoup4 lxml pandas markdown python-dotenv
 
 COPY app/ app/
+COPY spindrel/ spindrel/
 COPY integrations/ integrations/
 COPY packages/ packages/
 COPY prompts/ prompts/
