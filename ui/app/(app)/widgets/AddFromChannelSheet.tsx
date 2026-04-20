@@ -380,9 +380,17 @@ export default function AddFromChannelSheet({
                   }
                   return { path: entry.path };
                 })();
+                // ``source_channel_id`` on the pin row is required when the
+                // dashboard is a channel dashboard (service-layer validation).
+                // For built-in / integration widgets the envelope doesn't
+                // carry a channel id — fall back to the dashboard's scope so
+                // the pin row is locatable and the channel-dashboard guard
+                // doesn't 400.
+                const pinChannelId =
+                  envelope.source_channel_id ?? scopeChannelId ?? null;
                 const created = await pinWidget({
                   source_kind: entry.source === "channel" ? "channel" : "adhoc",
-                  source_channel_id: envelope.source_channel_id ?? null,
+                  source_channel_id: pinChannelId,
                   source_bot_id: null,
                   tool_name: "emit_html_widget",
                   tool_args: toolArgs,

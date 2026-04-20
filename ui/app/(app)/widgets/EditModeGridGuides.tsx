@@ -8,10 +8,11 @@
  *  2. Column-index tick row (only while dragging) — numbered 1..N across the
  *     top, tied to the breakpoint's column count.
  *
- *  Channel dashboards used to show rail / dock / header "chat zone" bands on
- *  this surface, but they now use the dedicated multi-canvas editor (see
- *  ``ChannelDashboardMultiCanvas``). This component only runs on user
- *  dashboards where there is no chat-zone concept.
+ *  Used by both the user-dashboard single grid and the channel dashboard's
+ *  per-canvas grids (see ``ChannelDashboardMultiCanvas``). For a rail/dock
+ *  canvas pass ``cols={1}`` — the horizontal row lines are what matter for
+ *  snapping there. Chat-zone bands are no longer rendered here; zones are
+ *  visually separated by the multi-canvas layout itself.
  */
 
 interface Props {
