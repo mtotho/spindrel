@@ -101,6 +101,32 @@ export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
 
 export const DEFAULT_PRESET_ID: GridPresetId = "standard";
 
+/** Compute the pixel width/height a pin occupies given its grid layout,
+ *  the dashboard preset, the measured container width, and the RGL margin.
+ *  Used as a fallback when a caller knows its grid cell math up front but
+ *  hasn't measured the DOM yet (e.g. for pre-sizing an iframe skeleton so
+ *  it matches the cell on first paint rather than popping from 200px).
+ *  ``containerWidth`` should be the RGL container's pixel width; ``margin``
+ *  is the tuple passed to the ``<ResponsiveGridLayout>`` component. */
+export function computePinPixelSize(
+  gridLayout: { w?: number; h?: number } | null | undefined,
+  preset: GridPreset,
+  containerWidth: number,
+  margin: [number, number] = [12, 12],
+): { width: number; height: number } | null {
+  const w = gridLayout?.w;
+  const h = gridLayout?.h;
+  if (!w || !h || !containerWidth || containerWidth <= 0) return null;
+  const cols = preset.cols.lg;
+  const [marginX, marginY] = margin;
+  const totalGap = marginX * (cols + 1);
+  const colWidth = (containerWidth - totalGap) / cols;
+  if (!Number.isFinite(colWidth) || colWidth <= 0) return null;
+  const width = colWidth * w + marginX * (w - 1);
+  const height = preset.rowHeight * h + marginY * (h - 1);
+  return { width: Math.max(0, width), height: Math.max(0, height) };
+}
+
 /** Resolve a dashboard's preset from its `grid_config`. Null / malformed
  *  values fall back to the default preset. */
 export function resolvePreset(grid_config: unknown): GridPreset {

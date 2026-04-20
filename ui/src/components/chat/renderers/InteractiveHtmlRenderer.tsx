@@ -9,10 +9,13 @@
  * read from the app's own `/api/v1/...` endpoints.
  *
  * Sandbox model:
- * - `sandbox="allow-scripts allow-same-origin"` — scripts run, and the
- *   iframe keeps the page's origin so fetch('/api/v1/...') carries the
- *   session cookie. No `allow-top-navigation`, no `allow-popups`, no
- *   `allow-forms`.
+ * - `sandbox="allow-scripts allow-same-origin allow-forms"` — scripts run,
+ *   the iframe keeps the page's origin so fetch('/api/v1/...') carries the
+ *   session cookie, and native `<form>` elements submit without the
+ *   "Blocked form submission" warning (widgets still call preventDefault
+ *   and dispatch through `sp.callHandler`; allow-forms just silences the
+ *   browser's default-action probe). No `allow-top-navigation`, no
+ *   `allow-popups`.
  * - CSP `default-src 'self'; script-src 'unsafe-inline' 'self'; style-src
  *   'unsafe-inline' 'self'; img-src data: blob: 'self'; connect-src
  *   'self'` — cross-origin network is blocked.
@@ -75,6 +78,18 @@ interface Props {
    *  ``widget_config`` patches that persist against the pin (star-to-save,
    *  toggle state). Undefined for inline chat widgets. */
   dashboardPinId?: string;
+  /** Pre-measured tile size from the enclosing grid cell. When present, the
+   *  iframe's initial ``height`` state starts at ``gridDimensions.height``
+   *  instead of the default 200 so the tile doesn't visibly pop from 200px
+   *  to its final size on mount/remount. Also exposed to widget JS as
+   *  ``window.spindrel.gridSize`` for widgets that want to render to the
+   *  exact cell size (e.g. aspect-ratio-aware images). */
+  gridDimensions?: { width: number; height: number };
+  /** Host-side callback fired once the iframe has loaded and the preamble
+   *  has posted a ``spindrel:ready`` handshake. Used by ``PinnedToolWidget``
+   *  to drop its pre-load skeleton so dashboard↔chat switches stay visually
+   *  stable instead of popping through the 200px default. */
+  onIframeReady?: () => void;
   t: ThemeTokens;
 }
 
@@ -194,7 +209,11 @@ function spindrelBootstrap(
   themeJson: string,
   dashboardPinId: string | null,
   widgetPath: string | null,
+  gridDimensions: { width: number; height: number } | null,
 ): string {
+  const gridDimensionsJson = gridDimensions
+    ? JSON.stringify(gridDimensions)
+    : "null";
   return `<script>
 (function () {
   const channelId = ${jsonForScript(channelId)};
@@ -202,6 +221,10 @@ function spindrelBootstrap(
   const botName = ${jsonForScript(botName)};
   const dashboardPinId = ${jsonForScript(dashboardPinId)};
   const widgetPath = ${jsonForScript(widgetPath)};
+  // Tile size the iframe was spawned into (null for inline chat renders).
+  // Widget JS can read window.spindrel.gridSize to pre-size image/video
+  // placeholders at the right aspect ratio instead of computing from CSS.
+  const gridSize = ${gridDimensionsJson};
   // Normalise a workspace-relative path. Strips "./" segments, collapses
   // "a/b/../c" to "a/c", rejects escapes above the bundle root when the
   // input started with "../". Backend also re-validates; this is just
@@ -1300,6 +1323,129 @@ function spindrelBootstrap(
       '</svg>';
   }
 
+  // --- Image: auth-aware image loader with a skeleton placeholder.
+  //
+  //   const tile = spindrel.image(url, { aspectRatio: "16/9", alt: "..." });
+  //   container.appendChild(tile);
+  //   // later (optional): tile.update(nextUrl) to swap the source without
+  //   // tearing down the node (useful for rotating snapshot refreshes).
+  //
+  // Kills the "broken-image chrome chip" flash that shows up when a widget
+  // appends an <img> with no src and fills src in later via an async
+  // apiFetch → blob → createObjectURL dance. The returned wrapper renders
+  // an sd-skeleton box at the declared aspect ratio immediately, then fades
+  // in the <img> once the blob arrives. Revokes the previous object URL on
+  // each .update() so rotating feeds don't leak.
+  function image(url, opts) {
+    const o = opts || {};
+    const wrap = document.createElement("div");
+    wrap.className = "sd-image";
+    // Aspect ratio: accept "16/9" | "4/3" | 1.78 | number. Default to 16/9
+    // so a zero-config call still sizes nicely inside a tile; callers can
+    // pass a number to match an exact source aspect.
+    let ar = o.aspectRatio;
+    if (typeof ar === "number" && isFinite(ar) && ar > 0) {
+      ar = String(ar);
+    } else if (typeof ar !== "string" || !ar.trim()) {
+      ar = "16 / 9";
+    }
+    wrap.style.cssText =
+      "position:relative;width:100%;aspect-ratio:" + ar +
+      ";border-radius:6px;overflow:hidden;background:var(--sd-surface-overlay,rgba(255,255,255,0.04))";
+
+    // Skeleton shimmer fills the wrap until the blob lands.
+    const skel = document.createElement("div");
+    skel.className = "sd-skeleton";
+    skel.style.cssText = "position:absolute;inset:0";
+    wrap.appendChild(skel);
+
+    // Error banner (hidden by default) — reuses sd-error styling.
+    const err = document.createElement("div");
+    err.className = "sd-error";
+    err.style.cssText = "position:absolute;inset:0;display:none;align-items:center;justify-content:center;padding:8px;text-align:center;font-size:11px";
+    wrap.appendChild(err);
+
+    // The <img> stays hidden (opacity 0) until the blob resolves; then we
+    // fade it in. Absolute-positioned so the skeleton can continue to fill
+    // the wrap without a reflow when the image swaps in.
+    const img = document.createElement("img");
+    img.alt = typeof o.alt === "string" ? o.alt : "";
+    img.style.cssText =
+      "position:absolute;inset:0;width:100%;height:100%;" +
+      "object-fit:cover;display:block;opacity:0;transition:opacity .2s ease";
+    wrap.appendChild(img);
+
+    let currentObjectUrl = null;
+    let inflight = 0;
+    function setError(msg) {
+      err.textContent = msg || "Image failed to load";
+      err.style.display = "flex";
+      skel.style.display = "none";
+    }
+    function clearError() {
+      err.style.display = "none";
+      err.textContent = "";
+    }
+    async function load(nextUrl) {
+      if (typeof nextUrl !== "string" || !nextUrl) {
+        throw new Error("spindrel.image.update: url is required");
+      }
+      const ticket = ++inflight;
+      clearError();
+      skel.style.display = "block";
+      img.style.opacity = "0";
+      let resp;
+      try {
+        resp = await apiFetch(nextUrl, { headers: { Accept: "image/*" } });
+      } catch (e) {
+        if (ticket !== inflight) return;
+        setError("Image fetch failed" + (e && e.message ? ": " + e.message : ""));
+        return;
+      }
+      if (ticket !== inflight) return;
+      if (!resp || !resp.ok) {
+        setError("Image fetch failed: HTTP " + (resp && resp.status));
+        return;
+      }
+      let blob;
+      try { blob = await resp.blob(); }
+      catch (_) {
+        if (ticket !== inflight) return;
+        setError("Image payload not readable");
+        return;
+      }
+      if (ticket !== inflight) return;
+      if (currentObjectUrl) {
+        try { URL.revokeObjectURL(currentObjectUrl); } catch (_) {}
+      }
+      currentObjectUrl = URL.createObjectURL(blob);
+      img.onload = function () {
+        skel.style.display = "none";
+        img.style.opacity = "1";
+      };
+      img.onerror = function () {
+        setError("Image data invalid");
+      };
+      img.src = currentObjectUrl;
+    }
+    wrap.update = function (nextUrl) { return load(nextUrl); };
+    wrap.revoke = function () {
+      inflight++;
+      if (currentObjectUrl) {
+        try { URL.revokeObjectURL(currentObjectUrl); } catch (_) {}
+        currentObjectUrl = null;
+      }
+    };
+    if (typeof url === "string" && url) {
+      load(url).catch(function (e) {
+        // load() handles its own UI state — swallow the promise rejection
+        // so the call site doesn't have to .catch() everywhere.
+        console.error("spindrel.image:", e);
+      });
+    }
+    return wrap;
+  }
+
   // --- Form: declarative form renderer with sd-* styling + validation.
   // spec: { fields: [{name, label, type, required, options, placeholder,
   //   validate?(value, values) → string|undefined}],
@@ -1446,6 +1592,8 @@ function spindrelBootstrap(
     botName: botName,
     dashboardPinId: dashboardPinId,
     widgetPath: widgetPath,
+    gridSize: gridSize,
+    image: image,
     resolvePath: resolvePath,
     api: api,
     apiFetch: apiFetch,
@@ -1520,6 +1668,27 @@ function spindrelBootstrap(
       } catch (_) { /* ignore */ }
     }
   };
+
+  // Let the host chrome drop its pre-load skeleton. Fires once per iframe
+  // boot after window.spindrel has been fully populated and widget code
+  // has had its first microtask pass. Paired with onIframeReady() on the
+  // React side — see PinnedToolWidget's iframeReady gate.
+  function __postReady() {
+    try {
+      window.parent.postMessage({ __spindrel: true, type: "ready" }, "*");
+    } catch (_) { /* detached / cross-origin */ }
+  }
+  if (document.readyState === "complete" || document.readyState === "interactive") {
+    // Push to the end of the microtask queue so any synchronous render
+    // kicked off by inline widget code lands before the host drops the
+    // skeleton (avoids a one-frame empty-iframe flash between skeleton
+    // hide and first widget paint).
+    Promise.resolve().then(__postReady);
+  } else {
+    document.addEventListener("DOMContentLoaded", function () {
+      Promise.resolve().then(__postReady);
+    });
+  }
 })();
 </script>`;
 }
@@ -1578,6 +1747,7 @@ function wrapHtml(
   dashboardPinId: string | null,
   widgetPath: string | null,
   csp: string,
+  gridDimensions: { width: number; height: number } | null,
 ): string {
   return `<!doctype html>
 <html${isDark ? ' class="dark"' : ""}>
@@ -1585,7 +1755,7 @@ function wrapHtml(
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <style id="__spindrel_theme">${themeCss}</style>
-${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath)}
+${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions)}
 </head>
 <body>
 <div id="__sd_root">
@@ -1606,11 +1776,32 @@ function formatRelative(ts: number | null): string {
   return `${hrs}h ago`;
 }
 
-export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashboardPinId, t }: Props) {
+export function InteractiveHtmlRenderer({
+  envelope,
+  channelId,
+  fillHeight,
+  dashboardPinId,
+  gridDimensions,
+  onIframeReady,
+  t,
+}: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(200);
+  // Start from the measured grid height when the caller knows it — otherwise
+  // fall back to the legacy 200px default for inline chat rendering.
+  const [height, setHeight] = useState(() =>
+    gridDimensions?.height && gridDimensions.height > 0 ? gridDimensions.height : 200,
+  );
   const themeMode = useThemeStore((s) => s.mode);
   const isDark = themeMode === "dark";
+
+  // Freeze the gridDimensions that flowed into srcDoc at mount so re-renders
+  // triggered by parent ResizeObserver ticks don't force a srcDoc rebuild
+  // (which would reload the iframe and discard widget state). Widgets that
+  // care about live size should read ResizeObserver in-iframe.
+  const frozenGridDimensionsRef = useRef(gridDimensions ?? null);
+  if (frozenGridDimensionsRef.current === null && gridDimensions) {
+    frozenGridDimensionsRef.current = gridDimensions;
+  }
 
   const sourcePath = envelope.source_path || null;
   const sourceChannelId = envelope.source_channel_id || null;
@@ -1834,11 +2025,21 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
           botName: ctx.botName,
           widgetPath: ctx.widgetPath,
         });
+      } else if (data.type === "ready") {
+        onIframeReadyRef.current?.();
       }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, []);
+
+  // Ref-indirect onIframeReady so the message handler (one-time useEffect)
+  // doesn't stale-close over an older identity if the parent recreates the
+  // callback on rerender.
+  const onIframeReadyRef = useRef(onIframeReady);
+  useEffect(() => {
+    onIframeReadyRef.current = onIframeReady;
+  }, [onIframeReady]);
   const toastTone = (level: Toast["level"]) => {
     if (level === "error") return { fg: t.danger, bg: t.dangerSubtle };
     if (level === "warn") return { fg: t.warning, bg: t.warningSubtle };
@@ -2239,8 +2440,9 @@ export function InteractiveHtmlRenderer({ envelope, channelId, fillHeight, dashb
           dashboardPinId ?? null,
           sourcePath,
           cspString,
+          frozenGridDimensionsRef.current,
         )}
-        sandbox="allow-scripts allow-same-origin"
+        sandbox="allow-scripts allow-same-origin allow-forms"
         title={envelope.display_label || "Interactive HTML widget"}
         style={{
           width: "100%",

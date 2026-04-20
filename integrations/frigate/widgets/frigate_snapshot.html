@@ -18,6 +18,10 @@
   var refreshBtn = document.getElementById("refresh");
   var errEl = document.getElementById("err");
   var currentImgUrl = null;
+  // Reusable image tile — keeps DOM identity across snapshot swaps so the
+  // skeleton only flashes on the first paint, not on every refresh. The
+  // host-side spindrel.image helper owns the skeleton + blob fetch + fade-in.
+  var imgTile = null;
 
   function setError(msg) {
     if (!msg) { errEl.hidden = true; errEl.textContent = ""; return; }
@@ -62,32 +66,24 @@
       overlayEl.textContent = "Snapshot has no attachment_id.";
       return;
     }
-    // New tool invocation returns a new attachment id; swap the img element
-    // so the browser always shows fresh bytes.
     var nextUrl = "/api/v1/attachments/" + encodeURIComponent(attId) + "/file";
     if (nextUrl === currentImgUrl) return;
     currentImgUrl = nextUrl;
 
-    var img = document.createElement("img");
-    img.alt = cam + " snapshot";
-    img.style.cssText = "width: 100%; height: auto; display: block; border-radius: 6px;";
-    img.onerror = function () {
-      setError("Image failed to render (attachment bytes were not valid image data)");
-    };
-    window.spindrel
-      .apiFetch(nextUrl, { headers: { Accept: "image/*" } })
-      .then(function (r) {
-        if (!r || !r.ok) throw new Error("HTTP " + (r && r.status));
-        return r.blob();
-      })
-      .then(function (blob) {
-        img.src = URL.createObjectURL(blob);
-      })
-      .catch(function (e) {
-        setError("Image fetch failed: " + (e && e.message));
+    // spindrel.image renders an aspect-ratio skeleton while the blob fetch
+    // is in flight, then fades the <img> in on load. Kills the broken-image
+    // flash that came from appending a src-less <img> before the async fetch
+    // resolved. Subsequent snapshot refreshes reuse the same tile via .update().
+    if (!imgTile) {
+      imgTile = window.spindrel.image(nextUrl, {
+        aspectRatio: "16 / 9",
+        alt: cam + " snapshot",
       });
-    frameEl.innerHTML = "";
-    frameEl.appendChild(img);
+      frameEl.innerHTML = "";
+      frameEl.appendChild(imgTile);
+    } else {
+      imgTile.update(nextUrl);
+    }
   }
 
   function refresh() {

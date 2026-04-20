@@ -719,7 +719,7 @@ function ListCanvas({
                           className="relative"
                           style={{
                             ...binding.style,
-                            height: editMode ? tileHeightPx : undefined,
+                            height: tileHeightPx,
                           }}
                         >
                           <TileShell

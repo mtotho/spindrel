@@ -236,6 +236,64 @@ async def test_different_dashboards_isolated(
 
 
 @pytest.mark.asyncio
+async def test_user_scoped_pin_resolves_suite_db_without_bot(
+    client, seeded, db_session, channel_a,
+):
+    """User-scoped suite pins (``source_bot_id = None``) must still reach
+    the suite DB. The DB path is keyed on ``dashboard_key`` and the bundle
+    directory is a server-wide ``BUILTIN_WIDGET_ROOT`` subtree — neither
+    requires a bot. Regression: session 15 shipped user-scoped pins but
+    ``resolve_db_path`` and ``_resolve_bundle_dir`` both still required
+    ``source_bot_id``, so every ``db.query`` inside a user-scoped MC
+    widget failed with "pin missing source_bot_id — cannot resolve DB path".
+    """
+    from app.services.dashboard_pins import create_pin
+
+    # Build an envelope shaped exactly like the suite pin endpoint produces
+    # for the builtin MC suite (source_kind="builtin", no bot, no channel).
+    envelope = {
+        "content_type": "application/vnd.spindrel.html+interactive",
+        "body": "",
+        "plain_body": "mc_tasks",
+        "display": "inline",
+        "source_path": "mc_tasks/index.html",
+        "source_kind": "builtin",
+        "display_label": "mc_tasks",
+    }
+    with _bot_patch():
+        user_scoped_pin = await create_pin(
+            db_session,
+            source_kind="adhoc",
+            tool_name="emit_html_widget",
+            envelope=envelope,
+            source_channel_id=None,
+            source_bot_id=None,
+            display_label="mc_tasks",
+            dashboard_key="default",
+        )
+    assert user_scoped_pin.source_bot_id is None
+    assert user_scoped_pin.source_channel_id is None
+
+    # The widget's first render calls `sp.db.query` — that goes through
+    # /widget-actions with dispatch=db_query. It used to throw; now it
+    # should return an empty result (new suite DB, migrations just ran).
+    with _bot_patch():
+        resp = await client.post(
+            "/api/v1/widget-actions",
+            json={
+                "dispatch": "db_query",
+                "dashboard_pin_id": str(user_scoped_pin.id),
+                "sql": "SELECT id, title FROM items WHERE kind = 'task'",
+                "params": [],
+            },
+            headers=AUTH_HEADERS,
+        )
+    body = resp.json()
+    assert body["ok"] is True, body
+    assert body["db_result"]["rows"] == []
+
+
+@pytest.mark.asyncio
 async def test_kanban_move_emits_timeline_row(
     client, seeded, db_session, channel_a,
 ):

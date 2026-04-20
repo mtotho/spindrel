@@ -130,6 +130,23 @@ def resolve_db_path(
             "only path-mode widgets (emit_html_widget path=...) support spindrel.db"
         )
 
+    source_kind = envelope.get("source_kind")
+
+    # Builtin + integration bundles live at server-wide filesystem paths
+    # independent of any bot / channel. DB files for these sources always
+    # redirect to the writable widget_db area so the read-only image source
+    # tree isn't written to.
+    if source_kind in ("builtin", "integration"):
+        from app.services.widget_py import _resolve_bundle_dir
+        bundle_dir = _resolve_bundle_dir(pin)
+        redirect_dir = _builtin_db_root() / bundle_dir.name
+        redirect_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug(
+            "%s widget DB redirect: %s → %s",
+            source_kind, bundle_dir, redirect_dir,
+        )
+        return redirect_dir / "data.sqlite"
+
     channel_id: str | None = (
         str(pin.source_channel_id) if pin.source_channel_id else envelope.get("source_channel_id")
     )
@@ -160,8 +177,9 @@ def resolve_db_path(
             f"(workspace_root={ws_root})"
         )
 
-    # Redirect built-in bundles to the writable widget_db area so the Docker
-    # image's read-only source tree isn't written to.
+    # Redirect built-in bundles resolved via the legacy (channel-scope)
+    # path math to the writable widget_db area too. Pins created before
+    # source_kind was stamped fall into this branch.
     try:
         bundle_dir.relative_to(_BUILTIN_WIDGET_DIR)
         slug = bundle_dir.name

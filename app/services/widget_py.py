@@ -399,8 +399,20 @@ def clear_module_cache() -> None:
 def _resolve_bundle_dir(pin) -> Path:
     """Return the pin's on-disk bundle directory (pre-redirect).
 
-    Mirrors ``widget_db.resolve_db_path`` minus the built-in DB redirect —
-    widget.py always lives in the source bundle, even for built-in widgets.
+    Branches on ``envelope.source_kind``:
+
+    - ``builtin`` — bundle lives at ``BUILTIN_WIDGET_ROOT / <source_path>``'s
+      parent. No bot / channel needed; the filesystem is a server-wide
+      source of truth.
+    - ``integration`` — ``INTEGRATIONS_ROOT / <source_integration_id> /
+      widgets / <source_path>``'s parent. No bot needed.
+    - ``channel`` (or missing, legacy default) — resolves against the
+      channel workspace, which requires both ``source_channel_id`` and a
+      ``source_bot_id`` (bots own the workspace root).
+
+    User-scoped pins (no ``source_bot_id``) of builtin/integration bundles
+    hit the first two branches cleanly; only channel-hosted bundles still
+    need a bot for workspace root resolution.
     """
     envelope = pin.envelope or {}
     source_path: str | None = envelope.get("source_path")
@@ -409,6 +421,47 @@ def _resolve_bundle_dir(pin) -> Path:
             "inline widgets cannot have widget.py handlers — only path-mode "
             "bundles (emit_html_widget path=...) support @on_action"
         )
+
+    source_kind = envelope.get("source_kind")
+    if source_kind == "builtin":
+        from app.services.html_widget_scanner import BUILTIN_WIDGET_ROOT
+        bundle_dir = (BUILTIN_WIDGET_ROOT / source_path).resolve().parent
+        try:
+            bundle_dir.relative_to(BUILTIN_WIDGET_ROOT)
+        except ValueError:
+            raise ValueError(
+                f"source_path {source_path!r} resolves outside the builtin "
+                f"widget root (root={BUILTIN_WIDGET_ROOT})"
+            )
+        return bundle_dir
+
+    if source_kind == "integration":
+        integration_id = envelope.get("source_integration_id")
+        if not integration_id:
+            raise ValueError(
+                "integration pin missing source_integration_id — cannot resolve bundle dir"
+            )
+        from app.services.html_widget_scanner import INTEGRATIONS_ROOT
+        integration_widgets_root = (
+            INTEGRATIONS_ROOT / integration_id / "widgets"
+        ).resolve()
+        try:
+            integration_widgets_root.relative_to(INTEGRATIONS_ROOT)
+        except ValueError:
+            raise ValueError(
+                f"integration_id {integration_id!r} escapes integrations root"
+            )
+        bundle_dir = (integration_widgets_root / source_path).resolve().parent
+        try:
+            bundle_dir.relative_to(integration_widgets_root)
+        except ValueError:
+            raise ValueError(
+                f"source_path {source_path!r} resolves outside the integration "
+                f"widget root (root={integration_widgets_root})"
+            )
+        return bundle_dir
+
+    # Channel-hosted bundle — workspace root is bot-scoped.
     channel_id = (
         str(pin.source_channel_id) if pin.source_channel_id else envelope.get("source_channel_id")
     )

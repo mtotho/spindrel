@@ -155,6 +155,58 @@ class TestHappyPath:
         with pytest.raises(ManifestError, match="slug"):
             parse_manifest(p)
 
+
+class TestExtraCspValidation:
+    """Sidecar ``widget.yaml`` can declare CSP allowances so cross-dashboard
+    re-pinning keeps cross-origin loads (Google Maps, Mapbox, …) working
+    without re-invoking ``emit_html_widget``."""
+
+    def test_extra_csp_accepted(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Map
+            version: 1.0.0
+            description: ""
+            extra_csp:
+              script_src:
+                - "https://maps.googleapis.com"
+              connect_src:
+                - "https://maps.googleapis.com"
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.extra_csp is not None
+        assert m.extra_csp["script_src"] == ["https://maps.googleapis.com"]
+        assert m.extra_csp["connect_src"] == ["https://maps.googleapis.com"]
+
+    def test_extra_csp_missing_defaults_none(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: W
+            version: 1.0.0
+            description: ""
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.extra_csp is None
+
+    def test_extra_csp_http_origin_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: W
+            version: 1.0.0
+            description: ""
+            extra_csp:
+              script_src:
+                - "http://insecure.example.com"
+            """,
+        )
+        with pytest.raises(ManifestError, match="extra_csp"):
+            parse_manifest(p)
+
     def test_db_no_migrations(self, tmp_path):
         p = write_yaml(
             tmp_path,

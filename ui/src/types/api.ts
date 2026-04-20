@@ -471,6 +471,11 @@ export interface HtmlWidgetEntry {
   /** Set only for ``source === "integration"`` — the integration directory
    *  name (``frigate``, ``bennie``, …). */
   integration_id: string | null;
+  /** Optional CSP allowances declared by the sibling ``widget.yaml``
+   *  (``extra_csp: {directive: [https://origin, ...]}``). Forwarded onto
+   *  the pin envelope so re-pinning across dashboards keeps cross-origin
+   *  loads (Google Maps, Mapbox, …) working without re-emitting the widget. */
+  extra_csp: Record<string, string[]> | null;
 }
 
 /** One entry per integration that ships standalone HTML widgets. */

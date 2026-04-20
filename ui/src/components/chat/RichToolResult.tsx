@@ -59,10 +59,30 @@ interface Props {
    *  persist against the pin (star-to-save, toggle state, etc.). Undefined
    *  for inline chat widgets — config changes stay local-only. */
   dashboardPinId?: string;
+  /** Pre-measured tile dimensions, forwarded onto the interactive-HTML
+   *  iframe so its initial height matches the final tile size. Lets the
+   *  enclosing PinnedToolWidget hold a pre-load skeleton at the real
+   *  dimensions without the 200px → final-size pop. */
+  gridDimensions?: { width: number; height: number };
+  /** Fires once the interactive-HTML iframe has booted and its preamble
+   *  has posted a ``ready`` handshake. PinnedToolWidget uses this to drop
+   *  its pre-load skeleton in lockstep with the iframe's first paint. */
+  onIframeReady?: () => void;
   t: ThemeTokens;
 }
 
-export function RichToolResult({ envelope, sessionId, channelId, botId, dispatcher, fillHeight, dashboardPinId, t }: Props) {
+export function RichToolResult({
+  envelope,
+  sessionId,
+  channelId,
+  botId,
+  dispatcher,
+  fillHeight,
+  dashboardPinId,
+  gridDimensions,
+  onIframeReady,
+  t,
+}: Props) {
   const [fetched, setFetched] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -174,6 +194,8 @@ export function RichToolResult({ envelope, sessionId, channelId, botId, dispatch
             channelId={channelId}
             fillHeight={fillHeight}
             dashboardPinId={dashboardPinId}
+            gridDimensions={gridDimensions}
+            onIframeReady={onIframeReady}
             t={t}
           />
         );

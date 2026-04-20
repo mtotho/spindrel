@@ -150,6 +150,7 @@ def _entry_from_metadata(
     if not isinstance(tags, list):
         tags = [str(tags)]
 
+    extra_csp = meta.get("extra_csp")
     return {
         "path": rel_path,
         "slug": slug,
@@ -167,6 +168,7 @@ def _entry_from_metadata(
         "modified_at": mtime,
         "source": source,
         "integration_id": integration_id,
+        "extra_csp": extra_csp if isinstance(extra_csp, dict) else None,
     }
 
 
@@ -247,6 +249,8 @@ def _scan_metadata_for(
             meta["description"] = manifest.description
             meta["version"] = manifest.version
             meta["__has_manifest"] = True
+            if manifest.extra_csp:
+                meta["extra_csp"] = manifest.extra_csp
         except (ManifestError, Exception) as exc:
             logger.warning("widget.yaml at %s failed validation: %s", yaml_path, exc)
 

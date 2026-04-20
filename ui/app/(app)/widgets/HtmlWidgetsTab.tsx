@@ -88,6 +88,10 @@ function envelopeForEntry(
     display_label: entry.display_label,
     source_path: entry.path,
     source_bot_id: null,
+    // A sidecar widget.yaml declaring `extra_csp:` carries cross-origin
+    // allowances (Google Maps, Mapbox, etc.) through the pin without
+    // needing a fresh emit_html_widget call. Missing → baseline CSP.
+    extra_csp: entry.extra_csp ?? null,
   };
   if (entry.source === "builtin") {
     return { ...base, source_kind: "builtin" };

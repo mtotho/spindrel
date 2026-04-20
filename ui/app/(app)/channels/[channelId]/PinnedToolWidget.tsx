@@ -332,6 +332,51 @@ export function PinnedToolWidget({
     [interceptingDispatch],
   );
 
+  // Measure the tile's rendered size so the interactive-HTML iframe can
+  // initialise at the right height instead of popping from 200px on every
+  // dashboard↔chat switch. Works on all surfaces uniformly (dashboard RGL
+  // cell, rail strip, mobile sheet) because every parent CSS-sizes us.
+  const [measuredSize, setMeasuredSize] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const measureNodeRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = measureNodeRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width <= 0 || height <= 0) continue;
+        setMeasuredSize((prev) =>
+          prev
+            && Math.abs(prev.width - width) < 1
+            && Math.abs(prev.height - height) < 1
+            ? prev
+            : { width, height },
+        );
+      }
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  // Track iframe-ready so we can hold a pre-load skeleton over interactive-
+  // HTML pins until the widget's preamble posts its `ready` handshake. Reset
+  // when the pin identity changes so a slot reused for a different pin
+  // re-shows the skeleton.
+  const [iframeReady, setIframeReady] = useState(false);
+  useEffect(() => {
+    setIframeReady(false);
+  }, [widget.id]);
+  const handleIframeReady = useCallback(() => {
+    setIframeReady(true);
+  }, []);
+  const isHtmlInteractive =
+    currentEnvelope?.content_type === "application/vnd.spindrel.html+interactive";
+  // Skeleton overlay only kicks in for interactive-HTML pins — component
+  // widgets render synchronously so there's no flash window to cover.
+  const showIframeSkeleton = isHtmlInteractive && !iframeReady;
+
   // Track whether we've ever had content, to distinguish "loading" from "cleared"
   const hasEverLoadedRef = useRef(false);
 
@@ -410,7 +455,16 @@ export function PinnedToolWidget({
   // when provided — that's the channel-dashboard edit-mode case. Otherwise
   // fall back to the internal sortable (channel-scope OmniPanel rail). View
   // mode dashboard pins skip drag entirely.
-  const rootRef = externalDrag?.setNodeRef ?? (isDashboard ? undefined : fbSetRef);
+  const baseRootRef = externalDrag?.setNodeRef ?? (isDashboard ? undefined : fbSetRef);
+  // Compose the drag-library's ref with our own measurement ref so the
+  // ResizeObserver tracks the same node react-dnd attaches to.
+  const rootRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      measureNodeRef.current = node;
+      if (baseRootRef) baseRootRef(node);
+    },
+    [baseRootRef],
+  );
   const rootAttrs = externalDrag?.attributes ?? (isDashboard ? {} : fbAttrs);
   const handleListeners = externalDrag?.listeners ?? (isDashboard ? undefined : fbListeners);
 
@@ -470,6 +524,8 @@ export function PinnedToolWidget({
             dispatcher={dispatcher}
             fillHeight={false}
             dashboardPinId={widget.id}
+            gridDimensions={measuredSize ?? undefined}
+            onIframeReady={handleIframeReady}
             t={t}
           />
         </div>
@@ -565,7 +621,8 @@ export function PinnedToolWidget({
           (dashboard flag) hides the scrollbar until the tile is hovered. */}
       <div
         className={
-          (isDashboard
+          "relative "
+          + (isDashboard
             ? "px-2 pb-2 flex-1 min-h-0 "
             : "px-2 pb-2 max-h-[350px] ")
           + (hoverScrollbars
@@ -579,8 +636,21 @@ export function PinnedToolWidget({
           dispatcher={dispatcher}
           fillHeight={isDashboard}
           dashboardPinId={widget.id}
+          gridDimensions={measuredSize ?? undefined}
+          onIframeReady={handleIframeReady}
           t={t}
         />
+        {showIframeSkeleton && (
+          <div
+            className="absolute inset-0 px-2 pb-2 pt-0 flex flex-col gap-1.5 animate-pulse pointer-events-none"
+            style={{ background: t.surface }}
+            aria-hidden
+          >
+            <div className="h-3 rounded bg-skeleton/[0.04]" style={{ width: "90%" }} />
+            <div className="h-3 rounded bg-skeleton/[0.04]" style={{ width: "60%" }} />
+            <div className="flex-1 rounded bg-skeleton/[0.03] mt-1" />
+          </div>
+        )}
       </div>
     </div>
   );

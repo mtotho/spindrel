@@ -69,6 +69,13 @@ class WidgetManifest:
     events: list[EventEntry]
     db: DbConfig | None
     source_path: Path | None = None
+    # Third-party origin allowances the bundle needs at render time
+    # (Google Maps JS, Mapbox tiles, etc.). Same shape + validation as the
+    # envelope's ``extra_csp``: ``{directive: [https://origin, ...]}``. When
+    # present, the catalog pin flow forwards this onto the envelope so
+    # cross-channel / cross-dashboard re-pins keep working without
+    # re-invoking the original ``emit_html_widget`` call.
+    extra_csp: dict[str, list[str]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +278,18 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
     raw_db = raw.get("db")
     db = _validate_db(raw_db) if raw_db is not None else None
 
+    raw_csp = raw.get("extra_csp")
+    extra_csp: dict[str, list[str]] | None = None
+    if raw_csp is not None:
+        # Reuse the exact tool-dispatch validator so manifest CSP and
+        # emit_html_widget CSP stay byte-compatible (same origin-scheme rules,
+        # same per-directive caps, same error messages).
+        from app.agent.tool_dispatch import _sanitize_extra_csp
+        try:
+            extra_csp = _sanitize_extra_csp(raw_csp)
+        except ValueError as exc:
+            raise ManifestError(f"extra_csp: {exc}") from exc
+
     return WidgetManifest(
         name=name.strip(),
         version=version,
@@ -280,4 +299,5 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
         events=events,
         db=db,
         source_path=path,
+        extra_csp=extra_csp,
     )
