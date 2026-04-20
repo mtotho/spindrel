@@ -234,10 +234,11 @@ async def create_suite_pins(
 
     The envelope for each member is a minimal shape that matches what
     ``emit_html_widget`` produces for a path-mode widget: ``content_type``
-    is the interactive-HTML tag, ``source_path`` is
-    ``widgets/<member>/index.html`` relative to the workspace, plus the
-    bot / channel identity fields. Widget JWT minting + runtime scoping
-    fall out of these fields at render time.
+    is the interactive-HTML tag, ``source_path`` is ``<member>/index.html``
+    relative to the source_kind's widget root (``BUILTIN_WIDGET_ROOT`` for
+    builtin suites, ``integrations/<id>/widgets/`` for integration suites),
+    plus the bot / channel identity fields. Widget JWT minting + runtime
+    scoping fall out of these fields at render time.
     """
     from app.services.widget_suite import load_suite
 
@@ -278,7 +279,7 @@ async def create_suite_pins(
                 "body": "",
                 "plain_body": member,
                 "display": "inline",
-                "source_path": f"widgets/{member}/index.html",
+                "source_path": f"{member}/index.html",
                 "source_kind": source_kind,
                 "source_integration_id": source_integration_id,
                 "source_channel_id": str(source_channel_id) if source_channel_id else None,

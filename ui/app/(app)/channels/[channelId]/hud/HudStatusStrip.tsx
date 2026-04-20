@@ -74,6 +74,10 @@ export function HudStatusStrip({ hud, compact }: { hud: ActiveHud; compact?: boo
   );
 
   if (compact) {
+    // Constrain to viewport width and fade the right edge so the user sees
+    // there's more content to scroll to. The mask is transparent except for
+    // the last ~12px on the right where it ramps to 0, creating a soft
+    // chip-fade signal.
     return (
       <div
         className="hide-scrollbar"
@@ -84,10 +88,15 @@ export function HudStatusStrip({ hud, compact }: { hud: ActiveHud; compact?: boo
           overflowX: "auto",
           flexShrink: 0,
           maxHeight: 28,
+          maxWidth: "100vw",
           padding: "4px 12px",
           gap: 6,
           borderBottom: `1px solid ${t.surfaceBorder}`,
           backgroundColor: t.surfaceRaised,
+          WebkitMaskImage:
+            "linear-gradient(to right, black calc(100% - 16px), transparent 100%)",
+          maskImage:
+            "linear-gradient(to right, black calc(100% - 16px), transparent 100%)",
         }}
       >
         {items}

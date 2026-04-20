@@ -545,14 +545,26 @@ function HeaderCanvas({
       <div
         ref={measure.setRef}
         className={
-          "relative inline-flex items-center justify-center px-3 py-1.5 rounded-full "
-          + (pins.length > 0 ? "bg-surface-raised/50 backdrop-blur-md shadow-sm" : "")
+          "relative flex items-center justify-center px-3 py-1.5 rounded-full "
+          + (pins.length > 0
+              ? "bg-surface-raised/50 backdrop-blur-md shadow-sm"
+              : editMode
+                ? "bg-surface-raised/30"
+                : "")
         }
-        style={{ minHeight: HEADER_ROW_HEIGHT + 12 }}
+        style={{
+          minHeight: HEADER_ROW_HEIGHT + 12,
+          // When empty in edit mode, give the pill a real width so the drop
+          // target reads as a target and `cellWidthPx` resolves to sensible
+          // values the moment a pin lands. Without this the inline-flex
+          // pill collapses to the width of the hint text (~220px) and chips
+          // that land here render too narrow to recognize.
+          minWidth: pins.length === 0 && editMode ? 480 : undefined,
+        }}
       >
         {pins.length === 0 ? (
           editMode ? (
-            <EmptyCanvasHint message="Drop widgets here to show as compact chips above the channel chat." />
+            <EmptyCanvasHint message="Drop widgets here — they'll show as compact chips above the chat" />
           ) : null
         ) : (
           <SortableContext items={ids} strategy={horizontalListSortingStrategy}>
@@ -991,7 +1003,7 @@ function EmptyCanvasHint({ message }: { message: string }) {
   const t = useThemeTokens();
   return (
     <div
-      className="flex items-center justify-center py-4 px-3 text-[10px] text-center opacity-40 select-none"
+      className="flex items-center justify-center py-2.5 px-3 text-[11px] text-center opacity-70 select-none"
       style={{ color: t.textDim }}
     >
       {message}

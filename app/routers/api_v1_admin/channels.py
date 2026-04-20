@@ -368,6 +368,9 @@ class ChannelSettingsOut(BaseModel):
     # channel. "auto" (default) → visible when subscriptions exist. Stored
     # in the JSONB config column; surfaced at the top level for UI.
     pipeline_mode: str = "auto"
+    # Chat-screen layout mode. Controls which dashboard zones render on the
+    # chat screen. Stored in channel.config["layout_mode"]; default "full".
+    layout_mode: str = "full"
 
     model_config = {"from_attributes": True}
 
@@ -432,6 +435,9 @@ class ChannelSettingsUpdate(BaseModel):
     tags: Optional[list[str]] = None
     # Phase 5: pipeline_mode override. "auto" (default) | "on" | "off".
     pipeline_mode: Optional[str] = None
+    # Chat-screen layout mode. "full" (default) | "rail-header-chat" |
+    # "rail-chat" | "dashboard-only". Stored inside channel.config JSONB.
+    layout_mode: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -592,6 +598,7 @@ async def admin_channel_settings(
     out.category = (channel.metadata_ or {}).get("category")
     out.tags = (channel.metadata_ or {}).get("tags", [])
     out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
+    out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
     return out
 
 
@@ -652,6 +659,26 @@ async def admin_channel_settings_update(
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(channel, "config")
 
+    # Handle layout_mode — shallow-merge into channel.config JSONB (same
+    # storage pattern as pipeline_mode). "full" clears the key so the
+    # config stays lean when running on defaults.
+    if "layout_mode" in updates:
+        lm = updates.pop("layout_mode")
+        _valid_layout = {"full", "rail-header-chat", "rail-chat", "dashboard-only"}
+        if lm is not None and lm not in _valid_layout:
+            raise HTTPException(
+                status_code=422,
+                detail=f"layout_mode must be one of: {sorted(_valid_layout)}",
+            )
+        cfg = dict(channel.config or {})
+        if lm in (None, "full"):
+            cfg.pop("layout_mode", None)
+        else:
+            cfg["layout_mode"] = lm
+        channel.config = cfg
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(channel, "config")
+
     # Validate model tier override names
     if updates.get("model_tier_overrides"):
         from app.services.server_config import VALID_TIER_NAMES
@@ -688,6 +715,7 @@ async def admin_channel_settings_update(
     out.category = (channel.metadata_ or {}).get("category")
     out.tags = (channel.metadata_ or {}).get("tags", [])
     out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
+    out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
     return out
 
 

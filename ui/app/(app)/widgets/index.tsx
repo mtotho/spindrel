@@ -559,7 +559,7 @@ export default function WidgetsDashboardPage() {
             onEditPin={(id) => setEditingPinId(id)}
           />
         )}
-        {!isLoading && !error && pins.length > 0 && !inPanelMode && isChannelScoped && channelScopedId && (
+        {!isLoading && !error && pins.length > 0 && !inPanelMode && isChannelScoped && channelScopedId && !isMobile && (
           <ChannelDashboardMultiCanvas
             pins={pins}
             preset={preset}
@@ -570,6 +570,9 @@ export default function WidgetsDashboardPage() {
             onEditPin={(id) => setEditingPinId(id)}
             channelId={channelScopedId}
           />
+        )}
+        {!isLoading && !error && pins.length > 0 && !inPanelMode && isChannelScoped && channelScopedId && isMobile && (
+          <MobileEditorGate channelId={channelScopedId} pinCount={pins.length} />
         )}
         {!isLoading && !error && pins.length > 0 && !inPanelMode && !isChannelScoped && (
           <div className="relative">
@@ -687,6 +690,47 @@ function EmptyState({ onAddClick }: { onAddClick: () => void }) {
           <Wrench size={13} />
           Open developer panel
         </Link>
+      </div>
+    </div>
+  );
+}
+
+/** Friendly gate shown when a user opens a channel dashboard (`/widgets/
+ *  channel/:id`) on a mobile viewport. The multi-canvas editor is
+ *  desktop-only by design — rail (300px) + dock (320px) don't translate to
+ *  portrait phones, and DnD gestures aren't usable on touch. Mobile users
+ *  see their channel's widgets via the chat drawer (`MobileChannelDrawer`)
+ *  instead, so this card points them at chat + a desktop invitation.
+ */
+function MobileEditorGate({ channelId, pinCount }: { channelId: string; pinCount: number }) {
+  const navigate = useNavigate();
+  return (
+    <div className="flex-1 flex items-center justify-center p-6">
+      <div className="max-w-sm w-full rounded-lg bg-surface-raised border border-surface-border p-6 flex flex-col items-center gap-3 text-center">
+        <LayoutDashboard size={24} className="text-accent" />
+        <div className="text-[15px] font-semibold text-text">
+          Dashboard editor is desktop-only
+        </div>
+        <div className="text-[12px] leading-relaxed text-text-muted">
+          Editing the widget canvas needs mouse drag + resize. Tap the
+          hamburger in chat to see {pinCount === 1 ? "this widget" : `all ${pinCount} widgets`} via the mobile drawer.
+        </div>
+        <div className="flex flex-col gap-2 w-full mt-1">
+          <button
+            type="button"
+            onClick={() => navigate(`/channels/${channelId}`)}
+            className="w-full rounded-md px-4 py-2 text-[12px] font-medium bg-accent text-surface"
+          >
+            Open chat
+          </button>
+          <button
+            type="button"
+            onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/widgets/channel/${channelId}`)}
+            className="w-full rounded-md px-4 py-2 text-[11px] font-medium text-text-muted hover:bg-surface-overlay border border-surface-border/50"
+          >
+            Copy desktop link
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -104,6 +104,47 @@ async def test_pin_suite_rejects_unknown_suite(client, seeded):
 
 
 @pytest.mark.asyncio
+async def test_pin_suite_envelope_source_path_resolves_via_builtin_endpoint(
+    client, seeded,
+):
+    """Suite-pin envelopes must set ``source_path`` without a ``widgets/``
+    prefix so the ``/html-widget-content/builtin?path=...`` endpoint, which
+    already resolves under ``app/tools/local/widgets/``, can locate the HTML.
+
+    Regression: session 12 seeded ``widgets/<member>/index.html`` which
+    doubled the prefix and 404'd every pinned MC suite member.
+    """
+    resp = await client.post(
+        "/api/v1/widgets/dashboard/pins/suite",
+        json={
+            "suite_id": "mission-control",
+            "dashboard_key": "default",
+            "source_bot_id": "test-bot",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    pins = resp.json()["pins"]
+    for pin in pins:
+        envelope = pin["envelope"]
+        source_path = envelope["source_path"]
+        assert not source_path.startswith("widgets/"), (
+            f"suite pin envelope must not prefix widgets/: {source_path!r}"
+        )
+        assert envelope["source_kind"] == "builtin"
+        # The content endpoint resolves `path` under BUILTIN_WIDGET_ROOT
+        # (= app/tools/local/widgets). Make sure it finds the file.
+        content_resp = await client.get(
+            "/api/v1/widgets/html-widget-content/builtin",
+            params={"path": source_path},
+            headers=AUTH_HEADERS,
+        )
+        assert content_resp.status_code == 200, (
+            f"source_path {source_path!r} 404'd: {content_resp.text}"
+        )
+
+
+@pytest.mark.asyncio
 async def test_pin_suite_narrow_members(client, seeded):
     """`members` narrows the set; bad member → 400."""
     resp_bad = await client.post(

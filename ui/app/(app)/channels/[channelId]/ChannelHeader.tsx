@@ -80,7 +80,11 @@ export function ChannelHeader({
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
-  const openPalette = useUIStore((s) => s.openPalette);
+  // Mobile hamburger opens the channel drawer (Widgets/Files/Jump) rather
+  // than the plain command palette — drawer's Jump tab wraps the palette
+  // content inline, so channel-route mobile users get one surface with nav
+  // + widgets + files all reachable from a single tap.
+  const openChannelDrawer = useUIStore((s) => s.setFileExplorerOpen);
   const [compact, setCompact] = useToolResultCompact(channelId);
 
   const { data: channelData } = useChannel(channelId);
@@ -189,7 +193,12 @@ export function ChannelHeader({
       }}
     >
       {isMobile ? (
-        <button className="header-icon-btn" style={{ width: 44, height: 44 }} onClick={openPalette} title="Open menu">
+        <button
+          className="header-icon-btn"
+          style={{ width: 44, height: 44 }}
+          onClick={() => openChannelDrawer(true)}
+          title="Open menu"
+        >
           <Menu size={18} color={t.textMuted} />
         </button>
       ) : columns === "single" ? (

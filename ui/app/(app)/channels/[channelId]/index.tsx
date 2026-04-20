@@ -6,7 +6,7 @@ import { ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { OmniPanel } from "./OmniPanel";
 import { WidgetDockRight } from "./WidgetDockRight";
-import { MobileOmniSheet } from "./MobileOmniSheet";
+import { MobileChannelDrawer } from "./MobileChannelDrawer";
 import { ChannelFileViewer } from "./ChannelFileViewer";
 import { MobileFileViewerSlide } from "./MobileFileViewerSlide";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
@@ -436,6 +436,15 @@ export default function ChatScreen() {
   const showFileViewer = activeFile !== null;
   const isMobile = columns === "single";
 
+  // Chat-screen layout mode. Controls which dashboard zones surface on the
+  // chat screen itself. Mobile drawer always shows every zone regardless.
+  const layoutMode = (channel?.config?.layout_mode ?? "full") as
+    | "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
+  const showRailZone = layoutMode !== "dashboard-only";
+  const showHeaderChips = layoutMode === "full" || layoutMode === "rail-header-chat";
+  const showDockZone = layoutMode === "full";
+  const dashboardOnly = layoutMode === "dashboard-only";
+
   // Auto-enable split mode on wide screens when a file is first opened.
   const autoSplitApplied = useRef(false);
   useEffect(() => {
@@ -694,18 +703,22 @@ export default function ChatScreen() {
         />
       )}
 
-      {/* Header-zone pinned widgets — rendered as a full-width chip strip
-          beneath the ChannelHeader now that the header spans above the three
-          columns. Desktop only. */}
-      {!isMobile && channelId && hasHeaderChips && (
-        <div className="flex justify-center px-3 pt-1 pb-2">
-          <div className="px-3 py-1.5 rounded-full bg-surface-raised/50 backdrop-blur-md shadow-sm">
-            <ChannelHeaderChip channelId={channelId} />
-          </div>
-        </div>
-      )}
     </div>
   );
+
+  // Header-zone chip strip — rendered as an absolute overlay centered over
+  // the top of the three-column row so it floats without consuming vertical
+  // space. Desktop only; mobile surfaces these in the drawer's Widgets tab.
+  // `pointer-events-none` on the wrapper lets clicks pass through dead space
+  // to the chat below; the inner pill re-enables pointer events for itself.
+  const headerChipOverlay =
+    !isMobile && channelId && hasHeaderChips && showHeaderChips ? (
+      <div className="absolute left-1/2 -translate-x-1/2 top-1 z-20 pointer-events-none flex justify-center">
+        <div className="pointer-events-auto px-3 py-1.5 rounded-full bg-surface-raised/50 backdrop-blur-md shadow-sm">
+          <ChannelHeaderChip channelId={channelId} />
+        </div>
+      </div>
+    ) : null;
 
   const outerChildren = (
     <>
@@ -754,9 +767,13 @@ export default function ChatScreen() {
               mobile
             />
           )}
-          {/* Mobile OmniPanel bottom sheet — hidden on system channels. */}
+          {/* Mobile channel drawer — tabbed Widgets/Files/Jump; opens from
+              the channel header's hamburger. Replaces the old bottom sheet
+              with a channel-scoped full-height drawer that also embeds the
+              global command palette as its "Jump" tab. Hidden on system
+              channels (no workspace + orchestrator handles its own chrome). */}
           {channelId && !isSystemChannel && (
-            <MobileOmniSheet
+            <MobileChannelDrawer
               open={showExplorer}
               onClose={handleCloseExplorer}
               channelId={channelId}
@@ -787,11 +804,13 @@ export default function ChatScreen() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
           {channelHeaderBlock}
         <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", position: "relative", minHeight: 0 }}>
+          {headerChipOverlay}
           {/* OmniPanel — always rendered, animated via width clip.
               Hidden on system channels (orchestrator has no workspace files
-              or channel-specific pinned widgets worth surfacing).
+              or channel-specific pinned widgets worth surfacing) and when
+              the channel's layout_mode is "dashboard-only".
               Outer padding (pl-1.5 py-1.5) creates the 6px floating-card gap. */}
-          {channelId && !isSystemChannel && (
+          {channelId && !isSystemChannel && showRailZone && (
             <div
               className="pl-2.5 py-2.5"
               style={{
@@ -821,10 +840,42 @@ export default function ChatScreen() {
             />
           )}
 
+          {/* Dashboard-only mode: replace the chat column with a card
+              that points users at the full dashboard. No messages, no
+              composer — the channel is purely a widget surface. */}
+          {dashboardOnly && channelId && (
+            <div
+              className="flex-1 flex items-center justify-center p-6"
+              style={{ backgroundColor: t.surface }}
+            >
+              <div
+                className="max-w-sm w-full rounded-lg p-6 flex flex-col items-center gap-3 text-center"
+                style={{ backgroundColor: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}` }}
+              >
+                <LayoutDashboardIcon size={20} style={{ color: t.accent }} />
+                <div className="text-[15px] font-semibold" style={{ color: t.text }}>
+                  Dashboard-only channel
+                </div>
+                <div className="text-[12px] leading-relaxed" style={{ color: t.textMuted }}>
+                  This channel renders as a widget dashboard. Open the dashboard
+                  to see pinned widgets.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/widgets/channel/${channelId}`)}
+                  className="mt-1 rounded-md px-4 py-1.5 text-[12px] font-medium"
+                  style={{ backgroundColor: t.accent, color: t.surface }}
+                >
+                  Open dashboard
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Chat column — messages + input stacked vertically. The full-width
               ChannelHeader now lives ABOVE this flex-row, so the column is
               header-free and the message area doesn't need a top-offset. */}
-          {(!showFileViewer || splitMode) && (
+          {!dashboardOnly && (!showFileViewer || splitMode) && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
               <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
                 <ChatMessageArea
@@ -898,7 +949,7 @@ export default function ChatScreen() {
               (no channel dashboard) and when the band is empty. Outer
               `pr-2.5 py-2.5` mirrors the left dock's `pl-2.5 py-2.5` so the
               floating-card gap is symmetric on both sides. */}
-          {!isMobile && channelId && !isSystemChannel && !rightDockHidden && (
+          {!isMobile && channelId && !isSystemChannel && !rightDockHidden && showDockZone && (
             <div className="pr-2.5 py-2.5 flex">
               <WidgetDockRight channelId={channelId} />
             </div>
@@ -1032,7 +1083,17 @@ export default function ChatScreen() {
   return (
     <div
       className={`chat-fade-in${entranceClassActive ? " chat-screen--entering-from-dock" : ""}`}
-      style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface, overflow: "hidden" }}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        backgroundColor: t.surface,
+        overflow: "hidden",
+        // Respect the notch + system UI on mobile. No-op on desktop where
+        // safe-area insets are 0. Bottom is handled per-component already
+        // (composer overlay, mobile drawer) so we only pad the top.
+        paddingTop: isMobile ? "env(safe-area-inset-top)" : undefined,
+      }}
     >
       {outerChildren}
       <ChannelModalMount />

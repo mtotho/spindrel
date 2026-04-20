@@ -221,6 +221,15 @@ class ChannelConfigOut(BaseModel):
     carapaces_disabled: Optional[list[str]] = None
     # Model tier overrides
     model_tier_overrides: dict = {}
+    # Chat-screen layout mode. Controls which dashboard zones render on the
+    # chat screen (rail / header chips / right dock). Persisted in
+    # ``Channel.config["layout_mode"]``.
+    #   ``full``             — every zone renders (default)
+    #   ``rail-header-chat`` — rail + header chips; dock hidden
+    #   ``rail-chat``        — rail only; header chips + dock hidden
+    #   ``dashboard-only``   — chat screen replaced by a card that points
+    #                          users at ``/widgets/channel/:id``
+    layout_mode: str = "full"
     # Heartbeat (prefixed)
     heartbeat_enabled: bool = False
     heartbeat_interval_minutes: int = 60
@@ -282,6 +291,9 @@ class ChannelConfigUpdate(BaseModel):
     carapaces_disabled: Optional[list[str]] = None
     # Model tier overrides
     model_tier_overrides: Optional[dict] = None
+    # Chat-screen layout mode (see ChannelConfigOut.layout_mode for semantics).
+    # Accepted values: ``full | rail-header-chat | rail-chat | dashboard-only``.
+    layout_mode: Optional[str] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: Optional[bool] = None
     heartbeat_interval_minutes: Optional[int] = None
@@ -628,10 +640,37 @@ async def update_channel_config(
         if invalid:
             raise HTTPException(status_code=422, detail=f"Invalid tier names: {sorted(invalid)}. Valid: {sorted(VALID_TIER_NAMES)}")
 
+    # Validate layout_mode against the known set. Unknown values would quietly
+    # render as ``full`` on the client, but we reject at the API so admins
+    # can't end up with a typo'd mode that's a no-op.
+    if "layout_mode" in ch_updates and ch_updates["layout_mode"] is not None:
+        _valid_layout = {"full", "rail-header-chat", "rail-chat", "dashboard-only"}
+        if ch_updates["layout_mode"] not in _valid_layout:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid layout_mode. Valid: {sorted(_valid_layout)}",
+            )
+
+    # layout_mode is stored inside the channel's JSONB config, not as a top-
+    # level column. Split it out so the generic setattr loop below doesn't
+    # try to write to a non-existent attribute.
+    layout_mode_update = ch_updates.pop("layout_mode", None) if "layout_mode" in ch_updates else None
+
     # Apply channel updates
     if ch_updates:
         for field, value in ch_updates.items():
             setattr(channel, field, value)
+        channel.updated_at = now
+
+    # Apply layout_mode via the JSONB config dict. deepcopy + flag_modified so
+    # SQLAlchemy picks up the mutation (JSONB in-place edits don't auto-flag).
+    if layout_mode_update is not None:
+        import copy as _copy
+        from sqlalchemy.orm.attributes import flag_modified
+        cfg = _copy.deepcopy(channel.config or {})
+        cfg["layout_mode"] = layout_mode_update
+        channel.config = cfg
+        flag_modified(channel, "config")
         channel.updated_at = now
 
     # Apply heartbeat updates
@@ -721,6 +760,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "carapaces_extra": channel.carapaces_extra,
         "carapaces_disabled": channel.carapaces_disabled,
         "model_tier_overrides": channel.model_tier_overrides or {},
+        "layout_mode": (channel.config or {}).get("layout_mode", "full"),
         "created_at": channel.created_at,
         "updated_at": channel.updated_at,
     }

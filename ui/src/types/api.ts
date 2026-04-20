@@ -401,6 +401,12 @@ export interface Channel {
      *  visible when \u22651 subscription exists. "on": always visible.
      *  "off": hidden even when subscriptions exist. */
     pipeline_mode?: "auto" | "on" | "off";
+    /** Chat-screen layout mode. Controls which dashboard zones the chat
+     *  screen renders. "full" (default): every zone. "rail-header-chat":
+     *  rail + header chips, dock hidden. "rail-chat": rail only. Others
+     *  hidden. "dashboard-only": chat screen replaced with a redirect
+     *  card pointing at the channel dashboard. */
+    layout_mode?: "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
   };
   category?: string | null;
   tags?: string[];
@@ -615,6 +621,11 @@ export interface ChannelSettings {
    *  pipeline launchpad when subscriptions exist; "on" forces it visible;
    *  "off" hides it even with subscriptions. Stored in `channel.config`. */
   pipeline_mode?: "auto" | "on" | "off";
+  /** Chat-screen layout mode. Controls which dashboard zones render on the
+   *  chat screen. See `Channel.config.layout_mode` for the authoritative
+   *  shape. "full" (default), "rail-header-chat", "rail-chat",
+   *  "dashboard-only". Stored in `channel.config`. */
+  layout_mode?: "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
 }
 
 export interface EffectiveTools {

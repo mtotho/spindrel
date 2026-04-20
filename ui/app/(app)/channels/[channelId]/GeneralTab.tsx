@@ -166,6 +166,24 @@ function GeneralAdvancedSection({
         </Row>
       </Section>
 
+      <Section title="Layout">
+        <FormRow
+          label="Chat screen layout"
+          description="Controls which channel-dashboard zones render on the chat screen (rail, header chips, right dock). The dashboard itself always has every zone — this only affects what's visible during conversation. Mobile always shows every zone in the drawer regardless of this setting."
+        >
+          <SelectInput
+            value={(form.layout_mode ?? "full") as string}
+            onChange={(v) => patch("layout_mode", v as "full" | "rail-header-chat" | "rail-chat" | "dashboard-only")}
+            options={[
+              { label: "Full — rail + header chips + chat + right dock (default)", value: "full" },
+              { label: "Rail + header + chat — no right dock", value: "rail-header-chat" },
+              { label: "Rail + chat — no header chips, no right dock", value: "rail-chat" },
+              { label: "Dashboard only — chat screen replaced by dashboard link", value: "dashboard-only" },
+            ]}
+          />
+        </FormRow>
+      </Section>
+
       <Section title="Automation">
         <FormRow
           label="Pipeline mode"

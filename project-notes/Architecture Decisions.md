@@ -8,6 +8,48 @@
 
 ## Key Decisions
 
+### Mobile hamburger on channel routes opens a tabbed drawer; desktop keeps plain palette
+**Decided 2026-04-20.** On the channel chat screen, the mobile hamburger no longer opens the global CommandPalette — it opens a new `MobileChannelDrawer` (`ui/app/(app)/channels/[channelId]/MobileChannelDrawer.tsx`) with three tabs: `[Widgets (N)] [Files] [Jump]`. Default tab = Jump, which embeds `CommandPaletteContent variant="modal"` inline so muscle memory for the palette keeps working. Widgets tab shows every channel-dashboard pin grouped by zone (Header / Rail / Dock / Grid) so mobile users see full dashboard contents regardless of the chat-screen layout mode. Files tab = existing `FilesTabPanel`. Desktop ⌘K and mobile non-channel hamburger still open the plain CommandPalette — no tab-strip chrome there.
+
+**Why.** Mobile had three surfaces doing overlapping jobs — hamburger (palette/nav), bottom sheet (channel OmniPanel), peek tabs (collapsed docks). Folding widget + file + nav access into one drawer removed the surface count without taking away any functionality. Desktop has OmniPanel in the rail already, so adding channel tabs to desktop ⌘K would duplicate chrome users don't need. `MobileOmniSheet.tsx` is deleted; `fileExplorerOpen` now drives the drawer open-state on mobile (same state key, same triggers).
+
+### Chat-screen zones are gated by `channel.config["layout_mode"]`
+**Decided 2026-04-20.** A channel may now pick how its dashboard zones surface on the chat screen via a four-value `layout_mode` stored in `Channel.config` JSONB:
+
+| Mode                 | Rail | Header chips | Dock | Chat |
+|----------------------|------|--------------|------|------|
+| `full` (default)     |  ✓   |     ✓        |  ✓   |  ✓   |
+| `rail-header-chat`   |  ✓   |     ✓        |  —   |  ✓   |
+| `rail-chat`          |  ✓   |     —        |  —   |  ✓   |
+| `dashboard-only`     |  —   |     —        |  —   |  redirect card → `/widgets/channel/:id` |
+
+**Why.** The full chat-screen layout (rail + header + dock + chat) is great for active conversation channels but wrong for channels that are really widget dashboards (a Frigate wall, a Home Control panel, etc.). Letting the owner pick the mode per channel avoids a one-size-fits-all compromise. Grid pins always persist on the dashboard regardless of mode — `layout_mode` only affects what surfaces on the chat screen. Mobile drawer always shows every zone regardless, so the setting is purely a chat-screen chrome knob.
+
+**Load-bearing implementation choices.**
+- **No schema migration.** Layout mode rides on the existing `channels.config` JSONB, same pattern as `pipeline_mode`. `"full"` is serialized as a missing key to keep defaults lean.
+- **UI lives in `/channels/:id/settings` under a new "Layout" section.** Not in the dashboard edit bar — discoverability matters more than proximity to the editor.
+- **Unknown values default to `"full"`** on the client (graceful) but are rejected with 422 on the API (strict) — typos can't silently no-op.
+
+### Dashboard editor is desktop-only by design on mobile
+**Decided 2026-04-20.** `/widgets/channel/:id` on viewports < 768px renders a `MobileEditorGate` card pointing users at the chat screen + offering a "Copy desktop link" affordance instead of the multi-canvas editor. The editor's hardcoded rail (300px) + dock (320px) widths don't translate to portrait phones, and DnD gestures aren't usable on touch. Mobile users see their channel's widgets via `MobileChannelDrawer`'s Widgets tab (all zones listed) — no duplicate rendering path.
+
+**Why.** Making the multi-canvas editor responsive would be a large piece of work with marginal payoff — the typical author workflow is keyboard + mouse. The drawer already surfaces every pin on mobile; mobile authoring would just be a convenience for a tiny use case. Scoping explicitly to desktop keeps both the editor's architecture and the polish surface contained.
+
+### Interactive-HTML widget pins carry an auth-scope choice (user vs bot)
+**Decided 2026-04-20.** A pin's `source_bot_id` is now the single discriminator for iframe auth scope, chosen explicitly at pin time from the catalog:
+- **`source_bot_id = null` → user scope.** `InteractiveHtmlRenderer` skips `/widget-auth/mint` and bakes the viewer's own bearer into `state.token`. Endpoints accept it via `verify_auth_or_user`. Each viewer sees data through their own account.
+- **`source_bot_id = <uuid>` → bot scope.** Existing mint flow. Every viewer sees the same data through the bot's scoped API key (lets a shared widget expose state no individual viewer could read).
+
+**Why.** The Widget SDK Phase B.6 suite work established "dashboard slug IS the scope" for the shared-SQLite DB — but left iframe auth untouched, which still assumed every interactive-HTML widget was bot-emitted. User-pinned suites (MC Kanban / Timeline / Tasks, HTML-widget catalog pins) had no natural bot, so they silently shipped with `source_bot_id = null`, `shouldMint = false`, no token, and `sp.db.query()` hung forever waiting for a bearer that never arrived. The catalog could have defaulted to a channel's bot, but that's a hack that hides the actual choice: *whose credentials is this widget running under?*
+
+**Load-bearing implementation choices.**
+- **No schema change.** The existing nullable `widget_dashboard_pins.source_bot_id` column already encodes both states.
+- **`AddFromChannelSheet` exposes the choice explicitly.** Scope picker on HTML Widgets + Suites tabs with two labels: "You — each viewer sees data through their own account" vs "A bot — every viewer sees the same data through the bot's credentials." Default: user. Pre-existing paths (Recent calls, From channel) don't show the picker — those envelopes already carry an emitting `source_bot_id` from the tool call.
+- **Suite pin defaults to whole-suite scope.** One scope setting applies to all members of a suite at pin time; per-pin override happens later via the pin drawer (existing rename/config flow).
+- **`create_suite_pins` now stamps `source_kind` + `source_integration_id`.** Inferred from `SuiteManifest.source_path` — built-in suites get `"builtin"`, integration suites get `"integration"` + the integration id. Without this the iframe defaulted to `"channel"` and fetched built-in HTML from the wrong endpoint.
+- **Scope chip renders for both modes.** Bottom-left pill on every interactive-HTML tile reads `@botname` or `as you` with a tooltip explaining whose permissions are in effect — the security posture stays visible to viewers.
+- **Pin-implicit channel auth still composes.** A user-scoped pin on a `channel:<uuid>` dashboard can still hit channel-scoped reads via the session-14 pattern: `ApiKeyAuth.pin_id` check remains the same, and user JWTs with dashboard membership are accepted independently.
+
 ### Widget-JWT pins grant implicit channel-scoped read access
 **Decided 2026-04-20.** `app/dependencies.py::ApiKeyAuth` now carries an optional `pin_id` captured from the widget JWT (`kind: "widget"` tokens minted by `POST /api/v1/widget-auth/mint`). Channel-scoped read endpoints that opt into the pattern — starting with `/channels/{id}/context-budget` and `/context-breakdown` — accept the call when the caller's `pin_id` resolves to a dashboard with slug `channel:<channel_id>` matching the request path, **regardless of scope**. The UI renderer (`InteractiveHtmlRenderer.tsx`) now posts `pin_id` alongside `source_bot_id` at mint time, keyed on both so different pins mint different tokens.
 
