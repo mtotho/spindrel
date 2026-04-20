@@ -377,6 +377,22 @@ export function PinnedToolWidget({
   // widgets render synchronously so there's no flash window to cover.
   const showIframeSkeleton = isHtmlInteractive && !iframeReady;
 
+  // Drag wiring: prefer the enclosing DndContext's binding (`externalDrag`)
+  // when provided — that's the channel-dashboard edit-mode case. Otherwise
+  // fall back to the internal sortable (channel-scope OmniPanel rail). View
+  // mode dashboard pins skip drag entirely. Declared up here (before any
+  // conditional returns) so the hook call order stays stable across renders.
+  const baseRootRef = externalDrag?.setNodeRef ?? (isDashboard ? undefined : fbSetRef);
+  // Compose the drag-library's ref with our own measurement ref so the
+  // ResizeObserver tracks the same node react-dnd attaches to.
+  const rootRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      measureNodeRef.current = node;
+      if (baseRootRef) baseRootRef(node);
+    },
+    [baseRootRef],
+  );
+
   // Track whether we've ever had content, to distinguish "loading" from "cleared"
   const hasEverLoadedRef = useRef(false);
 
@@ -451,20 +467,6 @@ export function PinnedToolWidget({
           : 1,
   };
 
-  // Drag wiring: prefer the enclosing DndContext's binding (`externalDrag`)
-  // when provided — that's the channel-dashboard edit-mode case. Otherwise
-  // fall back to the internal sortable (channel-scope OmniPanel rail). View
-  // mode dashboard pins skip drag entirely.
-  const baseRootRef = externalDrag?.setNodeRef ?? (isDashboard ? undefined : fbSetRef);
-  // Compose the drag-library's ref with our own measurement ref so the
-  // ResizeObserver tracks the same node react-dnd attaches to.
-  const rootRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      measureNodeRef.current = node;
-      if (baseRootRef) baseRootRef(node);
-    },
-    [baseRootRef],
-  );
   const rootAttrs = externalDrag?.attributes ?? (isDashboard ? {} : fbAttrs);
   const handleListeners = externalDrag?.listeners ?? (isDashboard ? undefined : fbListeners);
 

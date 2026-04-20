@@ -17,6 +17,7 @@ import type {
   WidgetDashboardPin,
 } from "@/src/types/api";
 import { HtmlWidgetsTab, pinIdentity } from "./HtmlWidgetsTab";
+import { PinScopePicker } from "./PinScopePicker";
 
 /** Previews are read-only — widget `callTool` dispatches inside the sheet
  *  don't mutate anything. A no-op dispatcher makes that explicit. */
@@ -287,11 +288,13 @@ export default function AddFromChannelSheet({
         </div>
 
         {(tab === "html-widgets" || tab === "suites") && (
-          <ScopePicker
-            scope={pinScope}
-            onChange={setPinScope}
-            bots={allBots ?? null}
-          />
+          <div className="mx-4 mt-2">
+            <PinScopePicker
+              scope={pinScope}
+              onChange={setPinScope}
+              bots={allBots ?? null}
+            />
+          </div>
         )}
 
         {(tab === "channel" || tab === "html-widgets") && (
@@ -516,86 +519,6 @@ export default function AddFromChannelSheet({
       </div>
     </div>,
     document.body,
-  );
-}
-
-/** Auth-scope picker for adhoc interactive-HTML pins.
- *
- *  Two modes, labeled in plain language so the security posture is obvious:
- *   - "Run as you" — iframe uses the viewer's own bearer. Everyone sees
- *     data scoped to their own account (fewer permissions = less data).
- *   - "Run as a bot" — iframe mints a bot-scoped JWT. Every viewer sees
- *     the same data through the bot's ceiling (lets a shared widget expose
- *     state no individual viewer may read directly). */
-function ScopePicker({
-  scope,
-  onChange,
-  bots,
-}: {
-  scope: { kind: "user" } | { kind: "bot"; botId: string };
-  onChange: (next: { kind: "user" } | { kind: "bot"; botId: string }) => void;
-  bots: { id: string; name?: string; display_name?: string | null }[] | null;
-}) {
-  const firstBotId = bots?.[0]?.id ?? "";
-  return (
-    <div className="mx-4 mt-2 rounded-md border border-surface-border bg-surface px-3 py-2">
-      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-        Runs as
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <label className="flex items-start gap-2 cursor-pointer text-[12px]">
-          <input
-            type="radio"
-            name="pin-scope"
-            checked={scope.kind === "user"}
-            onChange={() => onChange({ kind: "user" })}
-            className="mt-0.5"
-          />
-          <span className="flex-1">
-            <span className="font-medium text-text">You</span>
-            <span className="block text-[11px] text-text-muted">
-              Each viewer sees data through their own account.
-            </span>
-          </span>
-        </label>
-        <label className="flex items-start gap-2 cursor-pointer text-[12px]">
-          <input
-            type="radio"
-            name="pin-scope"
-            checked={scope.kind === "bot"}
-            onChange={() =>
-              onChange({
-                kind: "bot",
-                botId: scope.kind === "bot" ? scope.botId : firstBotId,
-              })
-            }
-            disabled={!bots || bots.length === 0}
-            className="mt-0.5"
-          />
-          <span className="flex-1">
-            <span className="font-medium text-text">A bot</span>
-            <span className="block text-[11px] text-text-muted">
-              Every viewer sees the same data through the bot's credentials.
-            </span>
-            {scope.kind === "bot" && bots && bots.length > 0 && (
-              <select
-                className="mt-1 w-full rounded border border-surface-border bg-surface-raised px-2 py-1 text-[12px] text-text"
-                value={scope.botId || firstBotId}
-                onChange={(e) =>
-                  onChange({ kind: "bot", botId: e.target.value })
-                }
-              >
-                {bots.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.display_name || b.name || b.id}
-                  </option>
-                ))}
-              </select>
-            )}
-          </span>
-        </label>
-      </div>
-    </div>
   );
 }
 

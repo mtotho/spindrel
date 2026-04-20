@@ -29,6 +29,7 @@ from app.services.dashboard_pins import (
     rename_pin,
     serialize_pin,
     update_pin_envelope,
+    update_pin_scope,
 )
 from app.services.dashboard_rail import (
     resolved_rail_state,
@@ -620,6 +621,14 @@ class PinMetadataPatch(BaseModel):
     display_label: str | None = None
 
 
+class PinScopePatch(BaseModel):
+    # Explicit Optional[str] — ``null`` means "flip to user scope", a string
+    # means "rescope to this bot." A separate endpoint (rather than folding
+    # into PinMetadataPatch) avoids ambiguity between "field omitted" and
+    # "field explicitly null" on the rename path.
+    source_bot_id: str | None = None
+
+
 @router.get(
     "/dashboard",
     dependencies=[Depends(require_scopes("channels:read"))],
@@ -800,6 +809,25 @@ async def patch_dashboard_pin_metadata(
     db: AsyncSession = Depends(get_db),
 ):
     return await rename_pin(db, pin_id, body.display_label)
+
+
+@router.patch(
+    "/dashboard/pins/{pin_id}/scope",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def patch_dashboard_pin_scope(
+    pin_id: uuid.UUID,
+    body: PinScopePatch,
+    db: AsyncSession = Depends(get_db),
+):
+    """Switch a pin between user-scope (``source_bot_id: null``) and
+    bot-scope (``source_bot_id: "<bot_id>"``).
+
+    Updates both the column and the envelope so the renderer's scope chip
+    and the widget-token-mint path stay in lockstep. 404 if the named bot
+    doesn't exist.
+    """
+    return await update_pin_scope(db, pin_id, body.source_bot_id)
 
 
 @router.post(

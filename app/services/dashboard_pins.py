@@ -480,6 +480,49 @@ async def rename_pin(
     return serialize_pin(pin)
 
 
+async def update_pin_scope(
+    db: AsyncSession,
+    pin_id: uuid.UUID,
+    source_bot_id: str | None,
+) -> dict[str, Any]:
+    """Flip a pin's auth scope between "user-scoped" and "bot-scoped".
+
+    ``source_bot_id = None`` — user scope. The iframe authenticates as the
+    viewer; each viewer sees data through their own credentials. Suite DBs
+    still resolve via dashboard_key so shared state works.
+
+    ``source_bot_id = "<bot_id>"`` — bot scope. The iframe mints a JWT from
+    the named bot so every viewer sees the same data through the bot's
+    ceiling. Bot must exist.
+
+    We write both the table column AND the envelope's ``source_bot_id``
+    field: the renderer reads the envelope to drive the scope chip (``@bot``
+    vs ``as you``) and the widget-token-mint path keys on the column. They
+    must stay in lockstep.
+    """
+    pin = await get_pin(db, pin_id)
+
+    if source_bot_id is not None:
+        bot_row = (await db.execute(
+            select(Bot).where(Bot.id == source_bot_id)
+        )).scalar_one_or_none()
+        if bot_row is None:
+            raise HTTPException(404, f"bot not found: {source_bot_id!r}")
+
+    pin.source_bot_id = source_bot_id
+    envelope = dict(pin.envelope or {})
+    if source_bot_id is None:
+        envelope.pop("source_bot_id", None)
+    else:
+        envelope["source_bot_id"] = source_bot_id
+    pin.envelope = envelope
+    flag_modified(pin, "envelope")
+
+    await db.commit()
+    await db.refresh(pin)
+    return serialize_pin(pin)
+
+
 _VALID_ZONES = {"rail", "header", "dock", "grid"}
 
 

@@ -11,8 +11,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Maximize2, Minimize2, Trash2, X } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
+import { useBots } from "@/src/api/hooks/useBots";
 import type { GridLayoutItem } from "@/src/types/api";
 import type { GridPreset } from "@/src/lib/dashboardGrid";
+import {
+  PinScopePicker,
+  pinScopeFromBotId,
+  pinScopeToBotId,
+  type PinScope,
+} from "./PinScopePicker";
 
 const HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive";
 
@@ -43,9 +50,12 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   const promotePanel = useDashboardPinsStore((s) => s.promotePinToPanel);
   const demotePanel = useDashboardPinsStore((s) => s.demotePinFromPanel);
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
+  const setPinScope = useDashboardPinsStore((s) => s.setPinScope);
+  const { data: allBots } = useBots();
 
   const [label, setLabel] = useState("");
   const [jsonText, setJsonText] = useState("{}");
+  const [scope, setScope] = useState<PinScope>({ kind: "user" });
   const unpinWidget = useDashboardPinsStore((s) => s.unpinWidget);
 
   const [saving, setSaving] = useState(false);
@@ -62,6 +72,7 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
     if (!pin) return;
     setLabel(pin.display_label ?? "");
     setJsonText(prettyJson(pin.widget_config ?? {}));
+    setScope(pinScopeFromBotId(pin.source_bot_id ?? null));
     setError(null);
     setSavedFlash(false);
   }, [pin?.id]);
@@ -122,9 +133,13 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
 
   const currentLabel = pin?.display_label ?? "";
   const currentConfig = prettyJson(pin?.widget_config ?? {});
+  const currentScopeBotId = pin?.source_bot_id ?? null;
+  const nextScopeBotId = pinScopeToBotId(scope);
+  const scopeDirty = nextScopeBotId !== currentScopeBotId;
   const dirty =
     (label.trim() || null) !== (currentLabel.trim() || null) ||
-    jsonText !== currentConfig;
+    jsonText !== currentConfig ||
+    scopeDirty;
 
   const canSave = !!pin && dirty && !saving && !jsonError;
 
@@ -140,6 +155,9 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
       }
       if (jsonText !== currentConfig) {
         ops.push(replaceConfig(pin.id, parsedConfig));
+      }
+      if (scopeDirty) {
+        ops.push(setPinScope(pin.id, nextScopeBotId));
       }
       await Promise.all(ops);
       setSavedFlash(true);
@@ -322,6 +340,29 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
               Leave empty to fall back to the widget's own label.
             </span>
           </label>
+
+          {isHtmlWidget && (
+            <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+                  Runs as
+                </span>
+                <span className="text-[10px] text-text-dim">
+                  {scope.kind === "bot" ? "bot scope" : "user scope"}
+                </span>
+              </div>
+              <PinScopePicker
+                scope={scope}
+                onChange={setScope}
+                bots={allBots ?? null}
+                bare
+              />
+              <p className="text-[11px] text-text-muted leading-snug">
+                Changes who the widget authenticates as. Pin's saved data
+                stays put; only the iframe's API credentials change.
+              </p>
+            </div>
+          )}
 
           {isHtmlWidget && (
             <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">

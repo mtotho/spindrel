@@ -343,6 +343,127 @@ class TestMetadataPatch:
         assert r.json()["display_label"] is None
 
 
+class TestScopePatch:
+    """``PATCH /dashboard/pins/{id}/scope`` flips a pin between user scope
+    (``source_bot_id: null``) and bot scope (``source_bot_id: "<id>"``).
+
+    Writes both the column and the envelope so the renderer's scope chip
+    and the widget-token-mint path stay in lockstep.
+    """
+
+    @pytest.mark.asyncio
+    async def test_flip_user_scope_to_bot(self, client, db_session):
+        """User-scoped pin can be rescoped to a bot. Envelope updates too."""
+        from app.db.models import ApiKey, Bot
+        api_key = ApiKey(
+            id=uuid.uuid4(),
+            name="scope-key",
+            key_hash="scope-hash",
+            key_prefix="scope-",
+            scopes=["chat"],
+            is_active=True,
+        )
+        db_session.add(api_key)
+        await db_session.flush()
+        db_session.add(Bot(
+            id="scope-bot",
+            name="Scope Bot",
+            display_name="Scope Bot",
+            model="test/model",
+            system_prompt="",
+            api_key_id=api_key.id,
+        ))
+        await db_session.commit()
+
+        create = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "emit_html_widget",
+                "envelope": _html_envelope(),
+            },
+            headers=AUTH_HEADERS,
+        )
+        pin_id = create.json()["id"]
+        assert create.json()["source_bot_id"] is None
+
+        r = await client.patch(
+            f"/api/v1/widgets/dashboard/pins/{pin_id}/scope",
+            json={"source_bot_id": "scope-bot"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["source_bot_id"] == "scope-bot"
+        assert r.json()["envelope"]["source_bot_id"] == "scope-bot"
+
+    @pytest.mark.asyncio
+    async def test_flip_bot_scope_to_user(self, client, db_session):
+        """Bot-scoped pin can drop back to user scope. Envelope field is removed."""
+        from app.db.models import ApiKey, Bot
+        api_key = ApiKey(
+            id=uuid.uuid4(),
+            name="scope-key-2",
+            key_hash="scope-hash-2",
+            key_prefix="scope2-",
+            scopes=["chat"],
+            is_active=True,
+        )
+        db_session.add(api_key)
+        await db_session.flush()
+        db_session.add(Bot(
+            id="drop-bot",
+            name="Drop Bot",
+            display_name="Drop Bot",
+            model="test/model",
+            system_prompt="",
+            api_key_id=api_key.id,
+        ))
+        await db_session.commit()
+
+        create = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "emit_html_widget",
+                "envelope": _html_envelope(source_bot_id="drop-bot"),
+                "source_bot_id": "drop-bot",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert create.status_code == 200, create.text
+        pin_id = create.json()["id"]
+        assert create.json()["source_bot_id"] == "drop-bot"
+
+        r = await client.patch(
+            f"/api/v1/widgets/dashboard/pins/{pin_id}/scope",
+            json={"source_bot_id": None},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["source_bot_id"] is None
+        assert "source_bot_id" not in r.json()["envelope"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_bot_rejected(self, client):
+        create = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "emit_html_widget",
+                "envelope": _html_envelope(),
+            },
+            headers=AUTH_HEADERS,
+        )
+        pin_id = create.json()["id"]
+
+        r = await client.patch(
+            f"/api/v1/widgets/dashboard/pins/{pin_id}/scope",
+            json={"source_bot_id": "no-such-bot"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 404
+
+
 class TestLayoutBulk:
     @pytest.mark.asyncio
     async def test_layout_round_trip(self, client):

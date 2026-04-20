@@ -80,6 +80,11 @@ interface DashboardPinsState {
   /** Rename a pin's display_label (or clear with null). */
   renamePin: (pinId: string, displayLabel: string | null) => Promise<void>;
 
+  /** Flip a pin's auth scope. ``null`` → user scope (iframe authenticates as
+   *  the viewer); string → bot scope (iframe mints a JWT from that bot so
+   *  every viewer shares the bot's ceiling). Matches the pin-time picker. */
+  setPinScope: (pinId: string, sourceBotId: string | null) => Promise<void>;
+
   /**
    * Promote a pin to claim the dashboard's main area (`layout_mode = 'panel'`).
    * Server clears `is_main_panel` on every other pin in the same dashboard
@@ -290,6 +295,41 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ display_label: displayLabel }),
       });
+    } catch (err) {
+      set({ pins: prev });
+      throw err;
+    }
+  },
+
+  setPinScope: async (pinId, sourceBotId) => {
+    const prev = get().pins;
+    // Optimistic mirror of the backend's dual write (column + envelope).
+    // Keeps the scope chip and the widget-auth flow consistent before the
+    // round-trip returns.
+    set({
+      pins: prev.map((p) => {
+        if (p.id !== pinId) return p;
+        const nextEnvelope = { ...(p.envelope ?? {}) };
+        if (sourceBotId === null) {
+          delete nextEnvelope.source_bot_id;
+        } else {
+          nextEnvelope.source_bot_id = sourceBotId;
+        }
+        return { ...p, source_bot_id: sourceBotId, envelope: nextEnvelope };
+      }),
+    });
+    try {
+      const updated = await apiFetch<WidgetDashboardPin>(
+        `/api/v1/widgets/dashboard/pins/${pinId}/scope`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source_bot_id: sourceBotId }),
+        },
+      );
+      set((s) => ({
+        pins: s.pins.map((p) => (p.id === pinId ? updated : p)),
+      }));
     } catch (err) {
       set({ pins: prev });
       throw err;
