@@ -1651,3 +1651,7 @@ Or more commonly, **write through once and let peers self-serve**: every member'
 ---
 
 *If one of these ships, this skill is updated the same session. Until then: build with the primitives above.*
+
+## See also
+
+- [Widget Dashboards](widget_dashboards.md) — the `describe_dashboard` / `pin_widget` / `move_pins` / `unpin_widget` / `promote_panel` / `demote_panel` tool suite for reading, proposing, and modifying dashboard layouts. `emit_html_widget` shows a widget in chat; `pin_widget` places a library widget on the dashboard.

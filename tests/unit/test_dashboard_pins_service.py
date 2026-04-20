@@ -194,3 +194,55 @@ async def test_apply_layout_bulk_persists(db_session):
     rows = {r.id: r for r in await list_pins(db_session)}
     assert rows[pins[0].id].grid_layout == {"x": 0, "y": 0, "w": 4, "h": 3}
     assert rows[pins[1].id].grid_layout == {"x": 4, "y": 0, "w": 4, "h": 3}
+
+
+@pytest.mark.asyncio
+async def test_apply_layout_normalizes_header_zone(db_session):
+    """Writing zone=header clamps to y=0, h=1, w ≤ 12 so stale 24-col
+    coords from an earlier preset can't land in the horizontal chip strip
+    and blow the flex row past the viewport at render time."""
+    pin = await create_pin(
+        db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
+    )
+    items = [{
+        "id": str(pin.id), "x": 2, "y": 2, "w": 24, "h": 2, "zone": "header",
+    }]
+    await apply_layout_bulk(db_session, items)
+    rows = {r.id: r for r in await list_pins(db_session)}
+    row = rows[pin.id]
+    assert row.zone == "header"
+    assert row.grid_layout == {"x": 0, "y": 0, "w": 12, "h": 1}
+
+
+@pytest.mark.asyncio
+async def test_apply_layout_normalizes_rail_and_dock(db_session):
+    pin = await create_pin(
+        db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
+    )
+    for zone in ("rail", "dock"):
+        await apply_layout_bulk(db_session, [{
+            "id": str(pin.id), "x": 5, "y": 3, "w": 8, "h": 4, "zone": zone,
+        }])
+        rows = {r.id: r for r in await list_pins(db_session)}
+        assert rows[pin.id].zone == zone
+        assert rows[pin.id].grid_layout == {"x": 0, "y": 3, "w": 1, "h": 4}
+
+
+@pytest.mark.asyncio
+async def test_list_pins_heals_stale_header_coords(db_session):
+    """`list_pins` rewrites grid_layout in place when a pin's persisted
+    coords violate its zone's invariants — one-shot correction when the
+    dashboard is next read, no user interaction required."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    pin = await create_pin(
+        db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
+    )
+    pin.zone = "header"
+    pin.grid_layout = {"x": 2, "y": 2, "w": 24, "h": 2}
+    flag_modified(pin, "grid_layout")
+    await db_session.commit()
+
+    rows = await list_pins(db_session)
+    row = next(r for r in rows if r.id == pin.id)
+    assert row.grid_layout == {"x": 0, "y": 0, "w": 12, "h": 1}

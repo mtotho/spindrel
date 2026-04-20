@@ -80,6 +80,22 @@ async def list_pins(
         .where(WidgetDashboardPin.dashboard_key == dashboard_key)
         .order_by(WidgetDashboardPin.position.asc(), WidgetDashboardPin.pinned_at.asc())
     )).scalars().all()
+    # Self-heal any pins whose grid_layout violates zone invariants. Stale coords
+    # from earlier preset changes or pre-zone-column code can leave header pins
+    # with w=24 or y=2 that explode the horizontal chip strip at render time;
+    # normalizing here is a one-shot correction on the next read.
+    dirty = False
+    for row in rows:
+        gl = row.grid_layout
+        if not isinstance(gl, dict) or not gl:
+            continue
+        normalized = _normalize_coords_for_zone(gl, row.zone or "grid")
+        if normalized != gl:
+            row.grid_layout = normalized
+            flag_modified(row, "grid_layout")
+            dirty = True
+    if dirty:
+        await db.commit()
     return list(rows)
 
 
@@ -525,6 +541,32 @@ async def update_pin_scope(
 
 _VALID_ZONES = {"rail", "header", "dock", "grid"}
 
+# Zone invariants enforced at write-time so chat-surface canvases always
+# receive coords they can render. Header is a single-row 12-col strip; Rail
+# and Dock are 1-wide vertical lists. Grid has no sub-zone constraints — the
+# dashboard's preset owns column count for that canvas.
+_HEADER_COLS = 12
+
+
+def _normalize_coords_for_zone(coords: dict[str, int], zone: str) -> dict[str, int]:
+    """Clamp ``coords`` to the invariants of ``zone``.
+
+    Header → ``y=0, h=1, 1 ≤ w ≤ 12, 0 ≤ x ≤ 11``.
+    Rail / Dock → ``x=0, w=1`` (h/y pass through).
+    Grid → pass through (preset-wide validation happens at drag-commit).
+    """
+    x = coords.get("x", 0)
+    y = coords.get("y", 0)
+    w = coords.get("w", 1)
+    h = coords.get("h", 1)
+    if zone == "header":
+        w = max(1, min(_HEADER_COLS, w))
+        x = max(0, min(_HEADER_COLS - w, x))
+        return {"x": x, "y": 0, "w": w, "h": 1}
+    if zone in ("rail", "dock"):
+        return {"x": 0, "y": max(0, y), "w": 1, "h": max(1, h)}
+    return {"x": max(0, x), "y": max(0, y), "w": max(1, w), "h": max(1, h)}
+
 
 def _validate_layout_item(
     item: Any,
@@ -677,7 +719,8 @@ async def apply_layout_bulk(
 
     for pin_id, coords, zone in parsed:
         row = by_id[pin_id]
-        row.grid_layout = coords
+        effective_zone = zone if zone is not None else (row.zone or "grid")
+        row.grid_layout = _normalize_coords_for_zone(coords, effective_zone)
         flag_modified(row, "grid_layout")
         if zone is not None:
             row.zone = zone

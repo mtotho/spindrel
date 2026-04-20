@@ -509,7 +509,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
               {/* Inline model pill — desktop only. Always visible showing the current
                   effective model; clicking opens the LlmModelDropdown portal. Purple
-                  accent only when a per-turn override is active. */}
+                  accent only when a channel-level override is set. */}
               {onModelOverrideChange && !isMobile && (() => {
                 const hasOverride = !!modelOverride;
                 const effectiveName = modelOverride
@@ -522,7 +522,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                       <button
                         type="button"
                         onClick={() => setShowModelPicker(true)}
-                        title={hasOverride ? `Per-turn override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName}`}
+                        title={hasOverride ? `Channel model override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName}`}
                         style={{
                           display: "flex", flexDirection: "row",
                           alignItems: "center",
@@ -542,15 +542,12 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                           {effectiveName}
                         </span>
                         {hasOverride && (
-                          <>
-                            <span style={{ fontSize: 9, opacity: 0.7 }}>1 msg</span>
-                            <span
-                              onClick={(e) => { e.stopPropagation(); onModelOverrideChange(undefined, null); }}
-                              style={{ marginLeft: 2, cursor: "pointer", fontSize: 12, lineHeight: 1 }}
-                            >
-                              ✕
-                            </span>
-                          </>
+                          <span
+                            onClick={(e) => { e.stopPropagation(); onModelOverrideChange(undefined, null); }}
+                            style={{ marginLeft: 2, cursor: "pointer", fontSize: 12, lineHeight: 1 }}
+                          >
+                            ✕
+                          </span>
                         )}
                       </button>
                     ) : (
@@ -558,7 +555,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                         className="input-action-btn"
                         onClick={() => setShowModelPicker(true)}
                         style={{ width: 32, height: 32, opacity: 0.6 }}
-                        title="Select model for this message"
+                        title="Select channel model"
                       >
                         <span style={{ fontSize: 11, color: t.textDim }}>model</span>
                       </button>

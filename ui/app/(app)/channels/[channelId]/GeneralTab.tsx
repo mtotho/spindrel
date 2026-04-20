@@ -17,6 +17,7 @@ import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
+import { useToolResultCompact } from "@/src/stores/toolResultPref";
 import type { ChannelSettings } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
@@ -97,13 +98,16 @@ function GeneralAdvancedSection({
   form,
   patch,
   settings,
+  channelId,
 }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   settings: ChannelSettings;
+  channelId: string;
 }) {
   const t = useThemeTokens();
   const isMobile = useIsMobile();
+  const [compactToolResults, setCompactToolResults] = useToolResultCompact(channelId);
 
   return (
     <AdvancedSection>
@@ -182,6 +186,12 @@ function GeneralAdvancedSection({
             ]}
           />
         </FormRow>
+        <Toggle
+          value={compactToolResults}
+          onChange={setCompactToolResults}
+          label="Compact tool results"
+          description="Collapse tool-call output to a one-line badge in this channel's chat. Widgets still expand inline when clicked."
+        />
       </Section>
 
       <Section title="Automation">
@@ -413,7 +423,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
       </Section>
 
       {/* Collapsible advanced section */}
-      <GeneralAdvancedSection form={form} patch={patch} settings={settings} />
+      <GeneralAdvancedSection form={form} patch={patch} settings={settings} channelId={channelId} />
 
       {/* Danger Zone — admin or owner only */}
       {canMutateOwnership && (

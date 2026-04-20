@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { useChatStore } from "../../stores/chat";
-import { useChannel } from "./useChannels";
+import { useChannel, useUpdateChannelSettings } from "./useChannels";
 import { useChannelEvents } from "./useChannelEvents";
 import { useSubmitChat } from "./useChat";
 import { extractDisplayText } from "@/src/components/chat/MessageBubble";
@@ -136,16 +136,23 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
   const submitChat = useSubmitChat();
   const [sendError, setSendError] = useState<string | null>(null);
 
-  const [modelOverride, setModelOverrideState] = useState<string | undefined>();
-  const [modelProviderIdOverride, setModelProviderIdOverrideState] = useState<
-    string | null | undefined
-  >();
+  // Model override is persisted on the channel itself. The picker reads the
+  // channel's current values and writes back via PATCH /channels/:id/settings.
+  const queryClient = useQueryClient();
+  const updateChannelSettings = useUpdateChannelSettings(channelId);
+  const modelOverride = channel?.model_override ?? undefined;
+  const modelProviderIdOverride = channel?.model_provider_id_override ?? undefined;
   const setModelOverride = useCallback(
     (m: string | undefined, providerId?: string | null) => {
-      setModelOverrideState(m);
-      setModelProviderIdOverrideState(m ? providerId : undefined);
+      queryClient.setQueryData<any>(["channels", channelId], (old: any) =>
+        old ? { ...old, model_override: m ?? null, model_provider_id_override: m ? (providerId ?? null) : null } : old,
+      );
+      updateChannelSettings.mutate({
+        model_override: m ?? null,
+        model_provider_id_override: m ? (providerId ?? null) : null,
+      });
     },
-    [],
+    [channelId, updateChannelSettings, queryClient],
   );
 
   const isStreaming = turnsCount > 0 || chatState.isProcessing || submitChat.isPending;
@@ -166,19 +173,13 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
         bot_id: channel.bot_id,
         client_id: channel.client_id ?? "",
         channel_id: channelId,
-        ...(modelOverride ? { model_override: modelOverride } : {}),
-        ...(modelProviderIdOverride != null
-          ? { model_provider_id_override: modelProviderIdOverride }
-          : {}),
       };
       submitChat.mutate(req, {
         onError: (err) =>
           setSendError(err instanceof Error ? err.message : "Failed to send"),
       });
-      setModelOverrideState(undefined);
-      setModelProviderIdOverrideState(undefined);
     },
-    [channel, channelId, addMessage, submitChat, modelOverride, modelProviderIdOverride],
+    [channel, channelId, addMessage, submitChat],
   );
 
   const invertedData = useMemo(

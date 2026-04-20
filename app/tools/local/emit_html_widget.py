@@ -48,8 +48,9 @@ _SCHEMA = {
         "description": (
             "Emit an interactive HTML widget as the tool result. Renders in "
             "a sandboxed iframe that CAN run JavaScript and call this app's "
-            "own API. Cross-origin network is blocked by CSP. Pin the "
-            "result to the dashboard for a persistent interactive card.\n\n"
+            "own API. Cross-origin network is blocked by CSP. The user can "
+            "pin the result to a dashboard via the Pin button; to place a "
+            "library widget onto a dashboard yourself, use `pin_widget`.\n\n"
             "Widget JS authenticates as THIS bot (not the viewing user) via "
             "a short-lived bearer token scoped to this bot's API key. Use "
             "`window.spindrel.api(path, options?)` for every API call — "

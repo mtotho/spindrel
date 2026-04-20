@@ -1,13 +1,12 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Settings, Menu, ArrowLeft, Hash, Lock, FolderOpen, LayoutDashboard,
-  Columns2, Users, Wrench, Cog, PanelRight, Plug,
+  Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
+  Cog, PanelRight, Plug,
   MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle,
   User as UserIcon,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { useToolResultCompact } from "@/src/stores/toolResultPref";
 import { useUIStore } from "@/src/stores/ui";
 import { useActivatableIntegrations, useChannel } from "@/src/api/hooks/useChannels";
 import { useIntegrationIcons } from "@/src/api/hooks/useIntegrations";
@@ -15,7 +14,6 @@ import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { prettyIntegrationName } from "@/src/utils/format";
-import { ChannelHeaderOverflowMenu, type OverflowItem } from "./ChannelHeaderOverflowMenu";
 
 const INTEGRATION_ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
   MessageSquare, Code2, Mail, Camera, LayoutDashboard, Tv, Terminal, MessageCircle, Plug,
@@ -34,21 +32,14 @@ export interface ChannelHeaderProps {
   toggleExplorer: () => void;
   onBrowseWorkspace: () => void;
   isMobile: boolean;
-  /** Multi-bot channel support */
-  memberBotCount?: number;
-  participantsPanelOpen?: boolean;
-  toggleParticipantsPanel?: () => void;
-  /** Split mode (chat + file side by side) */
-  activeFile?: string | null;
-  splitMode?: boolean;
-  onToggleSplit?: () => void;
   /** Context budget from last SSE stream */
   contextBudget?: { utilization: number; consumed: number; total: number } | null;
   /** Called when user clicks the context budget indicator */
   onContextBudgetClick?: () => void;
   /** Orchestrator / system-control channel — renders SYSTEM pill next to title. */
   isSystemChannel?: boolean;
-  /** Findings panel state (awaiting-user-input pipelines). */
+  /** Findings panel state (awaiting-user-input pipelines). Inline icon shows
+   *  only when there's active signal (panel open or count > 0). */
   findingsPanelOpen?: boolean;
   toggleFindingsPanel?: () => void;
   findingsCount?: number;
@@ -60,17 +51,7 @@ export function ChannelHeader({
   bot,
   columns,
   goBack,
-  workspaceId,
-  explorerOpen,
-  toggleExplorer,
-  onBrowseWorkspace,
   isMobile,
-  memberBotCount = 0,
-  participantsPanelOpen,
-  toggleParticipantsPanel,
-  activeFile,
-  splitMode,
-  onToggleSplit,
   contextBudget,
   onContextBudgetClick,
   isSystemChannel,
@@ -85,7 +66,6 @@ export function ChannelHeader({
   // content inline, so channel-route mobile users get one surface with nav
   // + widgets + files all reachable from a single tap.
   const openChannelDrawer = useUIStore((s) => s.setFileExplorerOpen);
-  const [compact, setCompact] = useToolResultCompact(channelId);
 
   const { data: channelData } = useChannel(channelId);
   const { data: activatable } = useActivatableIntegrations(channelId);
@@ -125,58 +105,10 @@ export function ChannelHeader({
 
   void columns;
 
-  // Overflow items — driven off the same state the removed inline buttons used.
-  const overflowItems: OverflowItem[] = [
-    {
-      key: "compact",
-      icon: <Wrench size={14} />,
-      label: compact ? "Show full tool output" : "Compact tool results",
-      onClick: () => setCompact(!compact),
-      active: compact,
-      hidden: isMobile,
-    },
-    {
-      key: "split",
-      icon: <Columns2 size={14} />,
-      label: splitMode ? "Exit split view" : "Split view",
-      onClick: () => onToggleSplit?.(),
-      active: !!splitMode,
-      hidden: !activeFile || !onToggleSplit || isMobile,
-    },
-    {
-      key: "browse",
-      icon: <FolderOpen size={14} />,
-      label: "Browse files",
-      onClick: onBrowseWorkspace,
-      hidden: !workspaceId || isMobile,
-    },
-    {
-      key: "dashboard",
-      icon: <LayoutDashboard size={14} />,
-      label: "Channel dashboard",
-      onClick: () => navigate(`/widgets/channel/${channelId}`),
-      hidden: !!isSystemChannel,
-    },
-    {
-      key: "participants",
-      icon: <Users size={14} />,
-      label: "Participants",
-      onClick: () => toggleParticipantsPanel?.(),
-      active: !!participantsPanelOpen,
-      badge: memberBotCount > 0 ? 1 + memberBotCount : undefined,
-      hidden: !toggleParticipantsPanel || isMobile,
-    },
-    {
-      key: "findings",
-      icon: <PanelRight size={14} />,
-      label: "Findings",
-      onClick: () => toggleFindingsPanel?.(),
-      active: !!findingsPanelOpen,
-      badge: findingsCount > 0 ? findingsCount : undefined,
-      attention: findingsCount > 0,
-      hidden: !toggleFindingsPanel,
-    },
-  ];
+  const iconSize = isMobile ? 44 : 36;
+  const showDashboardButton = !!channelId && !isSystemChannel;
+  const showFindingsButton =
+    !!toggleFindingsPanel && (findingsCount > 0 || !!findingsPanelOpen);
 
   return (
     <header
@@ -334,34 +266,56 @@ export function ChannelHeader({
         )}
       </div>
 
-      {/* OmniPanel (sidebar) toggle removed — its functionality lives on the
-          dock-edge peek-tab + in-dock chevron. Kept out of the header to give
-          the cross-view toggle (→ Dashboard) an unobstructed anchor. */}
-
-      {/* Overflow — secondary actions. */}
-      <ChannelHeaderOverflowMenu items={overflowItems} isMobile={isMobile} />
+      {/* Findings — inline when there's active signal (count > 0 or panel
+          currently open). Stays out of the way on channels with no pipeline
+          activity. */}
+      {showFindingsButton && (
+        <button
+          type="button"
+          className="header-icon-btn relative"
+          style={{
+            width: iconSize,
+            height: iconSize,
+            backgroundColor: findingsPanelOpen ? t.surfaceOverlay : "transparent",
+          }}
+          onClick={() => toggleFindingsPanel?.()}
+          aria-label="Findings"
+          aria-pressed={!!findingsPanelOpen}
+          title={findingsCount > 0 ? `${findingsCount} pending finding${findingsCount === 1 ? "" : "s"}` : "Findings"}
+        >
+          <PanelRight size={16} color={findingsPanelOpen ? t.accent : t.textDim} />
+          {findingsCount > 0 && (
+            <span
+              className="absolute top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full text-[9px] font-bold flex items-center justify-center leading-none animate-pulse"
+              style={{ backgroundColor: t.accent, color: t.surface }}
+            >
+              {findingsCount > 9 ? "9+" : findingsCount}
+            </span>
+          )}
+        </button>
+      )}
 
       {/* Settings — primary chrome. */}
       {channelId && (
         <button
           className="header-icon-btn"
-          style={{ width: isMobile ? 44 : 36, height: isMobile ? 44 : 36 }}
+          style={{ width: iconSize, height: iconSize }}
           onClick={() => navigate(`/channels/${channelId}/settings`)}
           title="Channel settings"
         >
-          <Settings size={isMobile ? 16 : 16} color={t.textDim} />
+          <Settings size={16} color={t.textDim} />
         </button>
       )}
 
-      {/* Switch to dashboard — RIGHTMOST button, mirrors the "Switch to chat"
-          button at the same spatial slot in the channel dashboard's top bar.
-          Click either and the cursor does not need to move — the other view
-          lands under the same pixel. `?dock=expanded` cues the dashboard's
-          dock to open expanded with its entry animation. */}
-      {channelId && !isMobile && (
+      {/* Switch to dashboard — rightmost button, mirrors the "Switch to chat"
+          button at the same spatial slot on the dashboard's top bar. Same
+          pixel on both views. `?dock=expanded` cues the dashboard's dock to
+          open expanded with its entry animation. Shown on both mobile and
+          desktop so users can pivot without hunting through menus. */}
+      {showDashboardButton && (
         <button
           className="header-icon-btn"
-          style={{ width: 36, height: 36 }}
+          style={{ width: iconSize, height: iconSize }}
           onClick={() => navigate(`/widgets/channel/${channelId}?dock=expanded`)}
           title="Switch to dashboard view"
           aria-label="Switch to dashboard view"

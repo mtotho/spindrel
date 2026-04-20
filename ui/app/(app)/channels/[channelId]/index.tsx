@@ -23,7 +23,7 @@ import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { useAuthStore } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { usePaletteActions, type PaletteAction } from "@/src/stores/paletteActions";
-import { FolderOpen, Cog, Settings as SettingsIcon, Users as UsersIcon, PanelRight as PanelRightIcon, LayoutDashboard as LayoutDashboardIcon } from "lucide-react";
+import { FolderOpen, Cog, Settings as SettingsIcon, PanelRight as PanelRightIcon, LayoutDashboard as LayoutDashboardIcon } from "lucide-react";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
@@ -34,7 +34,6 @@ import { HudInputBar } from "./hud/HudInputBar";
 import { HudFloatingAction } from "./hud/HudFloatingAction";
 import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
 import { PinnedPanelsRail } from "@/src/components/chat/PinnedPanels";
-import { ParticipantsPanel } from "./ParticipantsPanel";
 import { BotInfoPanel } from "@/src/components/chat/BotInfoPanel";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
 import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
@@ -224,10 +223,8 @@ export default function ChatScreen() {
   }, [channel?.name, loc.pathname, enrichRecentPage]);
 
   const [activeFile, setActiveFile] = useState<string | null>(null);
-  const [participantsPanelOpen, setParticipantsPanelOpen] = useState(false);
   const [findingsPanelOpen, setFindingsPanelOpen] = useState(false);
   const [botInfoBotId, setBotInfoBotId] = useState<string | null>(null);
-  const memberBotCount = channel?.member_bots?.length ?? 0;
   const isSystemChannel = channel?.client_id === "orchestrator:home";
 
   // Phase 5: launchpad + Findings visibility follows subscription state,
@@ -555,17 +552,6 @@ export default function ChatScreen() {
       onSelect: () => navigate(`/channels/${channelId}/settings`),
     });
 
-    if (memberBotCount > 0 && !isSystemChannel) {
-      actions.push({
-        id: `channel:${channelId}:participants`,
-        label: "Participants",
-        hint: channelLabel,
-        icon: UsersIcon,
-        category: "This Channel",
-        onSelect: () => setParticipantsPanelOpen((p) => !p),
-      });
-    }
-
     if (isSystemChannel) {
       actions.push({
         id: `channel:${channelId}:findings`,
@@ -583,7 +569,6 @@ export default function ChatScreen() {
     displayName,
     workspaceId,
     isSystemChannel,
-    memberBotCount,
     findingsCount,
     channel?.bot_id,
     navigate,
@@ -665,12 +650,6 @@ export default function ChatScreen() {
           toggleExplorer={toggleExplorer}
           onBrowseWorkspace={openBrowseFiles}
           isMobile={isMobile}
-          activeFile={activeFile}
-          splitMode={splitMode}
-          onToggleSplit={toggleSplit}
-          memberBotCount={memberBotCount}
-          participantsPanelOpen={participantsPanelOpen}
-          toggleParticipantsPanel={() => setParticipantsPanelOpen((p) => !p)}
           contextBudget={chatState.contextBudget ?? (
             savedBudget?.utilization != null ? {
               utilization: savedBudget.utilization,
@@ -757,16 +736,6 @@ export default function ChatScreen() {
               <MessageInput {...messageInputProps} />
             </div>
           </div>
-          {/* Mobile participants overlay */}
-          {participantsPanelOpen && channelId && (
-            <ParticipantsPanel
-              channelId={channelId}
-              primaryBotId={channel?.bot_id ?? ""}
-              primaryBotName={bot?.name}
-              onClose={() => setParticipantsPanelOpen(false)}
-              mobile
-            />
-          )}
           {/* Mobile channel drawer — tabbed Widgets/Files/Jump; opens from
               the channel header's hamburger. Replaces the old bottom sheet
               with a channel-scoped full-height drawer that also embeds the
@@ -963,16 +932,6 @@ export default function ChatScreen() {
           )}
           {!isMobile && rightDockHidden && channelId && !isSystemChannel && (
             <DockPeekTab side="right" onClick={() => setRightDockHidden(false)} title="Show right dock" />
-          )}
-
-          {/* Participants panel (multi-bot channels) */}
-          {!isMobile && participantsPanelOpen && channelId && (
-            <ParticipantsPanel
-              channelId={channelId}
-              primaryBotId={channel?.bot_id ?? ""}
-              primaryBotName={bot?.name}
-              onClose={() => setParticipantsPanelOpen(false)}
-            />
           )}
 
           {/* Findings panel — pipelines awaiting user approval (system channels only) */}

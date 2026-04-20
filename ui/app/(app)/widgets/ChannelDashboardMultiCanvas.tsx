@@ -543,9 +543,9 @@ function HeaderCanvas({
       anyDragging={anyDragging}
       isOver={isOver}
       ringRadius="9999px"
+      measureRef={measure.setRef}
     >
       <div
-        ref={measure.setRef}
         className={
           "relative flex items-center justify-center px-3 py-1.5 rounded-full "
           + (pins.length > 0
@@ -562,6 +562,10 @@ function HeaderCanvas({
           // pill collapses to the width of the hint text (~220px) and chips
           // that land here render too narrow to recognize.
           minWidth: pins.length === 0 && editMode ? 480 : undefined,
+          // Hard cap — if a pin carries stale w>HEADER_COLS from an earlier
+          // preset, we still cannot let the pill grow wider than the canvas
+          // or justify-center pushes chip content off-screen both sides.
+          maxWidth: "100%",
         }}
       >
         {pins.length === 0 ? (
@@ -576,7 +580,13 @@ function HeaderCanvas({
             >
               {pins.map((p) => {
                 const gl = toGridLayout(p);
-                const effW = resizePreview?.id === p.id ? resizePreview.w : gl.w;
+                // Clamp to HEADER_COLS defensively. Stale grid_layout from
+                // older presets (or pre-zone-column migrations) could carry
+                // w>12; letting that through inflates the flex row past the
+                // viewport and chips render off-screen. Server normalises on
+                // next write; this keeps render correct in the meantime.
+                const rawW = resizePreview?.id === p.id ? resizePreview.w : gl.w;
+                const effW = Math.max(1, Math.min(HEADER_COLS, rawW));
                 const tileWidthPx = Math.max(
                   60,
                   effW * cellWidthPx + (effW - 1) * 4,

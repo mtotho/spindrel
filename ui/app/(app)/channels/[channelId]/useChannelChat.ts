@@ -6,6 +6,7 @@ import { useUIStore } from "@/src/stores/ui";
 import { useSubmitChat, useCancelChat, useSessionStatus } from "@/src/api/hooks/useChat";
 import { useChannelEvents } from "@/src/api/hooks/useChannelEvents";
 import { useChannelState } from "@/src/api/hooks/useChannelState";
+import { useUpdateChannelSettings } from "@/src/api/hooks/useChannels";
 import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
 import { apiFetch } from "@/src/api/client";
 import { extractDisplayText } from "@/src/components/chat/MessageBubble";
@@ -20,6 +21,7 @@ export interface UseChannelChatOptions {
     bot_id: string;
     client_id?: string | null;
     model_override?: string | null;
+    model_provider_id_override?: string | null;
   } | undefined;
   activeFile: string | null;
 }
@@ -92,12 +94,22 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     sessionFilter: channel?.active_session_id ?? undefined,
   });
 
-  const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
-  const [turnProviderIdOverride, setTurnProviderIdOverride] = useState<string | null | undefined>();
+  // Model override is persisted on the channel itself. The picker reads the
+  // channel's current values and writes back via PATCH /channels/:id/settings.
+  // Optimistic cache update keeps the pill responsive while the mutation flies.
+  const turnModelOverride = channel?.model_override ?? undefined;
+  const turnProviderIdOverride = channel?.model_provider_id_override ?? undefined;
+  const updateChannelSettings = useUpdateChannelSettings(channelId ?? "");
   const handleModelOverrideChange = useCallback((m: string | undefined, providerId?: string | null) => {
-    setTurnModelOverride(m);
-    setTurnProviderIdOverride(m ? providerId : undefined);
-  }, []);
+    if (!channelId) return;
+    queryClient.setQueryData<any>(["channels", channelId], (old: any) =>
+      old ? { ...old, model_override: m ?? null, model_provider_id_override: m ? (providerId ?? null) : null } : old,
+    );
+    updateChannelSettings.mutate({
+      model_override: m ?? null,
+      model_provider_id_override: m ? (providerId ?? null) : null,
+    });
+  }, [channelId, updateChannelSettings, queryClient]);
 
   const [secretWarning, setSecretWarning] = useState<{
     result: SecretCheckResult;
@@ -352,18 +364,13 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         bot_id: channel.bot_id,
         client_id: channel.client_id ?? "",
         channel_id: channelId,
-        ...(turnModelOverride ? { model_override: turnModelOverride } : {}),
-        ...(turnProviderIdOverride != null ? { model_provider_id_override: turnProviderIdOverride } : {}),
         ...(attachments?.length ? { attachments } : {}),
         ...(file_metadata?.length ? { file_metadata } : {}),
       };
       lastRequestRef.current[channelId] = request;
       submitChat.mutate(request);
-
-      setTurnModelOverride(undefined);
-      setTurnProviderIdOverride(undefined);
     },
-    [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride, addMessage, submitChat]
+    [channelId, channel, activeFile, addMessage, submitChat]
   );
 
   /** Queue a message to send after the current stream/processing finishes. */
@@ -421,19 +428,14 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         bot_id: channel.bot_id,
         client_id: channel.client_id ?? "",
         channel_id: channelId,
-        ...(turnModelOverride ? { model_override: turnModelOverride } : {}),
-        ...(turnProviderIdOverride != null ? { model_provider_id_override: turnProviderIdOverride } : {}),
         ...(attachments?.length ? { attachments } : {}),
         ...(file_metadata?.length ? { file_metadata } : {}),
       };
 
       queuedRequestRef.current = { request, channelId, optimisticMsgId: msgId };
       setIsQueued(true);
-
-      setTurnModelOverride(undefined);
-      setTurnProviderIdOverride(undefined);
     },
-    [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride, addMessage, setMessages],
+    [channelId, channel, activeFile, addMessage, setMessages],
   );
 
   const handleSend = useCallback(
@@ -485,16 +487,11 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         channel_id: channelId,
         audio_data: audioBase64,
         audio_format: audioFormat,
-        ...(turnModelOverride ? { model_override: turnModelOverride } : {}),
-        ...(turnProviderIdOverride != null ? { model_provider_id_override: turnProviderIdOverride } : {}),
       };
       lastRequestRef.current[channelId] = request;
       submitChat.mutate(request);
-
-      setTurnModelOverride(undefined);
-      setTurnProviderIdOverride(undefined);
     },
-    [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride, addMessage, submitChat]
+    [channelId, channel, activeFile, addMessage, submitChat]
   );
 
   /** Cancel + send immediately (bypasses queue). */
