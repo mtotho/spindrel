@@ -407,6 +407,8 @@ export interface Channel {
      *  hidden. "dashboard-only": chat screen replaced with a redirect
      *  card pointing at the channel dashboard. */
     layout_mode?: "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
+    /** Chat presentation mode for the main channel surface. */
+    chat_mode?: "default" | "terminal";
   };
   category?: string | null;
   tags?: string[];
@@ -658,6 +660,10 @@ export interface ChannelSettings {
    *  shape. "full" (default), "rail-header-chat", "rail-chat",
    *  "dashboard-only". Stored in `channel.config`. */
   layout_mode?: "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
+  /** Chat presentation mode for the main channel screen. Stored in
+   *  `channel.config`. "default" keeps the current UI; "terminal" swaps in
+   *  the command-first transcript treatment. */
+  chat_mode?: "default" | "terminal";
 }
 
 export interface EffectiveTools {

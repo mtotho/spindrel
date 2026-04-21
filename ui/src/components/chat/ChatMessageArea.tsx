@@ -85,6 +85,7 @@ export interface ChatMessageAreaProps {
   /** Bottom padding on the scroll container — reserves space for an overlay
    *  composer so messages can scroll behind it. Default 12. */
   scrollPaddingBottom?: number;
+  chatMode?: "default" | "terminal";
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +128,7 @@ export function ChatMessageArea({
   emptyStateComponent,
   scrollPaddingTop = 8,
   scrollPaddingBottom = 12,
+  chatMode = "default",
 }: ChatMessageAreaProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -206,6 +208,7 @@ export function ChatMessageArea({
       botId={turn.isPrimary ? botId : turn.botId}
       thinkingContent={turn.thinkingContent}
       llmStatus={turn.llmStatus}
+      chatMode={chatMode}
     />
   ));
 
@@ -213,7 +216,7 @@ export function ChatMessageArea({
   // task accepted but worker not yet started) gets the simpler indicator.
   const processingIndicator =
     isProcessing && turnIndicators.length === 0 ? (
-      <ProcessingIndicator />
+      <ProcessingIndicator chatMode={chatMode} />
     ) : null;
 
   // Approval ids already represented by a live turn card — the orphan
@@ -227,6 +230,7 @@ export function ChatMessageArea({
     }
     return s;
   }, [chatState.turns]);
+  const isTerminalMode = chatMode === "terminal";
 
   return (
     <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
@@ -240,6 +244,10 @@ export function ChatMessageArea({
           height: "100%",
           paddingTop: scrollPaddingTop,
           paddingBottom: scrollPaddingBottom,
+          backgroundImage: isTerminalMode
+            ? `linear-gradient(to bottom, transparent, ${t.overlayLight}22), linear-gradient(90deg, ${t.surfaceBorder}14 1px, transparent 1px)`
+            : undefined,
+          backgroundSize: isTerminalMode ? "100% 100%, 24px 24px" : undefined,
         }}
       >
         {/* Each column-reverse child is centered within the full-width scroll
@@ -254,7 +262,7 @@ export function ChatMessageArea({
           {turnIndicators}
           {processingIndicator}
           {invertedData.length > 0 && (
-            <div className="flex flex-row justify-center" style={{ paddingTop: 12, paddingBottom: 6, opacity: 0.7 }}>
+            <div className="flex flex-row justify-center" style={{ paddingTop: 12, paddingBottom: 6, opacity: isTerminalMode ? 0.35 : 0.7 }}>
               <SpindrelLogo size={20} color={t.purple} />
             </div>
           )}

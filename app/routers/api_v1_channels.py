@@ -230,6 +230,11 @@ class ChannelConfigOut(BaseModel):
     #   ``dashboard-only``   — chat screen replaced by a card that points
     #                          users at ``/widgets/channel/:id``
     layout_mode: str = "full"
+    # Chat presentation mode for the main channel screen. Stored in
+    # ``Channel.config["chat_mode"]``; default ``default`` keeps the
+    # current bubble/composer UI while ``terminal`` swaps in the Codex-like
+    # transcript/composer treatment.
+    chat_mode: str = "default"
     # Heartbeat (prefixed)
     heartbeat_enabled: bool = False
     heartbeat_interval_minutes: int = 60
@@ -294,6 +299,9 @@ class ChannelConfigUpdate(BaseModel):
     # Chat-screen layout mode (see ChannelConfigOut.layout_mode for semantics).
     # Accepted values: ``full | rail-header-chat | rail-chat | dashboard-only``.
     layout_mode: Optional[str] = None
+    # Chat presentation mode (see ChannelConfigOut.chat_mode for semantics).
+    # Accepted values: ``default | terminal``.
+    chat_mode: Optional[str] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: Optional[bool] = None
     heartbeat_interval_minutes: Optional[int] = None
@@ -650,11 +658,19 @@ async def update_channel_config(
                 status_code=422,
                 detail=f"Invalid layout_mode. Valid: {sorted(_valid_layout)}",
             )
+    if "chat_mode" in ch_updates and ch_updates["chat_mode"] is not None:
+        _valid_chat_mode = {"default", "terminal"}
+        if ch_updates["chat_mode"] not in _valid_chat_mode:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid chat_mode. Valid: {sorted(_valid_chat_mode)}",
+            )
 
     # layout_mode is stored inside the channel's JSONB config, not as a top-
     # level column. Split it out so the generic setattr loop below doesn't
     # try to write to a non-existent attribute.
     layout_mode_update = ch_updates.pop("layout_mode", None) if "layout_mode" in ch_updates else None
+    chat_mode_update = ch_updates.pop("chat_mode", None) if "chat_mode" in ch_updates else None
 
     # Apply channel updates
     if ch_updates:
@@ -669,6 +685,18 @@ async def update_channel_config(
         from sqlalchemy.orm.attributes import flag_modified
         cfg = _copy.deepcopy(channel.config or {})
         cfg["layout_mode"] = layout_mode_update
+        channel.config = cfg
+        flag_modified(channel, "config")
+        channel.updated_at = now
+
+    if chat_mode_update is not None:
+        import copy as _copy
+        from sqlalchemy.orm.attributes import flag_modified
+        cfg = _copy.deepcopy(channel.config or {})
+        if chat_mode_update == "default":
+            cfg.pop("chat_mode", None)
+        else:
+            cfg["chat_mode"] = chat_mode_update
         channel.config = cfg
         flag_modified(channel, "config")
         channel.updated_at = now
@@ -761,6 +789,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "carapaces_disabled": channel.carapaces_disabled,
         "model_tier_overrides": channel.model_tier_overrides or {},
         "layout_mode": (channel.config or {}).get("layout_mode", "full"),
+        "chat_mode": (channel.config or {}).get("chat_mode", "default"),
         "created_at": channel.created_at,
         "updated_at": channel.updated_at,
     }

@@ -55,6 +55,7 @@ export interface TiptapChatInputProps {
   currentBotId?: string;
   /** When true (multi-bot channel), primary bot is NOT excluded from @-mentions */
   isMultiBot?: boolean;
+  placeholder?: string;
 }
 
 export interface TiptapChatInputHandle {
@@ -67,7 +68,7 @@ export interface TiptapChatInputHandle {
 }
 
 export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInputProps>(
-  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, disabled, autoFocus, isMobile, currentBotId, isMultiBot }, ref) {
+  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, disabled, autoFocus, isMobile, currentBotId, isMultiBot, placeholder = "Type a message..." }, ref) {
     const t = useThemeTokens();
     const { data: completions } = useCompletions();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -388,7 +389,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         transformPastedText: true,
         transformCopiedText: true,
       }),
-      Placeholder.configure({ placeholder: "Type a message..." }),
+      Placeholder.configure({ placeholder }),
       Mention.configure({
         HTMLAttributes: { class: "mention" },
         renderText({ node }) {
@@ -396,7 +397,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         },
         suggestion,
       }),
-    ], [suggestion]);
+    ], [placeholder, suggestion]);
 
     const editor = useEditor({
       extensions,

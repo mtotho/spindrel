@@ -289,16 +289,19 @@ async def test_channel_settings_update(client: E2EClient) -> None:
             "name": "E2E Settings Test",
             "history_mode": "file",
             "max_iterations": 5,
+            "chat_mode": "terminal",
         },
     )
     assert updated["name"] == "E2E Settings Test"
     assert updated["history_mode"] == "file"
     assert updated["max_iterations"] == 5
+    assert updated["chat_mode"] == "terminal"
 
     # Verify persistence
     settings = await client.get_channel_settings(channel_id)
     assert settings["name"] == "E2E Settings Test"
     assert settings["history_mode"] == "file"
+    assert settings["chat_mode"] == "terminal"
 
 
 @pytest.mark.asyncio

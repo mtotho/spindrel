@@ -511,6 +511,9 @@ export default function ChatScreen() {
     }
     return latestMessageIds;
   }, [invertedData]);
+  const layoutMode = (channel?.config?.layout_mode ?? "full") as
+    | "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
+  const chatMode = ((channel?.config?.chat_mode ?? "default") as "default" | "terminal");
 
   const renderMessage = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
@@ -536,10 +539,10 @@ export default function ChatScreen() {
       const fullTurnText = getTurnText(invertedData, headerIdx);
       const isLatestBotMessage = item.role === "assistant" && index === 0;
       const threadSummary = threadSummaries?.[item.id] ?? null;
-      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} isLatestBotMessage={isLatestBotMessage} isMobile={columns === "single"} threadSummary={threadSummary} onReplyInThread={handleReplyInThread} canReplyInThread={true} />;
+      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} isLatestBotMessage={isLatestBotMessage} isMobile={columns === "single"} threadSummary={threadSummary} onReplyInThread={handleReplyInThread} canReplyInThread={true} chatMode={chatMode} />;
       return <>{dateSep}{bubble}</>;
     },
-    [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByGroup, columns, threadSummaries, handleReplyInThread]
+    [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByGroup, columns, threadSummaries, handleReplyInThread, chatMode]
   );
 
   // ---- Workspace / file explorer state ----
@@ -638,8 +641,6 @@ export default function ChatScreen() {
 
   // Chat-screen layout mode. Controls which dashboard zones surface on the
   // chat screen itself. Mobile drawer always shows every zone regardless.
-  const layoutMode = (channel?.config?.layout_mode ?? "full") as
-    | "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
   const showRailZone = layoutMode !== "dashboard-only";
   const showHeaderChips = layoutMode === "full" || layoutMode === "rail-header-chat";
   const showDockZone = layoutMode === "full";
@@ -798,6 +799,7 @@ export default function ChatScreen() {
     onSendNow: handleSendNow,
     configOverhead: configOverheadData?.overhead_pct ?? null,
     onConfigOverheadClick: () => setBotInfoBotId(channel?.bot_id || null),
+    chatMode,
   };
 
   // ---- Shared message area props ----
@@ -818,6 +820,7 @@ export default function ChatScreen() {
     handleLoadMore,
     isProcessing: chatState.isProcessing,
     t,
+    chatMode,
   };
 
   // ---- Scratch column (full-page mode) ----

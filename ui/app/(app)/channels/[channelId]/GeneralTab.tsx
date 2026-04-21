@@ -186,6 +186,19 @@ function GeneralAdvancedSection({
             ]}
           />
         </FormRow>
+        <FormRow
+          label="Chat mode"
+          description="Switch the feed + composer between the default chat UI and a command-first terminal treatment for this channel."
+        >
+          <SelectInput
+            value={(form.chat_mode ?? "default") as string}
+            onChange={(v) => patch("chat_mode", v as "default" | "terminal")}
+            options={[
+              { label: "Default chat", value: "default" },
+              { label: "Terminal mode", value: "terminal" },
+            ]}
+          />
+        </FormRow>
         <Toggle
           value={compactToolResults}
           onChange={setCompactToolResults}

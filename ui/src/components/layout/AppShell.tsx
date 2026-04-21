@@ -6,7 +6,6 @@ import { SystemPauseBanner } from "./SystemPauseBanner";
 import { StreamingToast } from "./StreamingToast";
 import { ApprovalToast } from "./ApprovalToast";
 import { ToastHost } from "./ToastHost";
-import { ActiveWorkflowsHud } from "./ActiveWorkflowsHud";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
 import { useChatStore } from "../../stores/chat";
@@ -71,7 +70,6 @@ export function AppShell() {
             dashboard page owns its own exit affordance. */}
         {!kiosk && <StreamingToast />}
         {!kiosk && <ApprovalToast />}
-        {!kiosk && <ActiveWorkflowsHud />}
         {!kiosk && <ToastHost />}
       </div>
 

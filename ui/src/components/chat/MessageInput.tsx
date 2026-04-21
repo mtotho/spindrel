@@ -48,6 +48,7 @@ interface Props {
    *  card's corner radius so the composer fits naturally inside a narrow
    *  dock / drawer on desktop. Behavior unchanged. */
   compact?: boolean;
+  chatMode?: "default" | "terminal";
 }
 
 /** Short non-blocking haptic buzz. No-op on iOS Safari (vibrate is
@@ -68,7 +69,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default" }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -214,6 +215,11 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const showMic = !hasContent && !!onSendAudio && !isStreaming;
   // Queue bar: visible when streaming and user has typed content, or when a message is already queued
   const showQueueBar = !!isStreaming && (hasContent || !!isQueued);
+  const isTerminalMode = chatMode === "terminal";
+  const terminalBorder = `${t.surfaceBorder}cc`;
+  const addMenuVisible = !isTerminalMode || !collapsed;
+  const modelPillVisible = onModelOverrideChange && !isTerminalMode;
+  const terminalHint = text.trim().startsWith("/") ? "Command ready" : "Slash commands available";
 
   // "Send now" — cancel stream and send immediately (web only)
   const handleSendNowLocal = useCallback(() => {
@@ -247,7 +253,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             style={{
               display: "flex", flexDirection: "row",
               gap: 8,
-              padding: "8px 20px 0",
+              padding: isTerminalMode ? "8px 12px 0" : "8px 20px 0",
               flexWrap: "wrap",
             }}
           >
@@ -324,10 +330,12 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               display: "flex", flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
-              padding: isMobile ? "3px 8px" : "3px 20px",
+              padding: isTerminalMode ? "6px 12px" : isMobile ? "3px 8px" : "3px 20px",
               fontSize: 12,
-              color: t.textMuted,
+              color: isTerminalMode ? t.textDim : t.textMuted,
               userSelect: "none",
+              borderBottom: isTerminalMode ? `1px solid ${terminalBorder}` : undefined,
+              backgroundColor: isTerminalMode ? `${t.overlayLight}55` : undefined,
             }}
           >
             {isQueued && !hasContent ? (
@@ -400,18 +408,20 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             style={{
               display: "flex",
               flexDirection: "column",
-              // Slightly translucent + blurred so messages scrolling behind
-              // the composer read through the card (paired with the wrapper's
-              // backdrop-filter — Claude-style frosted glass).
-              background: `${t.surfaceRaised}d9`,
-              backdropFilter: "blur(14px)",
-              WebkitBackdropFilter: "blur(14px)",
-              borderRadius: compactLayout ? 14 : 20,
-              boxShadow: isFocused
-                ? `inset 0 0 0 1px ${t.accentBorder}, inset 0 1px 0 ${t.overlayLight}, 0 0 0 3px ${t.accent}1a, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`
-                : `inset 0 1px 0 ${t.overlayLight}, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`,
+              background: isTerminalMode ? `${t.surface}f2` : `${t.surfaceRaised}d9`,
+              backdropFilter: isTerminalMode ? "blur(10px)" : "blur(14px)",
+              WebkitBackdropFilter: isTerminalMode ? "blur(10px)" : "blur(14px)",
+              borderRadius: isTerminalMode ? 14 : compactLayout ? 14 : 20,
+              border: isTerminalMode ? `1px solid ${isFocused ? t.accentBorder : terminalBorder}` : undefined,
+              boxShadow: isTerminalMode
+                ? isFocused
+                  ? `0 0 0 2px ${t.accent}1a, 0 12px 32px -16px rgba(0,0,0,0.5)`
+                  : `0 10px 30px -18px rgba(0,0,0,0.45)`
+                : isFocused
+                  ? `inset 0 0 0 1px ${t.accentBorder}, inset 0 1px 0 ${t.overlayLight}, 0 0 0 3px ${t.accent}1a, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`
+                  : `inset 0 1px 0 ${t.overlayLight}, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`,
               overflow: "hidden",
-              transition: "box-shadow 0.15s",
+              transition: "box-shadow 0.15s, border-color 0.15s",
             }}
           >
             {/* Editor area — no own border/background; inherits the card.
@@ -419,9 +429,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 the single-row pill stays useful. */}
             <div
               style={{
-                minHeight: compactLayout ? 44 : isMobile ? 36 : 60,
+                minHeight: compactLayout ? 44 : isMobile ? 45 : 60,
                 maxHeight: 260,
-                padding: collapsed ? "4px 6px 4px 14px" : compactLayout ? "8px 12px 2px" : isMobile ? "6px 10px 2px" : "12px 16px 4px",
+                padding: collapsed ? "4px 6px 4px 14px" : isTerminalMode ? compactLayout ? "8px 12px 0" : isMobile ? "7px 10px 0" : "10px 12px 0" : compactLayout ? "8px 12px 2px" : isMobile ? "6px 10px 2px" : "12px 16px 4px",
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "row",
@@ -449,6 +459,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   isMobile={isMobile}
                   currentBotId={currentBotId}
                   isMultiBot={isMultiBot}
+                  placeholder={isTerminalMode ? "Type / for commands or enter a message..." : undefined}
                 />
               )}
               {/* Collapsed mobile: inline compact mic so the one-row pill
@@ -476,21 +487,50 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
-                padding: compactLayout ? "3px 6px 4px" : isMobile ? "2px 4px 3px" : "4px 8px 6px",
+                padding: isTerminalMode ? compactLayout ? "6px 8px 7px" : isMobile ? "6px 8px 7px" : "7px 10px 9px" : compactLayout ? "3px 6px 4px" : isMobile ? "2px 4px 3px" : "4px 8px 6px",
                 cursor: "text",
+                borderTop: isTerminalMode ? `1px solid ${terminalBorder}` : undefined,
+                backgroundColor: isTerminalMode ? `${t.overlayLight}33` : undefined,
               }}
             >
-              <ComposerAddMenu
-                channelId={channelId}
-                botId={currentBotId}
-                composerText={text}
-                onInsertSkillTag={(skillId) => {
-                  editorRef.current?.insertMention(`skill:${skillId}`);
-                }}
-                onAttachFiles={(files) => handleFileSelect(files)}
-                disabled={disabled || recorder.isRecording}
-                isMobile={isMobile}
-              />
+              {addMenuVisible ? (
+                <ComposerAddMenu
+                  channelId={channelId}
+                  botId={currentBotId}
+                  composerText={text}
+                  onInsertSkillTag={(skillId) => {
+                    editorRef.current?.insertMention(`skill:${skillId}`);
+                  }}
+                  onAttachFiles={(files) => handleFileSelect(files)}
+                  disabled={disabled || recorder.isRecording}
+                  isMobile={isMobile}
+                />
+              ) : (
+                <div style={{ width: 32, flexShrink: 0 }} />
+              )}
+
+              {isTerminalMode && (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 11,
+                    color: t.textDim,
+                    fontFamily: "'JetBrains Mono', 'Fira Code', 'Menlo', monospace",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <span style={{ color: t.accent, fontWeight: 600 }}>cmd</span>
+                  <span>{terminalHint}</span>
+                  {pendingFiles.length > 0 && (
+                    <span style={{ color: t.textMuted }}>
+                      {pendingFiles.length} file{pendingFiles.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+              )}
 
               <div style={{ flex: 1 }} />
 
@@ -512,7 +552,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               {/* Inline model pill — desktop only. Always visible showing the current
                   effective model; clicking opens the LlmModelDropdown portal. Purple
                   accent only when a channel-level override is set. */}
-              {onModelOverrideChange && !isMobile && (() => {
+              {modelPillVisible && (() => {
                 const hasOverride = !!modelOverride;
                 const effectiveName = modelOverride
                   ? modelOverride.split("/").pop()
@@ -537,7 +577,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                           color: hasOverride ? t.purple : t.textMuted,
                           cursor: "pointer",
                           whiteSpace: "nowrap",
-                          maxWidth: 200,
+                          maxWidth: isMobile ? 120 : 200,
                         }}
                       >
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -631,24 +671,28 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   width: 36,
                   height: 36,
                   flexShrink: 0,
-                  borderRadius: 10,
-                  border: "none",
+                  borderRadius: isTerminalMode ? 8 : 10,
+                  border: isTerminalMode ? `1px solid ${canSend || showStop || recorder.isRecording ? t.accentBorder : terminalBorder}` : "none",
                   padding: 0,
                   cursor: (!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording) ? "default" : "pointer",
-                  background: (canSend && !showStop && !recorder.isRecording) ? `linear-gradient(135deg, ${t.accent}, ${t.purple})` : undefined,
-                  backgroundColor: (canSend && !showStop && !recorder.isRecording) ? undefined : sendBtnBg,
+                  background: isTerminalMode ? undefined : (canSend && !showStop && !recorder.isRecording) ? `linear-gradient(135deg, ${t.accent}, ${t.purple})` : undefined,
+                  backgroundColor: isTerminalMode
+                    ? canSend || showStop || recorder.isRecording
+                      ? `${t.accent}22`
+                      : "transparent"
+                    : (canSend && !showStop && !recorder.isRecording) ? undefined : sendBtnBg,
                   opacity: (showStop && !stopArmed) ? 0.4 : sendBtnOpacity,
-                  transition: "background-color 0.15s, opacity 0.15s",
+                  transition: "background-color 0.15s, opacity 0.15s, border-color 0.15s",
                 }}
               >
                 {showStop ? (
-                  <Square size={14} color="white" fill="white" />
+                  <Square size={14} color={isTerminalMode ? t.accent : "white"} fill={isTerminalMode ? t.accent : "white"} />
                 ) : recorder.isRecording ? (
-                  <Send size={isMobile ? 14 : 16} color="white" />
+                  <Send size={isMobile ? 14 : 16} color={isTerminalMode ? t.accent : "white"} />
                 ) : showMic ? (
                   <Mic size={isMobile ? 14 : 16} color={t.textDim} />
                 ) : (
-                  <Send size={isMobile ? 14 : 16} color={canSend ? "white" : t.textDim} />
+                  <Send size={isMobile ? 14 : 16} color={canSend ? (isTerminalMode ? t.accent : "white") : t.textDim} />
                 )}
               </button>
             </div>

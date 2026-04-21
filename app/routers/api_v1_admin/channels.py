@@ -371,6 +371,9 @@ class ChannelSettingsOut(BaseModel):
     # Chat-screen layout mode. Controls which dashboard zones render on the
     # chat screen. Stored in channel.config["layout_mode"]; default "full".
     layout_mode: str = "full"
+    # Chat presentation mode for the main channel surface. Stored in
+    # channel.config["chat_mode"]; default "default".
+    chat_mode: str = "default"
 
     model_config = {"from_attributes": True}
 
@@ -438,6 +441,9 @@ class ChannelSettingsUpdate(BaseModel):
     # Chat-screen layout mode. "full" (default) | "rail-header-chat" |
     # "rail-chat" | "dashboard-only". Stored inside channel.config JSONB.
     layout_mode: Optional[str] = None
+    # Chat presentation mode. "default" (default) | "terminal". Stored
+    # inside channel.config JSONB.
+    chat_mode: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -599,6 +605,7 @@ async def admin_channel_settings(
     out.tags = (channel.metadata_ or {}).get("tags", [])
     out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
     out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
+    out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
     return out
 
 
@@ -679,6 +686,23 @@ async def admin_channel_settings_update(
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(channel, "config")
 
+    if "chat_mode" in updates:
+        cm = updates.pop("chat_mode")
+        _valid_chat_mode = {"default", "terminal"}
+        if cm is not None and cm not in _valid_chat_mode:
+            raise HTTPException(
+                status_code=422,
+                detail=f"chat_mode must be one of: {sorted(_valid_chat_mode)}",
+            )
+        cfg = dict(channel.config or {})
+        if cm in (None, "default"):
+            cfg.pop("chat_mode", None)
+        else:
+            cfg["chat_mode"] = cm
+        channel.config = cfg
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(channel, "config")
+
     # Validate model tier override names
     if updates.get("model_tier_overrides"):
         from app.services.server_config import VALID_TIER_NAMES
@@ -716,6 +740,7 @@ async def admin_channel_settings_update(
     out.tags = (channel.metadata_ or {}).get("tags", [])
     out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
     out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
+    out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
     return out
 
 

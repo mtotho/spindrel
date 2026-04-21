@@ -86,25 +86,26 @@ function ThinkingBlock({ text, borderColor, textColor, labelColor }: { text: str
 }
 
 /** Shown when the agent is processing in the background (queued message). */
-export function ProcessingIndicator({ botName }: { botName?: string }) {
+export function ProcessingIndicator({ botName, chatMode = "default" }: { botName?: string; chatMode?: "default" | "terminal" }) {
   const name = botName || "Bot";
   const bg = avatarColor(name);
   const t = useThemeTokens();
+  const isTerminalMode = chatMode === "terminal";
 
   return (
-    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: "10px 20px 4px", alignSelf: "stretch" }}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: isTerminalMode ? "10px 12px 6px" : "10px 20px 4px", alignSelf: "stretch", borderLeft: isTerminalMode ? `2px solid ${t.surfaceBorder}` : undefined }}>
       <div style={{ paddingTop: 2 }}>
         <Avatar name={name} isUser={false} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: bg }}>{name}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? "'JetBrains Mono', 'Fira Code', 'Menlo', monospace" : undefined }}>{name}</span>
         </div>
         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
           <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
           <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
           <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-          <span style={{ fontSize: 13, color: t.textMuted, marginLeft: 2 }}>Processing...</span>
+          <span style={{ fontSize: 13, color: t.textMuted, marginLeft: 2, fontFamily: isTerminalMode ? "'JetBrains Mono', 'Fira Code', 'Menlo', monospace" : undefined }}>Processing...</span>
         </div>
       </div>
     </div>
@@ -547,6 +548,7 @@ interface Props {
     fallbackModel?: string;
     error?: string;
   } | null;
+  chatMode?: "default" | "terminal";
 }
 
 /** Badge showing LLM retry/fallback status during streaming */
@@ -593,17 +595,18 @@ function LlmStatusBadge({ status, t }: { status: NonNullable<Props["llmStatus"]>
   );
 }
 
-export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, botName, botId, thinkingContent, llmStatus }: Props) {
+export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, botName, botId, thinkingContent, llmStatus, chatMode = "default" }: Props) {
   const name = botName || "Bot";
   const bg = avatarColor(name);
   const t = useThemeTokens();
+  const isTerminalMode = chatMode === "terminal";
 
   // Trim trailing whitespace/newlines to prevent empty spacer divs from markdown parser
   const displayContent = content.trim();
   const displayThinking = thinkingContent?.trim() ?? "";
 
   return (
-    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: "10px 20px 4px", alignSelf: "stretch" }}>
+    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: isTerminalMode ? "10px 12px 6px" : "10px 20px 4px", alignSelf: "stretch", borderLeft: isTerminalMode ? `2px solid ${t.surfaceBorder}` : undefined }}>
       <div style={{ paddingTop: 2 }}>
         <Avatar name={name} isUser={false} />
       </div>
@@ -611,7 +614,7 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Name header */}
         <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: bg }}>{name}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? "'JetBrains Mono', 'Fira Code', 'Menlo', monospace" : undefined }}>{name}</span>
         </div>
 
         {/* Thinking content */}

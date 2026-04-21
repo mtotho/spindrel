@@ -238,6 +238,24 @@ class TestChannelScope:
         assert _seed_channel.config.get("layout_mode") == "rail-chat"
 
     @pytest.mark.asyncio
+    async def test_happy_path_patches_chat_mode(
+        self, _patch_async_session, _seed_channel, db_session,
+    ):
+        result = json.loads(await propose_config_change(
+            scope="channel",
+            target_id=str(_seed_channel.id),
+            field="chat_mode",
+            new_value="terminal",
+            rationale="use command-first chat ui",
+            evidence=_valid_evidence(),
+            diff_preview="default → terminal",
+        ))
+
+        assert result["applied"] is True
+        await db_session.refresh(_seed_channel)
+        assert _seed_channel.config.get("chat_mode") == "terminal"
+
+    @pytest.mark.asyncio
     async def test_config_key_allowlist_enforced(
         self, _patch_async_session, _seed_channel,
     ):

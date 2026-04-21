@@ -60,6 +60,7 @@ interface Props {
    *  thread / ephemeral views so the action doesn't spawn nested threads
    *  (UI-only guard — backend permits nesting). */
   canReplyInThread?: boolean;
+  chatMode?: "default" | "terminal";
 }
 
 // ---------------------------------------------------------------------------
@@ -107,9 +108,10 @@ function HistoricalThinking({ text, t }: { text: string; t: ThemeTokens }) {
 // MessageBubble -- Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage, isMobile = false, compact: compactLayout = false, threadSummary = null, onReplyInThread, canReplyInThread = false }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage, isMobile = false, compact: compactLayout = false, threadSummary = null, onReplyInThread, canReplyInThread = false, chatMode = "default" }: Props) {
   const t = useThemeTokens();
   const narrow = isMobile || compactLayout;
+  const isTerminalMode = chatMode === "terminal";
   const [compact] = useToolResultCompact(channelId ?? "");
   const navigate = useNavigate();
 
@@ -363,11 +365,12 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         <div
           className="msg-hover"
           style={{
-            paddingLeft: narrow ? 12 : 68,
+            paddingLeft: isTerminalMode ? 24 : narrow ? 12 : 68,
             paddingRight: narrow ? 12 : 20,
-            paddingTop: 1,
-            paddingBottom: 1,
+            paddingTop: isTerminalMode ? 3 : 1,
+            paddingBottom: isTerminalMode ? 3 : 1,
             borderRadius: 4,
+            borderLeft: isTerminalMode ? `2px solid ${isUser ? t.accentBorder : t.surfaceBorder}` : undefined,
           }}
         >
           {messageContent}
@@ -394,11 +397,12 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         display: "flex",
         flexDirection: narrow ? "column" : "row",
         gap: narrow ? 0 : 12,
-        paddingLeft: narrow ? 12 : 20,
+        paddingLeft: isTerminalMode ? 12 : narrow ? 12 : 20,
         paddingRight: narrow ? 12 : 20,
-        paddingTop: 14,
-        paddingBottom: 6,
+        paddingTop: isTerminalMode ? 10 : 14,
+        paddingBottom: isTerminalMode ? 10 : 6,
         borderRadius: 4,
+        borderLeft: isTerminalMode ? `2px solid ${isUser ? t.accentBorder : avatarColor(displayName)}55` : undefined,
       }}
     >
       {/* Avatar — full-width layouts only. Narrow layouts (mobile, dock, drawer)
@@ -414,22 +418,24 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       {/* Content */}
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Name + timestamp header */}
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2, flexWrap: "wrap" }}>
           <span
             onClick={handleBotClick}
             className={handleBotClick ? "bot-name-link" : undefined}
             style={{
-              fontSize: 15,
-              fontWeight: 700,
-              color: isUser ? t.text : avatarColor(displayName),
+              fontSize: isTerminalMode ? 12 : 15,
+              fontWeight: isTerminalMode ? 600 : 700,
+              color: isTerminalMode ? (isUser ? t.accent : avatarColor(displayName)) : isUser ? t.text : avatarColor(displayName),
               cursor: handleBotClick ? "pointer" : undefined,
               borderBottom: handleBotClick ? "1px solid transparent" : undefined,
               transition: handleBotClick ? "border-color 0.15s" : undefined,
+              fontFamily: isTerminalMode ? "'JetBrains Mono', 'Fira Code', 'Menlo', monospace" : undefined,
+              textTransform: isTerminalMode ? "lowercase" : undefined,
             }}
             onMouseEnter={handleBotClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = avatarColor(displayName); } : undefined}
             onMouseLeave={handleBotClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
           >
-            {displayName}
+            {isTerminalMode ? `${isUser ? "user" : "assistant"}:${displayName}` : displayName}
           </span>
           <TimestampActions
             timestamp={timestamp}
@@ -510,7 +516,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         </div>
 
         {/* Message content */}
-        {messageContent}
+        <div style={{ fontFamily: isTerminalMode ? "'JetBrains Mono', 'Fira Code', 'Menlo', monospace" : undefined }}>
+          {messageContent}
+        </div>
       </div>
 
       {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}

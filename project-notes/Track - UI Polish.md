@@ -62,3 +62,19 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [ ] Font family changes (Manrope headlines) — deferred
 - [x] **Rich tool result rendering (Phase A)** ✅ 2026-04-11 — `ToolResultEnvelope` dataclass + dispatch wiring, 6 mimetype renderers (text/markdown/json/html/diff/file-listing), all 10 file ops migrated, session-scoped lazy-fetch endpoint, 36 new tests. Per-channel compact toggle in header. See session log 18. **Phase B (pinned panels)** is a follow-up in `.claude/plans/shimmering-fluttering-brook.md`.
 - [ ] I should be able to stop a llm mid stream and not have the ui / or the llms context lost progress it made. IE if it was halfway doneand already streamed some messages.
+
+## Pass 2: Channel Terminal Mode (2026-04-21)
+
+### Shipped
+- [x] **Per-channel terminal mode** — new `chat_mode` persisted in `channel.config` (`default` | `terminal`) and exposed in both public/admin channel settings APIs. No schema migration.
+- [x] **Settings toggle** — General → Layout now includes a Chat mode selector so the channel owner/admin can switch between default chat and terminal mode.
+- [x] **Chat feed swap** — `ChatMessageArea`, `MessageBubble`, and streaming indicators now accept `chatMode`; terminal mode renders a more transcript/log-oriented shell with monospace-forward styling and reduced bubble chrome while keeping approvals, widgets, threads, and tool output working.
+- [x] **Command-first composer** — `MessageInput` and `TiptapChatInput` now support a terminal-mode variant: more compact control row, slash-command hinting, reduced visible chrome, same send/queue/attach/model plumbing underneath.
+- [x] **Configurator parity** — `propose_config_change` now allows `chat_mode`, so the config-fix tool can flip channels into terminal mode using the same guardrails as `pipeline_mode` / `layout_mode`.
+
+### Verification
+- [x] `cd agent-server/ui && npx tsc --noEmit`
+- [x] `python -m py_compile app/routers/api_v1_channels.py app/routers/api_v1_admin/channels.py app/tools/local/propose_config_change.py`
+- [ ] Targeted pytest remains flaky in this sandbox:
+  `tests/e2e/scenarios/test_api_contract.py -k channel_settings_update` blocked on Docker socket permission.
+  `tests/unit/test_propose_config_change.py -k chat_mode` timed out here without emitting a Python failure trace.

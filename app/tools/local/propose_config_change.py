@@ -43,6 +43,7 @@ _BOT_ALLOWED: dict[str, type | tuple[type, ...]] = {
 _CHANNEL_ALLOWED_TOPLEVEL: dict[str, type | tuple[type, ...]] = {
     "pipeline_mode": str,   # "auto" | "on" | "off"
     "layout_mode": str,     # "full" | "rail-header-chat" | "rail-chat" | "dashboard-only"
+    "chat_mode": str,       # "default" | "terminal"
 }
 
 _CHANNEL_ALLOWED_CONFIG: frozenset[str] = frozenset({
@@ -53,6 +54,7 @@ _CHANNEL_ALLOWED_CONFIG: frozenset[str] = frozenset({
 
 _PIPELINE_MODE_VALUES = {"auto", "on", "off"}
 _LAYOUT_MODE_VALUES = {"full", "rail-header-chat", "rail-chat", "dashboard-only"}
+_CHAT_MODE_VALUES = {"default", "terminal"}
 _MEMORY_SCHEME_VALUES = {"workspace-files"}
 _TOOL_DISCOVERY_VALUES = {"on", "off"}
 
@@ -144,6 +146,8 @@ async def _apply_channel(target_id: str, field: str, new_value: Any, rationale: 
             return _refuse("channel", field, f"value must be one of {sorted(_PIPELINE_MODE_VALUES)}")
         if field == "layout_mode" and new_value not in _LAYOUT_MODE_VALUES:
             return _refuse("channel", field, f"value must be one of {sorted(_LAYOUT_MODE_VALUES)}")
+        if field == "chat_mode" and new_value not in _CHAT_MODE_VALUES:
+            return _refuse("channel", field, f"value must be one of {sorted(_CHAT_MODE_VALUES)}")
 
     async with async_session() as db:
         # target_id may be a UUID string or channel slug — try UUID first
@@ -163,7 +167,7 @@ async def _apply_channel(target_id: str, field: str, new_value: Any, rationale: 
         # (pipeline_mode, layout_mode, and config.<key> entries). Mirrors the
         # storage pattern at app/routers/api_v1_admin/channels.py.
         cfg = copy.deepcopy(row.config or {})
-        if field in ("pipeline_mode", "layout_mode"):
+        if field in ("pipeline_mode", "layout_mode", "chat_mode"):
             key = field
         else:
             key = field[len("config."):]

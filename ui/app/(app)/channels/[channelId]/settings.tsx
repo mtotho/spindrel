@@ -174,6 +174,7 @@ export default function ChannelSettingsScreen() {
         index_segments: settings.index_segments ?? [],
         tags: settings.tags ?? [],
         category: settings.category ?? null,
+        chat_mode: settings.chat_mode ?? "default",
       });
     }
   }, [settings]);

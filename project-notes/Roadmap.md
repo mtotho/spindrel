@@ -156,7 +156,7 @@ Tools-only integration for hand-drawn diagrams. Shipped 2026-04-12. **Remaining*
 Token refresh + Drive folder done. Pending: hard folder enforcement, retry/backoff. Direction shift to community MCP server. See [[Track - Google Workspace]].
 
 ### UI Polish
-Pass 1 done. Rich tool-result rendering designed but blocked on Integration Delivery. Component vocabulary shipped (10 primitives). See [[Track - UI Polish]].
+Pass 1 done. **Per-channel terminal chat mode shipped 2026-04-21** — channel setting flips the main feed/composer into a command-first Codex/Claude-style presentation without changing approvals/widgets/tool plumbing. Rich tool-result rendering and broader polish history live in [[Track - UI Polish]].
 
 ### PWA & Push Notifications (2026-04-19)
 Icons, favicon, service worker, Web Push end-to-end. Bot-callable `send_push_notification` tool (HomeAssistant-notify style, not auto-push on every message) + `POST /api/v1/push/send` scoped endpoint. See [[Track - PWA & Push]].
