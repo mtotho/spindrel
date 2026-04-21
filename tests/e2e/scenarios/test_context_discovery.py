@@ -35,6 +35,8 @@ _MEMORY_SCHEME_TOOLS = {"file", "search_memory", "get_memory_file", "manage_bot_
 # activate_capability is always injected
 _AUTO_INJECTED_TOOLS = {
     "read_conversation_history",
+    "list_sub_sessions",
+    "read_sub_session",
     "activate_capability",
 }
 

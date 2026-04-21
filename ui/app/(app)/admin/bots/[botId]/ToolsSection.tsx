@@ -307,6 +307,8 @@ function FullToolList({
   // Channel awareness — any bot can list channels and read history
   autoInjectedTools.add("list_channels");
   autoInjectedTools.add("read_conversation_history");
+  autoInjectedTools.add("list_sub_sessions");
+  autoInjectedTools.add("read_sub_session");
   // Tool retrieval: get_tool_info is always injected when tool_retrieval is on
   if (draft.tool_retrieval !== false) {
     autoInjectedTools.add("get_tool_info");

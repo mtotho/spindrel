@@ -29,7 +29,9 @@ def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools
     Injections:
     - memory_scheme="workspace-files" → search_memory, get_memory_file, file, manage_bot_skill
     - tool_retrieval=true → get_tool_info
-    - (unconditional) → get_skill, get_skill_list, list_channels, read_conversation_history, activate_capability
+    - (unconditional) → get_skill, get_skill_list, list_channels,
+      read_conversation_history, list_sub_sessions, read_sub_session,
+      activate_capability
     """
     import dataclasses
     from app.services.memory_scheme import MEMORY_SCHEME_TOOLS, MEMORY_SCHEME_HIDDEN_TOOLS
@@ -57,9 +59,12 @@ def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools
     _inject("get_skill")
     _inject("get_skill_list")
 
-    # Channel awareness — any bot can list its channels and read history
+    # Channel awareness — any bot can inspect channel history and its
+    # attached sub-sessions (threads, scratch chats, pipeline/eval runs)
     _inject("list_channels")
     _inject("read_conversation_history")
+    _inject("list_sub_sessions")
+    _inject("read_sub_session")
 
     # activate_capability is conditional on capability RAG matches at runtime,
     # so we always include it as available (it's low-cost and always registered)

@@ -468,6 +468,14 @@ def _build_resolved_preview(bot, tool_rows) -> ResolvedPreview:
         for _sk in ("get_skill", "get_skill_list"):
             _add_tool(_sk, "auto", "Auto-injected (skills)")
             _add_pinned(_sk, "auto", "Auto-injected (skills)")
+    for _history_tool in (
+        "list_channels",
+        "read_conversation_history",
+        "list_sub_sessions",
+        "read_sub_session",
+    ):
+        _add_tool(_history_tool, "auto", "Auto-injected (channel awareness)")
+        _add_pinned(_history_tool, "auto", "Auto-injected (channel awareness)")
     # activate_capability is injected dynamically when capability RAG finds matches
     _add_tool("activate_capability", "auto", "Auto-injected (capability discovery)")
 

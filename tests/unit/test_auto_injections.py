@@ -118,7 +118,7 @@ class TestSkillToolInjection:
 
 
 class TestChannelAwarenessInjection:
-    """list_channels and read_conversation_history are always injected."""
+    """Channel history + sub-session tools are always injected."""
 
     def test_injects_list_channels(self):
         bot = _bot(memory_scheme=None, history_mode="standard")
@@ -143,6 +143,16 @@ class TestChannelAwarenessInjection:
 
         assert "read_conversation_history" in result.local_tools
         assert "read_conversation_history" in result.pinned_tools
+
+    def test_injects_sub_session_tools(self):
+        bot = _bot(memory_scheme=None, history_mode="standard")
+        eff = _eff()
+        result = apply_auto_injections(eff, bot)
+
+        assert "list_sub_sessions" in result.local_tools
+        assert "list_sub_sessions" in result.pinned_tools
+        assert "read_sub_session" in result.local_tools
+        assert "read_sub_session" in result.pinned_tools
 
 
 class TestActivateCapability:
@@ -179,6 +189,7 @@ class TestCombinedInjections:
             "get_skill", "get_skill_list",
             # channel awareness
             "list_channels", "read_conversation_history",
+            "list_sub_sessions", "read_sub_session",
             # always
             "activate_capability",
         }
