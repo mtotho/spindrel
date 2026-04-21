@@ -369,13 +369,20 @@ export function useChannelEvents(
           // Batched with the same RAF flush as text_delta so a single frame
           // dispatches both streams to the store.
           const turnId = payload?.turn_id as string | undefined;
+          const deltaStr = (payload?.delta as string) ?? "";
+          console.log("[THINK_DEBUG] received turn_stream_thinking", {
+            turnId,
+            deltaLen: deltaStr.length,
+            preview: deltaStr.slice(0, 60),
+            hasTurn: turnId ? !!store.getChannel(storeKey).turns[turnId] : false,
+          });
           if (!turnId) return;
           if (!store.getChannel(storeKey).turns[turnId]) return;
           startObserverTimeout(chId, turnId);
           if (!pendingDeltasRef.current[turnId]) {
             pendingDeltasRef.current[turnId] = { text: "", think: "" };
           }
-          pendingDeltasRef.current[turnId].think += (payload?.delta as string) ?? "";
+          pendingDeltasRef.current[turnId].think += deltaStr;
           if (!rafRef.current) {
             rafRef.current = requestAnimationFrame(() => flushDeltas(chId));
           }

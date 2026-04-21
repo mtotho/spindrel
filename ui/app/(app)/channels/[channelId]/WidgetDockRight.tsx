@@ -9,7 +9,7 @@
  * Author on the channel dashboard at `/widgets/channel/:id` — this component
  * is strictly read-only. Width is user-persisted in localStorage.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight, Settings2 } from "lucide-react";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
@@ -18,27 +18,14 @@ import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useDashboards, channelSlug } from "@/src/stores/dashboards";
 import { useUIStore } from "@/src/stores/ui";
-import { resolveChrome } from "@/src/lib/dashboardGrid";
-import type { PinnedWidget, ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
-import { PinnedToolWidget } from "./PinnedToolWidget";
+import { resolveChrome, resolvePreset } from "@/src/lib/dashboardGrid";
+import type { ToolResultEnvelope } from "@/src/types/api";
+import { WidgetRailSection } from "./WidgetRailSection";
 
 const STORAGE_KEY = "chat-dock-right-width";
 const DEFAULT_WIDTH = 320;
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 520;
-
-function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
-  return {
-    id: pin.id,
-    tool_name: pin.tool_name,
-    display_name: pin.display_label ?? pin.tool_name,
-    bot_id: pin.source_bot_id ?? "",
-    envelope: pin.envelope,
-    position: pin.position,
-    pinned_at: pin.pinned_at ?? new Date().toISOString(),
-    config: pin.widget_config ?? {},
-  };
-}
 
 interface Props {
   channelId: string;
@@ -54,7 +41,18 @@ export function WidgetDockRight({ channelId }: Props) {
   // out of the tab-bar-friendly `list` slice.
   const { allDashboards } = useDashboards();
   const dashboardRow = allDashboards.find((d) => d.slug === channelSlug(channelId));
-  const chrome = resolveChrome(dashboardRow?.grid_config ?? null);
+  const preset = useMemo(
+    () => resolvePreset(dashboardRow?.grid_config ?? null),
+    [dashboardRow?.grid_config],
+  );
+  // Chat-mode rails override the dashboard's saved hover_scrollbars default —
+  // the rails are persistent chrome, not a focused widget surface. The
+  // standalone dashboard view still honors the author's saved choice.
+  const chrome = useMemo(
+    () => ({ ...resolveChrome(dashboardRow?.grid_config ?? null), hoverScrollbars: true }),
+    [dashboardRow?.grid_config],
+  );
+  const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
 
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === "undefined") return DEFAULT_WIDTH;
@@ -140,18 +138,16 @@ export function WidgetDockRight({ channelId }: Props) {
             <ChevronRight size={14} />
           </button>
         </div>
-        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto gap-2 px-2 py-2">
-          {pins.map((p) => (
-            <PinnedToolWidget
-              key={p.id}
-              widget={asPinnedWidget(p)}
-              scope={{ kind: "channel", channelId }}
-              onUnpin={handleUnpin}
-              onEnvelopeUpdate={handleEnvelopeUpdate}
-              borderless={chrome.borderless}
-              hoverScrollbars={chrome.hoverScrollbars}
-            />
-          ))}
+        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto scroll-subtle px-2 py-2">
+          <WidgetRailSection
+            channelId={channelId}
+            pins={pins}
+            preset={preset}
+            chrome={chrome}
+            onUnpin={handleUnpin}
+            onEnvelopeUpdate={handleEnvelopeUpdate}
+            applyLayout={applyLayout}
+          />
         </div>
         </>}
       </div>

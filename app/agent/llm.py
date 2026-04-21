@@ -952,12 +952,20 @@ class StreamAccumulator:
                         self._content_parts.append(filtered)
                         events.append({"type": "text_delta", "delta": filtered})
                 if thinking_text:
+                    logger.info(
+                        "THINK_DEBUG StreamAccumulator <think>-tag delta len=%d preview=%r",
+                        len(thinking_text), thinking_text[:60],
+                    )
                     self._thinking_parts.append(thinking_text)
                     events.append({"type": "thinking", "delta": thinking_text})
 
         # Thinking/reasoning content (provider-dependent attribute)
         reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
         if reasoning:
+            logger.info(
+                "THINK_DEBUG StreamAccumulator got reasoning delta len=%d preview=%r",
+                len(reasoning), reasoning[:60],
+            )
             self._thinking_parts.append(reasoning)
             events.append({"type": "thinking", "delta": reasoning})
 

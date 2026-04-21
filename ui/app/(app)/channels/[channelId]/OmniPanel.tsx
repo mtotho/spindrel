@@ -12,7 +12,7 @@
  * Editing happens on the full dashboard page (`/widgets/channel/:id`).
  * The OmniPanel is read-only; one source of truth.
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   ChevronLeft,
@@ -22,32 +22,20 @@ import {
   Search,
 } from "lucide-react";
 import { CommandPaletteContent } from "@/src/components/layout/CommandPalette";
-import {
-  Responsive,
-  WidthProvider,
-  type Layout,
-  type LayoutItem,
-} from "react-grid-layout/legacy";
-import "react-grid-layout/css/styles.css";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { FilesTabPanel } from "./FilesTabPanel";
-import { PinnedToolWidget } from "./PinnedToolWidget";
+import { WidgetRailSection } from "./WidgetRailSection";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useDashboards, channelSlug } from "@/src/stores/dashboards";
 import { useUIStore } from "@/src/stores/ui";
-import { resolveChrome, resolvePreset, type DashboardChrome, type GridPreset } from "@/src/lib/dashboardGrid";
+import { resolveChrome, resolvePreset } from "@/src/lib/dashboardGrid";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import type {
   GridLayoutItem,
-  PinnedWidget,
   ToolResultEnvelope,
   WidgetDashboardPin,
 } from "@/src/types/api";
-
-const ResponsiveGridLayout = WidthProvider(Responsive);
-const RAIL_BREAKPOINTS = { lg: 0 } as const;
-const RAIL_MARGIN: [number, number] = [0, 12];
 
 interface OmniPanelProps {
   channelId: string;
@@ -64,22 +52,6 @@ interface OmniPanelProps {
   fullWidth?: boolean;
   /** Mobile bottom-sheet mode: swap stacked layout for Files/Widgets tabs. */
   mobileTabs?: boolean;
-}
-
-/** Adapt a dashboard pin row to the PinnedWidget shape `PinnedToolWidget`
- *  accepts. Using dashboard scope inside OmniPanel means the widget shares
- *  storage + broadcast pipeline with the full channel dashboard page. */
-function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
-  return {
-    id: pin.id,
-    tool_name: pin.tool_name,
-    display_name: pin.display_label ?? pin.tool_name,
-    bot_id: pin.source_bot_id ?? "",
-    envelope: pin.envelope,
-    position: pin.position,
-    pinned_at: pin.pinned_at ?? new Date().toISOString(),
-    config: pin.widget_config ?? {},
-  };
 }
 
 /** Top-to-bottom, then left-to-right — matches the visual scan order of the
@@ -175,17 +147,22 @@ export function OmniPanel({
   const dashboardHref = `/widgets/channel/${encodeURIComponent(channelId)}`;
 
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
+  // Chat-mode rails override the dashboard's saved hover_scrollbars default —
+  // the rails are persistent chrome; persistent scrollbars read as admin
+  // clutter. The standalone dashboard view still honors the author's choice.
+  const railChrome = useMemo(
+    () => ({ ...chrome, hoverScrollbars: true }),
+    [chrome],
+  );
   const widgetsSection = (
-    <WidgetsSection
-      railPins={railPins}
-      hasWidgets={hasWidgets}
+    <WidgetRailSection
+      channelId={channelId}
+      pins={railPins}
       preset={preset}
-      chrome={chrome}
-      handleUnpin={handleUnpin}
-      handleEnvelopeUpdate={handleEnvelopeUpdate}
+      chrome={railChrome}
+      onUnpin={handleUnpin}
+      onEnvelopeUpdate={handleEnvelopeUpdate}
       applyLayout={applyLayout}
-      dashboardHref={dashboardHref}
-      t={t}
     />
   );
 
@@ -282,146 +259,10 @@ export function OmniPanel({
           <CommandPaletteContent variant="inline" />
         </div>
       ) : (
-        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto px-2 pb-2 pt-2">
+        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto scroll-subtle px-2 pb-2 pt-2">
           {hasWidgets ? widgetsSection : <EmptyWidgets dashboardHref={dashboardHref} t={t} />}
         </div>
       )}
-    </div>
-  );
-}
-
-interface WidgetsSectionProps {
-  railPins: WidgetDashboardPin[];
-  hasWidgets: boolean;
-  preset: GridPreset;
-  chrome: DashboardChrome;
-  handleUnpin: (id: string) => void;
-  handleEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
-  applyLayout: (
-    items: Array<{ id: string; x: number; y: number; w: number; h: number }>,
-  ) => Promise<void>;
-  dashboardHref: string;
-  t: ReturnType<typeof useThemeTokens>;
-}
-
-function WidgetsSection({
-  railPins,
-  hasWidgets,
-  preset,
-  chrome,
-  handleUnpin,
-  handleEnvelopeUpdate,
-  applyLayout,
-  dashboardHref,
-  t,
-}: WidgetsSectionProps) {
-  // Debounced commit — reused for both resize (height change) and reorder
-  // (y-order change). Uses the pin's stored dashboard x/w so the dashboard's
-  // multi-column layout is preserved when the rail writes back. y comes from
-  // RGL's compacted layout — in a single-column grid with compactType:vertical,
-  // y is already the sequential stacking coordinate, so writing it straight
-  // through as the dashboard y is correct.
-  const pendingTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (pendingTimer.current) window.clearTimeout(pendingTimer.current);
-    },
-    [],
-  );
-  const railPinsRef = useRef(railPins);
-  railPinsRef.current = railPins;
-
-  const scheduleCommit = useCallback(
-    (layout: Layout) => {
-      if (pendingTimer.current) window.clearTimeout(pendingTimer.current);
-      pendingTimer.current = window.setTimeout(() => {
-        const byId = new Map(railPinsRef.current.map((p) => [p.id, p]));
-        const updates: Array<{ id: string; x: number; y: number; w: number; h: number }> = [];
-        for (const item of layout) {
-          const pin = byId.get(item.i);
-          if (!pin) continue;
-          const gl = pin.grid_layout as GridLayoutItem | undefined;
-          const origX = gl?.x ?? 0;
-          const origW = Math.max(1, gl?.w ?? 1);
-          updates.push({
-            id: item.i,
-            x: origX,
-            y: item.y,
-            w: origW,
-            h: item.h,
-          });
-        }
-        if (updates.length === 0) return;
-        void applyLayout(updates).catch((err) => {
-          console.error("Failed to persist rail layout:", err);
-        });
-      }, 400);
-    },
-    [applyLayout],
-  );
-
-  const layout: LayoutItem[] = useMemo(() => {
-    let y = 0;
-    return railPins.map((pin) => {
-      const gl = pin.grid_layout as GridLayoutItem | undefined;
-      const h = Math.max(2, gl?.h ?? preset.defaultTile.h);
-      const item: LayoutItem = {
-        i: pin.id,
-        x: 0,
-        y,
-        w: 1,
-        h,
-        minW: 1,
-        maxW: 1,
-        minH: 2,
-      };
-      y += h;
-      return item;
-    });
-  }, [railPins, preset]);
-
-  if (!hasWidgets) {
-    return <EmptyWidgets dashboardHref={dashboardHref} t={t} />;
-  }
-
-  // Single-column RGL grid. Drag via hover-revealed `.widget-drag-handle`
-  // (supplied by PinnedToolWidget's railMode), resize via the bottom-right
-  // SE handle. Width is locked (minW=maxW=1) — size on the dashboard grid
-  // is the source of truth for horizontal span; here we only tweak h + y.
-  // Commit is gated on explicit drag/resize stop so the initial mount's
-  // layout callback doesn't overwrite the dashboard's saved y values.
-  return (
-    <div className="w-full omni-panel-grid">
-      <ResponsiveGridLayout
-        layouts={{ lg: layout }}
-        breakpoints={RAIL_BREAKPOINTS}
-        cols={{ lg: 1 }}
-        rowHeight={preset.rowHeight}
-        margin={RAIL_MARGIN}
-        isDraggable={true}
-        isResizable={true}
-        draggableHandle=".widget-drag-handle"
-        resizeHandles={["s"]}
-        compactType="vertical"
-        preventCollision={false}
-        onDragStop={(current) => scheduleCommit(current)}
-        onResizeStop={(current) => scheduleCommit(current)}
-      >
-        {railPins.map((pin) => (
-          <div key={pin.id} data-pin-id={pin.id} className="min-w-0">
-            <PinnedToolWidget
-              widget={asPinnedWidget(pin)}
-              scope={{ kind: "dashboard" }}
-              onUnpin={handleUnpin}
-              onEnvelopeUpdate={handleEnvelopeUpdate}
-              borderless={chrome.borderless}
-              hoverScrollbars={chrome.hoverScrollbars}
-              hideTitles={chrome.hideTitles}
-              railMode
-            />
-          </div>
-        ))}
-      </ResponsiveGridLayout>
     </div>
   );
 }

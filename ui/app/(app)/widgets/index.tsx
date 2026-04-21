@@ -607,7 +607,7 @@ export default function WidgetsDashboardPage() {
                 >
                   <PinnedToolWidget
                     widget={asPinnedWidget(p)}
-                    scope={{ kind: "dashboard" }}
+                    scope={{ kind: "dashboard", channelId: channelScopedId ?? undefined }}
                     onUnpin={handleUnpin}
                     onEnvelopeUpdate={handleEnvelopeUpdate}
                     editMode={layoutEditable}

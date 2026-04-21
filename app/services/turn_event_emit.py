@@ -130,8 +130,12 @@ async def emit_run_stream_events(
         # deliberately skip that one on the bus to avoid double-appending.
         elif etype == "thinking":
             delta = event.get("delta", "")
+            logger.info(
+                "THINK_DEBUG emit_run_stream_events got thinking event bot=%s turn=%s delta_len=%d",
+                bot_id, turn_id, len(delta),
+            )
             if delta:
-                publish_typed(
+                subs = publish_typed(
                     channel_id,
                     ChannelEvent(
                         channel_id=channel_id,
@@ -143,6 +147,10 @@ async def emit_run_stream_events(
                             session_id=session_id,
                         ),
                     ),
+                )
+                logger.info(
+                    "THINK_DEBUG published TURN_STREAM_THINKING channel=%s subs=%d",
+                    channel_id, subs,
                 )
 
         elif etype == "tool_start":
