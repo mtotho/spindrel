@@ -246,6 +246,93 @@ class TestPrepareCallParamsAutoResolution:
 
 
 # ---------------------------------------------------------------------------
+# llm.py: thinking_budget translation per provider family
+# ---------------------------------------------------------------------------
+
+
+class TestThinkingBudgetTranslation:
+    """`thinking_budget` is a universal per-bot knob; _prepare_call_params
+    translates it into the provider-specific request shape before the SDK
+    client is invoked.
+    """
+
+    @patch("app.services.providers.resolve_provider_for_model", return_value="anth")
+    @patch("app.services.providers.get_llm_client")
+    @patch("app.services.providers.requires_system_message_folding", return_value=False)
+    @patch("app.services.providers.model_supports_tools", return_value=True)
+    def test_anthropic_family_forwards_raw_kwarg(self, *_mocks):
+        from app.agent.llm import _prepare_call_params
+
+        params = _prepare_call_params(
+            model="anthropic/claude-sonnet-4-6",
+            messages=[{"role": "user", "content": "hi"}],
+            tools_param=None, tool_choice=None,
+            provider_id="anth",
+            model_params={"thinking_budget": 2048, "temperature": 0.7},
+        )
+        # Adapter consumes `thinking_budget` directly (translates to
+        # `thinking: {...}` inside _Completions.create).
+        assert params.extra.get("thinking_budget") == 2048
+
+    @patch("app.services.providers.resolve_provider_for_model", return_value="lite")
+    @patch("app.services.providers.get_llm_client")
+    @patch("app.services.providers.requires_system_message_folding", return_value=False)
+    @patch("app.services.providers.model_supports_tools", return_value=True)
+    def test_gemini_family_translates_to_extra_body(self, *_mocks):
+        from app.agent.llm import _prepare_call_params
+
+        params = _prepare_call_params(
+            model="gemini/gemini-2.5-flash",
+            messages=[{"role": "user", "content": "hi"}],
+            tools_param=None, tool_choice=None,
+            provider_id="lite",
+            model_params={"thinking_budget": 4096},
+        )
+        # Raw kwarg stripped; translated into extra_body.thinking_config for
+        # the LiteLLM OpenAI-compat passthrough.
+        assert "thinking_budget" not in params.extra
+        extra_body = params.extra.get("extra_body") or {}
+        assert extra_body.get("thinking_config") == {
+            "include_thoughts": True,
+            "thinking_budget": 4096,
+        }
+
+    @patch("app.services.providers.resolve_provider_for_model", return_value="openai")
+    @patch("app.services.providers.get_llm_client")
+    @patch("app.services.providers.requires_system_message_folding", return_value=False)
+    @patch("app.services.providers.model_supports_tools", return_value=True)
+    def test_openai_family_maps_to_reasoning_effort(self, *_mocks):
+        from app.agent.llm import _prepare_call_params
+
+        params = _prepare_call_params(
+            model="gpt-5",
+            messages=[{"role": "user", "content": "hi"}],
+            tools_param=None, tool_choice=None,
+            provider_id="openai",
+            model_params={"thinking_budget": 8000},
+        )
+        assert "thinking_budget" not in params.extra
+        assert params.extra.get("reasoning_effort") == "high"
+
+    @patch("app.services.providers.resolve_provider_for_model", return_value="anth")
+    @patch("app.services.providers.get_llm_client")
+    @patch("app.services.providers.requires_system_message_folding", return_value=False)
+    @patch("app.services.providers.model_supports_tools", return_value=True)
+    def test_zero_budget_stripped(self, *_mocks):
+        from app.agent.llm import _prepare_call_params
+
+        params = _prepare_call_params(
+            model="anthropic/claude-sonnet-4-6",
+            messages=[{"role": "user", "content": "hi"}],
+            tools_param=None, tool_choice=None,
+            provider_id="anth",
+            model_params={"thinking_budget": 0},
+        )
+        assert "thinking_budget" not in params.extra
+        assert "extra_body" not in params.extra
+
+
+# ---------------------------------------------------------------------------
 # providers.py: get_default_provider (any type)
 # ---------------------------------------------------------------------------
 

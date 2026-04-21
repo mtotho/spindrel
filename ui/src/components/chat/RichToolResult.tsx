@@ -30,7 +30,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { TextRenderer } from "./renderers/TextRenderer";
 import { JsonTreeRenderer } from "./renderers/JsonTreeRenderer";
 import { SandboxedHtmlRenderer } from "./renderers/SandboxedHtmlRenderer";
-import { InteractiveHtmlRenderer } from "./renderers/InteractiveHtmlRenderer";
+import { InteractiveHtmlRenderer, type WidgetLayout } from "./renderers/InteractiveHtmlRenderer";
 import { DiffRenderer } from "./renderers/DiffRenderer";
 import { FileListingRenderer } from "./renderers/FileListingRenderer";
 import { ComponentRenderer } from "./renderers/ComponentRenderer";
@@ -71,6 +71,11 @@ interface Props {
   /** Forwarded to the interactive-HTML iframe so its document-level
    *  scrollbar follows the dashboard's "Scrollbars on hover" toggle. */
   hoverScrollbars?: boolean;
+  /** Host-zone classification forwarded to interactive HTML widgets as
+   *  ``window.spindrel.layout``. Callers that know the zone (chip row, dock
+   *  rail, left rail, grid canvas) pass it; inline chat omits it and the
+   *  renderer falls through to ``"grid"``. */
+  layout?: WidgetLayout;
   t: ThemeTokens;
 }
 
@@ -85,6 +90,7 @@ export function RichToolResult({
   gridDimensions,
   onIframeReady,
   hoverScrollbars,
+  layout,
   t,
 }: Props) {
   const [fetched, setFetched] = useState<string | null>(null);
@@ -201,6 +207,7 @@ export function RichToolResult({
             gridDimensions={gridDimensions}
             onIframeReady={onIframeReady}
             hoverScrollbars={hoverScrollbars}
+            layout={layout}
             t={t}
           />
         );

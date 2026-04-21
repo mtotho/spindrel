@@ -309,28 +309,62 @@ export function ChatMessageArea({
       </div>
 
       {showFab && (
-        <button
-          onClick={doScrollToBottom}
-          className="scroll-fab"
+        // Anchor the FAB to the COMPOSER's right edge, not the chat column's.
+        // The composer is `max-w-[820px] mx-auto`, so on wide viewports its
+        // right edge sits far inboard of the column edge — a FAB pinned to
+        // the column edge lands in the right-margin gap; on narrow viewports
+        // the composer stretches to the column edge and the same FAB sits
+        // on top of the input. Mirror the composer's max-w-820 centered
+        // container so the FAB always tracks the composer's right edge.
+        // `pointer-events: none` on the wrapper lets clicks fall through
+        // the empty areas to the chat behind; the button itself re-enables
+        // pointer events.
+        <div
+          aria-hidden={false}
           style={{
             position: "absolute",
-            bottom: 16,
-            right: 16,
-            width: 48,
-            height: 48,
-            borderRadius: 24,
-            backgroundColor: t.surfaceRaised,
-            border: `1px solid ${t.surfaceBorder}`,
-            display: "flex", flexDirection: "row",
-            alignItems: "center",
+            bottom: scrollPaddingBottom + 12,
+            left: 0,
+            right: 0,
+            display: "flex",
             justifyContent: "center",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-            cursor: "pointer",
-            padding: 0,
+            pointerEvents: "none",
           }}
         >
-          <ChevronDown size={22} color={t.textMuted} />
-        </button>
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 820,
+              padding: "0 16px",
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
+            <button
+              onClick={doScrollToBottom}
+              className="scroll-fab"
+              aria-label="Scroll to latest message"
+              title="Scroll to latest"
+              style={{
+                pointerEvents: "auto",
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: t.surfaceRaised,
+                border: `1px solid ${t.surfaceBorder}`,
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              <ChevronDown size={18} color={t.textMuted} />
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

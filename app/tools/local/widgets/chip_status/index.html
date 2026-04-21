@@ -1,0 +1,50 @@
+<!--
+---
+name: Chip — Status
+display_label: Status
+description: Reference chip widget — 180×32 status dot + label. Reads window.spindrel.layout === "chip" to fit the header band; otherwise renders a padded card.
+version: 1.0.0
+author: spindrel
+tags: [chip, reference, spindrel-sdk]
+icon: circle-dot
+---
+-->
+<style>
+  #chip-status-root { display: flex; align-items: center; gap: 6px; font: 12px/1 system-ui, sans-serif; color: var(--sd-text); }
+  #chip-status-root[data-layout="chip"] { height: 32px; padding: 0 10px; }
+  #chip-status-root[data-layout="chip"] .cs-sub { display: none; }
+  #chip-status-root:not([data-layout="chip"]) { padding: 10px 12px; }
+  .cs-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--sd-text-muted); flex-shrink: 0; box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 15%, transparent); }
+  .cs-dot.ok { background: var(--sd-success, #22c55e); }
+  .cs-dot.warn { background: var(--sd-warning, #f59e0b); }
+  .cs-dot.err { background: var(--sd-danger, #ef4444); }
+  .cs-label { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cs-sub { font-size: 11px; color: var(--sd-text-muted); }
+</style>
+<div id="chip-status-root">
+  <span class="cs-dot ok" id="cs-dot" aria-hidden="true"></span>
+  <span class="cs-label" id="cs-label">Healthy</span>
+  <span class="cs-sub" id="cs-sub"></span>
+</div>
+<script>
+(function () {
+  const sp = window.spindrel;
+  const root = document.getElementById("chip-status-root");
+  // Reflect host zone into a data attribute so the stylesheet can branch.
+  // "chip" strips padding + sub-label to fit the 180×32 header band.
+  root.dataset.layout = sp && sp.layout ? sp.layout : "grid";
+
+  const dot = document.getElementById("cs-dot");
+  const label = document.getElementById("cs-label");
+  const sub = document.getElementById("cs-sub");
+
+  // Minimal demo state — real widgets would subscribe via spindrel.stream or
+  // poll spindrel.callTool. Swap the setStatus() calls for a data source.
+  function setStatus(kind, text, detail) {
+    dot.className = "cs-dot " + (kind || "");
+    label.textContent = text || "";
+    sub.textContent = detail || "";
+  }
+  setStatus("ok", "Healthy", "all services up");
+})();
+</script>

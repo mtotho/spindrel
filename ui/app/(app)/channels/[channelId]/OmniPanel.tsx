@@ -163,6 +163,7 @@ export function OmniPanel({
       onUnpin={handleUnpin}
       onEnvelopeUpdate={handleEnvelopeUpdate}
       applyLayout={applyLayout}
+      widgetLayout="rail"
     />
   );
 

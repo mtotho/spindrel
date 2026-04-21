@@ -314,6 +314,16 @@ class Session(Base):
         ForeignKey("messages.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Per-integration thread linkage — keyed by integration_id, value is
+    # an integration-specific ref dict (e.g. Slack:
+    # ``{"channel": "C123", "thread_ts": "1700000000.1"}``). NULL for the
+    # common case (channel sessions, ephemerals, pre-Phase-7 thread rows).
+    # Written once at thread spawn or on first inbound Slack reply; never
+    # mutated afterward. The dispatch-resolution layer merges this into
+    # the typed DispatchTarget so outbound posts land in the right thread.
+    integration_thread_refs: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
 
     channel: Mapped["Channel | None"] = relationship(
         back_populates="sessions",

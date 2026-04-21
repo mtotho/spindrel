@@ -174,6 +174,65 @@ async def enqueue_new_message_for_target(
         return False
 
 
+async def enqueue_new_message_for_thread_session(
+    session_id: uuid.UUID,
+    domain_msg: DomainMessage,
+) -> bool:
+    """Fan a thread-session Message out through the parent channel's outbox.
+
+    Thread sessions live as ``channel_id IS NULL`` rows but share their
+    parent channel's integration bindings. Outbound posts need to land in
+    the integration's native thread primitive (Slack ``thread_ts``, Discord
+    thread channel id, etc.), which is resolved via
+    ``Session.integration_thread_refs`` + the integration's
+    ``apply_thread_ref`` hook.
+
+    No-op for non-thread sessions (returns False) so callers can use it
+    as a catch-all in channel-less publish paths without pre-checking
+    session_type.
+    """
+    try:
+        from app.db.engine import async_session
+        from app.db.models import Channel, Session
+        from app.services.dispatch_resolution import (
+            apply_session_thread_refs,
+            resolve_targets,
+        )
+        from app.services.sub_session_bus import resolve_bus_channel_id
+
+        async with async_session() as db:
+            session_row = await db.get(Session, session_id)
+            if session_row is None or session_row.session_type != "thread":
+                return False
+
+            bus_ch = await resolve_bus_channel_id(db, session_id)
+            if bus_ch is None:
+                return False
+            channel_row = await db.get(Channel, bus_ch)
+            if channel_row is None:
+                return False
+
+            targets = await resolve_targets(channel_row)
+            targets = apply_session_thread_refs(session_row, targets)
+
+            event = ChannelEvent(
+                channel_id=bus_ch,
+                kind=ChannelEventKind.NEW_MESSAGE,
+                payload=MessagePayload(message=domain_msg),
+            )
+            await enqueue_for_targets(db, bus_ch, event, targets)
+            await db.commit()
+            return True
+    except Exception:
+        logger.warning(
+            "enqueue_new_message_for_thread_session failed for session=%s msg=%s",
+            session_id,
+            getattr(domain_msg, "id", "?"),
+            exc_info=True,
+        )
+        return False
+
+
 def publish_to_bus(channel_id: uuid.UUID, event: ChannelEvent) -> int:
     """Synchronously publish a typed event to in-memory bus subscribers.
 

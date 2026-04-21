@@ -312,12 +312,89 @@ def _resolve_dispatch_config(client_id: str) -> dict | None:
     return {"channel_id": channel_id, "token": token}
 
 
+# ---------------------------------------------------------------------------
+# Thread mirroring hooks
+# ---------------------------------------------------------------------------
+
+
+def _apply_thread_ref(target, ref: dict):
+    """Rewrite a SlackTarget so outbound posts land in the Slack thread.
+
+    ``ref`` shape — ``{"channel": "C123", "thread_ts": "1700000000.001"}``.
+    Matches ``Session.integration_thread_refs["slack"]`` stored by
+    ``POST /messages/{id}/thread`` and the inbound-thread resolver.
+    """
+    from dataclasses import replace
+    from integrations.slack.target import SlackTarget
+
+    if not isinstance(target, SlackTarget):
+        return target
+    thread_ts = ref.get("thread_ts")
+    if not thread_ts:
+        return target
+    return replace(target, thread_ts=thread_ts, reply_in_thread=True)
+
+
+def _build_thread_ref_from_message(metadata: dict) -> dict | None:
+    """Return a Slack thread ref dict if ``metadata`` identifies a Slack msg.
+
+    The persistence path stamps ``slack_ts`` + ``slack_channel`` onto the
+    Message on both inbound (``message_handlers.dispatch``) and outbound
+    (``outbox_drainer`` → ``DeliveryReceipt.external_id``). When threading
+    off an assistant Message that itself is a reply inside an existing
+    Slack thread, fall back to the message's own ``slack_thread_ts`` so the
+    new Spindrel thread binds to the SAME Slack thread (Slack threads are
+    flat — no nested threads).
+    """
+    channel = metadata.get("slack_channel") or metadata.get("channel_external_id")
+    if not channel:
+        return None
+    thread_ts = metadata.get("slack_thread_ts") or metadata.get("slack_ts")
+    if not thread_ts:
+        return None
+    return {"channel": channel, "thread_ts": thread_ts}
+
+
+def _extract_thread_ref_from_dispatch(dispatch_config: dict) -> dict | None:
+    """Inbound: return the Slack thread ref if ``dispatch_config`` is a reply."""
+    thread_ts = dispatch_config.get("thread_ts")
+    channel = dispatch_config.get("channel_id")
+    if not (thread_ts and channel):
+        return None
+    return {"channel": channel, "thread_ts": thread_ts}
+
+
+def _persist_delivery_metadata(metadata: dict, external_id: str, target) -> None:
+    """Stamp Slack-side identifiers onto a delivered Message's metadata.
+
+    Called by the outbox drainer after a successful ``chat.postMessage`` so
+    that ``_build_thread_ref_from_message`` can reconstruct the thread ref
+    when a user later clicks "Reply in thread" on the outbound Message.
+    The drainer owns the deep-copy → ``flag_modified`` dance; we just
+    mutate the supplied dict in place.
+    """
+    from integrations.slack.target import SlackTarget
+
+    if not isinstance(target, SlackTarget):
+        return
+    if not external_id:
+        return
+    metadata["slack_ts"] = external_id
+    metadata["slack_channel"] = target.channel_id
+    if target.thread_ts:
+        metadata["slack_thread_ts"] = target.thread_ts
+
+
 register_integration(IntegrationMeta(
     integration_type="slack",
     client_id_prefix="slack:",
     user_attribution=_user_attribution,
     resolve_display_names=_resolve_display_names,
     resolve_dispatch_config=_resolve_dispatch_config,
+    apply_thread_ref=_apply_thread_ref,
+    build_thread_ref_from_message=_build_thread_ref_from_message,
+    extract_thread_ref_from_dispatch=_extract_thread_ref_from_dispatch,
+    persist_delivery_metadata=_persist_delivery_metadata,
 ))
 
 register_hook("after_tool_call", _on_after_tool_call)

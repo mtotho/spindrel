@@ -298,6 +298,13 @@ async def dispatch(
         "mention_token": None if is_bot_sender else f"<@{user}>",
         "thread_context": thread_summary or None,
         "recipient_id": f"bot:{bot_id}" if mentioned else None,
+        # Persist the Slack-side identifiers so downstream consumers (thread
+        # resolution, anchor linkage, outbound thread mirroring) can walk
+        # from a Spindrel Message back to the Slack message it represents
+        # without a dispatch_config lookup.
+        "slack_channel": channel,
+        "slack_ts": message_ts,
+        "slack_thread_ts": thread_ts,
     }
 
     full_message = f"{text}{appended}"

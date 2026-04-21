@@ -936,6 +936,69 @@ class TestCompletionsCreate:
         assert "tool_choice" not in call_kwargs
         assert "tools" not in call_kwargs
 
+    @pytest.mark.asyncio
+    async def test_thinking_budget_enables_extended_thinking(self):
+        """thinking_budget>0 should inject `thinking` block, force temperature=1, and drop top_p/top_k."""
+        adapter = AnthropicOpenAIAdapter(api_key="sk-test")
+
+        mock_response = MagicMock()
+        mock_response.id = "msg_t"
+        mock_response.model = "claude-sonnet-4-6"
+        mock_response.stop_reason = "end_turn"
+        mock_response.content = []
+        mock_response.usage = MagicMock(
+            input_tokens=0, output_tokens=0,
+            cache_read_input_tokens=0, cache_creation_input_tokens=0,
+        )
+        adapter._anthropic.messages.create = AsyncMock(return_value=mock_response)
+
+        await adapter.chat.completions.create(
+            model="claude-sonnet-4-6",
+            messages=[{"role": "user", "content": "reason about this"}],
+            thinking_budget=2048,
+            temperature=0.2,
+            top_p=0.9,
+            top_k=40,
+            stream=False,
+        )
+
+        call_kwargs = adapter._anthropic.messages.create.call_args[1]
+        assert call_kwargs["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+        # max_tokens must exceed thinking budget
+        assert call_kwargs["max_tokens"] > 2048
+        # Anthropic only accepts temperature=1 alongside extended thinking
+        assert call_kwargs["temperature"] == 1
+        assert "top_p" not in call_kwargs
+        assert "top_k" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_thinking_budget_zero_is_noop(self):
+        """thinking_budget=0 should not inject any thinking block."""
+        adapter = AnthropicOpenAIAdapter(api_key="sk-test")
+
+        mock_response = MagicMock()
+        mock_response.id = "msg_t"
+        mock_response.model = "claude-sonnet-4-6"
+        mock_response.stop_reason = "end_turn"
+        mock_response.content = []
+        mock_response.usage = MagicMock(
+            input_tokens=0, output_tokens=0,
+            cache_read_input_tokens=0, cache_creation_input_tokens=0,
+        )
+        adapter._anthropic.messages.create = AsyncMock(return_value=mock_response)
+
+        await adapter.chat.completions.create(
+            model="claude-sonnet-4-6",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking_budget=0,
+            temperature=0.5,
+            stream=False,
+        )
+
+        call_kwargs = adapter._anthropic.messages.create.call_args[1]
+        assert "thinking" not in call_kwargs
+        assert call_kwargs["temperature"] == 0.5
+
 
 # ---------------------------------------------------------------------------
 # Adapter construction

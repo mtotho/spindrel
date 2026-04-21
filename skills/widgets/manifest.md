@@ -42,10 +42,30 @@ events:
 db:
   schema_version: 2           # integer >= 1; source of truth
   migrations:
+    - from: 0
+      to: 1                   # first step always goes from 0 → 1 (fresh DB)
+      sql: |
+        create table items (id integer primary key, text text);
     - from: 1
-      to: 2                   # must be from+1; steps must be contiguous starting at 1
+      to: 2                   # must be from+1; steps must be contiguous
       sql: |
         alter table items add column priority integer default 0;
+layout_hints:
+  preferred_zone: grid        # chip | rail | dock | grid (advisory only)
+  min_cells: {w: 3, h: 3}
+  max_cells: {w: 8, h: 12}
+handlers:
+  - name: add_item            # must match an @on_action in widget.py
+    description: Append a new item.
+    triggers: [add item, remember to]
+    args:
+      text: {type: string, description: Item text., required: true}
+    returns:
+      type: object
+      properties:
+        id: {type: string}
+    bot_callable: true        # opt-in: surfaces as `widget.<slug>.add_item`
+    safety_tier: mutating     # readonly | mutating | exec_capable
 ```
 
 ## Validation rules enforced at parse time
@@ -53,7 +73,11 @@ db:
 - `name` — required non-empty string
 - `permissions.events` — each value must be a valid `ChannelEventKind` (see `app/domain/channel_events.py`)
 - `cron[].schedule` — must pass `validate_cron()` (5-field, no seconds)
-- `db.schema_version` — integer ≥ 1; `migrations` must be contiguous `{from: N, to: N+1}` starting at 1 and ending at `schema_version`
+- `db.schema_version` — integer ≥ 1; `migrations` must be contiguous `{from: N, to: N+1}` starting at 0 (fresh DB) and ending at `schema_version`
+- `handlers[].name` — lowercase snake_case, must match an `@on_action` name in `widget.py`
+- `handlers[].bot_callable` — defaults to false; when true, the handler must have a non-empty `description`
+- `handlers[].safety_tier` — `readonly` / `mutating` / `exec_capable` (default `mutating`)
+- `layout_hints.preferred_zone` — one of `chip` / `rail` / `dock` / `grid` (advisory — the dashboard editor never refuses a drop based on this)
 - Tool names in `permissions.tools` are accepted as strings; unknown names surface as 403 at `ctx.tool()` call time
 - `db.shared` and `db.migrations` / `db.schema_version` are **mutually exclusive** at the bundle level — a member of a suite inherits schema from `suite.yaml` and must not redeclare it
 
@@ -81,3 +105,4 @@ The manifest is discovered via the same scanner that walks `.html` bundles — n
 - `widgets/db.md` — how `db.schema_version` + `db.migrations` drive the per-bundle SQLite DB
 - `widgets/handlers.md` — how `permissions.tools` + `permissions.events` gate what `widget.py` can do
 - `widgets/suites.md` — how `db.shared` opts a bundle into a suite's shared DB
+- `widgets/bot-callable-handlers.md` — making `@on_action` handlers invokable from a bot's turn via the `handlers:` block

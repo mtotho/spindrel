@@ -582,6 +582,7 @@ class _Completions:
         tool_choice = kwargs.get("tool_choice")
         stream = kwargs.get("stream", False)
         max_tokens = kwargs.get("max_tokens") or _DEFAULT_MAX_TOKENS
+        thinking_budget = kwargs.get("thinking_budget")
 
         # Translate
         system, anthropic_messages = _translate_messages(messages)
@@ -603,10 +604,34 @@ class _Completions:
             api_kwargs["tools"] = anthropic_tools
             api_kwargs["tool_choice"] = tc
 
+        # Extended thinking. Anthropic requires:
+        #   - budget_tokens < max_tokens
+        #   - temperature=1 (other values rejected)
+        #   - top_p / top_k unset when thinking is enabled
+        thinking_enabled = False
+        if thinking_budget is not None:
+            try:
+                tb = int(thinking_budget)
+            except (TypeError, ValueError):
+                tb = 0
+            if tb > 0:
+                # max_tokens must exceed thinking budget — widen if needed.
+                if api_kwargs["max_tokens"] <= tb:
+                    api_kwargs["max_tokens"] = tb + 1024
+                api_kwargs["thinking"] = {"type": "enabled", "budget_tokens": tb}
+                thinking_enabled = True
+
         # Pass through simple params (translate stop → stop_sequences)
         for param in ("temperature", "top_p", "top_k"):
             if param in kwargs and kwargs[param] is not None:
-                api_kwargs[param] = kwargs[param]
+                if thinking_enabled and param in ("top_p", "top_k"):
+                    continue  # incompatible with extended thinking
+                if thinking_enabled and param == "temperature":
+                    api_kwargs[param] = 1  # Anthropic requires temperature=1
+                else:
+                    api_kwargs[param] = kwargs[param]
+        if thinking_enabled and "temperature" not in api_kwargs:
+            api_kwargs["temperature"] = 1
         if "stop" in kwargs and kwargs["stop"] is not None:
             stop = kwargs["stop"]
             api_kwargs["stop_sequences"] = [stop] if isinstance(stop, str) else stop

@@ -1801,6 +1801,42 @@ async def assemble_context(
     if _injected and _authorized_names is not None:
         _authorized_names.update(t["function"]["name"] for t in _injected)
 
+    # --- widget-handler tools (bot↔widget bridge) ---
+    # For every pinned widget whose manifest declares bot-callable handlers,
+    # surface them as `widget.<slug>.<handler>` tools. Visibility is the
+    # caller's channel dashboard + any dashboard the calling bot authored.
+    # See `app/services/widget_handler_tools.py` for visibility + dispatch.
+    if channel_id or bot.id:
+        try:
+            from app.db.engine import async_session as _wh_session_factory
+            from app.services.widget_handler_tools import list_widget_handler_tools
+            async with _wh_session_factory() as _wh_db:
+                _wh_schemas, _ = await list_widget_handler_tools(
+                    _wh_db, bot.id, str(channel_id) if channel_id else None,
+                )
+            if _wh_schemas:
+                if pre_selected_tools is None:
+                    pre_selected_tools = list(_wh_schemas)
+                else:
+                    _existing = {t["function"]["name"] for t in pre_selected_tools}
+                    for _sch in _wh_schemas:
+                        if _sch["function"]["name"] not in _existing:
+                            pre_selected_tools.append(_sch)
+                if _authorized_names is None:
+                    _authorized_names = set()
+                _authorized_names.update(
+                    t["function"]["name"] for t in _wh_schemas
+                )
+                logger.debug(
+                    "widget_handler_tools: injected %d handler(s) for bot=%s channel=%s",
+                    len(_wh_schemas), bot.id, channel_id,
+                )
+        except Exception:
+            logger.warning(
+                "widget_handler_tools: enumeration failed; widget tools will not be surfaced this turn",
+                exc_info=True,
+            )
+
     # --- capability-gated tool exposure ---
     # Drop tools whose required_capabilities / required_integrations the
     # current channel's bindings can't satisfy. Keeps respond_privately,

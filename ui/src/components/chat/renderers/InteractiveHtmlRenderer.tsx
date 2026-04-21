@@ -97,8 +97,16 @@ interface Props {
    *  body in `PinnedToolWidget`). CSS for this is injected by the widget
    *  preamble (see `app/services/widget_templates.py::_build_html_widget_body`). */
   hoverScrollbars?: boolean;
+  /** Host-zone classification, exposed to widget JS as
+   *  ``window.spindrel.layout``. One of ``"chip" | "rail" | "dock" | "grid"``;
+   *  undefined falls through to ``"grid"`` so widgets can branch on layout
+   *  without null-checks. Chip-authored widgets read this to render the 180×32
+   *  compact variant; grid widgets render full-size. */
+  layout?: WidgetLayout;
   t: ThemeTokens;
 }
+
+export type WidgetLayout = "chip" | "rail" | "dock" | "grid";
 
 // Default CSP directive → baseline source list. Kept as structured data
 // (not a flat string) so envelope-declared `extra_csp` can append origins
@@ -217,6 +225,7 @@ function spindrelBootstrap(
   dashboardPinId: string | null,
   widgetPath: string | null,
   gridDimensions: { width: number; height: number } | null,
+  layout: WidgetLayout,
 ): string {
   const gridDimensionsJson = gridDimensions
     ? JSON.stringify(gridDimensions)
@@ -232,6 +241,9 @@ function spindrelBootstrap(
   // Widget JS can read window.spindrel.gridSize to pre-size image/video
   // placeholders at the right aspect ratio instead of computing from CSS.
   const gridSize = ${gridDimensionsJson};
+  // Host-zone classification. One of "chip" | "rail" | "dock" | "grid".
+  // Chip widgets render a 180×32 compact variant; other zones render full.
+  const layout = ${jsonForScript(layout)};
   // Normalise a workspace-relative path. Strips "./" segments, collapses
   // "a/b/../c" to "a/c", rejects escapes above the bundle root when the
   // input started with "../". Backend also re-validates; this is just
@@ -1600,6 +1612,7 @@ function spindrelBootstrap(
     dashboardPinId: dashboardPinId,
     widgetPath: widgetPath,
     gridSize: gridSize,
+    layout: layout,
     image: image,
     resolvePath: resolvePath,
     api: api,
@@ -1755,6 +1768,7 @@ function wrapHtml(
   widgetPath: string | null,
   csp: string,
   gridDimensions: { width: number; height: number } | null,
+  layout: WidgetLayout,
 ): string {
   return `<!doctype html>
 <html${isDark ? ' class="dark"' : ""}>
@@ -1762,7 +1776,7 @@ function wrapHtml(
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <style id="__spindrel_theme">${themeCss}</style>
-${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions)}
+${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions, layout)}
 </head>
 <body>
 <div id="__sd_root">
@@ -1791,6 +1805,7 @@ export function InteractiveHtmlRenderer({
   gridDimensions,
   onIframeReady,
   hoverScrollbars,
+  layout,
   t,
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -2471,6 +2486,7 @@ export function InteractiveHtmlRenderer({
           sourcePath,
           cspString,
           frozenGridDimensionsRef.current,
+          layout ?? "grid",
         )}
         sandbox="allow-scripts allow-same-origin allow-forms"
         title={envelope.display_label || "Interactive HTML widget"}

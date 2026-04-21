@@ -214,6 +214,7 @@ def _finalize_response(
     transcript_emitted: bool,
     tool_calls_made: list[str],
     tool_envelopes_made: list[dict],
+    thinking_content_buf: str,
     turn_start: int,
     embedded_client_actions: list[dict],
 ) -> tuple[list[dict], bool]:
@@ -273,6 +274,17 @@ def _finalize_response(
         messages[-1]["_tools_used"] = list(tool_calls_made)
         if tool_envelopes_made:
             messages[-1]["_tool_envelopes"] = list(tool_envelopes_made)
+
+    # Attach accumulated thinking to the LAST assistant message on the turn so
+    # persist_turn can stash it in message metadata. We only surface the final
+    # iteration's thinking on the user-facing message — intermediate thinking
+    # lives in transcript events but isn't persisted per-row today.
+    if (
+        thinking_content_buf
+        and messages
+        and messages[-1].get("role") == "assistant"
+    ):
+        messages[-1]["_thinking_content"] = thinking_content_buf
 
     events.append(_event_with_compaction_tag({
         "type": "response",
@@ -423,6 +435,7 @@ async def run_agent_tool_loop(
     embedded_client_actions: list[dict] = []
     tool_calls_made: list[str] = []  # track tool names for elevation classifier
     tool_envelopes_made: list[dict] = []  # ToolResultEnvelope.compact_dict() in invocation order — persisted to Message.metadata.tool_results
+    thinking_content_buf: str = ""  # accumulated thinking across loop iterations — persisted to final assistant message metadata
     tool_call_trace: list[ToolCallSignature] = []  # for within-run cycle detection
     _tools_to_enroll: list[str] = []  # tools to promote to persistent working set
     _loop_broken_reason: str | None = None  # set before break; None = for-loop exhausted
@@ -762,7 +775,12 @@ async def run_agent_tool_loop(
                     ))
 
             # Emit thinking content event for downstream consumers (Slack, etc.)
+            # and accumulate across iterations for persistence on the final
+            # assistant message (see `_thinking_content` injection below).
             if accumulated_msg.thinking_content:
+                if thinking_content_buf:
+                    thinking_content_buf += "\n\n"
+                thinking_content_buf += accumulated_msg.thinking_content
                 yield _event_with_compaction_tag(
                     {"type": "thinking_content", "text": accumulated_msg.thinking_content},
                     compaction,
@@ -893,6 +911,7 @@ async def run_agent_tool_loop(
                     transcript_emitted=transcript_emitted,
                     tool_calls_made=tool_calls_made,
                     tool_envelopes_made=tool_envelopes_made,
+                    thinking_content_buf=thinking_content_buf,
                     turn_start=turn_start,
                     embedded_client_actions=embedded_client_actions,
                 )
@@ -1471,6 +1490,7 @@ async def run_agent_tool_loop(
             transcript_emitted=transcript_emitted,
             tool_calls_made=tool_calls_made,
             tool_envelopes_made=tool_envelopes_made,
+            thinking_content_buf=thinking_content_buf,
             turn_start=turn_start,
             embedded_client_actions=embedded_client_actions,
         )

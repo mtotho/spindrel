@@ -24,6 +24,10 @@ from app.tools.client_tools import is_client_tool
 from app.tools.mcp import call_mcp_tool, get_mcp_server_for_tool, is_mcp_tool, resolve_mcp_tool_name
 from app.tools.registry import call_local_tool, is_local_tool
 from app.tools.local.persona import call_persona_tool
+from app.services.widget_handler_tools import (
+    is_widget_handler_tool_name,
+    resolve_widget_handler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -468,6 +472,7 @@ async def dispatch_tool_call(
         not is_client_tool(name)
         and not is_local_tool(name)
         and not is_mcp_tool(name)
+        and not is_widget_handler_tool_name(name)
     ):
         _resolved = resolve_mcp_tool_name(name)
         if _resolved is not None and _resolved != name:
@@ -761,6 +766,9 @@ async def dispatch_tool_call(
         _tc_type = "mcp"
         _tc_server = get_mcp_server_for_tool(name)
         _tool_coro = call_mcp_tool(name, args)
+    elif is_widget_handler_tool_name(name):
+        _tc_type = "widget"
+        _tool_coro = _call_widget_handler_tool(name, args, bot_id, channel_id)
     else:
         result = json.dumps({"error": f"Unknown tool: {name}"})
 
@@ -999,6 +1007,69 @@ async def dispatch_tool_call(
     result_obj.tool_event = tool_event
 
     return result_obj
+
+
+# ---------------------------------------------------------------------------
+# Widget-handler dispatch
+# ---------------------------------------------------------------------------
+
+async def _call_widget_handler_tool(
+    tool_name: str,
+    arguments_json: str | None,
+    bot_id: str,
+    channel_id: uuid.UUID | None,
+) -> str:
+    """Invoke a bot-callable widget handler by resolving pin + handler name.
+
+    The handler runs under the pin's ``source_bot_id`` (same identity as
+    iframe / cron / event paths). The calling bot's scopes don't widen the
+    handler — the pin's bot is the ceiling. See
+    ``app/services/widget_handler_tools.py`` for visibility rules.
+    """
+    from app.db.engine import async_session
+    from app.services.widget_py import invoke_action
+
+    try:
+        args = json.loads(arguments_json) if arguments_json else {}
+        if not isinstance(args, dict):
+            args = {}
+    except (json.JSONDecodeError, TypeError):
+        args = {}
+
+    async with async_session() as db:
+        resolved = await resolve_widget_handler(
+            db, tool_name, bot_id, str(channel_id) if channel_id else None,
+        )
+    if resolved is None:
+        return json.dumps({
+            "error": (
+                f"widget handler {tool_name!r} could not be resolved — "
+                "the pin may have been removed or moved to a dashboard you can't see."
+            )
+        }, ensure_ascii=False)
+
+    pin, handler_name, _tier = resolved
+    try:
+        result = await invoke_action(pin, handler_name, args)
+    except (FileNotFoundError, KeyError, ValueError, PermissionError) as exc:
+        logger.info(
+            "widget handler %s dispatch failed (%s): %s",
+            tool_name, type(exc).__name__, exc,
+        )
+        return json.dumps({"error": str(exc)}, ensure_ascii=False)
+    except asyncio.TimeoutError:
+        logger.warning("widget handler %s exceeded handler timeout", tool_name)
+        return json.dumps({"error": "widget handler timed out"}, ensure_ascii=False)
+    except Exception:
+        logger.exception("widget handler %s raised unexpectedly", tool_name)
+        return json.dumps({"error": "widget handler raised an unexpected error"}, ensure_ascii=False)
+
+    if isinstance(result, str):
+        return result
+    try:
+        return json.dumps(result, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return json.dumps({"result": repr(result)}, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------

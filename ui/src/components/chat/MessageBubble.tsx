@@ -1,4 +1,5 @@
-import { memo, useMemo, useCallback, useEffect, useRef } from "react";
+import { memo, useMemo, useCallback, useEffect, useRef, useState } from "react";
+import { Brain, ChevronRight } from "lucide-react";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import { DelegationCard } from "./DelegationCard";
@@ -59,6 +60,47 @@ interface Props {
    *  thread / ephemeral views so the action doesn't spawn nested threads
    *  (UI-only guard — backend permits nesting). */
   canReplyInThread?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// HistoricalThinking — collapsed reasoning block on persisted messages
+// ---------------------------------------------------------------------------
+function HistoricalThinking({ text, t }: { text: string; t: ThemeTokens }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="mb-2 mt-0.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wider opacity-70 hover:opacity-100"
+        style={{ color: t.purpleMuted }}
+      >
+        <ChevronRight
+          size={12}
+          style={{
+            transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+            transition: "transform 120ms",
+          }}
+        />
+        <Brain size={12} />
+        <span>Thinking</span>
+      </button>
+      {expanded && (
+        <div
+          className="pl-3 pt-1.5 pb-1.5 mt-1 text-[13px] italic whitespace-pre-wrap break-words"
+          style={{
+            borderLeft: `2px solid ${t.textDim}`,
+            color: t.textMuted,
+            lineHeight: 1.55,
+            maxHeight: 320,
+            overflowY: "auto",
+          }}
+        >
+          {text}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -247,8 +289,11 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const senderId = (meta.sender_id as string | undefined) ?? undefined;
   const senderBotId = senderId?.startsWith("bot:") ? senderId.slice(4) : undefined;
 
+  const thinkingText = typeof meta.thinking === "string" ? meta.thinking.trim() : "";
+
   const messageContent = (
     <>
+      {thinkingText.length > 0 && <HistoricalThinking text={thinkingText} t={t} />}
       {richEnvelope ? (
         <div className="rounded-lg border mt-1.5" style={{ borderColor: t.surfaceBorder, backgroundColor: t.surfaceRaised }}>
           <div className="px-3 pt-2 pb-0.5">

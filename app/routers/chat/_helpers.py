@@ -15,7 +15,7 @@ from app.services.channels import (
 )
 from app.services.sessions import load_or_create
 from app.services.sub_session_bus import SubSessionEntry, resolve_sub_session_entry
-from app.services.sub_sessions import SESSION_TYPE_EPHEMERAL
+from app.services.sub_sessions import SESSION_TYPE_EPHEMERAL, SESSION_TYPE_THREAD
 from app.stt import transcribe as stt_transcribe
 
 from ._schemas import ChatRequest, FileMetadata
@@ -169,8 +169,8 @@ async def _try_resolve_sub_session_chat(
     if sub is None:
         return None
 
-    if sub.session.session_type == SESSION_TYPE_EPHEMERAL:
-        # --- Ephemeral session path: skip terminal-task gate ---
+    if sub.session.session_type in (SESSION_TYPE_EPHEMERAL, SESSION_TYPE_THREAD):
+        # --- Ephemeral / thread session path: skip terminal-task gate ---
         # Authorize: if a parent channel exists, check membership;
         # otherwise allow any authenticated caller.
         parent_channel: Channel | None = None
@@ -179,7 +179,7 @@ async def _try_resolve_sub_session_chat(
             if parent_channel is None:
                 raise HTTPException(
                     status_code=404,
-                    detail="Parent channel for this ephemeral session no longer exists.",
+                    detail="Parent channel for this session no longer exists.",
                 )
             if user is not None:
                 caller_ok = (
@@ -189,7 +189,7 @@ async def _try_resolve_sub_session_chat(
                 if not caller_ok:
                     raise HTTPException(
                         status_code=403,
-                        detail="You are not a member of this ephemeral session's parent channel.",
+                        detail="You are not a member of this session's parent channel.",
                     )
         # Bot identity comes from the session itself — don't override from req.
     else:

@@ -9,87 +9,126 @@ interface ResizeHandleProps {
   invisible?: boolean;
 }
 
+/** Full-screen transparent overlay injected for the duration of a drag.
+ *  Iframes (widget previews, file viewers) otherwise swallow pointermove +
+ *  pointerup when the cursor crosses them, leaving the handle "stuck" to
+ *  the cursor because the parent document never sees the release. A top-
+ *  layer div with the resize cursor keeps all pointer events on the parent. */
+function mountDragShield(cursor: string): () => void {
+  const shield = document.createElement("div");
+  shield.style.cssText = `
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    cursor: ${cursor};
+    background: transparent;
+  `;
+  document.body.appendChild(shield);
+  return () => {
+    if (shield.parentNode) shield.parentNode.removeChild(shield);
+  };
+}
+
 export function ResizeHandle({ direction, onResize, invisible = false }: ResizeHandleProps) {
   const t = useThemeTokens();
   const dragging = useRef(false);
   const lastPos = useRef(0);
+  const shieldTeardownRef = useRef<(() => void) | null>(null);
   const [hovered, setHovered] = useState(false);
   // Keep a ref so the move handler always calls the latest callback
   const onResizeRef = useRef(onResize);
   useEffect(() => { onResizeRef.current = onResize; });
 
-  const startDrag = useCallback(
-    (startPos: number) => {
+  // Safety-belt teardown if the component unmounts mid-drag.
+  useEffect(
+    () => () => {
+      if (shieldTeardownRef.current) {
+        shieldTeardownRef.current();
+        shieldTeardownRef.current = null;
+      }
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    },
+    [],
+  );
+
+  const endDrag = useCallback(() => {
+    dragging.current = false;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    if (shieldTeardownRef.current) {
+      shieldTeardownRef.current();
+      shieldTeardownRef.current = null;
+    }
+  }, []);
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      // Left-click / primary touch / pen only. Ignore secondary buttons so
+      // right-click on the divider doesn't kick off a ghost drag.
+      if (e.button !== 0 && e.pointerType === "mouse") return;
+      e.preventDefault();
+
+      const cursor = direction === "horizontal" ? "col-resize" : "row-resize";
       dragging.current = true;
-      lastPos.current = startPos;
-      document.body.style.cursor = direction === "horizontal" ? "col-resize" : "row-resize";
+      lastPos.current = direction === "horizontal" ? e.clientX : e.clientY;
+      document.body.style.cursor = cursor;
       document.body.style.userSelect = "none";
+      shieldTeardownRef.current = mountDragShield(cursor);
+
+      // setPointerCapture routes every subsequent pointer event for this
+      // pointerId to the handle, regardless of what element the pointer is
+      // physically over — including iframes. That's the actual fix for the
+      // "handle stuck to cursor after releasing over an iframe" bug.
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Some browsers throw if the element is not connected; fall back to
+        // the document-level listeners below which still handle most cases.
+      }
     },
     [direction],
   );
 
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      startDrag(direction === "horizontal" ? e.clientX : e.clientY);
-
-      const onMouseMove = (ev: MouseEvent) => {
-        if (!dragging.current) return;
-        const pos = direction === "horizontal" ? ev.clientX : ev.clientY;
-        const delta = pos - lastPos.current;
-        lastPos.current = pos;
-        onResizeRef.current(delta);
-      };
-
-      const onMouseUp = () => {
-        dragging.current = false;
-        document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", onMouseUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragging.current) return;
+      const pos = direction === "horizontal" ? e.clientX : e.clientY;
+      const delta = pos - lastPos.current;
+      lastPos.current = pos;
+      onResizeRef.current(delta);
     },
-    [direction, startDrag],
+    [direction],
   );
 
-  const onTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      if (e.touches.length !== 1) return;
-      const touch = e.touches[0];
-      startDrag(direction === "horizontal" ? touch.clientX : touch.clientY);
-
-      const onTouchMove = (ev: TouchEvent) => {
-        if (!dragging.current || ev.touches.length !== 1) return;
-        ev.preventDefault(); // prevent scroll while dragging
-        const pos = direction === "horizontal" ? ev.touches[0].clientX : ev.touches[0].clientY;
-        const delta = pos - lastPos.current;
-        lastPos.current = pos;
-        onResizeRef.current(delta);
-      };
-
-      const onTouchEnd = () => {
-        dragging.current = false;
-        document.removeEventListener("touchmove", onTouchMove);
-        document.removeEventListener("touchend", onTouchEnd);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-
-      document.addEventListener("touchmove", onTouchMove, { passive: false });
-      document.addEventListener("touchend", onTouchEnd);
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragging.current) return;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignored
+      }
+      endDrag();
     },
-    [direction, startDrag],
+    [endDrag],
   );
+
+  // pointercancel fires when the browser revokes pointer capture (system
+  // gesture, tab lose-focus). Must end the drag or the handle stays "stuck".
+  const onPointerCancel = useCallback(() => {
+    if (!dragging.current) return;
+    endDrag();
+  }, [endDrag]);
 
   const isHorizontal = direction === "horizontal";
 
   return (
     <div
-      onMouseDown={onMouseDown}
-      onTouchStart={onTouchStart}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{

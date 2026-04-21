@@ -147,7 +147,7 @@ async def _deliver_one(row: Outbox) -> None:
         return
 
     if receipt.success:
-        await _mark_delivered_in_session(row)
+        await _mark_delivered_in_session(row, event=event, target=target, receipt=receipt)
         return
 
     new_state = await _mark_failed_in_session(
@@ -157,14 +157,75 @@ async def _deliver_one(row: Outbox) -> None:
         await _publish_delivery_failed(row, receipt.error or "delivery failed")
 
 
-async def _mark_delivered_in_session(row: Outbox) -> None:
+async def _mark_delivered_in_session(
+    row: Outbox,
+    *,
+    event: ChannelEvent | None = None,
+    target: object | None = None,
+    receipt: DeliveryReceipt | None = None,
+) -> None:
     async with async_session() as db:
         # Re-load the row from the new session to attach it.
         attached = await db.get(Outbox, row.id)
         if attached is None:
             return
         await outbox.mark_delivered(db, attached)
+        # Persist the integration's external id back onto the Message so
+        # downstream consumers (thread-ref builder, inbound thread-reply
+        # router) can walk from Spindrel Message → external message id.
+        # Fire-and-forget style: swallow errors so a metadata-persist hiccup
+        # never un-delivers the outbox row.
+        if event is not None and receipt is not None and receipt.external_id:
+            try:
+                await _persist_delivery_metadata(db, row, event, target, receipt)
+            except Exception:
+                logger.exception(
+                    "outbox_drainer: persist_delivery_metadata failed for row %s",
+                    row.id,
+                )
         await db.commit()
+
+
+async def _persist_delivery_metadata(
+    db,
+    row: Outbox,
+    event: ChannelEvent,
+    target: object | None,
+    receipt: DeliveryReceipt,
+) -> None:
+    """Mutate ``Message.metadata_`` after a successful outbound delivery.
+
+    Only runs for ``NEW_MESSAGE`` events carrying a message id. Resolves
+    the integration's ``persist_delivery_metadata`` hook to stamp
+    platform-specific fields (Slack: ``slack_ts``/``slack_channel``;
+    Discord: ``discord_message_id``/``discord_channel_id``). Uses the house
+    JSONB mutation pattern (deepcopy + flag_modified) so SQLAlchemy emits
+    the UPDATE.
+    """
+    import copy as _copy
+
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.agent.hooks import get_integration_meta
+    from app.db.models import Message as MessageModel
+
+    if event.kind != ChannelEventKind.NEW_MESSAGE:
+        return
+    msg_payload = getattr(event.payload, "message", None)
+    msg_id = getattr(msg_payload, "id", None) if msg_payload else None
+    if msg_id is None:
+        return
+    meta = get_integration_meta(row.target_integration_id)
+    if meta is None or meta.persist_delivery_metadata is None:
+        return
+
+    msg_row = await db.get(MessageModel, msg_id)
+    if msg_row is None:
+        return
+    mutable = _copy.deepcopy(msg_row.metadata_ or {})
+    meta.persist_delivery_metadata(mutable, receipt.external_id, target)
+    msg_row.metadata_ = mutable
+    flag_modified(msg_row, "metadata_")
 
 
 async def _defer_no_renderer_in_session(row: Outbox) -> str:

@@ -567,6 +567,18 @@ async def _persist_and_publish_user_message(
             if not suppress_outbox and channel_id is not None:
                 from app.services.outbox_publish import enqueue_new_message_for_channel
                 await enqueue_new_message_for_channel(channel_id, domain_msg)
+            elif channel_id is None:
+                # Thread sub-sessions: walk up to the parent channel and
+                # fan the user message through its integrations with
+                # thread-ref overrides so Slack/etc. see it in the thread.
+                # Ephemeral / pipeline follow-ups stay suppressed — their
+                # surface is the modal, not an external platform. Helper
+                # no-ops for non-thread sessions so this is safe as a
+                # channel-less catch-all.
+                from app.services.outbox_publish import (
+                    enqueue_new_message_for_thread_session,
+                )
+                await enqueue_new_message_for_thread_session(session_id, domain_msg)
             publish_typed(
                 bus_key,
                 ChannelEvent(

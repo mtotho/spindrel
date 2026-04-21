@@ -92,6 +92,44 @@ async def test_persist_turn_writes_tool_results_to_metadata(db_session, bot):
 
 
 @pytest.mark.asyncio
+async def test_persist_turn_writes_thinking_to_metadata(db_session, bot):
+    """`_thinking_content` on the assistant dict should land on Message.metadata.thinking."""
+    sid = uuid.uuid4()
+    db_session.add(Session(id=sid, client_id="c1", bot_id=bot.id))
+    await db_session.commit()
+
+    messages = [
+        {"role": "user", "content": "reason about this"},
+        {
+            "role": "assistant",
+            "content": "The answer is 42.",
+            "_thinking_content": "Step 1: consider the question.\nStep 2: recall prior context.",
+        },
+    ]
+
+    with patch("app.services.sessions.get_bot", return_value=bot):
+        await persist_turn(
+            db_session,
+            session_id=sid,
+            bot=bot,
+            messages=messages,
+            from_index=0,
+        )
+
+    from sqlalchemy import select
+    row = (
+        await db_session.execute(
+            select(Message).where(
+                Message.session_id == sid,
+                Message.role == "assistant",
+            )
+        )
+    ).scalar_one()
+    metadata = dict(row.metadata_) if row.metadata_ else {}
+    assert metadata.get("thinking") == "Step 1: consider the question.\nStep 2: recall prior context."
+
+
+@pytest.mark.asyncio
 async def test_persist_turn_omits_tool_results_when_empty(db_session, bot):
     sid = uuid.uuid4()
     db_session.add(Session(id=sid, client_id="c1", bot_id=bot.id))

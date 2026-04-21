@@ -952,20 +952,12 @@ class StreamAccumulator:
                         self._content_parts.append(filtered)
                         events.append({"type": "text_delta", "delta": filtered})
                 if thinking_text:
-                    logger.info(
-                        "THINK_DEBUG StreamAccumulator <think>-tag delta len=%d preview=%r",
-                        len(thinking_text), thinking_text[:60],
-                    )
                     self._thinking_parts.append(thinking_text)
                     events.append({"type": "thinking", "delta": thinking_text})
 
         # Thinking/reasoning content (provider-dependent attribute)
         reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
         if reasoning:
-            logger.info(
-                "THINK_DEBUG StreamAccumulator got reasoning delta len=%d preview=%r",
-                len(reasoning), reasoning[:60],
-            )
             self._thinking_parts.append(reasoning)
             events.append({"type": "thinking", "delta": reasoning})
 
@@ -1200,6 +1192,45 @@ def _prepare_call_params(
 
     client = get_llm_client(provider_id)
     filtered = filter_model_params(model, model_params or {})
+
+    # Translate the universal `thinking_budget` knob into each provider's
+    # request-side shape. The raw int is NOT forwarded as a kwarg to the SDK
+    # client — in-process adapters (AnthropicOpenAIAdapter, OpenAIResponses)
+    # pop their flavor from kwargs; AsyncOpenAI (LiteLLM passthrough) gets
+    # provider-specific translation baked into `extra_body`.
+    _tb = filtered.pop("thinking_budget", None)
+    if _tb is not None:
+        try:
+            _tb_int = int(_tb)
+        except (TypeError, ValueError):
+            _tb_int = 0
+        if _tb_int > 0:
+            from app.agent.model_params import get_provider_family
+            fam = get_provider_family(model)
+            if fam == "anthropic":
+                # Consumed by AnthropicOpenAIAdapter._Completions.create
+                filtered["thinking_budget"] = _tb_int
+            elif fam in ("gemini", "google"):
+                # LiteLLM OpenAI-compat passthrough: extra_body is merged into
+                # the JSON body sent to the proxy, which forwards thinking_config
+                # to the underlying Gemini API.
+                eb = dict(filtered.get("extra_body") or {})
+                eb["thinking_config"] = {
+                    "include_thoughts": True,
+                    "thinking_budget": _tb_int,
+                }
+                filtered["extra_body"] = eb
+            elif fam in ("openai", "xai", "deepseek"):
+                # Reasoning families on chat/completions use `reasoning_effort`.
+                # Map budget → effort bucket so the knob has *some* effect.
+                # OpenAI Responses adapter already forces `reasoning.summary=auto`
+                # regardless; this purely controls depth.
+                if "reasoning_effort" not in filtered:
+                    filtered["reasoning_effort"] = (
+                        "high" if _tb_int >= 8000 else
+                        "medium" if _tb_int >= 2000 else
+                        "low"
+                    )
 
     # Strip internal _-prefixed keys (e.g. _tool_record_id, _tools_used)
     # before sending to the LLM API — some providers reject unknown fields.

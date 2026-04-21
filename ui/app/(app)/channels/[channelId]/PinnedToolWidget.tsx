@@ -14,6 +14,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { useWidgetAction } from "@/src/api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "@/src/api/hooks/useWidgetAction";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
+import type { WidgetLayout } from "@/src/components/chat/renderers/InteractiveHtmlRenderer";
 import type { PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/api";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
@@ -51,6 +52,12 @@ interface PinnedToolWidgetProps {
    *  revealing the full edit chrome (pencil / unpin). The rail uses RGL for
    *  in-place reorder + resize; everything else stays calm. */
   railMode?: boolean;
+  /** Host-zone override. When omitted, the component infers it:
+   *  chip (compact scope) → "chip"; railMode + channel dashboard → inferred by
+   *  the enclosing `WidgetRailSection` which passes it explicitly; dashboard
+   *  grid tile → "grid"; fallback → "grid". Forwarded into the iframe as
+   *  ``window.spindrel.layout`` so widgets can adapt. */
+  layout?: WidgetLayout;
   /** Dashboard-level chrome flags (`grid_config.borderless` /
    *  `grid_config.hover_scrollbars` / `grid_config.hide_titles`). Default to
    *  a bordered card with a persistent scrollbar and the title row shown. */
@@ -77,11 +84,15 @@ export function PinnedToolWidget({
   hoverScrollbars = false,
   hideTitles = false,
   externalDrag,
+  layout,
 }: PinnedToolWidgetProps) {
   const isDashboard = scope.kind === "dashboard";
   const channelId =
     scope.kind === "channel" ? scope.channelId : scope.channelId ?? null;
   const isChip = scope.kind === "channel" && scope.compact === "chip";
+  // Resolve the effective layout: explicit prop wins, otherwise chip is
+  // implied by the compact scope, and everything else is the dashboard grid.
+  const effectiveLayout: WidgetLayout = layout ?? (isChip ? "chip" : "grid");
 
   const t = useThemeTokens();
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);
@@ -550,6 +561,7 @@ export function PinnedToolWidget({
             dashboardPinId={widget.id}
             gridDimensions={measuredSize ?? undefined}
             onIframeReady={handleIframeReady}
+            layout={effectiveLayout}
             t={t}
           />
         </div>
@@ -709,6 +721,7 @@ export function PinnedToolWidget({
           gridDimensions={measuredSize ?? undefined}
           onIframeReady={handleIframeReady}
           hoverScrollbars={hoverScrollbars}
+          layout={effectiveLayout}
           t={t}
         />
         {showIframeSkeleton && (

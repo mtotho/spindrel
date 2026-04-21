@@ -285,6 +285,136 @@ async def spawn_thread_session(
     return sub
 
 
+async def resolve_or_spawn_external_thread_session(
+    db: AsyncSession,
+    *,
+    integration_id: str,
+    channel: Channel,
+    ref: dict,
+    bot_id: str,
+) -> Session:
+    """Find or lazily create a thread sub-session bound to a native integration thread.
+
+    Called when an inbound integration event (Slack ``thread_ts``, Discord
+    thread message, etc.) needs to be routed into a Spindrel thread
+    session. Resolution order:
+
+    1. Look up an existing Session with matching
+       ``integration_thread_refs[integration_id]`` contents and
+       ``session_type="thread"``. If found, return it — the inbound
+       thread has already been mirrored.
+    2. Try to find a Spindrel Message in the parent channel's active
+       session whose ``metadata_`` maps back to this ref (via the
+       integration's ``build_thread_ref_from_message`` hook). If found,
+       spawn a thread anchored at that Message.
+    3. Orphan fallback: spawn a thread with ``parent_message_id=NULL``,
+       seeded with a placeholder context system message so the bot isn't
+       completely ungrounded.
+
+    In every spawn path, ``integration_thread_refs[integration_id] = ref``
+    is stamped before return so future inbound lookups short-circuit at
+    step 1.
+
+    Caller owns the transaction.
+    """
+    from app.agent.hooks import get_integration_meta
+
+    # Step 1 — existing thread for this ref?
+    refs_col = Session.integration_thread_refs
+    stmt = (
+        select(Session)
+        .where(
+            Session.session_type == SESSION_TYPE_THREAD,
+            refs_col[integration_id].isnot(None),
+        )
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    for candidate in rows:
+        existing = (candidate.integration_thread_refs or {}).get(integration_id)
+        if existing == ref:
+            return candidate
+
+    # Step 2 — try to find the Spindrel Message that mirrors the native
+    # parent, so we can anchor a proper thread session at it.
+    meta = get_integration_meta(integration_id)
+    parent_msg: Message | None = None
+    if meta and meta.build_thread_ref_from_message and channel.active_session_id:
+        msgs = (await db.execute(
+            select(Message).where(Message.session_id == channel.active_session_id)
+        )).scalars().all()
+        for m in msgs:
+            try:
+                candidate_ref = meta.build_thread_ref_from_message(
+                    dict(m.metadata_ or {})
+                )
+            except Exception:
+                continue
+            if candidate_ref == ref:
+                parent_msg = m
+                break
+
+    if parent_msg is not None:
+        sub = await spawn_thread_session(
+            db, parent_message_id=parent_msg.id, bot_id=bot_id,
+        )
+        sub.integration_thread_refs = {integration_id: dict(ref)}
+        return sub
+
+    # Step 3 — orphan spawn. No parent_message_id; seeded with a minimal
+    # context block so the bot understands it's replying in a foreign
+    # thread whose anchor we don't know about.
+    parent_session_id: uuid.UUID | None = channel.active_session_id
+    parent_session: Session | None = None
+    if parent_session_id is not None:
+        parent_session = await db.get(Session, parent_session_id)
+    root_session_id = (
+        (parent_session.root_session_id or parent_session.id)
+        if parent_session is not None
+        else None
+    )
+    depth = (parent_session.depth + 1) if parent_session is not None else 0
+
+    sub = Session(
+        id=uuid.uuid4(),
+        client_id="thread",
+        bot_id=bot_id,
+        channel_id=None,
+        parent_session_id=parent_session_id,
+        root_session_id=root_session_id,
+        depth=depth,
+        source_task_id=None,
+        session_type=SESSION_TYPE_THREAD,
+        parent_message_id=None,
+        integration_thread_refs={integration_id: dict(ref)},
+    )
+    db.add(sub)
+
+    ctx_msg = Message(
+        id=uuid.uuid4(),
+        session_id=sub.id,
+        role="system",
+        content=(
+            "# Thread context\n"
+            f"You are replying in an external {integration_id} thread. The "
+            "anchor message is not mirrored in Spindrel — use the user's "
+            "reply text for grounding."
+        ),
+        metadata_={
+            "kind": "thread_context",
+            "orphan_parent": True,
+            "integration_id": integration_id,
+        },
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(ctx_msg)
+
+    logger.info(
+        "external thread_session spawned (orphan): session=%s integration=%s ref=%s bot=%s",
+        sub.id, integration_id, ref, bot_id,
+    )
+    return sub
+
+
 async def emit_step_output_message(
     *,
     task: Task,

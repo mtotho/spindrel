@@ -33,6 +33,8 @@ Call from iframe JS via `window.spindrel.callHandler`:
 const result = await window.spindrel.callHandler("save_item", { text: "hello" });
 ```
 
+**Want bots to call this handler from chat?** Opt in via the `handlers:` block in `widget.yaml` — the framework then surfaces it as a `widget.<slug>.<name>` tool automatically. See `widgets/bot-callable-handlers.md`.
+
 ## Identity and scope
 
 Each handler invocation resolves the pin's `source_bot_id` and sets `current_bot_id` / `current_channel_id` ContextVars for the duration. `ctx.tool(name, **kwargs)` dispatches through the exact same policy gate as LLM-driven tool calls (`_check_tool_policy`); a bot missing a tool's scope gets a `scope_denied` error surfaced as `{ok: false, error: "scope_denied: ..."}` in the JS response. **Handlers cannot elevate beyond the bot's own ceiling.**

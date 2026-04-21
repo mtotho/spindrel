@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Message } from "@/src/types/api";
 import { apiFetch } from "../client";
 
 interface SpawnThreadRequest {
@@ -56,6 +57,7 @@ export interface ThreadInfo {
   parent_channel_id: string | null;
   parent_message_preview: string | null;
   parent_message_role: string | null;
+  parent_message: Message | null;
 }
 
 /** Lookup thread metadata from a thread session id.

@@ -513,6 +513,15 @@ class SlackRenderer:
         # Post chunks as new messages (all of them if no placeholder,
         # or remaining overflow chunks if the placeholder took the first).
         # Tool blocks ride along on the last chunk's post.
+        # Track the latest chat.postMessage ts so we can return it to the
+        # outbox drainer, which persists it as ``Message.metadata_.slack_ts``
+        # for thread-ref lookups.
+        latest_ts: str | None = None
+        if ctx_info is not None and not chunks:
+            # Placeholder update consumed the single chunk — external_id is
+            # the placeholder ts so the Message row links to the message the
+            # user actually sees in Slack.
+            latest_ts = ctx_info[1].thinking_ts
         for idx, chunk in enumerate(chunks):
             is_last = idx == len(chunks) - 1
             body: dict = {
@@ -531,8 +540,11 @@ class SlackRenderer:
             result = await self._call_slack("chat.postMessage", target.token, body)
             if not result.success:
                 return result
+            ts = (result.data or {}).get("ts") if result.data else None
+            if ts:
+                latest_ts = ts
 
-        return DeliveryReceipt.ok()
+        return DeliveryReceipt.ok(external_id=latest_ts)
 
     async def _handle_message_updated(
         self, event: ChannelEvent, target: SlackTarget

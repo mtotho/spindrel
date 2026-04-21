@@ -147,6 +147,7 @@ export function WidgetDockRight({ channelId }: Props) {
             onUnpin={handleUnpin}
             onEnvelopeUpdate={handleEnvelopeUpdate}
             applyLayout={applyLayout}
+            widgetLayout="dock"
           />
         </div>
         </>}

@@ -36,6 +36,42 @@ class IntegrationMeta:
     user_attribution: Callable[[Any], dict] | None = None
     resolve_display_names: Callable[[list], Awaitable[dict]] | None = None
     resolve_dispatch_config: Callable[[str], dict | None] | None = None
+    # --- Thread mirroring hooks (Phase 7 of Thread Sub-Sessions track) --
+    # All three are optional; integrations without a threaded surface (e.g.
+    # pure outbound webhook) simply leave them None and the generic layer
+    # no-ops for them. Discord and future integrations implement these in
+    # their own hooks.py alongside user_attribution / resolve_display_names.
+    #
+    # apply_thread_ref: given a freshly-resolved typed target and the
+    #   integration-keyed ref dict stored on ``Session.integration_thread_refs``,
+    #   return a new target (frozen dataclass) with whatever fields are
+    #   needed to post into the thread (Slack: ``thread_ts`` +
+    #   ``reply_in_thread=True``; Discord: ``thread_id`` override).
+    apply_thread_ref: Callable[[Any, dict], Any] | None = None
+    # build_thread_ref_from_message: given a persisted
+    #   ``Message.metadata_`` dict, return an integration-specific ref dict
+    #   suitable for stamping onto a new thread Session's
+    #   ``integration_thread_refs`` column — or None if the message isn't
+    #   thread-addressable on this integration. Used by
+    #   ``POST /messages/{id}/thread`` to pre-mint the linkage when the
+    #   parent message has the external id persisted.
+    build_thread_ref_from_message: Callable[[dict], dict | None] | None = None
+    # extract_thread_ref_from_dispatch: given a per-turn ``dispatch_config``
+    #   (inbound integration event), return the ref dict that identifies
+    #   which thread this turn belongs to, or None if it's not a thread
+    #   reply. Slack returns ``{"channel": ..., "thread_ts": ...}`` when
+    #   the inbound event has a ``thread_ts``; Discord returns a dict
+    #   scoped to its own thread channel id.
+    extract_thread_ref_from_dispatch: Callable[[dict], dict | None] | None = None
+    # persist_delivery_metadata: mutate a ``Message.metadata_`` dict in
+    #   place after a successful outbound delivery, stamping whatever
+    #   integration-specific identifier the receiver needs (Slack: ``ts``
+    #   + ``channel`` + ``thread_ts`` for thread-root lookup; Discord:
+    #   message id + channel id). Caller guarantees the metadata dict is
+    #   writable (deep-copied before invocation) — no need for the impl to
+    #   clone. Target is the typed ``DispatchTarget``, useful for pulling
+    #   the outbound channel/thread context.
+    persist_delivery_metadata: Callable[[dict, str, Any], None] | None = None
 
 
 _meta_registry: dict[str, IntegrationMeta] = {}
@@ -56,6 +92,19 @@ def register_integration(meta: IntegrationMeta) -> None:
             user_attribution=meta.user_attribution or existing.user_attribution,
             resolve_display_names=meta.resolve_display_names or existing.resolve_display_names,
             resolve_dispatch_config=meta.resolve_dispatch_config or existing.resolve_dispatch_config,
+            apply_thread_ref=meta.apply_thread_ref or existing.apply_thread_ref,
+            build_thread_ref_from_message=(
+                meta.build_thread_ref_from_message
+                or existing.build_thread_ref_from_message
+            ),
+            extract_thread_ref_from_dispatch=(
+                meta.extract_thread_ref_from_dispatch
+                or existing.extract_thread_ref_from_dispatch
+            ),
+            persist_delivery_metadata=(
+                meta.persist_delivery_metadata
+                or existing.persist_delivery_metadata
+            ),
         )
     _meta_registry[meta.integration_type] = meta
     logger.debug("Registered integration meta: %s (prefix=%s)", meta.integration_type, meta.client_id_prefix)
@@ -84,6 +133,17 @@ def auto_register_from_manifest(integration_id: str, manifest: dict) -> None:
 
 def get_integration_meta(integration_type: str) -> IntegrationMeta | None:
     return _meta_registry.get(integration_type)
+
+
+def iter_integration_meta() -> list[IntegrationMeta]:
+    """Public iterator over all registered integration metas.
+
+    Used by anywhere that needs to fan out over every registered
+    integration (e.g. thread-spawn pre-mint walking every integration's
+    ``build_thread_ref_from_message`` hook). Returns a list snapshot so
+    callers don't have to worry about mutation during iteration.
+    """
+    return list(_meta_registry.values())
 
 
 def get_all_client_id_prefixes() -> tuple[str, ...]:

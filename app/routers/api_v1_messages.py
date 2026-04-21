@@ -157,6 +157,32 @@ async def create_thread_session(
         parent_message_id=message_id,
         bot_id=bot_id,
     )
+
+    # Pre-mint ``integration_thread_refs`` from the parent Message's
+    # persisted external identifiers (Slack ``slack_ts``, Discord message
+    # id, etc.) so the first outbound reply lands in the correct native
+    # thread. Integration-generic via ``IntegrationMeta.build_thread_ref_from_message``
+    # — each integration opts in by returning a ref dict from its own
+    # hooks.py. No-ops when the parent has no recorded external id.
+    from app.agent.hooks import iter_integration_meta
+    parent_meta = dict(msg.metadata_ or {})
+    thread_refs: dict = {}
+    for meta in iter_integration_meta():
+        if meta.build_thread_ref_from_message is None:
+            continue
+        try:
+            ref = meta.build_thread_ref_from_message(parent_meta)
+        except Exception:
+            logger.warning(
+                "build_thread_ref_from_message failed for %s",
+                meta.integration_type, exc_info=True,
+            )
+            continue
+        if ref:
+            thread_refs[meta.integration_type] = ref
+    if thread_refs:
+        sub.integration_thread_refs = thread_refs
+
     await db.commit()
 
     return ThreadSessionOut(
@@ -164,6 +190,22 @@ async def create_thread_session(
         parent_message_id=message_id,
         bot_id=bot_id,
     )
+
+
+class ThreadParentMessageOut(BaseModel):
+    """Full parent-message shape — mirrors `MessageOut` from `api_v1_sessions`
+    so the UI can paint the parent as a regular `MessageBubble` without a
+    second network round-trip. Kept intentionally minimal: the anchor bubble
+    renders `content`, `role`, `created_at`, and `metadata`; attachments
+    aren't surfaced inline on the anchor (click-through still works).
+    """
+
+    id: uuid.UUID
+    session_id: uuid.UUID
+    role: str
+    content: Optional[str]
+    created_at: datetime
+    metadata: dict = {}
 
 
 class ThreadInfoOut(BaseModel):
@@ -174,6 +216,7 @@ class ThreadInfoOut(BaseModel):
     parent_channel_id: Optional[uuid.UUID] = None
     parent_message_preview: Optional[str] = None
     parent_message_role: Optional[str] = None
+    parent_message: Optional[ThreadParentMessageOut] = None
 
 
 @router.get("/thread/{session_id}", response_model=ThreadInfoOut)
@@ -217,6 +260,17 @@ async def get_thread_info(
     except Exception:
         pass
 
+    parent_message_out: ThreadParentMessageOut | None = None
+    if parent_msg_row is not None:
+        parent_message_out = ThreadParentMessageOut(
+            id=parent_msg_row.id,
+            session_id=parent_msg_row.session_id,
+            role=parent_msg_row.role,
+            content=parent_msg_row.content,
+            created_at=parent_msg_row.created_at,
+            metadata=parent_msg_row.metadata_ or {},
+        )
+
     return ThreadInfoOut(
         session_id=session.id,
         bot_id=session.bot_id,
@@ -225,6 +279,7 @@ async def get_thread_info(
         parent_channel_id=parent_channel_id,
         parent_message_preview=preview,
         parent_message_role=role,
+        parent_message=parent_message_out,
     )
 
 

@@ -1,10 +1,92 @@
 ---
 tags: [agent-server, track, architecture]
 status: active
-updated: 2026-04-20 (Phase 6 — message-anchored threads + in-channel scratch chat)
+updated: 2026-04-20 (Phase 7 — Slack thread_ts mirroring + web thread UX polish)
 ---
 
 # Track — Task Sub-Sessions (pipeline-as-chat refactor)
+
+## Phase 7 — Slack thread_ts mirroring + thread UX polish (shipped 2026-04-20)
+
+User ask: continue the Slack-side work that was parked at end of Phase 6. Plus: make the thread dock actually *show* what you're replying to ("artificially plant a faux message that was the message we are replying to"). Plus: the thread session shouldn't be persisted until the first send — opening the dock and closing without sending was leaving orphan Session rows.
+
+### What shipped
+
+**Integration-generic thread hooks** (`app/agent/hooks.py`, `IntegrationMeta`)
+
+Four new optional fields so any integration can plug into the thread-mirroring machinery without touching core code:
+
+- `apply_thread_ref(target, ref) -> target` — rewrites a typed `DispatchTarget` so outbound posts land in the native thread.
+- `build_thread_ref_from_message(metadata) -> ref | None` — extracts the integration's thread ref from a persisted `Message.metadata_`.
+- `extract_thread_ref_from_dispatch(dispatch_config) -> ref | None` — recognizes an inbound thread reply from the per-turn dispatch config.
+- `persist_delivery_metadata(metadata, external_id, target) -> None` — mutates `Message.metadata_` after a successful outbound delivery so later thread lookups can resolve the message back to its native external id.
+
+Slack registers all four; Discord (and future integrations) opt in the same way. New `iter_integration_meta()` helper exposes the registry to callers that need to fan out over every integration (e.g. thread-spawn pre-mint).
+
+**Per-Message external-id persistence**
+
+- Inbound (`integrations/slack/message_handlers.py::dispatch`): `msg_metadata` now carries `slack_channel`, `slack_ts`, `slack_thread_ts` alongside the existing `source`/`sender_id` fields.
+- Outbound (`integrations/slack/renderer.py::_handle_new_message`): captures the `ts` from the last `chat.postMessage` (or the placeholder-update ts when the whole reply rode the placeholder) and returns it as `DeliveryReceipt.external_id`.
+- Drainer hook (`app/services/outbox_drainer.py::_persist_delivery_metadata`): on every successful `NEW_MESSAGE` delivery, fetches the `Message` by `event.payload.message.id`, deep-copies `metadata_`, dispatches to the integration's `persist_delivery_metadata` hook, and `flag_modified`s the JSONB mutation so SQLAlchemy emits the UPDATE.
+
+**`Session.integration_thread_refs` JSONB column** (migration 230)
+
+- `{"<integration_id>": <integration-specific ref dict>}`. Nullable. No server_default — presence is the opt-in signal.
+- Partial index on Slack thread lookup keys: `(slack.channel, slack.thread_ts) WHERE integration_thread_refs IS NOT NULL`.
+- Written once at thread spawn (pre-mint from parent Message metadata) or on first inbound thread routing. Never mutated.
+
+**Outbound web → Slack thread mirroring**
+
+- `app/services/dispatch_resolution.py::apply_session_thread_refs` — integration-generic: for each `(integration_id, target)` tuple, consults the session's refs and the integration's `apply_thread_ref` hook.
+- `app/services/outbox_publish.py::enqueue_new_message_for_thread_session` — walks parent-channel via `resolve_bus_channel_id`, resolves targets with thread-ref overrides applied, enqueues on the parent channel's outbox.
+- Called from `persist_turn` (assistant messages) *after commit* and from `turn_worker._persist_and_publish_user_message` (user messages) directly. Both are no-ops for non-thread sessions, so they're safe as channel-less catch-alls.
+- Thread sessions keep `session_scoped=True` in `_enqueue_sub_session_turn` so the bus-level `session_id` tagging logic still fires (web UI's thread filter passes events to the dock). The outbox fanout decision is now intentionally independent of `suppress_outbox`.
+
+**Pre-mint `integration_thread_refs` on thread spawn**
+
+`POST /messages/{id}/thread` walks every registered integration's `build_thread_ref_from_message` hook, collects the non-None results, and stamps them onto the new Session before commit. When the parent is a Slack-mirrored bot message (carries `slack_ts` + `slack_channel`), the new thread is immediately bound to the same Slack thread.
+
+**Inbound Slack thread reply → Spindrel thread routing**
+
+- New `app/services/sub_sessions.py::resolve_or_spawn_external_thread_session` — three-tier resolver:
+  1. Find existing `Session` whose `integration_thread_refs[integration_id] == ref` and `session_type = "thread"`.
+  2. Fall back: find Spindrel `Message` whose persisted metadata rebuilds into this ref (via `build_thread_ref_from_message`); spawn thread anchored at that Message.
+  3. Orphan fallback (no matching Message): spawn thread with `parent_message_id=NULL` + a placeholder `thread_context` system message. Anchor card won't render in web, but the Slack side stays fully functional.
+- `app/routers/chat/_routes.py::_maybe_route_inbound_thread` — runs before `_try_resolve_sub_session_chat` when `req.session_id` is unset and `dispatch_type` + `dispatch_config` are both present. Delegates to the integration's `extract_thread_ref_from_dispatch` hook. Stamps `req.session_id` in place so the sub-session branch takes over. Integration-generic — Discord plugs in just by registering its own `extract_thread_ref_from_dispatch`.
+
+**Thread UX polish (Phase 6.1)**
+
+- New `ui/src/components/chat/ThreadParentAnchor.tsx` — ghosted `MessageBubble` wrapper with a `Replying to` header chip. Pure render-time projection; the parent Message is read from the existing row and painted at the top of the thread view. Mounted in both `ThreadChatSession` (dock) and `ThreadFullScreenBody` (full-screen route). Replaces the legacy "Replying to: @bot: <preview>" text chip in `ThreadFullScreenMount`.
+- `GET /api/v1/messages/thread/{session_id}` now returns the full `parent_message` object (`id`, `role`, `content`, `created_at`, `metadata`) alongside the existing `parent_message_preview`. `useThreadInfo` type extended accordingly.
+- Orphan fallback: when `parent_message_id` is NULL (Phase 7.4 orphan spawn or hard-delete cascade), the anchor renders a muted "Replying to a message that has been deleted" row.
+
+**Lazy-spawn thread session on first send (Phase 6.1b)**
+
+Clicking "Reply in thread" no longer calls `POST /messages/{id}/thread` eagerly. Instead:
+- `activeThread` state gains a nullable `sessionId` and an optional pre-known `parentMessage`.
+- `handleReplyInThread` looks up existing thread summaries first; when none, sets `{sessionId: null, botId, parentMessageId, parentMessage}` — no DB write.
+- New `ChatSource.thread` variant accepts `threadSessionId: string | null` + `onSessionSpawned` callback.
+- `ThreadChatSession` tracks `lazySpawnedId` internally. On first `handleSend` with no effective session: calls `useSpawnThread`, captures the new id, fires `onSessionSpawned(sid)` to let the channel page swap its activeThread to live, then issues `submitChat` with that id.
+- Maximize button disabled until the session exists.
+- Closing the dock without ever typing leaves zero DB footprint.
+
+### Key decisions
+
+- **Hooks, not branches.** Every Slack-specific decision lives in `integrations/slack/hooks.py` — the agent core / chat router / outbox drainer never special-case `"slack"`. Discord plugs in without diffs to shared code.
+- **Write-once refs.** `Session.integration_thread_refs` is minted at spawn / first inbound routing and never mutated. A reply-to-a-reply inside a thread reuses the same thread_ts (Slack threads are flat; we match that semantics via `build_thread_ref_from_message` preferring the parent's `slack_thread_ts` over its own `slack_ts`).
+- **Session-scoped still means "tag session_id on bus events".** Decoupled from outbox suppression — threads keep the tagging so the web UI filter works, but the outbox fanout fires regardless via the dedicated `enqueue_new_message_for_thread_session` helper.
+- **Orphan spawn over refuse-to-route.** A Slack thread reply whose parent isn't mirrored in Spindrel still works; the thread just doesn't show an anchor card in web until something threads off of it.
+- **Lazy-spawn via internal component state.** One component (`ThreadChatSession`) handles both pending and live states via `lazySpawnedId` — avoids a component identity swap mid-session and keeps SSE subscription stable.
+
+### Files
+
+**Backend**: `app/agent/hooks.py` (+4 IntegrationMeta fields, `iter_integration_meta`); `integrations/slack/hooks.py` (+4 hook impls); `integrations/slack/message_handlers.py` (msg_metadata); `integrations/slack/renderer.py` (_handle_new_message external_id); `app/services/outbox_drainer.py` (_persist_delivery_metadata); `app/services/dispatch_resolution.py` (apply_session_thread_refs, resolve_targets_for_session); `app/services/outbox_publish.py` (enqueue_new_message_for_thread_session); `app/services/sessions.py::persist_turn` (thread fanout after commit); `app/services/turn_worker.py::_persist_and_publish_user_message` (thread fanout for user messages); `app/services/sub_sessions.py` (resolve_or_spawn_external_thread_session); `app/routers/chat/_routes.py` (_maybe_route_inbound_thread); `app/routers/chat/_helpers.py` (thread branch in _try_resolve_sub_session_chat); `app/routers/api_v1_messages.py` (pre-mint refs + parent_message in ThreadInfoOut); `app/db/models.py` (Session.integration_thread_refs); `migrations/versions/230_session_integration_thread_refs.py` (new).
+
+**Frontend**: `ui/src/components/chat/ThreadParentAnchor.tsx` (new); `ui/src/components/chat/ChatSession.tsx` (ChatSource.thread nullable sessionId + onSessionSpawned + ThreadParentAnchor mount); `ui/app/(app)/channels/[channelId]/index.tsx` (lazy activeThread state + ThreadParentAnchor in full-screen); `ui/src/api/hooks/useThreads.ts` (ThreadInfo.parent_message); `ui/src/api/hooks/useSessionEvents.ts` (null-id tolerance).
+
+**Tests**: `tests/unit/test_thread_mirroring.py` (new, 17 tests — IntegrationMeta hooks, apply_session_thread_refs, resolve_or_spawn_external_thread_session with existing/parent-found/orphan paths, pre-mint walker). All 169 focused tests green.
+
+Plan: `~/.claude/plans/wondrous-zooming-wreath.md`.
 
 ## Phase 6 — Message-anchored threads + in-channel ephemeral (shipped 2026-04-20)
 

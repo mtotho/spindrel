@@ -15,6 +15,7 @@ import {
 } from "react-grid-layout/legacy";
 import "react-grid-layout/css/styles.css";
 import { PinnedToolWidget } from "./PinnedToolWidget";
+import type { WidgetLayout } from "@/src/components/chat/renderers/InteractiveHtmlRenderer";
 import type { DashboardChrome, GridPreset } from "@/src/lib/dashboardGrid";
 import type {
   GridLayoutItem,
@@ -50,6 +51,11 @@ interface WidgetRailSectionProps {
   applyLayout: (
     items: Array<{ id: string; x: number; y: number; w: number; h: number }>,
   ) => Promise<void>;
+  /** Host-zone classification for the widgets in this rail — ``"rail"`` for
+   *  the left OmniPanel column, ``"dock"`` for the right WidgetDockRight.
+   *  Forwarded to each PinnedToolWidget as ``layout`` so interactive iframes
+   *  receive ``window.spindrel.layout``. */
+  widgetLayout: WidgetLayout;
 }
 
 export function WidgetRailSection({
@@ -60,6 +66,7 @@ export function WidgetRailSection({
   onUnpin,
   onEnvelopeUpdate,
   applyLayout,
+  widgetLayout,
 }: WidgetRailSectionProps) {
   // Debounced commit — reused for both resize (height change) and reorder
   // (y-order change). Uses each pin's stored dashboard x/w so the dashboard's
@@ -159,6 +166,7 @@ export function WidgetRailSection({
               hoverScrollbars={chrome.hoverScrollbars}
               hideTitles={chrome.hideTitles}
               railMode
+              layout={widgetLayout}
             />
           </div>
         ))}

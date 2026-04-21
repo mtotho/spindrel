@@ -104,6 +104,71 @@ async def bots(
     return result
 
 
+async def _maybe_route_inbound_thread(db: AsyncSession, req: ChatRequest) -> None:
+    """Lazily resolve a Spindrel thread session for an inbound thread reply.
+
+    Stamps ``req.session_id`` in place when the dispatch_config identifies
+    a native integration thread (e.g. Slack ``thread_ts``). No-ops
+    otherwise. The downstream ``_try_resolve_sub_session_chat`` picks up
+    the populated session_id and routes through the sub-session branch.
+
+    Integration-generic: delegates to the integration's
+    ``IntegrationMeta.extract_thread_ref_from_dispatch`` hook. Any
+    integration that wants inbound thread mirroring just registers its
+    own hook in its ``hooks.py``.
+    """
+    from app.agent.hooks import get_integration_meta
+    from app.db.models import Channel as ChannelModel
+    from app.services.channels import resolve_channel_by_client_id
+    from app.services.sub_sessions import resolve_or_spawn_external_thread_session
+
+    meta = get_integration_meta(req.dispatch_type or "")
+    if meta is None or meta.extract_thread_ref_from_dispatch is None:
+        return
+    try:
+        ref = meta.extract_thread_ref_from_dispatch(req.dispatch_config or {})
+    except Exception:
+        logger.warning(
+            "extract_thread_ref_from_dispatch failed for %s",
+            req.dispatch_type, exc_info=True,
+        )
+        return
+    if not ref:
+        return
+
+    # Resolve the parent channel via client_id. We rely on the integration
+    # having set up a channel for this client_id already (ensure_channel
+    # contract) — if it hasn't, the fall-through channel-resolution path
+    # in ``_resolve_channel_and_session`` still runs without a session_id.
+    channel: ChannelModel | None = None
+    if req.client_id:
+        channel = await resolve_channel_by_client_id(db, req.client_id)
+    if channel is None:
+        return
+
+    try:
+        sub = await resolve_or_spawn_external_thread_session(
+            db,
+            integration_id=req.dispatch_type or "",
+            channel=channel,
+            ref=ref,
+            bot_id=req.bot_id or channel.bot_id,
+        )
+    except Exception:
+        logger.warning(
+            "resolve_or_spawn_external_thread_session failed (integration=%s ref=%s)",
+            req.dispatch_type, ref, exc_info=True,
+        )
+        return
+
+    await db.commit()
+    req.session_id = sub.id
+    logger.info(
+        "inbound thread routed: integration=%s ref=%s session=%s",
+        req.dispatch_type, ref, sub.id,
+    )
+
+
 async def _enqueue_chat_turn(
     req: ChatRequest,
     db: AsyncSession,
@@ -168,6 +233,16 @@ async def _enqueue_chat_turn(
         message = "[User sent attachment(s)]"
 
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
+
+    # --- External thread auto-routing ----------------------------------
+    # When an inbound integration event carries a native thread id (Slack
+    # ``thread_ts``, Discord thread channel, etc.) and the caller did not
+    # specify a ``session_id`` explicitly, resolve-or-spawn the matching
+    # Spindrel thread sub-session and rewrite ``req.session_id`` so the
+    # sub-session branch below catches it. Keeps the thread UX in sync
+    # across platforms without Slack-specific code on the chat router.
+    if req.session_id is None and req.dispatch_type and req.dispatch_config:
+        await _maybe_route_inbound_thread(db, req)
 
     # --- Sub-session follow-up branch ----------------------------------
     # A POST whose ``session_id`` names a terminal pipeline run's
@@ -437,6 +512,14 @@ async def _enqueue_sub_session_turn(
     # The turn worker publishes on session_id as the bus key in that case,
     # and the UI subscribes via GET /api/v1/sessions/{id}/events.
     channel_id = parent_channel.id if parent_channel is not None else None
+
+    # ``session_scoped=True`` for every sub-session (thread, ephemeral,
+    # pipeline/eval follow-up) so the worker tags ``session_id`` on bus
+    # payloads — the web UI filters by session_id to only show events on
+    # its thread. Outbox fanout is decided separately inside
+    # ``persist_turn``: thread sessions mirror to parent-channel
+    # integrations via walkup + ``Session.integration_thread_refs``;
+    # other sub-sessions stay modal-only.
 
     ctx = await prepare_bot_context(
         messages=messages,

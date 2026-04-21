@@ -74,6 +74,9 @@ class TestHappyPath:
             db:
               schema_version: 2
               migrations:
+                - from: 0
+                  to: 1
+                  sql: "create table t (id integer primary key);"
                 - from: 1
                   to: 2
                   sql: "alter table t add column x integer default 0;"
@@ -91,9 +94,11 @@ class TestHappyPath:
         assert m.events[0].kind == "turn_ended"
         assert m.db is not None
         assert m.db.schema_version == 2
-        assert len(m.db.migrations) == 1
-        assert m.db.migrations[0].from_version == 1
-        assert m.db.migrations[0].to_version == 2
+        assert len(m.db.migrations) == 2
+        assert m.db.migrations[0].from_version == 0
+        assert m.db.migrations[0].to_version == 1
+        assert m.db.migrations[1].from_version == 1
+        assert m.db.migrations[1].to_version == 2
 
     def test_notes_bundle_manifest(self):
         """The shipped notes/widget.yaml parses without errors."""
@@ -447,8 +452,8 @@ class TestDbValidation:
             db:
               schema_version: 3
               migrations:
-                - from: 1
-                  to: 2
+                - from: 0
+                  to: 1
                   sql: "select 1"
             """,
         )
@@ -481,6 +486,315 @@ class TestStructureErrors:
         p = tmp_path / "widget.yaml"
         p.write_text("name: [unclosed\n", encoding="utf-8")
         with pytest.raises(Exception):  # yaml.YAMLError
+            parse_manifest(p)
+
+
+# ---------------------------------------------------------------------------
+# layout_hints
+# ---------------------------------------------------------------------------
+
+
+class TestLayoutHints:
+    def test_absent_layout_hints_is_none(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: NoHints
+            version: 1.0.0
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.layout_hints is None
+
+    def test_chip_hints_round_trip(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Chippy
+            version: 1.0.0
+            layout_hints:
+              preferred_zone: chip
+              min_cells: {w: 2, h: 1}
+              max_cells: {w: 4, h: 1}
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.layout_hints is not None
+        assert m.layout_hints.preferred_zone == "chip"
+        assert m.layout_hints.min_cells == {"w": 2, "h": 1}
+        assert m.layout_hints.max_cells == {"w": 4, "h": 1}
+
+    def test_preferred_zone_only(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Gridly
+            version: 1.0.0
+            layout_hints:
+              preferred_zone: grid
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.layout_hints.preferred_zone == "grid"
+        assert m.layout_hints.min_cells is None
+        assert m.layout_hints.max_cells is None
+
+    def test_invalid_preferred_zone_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            layout_hints:
+              preferred_zone: sidebar
+            """,
+        )
+        with pytest.raises(ManifestError, match="preferred_zone"):
+            parse_manifest(p)
+
+    def test_non_integer_min_cells_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            layout_hints:
+              min_cells: {w: two, h: 1}
+            """,
+        )
+        with pytest.raises(ManifestError, match="min_cells.w"):
+            parse_manifest(p)
+
+    def test_zero_cells_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            layout_hints:
+              max_cells: {w: 0, h: 1}
+            """,
+        )
+        with pytest.raises(ManifestError, match="max_cells.w"):
+            parse_manifest(p)
+
+    def test_unknown_cell_key_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            layout_hints:
+              min_cells: {w: 2, h: 1, x: 3}
+            """,
+        )
+        with pytest.raises(ManifestError, match="unknown keys"):
+            parse_manifest(p)
+
+    def test_min_exceeds_max_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            layout_hints:
+              min_cells: {w: 5, h: 1}
+              max_cells: {w: 4, h: 1}
+            """,
+        )
+        with pytest.raises(ManifestError, match="exceeds"):
+            parse_manifest(p)
+
+    def test_non_mapping_layout_hints_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            layout_hints: chip
+            """,
+        )
+        with pytest.raises(ManifestError, match="layout_hints"):
+            parse_manifest(p)
+
+
+# ---------------------------------------------------------------------------
+# HandlerSpec (bot-callable @on_action declarations)
+# ---------------------------------------------------------------------------
+
+
+class TestHandlerSpec:
+    def test_absent_handlers_defaults_to_empty_list(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: No Handlers
+            version: 1.0.0
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.handlers == []
+
+    def test_full_handler_round_trip(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Todo
+            version: 1.0.0
+            description: Todo list
+            handlers:
+              - name: add_todo
+                description: Add a new todo item.
+                triggers: [add todo, new task, remember to]
+                args:
+                  title:
+                    type: string
+                    description: Task text
+                returns:
+                  type: object
+                  properties:
+                    id: {type: string}
+                bot_callable: true
+                safety_tier: mutating
+              - name: list_todos
+                description: List all todos.
+                bot_callable: true
+                safety_tier: readonly
+            """,
+        )
+        m = parse_manifest(p)
+        assert len(m.handlers) == 2
+
+        add = m.handlers[0]
+        assert add.name == "add_todo"
+        assert add.description.startswith("Add a new todo")
+        assert add.triggers == ["add todo", "new task", "remember to"]
+        assert add.args is not None and "title" in add.args
+        assert add.returns is not None and add.returns["type"] == "object"
+        assert add.bot_callable is True
+        assert add.safety_tier == "mutating"
+
+        lst = m.handlers[1]
+        assert lst.name == "list_todos"
+        assert lst.bot_callable is True
+        assert lst.safety_tier == "readonly"
+        assert lst.args is None
+        assert lst.triggers == []
+
+    def test_bot_callable_defaults_false(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Internal
+            version: 1.0.0
+            handlers:
+              - name: internal_only
+                description: Not exposed to bots.
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.handlers[0].bot_callable is False
+        assert m.handlers[0].safety_tier == "mutating"  # default
+
+    def test_invalid_handler_name_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            handlers:
+              - name: BadName!
+                description: x
+            """,
+        )
+        with pytest.raises(ManifestError, match="handlers\\[0\\].name"):
+            parse_manifest(p)
+
+    def test_duplicate_handler_name_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            handlers:
+              - name: do_thing
+                description: first
+              - name: do_thing
+                description: second
+            """,
+        )
+        with pytest.raises(ManifestError, match="duplicates"):
+            parse_manifest(p)
+
+    def test_invalid_safety_tier_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            handlers:
+              - name: do_thing
+                description: x
+                safety_tier: control_plane
+            """,
+        )
+        with pytest.raises(ManifestError, match="safety_tier"):
+            parse_manifest(p)
+
+    def test_bot_callable_without_description_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            handlers:
+              - name: do_thing
+                bot_callable: true
+            """,
+        )
+        with pytest.raises(ManifestError, match="description is required"):
+            parse_manifest(p)
+
+    def test_non_list_handlers_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            handlers: not-a-list
+            """,
+        )
+        with pytest.raises(ManifestError, match="handlers must be a list"):
+            parse_manifest(p)
+
+    def test_non_mapping_args_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            handlers:
+              - name: do_thing
+                description: x
+                args: not-a-mapping
+            """,
+        )
+        with pytest.raises(ManifestError, match="args must be a mapping"):
+            parse_manifest(p)
+
+    def test_non_boolean_bot_callable_rejected(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Bad
+            version: 1.0.0
+            handlers:
+              - name: do_thing
+                description: x
+                bot_callable: "yes"
+            """,
+        )
+        with pytest.raises(ManifestError, match="bot_callable"):
             parse_manifest(p)
 
 

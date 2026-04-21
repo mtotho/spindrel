@@ -23,15 +23,22 @@ _HEURISTIC_NO_TOOLS_PATTERNS: list[str] = [
 
 
 # Which OpenAI-style params each provider family supports.
+#
+# `thinking_budget` is a universal per-bot knob (integer token budget for
+# extended thinking / reasoning). `_prepare_call_params` is responsible for
+# translating it into the provider-specific request shape (Anthropic `thinking`
+# block, Gemini `thinking_config`, LiteLLM `reasoning_effort`, etc.) — the raw
+# value is NOT forwarded as a kwarg to the underlying SDK client.
 MODEL_PARAM_SUPPORT: dict[str, set[str]] = {
-    "openai": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort"},
-    "anthropic": {"temperature", "max_tokens"},
-    "google": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
-    "gemini": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
+    "openai": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort", "thinking_budget"},
+    "anthropic": {"temperature", "max_tokens", "thinking_budget"},
+    "google": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "thinking_budget"},
+    "gemini": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "thinking_budget"},
     "mistral": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
-    "deepseek": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort"},
+    "deepseek": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort", "thinking_budget"},
     "groq": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
     "ollama": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
+    "xai": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort", "thinking_budget"},
     "_default": {"temperature", "max_tokens"},
 }
 
@@ -107,6 +114,16 @@ PARAM_DEFINITIONS: list[dict] = [
         "description": "How much effort the model spends thinking before responding (o-series, DeepSeek R1)",
         "type": "select",
         "options": ["low", "medium", "high"],
+        "default": None,
+    },
+    {
+        "name": "thinking_budget",
+        "label": "Thinking budget",
+        "description": "Token budget for extended thinking. 0 disables. Applies to Claude (4.x/3.7), Gemini 2.5, and other reasoning-capable models.",
+        "type": "number",
+        "min": 0,
+        "max": 32000,
+        "step": 256,
         "default": None,
     },
 ]

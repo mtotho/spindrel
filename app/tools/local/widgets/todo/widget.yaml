@@ -1,0 +1,83 @@
+name: Todo
+version: 1.0.0
+description: A focused todo list for this channel. Bots can add, list, toggle, or delete items.
+db:
+  schema_version: 1
+  migrations:
+    - from: 0
+      to: 1
+      sql: |
+        CREATE TABLE IF NOT EXISTS todos (
+            id TEXT PRIMARY KEY NOT NULL,
+            title TEXT NOT NULL,
+            done INTEGER DEFAULT 0,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );
+        CREATE INDEX IF NOT EXISTS ix_todos_done_position ON todos (done, position);
+        CREATE INDEX IF NOT EXISTS ix_todos_updated_at ON todos (updated_at DESC);
+layout_hints:
+  preferred_zone: grid
+  min_cells: {w: 3, h: 3}
+  max_cells: {w: 8, h: 12}
+handlers:
+  - name: list_todos
+    description: Return every todo on this pin. Not-done items first (by position), then completed items by most recently updated.
+    triggers: [show todos, list todos, what do i have to do, my todo list]
+    returns:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string}
+          title: {type: string}
+          done: {type: boolean}
+          position: {type: integer}
+    bot_callable: true
+    safety_tier: readonly
+  - name: add_todo
+    description: Add a new todo item to this list. Use for "remember to X", "I need to X", "add a todo Y".
+    triggers: [add todo, new task, remember to, remind me to, i need to]
+    args:
+      title:
+        type: string
+        description: The todo text — keep it short and active-voice (e.g. "Buy milk").
+        required: true
+    returns:
+      type: object
+      properties:
+        id: {type: string}
+        title: {type: string}
+    bot_callable: true
+    safety_tier: mutating
+  - name: toggle_done
+    description: Flip a todo's done status by id. Use when the user says something like "I finished X" or "mark X done".
+    triggers: [mark done, finished, completed task, toggle done, uncheck todo]
+    args:
+      id:
+        type: string
+        description: The todo's id (from list_todos).
+        required: true
+    returns:
+      type: object
+      properties:
+        id: {type: string}
+        done: {type: boolean}
+    bot_callable: true
+    safety_tier: mutating
+  - name: delete_todo
+    description: Remove a todo item by id. Use when the user wants to drop a task entirely, not just mark it done.
+    triggers: [delete todo, remove task, drop todo]
+    args:
+      id:
+        type: string
+        description: The todo's id (from list_todos).
+        required: true
+    returns:
+      type: object
+      properties:
+        id: {type: string}
+        deleted: {type: boolean}
+    bot_callable: true
+    safety_tier: mutating

@@ -370,12 +370,6 @@ export function useChannelEvents(
           // dispatches both streams to the store.
           const turnId = payload?.turn_id as string | undefined;
           const deltaStr = (payload?.delta as string) ?? "";
-          console.log("[THINK_DEBUG] received turn_stream_thinking", {
-            turnId,
-            deltaLen: deltaStr.length,
-            preview: deltaStr.slice(0, 60),
-            hasTurn: turnId ? !!store.getChannel(storeKey).turns[turnId] : false,
-          });
           if (!turnId) return;
           if (!store.getChannel(storeKey).turns[turnId]) return;
           startObserverTimeout(chId, turnId);

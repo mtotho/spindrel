@@ -1,7 +1,7 @@
 ---
 name: HTML Widgets
-description: Decision tree for building interactive HTML widgets with `emit_html_widget` — which file to read next based on what you're building (inline one-shot, path-mode dashboard, backend handlers, shared-DB suite, chart, styling question, error lookup)
-triggers: emit_html_widget, html widget, interactive widget, custom widget, build a widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui, project status dashboard, status board, tool control panel, chart widget
+description: Decision tree for building interactive HTML widgets with `emit_html_widget` — which file to read next based on what you're building (inline one-shot, path-mode dashboard, backend handlers, shared-DB suite, chart, chip for the header band, styling question, error lookup)
+triggers: emit_html_widget, html widget, interactive widget, custom widget, build a widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui, project status dashboard, status board, tool control panel, chart widget, chip widget, header chip
 category: core
 ---
 
@@ -57,11 +57,17 @@ Start: what do you want to render?
 ├─ Need server-side Python handlers
 │     → widgets/manifest + widgets/handlers
 │
+├─ Want bots to read or mutate this widget's state in chat
+│     → widgets/bot-callable-handlers
+│
 ├─ Need per-widget SQLite storage
 │     → widgets/manifest + widgets/db
 │
 ├─ Need multiple widgets sharing one DB on the same dashboard
 │     → widgets/suites
+│
+├─ Chip — compact 180×32 widget for the channel header band
+│     → widgets/chips
 │
 ├─ Styling / theme / dark mode / sd-* question
 │     → widgets/styling

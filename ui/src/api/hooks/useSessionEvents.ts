@@ -23,16 +23,25 @@ export function useSessionEvents(
   runSessionId: string | undefined,
   botId?: string,
 ) {
-  const channelLess = !parentChannelId && !!runSessionId;
-  useChannelEvents(channelLess ? runSessionId : parentChannelId, botId, {
-    // In channel-less mode the session_id IS the bus key, so no filter is
-    // needed (every event on that key belongs to this session). In the
-    // channel-scoped mode we filter on session_id to ignore the parent
-    // channel's own events.
-    sessionFilter: channelLess ? undefined : runSessionId,
-    // Always dispatch into the store under runSessionId — that's the key
-    // SessionChatView + EphemeralSession read from.
-    dispatchChannelId: runSessionId,
-    subscribePath: channelLess ? "sessions" : "channels",
-  });
+  // No session id yet (lazy-spawn thread dock pre-first-send) — pass
+  // undefined to useChannelEvents so it short-circuits. Calling without a
+  // sessionFilter would otherwise dispatch every parent-channel event into
+  // an undefined store key.
+  const effectiveRunId = runSessionId || undefined;
+  const channelLess = !parentChannelId && !!effectiveRunId;
+  useChannelEvents(
+    channelLess ? effectiveRunId : effectiveRunId ? parentChannelId : undefined,
+    botId,
+    {
+      // In channel-less mode the session_id IS the bus key, so no filter is
+      // needed (every event on that key belongs to this session). In the
+      // channel-scoped mode we filter on session_id to ignore the parent
+      // channel's own events.
+      sessionFilter: channelLess ? undefined : effectiveRunId,
+      // Always dispatch into the store under runSessionId — that's the key
+      // SessionChatView + EphemeralSession read from.
+      dispatchChannelId: effectiveRunId,
+      subscribePath: channelLess ? "sessions" : "channels",
+    },
+  );
 }

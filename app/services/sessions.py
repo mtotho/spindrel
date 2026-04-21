@@ -544,6 +544,10 @@ async def persist_turn(
         # order, matching message.tool_calls[].
         if msg.get("_tool_envelopes"):
             meta = {**meta, "tool_results": msg["_tool_envelopes"]}
+        # Carry forward accumulated thinking so the UI can render a collapsed
+        # ThinkingBlock on historical (page-refresh) views — not just live.
+        if msg.get("_thinking_content"):
+            meta = {**meta, "thinking": msg["_thinking_content"]}
         # Carry forward tool record ID for retrieval-pointer pruning
         if msg.get("_tool_record_id"):
             meta = {**meta, "tool_record_id": msg["_tool_record_id"]}
@@ -645,7 +649,31 @@ async def persist_turn(
                 )
                 await _outbox.enqueue(db, channel_id, event, targets)
 
+    # Thread sub-sessions live as ``channel_id IS NULL`` rows but mirror
+    # their parent channel's integrations (with Session.integration_thread_refs
+    # swapping in thread-specific target fields). ``suppress_outbox`` is
+    # True for thread turns because the bus-level session_id tagging logic
+    # in turn_worker is gated on the same flag — we still want the outbox
+    # fanout though, so the decision here is intentionally independent.
+    thread_messages_to_enqueue: list[Message] = []
+    if channel_id is None and persisted_records:
+        session_row = await db.get(Session, session_id)
+        if session_row is not None and session_row.session_type == "thread":
+            thread_messages_to_enqueue = list(persisted_records)
+
     await db.commit()
+
+    # Thread-session outbox fanout — runs after commit so the helper (which
+    # opens its own db session) sees the newly-inserted rows. Each Message
+    # fans out through the parent channel's integrations with thread-ref
+    # overrides applied.
+    if thread_messages_to_enqueue:
+        from app.domain.message import Message as DomainMessage
+        from app.services.outbox_publish import enqueue_new_message_for_thread_session
+
+        for record in thread_messages_to_enqueue:
+            domain_msg = DomainMessage.from_orm(record, channel_id=None)
+            await enqueue_new_message_for_thread_session(session_id, domain_msg)
 
     # Link orphaned attachments to the correct message in this turn.
     # User-uploaded attachments (posted_by IS NULL) → first user message.

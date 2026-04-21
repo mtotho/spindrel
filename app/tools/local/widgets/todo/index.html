@@ -1,0 +1,161 @@
+<!--
+---
+name: Todo
+description: Focused channel-scoped todo list. Bots can add, list, toggle, or delete items.
+display_label: Todo
+version: 1.0.0
+author: spindrel
+tags: [todo, spindrel-sdk, bot-callable]
+icon: check-square
+---
+-->
+<style>
+  #td-root { display: flex; flex-direction: column; height: 100%; }
+  #td-root .td-body { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+  #td-root .td-form { display: flex; gap: 6px; }
+  #td-root .td-form input { flex: 1; }
+  #td-root .td-list { display: flex; flex-direction: column; gap: 0; flex: 1; min-height: 0; overflow-y: auto; }
+  #td-root .td-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 4px;
+    border-top: 1px solid var(--sd-border-subtle);
+    font-size: 13px;
+  }
+  #td-root .td-row:first-child { border-top: none; }
+  #td-root .td-row.done .td-title { text-decoration: line-through; color: var(--sd-text-muted); }
+  #td-root .td-checkbox {
+    width: 16px; height: 16px;
+    flex: 0 0 auto;
+    accent-color: var(--sd-accent, currentColor);
+    cursor: pointer;
+  }
+  #td-root .td-title { flex: 1; overflow-wrap: anywhere; }
+  #td-root .td-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 120ms ease; }
+  #td-root .td-row:hover .td-actions,
+  #td-root .td-row:focus-within .td-actions { opacity: 1; }
+  #td-root .td-empty {
+    padding: 24px 4px;
+    text-align: center;
+    color: var(--sd-text-muted);
+    font-size: 12px;
+  }
+  #td-root .td-count { font-variant-numeric: tabular-nums; }
+</style>
+<div class="sd-card" id="td-root">
+  <header class="sd-card-header sd-hstack-between">
+    <div class="sd-stack" style="gap: 2px;">
+      <h3 class="sd-title">Todo</h3>
+      <span class="sd-meta" id="td-sub">Channel list</span>
+    </div>
+    <span class="sd-chip td-count" id="td-count">0 / 0</span>
+  </header>
+  <div class="sd-card-body td-body">
+    <form class="td-form" id="td-form">
+      <input
+        type="text"
+        class="sd-input"
+        id="td-title"
+        placeholder="Add a todo…"
+        maxlength="500"
+        autocomplete="off"
+        required
+      />
+      <button type="submit" class="sd-btn sd-btn-primary" id="td-submit">Add</button>
+    </form>
+    <div class="td-list" id="td-list">
+      <div class="td-empty" id="td-empty">Nothing yet. Add one above or ask a bot to remember something.</div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const sp = window.spindrel;
+  const listEl = document.getElementById("td-list");
+  const emptyEl = document.getElementById("td-empty");
+  const countEl = document.getElementById("td-count");
+  const formEl = document.getElementById("td-form");
+  const titleEl = document.getElementById("td-title");
+  const submitEl = document.getElementById("td-submit");
+
+  function esc(s) {
+    return String(s || "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  async function guarded(fn) {
+    try { await fn(); }
+    catch (e) { sp.notify("error", (e && e.message) || String(e)); }
+  }
+
+  function render(rows) {
+    const done = rows.filter((r) => r.done).length;
+    countEl.textContent = done + " / " + rows.length;
+
+    // Clear prior rows but keep the empty-state div in the DOM for reuse.
+    Array.from(listEl.querySelectorAll(".td-row")).forEach((n) => n.remove());
+
+    if (rows.length === 0) {
+      emptyEl.hidden = false;
+      return;
+    }
+    emptyEl.hidden = true;
+
+    const html = rows.map((r) => {
+      const checked = r.done ? "checked" : "";
+      const doneCls = r.done ? " done" : "";
+      return `
+        <div class="td-row${doneCls}" data-id="${esc(r.id)}">
+          <input type="checkbox" class="td-checkbox" data-toggle="${esc(r.id)}" ${checked} aria-label="Toggle done" />
+          <span class="td-title">${esc(r.title)}</span>
+          <span class="td-actions">
+            <button class="sd-btn sd-btn-ghost" data-delete="${esc(r.id)}" title="Delete" aria-label="Delete todo">✕</button>
+          </span>
+        </div>
+      `;
+    }).join("");
+
+    const frag = document.createElement("div");
+    frag.innerHTML = html;
+    while (frag.firstChild) listEl.appendChild(frag.firstChild);
+
+    listEl.querySelectorAll("input[data-toggle]").forEach((inp) => {
+      inp.addEventListener("change", () => {
+        guarded(async () => {
+          await sp.callHandler("toggle_done", { id: inp.dataset.toggle });
+        });
+      });
+    });
+    listEl.querySelectorAll("button[data-delete]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        guarded(async () => {
+          await sp.callHandler("delete_todo", { id: btn.dataset.delete });
+        });
+      });
+    });
+  }
+
+  async function loadAndRender() {
+    const rows = await sp.callHandler("list_todos", {});
+    render(Array.isArray(rows) ? rows : []);
+  }
+
+  formEl.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = titleEl.value.trim();
+    if (!title) return;
+    submitEl.disabled = true;
+    try {
+      await sp.callHandler("add_todo", { title });
+      titleEl.value = "";
+      titleEl.focus();
+    } catch (err) {
+      sp.notify("error", "Add failed: " + ((err && err.message) || err));
+    } finally {
+      submitEl.disabled = false;
+    }
+  });
+
+  sp.autoReload(loadAndRender);
+})();
+</script>

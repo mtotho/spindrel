@@ -11,6 +11,8 @@ import {
   type StoredEphemeralState,
 } from "@/src/api/hooks/useEphemeralSession";
 import { useSessionConfigOverhead } from "@/src/api/hooks/useSessionConfigOverhead";
+import { useSpawnThread, useThreadInfo } from "@/src/api/hooks/useThreads";
+import { ThreadParentAnchor } from "./ThreadParentAnchor";
 import { useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
 import { useChannelChatSource } from "@/src/api/hooks/useChannelChatSource";
 import { selectIsStreaming, useChatStore } from "@/src/stores/chat";
@@ -61,14 +63,24 @@ export type ChatSource =
     }
   | {
       kind: "thread";
-      /** Pre-spawned thread session id from POST /messages/{id}/thread. */
-      threadSessionId: string;
+      /** Thread session id. Null until the user sends their first message —
+       *  we lazy-spawn the backend Session row on first send so closing the
+       *  dock without typing anything leaves no DB footprint. */
+      threadSessionId: string | null;
       /** Parent channel hosting the message being replied to — powers SSE. */
       parentChannelId: string;
       /** Message the thread replies to, for the "Replying to …" hint. */
       parentMessageId: string;
       /** Bot the thread runs as (inherited from parent message's author). */
       botId: string;
+      /** Pre-known parent Message passed through from the parent feed so the
+       *  anchor bubble can render before (or without) the thread session
+       *  existing. When null, the thread view fetches via useThreadInfo. */
+      parentMessage?: Message | null;
+      /** Fires once the lazy spawn resolves so the caller can swap its
+       *  activeThread state from pending → live. Invoked before submitChat
+       *  so the live branch can subscribe to SSE before any turn events. */
+      onSessionSpawned?: (sessionId: string) => void;
     };
 
 export interface ChatSessionProps {
@@ -680,8 +692,16 @@ function ThreadChatSession({
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  const { threadSessionId, parentChannelId, botId } = source;
+  const { parentChannelId, botId, parentMessageId, onSessionSpawned } = source;
   const { data: bot } = useBot(botId);
+
+  // Lazy spawn — thread session is NOT persisted until the user sends their
+  // first message. This state holds the id once spawn resolves so later
+  // renders can use it even before the parent lifts it into source via
+  // onSessionSpawned.
+  const [lazySpawnedId, setLazySpawnedId] = useState<string | null>(null);
+  const effectiveSessionId = source.threadSessionId ?? lazySpawnedId;
+  const hasSession = !!effectiveSessionId;
 
   const [mode, setMode] = useState<"dock" | "modal">(shape);
   const [dockExpanded, setDockExpanded] = useState(
@@ -689,37 +709,72 @@ function ThreadChatSession({
   );
 
   const submitChat = useSubmitChat();
+  const spawnThread = useSpawnThread();
   const [sendError, setSendError] = useState<string | null>(null);
-  const chatState = useChatStore((s) => s.getChannel(threadSessionId));
+  // Chat store slot keyed by effective session id once known. Before the
+  // lazy spawn fires we use a sentinel key that no SSE subscriber writes
+  // to, so the pending state stays visually empty.
+  const storeKey = effectiveSessionId ?? "__thread_pending__";
+  const chatState = useChatStore((s) => s.getChannel(storeKey));
   const turnActive = selectIsStreaming(chatState);
-  const isSending = submitChat.isPending || turnActive;
+  const isSending = submitChat.isPending || spawnThread.isPending || turnActive;
 
-  const { data: overheadData } = useSessionConfigOverhead(threadSessionId);
+  const { data: overheadData } = useSessionConfigOverhead(
+    effectiveSessionId ?? undefined,
+  );
   const overheadPct = overheadData?.overhead_pct ?? null;
+
+  // Live thread info for the parent-anchor bubble when we don't already have
+  // the parent Message in hand (direct-link navigation, existing thread
+  // reopened from summaries). Source can also supply the Message inline when
+  // the caller has it cheaply (pending-state path).
+  const { data: threadInfo } = useThreadInfo(effectiveSessionId ?? undefined);
+  const parentForAnchor: Message | null =
+    (source.parentMessage ?? null) || threadInfo?.parent_message || null;
 
   const handleSend = useCallback(
     async (message: string, _files?: PendingFile[]) => {
       setSendError(null);
+      let sid = effectiveSessionId;
       try {
+        if (!sid) {
+          const spawned = await spawnThread.mutateAsync({
+            message_id: parentMessageId,
+            bot_id: botId,
+          });
+          sid = spawned.session_id;
+          setLazySpawnedId(sid);
+          onSessionSpawned?.(sid);
+        }
         await submitChat.mutateAsync({
           message,
           bot_id: botId,
           client_id: "web",
-          session_id: threadSessionId,
+          session_id: sid,
           channel_id: parentChannelId,
         });
-        qc.invalidateQueries({ queryKey: ["session-messages", threadSessionId] });
+        qc.invalidateQueries({ queryKey: ["session-messages", sid] });
         qc.invalidateQueries({ queryKey: ["thread-summaries"] });
       } catch (err) {
         setSendError(err instanceof Error ? err.message : "Failed to send message");
       }
     },
-    [botId, threadSessionId, parentChannelId, submitChat, qc],
+    [
+      botId,
+      effectiveSessionId,
+      parentChannelId,
+      parentMessageId,
+      submitChat,
+      spawnThread,
+      onSessionSpawned,
+      qc,
+    ],
   );
 
   const handleMaximize = useCallback(() => {
-    navigate(`/channels/${parentChannelId}/threads/${threadSessionId}`);
-  }, [navigate, parentChannelId, threadSessionId]);
+    if (!effectiveSessionId) return;
+    navigate(`/channels/${parentChannelId}/threads/${effectiveSessionId}`);
+  }, [navigate, parentChannelId, effectiveSessionId]);
 
   const handleHeaderClose = useCallback(() => {
     if (mode === "dock") setDockExpanded(false);
@@ -765,9 +820,10 @@ function ThreadChatSession({
         )}
         <button
           onClick={handleMaximize}
-          title="Open full-screen thread"
+          disabled={!hasSession}
+          title={hasSession ? "Open full-screen thread" : "Send a reply first"}
           aria-label="Open full-screen thread"
-          className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
+          className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ExpandIcon size={13} />
         </button>
@@ -786,13 +842,20 @@ function ThreadChatSession({
   const body = (
     <div className="flex flex-col h-full">
       {header}
+      <ThreadParentAnchor message={parentForAnchor} />
       <div className="flex-1 min-h-0 relative">
-        <SessionChatView
-          sessionId={threadSessionId}
-          parentChannelId={parentChannelId}
-          botId={botId}
-          emptyStateComponent={emptyState}
-        />
+        {hasSession ? (
+          <SessionChatView
+            sessionId={effectiveSessionId!}
+            parentChannelId={parentChannelId}
+            botId={botId}
+            emptyStateComponent={emptyState}
+          />
+        ) : (
+          <div className="h-full flex items-center justify-center text-[12px] text-text-dim px-6 text-center">
+            Reply below to start the thread.
+          </div>
+        )}
       </div>
       {sendError && (
         <div className="px-4 py-1.5 text-[11px] text-red-400 border-t border-red-500/20 bg-red-500/5 shrink-0">
@@ -805,7 +868,7 @@ function ThreadChatSession({
           disabled={!botId}
           isStreaming={isSending}
           currentBotId={botId}
-          channelId={threadSessionId}
+          channelId={storeKey}
           defaultModel={bot?.model}
           configOverhead={overheadPct}
           compact

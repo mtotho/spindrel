@@ -186,6 +186,68 @@ async def _resolve_binding(binding: ChannelIntegration) -> DispatchTarget | None
         return None
 
 
+def apply_session_thread_refs(
+    session,
+    targets: list[tuple[str, DispatchTarget]],
+) -> list[tuple[str, DispatchTarget]]:
+    """Rewrite targets so outbound posts land in an integration thread.
+
+    For each ``(integration_id, target)`` pair, if the session carries a
+    ref under that integration key, dispatch to the integration's
+    ``apply_thread_ref`` hook (registered in ``IntegrationMeta``) to
+    produce a target override — e.g. a SlackTarget with ``thread_ts`` +
+    ``reply_in_thread=True`` set. Integrations without the hook are left
+    unchanged.
+
+    Generic — no Slack-specific branches here. Discord, etc. plug in via
+    their own ``IntegrationMeta.apply_thread_ref`` callback.
+    """
+    refs = getattr(session, "integration_thread_refs", None) or {}
+    if not refs:
+        return targets
+
+    from app.agent.hooks import get_integration_meta
+
+    rewritten: list[tuple[str, DispatchTarget]] = []
+    for integ_id, target in targets:
+        ref = refs.get(integ_id)
+        if ref:
+            meta = get_integration_meta(integ_id)
+            if meta and meta.apply_thread_ref:
+                try:
+                    target = meta.apply_thread_ref(target, ref)
+                except Exception:
+                    logger.warning(
+                        "apply_thread_ref failed for %s; using unmodified target",
+                        integ_id, exc_info=True,
+                    )
+        rewritten.append((integ_id, target))
+    return rewritten
+
+
+async def resolve_targets_for_session(
+    session,
+    parent_channel: "Channel | None",
+) -> list[tuple[str, DispatchTarget]]:
+    """Resolve the dispatch targets a session should post into.
+
+    Thread sub-sessions share their parent channel's integration bindings
+    but override each target's thread attribute via
+    ``integration_thread_refs``. Channel sessions pass through
+    ``resolve_targets(channel)`` unchanged.
+
+    Caller supplies ``parent_channel`` (already loaded — typically the
+    result of walking ``session.parent_session_id`` → channel, or the
+    session's own ``channel_id`` when it's a channel session). Returns an
+    empty NoneTarget list when there's no parent channel (pure
+    channel-less ephemeral).
+    """
+    if parent_channel is None:
+        return [("none", NoneTarget())]
+    base = await resolve_targets(parent_channel)
+    return apply_session_thread_refs(session, base)
+
+
 async def resolve_target_for_renderer(
     channel_id, renderer_integration_id: str
 ) -> DispatchTarget | None:

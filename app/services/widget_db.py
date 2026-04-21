@@ -47,8 +47,14 @@ async def _get_lock(path: Path) -> asyncio.Lock:
 # ---------------------------------------------------------------------------
 
 # Built-in widget bundles live in the app source tree (read-only in Docker).
+# From ``app/services/widget_db.py``, ``parents[1]`` = ``app/``, so the
+# resolved path is ``<repo>/app/tools/local/widgets``. The ``parents[2]``
+# spelling shipped in an earlier revision silently pointed at
+# ``<repo>/tools/local/widgets`` (no such dir), which meant every
+# ``bundle_dir.relative_to(_BUILTIN_WIDGET_DIR)`` check fell through and
+# built-in bundles wrote their SQLite into the *read-only* image layer.
 _BUILTIN_WIDGET_DIR = (
-    Path(__file__).resolve().parents[2] / "tools" / "local" / "widgets"
+    Path(__file__).resolve().parents[1] / "tools" / "local" / "widgets"
 ).resolve()
 
 
