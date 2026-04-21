@@ -86,6 +86,7 @@ export interface ChatMessageAreaProps {
    *  composer so messages can scroll behind it. Default 12. */
   scrollPaddingBottom?: number;
   chatMode?: "default" | "terminal";
+  bottomSlot?: React.ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +130,7 @@ export function ChatMessageArea({
   scrollPaddingTop = 8,
   scrollPaddingBottom = 12,
   chatMode = "default",
+  bottomSlot,
 }: ChatMessageAreaProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -254,11 +256,19 @@ export function ChatMessageArea({
         {/* DOM first == visual BOTTOM — streaming / processing indicators +
             a Spindrel brand mark tucked below the newest message. Scrolls
             with the content so it slips off when the user scrolls up. */}
-        <div className="w-full mx-auto px-4" style={{ maxWidth: 820 }}>
+        <div
+          className="w-full mx-auto"
+          style={{
+            maxWidth: 820,
+            paddingLeft: isTerminalMode ? 0 : 16,
+            paddingRight: isTerminalMode ? 0 : 16,
+          }}
+        >
+          {bottomSlot}
           {pendingApprovalsSlot?.(liveApprovalIds)}
           {turnIndicators}
           {processingIndicator}
-          {invertedData.length > 0 && (
+          {!isTerminalMode && invertedData.length > 0 && (
             <div className="flex flex-row justify-center" style={{ paddingTop: 12, paddingBottom: 6, opacity: isTerminalMode ? 0.16 : 0.7 }}>
               <SpindrelLogo size={20} color={t.purple} />
             </div>

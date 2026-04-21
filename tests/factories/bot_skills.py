@@ -37,6 +37,7 @@ def build_bot_skill(bot_id: str, name: str = "my-skill", **overrides) -> Skill:
         description=content[:200].strip(),
         category=None,
         triggers=[],
+        scripts=[],
         content=content,
         content_hash=hashlib.sha256(content.encode()).hexdigest(),
         source_path=None,

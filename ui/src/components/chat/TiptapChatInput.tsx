@@ -56,6 +56,7 @@ export interface TiptapChatInputProps {
   /** When true (multi-bot channel), primary bot is NOT excluded from @-mentions */
   isMultiBot?: boolean;
   placeholder?: string;
+  chatMode?: "default" | "terminal";
 }
 
 export interface TiptapChatInputHandle {
@@ -68,7 +69,7 @@ export interface TiptapChatInputHandle {
 }
 
 export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInputProps>(
-  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, disabled, autoFocus, isMobile, currentBotId, isMultiBot, placeholder = "Type a message..." }, ref) {
+  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, disabled, autoFocus, isMobile, currentBotId, isMultiBot, placeholder = "Type a message...", chatMode = "default" }, ref) {
     const t = useThemeTokens();
     const { data: completions } = useCompletions();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -476,8 +477,15 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       "--tiptap-text-dim": t.textDim,
       "--tiptap-code-bg": t.codeBg,
       "--tiptap-code-text": t.codeText,
-      "--tiptap-padding": isMobile ? "8px 12px" : "10px 16px",
-    } as React.CSSProperties), [t.text, t.textDim, t.codeBg, t.codeText, isMobile]);
+      "--tiptap-padding": chatMode === "terminal"
+        ? (isMobile ? "6px 10px" : "8px 10px")
+        : (isMobile ? "8px 12px" : "10px 16px"),
+      "--tiptap-font-family": chatMode === "terminal"
+        ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace"
+        : "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+      "--tiptap-font-size": chatMode === "terminal" ? "14px" : "15px",
+      "--tiptap-line-height": chatMode === "terminal" ? "1.45" : "1.5",
+    } as React.CSSProperties), [t.text, t.textDim, t.codeBg, t.codeText, isMobile, chatMode]);
 
     const selectItem = useCallback((item: CompletionItem) => {
       commandRef.current?.({ id: item.value, label: item.label });
@@ -499,6 +507,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
           ref={containerRef}
           className="tiptap-chat-input"
           style={cssVars}
+          data-chat-mode={chatMode}
         >
           <EditorContent editor={editor} />
         </div>

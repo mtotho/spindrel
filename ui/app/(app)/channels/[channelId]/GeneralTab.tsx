@@ -186,19 +186,6 @@ function GeneralAdvancedSection({
             ]}
           />
         </FormRow>
-        <FormRow
-          label="Chat mode"
-          description="Switch the feed + composer between the default chat UI and a command-first terminal treatment for this channel."
-        >
-          <SelectInput
-            value={(form.chat_mode ?? "default") as string}
-            onChange={(v) => patch("chat_mode", v as "default" | "terminal")}
-            options={[
-              { label: "Default chat", value: "default" },
-              { label: "Terminal mode", value: "terminal" },
-            ]}
-          />
-        </FormRow>
         <Toggle
           value={compactToolResults}
           onChange={setCompactToolResults}
@@ -280,6 +267,19 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
   return (
     <>
       <Section title="General">
+        <FormRow
+          label="Chat theme"
+          description="Choose how this channel's chat feed and composer are presented."
+        >
+          <SelectInput
+            value={(form.chat_mode ?? "default") as string}
+            onChange={(v) => patch("chat_mode", v as "default" | "terminal")}
+            options={[
+              { label: "Default", value: "default" },
+              { label: "Terminal", value: "terminal" },
+            ]}
+          />
+        </FormRow>
         <Row stack={isMobile}>
           <Col minWidth={isMobile ? 0 : 200}>
             <FormRow label="Display Name" description="Label shown in sidebar. Does not affect routing.">

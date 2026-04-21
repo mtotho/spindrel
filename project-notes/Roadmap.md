@@ -14,7 +14,7 @@ The canonical view of where the project stands. For *why* → [[Architecture Dec
 **No new features/mechanisms/tables.** Structural cleanup, refactoring, splitting god functions, removing dead code, fixing bugs. See [[Loose Ends]] for open bugs.
 
 ## Completed (monitor only)
-Full detail in [[Completed Tracks]].
+Full detail in [[Completed Tracks]]. `run_script` follow-up on 2026-04-21: bot-authored skills can now carry named stored scripts, so reusable tool workflows can be saved with `manage_bot_skill` and executed later by reference.
 
 | Area | One-line |
 |---|---|

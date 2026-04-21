@@ -89,7 +89,7 @@ All paths are relative to your workspace root — use the memory/ prefix:
 - Append key decisions and events to today's daily log (memory/logs/YYYY-MM-DD.md)
 - Promote any new stable facts to memory/MEMORY.md (edit existing sections in place, do not append session entries)
 - Write anything you'll need to remember in future sessions
-- **If you learned a reusable domain pattern, procedure, or fix**: create a skill NOW with `manage_bot_skill(action="create", ...)`. Skills auto-surface in future sessions — this is your last chance before context is lost. (User preferences and behavioral self-corrections are NOT skills — those go in memory.)
+- **If you learned a reusable domain pattern, procedure, fix, or workflow**: create or update a skill NOW with `manage_bot_skill(...)`. If the reusable part is executable tool orchestration, attach a named script so future sessions can inspect it with `get_script` or run it directly via `run_script(skill_name=..., script_name=...)`. Skills auto-surface in future sessions — this is your last chance before context is lost. (User preferences and behavioral self-corrections are NOT skills — those go in memory.)
 Use the `file` tool to write to the appropriate files under memory/.
 **For memory/MEMORY.md**: use `edit` (to update sections) or `append` (to add new sections). Do NOT attempt to rewrite the whole file.
 **For daily logs**: use `append`. **For new reference files**: use `create` (errors if the file already exists)."""
@@ -136,7 +136,7 @@ Scan recent daily logs (last 3-7 days). For each candidate entry, mentally score
 
 Promote entries scoring well on 3+ factors:
 - Stable facts or decisions → promote to memory/MEMORY.md using `file(operation="edit")` to update existing sections or `file(operation="append")` for new sections.
-- Reusable procedures or patterns → note them for the skill review job to create
+- Reusable procedures or patterns → create or update a skill; if the pattern is executable tool orchestration, attach a named script
 - Detailed reference info → move to memory/reference/ files
 
 ## Step 5 — Archive maintenance
@@ -152,7 +152,7 @@ Write a brief summary to today's daily log including:
 - Entries added / updated / removed
 - Contradictions resolved (if any)
 - Files archived or cleaned up
-- Any topics you noticed that might benefit from a dedicated skill (the skill review job handles creation)"""
+- Any topics or reusable workflows that might benefit from a dedicated skill or attached named script"""
 
 
 DEFAULT_SKILL_REVIEW_PROMPT = """\
@@ -207,12 +207,14 @@ Review your complete skill list in the "## Working set" snapshot appended below.
 4. **For catalog skills you never fetch**: safe to prune if enrolled 14+ days ago. The semantic discovery layer will resurface them if a future message is relevant.
 5. **Overlapping authored skills**: merge with `manage_bot_skill(action="merge", ...)`.
 6. **Outdated authored content**: use `action="patch"` for small fixes, `action="update"` for full rewrites.
-7. **Missing coverage**: if recent activity shows recurring topics with no matching skill, create new skills now.
-8. **Auto-inject quality**: Review the sample turns in the "Auto-inject quality samples" section (if present). If a skill's samples show it being injected for unrelated conversations, its triggers are too broad — narrow them with `manage_bot_skill(action="update")`, or prune if the skill shouldn't exist.
-9. **All-protected short-circuit**: If every enrolled skill is protected, skip *pruning* — but still review authored skills for quality. Protection only blocks unenrollment. You can and should still:
+7. **Attached script hygiene**: for authored skills with named scripts, review whether each script still matches the prose guidance, triggers, and current tool contracts. Use `get_script`, `update_script`, `delete_script`, or `add_script` as needed.
+8. **Missing coverage**: if recent activity shows recurring topics with no matching skill, create new skills now. If the recurring pattern is an executable workflow, attach a named script instead of burying code in prose.
+9. **Auto-inject quality**: Review the sample turns in the "Auto-inject quality samples" section (if present). If a skill's samples show it being injected for unrelated conversations, its triggers are too broad — narrow them with `manage_bot_skill(action="update")`, or prune if the skill shouldn't exist.
+10. **All-protected short-circuit**: If every enrolled skill is protected, skip *pruning* — but still review authored skills for quality. Protection only blocks unenrollment. You can and should still:
    - **Merge** overlapping authored skills (`action="merge"`)
    - **Update triggers** on skills with weak or overly broad triggers (`action="update"`)
    - **Patch** outdated content (`action="patch"`)
+   - **Update attached scripts** when reusable workflows drift (`action="update_script"`)
    - **Evaluate** whether authored skills are well-scoped or should be split/combined
    Note "all skills protected, skipping pruning — reviewing authored skill quality" and proceed.
 
@@ -220,6 +222,7 @@ Review your complete skill list in the "## Working set" snapshot appended below.
 - Unprotected: `prune_enrolled_skills(skill_ids=["id1", "id2"])`
 - Protected: `prune_enrolled_skills(skill_ids=["id1"], overrides={"id1": "reason"})`
 - **Do not call `manage_bot_skill(action="delete")` on catalog skills you don't own** — that archives the skill itself, not just your enrollment.
+- For authored skills that carry named scripts, prefer script CRUD (`get_script`, `add_script`, `update_script`, `delete_script`) over rewriting code blobs inside the prose body.
 
 ## Step 2.5 — Discovery audit
 If a "## Discovery Audit" section is appended below, act on it. It aggregates the
@@ -263,7 +266,8 @@ The user just corrected you. Route to the right persistence layer:
 "don't do Z for me") → write to memory (MEMORY.md or the routing table in your \
 system prompt). This is NOT a skill — it's about THIS user, not a reusable pattern.
 - **Reusable domain pattern** (a common mistake, a technique rule, a better approach \
-that applies generally) → create a skill with manage_bot_skill. Keep it concrete: \
+that applies generally) → create or update a skill with `manage_bot_skill`. If the correction is \
+really a reusable tool workflow, attach a named script to that skill. Keep it concrete: \
 "when X, do Y instead of Z."
 - **Trivial or situation-specific** → just acknowledge and move on.
 
@@ -278,8 +282,10 @@ Repeated search topics:
 {topics}
 
 For each topic above, consider using `manage_bot_skill(action="create", ...)` to capture \
-the key information as a skill. Skills enter the RAG pipeline and surface automatically \
-when a user message is semantically relevant — no manual search needed.
+the key information as a skill. If the recurring pattern is a reusable multi-step tool workflow, \
+attach a named script so future sessions can run it directly with \
+`run_script(skill_name=..., script_name=...)`. Skills enter the RAG pipeline and surface \
+automatically when a user message is semantically relevant — no manual search needed.
 
 If these topics are already covered by existing skills, check if the skills have good \
 trigger phrases (use action="list" to review surface_count). \
@@ -295,7 +301,9 @@ You have been working on this task for a while. Pause briefly and consider:
 - Did you discover a reusable pattern, fix, or procedure that should AUTO-SURFACE in future sessions when someone hits a similar problem?
 - Did you learn something about this domain that isn't in your training data?
 
-If yes: use `manage_bot_skill(action="create", ...)` NOW — not later. Skills enter the RAG pipeline and appear automatically when relevant. This is different from memory files, which require you to search for them.
+If yes: use `manage_bot_skill(...)` NOW — not later. If the reusable part is executable \
+tool orchestration, attach a named script and later run it via `run_script(skill_name=..., script_name=...)`. \
+Skills enter the RAG pipeline and appear automatically when relevant. This is different from memory files, which require you to search for them.
 
 Keep it focused — one pattern per skill, with concrete "when X, do Y" triggers.
 
@@ -353,12 +361,15 @@ Your tools and skills load dynamically — not everything is in your context.
 - `get_skill(skill_id="...")` — fetch a skill from the index in your context.
 - `run_script(...)` — preferred for multi-step tool work (for-each loops, filtering, \
 joining results across tools). Runs Python in your workspace with `tools.NAME(**args)` \
-bindings and keeps intermediate data out of context. Call `list_tool_signatures()` first \
-if you don't know what's composable.
+bindings and keeps intermediate data out of context. It can run ad-hoc inline source or a \
+named script attached to one of your bot-authored skills (`run_script(skill_name=..., script_name=...)`). \
+Call `list_tool_signatures()` first if you don't know what's composable.
 
 Two persistence layers — route correctly:
 - **Skills** (`manage_bot_skill`) — reusable domain knowledge, auto-surface across sessions \
-via RAG. Use for "when doing X, always Y" patterns.
+via RAG. Use for "when doing X, always Y" patterns. Skills may also carry named scripts for \
+reusable multi-step tool workflows; manage them with `get_script`, `add_script`, `update_script`, \
+and `delete_script`.
 - **Memory files** (`memory/`) — bot-private user facts, preferences, corrections, session \
 history. Use for "user prefers X".
 A user's personal preference is NOT a reusable pattern. See the `skill_authoring` skill.

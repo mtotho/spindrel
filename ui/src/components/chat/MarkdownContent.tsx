@@ -9,6 +9,8 @@
 
 import type { ThemeTokens } from "../../theme/tokens";
 
+const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
+
 // ---------------------------------------------------------------------------
 // Inline markdown parsing
 // ---------------------------------------------------------------------------
@@ -58,7 +60,16 @@ const MENTION_COLORS: Record<string, { bg: string; fg: string }> = {
 // Suppress unused-var warning for MENTION_RE (exported for tests).
 export { MENTION_RE };
 
-function InlineRenderer({ nodes, t }: { nodes: InlineNode[]; t: ThemeTokens }) {
+function InlineRenderer({
+  nodes,
+  t,
+  chatMode = "default",
+}: {
+  nodes: InlineNode[];
+  t: ThemeTokens;
+  chatMode?: "default" | "terminal";
+}) {
+  const isTerminalMode = chatMode === "terminal";
   return (
     <>
       {nodes.map((n, i) => {
@@ -77,16 +88,17 @@ function InlineRenderer({ nodes, t }: { nodes: InlineNode[]; t: ThemeTokens }) {
               <code
                 key={i}
                 style={{
-                  fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
+                  fontFamily: TERMINAL_FONT_STACK,
                   fontSize: "0.85em",
-                  background: t.codeBg,
-                  padding: "2px 6px",
-                  borderRadius: 4,
-                  color: t.codeText,
-                  border: `1px solid ${t.codeBorder}`,
+                  background: isTerminalMode ? "transparent" : t.codeBg,
+                  padding: isTerminalMode ? 0 : "2px 6px",
+                  borderRadius: isTerminalMode ? 0 : 4,
+                  color: isTerminalMode ? t.warning : t.codeText,
+                  border: isTerminalMode ? "none" : `1px solid ${t.codeBorder}`,
+                  fontWeight: isTerminalMode ? 500 : undefined,
                 }}
               >
-                {n.content}
+                {isTerminalMode ? `\`${n.content}\`` : n.content}
               </code>
             );
           case "bold":
@@ -117,17 +129,19 @@ function InlineRenderer({ nodes, t }: { nodes: InlineNode[]; t: ThemeTokens }) {
                 key={i}
                 data-type={n.prefix}
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  fontSize: "0.9em",
-                  fontWeight: 500,
-                  padding: "1px 7px",
-                  margin: "0 1px",
-                  borderRadius: 4,
-                  background: colors.bg,
-                  color: colors.fg,
+                  display: "inline",
+                  fontSize: "0.95em",
+                  fontWeight: isTerminalMode ? 500 : 500,
+                  padding: 0,
+                  margin: 0,
+                  borderRadius: 0,
+                  background: isTerminalMode ? "transparent" : colors.bg,
+                  color: isTerminalMode ? colors.fg : colors.fg,
                   verticalAlign: "baseline",
-                  whiteSpace: "nowrap",
+                  whiteSpace: isTerminalMode ? "normal" : "nowrap",
+                  textDecoration: isTerminalMode ? "underline" : undefined,
+                  textDecorationColor: isTerminalMode ? `${colors.fg}55` : undefined,
+                  textUnderlineOffset: isTerminalMode ? 2 : undefined,
                 }}
               >
                 @{n.prefix}:{n.name}
@@ -147,7 +161,16 @@ function InlineRenderer({ nodes, t }: { nodes: InlineNode[]; t: ThemeTokens }) {
 // ---------------------------------------------------------------------------
 
 /** Render a block of non-code text with block-level markdown (headings, lists, blockquotes, hr). */
-function TextBlockRenderer({ text, t }: { text: string; t: ThemeTokens }) {
+function TextBlockRenderer({
+  text,
+  t,
+  chatMode = "default",
+}: {
+  text: string;
+  t: ThemeTokens;
+  chatMode?: "default" | "terminal";
+}) {
+  const isTerminalMode = chatMode === "terminal";
   const lines = text.split("\n");
   const elements: React.ReactNode[] = [];
   let i = 0;
@@ -173,7 +196,7 @@ function TextBlockRenderer({ text, t }: { text: string; t: ThemeTokens }) {
       const weights = ["700", "700", "600", "600", "600", "600"];
       elements.push(
         <div key={key++} style={{ fontSize: sizes[level - 1], fontWeight: weights[level - 1] as any, color: t.text, margin: `${level <= 2 ? 12 : 8}px 0 4px` }}>
-          <InlineRenderer nodes={parseInline(headingMatch[2])} t={t} />
+          <InlineRenderer nodes={parseInline(headingMatch[2])} t={t} chatMode={chatMode} />
         </div>
       );
       i++;
@@ -195,10 +218,10 @@ function TextBlockRenderer({ text, t }: { text: string; t: ThemeTokens }) {
             paddingLeft: 12,
             margin: "6px 0",
             color: t.textMuted,
-            fontStyle: "italic",
+            fontStyle: isTerminalMode ? "normal" : "italic",
           }}
         >
-          <InlineRenderer nodes={parseInline(quoteLines.join("\n"))} t={t} />
+          <InlineRenderer nodes={parseInline(quoteLines.join("\n"))} t={t} chatMode={chatMode} />
         </div>
       );
       continue;
@@ -215,7 +238,7 @@ function TextBlockRenderer({ text, t }: { text: string; t: ThemeTokens }) {
         <ul key={key++} style={{ margin: "4px 0", paddingLeft: 24, listStyleType: "disc" }}>
           {items.map((item, j) => (
             <li key={j} style={{ marginBottom: 2 }}>
-              <InlineRenderer nodes={parseInline(item)} t={t} />
+              <InlineRenderer nodes={parseInline(item)} t={t} chatMode={chatMode} />
             </li>
           ))}
         </ul>
@@ -234,7 +257,7 @@ function TextBlockRenderer({ text, t }: { text: string; t: ThemeTokens }) {
         <ol key={key++} style={{ margin: "4px 0", paddingLeft: 24 }}>
           {items.map((item, j) => (
             <li key={j} style={{ marginBottom: 2 }}>
-              <InlineRenderer nodes={parseInline(item)} t={t} />
+              <InlineRenderer nodes={parseInline(item)} t={t} chatMode={chatMode} />
             </li>
           ))}
         </ol>
@@ -249,7 +272,7 @@ function TextBlockRenderer({ text, t }: { text: string; t: ThemeTokens }) {
       const nodes = parseInline(line);
       elements.push(
         <div key={key++}>
-          <InlineRenderer nodes={nodes} t={t} />
+          <InlineRenderer nodes={nodes} t={t} chatMode={chatMode} />
         </div>
       );
     }
@@ -263,7 +286,16 @@ function TextBlockRenderer({ text, t }: { text: string; t: ThemeTokens }) {
 // Main MarkdownContent component
 // ---------------------------------------------------------------------------
 
-export function MarkdownContent({ text, t }: { text: string; t: ThemeTokens }) {
+export function MarkdownContent({
+  text,
+  t,
+  chatMode = "default",
+}: {
+  text: string;
+  t: ThemeTokens;
+  chatMode?: "default" | "terminal";
+}) {
+  const isTerminalMode = chatMode === "terminal";
   // Split on fenced code blocks first, then render each segment
   const blocks: { type: "code" | "text"; content: string; lang?: string }[] = [];
   const codeBlockRe = /```(\w*)\n?([\s\S]*?)```/g;
@@ -279,31 +311,41 @@ export function MarkdownContent({ text, t }: { text: string; t: ThemeTokens }) {
   if (last < text.length) blocks.push({ type: "text", content: text.slice(last) });
 
   return (
-    <div style={{ fontSize: 15, lineHeight: "1.6", color: t.contentText, overflowWrap: "break-word", minWidth: 0 }}>
+    <div
+      style={{
+        fontSize: isTerminalMode ? 14 : 15,
+        lineHeight: isTerminalMode ? "1.55" : "1.6",
+        color: t.contentText,
+        overflowWrap: "break-word",
+        minWidth: 0,
+      }}
+    >
       {blocks.map((block, i) => {
         if (block.type === "code") {
           return (
             <pre
               key={i}
               style={{
-                fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
+                fontFamily: TERMINAL_FONT_STACK,
                 fontSize: 13,
-                background: t.codeBg,
-                padding: "12px 16px",
-                borderRadius: 8,
-                border: `1px solid ${t.codeBorder}`,
-                overflowX: "auto",
+                background: isTerminalMode ? "transparent" : t.codeBg,
+                padding: isTerminalMode ? "2px 0 2px 12px" : "12px 16px",
+                borderRadius: isTerminalMode ? 0 : 8,
+                border: isTerminalMode ? "none" : `1px solid ${t.codeBorder}`,
+                borderLeft: isTerminalMode ? `1px solid ${t.surfaceBorder}` : undefined,
+                overflowX: isTerminalMode ? "visible" : "auto",
                 margin: "8px 0",
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-word",
                 lineHeight: "1.5",
+                color: isTerminalMode ? t.textMuted : t.codeText,
               }}
             >
               {block.content}
             </pre>
           );
         }
-        return <TextBlockRenderer key={i} text={block.content} t={t} />;
+        return <TextBlockRenderer key={i} text={block.content} t={t} chatMode={chatMode} />;
       })}
     </div>
   );

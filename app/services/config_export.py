@@ -302,6 +302,7 @@ async def assemble_config_state(db) -> dict:
             "id": s.id,
             "name": s.name,
             "content": s.content,
+            "scripts": s.scripts,
             "content_hash": s.content_hash,
             "source_path": s.source_path,
             "source_type": s.source_type,

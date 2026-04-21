@@ -39,6 +39,8 @@ export interface SessionChatViewProps {
    *  thread reply flows to show the parent message inline without creating
    *  a real Message row in the session. */
   syntheticMessages?: Message[];
+  chatMode?: "default" | "terminal";
+  bottomSlot?: React.ReactNode;
 }
 
 /**
@@ -60,6 +62,8 @@ export function SessionChatView({
   emptyStateComponent,
   scrollPaddingBottom,
   syntheticMessages = [],
+  chatMode = "default",
+  bottomSlot,
 }: SessionChatViewProps) {
   const t = useThemeTokens();
   const chatState = useChatStore((s) => s.getChannel(sessionId));
@@ -204,6 +208,7 @@ export function SessionChatView({
           isGrouped={isGrouped}
           fullTurnText={fullTurnText}
           isLatestBotMessage={isLatest}
+          chatMode={chatMode}
         />
       </>
     );
@@ -229,6 +234,8 @@ export function SessionChatView({
       t={t}
       emptyStateComponent={emptyStateComponent}
       scrollPaddingBottom={scrollPaddingBottom}
+      chatMode={chatMode}
+      bottomSlot={bottomSlot}
     />
   );
 }

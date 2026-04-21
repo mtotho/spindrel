@@ -159,3 +159,111 @@ async def test_check_system_deps_reinstalls_previously_installed(caplog):
          patch("app.services.integration_deps.install_system_package", new_callable=AsyncMock, return_value=True) as mock_install:
         await _check_system_deps("test_int", deps)
     mock_install.assert_called_once_with("some-pkg")
+
+
+# ---------------------------------------------------------------------------
+# install_system_package — dpkg -x into persistent /opt/spindrel-pkg
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_install_system_package_idempotent_when_manifest_present(tmp_path, monkeypatch):
+    """If the manifest for a package already exists, install is a no-op —
+    this is what makes rebuilds skip the install entirely."""
+    from app.services import integration_deps
+
+    pkg_root = tmp_path / "spindrel-pkg"
+    manifest_dir = pkg_root / ".extracted-manifest"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "chromium.list").write_text("usr/bin/chromium\n")
+    monkeypatch.setattr(integration_deps, "_PKG_ROOT", pkg_root)
+
+    with patch("asyncio.create_subprocess_exec") as mock_exec, \
+         patch("app.services.integration_deps._read_installed_system_packages", return_value={"chromium"}), \
+         patch("app.services.integration_deps._persist_installed_system_packages") as mock_persist:
+        ok = await integration_deps.install_system_package("chromium")
+
+    assert ok is True
+    mock_exec.assert_not_called()  # no downloads, no extracts
+    mock_persist.assert_not_called()  # already persisted
+
+
+@pytest.mark.asyncio
+async def test_install_system_package_downloads_and_extracts(tmp_path, monkeypatch):
+    """First install: apt-get download + dpkg -x into /opt/spindrel-pkg +
+    manifest file written. No call to `apt-get install`."""
+    from app.services import integration_deps
+
+    pkg_root = tmp_path / "spindrel-pkg"
+    pkg_root.mkdir()
+    monkeypatch.setattr(integration_deps, "_PKG_ROOT", pkg_root)
+
+    archives = tmp_path / "archives"
+    archives.mkdir()
+    deb_path = archives / "gh_2.40.0_amd64.deb"
+    deb_path.write_bytes(b"fake-deb")
+
+    # Mock every subprocess call the install flow makes.
+    calls: list[tuple[tuple, dict]] = []
+
+    def _make_fake_proc(stdout=b"", returncode=0):
+        proc = MagicMock()
+        proc.returncode = returncode
+        proc.communicate = AsyncMock(return_value=(stdout, b""))
+        return proc
+
+    def _router(*args, **kwargs):
+        calls.append((args, kwargs))
+        argv = list(args)
+        # Skip sudo prefix if present.
+        if argv and argv[0] in ("sudo", "-n"):
+            while argv and argv[0] in ("sudo", "-n"):
+                argv.pop(0)
+        head = argv[0] if argv else ""
+        if head == "apt-get" and "update" in argv:
+            return _make_fake_proc()
+        if head == "apt-cache" and "depends" in argv:
+            # Simulate just the root package (no missing transitive deps).
+            return _make_fake_proc(stdout=b"gh\n")
+        if head == "dpkg-query":
+            return _make_fake_proc(returncode=1)  # "not installed in base"
+        if head == "apt-get" and "download" in argv:
+            return _make_fake_proc()
+        if head == "dpkg-deb" and "--contents" in argv:
+            return _make_fake_proc(
+                stdout=b"-rwxr-xr-x root/root 12345 2024-01-01 00:00 ./usr/bin/gh\n"
+            )
+        if head == "dpkg" and "-x" in argv:
+            # Pretend it wrote files — create the binary to satisfy later checks.
+            (pkg_root / "usr").mkdir(exist_ok=True)
+            (pkg_root / "usr" / "bin").mkdir(exist_ok=True)
+            (pkg_root / "usr" / "bin" / "gh").write_bytes(b"bin")
+            return _make_fake_proc()
+        return _make_fake_proc()
+
+    # _download_deb looks in /var/cache/apt/archives — redirect via patching Path.
+    # Easier: patch the function itself to return our fake deb_path.
+    async def _fake_download(pkg):
+        return deb_path
+
+    with patch.object(integration_deps, "_download_deb", side_effect=_fake_download), \
+         patch("asyncio.create_subprocess_exec", side_effect=_router), \
+         patch("app.services.integration_deps._apt_get_update_if_stale", new=AsyncMock()), \
+         patch("app.services.integration_deps._read_installed_system_packages", return_value=set()), \
+         patch("app.services.integration_deps._persist_installed_system_packages") as mock_persist:
+        ok = await integration_deps.install_system_package("gh")
+
+    assert ok is True
+    # Manifest was written to the persistent pkg root.
+    manifest = pkg_root / ".extracted-manifest" / "gh.list"
+    assert manifest.is_file()
+    assert "usr/bin/gh" in manifest.read_text()
+    # Persisted to the installed-packages set.
+    mock_persist.assert_called_once()
+    persisted = mock_persist.call_args[0][0]
+    assert "gh" in persisted
+    # No `apt-get install` anywhere.
+    for args, _ in calls:
+        argv = [a for a in args if a not in ("sudo", "-n")]
+        if argv[:2] == ["apt-get", "install"]:
+            pytest.fail(f"should not call `apt-get install` anymore: {args}")

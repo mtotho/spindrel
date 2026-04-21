@@ -313,6 +313,37 @@ class TestManageBotSkillSchema:
         assert data["ok"] is True
         assert data["id"] == "bots/crumb/new-skill"
 
+    @pytest.mark.asyncio
+    async def test_get_script_matches_schema(self, db_session, patched_async_sessions):
+        from app.db.models import Skill
+        from app.tools.local.bot_skills import manage_bot_skill
+        from datetime import datetime, timezone
+
+        db_session.add(Skill(
+            id="bots/crumb/my-guide",
+            name="My Guide",
+            content="---\nname: My Guide\n---\n\nThis is the guide content, long enough to pass.",
+            source_type="tool",
+            scripts=[{
+                "name": "tail-logs",
+                "description": "Tail service logs.",
+                "script": "print('hello')",
+                "timeout_s": 45,
+            }],
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        ))
+        await db_session.commit()
+
+        with patch("app.tools.local.bot_skills.current_bot_id") as mock_bot:
+            mock_bot.get.return_value = "crumb"
+            result = await manage_bot_skill(action="get_script", name="my-guide", script_name="tail-logs")
+
+        data = _validate(result, "manage_bot_skill")
+        assert data["skill_id"] == "bots/crumb/my-guide"
+        assert data["name"] == "tail-logs"
+        assert data["script"] == "print('hello')"
+
     def test_no_bot_context_returns_error_shape(self):
         import asyncio
         from app.tools.local.bot_skills import manage_bot_skill

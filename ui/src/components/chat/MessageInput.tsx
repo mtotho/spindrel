@@ -217,6 +217,14 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const addMenuVisible = !isTerminalMode || !collapsed;
   const modelPillVisible = onModelOverrideChange && !isTerminalMode;
   const terminalHint = text.trim().startsWith("/") ? "command" : "message";
+  const hasOverride = !!modelOverride;
+  const effectiveName = modelOverride
+    ? modelOverride.split("/").pop()
+    : defaultModel?.split("/").pop();
+  const canRenderModelLabel = !!effectiveName;
+  const terminalPlaceholder = compactLayout
+    ? "Type / or enter a message..."
+    : "Type / for commands or enter a message...";
 
   // "Send now" — cancel stream and send immediately (web only)
   const handleSendNowLocal = useCallback(() => {
@@ -237,7 +245,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     const sendBtnOpacity = canSend || showStop || showMic || recorder.isRecording ? 1 : 0.4;
 
     return (
-      <div style={{ flexShrink: 0 }}>
+      <div style={{ flexShrink: 0, marginTop: isTerminalMode ? 10 : 0 }}>
         {/* Audio recorder error */}
         {recorder.error && (
           <div style={{ padding: "4px 20px", background: "rgba(239,68,68,0.08)" }}>
@@ -384,7 +392,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
         <div
           style={{
-            padding: compactLayout ? "0 10px 10px" : isMobile ? "0 12px 12px" : "0 16px 14px",
+            padding: isTerminalMode
+              ? "0 0 3px"
+              : (compactLayout ? "0 10px 10px" : isMobile ? "0 12px 12px" : "0 16px 14px"),
           }}
         >
           {/* One card. Editor on top (flat — no inner border/bg), actions on bottom.
@@ -405,15 +415,13 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             style={{
               display: "flex",
               flexDirection: "column",
-              background: isTerminalMode ? t.surfaceRaised : `${t.surfaceRaised}d9`,
+              background: isTerminalMode ? `${t.surfaceRaised}` : `${t.surfaceRaised}d9`,
               backdropFilter: isTerminalMode ? undefined : "blur(14px)",
               WebkitBackdropFilter: isTerminalMode ? undefined : "blur(14px)",
-              borderRadius: isTerminalMode ? 10 : compactLayout ? 14 : 20,
-              border: isTerminalMode ? `1px solid ${isFocused ? t.accentBorder : terminalBorder}` : undefined,
+              borderRadius: isTerminalMode ? 0 : compactLayout ? 14 : 20,
+              border: isTerminalMode ? "none" : undefined,
               boxShadow: isTerminalMode
-                ? isFocused
-                  ? `0 0 0 1px ${t.accentBorder}`
-                  : "none"
+                ? "none"
                 : isFocused
                   ? `inset 0 0 0 1px ${t.accentBorder}, inset 0 1px 0 ${t.overlayLight}, 0 0 0 3px ${t.accent}1a, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`
                   : `inset 0 1px 0 ${t.overlayLight}, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`,
@@ -428,7 +436,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               style={{
                 minHeight: compactLayout ? 44 : isMobile ? 45 : 60,
                 maxHeight: 260,
-                padding: collapsed ? "4px 6px 4px 14px" : isTerminalMode ? compactLayout ? "8px 12px 0" : isMobile ? "7px 10px 0" : "10px 12px 0" : compactLayout ? "8px 12px 2px" : isMobile ? "6px 10px 2px" : "12px 16px 4px",
+                minWidth: 0,
+                padding: collapsed ? "4px 6px 4px 14px" : isTerminalMode ? "6px 8px 0" : compactLayout ? "8px 12px 2px" : isMobile ? "6px 10px 2px" : "12px 16px 4px",
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "row",
@@ -456,7 +465,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   isMobile={isMobile}
                   currentBotId={currentBotId}
                   isMultiBot={isMultiBot}
-                  placeholder={isTerminalMode ? "Type / for commands or enter a message..." : undefined}
+                  placeholder={isTerminalMode ? terminalPlaceholder : undefined}
+                  chatMode={chatMode}
                 />
               )}
               {/* Collapsed mobile: inline compact mic so the one-row pill
@@ -484,10 +494,11 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
-                padding: isTerminalMode ? compactLayout ? "6px 8px 7px" : isMobile ? "6px 8px 7px" : "7px 10px 9px" : compactLayout ? "3px 6px 4px" : isMobile ? "2px 4px 3px" : "4px 8px 6px",
+                minWidth: 0,
+                padding: isTerminalMode ? "2px 8px 4px" : compactLayout ? "3px 6px 4px" : isMobile ? "2px 4px 3px" : "4px 8px 6px",
                 cursor: "text",
-                borderTop: isTerminalMode ? `1px solid ${terminalBorder}` : undefined,
-                backgroundColor: isTerminalMode ? `${t.overlayLight}18` : undefined,
+                borderTop: isTerminalMode ? undefined : undefined,
+                backgroundColor: isTerminalMode ? "transparent" : undefined,
               }}
             >
               {addMenuVisible ? (
@@ -512,16 +523,18 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                     display: "flex",
                     flexDirection: "row",
                     alignItems: "center",
-                    gap: 8,
-                    fontSize: 11,
-                    color: t.textDim,
-                    fontFamily: TERMINAL_FONT_STACK,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <span>{terminalHint}</span>
+                  gap: 8,
+                  fontSize: 11,
+                  color: t.textDim,
+                  fontFamily: TERMINAL_FONT_STACK,
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                  overflow: "hidden",
+                }}
+              >
+                  <span style={{ flexShrink: 0 }}>{terminalHint}</span>
                   {pendingFiles.length > 0 && (
-                    <span style={{ color: t.textMuted }}>
+                    <span style={{ color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis" }}>
                       {pendingFiles.length} file{pendingFiles.length === 1 ? "" : "s"}
                     </span>
                   )}
@@ -531,7 +544,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               <div style={{ flex: 1 }} />
 
               {/* Config overhead indicator — desktop only. Tucks before the model pill. */}
-              {!isMobile && configOverhead != null && configOverhead >= 0.2 && (
+              {!isTerminalMode && !isMobile && configOverhead != null && configOverhead >= 0.2 && (
                 <button
                   onClick={onConfigOverheadClick}
                   title={`Config overhead: ${Math.round(configOverhead * 100)}% of context window used by tools, skills, and prompts`}
@@ -549,10 +562,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   effective model; clicking opens the LlmModelDropdown portal. Purple
                   accent only when a channel-level override is set. */}
               {modelPillVisible && (() => {
-                const hasOverride = !!modelOverride;
-                const effectiveName = modelOverride
-                  ? modelOverride.split("/").pop()
-                  : defaultModel?.split("/").pop();
                 const canRenderPill = !!effectiveName;
                 return (
                   <div ref={modelPickerRef} style={{ position: "relative", display: "flex", flexDirection: "row", alignItems: "center" }}>
@@ -667,15 +676,13 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   width: 36,
                   height: 36,
                   flexShrink: 0,
-                  borderRadius: isTerminalMode ? 8 : 10,
-                  border: isTerminalMode ? `1px solid ${canSend || showStop || recorder.isRecording ? t.accentBorder : terminalBorder}` : "none",
+                  borderRadius: isTerminalMode ? 0 : 10,
+                  border: isTerminalMode ? "none" : "none",
                   padding: 0,
                   cursor: (!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording) ? "default" : "pointer",
                   background: isTerminalMode ? undefined : (canSend && !showStop && !recorder.isRecording) ? `linear-gradient(135deg, ${t.accent}, ${t.purple})` : undefined,
                   backgroundColor: isTerminalMode
-                    ? canSend || showStop || recorder.isRecording
-                      ? `${t.accent}22`
-                      : "transparent"
+                    ? "transparent"
                     : (canSend && !showStop && !recorder.isRecording) ? undefined : sendBtnBg,
                   opacity: (showStop && !stopArmed) ? 0.4 : sendBtnOpacity,
                   transition: "background-color 0.15s, opacity 0.15s, border-color 0.15s",
@@ -693,6 +700,91 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               </button>
             </div>
           </div>
+          {isTerminalMode && onModelOverrideChange && (
+            <div
+              ref={modelPickerRef}
+              style={{
+                padding: "8px 0 0 8px",
+                display: "flex",
+                flexDirection: "row",
+                justifyContent: "flex-start",
+                alignItems: "center",
+                minHeight: 14,
+                minWidth: 0,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowModelPicker(true)}
+                title={hasOverride ? `Channel model override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName ?? "default"}`}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  margin: 0,
+                  color: hasOverride ? t.text : t.textDim,
+                  fontFamily: TERMINAL_FONT_STACK,
+                  fontSize: 11.5,
+                  lineHeight: 1.2,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  maxWidth: "100%",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {canRenderModelLabel ? effectiveName : "select model"}
+              </button>
+              {showModelPicker && (() => {
+                const rect = modelPickerRef.current?.getBoundingClientRect();
+                const dropdownWidth = Math.min(320, Math.max(220, window.innerWidth - 24));
+                const dropdownLeft = Math.max(12, Math.min(rect?.left ?? 16, window.innerWidth - dropdownWidth - 12));
+                const dropdownBottom = rect ? window.innerHeight - rect.top + 8 : 80;
+                return createPortal(
+                  <>
+                    <div
+                      onClick={() => setShowModelPicker(false)}
+                      style={{ position: "fixed", inset: 0, zIndex: 50000 }}
+                    />
+                    <div style={{ position: "fixed", bottom: dropdownBottom, left: dropdownLeft, zIndex: 50001, width: dropdownWidth }}>
+                      <LlmModelDropdownContent
+                        value={modelOverride ?? ""}
+                        selectedProviderId={modelProviderIdOverride}
+                        onSelect={(m, pid) => {
+                          onModelOverrideChange(m || undefined, pid);
+                          setShowModelPicker(false);
+                        }}
+                      />
+                      {hasOverride && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onModelOverrideChange(undefined, null);
+                            setShowModelPicker(false);
+                          }}
+                          style={{
+                            marginTop: 6,
+                            width: "100%",
+                            background: t.surfaceRaised,
+                            border: `1px solid ${t.surfaceBorder}`,
+                            borderRadius: 8,
+                            padding: "8px 12px",
+                            color: t.textMuted,
+                            fontSize: 12,
+                            cursor: "pointer",
+                            textAlign: "left",
+                          }}
+                        >
+                          Clear override - inherit {defaultModel ?? "default"}
+                        </button>
+                      )}
+                    </div>
+                  </>,
+                  document.body
+                );
+              })()}
+            </div>
+          )}
         </div>
       </div>
     );

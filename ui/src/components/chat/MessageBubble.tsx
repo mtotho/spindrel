@@ -12,6 +12,7 @@ import { MessageActions, TimestampActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
 import { RichToolResult } from "./RichToolResult";
 import { ThreadAnchor } from "./ThreadAnchor";
+import { TerminalPersistedToolTranscript } from "./TerminalToolTranscript";
 import { extractDisplayText, stripLegacyIngestPrefix, resolveDisplay, avatarColor } from "./messageUtils";
 import { normalizeToolCall } from "../../types/api";
 import { useToolResultCompact } from "../../stores/toolResultPref";
@@ -301,7 +302,20 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const messageContent = (
     <>
       {thinkingText.length > 0 && <HistoricalThinking text={thinkingText} t={t} />}
-      {richEnvelope ? (
+      {isTerminalMode && (richEnvelope || inlineWidgets.length > 0 || remainingToolNames.length > 0 || remainingToolCalls.length > 0) ? (
+        <TerminalPersistedToolTranscript
+          richEnvelope={richEnvelope}
+          richSource={(meta.source as string) || "event"}
+          inlineWidgets={inlineWidgets}
+          remainingToolNames={remainingToolNames}
+          remainingToolCalls={remainingToolCalls}
+          remainingToolResults={remainingToolResults}
+          channelId={channelId}
+          botId={senderBotId}
+          onPin={handlePinWidget}
+          t={t}
+        />
+      ) : richEnvelope ? (
         <div className="rounded-lg border mt-1.5" style={{ borderColor: t.surfaceBorder, backgroundColor: t.surfaceRaised }}>
           <div className="px-3 pt-2 pb-0.5">
             <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: t.textDim }}>
@@ -313,13 +327,12 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           </div>
         </div>
       ) : displayContent.length > 0 ? (
-        <MarkdownContent text={displayContent} t={t} />
+        <MarkdownContent text={displayContent} t={t} chatMode={chatMode} />
       ) : null}
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} />
       )}
-      {/* Inline widget cards — rendered outside ToolBadges chrome */}
-      {inlineWidgets.map((w, i) => (
+      {!isTerminalMode && inlineWidgets.map((w, i) => (
         <WidgetCard
           key={w.recordId ?? i}
           envelope={w.envelope}
@@ -334,8 +347,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           onPin={handlePinWidget}
         />
       ))}
-      {/* Remaining tool badges for non-widget results */}
-      {(remainingToolNames.length > 0 || remainingToolCalls.length > 0) && (
+      {!isTerminalMode && (remainingToolNames.length > 0 || remainingToolCalls.length > 0) && (
         <ToolBadges
           toolNames={remainingToolNames}
           toolCalls={remainingToolCalls}
@@ -423,7 +435,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             onClick={handleBotClick}
             className={handleBotClick ? "bot-name-link" : undefined}
             style={{
-              fontSize: isTerminalMode ? 12 : 15,
+              fontSize: isTerminalMode ? 14 : 15,
               fontWeight: isTerminalMode ? 600 : 700,
               color: isTerminalMode ? (isUser ? t.accent : avatarColor(displayName)) : isUser ? t.text : avatarColor(displayName),
               cursor: handleBotClick ? "pointer" : undefined,

@@ -8,6 +8,9 @@ export interface InstallCacheStats {
   apt_path: string;
   apt_bytes: number;
   apt_exists: boolean;
+  pkg_path: string;
+  pkg_bytes: number;
+  pkg_exists: boolean;
 }
 
 export interface ClearInstallCacheResult {
@@ -16,7 +19,7 @@ export interface ClearInstallCacheResult {
   errors: string[];
 }
 
-export type InstallCacheTarget = "home" | "apt" | "all";
+export type InstallCacheTarget = "home" | "apt" | "pkg" | "all";
 
 export function useInstallCacheStats() {
   return useQuery({

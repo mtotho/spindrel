@@ -104,6 +104,7 @@ export type ChatSource =
 
 export interface ChatSessionProps {
   source: ChatSource;
+  chatMode?: "default" | "terminal";
   /** Display mode — the controller renders the appropriate shell.
    *
    *   - ``dock`` — bottom-right panel with header chrome.
@@ -169,6 +170,7 @@ function ChannelChatSession({
   title,
   emptyState,
   initiallyExpanded,
+  chatMode = "default",
 }: ChannelChatSessionProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
@@ -269,6 +271,7 @@ function ChannelChatSession({
             channelId={source.channelId}
             isLatestBotMessage={isLatest}
             compact
+            chatMode={chatMode}
           />
         </>
       );
@@ -354,6 +357,47 @@ function ChannelChatSession({
     <div className="flex flex-col h-full">
       {header}
       <div className="flex-1 min-h-0 relative">
+        {chatMode === "terminal" ? (
+          <ChatMessageArea
+            invertedData={src.invertedData}
+            renderMessage={renderMessage}
+            chatState={src.chatState}
+            bot={bot}
+            botId={src.bot_id}
+            isLoading={src.isLoading}
+            isFetchingNextPage={src.isFetchingNextPage}
+            hasNextPage={src.hasNextPage}
+            handleLoadMore={src.fetchNextPage}
+            isProcessing={src.chatState.isProcessing}
+            t={t}
+            emptyStateComponent={emptyState}
+            scrollPaddingBottom={20}
+            chatMode={chatMode}
+            bottomSlot={
+              <>
+                {src.sendError && (
+                  <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+                    {src.sendError}
+                  </div>
+                )}
+                <MessageInput
+                  onSend={handleSendMsg}
+                  disabled={!src.bot_id}
+                  isStreaming={src.isStreaming}
+                  currentBotId={src.bot_id}
+                  channelId={source.channelId}
+                  modelOverride={src.modelOverride}
+                  modelProviderIdOverride={src.modelProviderIdOverride}
+                  onModelOverrideChange={src.setModelOverride}
+                  defaultModel={bot?.model}
+                  configOverhead={overheadPct}
+                  compact
+                  chatMode={chatMode}
+                />
+              </>
+            }
+          />
+        ) : (
         <ChatMessageArea
           invertedData={src.invertedData}
           renderMessage={renderMessage}
@@ -368,32 +412,37 @@ function ChannelChatSession({
           t={t}
           emptyStateComponent={emptyState}
           scrollPaddingBottom={inputOverlayHeight + 16}
+          chatMode={chatMode}
         />
+        )}
         {/* Composer overlay — messages scroll behind the frosted card
             (mirrors the main channel screen pattern). */}
-        <div
-          ref={inputOverlayRef}
-          className="absolute bottom-0 left-0 right-0 z-[4]"
-        >
-          {src.sendError && (
-            <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
-              {src.sendError}
-            </div>
-          )}
-          <MessageInput
-            onSend={handleSendMsg}
-            disabled={!src.bot_id}
-            isStreaming={src.isStreaming}
-            currentBotId={src.bot_id}
-            channelId={source.channelId}
-            modelOverride={src.modelOverride}
-            modelProviderIdOverride={src.modelProviderIdOverride}
-            onModelOverrideChange={src.setModelOverride}
-            defaultModel={bot?.model}
-            configOverhead={overheadPct}
-            compact
-          />
-        </div>
+        {chatMode !== "terminal" && (
+          <div
+            ref={inputOverlayRef}
+            className="absolute bottom-0 left-0 right-0 z-[4]"
+          >
+            {src.sendError && (
+              <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+                {src.sendError}
+              </div>
+            )}
+            <MessageInput
+              onSend={handleSendMsg}
+              disabled={!src.bot_id}
+              isStreaming={src.isStreaming}
+              currentBotId={src.bot_id}
+              channelId={source.channelId}
+              modelOverride={src.modelOverride}
+              modelProviderIdOverride={src.modelProviderIdOverride}
+              onModelOverrideChange={src.setModelOverride}
+              defaultModel={bot?.model}
+              configOverhead={overheadPct}
+              compact
+              chatMode={chatMode}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -435,6 +484,7 @@ function EphemeralChatSession({
   emptyState,
   initiallyExpanded,
   dismissMode,
+  chatMode = "default",
 }: EphemeralChatSessionProps) {
   const t = useThemeTokens();
   const qc = useQueryClient();
@@ -780,22 +830,83 @@ function EphemeralChatSession({
             parentChannelId={parentChannelId}
             botId={botId}
             emptyStateComponent={emptyState}
-            scrollPaddingBottom={inputOverlayHeight + 16}
+            scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
+            chatMode={chatMode}
+            bottomSlot={chatMode === "terminal" && !readOnly ? (
+              <>
+                {sendError && (
+                  <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+                    {sendError}
+                  </div>
+                )}
+                <MessageInput
+                  onSend={handleSend}
+                  disabled={!botId}
+                  isStreaming={isSending}
+                  currentBotId={botId || undefined}
+                  channelId={sessionId ?? undefined}
+                  modelOverride={modelOverride}
+                  modelProviderIdOverride={modelProviderId}
+                  onModelOverrideChange={setModelOverride}
+                  defaultModel={bots?.find((b) => b.id === botId)?.model}
+                  configOverhead={overheadPct}
+                  compact
+                  chatMode={chatMode}
+                />
+              </>
+            ) : undefined}
           />
         ) : (
-          <div
-            className="absolute inset-0 flex items-center justify-center text-text-dim text-sm px-4 text-center"
-            style={{ paddingBottom: inputOverlayHeight + 16 }}
-          >
-            {emptyState ?? "Send a message to start the conversation"}
-          </div>
+          <ChatMessageArea
+            invertedData={[]}
+            renderMessage={() => <></>}
+            chatState={{ turns: {} }}
+            bot={undefined}
+            botId={botId || undefined}
+            isLoading={false}
+            isFetchingNextPage={false}
+            hasNextPage={false}
+            handleLoadMore={() => {}}
+            isProcessing={false}
+            t={t}
+            emptyStateComponent={
+              <div className="flex items-center justify-center text-text-dim text-sm px-4 text-center">
+                {emptyState ?? "Send a message to start the conversation"}
+              </div>
+            }
+            scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
+            chatMode={chatMode}
+            bottomSlot={chatMode === "terminal" && !readOnly ? (
+              <>
+                {sendError && (
+                  <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+                    {sendError}
+                  </div>
+                )}
+                <MessageInput
+                  onSend={handleSend}
+                  disabled={!botId}
+                  isStreaming={isSending}
+                  currentBotId={botId || undefined}
+                  channelId={sessionId ?? undefined}
+                  modelOverride={modelOverride}
+                  modelProviderIdOverride={modelProviderId}
+                  onModelOverrideChange={setModelOverride}
+                  defaultModel={bots?.find((b) => b.id === botId)?.model}
+                  configOverhead={overheadPct}
+                  compact
+                  chatMode={chatMode}
+                />
+              </>
+            ) : undefined}
+          />
         )}
         {/* Composer overlay — messages scroll behind the frosted card
             (mirrors ChannelChatSession + the main channel screen). No
             border-top wrapper; the card's own elevation separates it.
             Hidden in read-only mode so archived sessions display as a
             transcript only. */}
-        {!readOnly && (
+        {!readOnly && chatMode !== "terminal" && (
           <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
             {sendError && (
               <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
@@ -814,6 +925,7 @@ function EphemeralChatSession({
               defaultModel={bots?.find((b) => b.id === botId)?.model}
               configOverhead={overheadPct}
               compact
+              chatMode={chatMode}
             />
           </div>
         )}
@@ -890,6 +1002,7 @@ function ThreadChatSession({
   emptyState,
   initiallyExpanded,
   dismissMode,
+  chatMode = "default",
 }: ThreadChatSessionProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
@@ -1082,8 +1195,35 @@ function ThreadChatSession({
             parentChannelId={parentChannelId}
             botId={botId}
             emptyStateComponent={emptyState}
-            scrollPaddingBottom={inputOverlayHeight + 16}
+            scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
             syntheticMessages={syntheticMessages}
+            chatMode={chatMode}
+            bottomSlot={chatMode === "terminal" ? (
+              <>
+                {sendError && (
+                  <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+                    {sendError}
+                  </div>
+                )}
+                <MessageInput
+                  onSend={handleSend}
+                  disabled={!botId}
+                  isStreaming={isSending}
+                  currentBotId={botId}
+                  channelId={storeKey}
+                  defaultModel={bot?.model}
+                  configOverhead={overheadPct}
+                  modelOverride={modelOverride}
+                  modelProviderIdOverride={modelProviderId}
+                  onModelOverrideChange={(m, providerId) => {
+                    setModelOverride(m ?? undefined);
+                    setModelProviderId(providerId ?? null);
+                  }}
+                  compact
+                  chatMode={chatMode}
+                />
+              </>
+            ) : undefined}
           />
         ) : (
           <ChatMessageArea
@@ -1100,32 +1240,62 @@ function ThreadChatSession({
             handleLoadMore={() => {}}
             isProcessing={false}
             t={t}
-            scrollPaddingBottom={inputOverlayHeight + 16}
+            scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
+            chatMode={chatMode}
+            bottomSlot={chatMode === "terminal" ? (
+              <>
+                {sendError && (
+                  <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+                    {sendError}
+                  </div>
+                )}
+                <MessageInput
+                  onSend={handleSend}
+                  disabled={!botId}
+                  isStreaming={isSending}
+                  currentBotId={botId}
+                  channelId={storeKey}
+                  defaultModel={bot?.model}
+                  configOverhead={overheadPct}
+                  modelOverride={modelOverride}
+                  modelProviderIdOverride={modelProviderId}
+                  onModelOverrideChange={(m, providerId) => {
+                    setModelOverride(m ?? undefined);
+                    setModelProviderId(providerId ?? null);
+                  }}
+                  compact
+                  chatMode={chatMode}
+                />
+              </>
+            ) : undefined}
           />
         )}
-        <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
-          {sendError && (
-            <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
-              {sendError}
-            </div>
-          )}
-          <MessageInput
-            onSend={handleSend}
-            disabled={!botId}
-            isStreaming={isSending}
-            currentBotId={botId}
-            channelId={storeKey}
-            defaultModel={bot?.model}
-            configOverhead={overheadPct}
-            modelOverride={modelOverride}
-            modelProviderIdOverride={modelProviderId}
-            onModelOverrideChange={(m, providerId) => {
-              setModelOverride(m ?? undefined);
-              setModelProviderId(providerId ?? null);
-            }}
-            compact
-          />
-        </div>
+        {chatMode !== "terminal" && (
+          <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
+            {sendError && (
+              <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+                {sendError}
+              </div>
+            )}
+            <MessageInput
+              onSend={handleSend}
+              disabled={!botId}
+              isStreaming={isSending}
+              currentBotId={botId}
+              channelId={storeKey}
+              defaultModel={bot?.model}
+              configOverhead={overheadPct}
+              modelOverride={modelOverride}
+              modelProviderIdOverride={modelProviderId}
+              onModelOverrideChange={(m, providerId) => {
+                setModelOverride(m ?? undefined);
+                setModelProviderId(providerId ?? null);
+              }}
+              compact
+              chatMode={chatMode}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

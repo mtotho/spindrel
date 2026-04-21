@@ -825,6 +825,25 @@ export default function ChatScreen() {
     t,
     chatMode,
   };
+  const terminalBottomSlot = chatMode === "terminal" ? (
+    <>
+      {chatState.error && (
+        <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
+      )}
+      {chatState.secretWarning && (
+        <SecretWarningBanner
+          patterns={chatState.secretWarning.patterns}
+          onDismiss={() => channelId && useChatStore.setState((s) => ({
+            channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
+          }))}
+        />
+      )}
+      {inputBars.map((h) => (
+        <HudInputBar key={h.key} hud={h} />
+      ))}
+      <MessageInput {...messageInputProps} />
+    </>
+  ) : null;
 
   // ---- Scratch column (full-page mode) ----
   // When isScratchRoute is true, swaps in for the normal chat column. Wraps
@@ -872,6 +891,7 @@ export default function ChatScreen() {
               navigate(`/channels/${channelId}`);
             }}
             title={scratchIsArchive ? "Archived scratch" : "Scratch pad"}
+            chatMode={chatMode}
           />
         </div>
       </div>
@@ -995,13 +1015,18 @@ export default function ChatScreen() {
           {scratchColumnNode ? (
             scratchColumnNode
           ) : (
-          <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-            <ChatMessageArea {...messageAreaProps} scrollPaddingBottom={inputOverlayHeight + (isMobile ? 32 : 48)} />
-            {floatingActions.map((h) => (
-              <HudFloatingAction key={h.key} hud={h} />
-            ))}
-            {/* Composer overlay — messages scroll behind the frosted input. */}
-            <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+            <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+              <ChatMessageArea {...messageAreaProps} bottomSlot={terminalBottomSlot} scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + (isMobile ? 32 : 48)} />
+              {floatingActions.map((h) => (
+                <HudFloatingAction key={h.key} hud={h} />
+              ))}
+            </div>
+            {chatMode !== "terminal" && (
+            <div
+              ref={inputOverlayRef}
+              style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}
+            >
               {chatState.error && (
                 <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
               )}
@@ -1018,6 +1043,7 @@ export default function ChatScreen() {
               ))}
               <MessageInput {...messageInputProps} />
             </div>
+            )}
           </div>
           )}
           {/* Mobile channel drawer — tabbed Widgets/Files/Jump; opens from
@@ -1133,18 +1159,19 @@ export default function ChatScreen() {
           )}
           {!dashboardOnly && (!showFileViewer || splitMode) && !scratchColumnNode && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-              <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-                <ChatMessageArea
-                  {...messageAreaProps}
-                  scrollPaddingTop={0}
-                  scrollPaddingBottom={inputOverlayHeight + 48}
-                />
-                {floatingActions.map((h) => (
-                  <HudFloatingAction key={h.key} hud={h} />
-                ))}
-                {/* Composer overlay — messages scroll behind the frosted input.
-                    Banners + strips + bars + input all share the overlay so
-                    they sit above the chat content at the bottom. */}
+              <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+                <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+                  <ChatMessageArea
+                    {...messageAreaProps}
+                    bottomSlot={terminalBottomSlot}
+                    scrollPaddingTop={0}
+                    scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 48}
+                  />
+                  {floatingActions.map((h) => (
+                    <HudFloatingAction key={h.key} hud={h} />
+                  ))}
+                </div>
+                {chatMode !== "terminal" && (
                 <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
                   {chatState.error && (
                     <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
@@ -1164,6 +1191,7 @@ export default function ChatScreen() {
                     <MessageInput {...messageInputProps} />
                   </div>
                 </div>
+                )}
               </div>
             </div>
           )}
@@ -1351,6 +1379,7 @@ export default function ChatScreen() {
           onClose={handleClearActiveThread}
           title="Thread"
           initiallyExpanded
+          chatMode={chatMode}
         />
       )}
       {scratchSource && !activeThread && !isScratchRoute && (
@@ -1361,6 +1390,7 @@ export default function ChatScreen() {
           onClose={handleScratchClose}
           title="Scratch chat"
           initiallyExpanded
+          chatMode={chatMode}
         />
       )}
       {isScratchRoute && channelId && (
@@ -1427,7 +1457,9 @@ function ThreadFullScreenMount({
   threadSessionId: string;
 }) {
   const navigate = useNavigate();
+  const { data: channel } = useChannel(channelId);
   const { data: info } = useThreadInfo(threadSessionId);
+  const chatMode = ((channel?.config?.chat_mode ?? "default") as "default" | "terminal");
   const handleClose = useCallback(() => {
     navigate(`/channels/${channelId}`);
   }, [channelId, navigate]);
@@ -1469,6 +1501,7 @@ function ThreadFullScreenMount({
         parentChannelId={channelId}
         botId={info.bot_id}
         parentMessage={info.parent_message ?? null}
+        chatMode={chatMode}
       />
     </div>
   );
@@ -1483,11 +1516,13 @@ function ThreadFullScreenBody({
   parentChannelId,
   botId,
   parentMessage,
+  chatMode = "default",
 }: {
   threadSessionId: string;
   parentChannelId: string;
   botId: string;
   parentMessage: Message | null;
+  chatMode?: "default" | "terminal";
 }) {
   const submitChat = useSubmitChat();
   const chatState = useChatStore((s) => s.getChannel(threadSessionId));
@@ -1545,6 +1580,7 @@ function ThreadFullScreenBody({
           botId={botId}
           scrollPaddingBottom={inputOverlayHeight + 16}
           syntheticMessages={syntheticMessages}
+          chatMode={chatMode}
         />
         <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
           {sendError && (
@@ -1564,6 +1600,7 @@ function ThreadFullScreenBody({
               setModelOverride(m ?? undefined);
               setModelProviderId(providerId ?? null);
             }}
+            chatMode={chatMode}
           />
         </div>
       </div>

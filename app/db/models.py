@@ -957,6 +957,7 @@ class Skill(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped[str | None] = mapped_column(Text, nullable=True)
     triggers: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"), nullable=False)
+    scripts: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     content_hash: Mapped[str] = mapped_column(Text, nullable=False, default="")
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)

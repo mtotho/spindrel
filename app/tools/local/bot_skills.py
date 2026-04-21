@@ -16,6 +16,10 @@ BOT_SKILL_COUNT_WARNING = 50
 CONTENT_MIN_LENGTH = 50
 CONTENT_MAX_LENGTH = 50_000  # 50KB
 NAME_MAX_LENGTH = 100
+MAX_SCRIPTS_PER_SKILL = 20
+SCRIPT_BODY_MAX_LENGTH = 50_000
+SCRIPT_DESCRIPTION_MAX_LENGTH = 300
+SCRIPT_TIMEOUT_MAX = 300
 STALE_NEVER_SURFACED_DAYS = 7   # never surfaced + older than this = stale
 STALE_LAST_SURFACED_DAYS = 30   # last surfaced longer ago than this = stale
 
@@ -90,6 +94,94 @@ def _validate_name(name: str) -> str | None:
     return None
 
 
+def _normalize_script_name(name: str) -> str:
+    return _slugify(name)
+
+
+def _summarize_scripts(scripts: list[dict] | None) -> list[dict[str, str | int | None]]:
+    summary: list[dict[str, str | int | None]] = []
+    for script in scripts or []:
+        summary.append({
+            "name": script.get("name", ""),
+            "description": script.get("description", ""),
+            "timeout_s": script.get("timeout_s"),
+        })
+    return summary
+
+
+def _validate_scripts_payload(
+    scripts: list[dict] | None,
+    *,
+    require_description: bool,
+) -> tuple[list[dict], str | None]:
+    if scripts is None:
+        return [], None
+    if not isinstance(scripts, list):
+        return [], "scripts must be a list of objects."
+    if len(scripts) > MAX_SCRIPTS_PER_SKILL:
+        return [], f"Too many scripts ({len(scripts)}). Maximum is {MAX_SCRIPTS_PER_SKILL}."
+
+    normalized: list[dict] = []
+    seen: set[str] = set()
+    for idx, raw in enumerate(scripts):
+        if not isinstance(raw, dict):
+            return [], f"scripts[{idx}] must be an object."
+        name = str(raw.get("name") or "").strip()
+        description = str(raw.get("description") or "").strip()
+        script = str(raw.get("script") or "")
+        timeout_raw = raw.get("timeout_s")
+        normalized_name = _normalize_script_name(name)
+        if not normalized_name:
+            return [], f"scripts[{idx}].name is required."
+        if normalized_name in seen:
+            return [], f"Duplicate script name '{normalized_name}'."
+        if normalized_name != name:
+            return [], (
+                f"scripts[{idx}].name must already be normalized as '{normalized_name}' "
+                "using lowercase letters, numbers, and hyphens."
+            )
+        if require_description and not description:
+            return [], f"scripts[{idx}].description is required."
+        if len(description) > SCRIPT_DESCRIPTION_MAX_LENGTH:
+            return [], (
+                f"scripts[{idx}].description too long ({len(description)} chars). "
+                f"Maximum is {SCRIPT_DESCRIPTION_MAX_LENGTH} characters."
+            )
+        if not script.strip():
+            return [], f"scripts[{idx}].script is required."
+        if len(script) > SCRIPT_BODY_MAX_LENGTH:
+            return [], (
+                f"scripts[{idx}].script too large ({len(script)} chars). "
+                f"Maximum is {SCRIPT_BODY_MAX_LENGTH} characters."
+            )
+        timeout_s: int | None = None
+        if timeout_raw not in (None, ""):
+            try:
+                timeout_s = int(timeout_raw)
+            except (TypeError, ValueError):
+                return [], f"scripts[{idx}].timeout_s must be an integer."
+            if timeout_s < 5 or timeout_s > SCRIPT_TIMEOUT_MAX:
+                return [], (
+                    f"scripts[{idx}].timeout_s must be between 5 and {SCRIPT_TIMEOUT_MAX}."
+                )
+        normalized.append({
+            "name": normalized_name,
+            "description": description,
+            "script": script,
+            "timeout_s": timeout_s,
+        })
+        seen.add(normalized_name)
+    return normalized, None
+
+
+def _get_script_by_name(scripts: list[dict] | None, script_name: str) -> dict | None:
+    normalized = _normalize_script_name(script_name)
+    for script in scripts or []:
+        if script.get("name") == normalized:
+            return script
+    return None
+
+
 def _extract_body(full_content: str) -> str:
     """Extract the markdown body from content that may have YAML frontmatter."""
     if full_content.startswith("---"):
@@ -149,7 +241,10 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["create", "update", "list", "get", "delete", "patch", "merge", "restore"],
+                    "enum": [
+                        "create", "update", "list", "get", "delete", "patch", "merge", "restore",
+                        "get_script", "add_script", "update_script", "delete_script",
+                    ],
                     "description": "The action to perform. delete archives the skill (reversible via restore).",
                 },
                 "name": {
@@ -176,6 +271,36 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
                     "description": (
                         "Organizational tag: troubleshooting, domain-knowledge, procedures, etc."
                     ),
+                },
+                "scripts": {
+                    "type": "array",
+                    "description": "Optional named run_script snippets attached to the skill.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "description": {"type": "string"},
+                            "script": {"type": "string"},
+                            "timeout_s": {"type": "integer"},
+                        },
+                        "required": ["name", "description", "script"],
+                    },
+                },
+                "script_name": {
+                    "type": "string",
+                    "description": "Named attached script to get/add/update/delete.",
+                },
+                "script_description": {
+                    "type": "string",
+                    "description": "Short use-when summary for a named script.",
+                },
+                "script_body": {
+                    "type": "string",
+                    "description": "Python source for the named script.",
+                },
+                "script_timeout_s": {
+                    "type": "integer",
+                    "description": "Optional default timeout for the named script.",
                 },
                 "old_text": {
                     "type": "string",
@@ -230,6 +355,19 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
                             "last_surfaced_at": {"type": ["string", "null"]},
                             "surface_count": {"type": "integer"},
                             "stale": {"type": "boolean"},
+                            "script_count": {"type": "integer"},
+                            "scripts": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string"},
+                                        "description": {"type": "string"},
+                                        "timeout_s": {"type": ["integer", "null"]},
+                                    },
+                                    "required": ["name", "description"],
+                                },
+                            },
                         },
                         "required": ["id", "name"],
                     },
@@ -250,8 +388,33 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
                 "name": {"type": "string"},
                 "content": {"type": "string"},
                 "updated_at": {"type": ["string", "null"]},
+                "scripts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "description": {"type": "string"},
+                            "timeout_s": {"type": ["integer", "null"]},
+                        },
+                        "required": ["name", "description"],
+                    },
+                },
             },
             "required": ["id", "content"],
+        },
+        {
+            "description": "get_script action",
+            "type": "object",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "id": {"type": "string"},
+                "script_name": {"type": "string"},
+                "script_description": {"type": "string"},
+                "script_body": {"type": "string"},
+                "script_timeout_s": {"type": ["integer", "null"]},
+            },
+            "required": ["ok", "id", "script_name", "script_body"],
         },
         {
             "description": "create/update/delete/restore/patch/merge — success",
@@ -291,6 +454,11 @@ async def manage_bot_skill(
     content: str = "",
     triggers: str = "",
     category: str = "",
+    scripts: list[dict] | None = None,
+    script_name: str = "",
+    script_description: str = "",
+    script_body: str = "",
+    script_timeout_s: int | None = None,
     old_text: str = "",
     new_text: str = "",
     force: bool = False,
@@ -344,6 +512,8 @@ async def manage_bot_skill(
                 "last_surfaced_at": r.last_surfaced_at.isoformat() if r.last_surfaced_at else None,
                 "surface_count": r.surface_count,
                 "stale": stale,
+                "script_count": len(r.scripts or []),
+                "scripts": _summarize_scripts(r.scripts),
             })
         result: dict = {
             "skills": summary,
@@ -377,6 +547,30 @@ async def manage_bot_skill(
             "name": row.name,
             "content": row.content,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            "scripts": _summarize_scripts(row.scripts),
+        }, ensure_ascii=False)
+
+    # --- GET SCRIPT ---
+    if action == "get_script":
+        if not name or not script_name:
+            return json.dumps({"error": "name and script_name are required for get_script action."}, ensure_ascii=False)
+        skill_id, err = _safe_skill_id(bot_id, name)
+        if err:
+            return err
+        async with async_session() as db:
+            row = await db.get(SkillRow, skill_id)
+        if not row:
+            return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
+        script_row = _get_script_by_name(row.scripts, script_name)
+        if not script_row:
+            return json.dumps({"error": f"Script '{_normalize_script_name(script_name)}' not found on '{skill_id}'."}, ensure_ascii=False)
+        return json.dumps({
+            "ok": True,
+            "id": row.id,
+            "script_name": script_row["name"],
+            "script_description": script_row.get("description", ""),
+            "script_body": script_row.get("script", ""),
+            "script_timeout_s": script_row.get("timeout_s"),
         }, ensure_ascii=False)
 
     # --- CREATE ---
@@ -389,6 +583,9 @@ async def manage_bot_skill(
         content_err = _validate_content(content)
         if content_err:
             return json.dumps({"error": content_err}, ensure_ascii=False)
+        normalized_scripts, scripts_err = _validate_scripts_payload(scripts, require_description=True)
+        if scripts_err:
+            return json.dumps({"error": scripts_err}, ensure_ascii=False)
         skill_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
@@ -416,6 +613,7 @@ async def manage_bot_skill(
                 description=content[:200].strip() if content else None,
                 category=category.strip() if category else None,
                 triggers=_triggers_list,
+                scripts=normalized_scripts,
                 content=full_content,
                 content_hash=content_hash,
                 source_type="tool",
@@ -456,12 +654,18 @@ async def manage_bot_skill(
                 return json.dumps({"error": "Cannot update another bot's skill."}, ensure_ascii=False)
 
             if not title and not content and not triggers and not category:
-                return json.dumps({"error": "Provide at least one of: title, content, triggers, category."}, ensure_ascii=False)
+                if scripts is None:
+                    return json.dumps({"error": "Provide at least one of: title, content, triggers, category, scripts."}, ensure_ascii=False)
 
             if content:
                 content_err = _validate_content(content)
                 if content_err:
                     return json.dumps({"error": content_err}, ensure_ascii=False)
+            normalized_scripts: list[dict] | None = None
+            if scripts is not None:
+                normalized_scripts, scripts_err = _validate_scripts_payload(scripts, require_description=True)
+                if scripts_err:
+                    return json.dumps({"error": scripts_err}, ensure_ascii=False)
 
             # Merge with existing frontmatter so partial updates don't drop fields
             existing_fm = _extract_frontmatter(row.content)
@@ -483,6 +687,8 @@ async def manage_bot_skill(
                 row.category = new_category.strip()
             if content:
                 row.description = content[:200].strip()
+            if normalized_scripts is not None:
+                row.scripts = normalized_scripts
 
             row.updated_at = datetime.now(timezone.utc)
             await db.commit()
@@ -573,7 +779,7 @@ async def manage_bot_skill(
             # Keep DB columns in sync with patched content
             patched_fm = _extract_frontmatter(patched)
             patched_body = _extract_body(patched)
-            row.name = patched_fm.get("title", row.name)
+            row.name = patched_fm.get("name", row.name)
             row.description = patched_body[:200].strip() if patched_body else row.description
             _patched_triggers = patched_fm.get("triggers", "")
             row.triggers = [t.strip() for t in _patched_triggers.split(",") if t.strip()] if _patched_triggers else (row.triggers or [])
@@ -602,6 +808,9 @@ async def manage_bot_skill(
         content_err = _validate_content(content)
         if content_err:
             return json.dumps({"error": content_err}, ensure_ascii=False)
+        normalized_scripts, scripts_err = _validate_scripts_payload(scripts, require_description=True)
+        if scripts_err:
+            return json.dumps({"error": scripts_err}, ensure_ascii=False)
         merged_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
@@ -635,6 +844,23 @@ async def manage_bot_skill(
                     return json.dumps({"error": f"Cannot merge another bot's skill '{src_id}'."}, ensure_ascii=False)
                 source_rows.append(row)
 
+            merged_scripts = normalized_scripts
+            if scripts is None:
+                merged_scripts = []
+                seen_script_names: set[str] = set()
+                for row in source_rows:
+                    for attached in row.scripts or []:
+                        attached_name = attached.get("name", "")
+                        if attached_name in seen_script_names:
+                            return json.dumps({
+                                "error": (
+                                    f"Cannot merge scripts automatically: duplicate attached script "
+                                    f"name '{attached_name}'. Provide scripts=[...] on the merge action."
+                                ),
+                            }, ensure_ascii=False)
+                        merged_scripts.append(attached)
+                        seen_script_names.add(attached_name)
+
             # Check if merged target already exists (and isn't one of the sources)
             existing = await db.get(SkillRow, merged_id)
             if existing and merged_id not in source_ids:
@@ -658,6 +884,7 @@ async def manage_bot_skill(
                 description=content[:200].strip() if content else None,
                 category=category.strip() if category else None,
                 triggers=_triggers_list,
+                scripts=merged_scripts,
                 content=full_content,
                 content_hash=content_hash,
                 source_type="tool",
@@ -680,7 +907,118 @@ async def manage_bot_skill(
             ),
         }, ensure_ascii=False)
 
-    return json.dumps({"error": f"Unknown action: {action}. Use create, update, list, get, delete, patch, merge, or restore."}, ensure_ascii=False)
+    # --- ADD SCRIPT ---
+    if action == "add_script":
+        if not name or not script_name or not script_body or not script_description:
+            return json.dumps({
+                "error": "name, script_name, script_description, and script_body are required for add_script action.",
+            }, ensure_ascii=False)
+        skill_id, err = _safe_skill_id(bot_id, name)
+        if err:
+            return err
+        new_scripts, scripts_err = _validate_scripts_payload([{
+            "name": script_name,
+            "description": script_description,
+            "script": script_body,
+            "timeout_s": script_timeout_s,
+        }], require_description=True)
+        if scripts_err:
+            return json.dumps({"error": scripts_err}, ensure_ascii=False)
+        new_script = new_scripts[0]
+        async with async_session() as db:
+            row = await db.get(SkillRow, skill_id)
+            if not row:
+                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
+            if row.source_type not in ("tool", "manual"):
+                return json.dumps({"error": "Cannot edit scripts on a file-managed or integration skill."}, ensure_ascii=False)
+            if _get_script_by_name(row.scripts, new_script["name"]):
+                return json.dumps({"error": f"Script '{new_script['name']}' already exists on '{skill_id}'."}, ensure_ascii=False)
+            combined_scripts, combined_err = _validate_scripts_payload(
+                [*(row.scripts or []), new_script],
+                require_description=True,
+            )
+            if combined_err:
+                return json.dumps({"error": combined_err}, ensure_ascii=False)
+            row.scripts = combined_scripts
+            row.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+        _invalidate_cache(bot_id)
+        return json.dumps({"ok": True, "id": skill_id, "message": f"Script '{new_script['name']}' added to '{skill_id}'."}, ensure_ascii=False)
+
+    # --- UPDATE SCRIPT ---
+    if action == "update_script":
+        if not name or not script_name:
+            return json.dumps({"error": "name and script_name are required for update_script action."}, ensure_ascii=False)
+        skill_id, err = _safe_skill_id(bot_id, name)
+        if err:
+            return err
+        normalized_name = _normalize_script_name(script_name)
+        async with async_session() as db:
+            row = await db.get(SkillRow, skill_id)
+            if not row:
+                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
+            if row.source_type not in ("tool", "manual"):
+                return json.dumps({"error": "Cannot edit scripts on a file-managed or integration skill."}, ensure_ascii=False)
+            current = _get_script_by_name(row.scripts, normalized_name)
+            if not current:
+                return json.dumps({"error": f"Script '{normalized_name}' not found on '{skill_id}'."}, ensure_ascii=False)
+            next_name = current["name"]
+            next_description = current.get("description", "")
+            next_body = current.get("script", "")
+            next_timeout = current.get("timeout_s")
+            if script_description:
+                next_description = script_description
+            if script_body:
+                next_body = script_body
+            if script_timeout_s is not None:
+                next_timeout = script_timeout_s
+            new_scripts, scripts_err = _validate_scripts_payload([{
+                "name": next_name,
+                "description": next_description,
+                "script": next_body,
+                "timeout_s": next_timeout,
+            }], require_description=True)
+            if scripts_err:
+                return json.dumps({"error": scripts_err}, ensure_ascii=False)
+            updated_script = new_scripts[0]
+            replaced = []
+            for attached in row.scripts or []:
+                replaced.append(updated_script if attached.get("name") == normalized_name else attached)
+            row.scripts = replaced
+            row.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+        _invalidate_cache(bot_id)
+        return json.dumps({"ok": True, "id": skill_id, "message": f"Script '{normalized_name}' updated on '{skill_id}'."}, ensure_ascii=False)
+
+    # --- DELETE SCRIPT ---
+    if action == "delete_script":
+        if not name or not script_name:
+            return json.dumps({"error": "name and script_name are required for delete_script action."}, ensure_ascii=False)
+        skill_id, err = _safe_skill_id(bot_id, name)
+        if err:
+            return err
+        normalized_name = _normalize_script_name(script_name)
+        async with async_session() as db:
+            row = await db.get(SkillRow, skill_id)
+            if not row:
+                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
+            if row.source_type not in ("tool", "manual"):
+                return json.dumps({"error": "Cannot edit scripts on a file-managed or integration skill."}, ensure_ascii=False)
+            current_scripts = row.scripts or []
+            if not _get_script_by_name(current_scripts, normalized_name):
+                return json.dumps({"error": f"Script '{normalized_name}' not found on '{skill_id}'."}, ensure_ascii=False)
+            row.scripts = [attached for attached in current_scripts if attached.get("name") != normalized_name]
+            row.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+        _invalidate_cache(bot_id)
+        return json.dumps({"ok": True, "id": skill_id, "message": f"Script '{normalized_name}' deleted from '{skill_id}'."}, ensure_ascii=False)
+
+    return json.dumps({
+        "error": (
+            f"Unknown action: {action}. Use create, update, list, get, delete, patch, merge, "
+            "restore, get_script, add_script, update_script, or delete_script."
+        ),
+    }, ensure_ascii=False)
 
 
 def _invalidate_cache(bot_id: str) -> None:

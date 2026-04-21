@@ -1,18 +1,25 @@
 """Persistent install-cache inspection + reset — /admin/install-cache.
 
-Two named Docker volumes persist across `spindrel pull` rebuilds so
-integration dependencies (chromium via apt, npm-global binaries like the
-claude CLI, pip caches, playwright browsers) don't get wiped on every
-container rebuild:
+Three named Docker volumes persist across ``spindrel pull`` rebuilds so
+integration dependencies (chromium, gh, pip, npm, playwright, HF model
+caches, agent-installed tools) don't get wiped on every rebuild:
 
+- ``/opt/spindrel-pkg``       — ``dpkg -x``-extracted apt packages. This is
+                                where chromium, gh, and other apt deps
+                                actually live; PATH + LD_LIBRARY_PATH in the
+                                entrypoint point here. Survives rebuild →
+                                ``_is_system_dep_available()`` finds the
+                                binary and ``integration_deps`` skips
+                                reinstall entirely.
 - ``/home/spindrel``          — user-home writes: ``.local/bin``, ``.cache/pip``,
-                                ``.cache/ms-playwright``, ``.npm``, ``.claude``,
-                                and any ad-hoc files agents install into home.
-- ``/var/cache/apt/archives`` — downloaded ``.deb`` files. Apt binaries in
-                                ``/usr/bin`` still vanish on rebuild; the
-                                existing ``integration_deps`` reinstall loop
-                                then pulls from this cache instead of the
-                                network (typically 5–10× faster).
+                                ``.cache/ms-playwright``, ``.cache/huggingface``,
+                                ``.npm``, ``.claude``, and any ad-hoc files
+                                agents install into home.
+- ``/var/cache/apt/archives`` — downloaded ``.deb`` files. Used as the
+                                source for dpkg -x when installing new
+                                packages; also means apt-get metadata
+                                updates don't have to re-download on every
+                                boot.
 
 This router exposes a GET for sizes and a POST to wipe the caches when
 something gets wedged (stale package, corrupted cache).
@@ -37,6 +44,7 @@ router = APIRouter(prefix="/install-cache", tags=["Install Cache"])
 
 HOME_PATH = Path("/home/spindrel")
 APT_PATH = Path("/var/cache/apt/archives")
+PKG_PATH = Path("/opt/spindrel-pkg")
 
 
 class InstallCacheStats(BaseModel):
@@ -46,10 +54,13 @@ class InstallCacheStats(BaseModel):
     apt_path: str
     apt_bytes: int
     apt_exists: bool
+    pkg_path: str
+    pkg_bytes: int
+    pkg_exists: bool
 
 
 class ClearRequest(BaseModel):
-    target: Literal["home", "apt", "all"] = "all"
+    target: Literal["home", "apt", "pkg", "all"] = "all"
 
 
 class ClearResult(BaseModel):
@@ -74,7 +85,7 @@ def _dir_size(path: Path) -> int:
 
 @router.get("", response_model=InstallCacheStats)
 async def install_cache_stats(_auth=Depends(require_scopes("admin"))):
-    """Report on-disk size of both install-cache volumes."""
+    """Report on-disk size of all three install-cache volumes."""
     return InstallCacheStats(
         home_path=str(HOME_PATH),
         home_bytes=_dir_size(HOME_PATH) if HOME_PATH.exists() else 0,
@@ -82,6 +93,9 @@ async def install_cache_stats(_auth=Depends(require_scopes("admin"))):
         apt_path=str(APT_PATH),
         apt_bytes=_dir_size(APT_PATH) if APT_PATH.exists() else 0,
         apt_exists=APT_PATH.exists(),
+        pkg_path=str(PKG_PATH),
+        pkg_bytes=_dir_size(PKG_PATH) if PKG_PATH.exists() else 0,
+        pkg_exists=PKG_PATH.exists(),
     )
 
 
@@ -152,12 +166,39 @@ async def _clear_apt() -> tuple[int, list[str]]:
     return max(0, freed_before - freed_after), errors
 
 
+def _clear_pkg() -> tuple[int, list[str]]:
+    """Wipe /opt/spindrel-pkg contents.
+
+    Volume is chowned to spindrel in the entrypoint so we can rm without
+    sudo. Never removes the mount point itself.
+    """
+    errors: list[str] = []
+    freed = 0
+    if not PKG_PATH.exists():
+        return 0, errors
+
+    for entry in PKG_PATH.iterdir():
+        try:
+            if entry.is_symlink() or entry.is_file():
+                try:
+                    freed += entry.stat().st_size
+                except OSError:
+                    pass
+                entry.unlink()
+            elif entry.is_dir():
+                freed += _dir_size(entry)
+                shutil.rmtree(entry)
+        except OSError as e:
+            errors.append(f"{entry}: {e}")
+    return freed, errors
+
+
 @router.post("/clear", response_model=ClearResult)
 async def install_cache_clear(
     body: ClearRequest | None = None,
     _auth=Depends(require_scopes("admin")),
 ):
-    """Wipe one or both install caches in-place.
+    """Wipe one or more install caches in-place.
 
     Never removes the mount points themselves (that would break the
     volumes until container restart).
@@ -167,9 +208,15 @@ async def install_cache_clear(
     freed_total = 0
     errors: list[str] = []
 
+    if target in ("pkg", "all"):
+        logger.info("install-cache clear: wiping /opt/spindrel-pkg")
+        freed, errs = await asyncio.to_thread(_clear_pkg)
+        freed_total += freed
+        errors.extend(errs)
+        cleared.append("pkg")
+
     if target in ("home", "all"):
         logger.info("install-cache clear: wiping /home/spindrel")
-        # Offload sync file ops to a thread so we don't block the event loop.
         freed, errs = await asyncio.to_thread(_clear_home)
         freed_total += freed
         errors.extend(errs)

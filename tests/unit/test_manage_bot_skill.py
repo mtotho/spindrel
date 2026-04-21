@@ -256,6 +256,7 @@ class TestCreate:
         assert await db_session.get(Skill, "bots/testbot/forced") is not None
 
 
+
 class TestList:
 
     @pytest.mark.asyncio

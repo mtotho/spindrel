@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, skills, simplification]
 status: complete
-updated: 2026-04-15
+updated: 2026-04-21
 ---
 # Track — Skill & Capability Simplification
 
@@ -31,6 +31,7 @@ Dropped `skills_disabled` and `skills_extra` columns (migration 195). Remaining 
 
 ## Key invariants (current state)
 - **Skills table** is a managed document store: name + description + content + triggers
+- **Bot-authored skills may carry named `run_script` snippets** — stored separately in `skills.scripts`, managed via `manage_bot_skill` script CRUD, executed through `run_script(skill_name=..., script_name=...)`
 - **Bot-authored skills** stay (agents writing reference docs for themselves is good)
 - **`get_skill()` / `get_skill_list()`** are auto-injected for all bots
 - **Enrolled skills are ranked per-turn** — RAG as ranker, not filter (all enrolled stay visible)

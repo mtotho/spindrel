@@ -13,6 +13,7 @@ def build_skill(**overrides) -> Skill:
         name=f"Test Skill {suffix}",
         description="Test skill.",
         triggers=[],
+        scripts=[],
         content="Test skill content.",
         content_hash=f"hash-{suffix}",
     )

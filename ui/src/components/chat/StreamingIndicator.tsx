@@ -5,6 +5,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { formatToolArgs } from "./toolCallUtils";
 import { useDecideApproval, type DecideRequest } from "../../api/hooks/useApprovals";
 import { Avatar } from "./MessageActions";
+import { TerminalStreamingToolTranscript } from "./TerminalToolTranscript";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
@@ -634,7 +635,11 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
         )}
 
         {/* Tool calls in progress */}
-        {toolCalls.length > 0 && <ToolCallCards toolCalls={toolCalls} t={t} botId={botId} />}
+        {toolCalls.length > 0 && (
+          isTerminalMode
+            ? <TerminalStreamingToolTranscript toolCalls={toolCalls} t={t} />
+            : <ToolCallCards toolCalls={toolCalls} t={t} botId={botId} />
+        )}
 
         {/* Streaming text */}
         {displayContent ? (

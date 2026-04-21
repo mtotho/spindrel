@@ -62,12 +62,23 @@ logger = logging.getLogger(__name__)
                         "the trace and in any approval prompt."
                     ),
                 },
+                "skill_name": {
+                    "type": "string",
+                    "description": (
+                        "Bot-authored skill slug (or full bots/{bot_id}/... ID) whose attached "
+                        "named script should be executed."
+                    ),
+                },
+                "script_name": {
+                    "type": "string",
+                    "description": "Named attached script to execute from the selected skill.",
+                },
                 "timeout_s": {
                     "type": "integer",
                     "description": "Max script wall-clock time (default 60, max 300).",
                 },
             },
-            "required": ["script", "description"],
+            "required": [],
         },
     },
 }, safety_tier="exec_capable", requires_bot_context=True, returns={
@@ -83,18 +94,55 @@ logger = logging.getLogger(__name__)
     },
     "required": ["exit_code"],
 })
-async def run_script(script: str, description: str, timeout_s: int = 60) -> str:
+async def run_script(
+    script: str = "",
+    description: str = "",
+    timeout_s: int = 60,
+    skill_name: str = "",
+    script_name: str = "",
+) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
         return json.dumps({"error": "no_bot_context", "exit_code": -1}, ensure_ascii=False)
 
-    if not script or not script.strip():
+    script_source = script
+    effective_description = description.strip()
+
+    if script_name or skill_name:
+        if script and script.strip():
+            return json.dumps({
+                "error": "provide_either_inline_script_or_stored_script_reference",
+                "exit_code": -1,
+            }, ensure_ascii=False)
+        if not skill_name or not script_name:
+            return json.dumps({
+                "error": "skill_name_and_script_name_required_for_stored_script_mode",
+                "exit_code": -1,
+            }, ensure_ascii=False)
+        resolved, resolve_error = await _resolve_stored_script(bot_id, skill_name, script_name)
+        if resolve_error:
+            return json.dumps({"error": resolve_error, "exit_code": -1}, ensure_ascii=False)
+        assert resolved is not None
+        script_source = resolved["script"]
+        if not effective_description:
+            effective_description = (
+                resolved.get("description")
+                or f"Run stored script {resolved['script_name']} from {resolved['skill_id']}"
+            )
+
+    if not script_source or not script_source.strip():
         return json.dumps({"error": "empty_script", "exit_code": -1}, ensure_ascii=False)
+    if not effective_description:
+        effective_description = "Run ad-hoc workspace script"
 
     try:
         timeout_clamped = max(5, min(int(timeout_s or 60), 300))
     except (TypeError, ValueError):
         timeout_clamped = 60
+    if script_name and skill_name and timeout_s == 60:
+        resolved_timeout = resolved.get("timeout_s") if "resolved" in locals() and resolved else None
+        if resolved_timeout:
+            timeout_clamped = max(5, min(int(resolved_timeout), 300))
 
     from app.agent.bots import get_bot
     bot = get_bot(bot_id)
@@ -120,7 +168,7 @@ async def run_script(script: str, description: str, timeout_s: int = 60) -> str:
         workspace_root,
         str(correlation_id) if correlation_id else None,
     )
-    script_path, helper_path = write_script_files(scratch, script)
+    script_path, helper_path = write_script_files(scratch, script_source)
 
     # Compose the shell command. We export the parent correlation id + channel
     # id as env vars so the helper can stitch them onto every dispatched call.
@@ -198,3 +246,29 @@ async def run_script(script: str, description: str, timeout_s: int = 60) -> str:
             await _close_budget(budget_key)
         if not keep_scratch:
             cleanup_scratch_dir(scratch)
+
+
+async def _resolve_stored_script(bot_id: str, skill_name: str, script_name: str) -> tuple[dict | None, str | None]:
+    from app.db.engine import async_session
+    from app.db.models import Skill as SkillRow
+    from app.tools.local.bot_skills import _bot_skill_id, _get_script_by_name
+
+    try:
+        skill_id = skill_name if skill_name.startswith(f"bots/{bot_id}/") else _bot_skill_id(bot_id, skill_name)
+    except ValueError:
+        return None, f"invalid_skill_name:{skill_name}"
+
+    async with async_session() as db:
+        row = await db.get(SkillRow, skill_id)
+    if not row:
+        return None, f"stored_skill_not_found:{skill_id}"
+    stored = _get_script_by_name(row.scripts, script_name)
+    if not stored:
+        return None, f"stored_script_not_found:{skill_id}:{script_name}"
+    return {
+        "skill_id": skill_id,
+        "script_name": stored.get("name", script_name),
+        "description": stored.get("description", ""),
+        "script": stored.get("script", ""),
+        "timeout_s": stored.get("timeout_s"),
+    }, None

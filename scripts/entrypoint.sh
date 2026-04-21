@@ -28,6 +28,13 @@ if [ "$(id -u)" = "0" ] && id spindrel >/dev/null 2>&1; then
     # pip cache, playwright browsers, agent ~/.local). First boot after
     # adding the volume leaves it root-owned — align to UID 1000.
     chown -R spindrel:spindrel /home/spindrel 2>/dev/null || true
+    # /opt/spindrel-pkg holds dpkg-extracted apt packages (chromium, gh,
+    # etc.) so they survive image rebuilds. Owned by spindrel so
+    # install_system_package can dpkg -x into it without sudo; this keeps
+    # the /etc/sudoers.d/spindrel-apt rule narrow (apt-get only).
+    mkdir -p /opt/spindrel-pkg 2>/dev/null || true
+    chown -R spindrel:spindrel /opt/spindrel-pkg 2>/dev/null || true
+    chmod 0755 /opt/spindrel-pkg 2>/dev/null || true
 
     # The spindrel user needs the host docker-socket GID in its group
     # list to use /var/run/docker.sock (integration sidecar containers,
@@ -43,10 +50,22 @@ if [ "$(id -u)" = "0" ] && id spindrel >/dev/null 2>&1; then
         fi
     fi
 
+    # Expose dpkg-extracted packages (see install_system_package) to every
+    # child process. These env vars are the whole reason the persistent
+    # /opt/spindrel-pkg layout works: binaries are NOT in /usr/bin but
+    # shutil.which() still finds them, so the "is dep already installed?"
+    # check in integration_deps.py skips reinstall on rebuild.
+    export PATH="/opt/spindrel-pkg/usr/bin:/opt/spindrel-pkg/usr/local/bin:/opt/spindrel-pkg/usr/sbin:${PATH}"
+    export LD_LIBRARY_PATH="/opt/spindrel-pkg/usr/lib/x86_64-linux-gnu:/opt/spindrel-pkg/usr/lib:${LD_LIBRARY_PATH:-}"
+
     run_startup_as spindrel
-    exec gosu spindrel uvicorn app.main:app --host 0.0.0.0 --port 8000
+    exec gosu spindrel \
+        env PATH="$PATH" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
 fi
 
 # Fallback: non-root base image or spindrel user unavailable. Run as-is.
+export PATH="/opt/spindrel-pkg/usr/bin:/opt/spindrel-pkg/usr/local/bin:/opt/spindrel-pkg/usr/sbin:${PATH}"
+export LD_LIBRARY_PATH="/opt/spindrel-pkg/usr/lib/x86_64-linux-gnu:/opt/spindrel-pkg/usr/lib:${LD_LIBRARY_PATH:-}"
 run_startup_as ""
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000

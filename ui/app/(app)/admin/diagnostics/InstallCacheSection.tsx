@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Archive, Package, Trash2 } from "lucide-react";
+import { Archive, Boxes, Package, Trash2 } from "lucide-react";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
@@ -48,8 +48,9 @@ export function InstallCacheSection() {
         border: `1px solid ${t.surfaceRaised}`,
       }}>
         <div style={{ fontSize: 11, color: t.textDim, marginBottom: 12, lineHeight: 1.5 }}>
-          Two Docker volumes persist package caches and installed binaries across <code style={{ fontFamily: "monospace", color: t.textMuted }}>spindrel pull</code> rebuilds.
-          Home (<code style={{ fontFamily: "monospace" }}>~/.local</code>, <code style={{ fontFamily: "monospace" }}>~/.cache</code>) survives intact; apt binaries reinstall from the archive cache on boot (fast, no network).
+          Three Docker volumes persist installed binaries + package caches across <code style={{ fontFamily: "monospace", color: t.textMuted }}>spindrel pull</code> rebuilds.
+          Apt packages (chromium, gh, …) extract into <code style={{ fontFamily: "monospace" }}>/opt/spindrel-pkg</code> and stay resident between rebuilds — no reinstall.
+          Home caches (<code style={{ fontFamily: "monospace" }}>~/.local</code>, <code style={{ fontFamily: "monospace" }}>~/.cache/huggingface</code>, playwright) persist separately.
         </div>
 
         {isLoading && (
@@ -59,7 +60,14 @@ export function InstallCacheSection() {
         )}
 
         {data && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <CacheStatCard
+              icon={<Boxes size={14} color={t.textMuted} />}
+              label="Apt packages"
+              path={data.pkg_path}
+              bytes={data.pkg_bytes}
+              exists={data.pkg_exists}
+            />
             <CacheStatCard
               icon={<Package size={14} color={t.textMuted} />}
               label="Home"

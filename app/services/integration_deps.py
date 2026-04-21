@@ -1,9 +1,30 @@
 """Auto-install missing integration dependencies on server startup.
 
 Checks all integration manifests for declared Python, npm, and system
-dependencies.  Missing Python/npm deps are installed automatically.
-System deps are installed via apt-get and the package list is persisted
-to the workspace volume so they survive Docker rebuilds.
+dependencies. Missing Python/npm deps are installed automatically into
+the spindrel user's home (persisted via the ``spindrel-home`` volume).
+
+System (apt) deps are installed via ``apt-get download`` + ``dpkg -x``
+into ``/opt/spindrel-pkg/`` — a named Docker volume that survives
+``spindrel pull`` rebuilds. The entrypoint prepends
+``/opt/spindrel-pkg/usr/bin`` to ``PATH`` and
+``/opt/spindrel-pkg/usr/lib{,/x86_64-linux-gnu}`` to
+``LD_LIBRARY_PATH`` so the extracted binaries + shared libs are
+discoverable by ``shutil.which()`` and the dynamic linker just like
+normal system-installed packages.
+
+Why not ``apt-get install``: apt writes into /usr/bin and /usr/lib,
+which are part of the Docker image layer and are wiped on every
+rebuild. Extracting into a volume-backed prefix is what gets us
+persistence without baking packages into the image.
+
+Known caveat: ``dpkg -x`` does not run the package's ``postinst``
+script. In practice this is fine for the tools Spindrel uses
+(chromium, gh, jq, ripgrep, etc.) — none of them require alternatives
+registration or /etc config to function. If a future package breaks
+because of a missing postinst step, the fix is to invoke the specific
+hook (e.g. ``update-ca-certificates``) after extraction rather than
+abandoning this pattern.
 """
 from __future__ import annotations
 
@@ -265,46 +286,259 @@ def _apt_prefix() -> list[str]:
     return ["sudo", "-n"]
 
 
-async def install_system_package(apt_package: str) -> bool:
-    """Install a system package via apt-get and persist to the workspace volume.
+# Persistent package tree — apt packages are `dpkg -x`'d here so their
+# binaries + libs survive container rebuilds. Volume mounted at this path
+# via docker-compose.yml. Entrypoint prepends the subpaths to PATH and
+# LD_LIBRARY_PATH so binaries installed here are discoverable by
+# ``shutil.which()`` (which is what ``_is_system_dep_available`` uses).
+_PKG_ROOT = Path(os.environ.get("SPINDREL_PKG_ROOT", "/opt/spindrel-pkg"))
 
-    Returns True on success, False on failure.
+
+def _package_already_extracted(apt_package: str) -> bool:
+    """Does /opt/spindrel-pkg already contain files from this package?
+
+    We check the manifest we persist after each successful extraction
+    (``.extracted-manifest/<pkg>.list``) instead of re-probing dpkg state,
+    because dpkg itself knows nothing about extracted-only packages.
+    """
+    manifest = _PKG_ROOT / ".extracted-manifest" / f"{apt_package}.list"
+    return manifest.is_file() and manifest.stat().st_size > 0
+
+
+async def _apt_get_update_if_stale() -> None:
+    """Refresh apt lists if the cached metadata is old or missing.
+
+    The lists live on the persistent ``spindrel-apt-archives`` volume
+    (mounted at /var/cache/apt/archives). We only run update when no list
+    has been fetched in the last 6 hours to avoid re-downloading on every
+    install call.
+    """
+    lists_dir = Path("/var/lib/apt/lists")
+    stale = True
+    try:
+        if lists_dir.is_dir():
+            newest = max(
+                (p.stat().st_mtime for p in lists_dir.glob("*_Packages*") if p.is_file()),
+                default=0,
+            )
+            if newest and (time.time() - newest) < 6 * 3600:
+                stale = False
+    except OSError:
+        pass
+    if not stale:
+        return
+    proc = await asyncio.create_subprocess_exec(
+        *_apt_prefix(), "apt-get", "update", "-qq",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    await asyncio.wait_for(proc.communicate(), timeout=60)
+
+
+async def _resolve_missing_runtime_deps(apt_package: str) -> list[str]:
+    """Return the transitive runtime deps of ``apt_package`` that aren't
+    already satisfied by the base image.
+
+    Uses ``apt-cache depends --recurse --no-recommends --no-suggests``
+    and filters to real packages whose binaries aren't already on PATH.
+    Conservative: if dep resolution fails we return just [apt_package]
+    and let the install proceed (single-package extract may still work
+    for self-contained tools like ``gh``).
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "apt-cache", "depends",
+        "--recurse", "--no-recommends", "--no-suggests",
+        "--no-conflicts", "--no-breaks", "--no-replaces", "--no-enhances",
+        "--no-pre-depends", apt_package,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    out, _err = await asyncio.wait_for(proc.communicate(), timeout=30)
+    if proc.returncode != 0:
+        return [apt_package]
+
+    pkgs: list[str] = []
+    for raw in out.decode(errors="replace").splitlines():
+        line = raw.strip()
+        # apt-cache depends output: package names at column 0, deps indented.
+        if not line or line.startswith("|") or line.startswith("<"):
+            continue
+        if raw.startswith(" "):
+            # Dependency entry, e.g. "  Depends: libxrandr2"
+            _, _, name = line.partition(": ")
+            name = name.strip()
+            if name and not name.startswith("<"):
+                pkgs.append(name)
+        else:
+            # Root package line
+            pkgs.append(line)
+
+    # Dedupe, preserve order.
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for p in pkgs:
+        if p in seen:
+            continue
+        seen.add(p)
+        ordered.append(p)
+
+    # Filter out things already present in the base image. dpkg-query
+    # returns 0 for installed packages — those we skip because they're
+    # part of python:3.12-slim or our Dockerfile-installed baseline.
+    missing: list[str] = []
+    for p in ordered:
+        check = await asyncio.create_subprocess_exec(
+            "dpkg-query", "-W", "-f=${Status}", p,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        status_out, _ = await check.communicate()
+        status = status_out.decode(errors="replace").strip()
+        if check.returncode == 0 and "install ok installed" in status:
+            continue
+        missing.append(p)
+
+    return missing
+
+
+async def _download_deb(apt_package: str) -> Path | None:
+    """Download ``apt_package``'s .deb into /var/cache/apt/archives (a
+    persistent volume). Returns the path to the resulting .deb, or None."""
+    archives = Path("/var/cache/apt/archives")
+    archives.mkdir(parents=True, exist_ok=True)
+    # apt-get download writes to CWD, not /var/cache/apt/archives — run it
+    # there so the .deb ends up on the persistent volume.
+    proc = await asyncio.create_subprocess_exec(
+        *_apt_prefix(), "apt-get", "download", apt_package,
+        cwd=str(archives),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    _out, err = await asyncio.wait_for(proc.communicate(), timeout=300)
+    if proc.returncode != 0:
+        logger.error(
+            "apt-get download '%s' failed (exit %d): %s",
+            apt_package, proc.returncode,
+            (err or b"").decode(errors="replace").strip()[:500],
+        )
+        return None
+    # apt-get download names files as <pkg>_<version>_<arch>.deb.
+    candidates = sorted(
+        archives.glob(f"{apt_package}_*.deb"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+async def _dpkg_extract(deb_path: Path, apt_package: str) -> tuple[bool, list[str]]:
+    """Extract .deb contents into /opt/spindrel-pkg and record the file
+    manifest so we know what this package owns for later lookups."""
+    _PKG_ROOT.mkdir(parents=True, exist_ok=True)
+
+    # 1. Get the file list so we can persist it before extraction.
+    list_proc = await asyncio.create_subprocess_exec(
+        "dpkg-deb", "--contents", str(deb_path),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    list_out, list_err = await asyncio.wait_for(list_proc.communicate(), timeout=30)
+    if list_proc.returncode != 0:
+        logger.error(
+            "dpkg-deb --contents '%s' failed: %s",
+            deb_path.name, (list_err or b"").decode(errors="replace")[:300],
+        )
+        return False, []
+
+    files: list[str] = []
+    for raw in list_out.decode(errors="replace").splitlines():
+        # Last column is the path, prefixed with "./" ; skip dirs (trailing /).
+        parts = raw.split()
+        if not parts:
+            continue
+        path = parts[-1]
+        if path.endswith("/"):
+            continue
+        files.append(path.lstrip("./"))
+
+    # 2. Extract. dpkg -x runs unprivileged — /opt/spindrel-pkg is
+    # chowned to spindrel in the entrypoint. No sudo needed. Also means
+    # postinst doesn't run (known tradeoff, see module docstring).
+    extract_proc = await asyncio.create_subprocess_exec(
+        "dpkg", "-x", str(deb_path), str(_PKG_ROOT),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    _out, err = await asyncio.wait_for(extract_proc.communicate(), timeout=300)
+    if extract_proc.returncode != 0:
+        logger.error(
+            "dpkg -x '%s' -> %s failed: %s",
+            deb_path.name, _PKG_ROOT,
+            (err or b"").decode(errors="replace")[:300],
+        )
+        return False, []
+
+    # 3. Persist manifest for idempotent skip on future boots.
+    manifest_dir = _PKG_ROOT / ".extracted-manifest"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    (manifest_dir / f"{apt_package}.list").write_text("\n".join(files) + "\n")
+
+    return True, files
+
+
+async def install_system_package(apt_package: str) -> bool:
+    """Install an apt package into /opt/spindrel-pkg so it survives rebuilds.
+
+    Uses ``apt-get download`` + ``dpkg -x`` instead of ``apt-get install`` so
+    files land on the persistent ``spindrel-pkg`` volume (mounted at
+    /opt/spindrel-pkg) rather than in the container's /usr/* image layer.
+    The entrypoint prepends /opt/spindrel-pkg/usr/{bin,lib,...} to PATH and
+    LD_LIBRARY_PATH so the binaries and their shared libs are discoverable
+    just like normal system-installed packages.
+
+    Returns True on success, False on failure. Idempotent: calling twice
+    with the same package is a no-op on the second call.
     """
     t0 = time.monotonic()
-    prefix = _apt_prefix()
+
+    if _package_already_extracted(apt_package):
+        logger.info("System package '%s' already extracted — skipping", apt_package)
+        # Still re-record in the installed set in case we're recovering
+        # from a mangled persistence file.
+        installed = _read_installed_system_packages()
+        if apt_package not in installed:
+            installed.add(apt_package)
+            _persist_installed_system_packages(installed)
+        return True
+
     try:
-        # apt-get update first (package lists may be cleared in slim images)
-        update_proc = await asyncio.create_subprocess_exec(
-            *prefix, "apt-get", "update", "-qq",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await asyncio.wait_for(update_proc.communicate(), timeout=60)
+        await _apt_get_update_if_stale()
 
-        proc = await asyncio.create_subprocess_exec(
-            *prefix, "apt-get", "install", "-y", "-qq", "--no-install-recommends", apt_package,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        # Resolve and fetch + extract the package + any runtime deps the
+        # base image doesn't already carry. For most tools (gh, jq, etc.)
+        # this is a list of one. For chromium it's ~20 packages.
+        pkgs = await _resolve_missing_runtime_deps(apt_package)
+        logger.info(
+            "Installing system package '%s' (+ %d transitive runtime deps) into %s",
+            apt_package, max(0, len(pkgs) - 1), _PKG_ROOT,
         )
-        _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
 
-        if proc.returncode != 0:
-            err = (stderr or b"").decode(errors="replace").strip()
-            logger.error("apt-get install '%s' failed (exit %d): %s", apt_package, proc.returncode, err[:500])
-            return False
+        for pkg in pkgs:
+            if _package_already_extracted(pkg):
+                continue
+            deb = await _download_deb(pkg)
+            if deb is None:
+                logger.error("Could not download .deb for '%s' — aborting '%s'", pkg, apt_package)
+                return False
+            ok, _files = await _dpkg_extract(deb, pkg)
+            if not ok:
+                logger.error("dpkg -x failed for '%s' — aborting '%s'", pkg, apt_package)
+                return False
 
         elapsed = time.monotonic() - t0
         logger.info("Installed system package '%s' in %.1fs", apt_package, elapsed)
 
-        # Persist so it gets re-installed after future rebuilds
         installed = _read_installed_system_packages()
         installed.add(apt_package)
         _persist_installed_system_packages(installed)
-
         return True
 
     except asyncio.TimeoutError:
-        logger.error("apt-get install '%s' timed out", apt_package)
+        logger.error("install_system_package('%s') timed out", apt_package)
         return False
     except Exception:
         logger.exception("Failed to install system package '%s'", apt_package)

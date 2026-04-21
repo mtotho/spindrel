@@ -44,23 +44,48 @@ def tmp_apt(tmp_path, monkeypatch):
     return apt
 
 
+@pytest.fixture
+def tmp_pkg(tmp_path, monkeypatch):
+    """Redirect PKG_PATH to a writable tmp dir with a seed extracted package."""
+    from app.routers.api_v1_admin import install_cache
+
+    pkg = tmp_path / "spindrel-pkg"
+    pkg.mkdir()
+    (pkg / "usr").mkdir()
+    (pkg / "usr" / "bin").mkdir()
+    (pkg / "usr" / "bin" / "chromium").write_bytes(b"z" * 16384)
+    (pkg / "usr" / "lib").mkdir()
+    (pkg / "usr" / "lib" / "libchrome.so").write_bytes(b"w" * 32768)
+    (pkg / ".extracted-manifest").mkdir()
+    (pkg / ".extracted-manifest" / "chromium.list").write_text(
+        "usr/bin/chromium\nusr/lib/libchrome.so\n"
+    )
+
+    monkeypatch.setattr(install_cache, "PKG_PATH", pkg)
+    return pkg
+
+
 @pytest.mark.asyncio
-async def test_install_cache_stats(client, tmp_home, tmp_apt):
+async def test_install_cache_stats(client, tmp_home, tmp_apt, tmp_pkg):
     resp = await client.get("/api/v1/admin/install-cache", headers=AUTH_HEADERS)
     assert resp.status_code == 200
     data = resp.json()
     assert data["home_exists"] is True
     assert data["apt_exists"] is True
+    assert data["pkg_exists"] is True
     # 1024 + 2048 for home seed
     assert data["home_bytes"] >= 3072
     # 4096 + 8192 for apt seed (lock is empty)
     assert data["apt_bytes"] >= 12288
+    # 16384 + 32768 + manifest for pkg seed
+    assert data["pkg_bytes"] >= 49152
     assert data["home_path"] == str(tmp_home)
     assert data["apt_path"] == str(tmp_apt)
+    assert data["pkg_path"] == str(tmp_pkg)
 
 
 @pytest.mark.asyncio
-async def test_install_cache_clear_home_only(client, tmp_home, tmp_apt):
+async def test_install_cache_clear_home_only(client, tmp_home, tmp_apt, tmp_pkg):
     resp = await client.post(
         "/api/v1/admin/install-cache/clear",
         headers=AUTH_HEADERS,
@@ -80,12 +105,37 @@ async def test_install_cache_clear_home_only(client, tmp_home, tmp_apt):
     assert not (tmp_home / ".cache" / "pip" / "wheel.whl").exists()
     assert not (tmp_home / ".bashrc").exists()
 
-    # Apt untouched.
+    # Apt + pkg untouched.
+    assert (tmp_apt / "foo_1.0_amd64.deb").exists()
+    assert (tmp_pkg / "usr" / "bin" / "chromium").exists()
+
+
+@pytest.mark.asyncio
+async def test_install_cache_clear_pkg_only(client, tmp_home, tmp_apt, tmp_pkg):
+    """Clearing pkg removes extracted binaries but leaves the mount point."""
+    resp = await client.post(
+        "/api/v1/admin/install-cache/clear",
+        headers=AUTH_HEADERS,
+        json={"target": "pkg"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["cleared"] == ["pkg"]
+    assert data["freed_bytes"] >= 49152
+    assert data["errors"] == []
+
+    # Mount point preserved; contents gone.
+    assert tmp_pkg.exists()
+    assert not (tmp_pkg / "usr").exists()
+    assert not (tmp_pkg / ".extracted-manifest").exists()
+
+    # Home + apt untouched.
+    assert (tmp_home / ".bashrc").exists()
     assert (tmp_apt / "foo_1.0_amd64.deb").exists()
 
 
 @pytest.mark.asyncio
-async def test_install_cache_clear_apt_invokes_apt_get_clean(client, tmp_home, tmp_apt):
+async def test_install_cache_clear_apt_invokes_apt_get_clean(client, tmp_home, tmp_apt, tmp_pkg):
     """Apt branch must shell out to `apt-get clean`; we mock the subprocess."""
     def _fake_wipe_apt():
         for p in tmp_apt.glob("*.deb"):
@@ -121,12 +171,13 @@ async def test_install_cache_clear_apt_invokes_apt_get_clean(client, tmp_home, t
     assert "apt-get" in args
     assert "clean" in args
 
-    # Home untouched.
+    # Home + pkg untouched.
     assert (tmp_home / ".local" / "bin" / "claude").exists()
+    assert (tmp_pkg / "usr" / "bin" / "chromium").exists()
 
 
 @pytest.mark.asyncio
-async def test_install_cache_clear_all_default(client, tmp_home, tmp_apt):
+async def test_install_cache_clear_all_default(client, tmp_home, tmp_apt, tmp_pkg):
     """POST with no body defaults to target=all."""
     async def _fake_communicate(*_args, **_kwargs):
         for p in tmp_apt.glob("*.deb"):
@@ -148,13 +199,14 @@ async def test_install_cache_clear_all_default(client, tmp_home, tmp_apt):
 
     assert resp.status_code == 200
     data = resp.json()
-    assert data["cleared"] == ["home", "apt"]
+    assert data["cleared"] == ["pkg", "home", "apt"]
     assert not (tmp_home / ".bashrc").exists()
     assert not any(tmp_apt.glob("*.deb"))
+    assert not (tmp_pkg / "usr").exists()
 
 
 @pytest.mark.asyncio
-async def test_install_cache_requires_admin_scope(client, tmp_home, tmp_apt):
+async def test_install_cache_requires_admin_scope(client, tmp_home, tmp_apt, tmp_pkg):
     """A non-admin-scoped bearer must be rejected."""
     import uuid
     from app.dependencies import ApiKeyAuth, verify_auth_or_user
