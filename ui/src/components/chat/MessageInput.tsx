@@ -10,6 +10,8 @@ import { createPortal } from "react-dom";
 import { LlmModelDropdownContent } from "../shared/LlmModelDropdown";
 import { ComposerAddMenu } from "./ComposerAddMenu";
 
+const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
+
 export interface PendingFile {
   file: File;
   preview?: string; // data URL for image preview
@@ -214,7 +216,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const terminalBorder = `${t.surfaceBorder}cc`;
   const addMenuVisible = !isTerminalMode || !collapsed;
   const modelPillVisible = onModelOverrideChange && !isTerminalMode;
-  const terminalHint = text.trim().startsWith("/") ? "Command ready" : "Slash commands available";
+  const terminalHint = text.trim().startsWith("/") ? "command" : "message";
 
   // "Send now" — cancel stream and send immediately (web only)
   const handleSendNowLocal = useCallback(() => {
@@ -330,7 +332,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               color: isTerminalMode ? t.textDim : t.textMuted,
               userSelect: "none",
               borderBottom: isTerminalMode ? `1px solid ${terminalBorder}` : undefined,
-              backgroundColor: isTerminalMode ? `${t.overlayLight}55` : undefined,
+              backgroundColor: isTerminalMode ? `${t.overlayLight}22` : undefined,
             }}
           >
             {isQueued && !hasContent ? (
@@ -403,15 +405,15 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             style={{
               display: "flex",
               flexDirection: "column",
-              background: isTerminalMode ? `${t.surface}f2` : `${t.surfaceRaised}d9`,
-              backdropFilter: isTerminalMode ? "blur(10px)" : "blur(14px)",
-              WebkitBackdropFilter: isTerminalMode ? "blur(10px)" : "blur(14px)",
-              borderRadius: isTerminalMode ? 14 : compactLayout ? 14 : 20,
+              background: isTerminalMode ? t.surfaceRaised : `${t.surfaceRaised}d9`,
+              backdropFilter: isTerminalMode ? undefined : "blur(14px)",
+              WebkitBackdropFilter: isTerminalMode ? undefined : "blur(14px)",
+              borderRadius: isTerminalMode ? 10 : compactLayout ? 14 : 20,
               border: isTerminalMode ? `1px solid ${isFocused ? t.accentBorder : terminalBorder}` : undefined,
               boxShadow: isTerminalMode
                 ? isFocused
-                  ? `0 0 0 2px ${t.accent}1a, 0 12px 32px -16px rgba(0,0,0,0.5)`
-                  : `0 10px 30px -18px rgba(0,0,0,0.45)`
+                  ? `0 0 0 1px ${t.accentBorder}`
+                  : "none"
                 : isFocused
                   ? `inset 0 0 0 1px ${t.accentBorder}, inset 0 1px 0 ${t.overlayLight}, 0 0 0 3px ${t.accent}1a, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`
                   : `inset 0 1px 0 ${t.overlayLight}, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`,
@@ -485,7 +487,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 padding: isTerminalMode ? compactLayout ? "6px 8px 7px" : isMobile ? "6px 8px 7px" : "7px 10px 9px" : compactLayout ? "3px 6px 4px" : isMobile ? "2px 4px 3px" : "4px 8px 6px",
                 cursor: "text",
                 borderTop: isTerminalMode ? `1px solid ${terminalBorder}` : undefined,
-                backgroundColor: isTerminalMode ? `${t.overlayLight}33` : undefined,
+                backgroundColor: isTerminalMode ? `${t.overlayLight}18` : undefined,
               }}
             >
               {addMenuVisible ? (
@@ -513,11 +515,10 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                     gap: 8,
                     fontSize: 11,
                     color: t.textDim,
-                    fontFamily: "'JetBrains Mono', 'Fira Code', 'Menlo', monospace",
+                    fontFamily: TERMINAL_FONT_STACK,
                     whiteSpace: "nowrap",
                   }}
                 >
-                  <span style={{ color: t.accent, fontWeight: 600 }}>cmd</span>
                   <span>{terminalHint}</span>
                   {pendingFiles.length > 0 && (
                     <span style={{ color: t.textMuted }}>

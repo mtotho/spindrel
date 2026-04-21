@@ -37,6 +37,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { History, Maximize2, Minimize2, RotateCcw, X } from "lucide-react";
 import { ScratchHistoryModal } from "./ScratchHistoryModal";
 import type { Message } from "@/src/types/api";
+import { buildThreadParentPreviewRow } from "./threadPreview";
 
 export interface EphemeralContextPayload {
   page_name?: string;
@@ -918,6 +919,8 @@ function ThreadChatSession({
   const submitChat = useSubmitChat();
   const spawnThread = useSpawnThread();
   const [sendError, setSendError] = useState<string | null>(null);
+  const [modelOverride, setModelOverride] = useState<string | undefined>(undefined);
+  const [modelProviderId, setModelProviderId] = useState<string | null>(null);
   // Chat store slot keyed by effective session id once known. Before the
   // lazy spawn fires we use a sentinel key that no SSE subscriber writes
   // to, so the pending state stays visually empty.
@@ -938,6 +941,10 @@ function ThreadChatSession({
   const { data: threadInfo } = useThreadInfo(effectiveSessionId ?? undefined);
   const parentForAnchor: Message | null =
     (source.parentMessage ?? null) || threadInfo?.parent_message || null;
+  const syntheticMessages = useMemo(
+    () => [buildThreadParentPreviewRow(storeKey, parentForAnchor)],
+    [storeKey, parentForAnchor],
+  );
 
   const handleSend = useCallback(
     async (message: string, _files?: PendingFile[]) => {
@@ -959,6 +966,12 @@ function ThreadChatSession({
           client_id: "web",
           session_id: sid,
           channel_id: parentChannelId,
+          ...(modelOverride
+            ? {
+                model_override: modelOverride,
+                model_provider_id_override: modelProviderId,
+              }
+            : {}),
         });
         qc.invalidateQueries({ queryKey: ["session-messages", sid] });
         qc.invalidateQueries({ queryKey: ["thread-summaries"] });
@@ -974,6 +987,8 @@ function ThreadChatSession({
       submitChat,
       spawnThread,
       onSessionSpawned,
+      modelOverride,
+      modelProviderId,
       qc,
     ],
   );
@@ -997,6 +1012,17 @@ function ThreadChatSession({
 
   const displayTitle = title ?? "Thread";
   const ExpandIcon = mode === "dock" ? Maximize2 : Minimize2;
+  const inputOverlayRef = useRef<HTMLDivElement | null>(null);
+  const [inputOverlayHeight, setInputOverlayHeight] = useState(96);
+  useEffect(() => {
+    if (!inputOverlayRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h) setInputOverlayHeight(Math.ceil(h));
+    });
+    ro.observe(inputOverlayRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   const header = (
     <div
@@ -1049,7 +1075,6 @@ function ThreadChatSession({
   const body = (
     <div className="flex flex-col h-full">
       {header}
-      <ThreadParentAnchor message={parentForAnchor} />
       <div className="flex-1 min-h-0 relative">
         {hasSession ? (
           <SessionChatView
@@ -1057,29 +1082,50 @@ function ThreadChatSession({
             parentChannelId={parentChannelId}
             botId={botId}
             emptyStateComponent={emptyState}
+            scrollPaddingBottom={inputOverlayHeight + 16}
+            syntheticMessages={syntheticMessages}
           />
         ) : (
-          <div className="h-full flex items-center justify-center text-[12px] text-text-dim px-6 text-center">
-            Reply below to start the thread.
-          </div>
+          <ChatMessageArea
+            invertedData={syntheticMessages}
+            renderMessage={() => (
+              <ThreadParentAnchor message={parentForAnchor} inline />
+            )}
+            chatState={chatState}
+            bot={undefined}
+            botId={botId}
+            isLoading={false}
+            isFetchingNextPage={false}
+            hasNextPage={false}
+            handleLoadMore={() => {}}
+            isProcessing={false}
+            t={t}
+            scrollPaddingBottom={inputOverlayHeight + 16}
+          />
         )}
-      </div>
-      {sendError && (
-        <div className="px-4 py-1.5 text-[11px] text-red-400 border-t border-red-500/20 bg-red-500/5 shrink-0">
-          {sendError}
+        <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
+          {sendError && (
+            <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+              {sendError}
+            </div>
+          )}
+          <MessageInput
+            onSend={handleSend}
+            disabled={!botId}
+            isStreaming={isSending}
+            currentBotId={botId}
+            channelId={storeKey}
+            defaultModel={bot?.model}
+            configOverhead={overheadPct}
+            modelOverride={modelOverride}
+            modelProviderIdOverride={modelProviderId}
+            onModelOverrideChange={(m, providerId) => {
+              setModelOverride(m ?? undefined);
+              setModelProviderId(providerId ?? null);
+            }}
+            compact
+          />
         </div>
-      )}
-      <div className="shrink-0" style={{ borderTop: `1px solid ${t.surfaceBorder}` }}>
-        <MessageInput
-          onSend={handleSend}
-          disabled={!botId}
-          isStreaming={isSending}
-          currentBotId={botId}
-          channelId={storeKey}
-          defaultModel={bot?.model}
-          configOverhead={overheadPct}
-          compact
-        />
       </div>
     </div>
   );
@@ -1104,4 +1150,3 @@ function ThreadChatSession({
     </ChatSessionDock>
   );
 }
-

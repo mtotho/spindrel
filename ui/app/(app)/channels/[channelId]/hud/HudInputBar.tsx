@@ -3,7 +3,7 @@ import { useHudData, type ActiveHud } from "@/src/api/hooks/useChatHud";
 import { HudItemRenderer } from "./HudItemRenderer";
 
 /**
- * Action button row above message input, in the same zone as ActiveWorkflowStrip.
+ * Action button row above message input.
  * Polls a HUD endpoint and renders action buttons.
  */
 export function HudInputBar({ hud }: { hud: ActiveHud }) {

@@ -86,6 +86,11 @@ const DOCK_WIDTH_PX = 320;
 const HEADER_COLS = 12;
 // Chip row height matches ChannelHeaderChip's h-8 pill.
 const HEADER_ROW_HEIGHT = 32;
+// Chat screen's header chip strip = 3 chips × 180px + 2 × 6px gap = 552px. V1
+// locks the dashboard header drop zone to this width (centered) so chips on
+// the dashboard render at the same proportions they'd get in the channel
+// header. Future phase may open a wider / configurable header canvas.
+const HEADER_CANVAS_WIDTH_PX = 560;
 const GAP_PX = 12;
 // Matches the inner `p-3` padding on the canvas content wrappers — kept in a
 // constant so pointerToCell math and the ghost target overlay agree.
@@ -797,12 +802,11 @@ function HeaderCanvas({
         }
         style={{
           minHeight: HEADER_ROW_HEIGHT + 12,
-          // Once a pin lands the pill needs an actual width reference — the
-          // inner CSS grid divides into 12 fractional cells, and x coords
-          // only mean something if the grid spans the full canvas. Empty
-          // edit mode keeps a min-width so the drop target is visible.
-          width: pins.length > 0 ? "100%" : undefined,
-          minWidth: pins.length === 0 && editMode ? 480 : undefined,
+          // V1: pin the drop zone to the chat screen's chip-strip width so the
+          // dashboard matches runtime proportions instead of spanning the full
+          // row. Empty edit mode still renders the drop target at this width
+          // so the hit target is predictable.
+          width: HEADER_CANVAS_WIDTH_PX,
           maxWidth: "100%",
         }}
       >

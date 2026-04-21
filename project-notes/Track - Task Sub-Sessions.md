@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, architecture]
 status: active
-updated: 2026-04-21 (Phase 8 polish — bot sub-session visibility + mobile dock + cross-device scratch)
+updated: 2026-04-21 (Phase 8 polish — bot sub-session visibility + mobile dock + cross-device scratch; thread dock parity)
 ---
 
 # Track — Task Sub-Sessions (pipeline-as-chat refactor)
@@ -20,6 +20,7 @@ After Phases 6 + 7 + 7-hardening landed, three gaps surfaced in everyday use:
 - **Mobile dock (Phase 2)** — `ChatSessionDock` switched to `h-[80dvh]`, added a `visualViewport` listener that applies the keyboard overlap as a `bottom` offset so the top never clips, and grew a mobile-only drag handle with touch-based swipe-down dismiss (80px threshold). New optional `onDismiss` prop replaces the FAB-collapse path with an explicit close — `ChatSession` threads a `dismissMode?: 'collapse' | 'close'` prop through; channel-screen scratch + thread default to `close` (no FAB on chat screen), dashboard widget ephemerals would pass `collapse`.
 - **Cross-device scratch (Phase 3)** — migration **232** adds `sessions.parent_channel_id`, `sessions.owner_user_id`, `sessions.is_current` + partial unique index enforcing one current scratch per (user, channel). `spawn_ephemeral_session` accepts the new fields. Three new endpoints in `app/routers/api_v1_sessions.py`: `GET /sessions/scratch/current` (resolve-or-spawn), `POST /sessions/scratch/reset` (archive + spawn), `GET /sessions/scratch/list` (history, sorted by `is_current DESC, created_at DESC`). Client hooks `useScratchSession` / `useResetScratchSession` / `useScratchHistory` in `useEphemeralSession.ts`. `EphemeralChatSession` branches on a new `scratchBoundChannelId` source flag — set by the channel page — and resolves the session id from the server query. localStorage kept as first-paint cache for model override only.
 - **Scratch history UI** — `ScratchHistoryModal` opens from a new History icon in the scratch dock header. Selecting a row navigates to `/channels/:channelId/scratch/:sessionId`, rendered by a new `ScratchViewer` that mounts `SessionChatView` without a composer.
+- **Thread dock parity UI (2026-04-21)** — reply-in-thread kept the existing dock and route model, but stopped rendering the replied-to message as a special block above the transcript. Thread parent context now enters `SessionChatView` as a synthetic `thread_parent_preview` row, so it lives in the normal message stack and never becomes a real persisted/sent message. The thread dock and full-screen thread route also switched to the same overlaid composer treatment as scratch chat, removing the stray top border wrapper and restoring the normal model selector plumbing.
 
 ### Key decisions
 

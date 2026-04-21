@@ -6,6 +6,8 @@ import { formatToolArgs } from "./toolCallUtils";
 import { useDecideApproval, type DecideRequest } from "../../api/hooks/useApprovals";
 import { Avatar } from "./MessageActions";
 
+const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
+
 // Deterministic color from string hash (same as MessageBubble)
 function avatarColor(name: string): string {
   let hash = 0;
@@ -93,19 +95,21 @@ export function ProcessingIndicator({ botName, chatMode = "default" }: { botName
   const isTerminalMode = chatMode === "terminal";
 
   return (
-    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: isTerminalMode ? "10px 12px 6px" : "10px 20px 4px", alignSelf: "stretch", borderLeft: isTerminalMode ? `2px solid ${t.surfaceBorder}` : undefined }}>
-      <div style={{ paddingTop: 2 }}>
-        <Avatar name={name} isUser={false} />
-      </div>
+    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: isTerminalMode ? "10px 12px 6px" : "10px 20px 4px", alignSelf: "stretch" }}>
+      {!isTerminalMode && (
+        <div style={{ paddingTop: 2 }}>
+          <Avatar name={name} isUser={false} />
+        </div>
+      )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? "'JetBrains Mono', 'Fira Code', 'Menlo', monospace" : undefined }}>{name}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>{name}</span>
         </div>
         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
           <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
           <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
           <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-          <span style={{ fontSize: 13, color: t.textMuted, marginLeft: 2, fontFamily: isTerminalMode ? "'JetBrains Mono', 'Fira Code', 'Menlo', monospace" : undefined }}>Processing...</span>
+          <span style={{ fontSize: 13, color: t.textMuted, marginLeft: 2, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>Processing...</span>
         </div>
       </div>
     </div>
@@ -606,15 +610,17 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
   const displayThinking = thinkingContent?.trim() ?? "";
 
   return (
-    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: isTerminalMode ? "10px 12px 6px" : "10px 20px 4px", alignSelf: "stretch", borderLeft: isTerminalMode ? `2px solid ${t.surfaceBorder}` : undefined }}>
-      <div style={{ paddingTop: 2 }}>
-        <Avatar name={name} isUser={false} />
-      </div>
+    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: isTerminalMode ? "10px 12px 6px" : "10px 20px 4px", alignSelf: "stretch" }}>
+      {!isTerminalMode && (
+        <div style={{ paddingTop: 2 }}>
+          <Avatar name={name} isUser={false} />
+        </div>
+      )}
 
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Name header */}
         <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? "'JetBrains Mono', 'Fira Code', 'Menlo', monospace" : undefined }}>{name}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>{name}</span>
         </div>
 
         {/* Thinking content */}

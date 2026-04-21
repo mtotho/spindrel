@@ -40,6 +40,7 @@ import {
 import { resolveChrome, resolvePreset, type DashboardChrome, type GridPreset } from "@/src/lib/dashboardGrid";
 import { ChatSession, type ChatSource } from "@/src/components/chat/ChatSession";
 import { useScratchReturnStore } from "@/src/stores/scratchReturn";
+import { useWidgetStreamBroker } from "@/src/api/hooks/useWidgetStreamBroker";
 
 /** True when a pin currently lives on the chat sidebar rail canvas. Zone
  *  is stored explicitly on the pin; this is a convenience predicate so the
@@ -104,6 +105,11 @@ export default function WidgetsDashboardPage() {
     : slugParam || "default";
   const channelScopedId = channelIdParam ?? channelIdFromSlug(slug);
   const isChannelScoped = isChannelSlug(slug);
+  // Host-side broker. On user dashboards (no channel) the broker is dormant —
+  // streaming widgets there fall through to the direct /widget-actions/stream
+  // path. Channel-scoped dashboards multiplex onto the ChannelChatSession's
+  // existing SSE.
+  useWidgetStreamBroker(channelScopedId ?? undefined);
 
   const { pins, isLoading, error } = useDashboardPins(slug);
   const unpinWidget = useDashboardPinsStore((s) => s.unpinWidget);

@@ -27,6 +27,12 @@ import type {
 const ResponsiveGridLayout = WidthProvider(Responsive);
 const RAIL_BREAKPOINTS = { lg: 0 } as const;
 const RAIL_MARGIN: [number, number] = [0, 12];
+// Kill the RGL default container padding (falls back to `margin` when unset,
+// which would mean 12px above the first tile and 12px below the last). Rail
+// widgets should sit flush with the section's outer padding — dragging the
+// top tile upward previously "bounced back" because RGL's own 12px top pad
+// was below y=0 in grid space, so there was no room to move into.
+const RAIL_CONTAINER_PADDING: [number, number] = [0, 0];
 
 function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
   return {
@@ -146,6 +152,7 @@ export function WidgetRailSection({
         cols={{ lg: 1 }}
         rowHeight={preset.rowHeight}
         margin={RAIL_MARGIN}
+        containerPadding={RAIL_CONTAINER_PADDING}
         isDraggable={true}
         isResizable={true}
         draggableHandle=".widget-drag-handle"

@@ -15,6 +15,11 @@ import { MessageBubble } from "./MessageBubble";
 import { TaskRunEnvelope } from "./TaskRunEnvelope";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "./TriggerCard";
 import { extractDisplayText } from "./MessageBubble";
+import {
+  getThreadParentPreviewMessage,
+  isThreadParentPreviewMessage,
+} from "./threadPreview";
+import { ThreadParentAnchor } from "./ThreadParentAnchor";
 
 export interface SessionChatViewProps {
   /** The session whose Messages we render (the pipeline run's sub-session). */
@@ -30,6 +35,10 @@ export interface SessionChatViewProps {
   /** Reserve space at the bottom of the scroll area so messages scroll
    *  BEHIND an overlay composer. Forwarded to ChatMessageArea. */
   scrollPaddingBottom?: number;
+  /** UI-only rows to prepend to the persisted session transcript. Used by
+   *  thread reply flows to show the parent message inline without creating
+   *  a real Message row in the session. */
+  syntheticMessages?: Message[];
 }
 
 /**
@@ -50,6 +59,7 @@ export function SessionChatView({
   botId,
   emptyStateComponent,
   scrollPaddingBottom,
+  syntheticMessages = [],
 }: SessionChatViewProps) {
   const t = useThemeTokens();
   const chatState = useChatStore((s) => s.getChannel(sessionId));
@@ -102,6 +112,11 @@ export function SessionChatView({
     });
   }, [pages]);
 
+  const renderedData = useMemo<Message[]>(
+    () => [...invertedData, ...syntheticMessages],
+    [invertedData, syntheticMessages],
+  );
+
   // Sync the DB → chat-store slot so live turns + persisted rows share a
   // single list. Guarded by turn activity so streaming content isn't
   // clobbered mid-flight.
@@ -118,7 +133,7 @@ export function SessionChatView({
   const latestAnchorByGroup = useMemo(() => {
     const ids = new Set<string>();
     const seen = new Set<string>();
-    for (const m of invertedData) {
+    for (const m of renderedData) {
       const meta = (m.metadata ?? {}) as Record<string, any>;
       if (meta.kind !== "task_run") continue;
       const key =
@@ -131,18 +146,29 @@ export function SessionChatView({
       }
     }
     return ids;
-  }, [invertedData]);
+  }, [renderedData]);
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
-    const prevMsg = invertedData[index + 1];
+    const prevMsg = renderedData[index + 1];
     const grouped = shouldGroup(item, prevMsg);
     const showDateSep =
-      index === invertedData.length - 1 ||
+      index === renderedData.length - 1 ||
       (prevMsg && isDifferentDay(item.created_at, prevMsg.created_at));
     const dateSep = showDateSep ? (
       <DateSeparator label={formatDateSeparator(item.created_at)} />
     ) : null;
     const meta = (item.metadata ?? {}) as Record<string, any>;
+    if (isThreadParentPreviewMessage(item)) {
+      return (
+        <>
+          {dateSep}
+          <ThreadParentAnchor
+            message={getThreadParentPreviewMessage(item)}
+            inline
+          />
+        </>
+      );
+    }
     if (meta.kind === "task_run") {
       const collapsedByDefault = !latestAnchorByGroup.has(item.id);
       return (
@@ -163,12 +189,12 @@ export function SessionChatView({
     const isGrouped = showDateSep ? false : grouped;
     let headerIdx = index;
     while (
-      headerIdx < invertedData.length - 1 &&
-      shouldGroup(invertedData[headerIdx], invertedData[headerIdx + 1])
+      headerIdx < renderedData.length - 1 &&
+      shouldGroup(renderedData[headerIdx], renderedData[headerIdx + 1])
     ) {
       headerIdx++;
     }
-    const fullTurnText = getTurnText(invertedData, headerIdx);
+    const fullTurnText = getTurnText(renderedData, headerIdx);
     const isLatest = item.role === "assistant" && index === 0;
     return (
       <>
@@ -189,7 +215,7 @@ export function SessionChatView({
 
   return (
     <ChatMessageArea
-      invertedData={invertedData}
+      invertedData={renderedData}
       renderMessage={renderMessage}
       chatState={chatState}
       bot={undefined}

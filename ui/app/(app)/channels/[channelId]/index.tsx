@@ -48,13 +48,14 @@ import { ScratchHistoryModal } from "@/src/components/chat/ScratchHistoryModal";
 import { useResetScratchSession } from "@/src/api/hooks/useEphemeralSession";
 import { OrchestratorLaunchpad } from "./OrchestratorEmptyState";
 import { useChannelPipelines } from "@/src/api/hooks/useChannelPipelines";
+import { useWidgetStreamBroker } from "@/src/api/hooks/useWidgetStreamBroker";
 import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
 import type { Message } from "@/src/types/api";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { SessionChatView } from "@/src/components/chat/SessionChatView";
-import { ThreadParentAnchor } from "@/src/components/chat/ThreadParentAnchor";
+import { buildThreadParentPreviewRow } from "@/src/components/chat/threadPreview";
 import { useSubmitChat } from "@/src/api/hooks/useChat";
 import { selectIsStreaming } from "@/src/stores/chat";
 import {
@@ -202,6 +203,9 @@ export default function ChatScreen() {
   const { data: systemStatus } = useSystemStatus();
   const { data: savedBudget } = useChannelContextBudget(channelId);
   const { data: configOverheadData } = useChannelConfigOverhead(channelId);
+  // Host-side broker so pinned widgets reuse the channel's SSE connection
+  // instead of each opening its own /widget-actions/stream socket.
+  useWidgetStreamBroker(channelId);
   const isPaused = systemStatus?.paused ?? false;
   const columns = useResponsiveColumns();
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
@@ -1310,6 +1314,7 @@ export default function ChatScreen() {
               total: savedBudget.total_tokens ?? 0,
             } : null
           )}
+          configOverhead={configOverheadData ?? null}
         />
       )}
     </>
@@ -1459,11 +1464,11 @@ function ThreadFullScreenMount({
           <CloseIcon size={14} />
         </button>
       </div>
-      <ThreadParentAnchor message={info.parent_message ?? null} />
       <ThreadFullScreenBody
         threadSessionId={threadSessionId}
         parentChannelId={channelId}
         botId={info.bot_id}
+        parentMessage={info.parent_message ?? null}
       />
     </div>
   );
@@ -1477,16 +1482,35 @@ function ThreadFullScreenBody({
   threadSessionId,
   parentChannelId,
   botId,
+  parentMessage,
 }: {
   threadSessionId: string;
   parentChannelId: string;
   botId: string;
+  parentMessage: Message | null;
 }) {
   const submitChat = useSubmitChat();
   const chatState = useChatStore((s) => s.getChannel(threadSessionId));
   const turnActive = selectIsStreaming(chatState);
   const isSending = submitChat.isPending || turnActive;
   const [sendError, setSendError] = useState<string | null>(null);
+  const [modelOverride, setModelOverride] = useState<string | undefined>(undefined);
+  const [modelProviderId, setModelProviderId] = useState<string | null>(null);
+  const syntheticMessages = useMemo(
+    () => [buildThreadParentPreviewRow(threadSessionId, parentMessage)],
+    [threadSessionId, parentMessage],
+  );
+  const inputOverlayRef = useRef<HTMLDivElement | null>(null);
+  const [inputOverlayHeight, setInputOverlayHeight] = useState(96);
+  useEffect(() => {
+    if (!inputOverlayRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h) setInputOverlayHeight(Math.ceil(h));
+    });
+    ro.observe(inputOverlayRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   const handleSend = useCallback(
     async (message: string) => {
@@ -1498,12 +1522,18 @@ function ThreadFullScreenBody({
           client_id: "web",
           session_id: threadSessionId,
           channel_id: parentChannelId,
+          ...(modelOverride
+            ? {
+                model_override: modelOverride,
+                model_provider_id_override: modelProviderId,
+              }
+            : {}),
         });
       } catch (err) {
         setSendError(err instanceof Error ? err.message : "Failed to send message");
       }
     },
-    [botId, threadSessionId, parentChannelId, submitChat],
+    [botId, threadSessionId, parentChannelId, submitChat, modelOverride, modelProviderId],
   );
 
   return (
@@ -1513,21 +1543,29 @@ function ThreadFullScreenBody({
           sessionId={threadSessionId}
           parentChannelId={parentChannelId}
           botId={botId}
+          scrollPaddingBottom={inputOverlayHeight + 16}
+          syntheticMessages={syntheticMessages}
         />
-      </div>
-      {sendError && (
-        <div className="px-4 py-1.5 text-[11px] text-red-400 border-t border-red-500/20 bg-red-500/5 shrink-0">
-          {sendError}
+        <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
+          {sendError && (
+            <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+              {sendError}
+            </div>
+          )}
+          <MessageInput
+            onSend={handleSend}
+            disabled={!botId}
+            isStreaming={isSending}
+            currentBotId={botId}
+            channelId={threadSessionId}
+            modelOverride={modelOverride}
+            modelProviderIdOverride={modelProviderId}
+            onModelOverrideChange={(m, providerId) => {
+              setModelOverride(m ?? undefined);
+              setModelProviderId(providerId ?? null);
+            }}
+          />
         </div>
-      )}
-      <div className="shrink-0" style={{ borderTop: "1px solid var(--surface-border)" }}>
-        <MessageInput
-          onSend={handleSend}
-          disabled={!botId}
-          isStreaming={isSending}
-          currentBotId={botId}
-          channelId={threadSessionId}
-        />
       </div>
     </div>
   );

@@ -17,6 +17,75 @@ import { useBots } from "./useBots";
  *  short enough to clean up after a real server crash. */
 const OBSERVER_TURN_TIMEOUT = 180_000;
 
+// ---------------------------------------------------------------------------
+// Module-level subscriber registry. Lets outside consumers tap the raw event
+// stream without the hook having to re-dispatch through zustand or a context.
+// The WidgetStreamBroker uses this to piggyback on the channel's existing SSE
+// connection and fan events out to iframes via postMessage, so we don't pay
+// one SSE socket per streaming widget on a dashboard.
+//
+// Subscribers fire AFTER the session filter (so a run-view modal's subscribers
+// only see in-scope events) but BEFORE the switch dispatch (so subscribers
+// don't depend on store reduction ordering). Events like replay_lapsed /
+// shutdown pass through — subscribers can react directly.
+// ---------------------------------------------------------------------------
+
+export type ChannelEventFrame = {
+  kind: string;
+  channel_id?: string;
+  seq?: number;
+  ts?: number;
+  payload?: unknown;
+  [k: string]: unknown;
+};
+
+type ChannelEventCallback = (event: ChannelEventFrame) => void;
+
+const channelEventSubscribers = new Map<string, Set<ChannelEventCallback>>();
+
+function publishChannelEvent(channelId: string, wire: ChannelEventFrame): void {
+  const subs = channelEventSubscribers.get(channelId);
+  if (!subs || subs.size === 0) return;
+  for (const cb of subs) {
+    try {
+      cb(wire);
+    } catch (err) {
+      console.error("channel event subscriber threw:", err);
+    }
+  }
+}
+
+/**
+ * Observe raw channel-event frames for a given channel. The primary
+ * `useChannelEvents` hook still owns the SSE connection + store dispatch;
+ * this hook is a pure observer tap for consumers that need to react to events
+ * without re-opening their own SSE socket (e.g. the widget stream broker).
+ *
+ * Callback receives the full wire frame (`{kind, seq, ts, payload, ...}`).
+ * Cleanup on unmount is automatic. Pass a stable callback (useCallback) or
+ * expect the subscription to re-register on every render.
+ */
+export function useChannelEventSubscription(
+  channelId: string | undefined,
+  cb: ChannelEventCallback,
+): void {
+  useEffect(() => {
+    if (!channelId) return;
+    let subs = channelEventSubscribers.get(channelId);
+    if (!subs) {
+      subs = new Set();
+      channelEventSubscribers.set(channelId, subs);
+    }
+    subs.add(cb);
+    return () => {
+      const current = channelEventSubscribers.get(channelId);
+      if (!current) return;
+      current.delete(cb);
+      if (current.size === 0) channelEventSubscribers.delete(channelId);
+    };
+  }, [channelId, cb]);
+}
+
 /**
  * Subscribe to typed channel-event bus events via SSE.
  *
@@ -263,6 +332,10 @@ export function useChannelEvents(
         // delivery_failed, legacy turn-lifecycle publishes) pass
         // through — they're connection-scoped.
       }
+      // Fan out to observer subscribers (e.g. WidgetStreamBroker). Fires
+      // BEFORE store reduction so the broker doesn't depend on our dispatch
+      // order; widgets just want the raw frame.
+      publishChannelEvent(chId, wire);
       const store = useChatStore.getState();
       // Dispatch key — the modal uses the sub-session's id so its state
       // doesn't collide with the parent channel's chat-store slot.

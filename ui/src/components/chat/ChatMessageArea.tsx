@@ -244,10 +244,7 @@ export function ChatMessageArea({
           height: "100%",
           paddingTop: scrollPaddingTop,
           paddingBottom: scrollPaddingBottom,
-          backgroundImage: isTerminalMode
-            ? `linear-gradient(to bottom, transparent, ${t.overlayLight}22), linear-gradient(90deg, ${t.surfaceBorder}14 1px, transparent 1px)`
-            : undefined,
-          backgroundSize: isTerminalMode ? "100% 100%, 24px 24px" : undefined,
+          backgroundColor: isTerminalMode ? `${t.overlayLight}08` : undefined,
         }}
       >
         {/* Each column-reverse child is centered within the full-width scroll
@@ -262,7 +259,7 @@ export function ChatMessageArea({
           {turnIndicators}
           {processingIndicator}
           {invertedData.length > 0 && (
-            <div className="flex flex-row justify-center" style={{ paddingTop: 12, paddingBottom: 6, opacity: isTerminalMode ? 0.35 : 0.7 }}>
+            <div className="flex flex-row justify-center" style={{ paddingTop: 12, paddingBottom: 6, opacity: isTerminalMode ? 0.16 : 0.7 }}>
               <SpindrelLogo size={20} color={t.purple} />
             </div>
           )}

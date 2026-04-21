@@ -19,6 +19,14 @@ interface Props {
   channelId: string;
   onClose: () => void;
   contextBudget?: { utilization: number; consumed: number; total: number } | null;
+  /**
+   * Resolved config-overhead estimate for the channel. When provided, the panel
+   * skips its own `useChannelConfigOverhead` fetch and uses this value — lets
+   * the channel page share the estimate it already has. Member-bot gating is
+   * still applied internally: if the clicked bot isn't the channel's primary,
+   * the estimate is suppressed regardless of prop.
+   */
+  configOverhead?: ContextEstimate | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,7 +72,7 @@ function ToolGroupSection({
 // Panel content
 // ---------------------------------------------------------------------------
 
-function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props) {
+function BotInfoPanelContent({ botId, channelId, onClose, contextBudget, configOverhead: configOverheadProp }: Props) {
   const t = useThemeTokens();
   const navigate = useNavigate();
   const { data: bot } = useBot(botId);
@@ -74,7 +82,15 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props
   // effective-tools is resolved for the channel's primary bot — only show for primary
   const { data: effective } = useChannelEffectiveTools(isMemberBot ? undefined : channelId);
   const { data: allCarapaces } = useCarapaces();
-  const { data: configOverhead } = useChannelConfigOverhead(isMemberBot ? undefined : channelId);
+  // Prefer the parent-provided estimate when present; fall back to fetching
+  // ourselves so standalone mounts (outside the channel page) keep working.
+  // Gate on isMemberBot in both cases — member bots don't show config overhead.
+  const { data: configOverheadFetched } = useChannelConfigOverhead(
+    configOverheadProp === undefined && !isMemberBot ? channelId : undefined,
+  );
+  const configOverhead = isMemberBot
+    ? null
+    : (configOverheadProp ?? configOverheadFetched ?? null);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

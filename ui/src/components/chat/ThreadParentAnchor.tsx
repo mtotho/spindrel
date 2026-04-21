@@ -8,6 +8,7 @@ interface Props {
    *  (session.parent_message_id went NULL via ON DELETE SET NULL) or was
    *  never populated (Slack-initiated orphan thread). */
   message: Message | null;
+  inline?: boolean;
 }
 
 /** Renders the parent message at the top of a thread view as a ghosted
@@ -16,10 +17,11 @@ interface Props {
  *  hover actions, no nested reply-in-thread button). */
 export const ThreadParentAnchor = memo(function ThreadParentAnchor({
   message,
+  inline = false,
 }: Props) {
   if (!message) {
     return (
-      <div className="shrink-0 px-4 py-2.5">
+      <div className={`${inline ? "" : "shrink-0"} px-4 py-2.5`}>
         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-dim">
           <CornerDownRight size={11} />
           <span>Replying to a message that has been deleted</span>
@@ -28,12 +30,12 @@ export const ThreadParentAnchor = memo(function ThreadParentAnchor({
     );
   }
   return (
-    <div className="shrink-0 flex flex-col max-h-[40%] min-h-0">
+    <div className={`${inline ? "" : "shrink-0"} flex flex-col ${inline ? "" : "max-h-[40%] min-h-0"}`}>
       <div className="flex items-center gap-1.5 px-4 pt-2 text-[10px] uppercase tracking-wider text-text-dim shrink-0">
         <CornerDownRight size={11} />
         <span>Replying to</span>
       </div>
-      <div className="opacity-90 overflow-y-auto min-h-0">
+      <div className={`opacity-90 ${inline ? "" : "overflow-y-auto min-h-0"}`}>
         <MessageBubble
           message={message}
           isGrouped={false}

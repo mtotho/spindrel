@@ -1018,8 +1018,89 @@ function spindrelBootstrap(
     }
     return { kinds: kinds || null, channelId: cid, since: typeof opts.since === "number" ? opts.since : null, filter: filter || null, cb: cb };
   }
+  // --- Broker probe/ack. If the host mounts WidgetStreamBroker on this page
+  // it answers stream_ready_probe with stream_ready_ack, letting us piggyback
+  // on the host's channel SSE instead of opening our own fetch. See
+  // ui/src/api/hooks/useWidgetStreamBroker.ts. Probe is best-effort — widgets
+  // that call stream() before the ack lands transparently fall through to
+  // the direct-fetch path below. Once the ack arrives, subsequent stream()
+  // calls use the broker and we stop spawning /widget-actions/stream sockets.
+  let __streamBrokerReady = false;
+  let __streamBrokerChannelId = null;
+  window.addEventListener("message", function (e) {
+    const msg = e && e.data;
+    if (!msg || typeof msg !== "object" || msg.__spindrel !== true) return;
+    if (msg.type === "stream_ready_ack") {
+      __streamBrokerReady = true;
+      __streamBrokerChannelId = msg.channelId || null;
+    }
+  });
+  if (channelId) {
+    try {
+      window.parent.postMessage(
+        { __spindrel: true, type: "stream_ready_probe" },
+        "*"
+      );
+    } catch (_) { /* cross-origin edge — falls back to direct SSE */ }
+  }
+  let __streamSubCounter = 0;
+  function __newStreamSubId() {
+    __streamSubCounter += 1;
+    return "sub-" + Date.now().toString(36) + "-" + __streamSubCounter;
+  }
   function stream(a, b, c) {
     const args = __streamNormalizeArgs(a, b, c);
+    // Broker path: host has acknowledged and the requested channel matches
+    // ours. The host fans out matching events via postMessage and holds the
+    // single SSE connection for every widget on the page.
+    if (__streamBrokerReady && args.channelId === __streamBrokerChannelId) {
+      const subId = __newStreamSubId();
+      let stopped = false;
+      function onBrokerMsg(e) {
+        const msg = e && e.data;
+        if (stopped || !msg || typeof msg !== "object") return;
+        if (msg.__spindrel !== true || msg.type !== "stream_event") return;
+        if (msg.subId !== subId) return;
+        const event = msg.event;
+        if (!event) return;
+        if (args.filter) {
+          let keep = true;
+          try { keep = !!args.filter(event); }
+          catch (err) {
+            console.error("spindrel.stream filter threw:", err);
+            keep = false;
+          }
+          if (!keep) return;
+        }
+        try { args.cb(event); }
+        catch (err) { console.error("spindrel.stream handler threw:", err); }
+      }
+      window.addEventListener("message", onBrokerMsg);
+      try {
+        window.parent.postMessage({
+          __spindrel: true,
+          type: "stream_subscribe",
+          subId: subId,
+          kinds: args.kinds,
+          channelId: args.channelId,
+        }, "*");
+      } catch (_) { /* host unreachable — unsubscribe still cleans up */ }
+      return function unsubscribe() {
+        if (stopped) return;
+        stopped = true;
+        window.removeEventListener("message", onBrokerMsg);
+        try {
+          window.parent.postMessage({
+            __spindrel: true,
+            type: "stream_unsubscribe",
+            subId: subId,
+          }, "*");
+        } catch (_) {}
+      };
+    }
+    // Fallback: direct /widget-actions/stream SSE (dev sandbox, standalone
+    // viewers, widgets whose channelId differs from the host's, or calls made
+    // before the broker ack landed).
     const controller = new AbortController();
     let stopped = false;
     let retry = 0;

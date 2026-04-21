@@ -23,6 +23,8 @@ import type { ThreadSummary } from "../../api/hooks/useThreads";
 export { extractDisplayText } from "./messageUtils";
 export { MarkdownContent } from "./MarkdownContent";
 
+const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
+
 interface Props {
   message: Message;
   botName?: string;
@@ -370,7 +372,6 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             paddingTop: isTerminalMode ? 3 : 1,
             paddingBottom: isTerminalMode ? 3 : 1,
             borderRadius: 4,
-            borderLeft: isTerminalMode ? `2px solid ${isUser ? t.accentBorder : t.surfaceBorder}` : undefined,
           }}
         >
           {messageContent}
@@ -402,14 +403,13 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         paddingTop: isTerminalMode ? 10 : 14,
         paddingBottom: isTerminalMode ? 10 : 6,
         borderRadius: 4,
-        borderLeft: isTerminalMode ? `2px solid ${isUser ? t.accentBorder : avatarColor(displayName)}55` : undefined,
       }}
     >
       {/* Avatar — full-width layouts only. Narrow layouts (mobile, dock, drawer)
           drop the avatar entirely; the colored name carries identity and the
           layout feels better balanced without a tiny badge sitting off to the
           left of the header. */}
-      {!narrow && (
+      {!narrow && !isTerminalMode && (
         <div style={{ paddingTop: 2 }}>
           <Avatar name={displayName} isUser={isUser} onClick={handleBotClick} />
         </div>
@@ -429,7 +429,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
               cursor: handleBotClick ? "pointer" : undefined,
               borderBottom: handleBotClick ? "1px solid transparent" : undefined,
               transition: handleBotClick ? "border-color 0.15s" : undefined,
-              fontFamily: isTerminalMode ? "'JetBrains Mono', 'Fira Code', 'Menlo', monospace" : undefined,
+              fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
               textTransform: isTerminalMode ? "lowercase" : undefined,
             }}
             onMouseEnter={handleBotClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = avatarColor(displayName); } : undefined}
@@ -516,7 +516,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         </div>
 
         {/* Message content */}
-        <div style={{ fontFamily: isTerminalMode ? "'JetBrains Mono', 'Fira Code', 'Menlo', monospace" : undefined }}>
+        <div style={{ fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>
           {messageContent}
         </div>
       </div>
