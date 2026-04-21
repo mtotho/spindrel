@@ -2342,6 +2342,17 @@ export function InteractiveHtmlRenderer({
     return null;
   }, [pathMode, sourcePath, sourceKind, sourceIntegrationId, sourceChannelId, sourceLibraryRef, sourceBotId]);
 
+  // Sources that ship with the deploy can't change at runtime — fetch once
+  // and stop. Author-editable sources (workspace files, bot/workspace library
+  // bundles) poll at a relaxed cadence; the `widget_reload` event bus already
+  // covers "I just edited the HTML, show me now" without needing tight
+  // polling. 3s across every pinned widget was saturating the network tab
+  // and stalling the dashboard.
+  const isMutableSource =
+    (sourceKind === "library"
+      && !!sourceLibraryRef
+      && !sourceLibraryRef.startsWith("core/"))
+    || (sourceKind === "channel" && !!sourceChannelId && !!sourcePath);
   const fileQuery = useQuery({
     queryKey: [
       "interactive-html-widget-content",
@@ -2355,19 +2366,19 @@ export function InteractiveHtmlRenderer({
     queryFn: () =>
       apiFetch<{ path: string; content: string }>(contentEndpoint!),
     enabled: pathMode && !!contentEndpoint,
-    // 404 = file deleted/renamed. Permanent, not a blip — stop polling
-    // and don't retry, otherwise we spam the network tab every 3s for a
-    // widget the user may not even realize is mounted somewhere offscreen.
+    // Immutable sources: no polling. Mutable sources: 30s. 404 → stop
+    // regardless so a deleted file doesn't keep firing.
     refetchInterval: (query) => {
       const err = query.state.error;
       if (err instanceof ApiError && err.status === 404) return false;
-      return 3000;
+      if (!isMutableSource) return false;
+      return 30_000;
     },
     retry: (failureCount, err) => {
       if (err instanceof ApiError && err.status === 404) return false;
       return failureCount < 3;
     },
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: isMutableSource,
   });
 
   // Fire a sticky toast when a path-mode widget's source file is missing.
@@ -2763,8 +2774,11 @@ export function InteractiveHtmlRenderer({
       })()}
       {/* Subtle auth-scope chip — bottom-left so it doesn't collide with
           the "updated Xm ago" indicator (top-right). Tells the viewer
-          whose credentials this widget's API calls use. */}
-      {(botName || userScopedToken) && (
+          whose credentials this widget's API calls use. Suppressed in
+          chip layout (header strip) — the 32px-tall compact form has no
+          room for hover chrome and the overlay would block clicks on the
+          underlying widget content. */}
+      {layout !== "chip" && (botName || userScopedToken) && (
         <div
           className="widget-hover-chip"
           style={{
@@ -2792,7 +2806,7 @@ export function InteractiveHtmlRenderer({
           <span>{botName ? `@${botName}` : "as you"}</span>
         </div>
       )}
-      {pathMode && lastUpdated && (
+      {layout !== "chip" && pathMode && lastUpdated && (
         <div
           aria-hidden
           className="widget-hover-chip"

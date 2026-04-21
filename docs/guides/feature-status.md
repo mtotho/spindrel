@@ -39,8 +39,10 @@ It is meant to answer questions like:
 | Multi-user support | `working (beta)` | `medium` | Multi-user support exists and is suitable for close friends/family style use, but this is not pitched as full multi-tenant SaaS isolation. |
 | Auto-discovery of tools/skills/capabilities | `working` | `medium` | Core product bet and actively working, but still likely to benefit from model/retrieval tuning. |
 | Capability gating / approval-aware discovery | `working` | `medium` | Tool/capability discovery respects availability and approval constraints instead of blindly exposing everything. |
+| Tool approval flow | `working` | `medium` | Approval queues, inline approval states, and integration-aware approval handling are real parts of the product, even if some policy UX is still rough. |
 | Parallel tool execution / sub-agents | `working` | `medium` | Parallel sub-agent execution exists and the sub-agent system is a completed track. |
 | LLM fallbacks + retries | `working` | `high` | Retry, cooldown skip, fallback model routing, and rate-limit waits are part of the normal stack and are believed to be working well. |
+| Temporal context awareness | `working` | `medium` | The system intentionally feeds date/time context into reasoning so agents can anchor work to when things happened, not just what happened. |
 | Prompt caching respect | `working` | `medium` | The system is designed to preserve provider-side prompt caching wins rather than casually defeating them. |
 
 ## Skills, learning, and discovery
@@ -49,7 +51,7 @@ It is meant to answer questions like:
 |---|---|---|---|
 | Skill discovery / retrieval | `working` | `medium` | Skills are ranked and retrieved at runtime as part of the same discovery story as tools/capabilities. |
 | Agent self-authored skills | `working` | `medium` | Bots can create skills for themselves via `manage_bot_skill`. |
-| Automatic dreaming / skill review | `working` | `medium` | Maintenance + Skill Review jobs exist and are working so far, but the tuning window is still young. |
+| Automatic dreaming / skill review | `working (beta)` | `low` | Maintenance + Skill Review jobs are real and seem to be working, but there has not been enough evaluation time or long-run evidence yet to call them well-proven. |
 | Learning from corrections / repeated lookup / reflection | `working` | `medium` | The learning nudges are real and wired into the self-improving-agent loop. |
 | Skill quality analytics / learning center | `working (beta)` | `medium` | There is visibility into skills and surfacing analytics, though parts of the UI are still being polished. |
 
@@ -62,6 +64,7 @@ It is meant to answer questions like:
 | Workspace/file search mechanisms | `working` | `high` | The system uses multiple retrieval/search paths: workspace retrieval, channel archive search, bot knowledge search, and hybrid retrieval/reranking. |
 | Archived conversation history with sectioned index | `working` | `high` | Conversation history is archived into numbered/topic-tagged sections and can be searched/read back with `read_conversation_history`. |
 | Raw-message grep / tool-output recall from history | `working` | `high` | History tooling supports section reads, topic search, raw-message grep across history, and retrieval of summarized tool outputs by tool-call id. |
+| Scratch / side-thread sessions | `working` | `medium` | Scratch sessions and other sub-sessions are first-class conversation surfaces now, including current-session pointers and archived history. |
 | Chat state rehydration | `working` | `medium` | Reloads, reconnects, approvals, and active turns survive much better than the earlier streaming-only model. |
 
 ## Automation and orchestration
@@ -72,7 +75,8 @@ It is meant to answer questions like:
 | Pipelines | `working` | `medium` | Pipelines work, but the UI still feels clunky and the surface has not been exercised as heavily as simpler task scheduling. |
 | Pipeline sub-sessions | `working` | `medium` | Pipeline runs render as chat-native transcripts instead of invisible background jobs. |
 | Heartbeats | `working` | `high` | Scheduled autonomous check-ins are a real, supported mechanism. |
-| Event-triggered automation | `partial` | `low` | The building blocks exist, but the clean “event X triggers pipeline Y” story is still uneven across integrations/surfaces. |
+| Event-triggered automation | `working (beta)` | `low` | Any event an integration brings in can be used to fire a task automatically, but this surface has not been tested deeply enough yet to claim broad reliability. |
+| Push notifications | `working` | `medium` | Bots can intentionally send browser push notifications, and push delivery is part of the product rather than an external bolt-on. |
 | Friendly setup/orchestration wizard | `working (beta)` | `medium` | Setup is straightforward and the orchestrator helps guide onboarding, but the overall polish is still evolving. |
 
 ## Models, providers, and cost controls
@@ -93,8 +97,8 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 | Model / family | Provider path | Confidence | Notes |
 |---|---|---|---|
 | `minimax-m2.7` | `anthropic-compatible` | `high` | Extensively tested and known to work well. |
-| Claude Haiku 4.5 | `anthropic` | `high` | Used directly via Anthropic API. |
-| Claude Sonnet 4.6 | `anthropic` | `high` | Used directly via Anthropic API. |
+| Claude Haiku 4.5 | `litellm` | `high` | Used through the LiteLLM provider path. |
+| Claude Sonnet 4.6 | `litellm` | `high` | Used through the LiteLLM provider path. |
 | Gemini 2.5 family | `litellm` | `high` | Extensively used through the LiteLLM provider path. |
 | GPT-5.4 | `litellm` | `high` | Tested and working through LiteLLM. |
 | GPT-5.4 | `openai-subscription` | `high` | Tested and working through the ChatGPT-subscription provider path. |
@@ -125,10 +129,10 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 
 | Feature | Status | Confidence | What it means today |
 |---|---|---|---|
-| Rich widgeting system | `working (beta)` | `medium` | This is a major focus area and already highly present in the product, but it is still being actively expanded and hardened. |
+| Rich widgeting system | `working (beta)` | `medium` | This is a major focus area and already very usable, but it is still new, still being tuned, and still likely to reveal more bugs under wider use. |
 | HTML widgets authored by bots | `working (beta)` | `medium` | Bot-authored interactive HTML widgets are real and useful, with bot-scoped auth. |
 | Widget templates / component widgets | `working` | `medium` | Declarative widget templates and state polling are a real platform surface. |
-| Customizable widget dashboards | `working (beta)` | `medium` | Named dashboards, channel dashboards, panel mode, and chat-zone placement are all real, but still moving fast. |
+| Customizable widget dashboards | `working (beta)` | `medium` | Named dashboards, channel dashboards, panel mode, and chat-zone placement are workable today, but the surface is still fresh, not yet super robust, and needs tuning plus more bug-finding. |
 | Chat panels / HUD / channel widget zones | `working (beta)` | `medium` | Left rail, center dashboard, right rail, and top-center chips are real, but layout polish is still ongoing. |
 | Developer panel / widget authoring workbench | `working (beta)` | `medium` | `/widgets/dev` is useful and real, but still under active polish. |
 | Quick navigation with Ctrl/Cmd-K | `working` | `high` | Command palette is a first-class navigation surface and is heavily used in practice. |
@@ -141,10 +145,13 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 |---|---|---|---|
 | Build your own tools | `working` | `high` | Local tool authoring is straightforward and documented. |
 | Build your own integrations | `working (beta)` | `medium` | The integration framework is real and capable, though “easy” still depends on technical comfort. |
+| Programmatic tool orchestration (`run_script`) | `working (beta)` | `medium` | Bots can script many tool calls in one turn instead of forcing everything through long chat loops, but this is still a power-user surface. |
 | Raw shell / exec command path | `working` | `high` | Host-side subprocess execution is part of the current product. |
 | Docker sidecars / integration processes | `working` | `medium` | Docker deployment and sidecar-style service patterns are part of the system design. |
+| Channel integration bindings / outbound delivery | `working` | `medium` | Channels can bind integrations and deliver events/results outward, but the depth and polish still vary by integration. |
 | Webhooks | `working (beta)` | `low` | Outgoing lifecycle webhooks are supported and documented, but current confidence is lower because this surface has not been exercised much recently. |
 | API keys + documented API | `working` | `high` | Scoped API keys and documented HTTP APIs are established features and are used constantly by the web UI and bot integrations. |
+| Endpoint catalog / API discoverability | `working` | `medium` | The server builds an endpoint catalog from the actual app routes, which is useful and real even if it is not a flashy headline feature. |
 | Tool policies | `partial` | `medium` | Tool policies work, but the current experience is not yet well-optimized enough to call polished. |
 
 ## Security, operations, and admin

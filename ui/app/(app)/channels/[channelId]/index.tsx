@@ -328,12 +328,17 @@ export default function ChatScreen() {
 
   // Visible message ids drive the batched thread-summaries fetch.
   // Limit to the rendered window to keep the query key bounded.
+  // Filter out optimistic `msg-<timestamp>` ids — the endpoint expects
+  // UUIDs and returns 400 on anything else (ReadError banner on the SSE
+  // stream piggybacked on that failure).
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const visibleMessageIds = useMemo(
     () =>
       invertedData
         .filter((m) => m.role === "user" || m.role === "assistant")
         .slice(0, 50)
-        .map((m) => m.id),
+        .map((m) => m.id)
+        .filter((id) => UUID_RE.test(id)),
     [invertedData],
   );
   const { data: threadSummaries } = useThreadSummaries(visibleMessageIds);

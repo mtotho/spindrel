@@ -24,28 +24,24 @@ export function ScratchBanner({ channelId, channelName, archive }: ScratchBanner
   };
 
   return (
-    <div className="mx-3 mt-3 rounded-lg bg-surface-raised border border-surface-border px-3 py-2 flex items-start gap-3">
-      <div className="flex items-center justify-center w-7 h-7 rounded-md bg-accent/10 text-accent shrink-0 mt-0.5">
-        <NotebookPen size={14} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-semibold text-text">
-          {archive ? "Archived scratch session" : "Scratch pad — clean-slate session"}
-        </div>
-        <div className="text-[12px] text-text-dim leading-snug">
-          {archive
-            ? "Read-only view of a previous scratch session. Return to the current scratch to keep writing, or minimize to go back to the channel."
-            : "Messages here don't join the channel's history. Iterate on prompts or try ideas without polluting the main chat."}
-        </div>
-      </div>
+    <div className="mx-3 mt-2 rounded-md bg-surface-raised border border-surface-border px-3 py-1.5 flex items-center gap-2 text-[12px]">
+      <NotebookPen size={13} className="text-accent shrink-0" />
+      <span className="font-semibold text-text shrink-0">
+        {archive ? "Archived scratch" : "Scratch pad"}
+      </span>
+      <span className="text-text-dim truncate hidden md:inline">
+        {archive
+          ? "— read-only view of a previous scratch session."
+          : "— messages here don't join the channel's history."}
+      </span>
       <button
         type="button"
         onClick={handleMinimize}
         title={`Back to ${label}`}
         aria-label={`Minimize scratch and return to ${label}`}
-        className="shrink-0 p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
+        className="ml-auto shrink-0 p-1 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
       >
-        <Minimize2 size={14} />
+        <Minimize2 size={13} />
       </button>
     </div>
   );

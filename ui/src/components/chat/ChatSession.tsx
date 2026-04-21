@@ -768,7 +768,10 @@ function EphemeralChatSession({
 
   const body = (
     <div className="flex flex-col h-full">
-      {header}
+      {/* Fullpage hosts the header controls (history / reset / minimize)
+          up in ChannelHeader — skip the internal chrome row entirely so
+          the chat column doesn't carry two redundant title bars. */}
+      {!isFullpage && header}
       <div className="flex-1 min-h-0 relative">
         {sessionId ? (
           <SessionChatView
