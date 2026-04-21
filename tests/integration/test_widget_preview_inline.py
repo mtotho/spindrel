@@ -166,3 +166,58 @@ class TestPreviewForTool:
         assert data["envelope"]["display_label"] == "Integration Mem"
         body = json.loads(data["envelope"]["body"])
         assert body["components"][0]["text"] == "From registry: Mem"
+
+
+class TestPublicPreviewForTool:
+    @pytest.mark.asyncio
+    async def test_executes_tool_and_renders_active_template(self, client, db_session, monkeypatch):
+        row = WidgetTemplatePackage(
+            tool_name="fake_preview_tool",
+            name="fake preview tool",
+            yaml_template=RICH_YAML,
+            source="user",
+            is_readonly=False,
+            is_active=True,
+            content_hash="hash-public-preview",
+            version=1,
+        )
+        db_session.add(row)
+        await db_session.commit()
+
+        async def _call_local_tool(name: str, args_json: str) -> str:
+            assert name == "fake_preview_tool"
+            args = json.loads(args_json)
+            return json.dumps({"name": args.get("name", "n/a"), "status": "running"})
+
+        monkeypatch.setattr("app.tools.registry.is_local_tool", lambda name: name == "fake_preview_tool")
+        monkeypatch.setattr("app.tools.registry.is_mcp_tool", lambda name: False, raising=False)
+        monkeypatch.setattr("app.tools.registry.call_local_tool", _call_local_tool)
+        monkeypatch.setattr(
+            "app.tools.registry.get_tool_context_requirements",
+            lambda name: (False, False),
+        )
+
+        r = await client.post(
+            "/api/v1/widgets/preview-for-tool",
+            json={
+                "tool_name": "fake_preview_tool",
+                "tool_args": {"name": "Public"},
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["ok"] is True
+        assert data["envelope"]["display_label"] == "Hello Public"
+
+    @pytest.mark.asyncio
+    async def test_enforces_required_bot_context(self, client, monkeypatch):
+        monkeypatch.setattr("app.tools.registry.get_tool_context_requirements", lambda name: (True, False))
+
+        r = await client.post(
+            "/api/v1/widgets/preview-for-tool",
+            json={"tool_name": "needs_bot"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 400
+        assert "requires bot context" in r.text

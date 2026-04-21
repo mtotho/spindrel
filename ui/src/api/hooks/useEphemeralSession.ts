@@ -42,6 +42,11 @@ export interface ScratchSessionResponse {
   bot_id: string;
   created_at: string;
   is_current: boolean;
+  title?: string | null;
+  summary?: string | null;
+  message_count?: number;
+  section_count?: number;
+  session_scope?: string;
 }
 
 export interface ScratchHistoryItem {
@@ -52,6 +57,10 @@ export interface ScratchHistoryItem {
   is_current: boolean;
   message_count: number;
   preview?: string;
+  title?: string | null;
+  summary?: string | null;
+  section_count?: number;
+  session_scope?: string;
 }
 
 function scratchCurrentKey(parentChannelId: string, botId: string) {
@@ -126,6 +135,47 @@ export function useScratchHistory(
     },
     enabled: !!parentChannelId,
     staleTime: 60_000,
+  });
+}
+
+export function useRenameSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: { session_id: string; title: string; parent_channel_id?: string; bot_id?: string }) =>
+      apiFetch<{ session_id: string; title?: string | null; summary?: string | null }>(`/api/v1/sessions/${req.session_id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: req.title }),
+      }),
+    onSuccess: (_data, vars) => {
+      if (vars.parent_channel_id) {
+        qc.invalidateQueries({ queryKey: scratchHistoryKey(vars.parent_channel_id) });
+      }
+      if (vars.parent_channel_id && vars.bot_id) {
+        qc.invalidateQueries({
+          queryKey: scratchCurrentKey(vars.parent_channel_id, vars.bot_id),
+        });
+      }
+    },
+  });
+}
+
+export function usePromoteScratchSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: { session_id: string; parent_channel_id: string; bot_id?: string }) =>
+      apiFetch<{ primary_session_id: string; demoted_session_id: string; channel_id: string }>(
+        `/api/v1/sessions/${req.session_id}/promote-to-primary`,
+        { method: "POST" },
+      ),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: scratchHistoryKey(vars.parent_channel_id) });
+      if (vars.bot_id) {
+        qc.invalidateQueries({
+          queryKey: scratchCurrentKey(vars.parent_channel_id, vars.bot_id),
+        });
+      }
+      qc.invalidateQueries({ queryKey: ["channels", vars.parent_channel_id] });
+    },
   });
 }
 

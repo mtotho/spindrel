@@ -155,7 +155,6 @@ function IntegrationCard({ item }: { item: IntegrationItem }) {
     item.has_hooks && "hooks",
     item.has_tools && "tools",
     item.has_skills && "skills",
-    item.has_carapaces && "capabilities",
   ].filter(Boolean) as string[];
 
   const isAvailable = item.lifecycle_status === "available";

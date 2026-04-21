@@ -44,7 +44,7 @@ const ALL_TABS: TabDef[] = [
   { key: "general", label: "General" },
   { key: "participants", label: "Participants" },
   { key: "workspace", label: "Workspace" },
-  { key: "capabilities", label: "Capabilities" },
+  { key: "capabilities", label: "Skills" },
   { key: "integrations", label: "Integrations", adminOnly: true },
   { key: "heartbeat", label: "Heartbeat" },
   { key: "history", label: "History" },

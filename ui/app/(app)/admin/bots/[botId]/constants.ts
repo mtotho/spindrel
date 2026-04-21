@@ -5,7 +5,6 @@ export const SECTIONS = [
   { key: "tools", label: "Tools" },
   { key: "skills", label: "Skills" },
   { key: "learning", label: "Learning" },
-  { key: "carapaces", label: "Capabilities" },
   { key: "memory", label: "Memory" },
   { key: "attachments", label: "Attachments" },
   { key: "workspace", label: "Workspace" },

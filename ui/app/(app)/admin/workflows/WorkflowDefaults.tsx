@@ -128,16 +128,6 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
         />
       </FormRow>
 
-      <FormRow label="Capabilities" description="Default capabilities for all steps">
-        <input
-          value={(value.carapaces || []).join(", ")}
-          onChange={(e) => update("carapaces", e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean))}
-          placeholder="qa, code-review"
-          style={inputStyle}
-          disabled={disabled}
-        />
-      </FormRow>
-
       <Toggle
         value={!!value.inject_prior_results}
         onChange={(v) => update("inject_prior_results", v || undefined)}

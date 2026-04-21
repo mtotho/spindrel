@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { ShieldAlert, Check, XCircle, Sparkles, Pin } from "lucide-react";
+import { ShieldAlert, XCircle } from "lucide-react";
 import {
   useChannelPendingApprovals,
   useDecideApproval,
@@ -47,24 +47,19 @@ function OrphanApprovalCard({
   t: ReturnType<typeof useThemeTokens>;
 }) {
   const decide = useDecideApproval();
-  const isCap = approval.tool_name === "activate_capability";
-  const capability =
-    (approval.approval_metadata as Record<string, any> | null)?._capability ?? null;
 
-  const handle = (approved: boolean, pinCapability?: string) => {
+  const handle = (approved: boolean) => {
     decide.mutate({
       approvalId: approval.id,
       data: {
         approved,
         decided_by: "user",
-        ...(pinCapability ? { pin_capability: pinCapability } : {}),
       },
     });
   };
 
-  const label = isCap && capability?.name ? capability.name : approval.tool_name;
-  const description =
-    isCap && capability?.description ? capability.description : approval.reason;
+  const label = approval.tool_name;
+  const description = approval.reason;
 
   return (
     <div
@@ -75,17 +70,13 @@ function OrphanApprovalCard({
       }}
     >
       <div className="flex flex-row items-center gap-2 px-2.5 py-1.5">
-        {isCap ? (
-          <Sparkles size={12} color={t.warning} />
-        ) : (
-          <ShieldAlert size={12} color={t.warning} />
-        )}
+        <ShieldAlert size={12} color={t.warning} />
         <span
           className="text-xs"
           style={{
-            color: isCap ? t.text : t.textMuted,
-            fontWeight: isCap ? 600 : 400,
-            fontFamily: isCap ? "inherit" : "'Menlo', monospace",
+            color: t.textMuted,
+            fontWeight: 400,
+            fontFamily: "'Menlo', monospace",
           }}
         >
           {label}
@@ -123,32 +114,8 @@ function OrphanApprovalCard({
             cursor: decide.isPending ? "default" : "pointer",
           }}
         >
-          {isCap ? (
-            <span className="inline-flex items-center gap-1">
-              <Check size={11} />
-              Allow
-            </span>
-          ) : (
-            "Approve"
-          )}
+          Approve
         </button>
-        {isCap && capability?.id && (
-          <button
-            disabled={decide.isPending}
-            onClick={() => handle(true, capability.id)}
-            title="Allow and permanently add to this bot's capabilities"
-            className="rounded text-xs font-semibold px-3 py-1 border-0 inline-flex items-center gap-1"
-            style={{
-              backgroundColor: t.purple,
-              color: "#fff",
-              opacity: decide.isPending ? 0.6 : 1,
-              cursor: decide.isPending ? "default" : "pointer",
-            }}
-          >
-            <Pin size={11} />
-            Allow & Pin
-          </button>
-        )}
         <button
           disabled={decide.isPending}
           onClick={() => handle(false)}

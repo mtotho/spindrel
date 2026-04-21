@@ -3,7 +3,6 @@ import {
   Plug,
   Server,
   Cable,
-  Layers,
   Wrench,
   BookOpen,
   FileText,
@@ -31,7 +30,6 @@ export interface RouteMeta {
 const ROUTE_PREFIX_MAP: { prefix: string; meta: RouteMeta }[] = [
   { prefix: "/admin/tasks/", meta: { icon: ClipboardList, category: "Automate", fallbackLabel: "Task" } },
   { prefix: "/admin/bots/", meta: { icon: Bot, category: "Bots", fallbackLabel: "Edit Bot" } },
-  { prefix: "/admin/carapaces/", meta: { icon: Layers, category: "Configure", fallbackLabel: "Capability" } },
   { prefix: "/admin/skills/", meta: { icon: BookOpen, category: "Configure", fallbackLabel: "Skill" } },
   { prefix: "/admin/tools/", meta: { icon: Wrench, category: "Configure", fallbackLabel: "Tool" } },
   { prefix: "/admin/integrations/", meta: { icon: Plug, category: "Integrations", fallbackLabel: "Integration" } },

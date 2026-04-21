@@ -23,6 +23,8 @@ import re
 from pathlib import Path
 
 from app.agent.context import current_bot_id
+from app.services.native_app_widgets import list_native_widget_catalog_entries
+from app.services.widget_manifest import parse_manifest
 from app.services.widget_paths import scope_root
 from app.tools.registry import register
 
@@ -49,6 +51,34 @@ _METADATA_KEYS = (
     "suite",
     "package",
 )
+
+
+def _manifest_actions(widget_dir: Path) -> list[dict]:
+    yaml_path = widget_dir / "widget.yaml"
+    if not yaml_path.is_file():
+        return []
+    try:
+        manifest = parse_manifest(yaml_path)
+    except Exception:
+        logger.debug("Failed parsing action manifest from %s", yaml_path, exc_info=True)
+        return []
+    out: list[dict] = []
+    for spec in manifest.handlers:
+        if not spec.bot_callable:
+            continue
+        props = spec.args or {}
+        required = [name for name, cfg in props.items() if isinstance(cfg, dict) and cfg.get("required")]
+        out.append({
+            "id": spec.name,
+            "description": spec.description,
+            "args_schema": {
+                "type": "object",
+                "properties": props,
+                "required": required,
+            },
+            "returns_schema": spec.returns,
+        })
+    return out
 
 
 def _read_widget_meta(widget_dir: Path, scope: str) -> dict | None:
@@ -106,6 +136,10 @@ def _read_widget_meta(widget_dir: Path, scope: str) -> dict | None:
     meta["widget_kind"] = "template" if fmt == "template" else "html"
     meta["widget_binding"] = "tool_bound" if fmt == "template" else "standalone"
     meta["theme_support"] = "html" if fmt in {"html", "suite"} else "none"
+    if fmt in {"html", "suite"}:
+        actions = _manifest_actions(widget_dir)
+        if actions:
+            meta["actions"] = actions
     suite = meta.get("suite")
     package = meta.get("package")
     if isinstance(suite, str) and suite.strip():
@@ -193,12 +227,16 @@ def _resolve_scope_roots() -> tuple[str | None, str | None]:
             "description": (
                 "List widget bundles available to the bot across the core, bot, "
                 "and workspace libraries. Returns name, scope, format, display "
-                "metadata, and grouping/theme capabilities per entry. Use this "
+                "metadata, declared bot action schemas when available, and "
+                "grouping/theme capabilities per entry. Use this "
                 "before composing a new widget so you can reuse or extend an "
                 "existing bundle instead of creating another one from scratch. "
                 "HTML entries can be emitted via `emit_html_widget(library_ref=...)` "
-                "or pinned with `pin_widget`; template entries are inspectable "
-                "here but still use their own tool-renderer/runtime path. Filter "
+                "or pinned with `pin_widget`; native app entries are "
+                "first-party built-ins that can be pinned through the same "
+                "library flow; template entries can be "
+                "instantiated by calling `pin_widget(source_kind='library', "
+                "widget='<tool_name>', tool_args={...})`. Filter "
                 "by `scope`, `format`, or free-text `q` (matches name + "
                 "display_label + description)."
             ),
@@ -276,6 +314,7 @@ async def widget_library_list(
     widgets: list[dict] = []
     if "core" in wanted_scopes:
         widgets.extend(_iter_core_widgets())
+        widgets.extend(list_native_widget_catalog_entries())
     if wanted_scopes & {"bot", "workspace"}:
         ws_root, shared_root = _resolve_scope_roots()
         if "bot" in wanted_scopes:

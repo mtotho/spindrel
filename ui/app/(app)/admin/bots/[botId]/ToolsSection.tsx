@@ -323,10 +323,6 @@ function FullToolList({
     autoInjectedTools.add("get_skill");
     autoInjectedTools.add("get_skill_list");
   }
-  // activate_capability is auto-injected by context assembly when capability
-  // RAG finds relevant matches — the checkbox state is irrelevant.
-  autoInjectedTools.add("activate_capability");
-
   const toggleTool = (name: string) => {
     if (localTools.includes(name)) {
       update({

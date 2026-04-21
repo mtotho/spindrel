@@ -45,7 +45,6 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "TOOL_LOOP_DETECTION_ENABLED": {"group": "Agent", "label": "Tool Loop Detection", "description": "Detect and break repeating tool call cycles within a single agent run", "type": "bool"},
     "PARALLEL_TOOL_EXECUTION": {"group": "Agent", "label": "Parallel Tool Execution", "description": "Dispatch multiple tool calls concurrently (latency = max instead of sum)", "type": "bool"},
     "PARALLEL_TOOL_MAX_CONCURRENT": {"group": "Agent", "label": "Parallel Tool Max Concurrent", "description": "Max concurrent tool dispatches per batch (semaphore limit)", "type": "int", "min": 1, "max": 50},
-    "CAPABILITIES_DISABLED": {"group": "Agent", "label": "Disabled Capabilities", "description": "Comma-separated carapace IDs to hide globally from auto-discovery (e.g. 'orchestrator,arr')", "type": "string", "nullable": True},
     "LLM_FALLBACK_MODEL": {"group": "Agent", "label": "Fallback Model", "description": "Model to try after all retries exhaust (empty = none)", "type": "string", "widget": "model"},
     "LLM_FALLBACK_MODEL_PROVIDER_ID": {"group": "Agent", "label": "Fallback Model Provider", "type": "string", "description": "Provider for fallback model", "ui_hidden": True},
     "LLM_MAX_RETRIES": {"group": "Agent", "label": "LLM Max Retries", "description": "Retry attempts for transient errors (5xx, connection)", "type": "int", "min": 0, "max": 10},

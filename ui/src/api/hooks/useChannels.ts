@@ -122,6 +122,56 @@ export function useChannelEffectiveTools(channelId: string | undefined) {
   });
 }
 
+export interface ChannelEnrolledSkill {
+  skill_id: string;
+  name: string;
+  description?: string | null;
+  source: string;
+  enrolled_at: string;
+}
+
+export function useChannelEnrolledSkills(channelId: string | undefined) {
+  return useQuery({
+    queryKey: ["channel-enrolled-skills", channelId],
+    queryFn: () => apiFetch<ChannelEnrolledSkill[]>(`/api/v1/admin/channels/${channelId}/enrolled-skills`),
+    enabled: !!channelId,
+  });
+}
+
+export function useEnrollChannelSkill(channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ skillId, source }: { skillId: string; source?: string }) =>
+      apiFetch<{ status: string; skill_id: string; inserted: boolean }>(
+        `/api/v1/admin/channels/${channelId}/enrolled-skills`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ skill_id: skillId, source: source ?? "manual" }),
+        },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["channel-enrolled-skills", channelId] });
+      qc.invalidateQueries({ queryKey: ["channel-effective-tools", channelId] });
+    },
+  });
+}
+
+export function useUnenrollChannelSkill(channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (skillId: string) =>
+      apiFetch(
+        `/api/v1/admin/channels/${channelId}/enrolled-skills/${encodeURIComponent(skillId)}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["channel-enrolled-skills", channelId] });
+      qc.invalidateQueries({ queryKey: ["channel-effective-tools", channelId] });
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Integration bindings
 // ---------------------------------------------------------------------------

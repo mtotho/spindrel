@@ -173,7 +173,7 @@ export function SkillsSection({
 
       <div style={{ fontSize: 11, color: t.textDim }}>
         Skills are shared reference documents available to all bots via <code style={{ fontSize: 10 }}>get_skill()</code>.
-        Capability prompts tell bots which skills to fetch when needed.
+        Foldered skills use <code style={{ fontSize: 10 }}>index.md</code> as the entry skill and sibling files as related sub-skills.
       </div>
 
       {draft.id && (
@@ -228,6 +228,16 @@ export function SkillsSection({
                         <span style={{ fontSize: 12, fontWeight: 500, color: t.text }}>{skill.name}</span>
                         <span style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>{skill.id}</span>
                         {sourceType !== "integration" && !isBotAuthored && <SourceBadge type={sourceType} />}
+                        {skill.skill_layout === "folder_root" && (
+                          <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: t.surfaceOverlay, color: t.textMuted }}>
+                            folder
+                          </span>
+                        )}
+                        {skill.skill_layout === "child" && (
+                          <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: t.surfaceOverlay, color: t.textMuted }}>
+                            child
+                          </span>
+                        )}
                         {starterIds.has(skill.id) && <StarterBadge />}
                       </div>
                       {cleanedDesc && (

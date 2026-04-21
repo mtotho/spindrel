@@ -54,7 +54,7 @@ Fields: tool_name (string, exact name), tool_args (object, supports templates)
 ### agent — LLM Conversation
 Spawns a child LLM task. Prior results auto-injected in preamble.
 
-Fields: prompt (string), model (string, optional override), tools (string[], optional), carapaces (string[], optional)
+Fields: prompt (string), model (string, optional override), tools (string[], optional)
 
 ### user_prompt — Pause for Human Approval
 Pauses the pipeline and emits a widget into the channel. Resumes when the user resolves it.

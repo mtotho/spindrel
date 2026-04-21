@@ -643,16 +643,16 @@ async def _generate_section(
     transcript = _build_transcript(conversation)
     compaction_tier = "normal"
 
-    # --- Query section count + previous section for this channel ---
+    # --- Query section count + previous section for this session ---
     section_count = 0
     prev_title: str | None = None
     prev_summary: str | None = None
-    if channel_id:
+    if session_id:
         async with async_session() as db:
             count_result = await db.execute(
                 select(func.count())
                 .select_from(ConversationSection)
-                .where(ConversationSection.channel_id == channel_id)
+                .where(ConversationSection.session_id == session_id)
             )
             section_count = count_result.scalar() or 0
 
@@ -660,7 +660,7 @@ async def _generate_section(
                 from sqlalchemy.orm import defer as _defer_col
                 prev_result = await db.execute(
                     select(ConversationSection)
-                    .where(ConversationSection.channel_id == channel_id)
+                    .where(ConversationSection.session_id == session_id)
                     .order_by(ConversationSection.sequence.desc())
                     .limit(1)
                     .options(_defer_col(ConversationSection.transcript), _defer_col(ConversationSection.embedding))
@@ -803,16 +803,16 @@ def _log_compaction_tier(
 
 
 async def _regenerate_executive_summary(
-    channel_id: uuid.UUID,
+    session_id: uuid.UUID,
     model: str,
     provider_id: str | None = None,
 ) -> str:
-    """Query all sections for a channel and produce a compact executive summary."""
+    """Query all sections for a session and produce a compact executive summary."""
     from sqlalchemy.orm import defer
     async with async_session() as db:
         result = await db.execute(
             select(ConversationSection)
-            .where(ConversationSection.channel_id == channel_id)
+            .where(ConversationSection.session_id == session_id)
             .order_by(ConversationSection.sequence)
             .options(defer(ConversationSection.transcript), defer(ConversationSection.embedding))
         )
@@ -1090,10 +1090,10 @@ async def run_compaction_stream(
 
             # Get next sequence number
             async with async_session() as db:
-                if channel_id:
+                if session_id:
                     max_seq_result = await db.execute(
                         select(func.max(ConversationSection.sequence))
-                        .where(ConversationSection.channel_id == channel_id)
+                        .where(ConversationSection.session_id == session_id)
                     )
                     max_seq = max_seq_result.scalar() or 0
                 else:
@@ -1138,7 +1138,7 @@ async def run_compaction_stream(
                     logger.warning("Section retention pruning failed for channel %s", channel_id, exc_info=True)
 
             # Append new section summary to existing executive summary
-            if existing_summary and channel_id:
+            if existing_summary:
                 exec_summary = f"{existing_summary}\n\n[Section {max_seq + 1}] {sec_title}: {sec_summary}"
             else:
                 exec_summary = f"[Section {max_seq + 1}] {sec_title}: {sec_summary}"
@@ -1147,17 +1147,17 @@ async def run_compaction_stream(
             _EXEC_SUMMARY_REGEN_CHARS = 2000
             _EXEC_SUMMARY_REGEN_SECTIONS = 15
             section_count = exec_summary.count("[Section ")
-            if channel_id and (len(exec_summary) > _EXEC_SUMMARY_REGEN_CHARS or section_count >= _EXEC_SUMMARY_REGEN_SECTIONS):
+            if len(exec_summary) > _EXEC_SUMMARY_REGEN_CHARS or section_count >= _EXEC_SUMMARY_REGEN_SECTIONS:
                 logger.info(
-                    "Executive summary exceeded threshold (%d chars, %d sections) — regenerating for channel %s",
-                    len(exec_summary), section_count, channel_id,
+                    "Executive summary exceeded threshold (%d chars, %d sections) — regenerating for session %s",
+                    len(exec_summary), section_count, session_id,
                 )
                 try:
                     exec_summary = await _regenerate_executive_summary(
-                        channel_id, model, provider_id=_get_compaction_provider(bot, channel),
+                        session_id, model, provider_id=_get_compaction_provider(bot, channel),
                     )
                 except Exception:
-                    logger.warning("Failed to regenerate executive summary for channel %s", channel_id, exc_info=True)
+                    logger.warning("Failed to regenerate executive summary for session %s", session_id, exc_info=True)
 
             # Update session with executive summary + watermark
             async with async_session() as db:
@@ -1442,7 +1442,7 @@ async def run_compaction_forced(
         if channel_id:
             max_seq_result = await db.execute(
                 select(func.max(ConversationSection.sequence))
-                .where(ConversationSection.channel_id == channel_id)
+                .where(ConversationSection.session_id == session_id)
             )
             max_seq = max_seq_result.scalar() or 0
         else:
@@ -1489,7 +1489,7 @@ async def run_compaction_forced(
             except Exception:
                 logger.warning("Section retention pruning failed for channel %s", channel_id, exc_info=True)
 
-        if existing_summary and channel_id:
+        if existing_summary:
             exec_summary = f"{existing_summary}\n\n[Section {max_seq + 1}] {sec_title}: {sec_summary}"
         else:
             exec_summary = f"[Section {max_seq + 1}] {sec_title}: {sec_summary}"
@@ -1498,17 +1498,17 @@ async def run_compaction_forced(
         _EXEC_SUMMARY_REGEN_CHARS = 2000
         _EXEC_SUMMARY_REGEN_SECTIONS = 15
         section_count = exec_summary.count("[Section ")
-        if channel_id and (len(exec_summary) > _EXEC_SUMMARY_REGEN_CHARS or section_count >= _EXEC_SUMMARY_REGEN_SECTIONS):
+        if len(exec_summary) > _EXEC_SUMMARY_REGEN_CHARS or section_count >= _EXEC_SUMMARY_REGEN_SECTIONS:
             logger.info(
-                "Executive summary exceeded threshold (%d chars, %d sections) — regenerating for channel %s",
-                len(exec_summary), section_count, channel_id,
+                "Executive summary exceeded threshold (%d chars, %d sections) — regenerating for session %s",
+                len(exec_summary), section_count, session_id,
             )
             try:
                 exec_summary = await _regenerate_executive_summary(
-                    channel_id, model, provider_id=_get_compaction_provider(bot, channel),
+                    session_id, model, provider_id=_get_compaction_provider(bot, channel),
                 )
             except Exception:
-                logger.warning("Failed to regenerate executive summary for channel %s", channel_id, exc_info=True)
+                logger.warning("Failed to regenerate executive summary for session %s", session_id, exc_info=True)
 
         title, summary = sec_title, exec_summary
     else:
@@ -1651,12 +1651,12 @@ async def backfill_sections(
     history_mode: str | None = None,
     clear_existing: bool = False,
 ) -> AsyncGenerator[dict, None]:
-    """Retroactively chunk historical messages into ConversationSection rows.
+    """Retroactively chunk the channel's active session into ConversationSection rows.
 
-    Yields progress dicts as JSON-line events. Only processes messages at or
-    before the active session's watermark (summary_message_id).
+    Yields progress dicts as JSON-line events. Only processes messages on the
+    active session at or before that session's watermark (summary_message_id).
 
-    If clear_existing=True, deletes all existing sections for the channel first.
+    If clear_existing=True, deletes existing sections for the active session first.
     """
     from app.agent.bots import get_bot
 
@@ -1681,7 +1681,7 @@ async def backfill_sections(
         effective_model = model or _get_compaction_model(bot, channel)
         effective_provider = provider_id or _get_compaction_provider(bot, channel)
 
-        # 2. Load ALL messages across all sessions for this channel
+        # 2. Load messages from the active session only.
         watermark_filter = True  # type: ignore[assignment]
         if session.summary_message_id:
             watermark_msg = await db.get(Message, session.summary_message_id)
@@ -1690,8 +1690,7 @@ async def backfill_sections(
 
         result = await db.execute(
             select(Message)
-            .join(Session, Message.session_id == Session.id)
-            .where(Session.channel_id == channel_id)
+            .where(Message.session_id == session.id)
             .where(watermark_filter)
             .order_by(Message.created_at)
         )
@@ -1734,7 +1733,7 @@ async def backfill_sections(
             from sqlalchemy import delete as sa_delete
             deleted = await db.execute(
                 sa_delete(ConversationSection)
-                .where(ConversationSection.channel_id == channel_id)
+                .where(ConversationSection.session_id == session.id)
             )
             await db.commit()
             logger.info("Cleared %d existing sections for channel %s", deleted.rowcount, channel_id)
@@ -1749,7 +1748,7 @@ async def backfill_sections(
         async with async_session() as db:
             existing = (await db.execute(
                 select(ConversationSection)
-                .where(ConversationSection.channel_id == channel_id)
+                .where(ConversationSection.session_id == session.id)
                 .order_by(ConversationSection.sequence)
             )).scalars().all()
 
@@ -1873,7 +1872,7 @@ async def backfill_sections(
 
     # 7. Regenerate executive summary
     exec_summary = await _regenerate_executive_summary(
-        channel_id, effective_model, provider_id=effective_provider,
+        session.id, effective_model, provider_id=effective_provider,
     )
 
     # Update session summary
@@ -1916,10 +1915,10 @@ async def repair_section_periods(channel_id: uuid.UUID | None = None) -> int:
         for section in sections:
             if not section.session_id:
                 continue
-            # Get all sections for this channel to determine message boundaries
+            # Determine message boundaries from the section's own session stream.
             all_sections = await db.execute(
                 select(ConversationSection)
-                .where(ConversationSection.channel_id == section.channel_id)
+                .where(ConversationSection.session_id == section.session_id)
                 .order_by(ConversationSection.sequence)
             )
             ordered = all_sections.scalars().all()

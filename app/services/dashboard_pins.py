@@ -17,6 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import ApiKey, Bot, WidgetDashboardPin
+from app.services.native_app_widgets import (
+    NATIVE_APP_CONTENT_TYPE,
+    build_envelope_for_native_instance,
+    extract_native_widget_ref_from_envelope,
+    get_or_create_native_widget_instance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +64,7 @@ def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
         "position": pin.position,
         "source_kind": pin.source_kind,
         "source_channel_id": str(pin.source_channel_id) if pin.source_channel_id else None,
+        "widget_instance_id": str(pin.widget_instance_id) if pin.widget_instance_id else None,
         "source_bot_id": pin.source_bot_id,
         "tool_name": pin.tool_name,
         "tool_args": pin.tool_args or {},
@@ -192,11 +199,30 @@ async def create_pin(
     await get_dashboard(db, dashboard_key)
 
     position = await _next_position(db, dashboard_key=dashboard_key)
+    widget_instance_id: uuid.UUID | None = None
+    if envelope.get("content_type") == NATIVE_APP_CONTENT_TYPE:
+        widget_ref = extract_native_widget_ref_from_envelope(envelope)
+        if not widget_ref:
+            raise HTTPException(400, "native widget envelope is missing widget_ref")
+        instance = await get_or_create_native_widget_instance(
+            db,
+            widget_ref=widget_ref,
+            dashboard_key=dashboard_key,
+            source_channel_id=source_channel_id,
+            config=widget_config or {},
+        )
+        widget_instance_id = instance.id
+        envelope = build_envelope_for_native_instance(
+            instance,
+            display_label=display_label or envelope.get("display_label"),
+            source_bot_id=source_bot_id,
+        )
     pin = WidgetDashboardPin(
         dashboard_key=dashboard_key,
         position=position,
         source_kind=source_kind,
         source_channel_id=source_channel_id,
+        widget_instance_id=widget_instance_id,
         source_bot_id=source_bot_id,
         tool_name=tool_name,
         tool_args=tool_args or {},

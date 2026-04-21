@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useResetScratchSession, useScratchHistory, useScratchSession } from "@/src/api/hooks/useEphemeralSession";
-import { Loader2, RotateCcw, StickyNote, X } from "lucide-react";
+import {
+  usePromoteScratchSession,
+  useRenameSession,
+  useResetScratchSession,
+  useScratchHistory,
+  useScratchSession,
+} from "@/src/api/hooks/useEphemeralSession";
+import { ArrowUpCircle, Loader2, Pencil, RotateCcw, StickyNote, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 interface ScratchSessionMenuProps {
@@ -33,6 +39,12 @@ function previewLabel(preview?: string): string {
   return raw;
 }
 
+function sessionLabel(row: { title?: string | null; preview?: string }): string {
+  const title = row.title?.trim();
+  if (title) return title;
+  return previewLabel(row.preview);
+}
+
 export function ScratchSessionMenu({
   open,
   onClose,
@@ -54,6 +66,8 @@ export function ScratchSessionMenu({
   );
   const { data: history, isLoading, error } = useScratchHistory(open ? channelId : null);
   const resetScratch = useResetScratchSession();
+  const renameSession = useRenameSession();
+  const promoteScratch = usePromoteScratchSession();
 
   useEffect(() => {
     if (!open || mobile) return;
@@ -176,21 +190,71 @@ export function ScratchSessionMenu({
               const isActiveView = row.session_id === currentSessionId;
               return (
                 <li key={row.session_id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onNavigateSession(row.session_id);
-                    }}
-                    className="flex w-full items-start gap-3 px-3 py-2 text-left transition-colors hover:bg-surface-overlay"
-                  >
+                  <div className="flex items-start gap-3 px-3 py-2 transition-colors hover:bg-surface-overlay">
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[12px] text-text">{previewLabel(row.preview)}</div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onNavigateSession(row.session_id);
+                        }}
+                        className="block w-full text-left"
+                      >
+                        <div className="truncate text-[12px] text-text">{sessionLabel(row)}</div>
+                      </button>
+                      {row.summary?.trim() ? (
+                        <div className="mt-0.5 line-clamp-2 text-[11px] text-text-dim">{row.summary.trim()}</div>
+                      ) : null}
                       <div className="mt-0.5 text-[11px] text-text-dim">
-                        {formatTimestamp(row.last_active)} · {row.message_count} msg{row.message_count === 1 ? "" : "s"}
+                        {formatTimestamp(row.last_active)} · {row.message_count} msg{row.message_count === 1 ? "" : "s"} · {row.section_count ?? 0} section{(row.section_count ?? 0) === 1 ? "" : "s"}
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          const nextTitle = window.prompt("Scratch session name", sessionLabel(row));
+                          if (nextTitle == null) return;
+                          renameSession.mutate({
+                            session_id: row.session_id,
+                            title: nextTitle.trim(),
+                            parent_channel_id: channelId,
+                            bot_id: botId ?? undefined,
+                          });
+                        }}
+                        className="rounded-md p-1 text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
+                        aria-label="Rename scratch session"
+                        title="Rename"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      {!row.is_current && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            promoteScratch.mutate(
+                              {
+                                session_id: row.session_id,
+                                parent_channel_id: channelId,
+                                bot_id: botId ?? undefined,
+                              },
+                              {
+                                onSuccess: () => {
+                                  onClose();
+                                  onOpenMainChat?.();
+                                },
+                              },
+                            );
+                          }}
+                          className="rounded-md p-1 text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
+                          aria-label="Make primary session"
+                          title="Make primary"
+                        >
+                          <ArrowUpCircle size={12} />
+                        </button>
+                      )}
                       {isActiveView && (
                         <span
                           className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
@@ -200,7 +264,7 @@ export function ScratchSessionMenu({
                         </span>
                       )}
                     </div>
-                  </button>
+                  </div>
                 </li>
               );
             })}

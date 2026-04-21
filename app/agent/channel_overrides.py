@@ -16,7 +16,6 @@ class EffectiveTools:
     client_tools: list[str] = field(default_factory=list)
     pinned_tools: list[str] = field(default_factory=list)
     skills: list[SkillConfig] = field(default_factory=list)
-    carapaces: list[str] = field(default_factory=list)
 
 
 def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools:
@@ -30,8 +29,7 @@ def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools
     - memory_scheme="workspace-files" → search_memory, get_memory_file, file, manage_bot_skill
     - tool_retrieval=true → get_tool_info
     - (unconditional) → get_skill, get_skill_list, list_channels,
-      read_conversation_history, list_sub_sessions, read_sub_session,
-      activate_capability
+      read_conversation_history, list_sub_sessions, read_sub_session
     """
     import dataclasses
     from app.services.memory_scheme import MEMORY_SCHEME_TOOLS, MEMORY_SCHEME_HIDDEN_TOOLS
@@ -66,10 +64,6 @@ def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools
     _inject("list_sub_sessions")
     _inject("read_sub_session")
 
-    # activate_capability is conditional on capability RAG matches at runtime,
-    # so we always include it as available (it's low-cost and always registered)
-    _inject("activate_capability")
-
     return dataclasses.replace(eff, local_tools=local, pinned_tools=pinned)
 
 
@@ -87,16 +81,46 @@ def _apply_disabled(bot_list: list[str], disabled: list | None) -> list[str]:
 
 def _resolve_skills(
     bot_skills: list[SkillConfig],
+    channel_skill_ids: list[str],
 ) -> list[SkillConfig]:
-    """Return a copy of bot skills. Channel-level overrides removed in Phase 4."""
-    return list(bot_skills)
+    """Merge bot skills with channel-enrolled skill IDs."""
+    skills = list(bot_skills)
+    existing = {s.id for s in skills}
+    for skill_id in channel_skill_ids:
+        if skill_id not in existing:
+            skills.append(SkillConfig(id=skill_id, mode="on_demand"))
+            existing.add(skill_id)
+    return skills
+
+
+def _collect_activated_integration_tools(channel: "Channel | None") -> list[str]:
+    """Return local tool names shipped by integrations activated on this channel."""
+    if channel is None:
+        return []
+    try:
+        from app.tools.registry import _tools
+
+        active_integrations = {
+            ci.integration_type
+            for ci in (getattr(channel, "integrations", None) or [])
+            if getattr(ci, "activated", False)
+        }
+        if not active_integrations:
+            return []
+        names: list[str] = []
+        for tool_name, entry in _tools.items():
+            if entry.get("source_integration") in active_integrations:
+                names.append(tool_name)
+        return names
+    except Exception:
+        return []
 
 
 def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> EffectiveTools:
     """Resolve effective tool/skill configuration for a channel.
 
     Tools: channel disabled lists restrict the bot's tool lists (blacklist only).
-    Skills: channel extras can ADD skills from the global pool; disabled removes.
+    Skills: channel-level enrollments can ADD skills from the global pool.
     Returns bot defaults when channel is None.
     """
     if channel is None:
@@ -106,34 +130,7 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
             client_tools=list(bot.client_tools),
             pinned_tools=list(bot.pinned_tools),
             skills=list(bot.skills),
-            carapaces=list(bot.carapaces),
         )
-
-    # Resolve carapaces: extras add, activation inject, disabled removes
-    _carapaces = list(bot.carapaces)
-    _ch_extra = getattr(channel, "carapaces_extra", None) or []
-    for cid in _ch_extra:
-        if cid not in _carapaces:
-            _carapaces.append(cid)
-    _ch_disabled = set(getattr(channel, "carapaces_disabled", None) or [])
-
-    # Inject carapaces from activated integrations (mirrors context_assembly.py)
-    try:
-        from integrations import get_activation_manifests
-        _manifests = get_activation_manifests()
-        for _ci in (getattr(channel, "integrations", None) or []):
-            if not _ci.activated:
-                continue
-            _manifest = _manifests.get(_ci.integration_type)
-            if _manifest:
-                for cap_id in _manifest.get("carapaces", []):
-                    if cap_id not in _carapaces and cap_id not in _ch_disabled:
-                        _carapaces.append(cap_id)
-    except Exception:
-        pass
-
-    if _ch_disabled:
-        _carapaces = [c for c in _carapaces if c not in _ch_disabled]
 
     # Inject MCP servers from activated integrations
     _mcp = list(bot.mcp_servers)
@@ -147,11 +144,17 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
     except ImportError:
         pass
 
+    _channel_skill_ids = getattr(channel, "_channel_skill_enrollment_ids", None) or []
+    _integration_tools = _collect_activated_integration_tools(channel)
+    _local_tools = list(bot.local_tools)
+    for tool_name in _integration_tools:
+        if tool_name not in _local_tools:
+            _local_tools.append(tool_name)
+
     return EffectiveTools(
-        local_tools=_apply_disabled(bot.local_tools, channel.local_tools_disabled),
+        local_tools=_apply_disabled(_local_tools, channel.local_tools_disabled),
         mcp_servers=_apply_disabled(_mcp, channel.mcp_servers_disabled),
         client_tools=_apply_disabled(bot.client_tools, channel.client_tools_disabled),
         pinned_tools=list(bot.pinned_tools),
-        skills=_resolve_skills(bot.skills),
-        carapaces=_carapaces,
+        skills=_resolve_skills(bot.skills, list(_channel_skill_ids)),
     )

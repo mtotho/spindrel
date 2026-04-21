@@ -87,28 +87,11 @@ export interface BotConfig {
   skill_review_model_provider_id?: string | null;
   skill_review_target_hour?: number | null;
   skill_review_extra_instructions?: string | null;
-  carapaces?: string[];
   system_prompt_workspace_file?: boolean;
   system_prompt_write_protected?: boolean;
   source_type?: string;  // "system"|"file"|"manual"
   created_at?: string;
   updated_at?: string;
-}
-
-export interface Carapace {
-  id: string;
-  name: string;
-  description?: string | null;
-  local_tools: string[];
-  mcp_tools: string[];
-  pinned_tools: string[];
-  system_prompt_fragment?: string | null;
-  includes: string[];
-  tags: string[];
-  source_type: string;
-  source_path?: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 // Workflows
@@ -142,7 +125,6 @@ export interface WorkflowStep {
   on_failure?: string;
   secrets?: string[];
   tools?: string[];
-  carapaces?: string[];
   model?: string | null;
   timeout?: number | null;
   inject_prior_results?: boolean;
@@ -218,6 +200,10 @@ export interface SkillOption {
   name: string;
   description?: string;
   source_type?: string;
+  skill_layout?: "loose" | "folder_root" | "child";
+  folder_root_id?: string | null;
+  parent_skill_id?: string | null;
+  has_children?: boolean;
 }
 
 export interface ModelParamDefinition {
@@ -234,8 +220,8 @@ export interface ModelParamDefinition {
 
 export interface ResolvedToolEntry {
   name: string;
-  source: string;       // "bot", "carapace:<id>", "memory_scheme"
-  source_label: string;  // human-readable
+  source: string;
+  source_label: string;
   integration: string;
 }
 
@@ -334,7 +320,6 @@ export interface ActivatableIntegration {
   description: string;
   requires_workspace: boolean;
   activated: boolean;
-  carapaces: string[];
   tools: string[];
   has_system_prompt: boolean;
   version?: string | null;
@@ -519,12 +504,20 @@ export interface WidgetLibraryEntry {
   /** Bundle format. ``html`` = iframe widget, ``suite`` = multi-widget
    *  bundle sharing a SQLite DB. Tool-renderer ``template`` entries are
    *  filtered out server-side — they can't be pinned without runtime args. */
-  format: "html" | "suite";
-  widget_kind?: "html" | "template";
+  format: "html" | "suite" | "native_app";
+  widget_kind?: "html" | "template" | "native_app";
   widget_binding?: "standalone" | "tool_bound";
   theme_support?: "html" | "template" | "none";
   group_kind?: "suite" | "package" | null;
   group_ref?: string | null;
+  widget_ref?: string | null;
+  supported_scopes?: string[];
+  actions?: Array<{
+    id: string;
+    description?: string;
+    args_schema?: Record<string, unknown>;
+    returns_schema?: Record<string, unknown> | null;
+  }>;
   display_label?: string;
   panel_title?: string | null;
   show_panel_title?: boolean | null;
@@ -571,6 +564,7 @@ export interface WidgetDashboardPin {
   position: number;
   source_kind: "channel" | "adhoc";
   source_channel_id: string | null;
+  widget_instance_id?: string | null;
   source_bot_id: string | null;
   tool_name: string;
   tool_args: Record<string, unknown>;
@@ -589,6 +583,12 @@ export interface WidgetDashboardPin {
    *  tile between the four canvases on a channel dashboard. User dashboards
    *  always carry ``"grid"``. */
   zone: ChatZone;
+  available_actions?: Array<{
+    id: string;
+    description?: string;
+    args_schema?: Record<string, unknown>;
+    returns_schema?: Record<string, unknown> | null;
+  }>;
   pinned_at: string | null;
   updated_at: string | null;
 }
@@ -680,9 +680,6 @@ export interface ChannelSettings {
     similarity_threshold: number;
     top_k: number;
   } | null;
-  // Carapace overrides
-  carapaces_extra?: string[] | null;
-  carapaces_disabled?: string[] | null;
   workspace_id?: string | null;
   resolved_workspace_id?: string | null;
   category?: string | null;
@@ -739,8 +736,6 @@ export interface EffectiveTools {
   skills: { id: string; mode: string; name?: string }[];
   mode: Record<string, "inherit" | "disabled">;
   disabled: Record<string, string[]>;
-  carapaces: string[];
-  carapace_sources: Record<string, string>;
 }
 
 // Model types
@@ -875,7 +870,7 @@ export function normalizeToolCall(tc: ToolCall): { name: string; arguments: stri
  */
 export interface ToolResultEnvelope {
   content_type: string;
-  body: string | null;
+  body: string | Record<string, unknown> | null;
   plain_body: string;
   display: "badge" | "inline" | "panel";
   truncated: boolean;
@@ -932,7 +927,7 @@ export interface ToolResultEnvelope {
 export interface WidgetAction {
   /** "tool" dispatches through tool_dispatch, "api" calls a REST endpoint directly,
    *  "widget_config" patches the pinned widget's config and returns a refreshed envelope. */
-  dispatch: "tool" | "api" | "widget_config";
+  dispatch: "tool" | "api" | "widget_config" | "native_widget";
   /** For dispatch:"tool" — the tool name to call */
   tool?: string;
   /** For dispatch:"api" — the endpoint path (allowlisted internal paths only) */
@@ -942,6 +937,8 @@ export interface WidgetAction {
   args?: Record<string, unknown>;
   /** For dispatch:"widget_config" — the config patch to shallow-merge into the pin. */
   config?: Record<string, unknown>;
+  /** For dispatch:"native_widget" — the action id exposed by a native widget. */
+  action?: string;
   /** Key name for the dynamic value (e.g., toggle sends {[value_key]: true/false}) */
   value_key?: string;
   /** Flip the value client-side before server confirms */

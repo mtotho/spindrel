@@ -171,7 +171,7 @@ function SingleToolCallCard({
   t: ReturnType<typeof useThemeTokens>;
   isExpanded: boolean;
   onToggle: () => void;
-  handleDecide: (approvalId: string, approved: boolean, pinCapabilityId?: string) => void;
+  handleDecide: (approvalId: string, approved: boolean) => void;
   isDeciding: boolean;
 }) {
   const formatted = formatToolArgs(tc.args);
@@ -272,22 +272,6 @@ function SingleToolCallCard({
           >
             {isCap ? "Allow" : "Approve"}
           </button>
-          {isCap && tc.capability && (
-            <button
-              disabled={isDeciding}
-              onClick={() => handleDecide(tc.approvalId!, true, tc.capability!.id)}
-              title="Allow and permanently add to this bot's capabilities"
-              style={{
-                fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 4,
-                border: "none", cursor: isDeciding ? "default" : "pointer",
-                backgroundColor: t.purple, color: "#fff", opacity: isDeciding ? 0.6 : 1,
-                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-              }}
-            >
-              <Pin size={11} />
-              Allow & Pin
-            </button>
-          )}
           <button
             disabled={isDeciding}
             onClick={() => handleDecide(tc.approvalId!, false)}
@@ -334,10 +318,9 @@ function ToolCallCards({ toolCalls, t, botId }: { toolCalls: Props["toolCalls"];
   const [expandedArgs, setExpandedArgs] = useState<Set<number>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
 
-  const handleDecide = (approvalId: string, approved: boolean, pinCapabilityId?: string) => {
+  const handleDecide = (approvalId: string, approved: boolean) => {
     setDecidingIds((prev) => new Set(prev).add(approvalId));
     const data: DecideRequest = { approved, decided_by: "web:admin" };
-    if (pinCapabilityId) data.pin_capability = pinCapabilityId;
     decideApproval.mutate(
       { approvalId, data },
       {

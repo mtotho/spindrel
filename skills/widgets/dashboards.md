@@ -183,6 +183,25 @@ When the user says "build me a dashboard for X":
 
 This is the highest-leverage pattern: a `widget://` bundle + the `file` tool + `library_ref` emission turns "build me a widget" into a live, iteratively-editable surface.
 
+## Operating placed widgets
+
+Once a widget is pinned, the bot-facing interaction loop is:
+
+1. `describe_dashboard(...)` to inspect current pins
+2. read the pin's `available_actions`
+3. call `invoke_widget_action(...)` with a declared action and matching args
+
+This now applies across the unified widget surface:
+
+- HTML widgets with bot-callable handlers
+- native app widgets
+
+Rules:
+
+- Do not guess action payloads when a schema is available.
+- Prefer `pin_id` when the widget is already placed.
+- Treat `available_actions` as the contract, not the widget's implementation details.
+
 ## Dashboard composition rule
 
 Pinned dashboards already provide the outer widget slot. Do not waste that shell by making the widget feel raw, and do not fight it by always nesting a second thick card.

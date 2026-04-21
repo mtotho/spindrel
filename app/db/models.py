@@ -1001,6 +1001,32 @@ class BotSkillEnrollment(Base):
     last_auto_injected_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
 
+class ChannelSkillEnrollment(Base):
+    """Per-channel skill enrollments.
+
+    Channel-level enrollment augments a bot's working set for one channel
+    without introducing a separate capability/package runtime.
+    """
+    __tablename__ = "channel_skill_enrollment"
+
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    skill_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
+    enrolled_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+
 class BotToolEnrollment(Base):
     """Per-bot persistent tool working set.
 
@@ -1854,6 +1880,48 @@ class WidgetDashboard(Base):
     )
 
 
+class WidgetInstance(Base):
+    """Persistent state/config for first-party native widgets.
+
+    Separated from dashboard pin placement so a widget can keep durable state
+    even if it is re-pinned or surfaced from multiple host views later.
+    """
+
+    __tablename__ = "widget_instances"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    widget_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    widget_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    scope_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    scope_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    config: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict,
+    )
+    state: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "widget_kind", "widget_ref", "scope_kind", "scope_ref",
+            name="uq_widget_instances_kind_ref_scope",
+        ),
+        Index(
+            "ix_widget_instances_ref_scope",
+            "widget_ref", "scope_kind", "scope_ref",
+        ),
+    )
+
+
 class WidgetDashboardPin(Base):
     """A widget pinned to a named dashboard.
 
@@ -1878,6 +1946,11 @@ class WidgetDashboardPin(Base):
     source_channel_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    widget_instance_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("widget_instances.id", ondelete="SET NULL"),
         nullable=True,
     )
     source_bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)

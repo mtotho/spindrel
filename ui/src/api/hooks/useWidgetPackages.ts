@@ -220,6 +220,19 @@ export function previewWidgetForTool(body: {
   );
 }
 
+export function previewDashboardWidgetForTool(body: {
+  tool_name: string;
+  tool_args?: Record<string, unknown> | null;
+  widget_config?: Record<string, unknown> | null;
+  source_bot_id?: string | null;
+  source_channel_id?: string | null;
+}): Promise<PreviewResponse> {
+  return apiFetch<PreviewResponse>(
+    "/api/v1/widgets/preview-for-tool",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
 export function genericRenderWidget(body: {
   tool_name: string;
   raw_result: unknown;

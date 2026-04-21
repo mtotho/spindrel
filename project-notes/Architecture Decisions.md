@@ -8,6 +8,73 @@
 
 ## Key Decisions
 
+### Scratch sessions are internal-first session records; promotion swaps the channel primary
+**Decided 2026-04-21.** Scratch sessions are no longer a client-side convenience pointer layered on top of the main channel session. They are first-class `Session` rows with their own `title`, `summary`, `ConversationSection` history, and selector stats. The channel's canonical external conversation is still exactly one session: `channel.active_session_id`.
+
+**What this means.**
+- Scratch sessions live as `session_type="ephemeral"` rows with `parent_channel_id`, `owner_user_id`, and `is_current`.
+- Scratch metadata is stored on the existing session row: `Session.title` = name, `Session.summary` = compact summary.
+- A scratch session becomes channel-visible only through explicit promotion. Promotion swaps `channel.active_session_id` to the chosen scratch session and demotes the former primary session into the caller's scratch history.
+- Slack/integrations never receive temporary scratch traffic. External delivery follows only the current primary channel session.
+
+**Why.**
+- Keeping scratch on the same `sessions` table avoids a second metadata/archive model and lets compaction/backfill/history machinery work uniformly across main + scratch conversations.
+- Promotion-as-swap preserves exact transcripts and section archives without copying messages between sessions.
+- Treating scratch as internal-only avoids leaking personal exploratory context into shared integrations until the user intentionally promotes it.
+
+**Load-bearing invariants.**
+- Runtime history and prompt injection are **session-scoped**, not channel-scoped. `ConversationSection.session_id` is the source of truth for the current session's archive/index.
+- New scratch sessions may receive a one-shot bootstrap summary from the current primary session, but that bootstrap is consumed only while the scratch session is still effectively empty.
+- Demoted former-primary sessions become scratch rows owned by the acting user (`parent_channel_id=<channel>`, `owner_user_id=<user>`, `is_current=True`); the promoted session clears scratch ownership fields and becomes the normal channel primary.
+- Reply threads stay out of this product flow. They remain separate thread sub-sessions and do not participate in scratch naming/promotion UX.
+
+### Native app widgets are a first-party third lane on the unified widget interface
+**Decided 2026-04-21.** The widget product now has three runtime kinds:
+
+- `html` — bot/user-authored iframe widgets
+- `template` — declarative tool-renderer widgets
+- `native_app` — first-party React mini-app widgets
+
+The interface is unified at the product level:
+
+- one library/catalog
+- one placement model
+- one bot-facing action tool (`invoke_widget_action`)
+
+The runtime substrate is deliberately **not** unified. HTML widgets keep the existing SDK + `@on_action` handler machinery; template widgets keep their tool/result-driven rendering path; native app widgets dispatch through a first-party registry and persist state through widget instances.
+
+**Why.**
+- A single bot/user-facing interface reduces system sprawl: discovery, placement, and interaction no longer depend on knowing the widget substrate up front.
+- The existing HTML widget action surface already proved the named-action model, but it was shaped by iframe/widget.py internals. A generic bot tool is a better public contract.
+- Some core widgets want richer local state, persistence, and app integration than declarative templates or tool-result cards comfortably support, but that does not justify opening a public React widget authoring surface.
+
+**Load-bearing implementation choices.**
+- **`native_app` is first-party only.** Bots/workspace users can discover, place, and invoke actions on native widgets; they do not author them.
+- **State lives in `widget_instances`, not only in dashboard pins.** Native widgets are addressable stateful objects keyed by `(widget_kind, widget_ref, scope_kind, scope_ref)` with generic JSON `config` + `state`. Pins reference instances via `widget_instance_id`.
+- **Declared action schemas are mandatory for bot exposure.** Any widget action surfaced through `invoke_widget_action` must declare an input schema first; undeclared actions stay off the public bot surface.
+- **Theming stays small.** Native app widgets inherit the app's existing light/dark theme tokens only. Widget-specific theming remains an HTML-lane concern unless the app adopts a broader theming platform later.
+- **First proving widget is native Notes.** Use a small flagship widget (`core/notes_native`) to validate the model before expanding the native lane.
+
+### Skill/Tool Model Replaces Product "Capabilities"
+**Decided 2026-04-21.** The app will not have a first-class capability/carapace product model going forward. The only product concepts are skills, tools, and enrollment of each.
+
+**What this means.**
+- Foldered skills are still just skills. `skills/foo.md` is a loose skill; `skills/foo/index.md` is the root skill for a folder; `skills/foo/bar.md` is a child skill.
+- `index.md` is content, not a special prompt fragment injection layer.
+- Bot edit and channel settings should expose enrolled skills/tools only. Any old "Capabilities" section folds into skills.
+- Channel-level assignment is channel skill enrollment, not capability activation.
+- Tool availability still follows the existing tool/channel activation path. Grouping in UI is presentational only.
+
+**Runtime consequences.**
+- Remove `activate_capability`, capability approval flows, capability session state, and capability-discovery prompt injection.
+- Context assembly should only work from enrolled skills, enrolled tools, normal tool discovery, and normal skill retrieval.
+- Carapace CRUD/routes can remain temporarily as dormant compatibility surfaces while the runtime/UI path is removed, but new product behavior must not depend on them.
+
+**Why this is the right simplification.**
+- Replacing carapaces with another package abstraction would keep the same mental-model problem under a new name.
+- The existing skill/tool systems already solve loading, discovery, and enrollment. Reusing them is lower-risk than building another indirection layer.
+- Folder-aware skill UI gives the organizational benefit without inventing new runtime semantics.
+
 ### Slash commands are backend-owned commands with typed results; web renders them as synthetic chat rows
 **Decided 2026-04-21.** Slash commands are not a web-only input trick. The command registry and execution contract live on the backend so web, Slack, and CLI can share one semantic layer and only differ in presentation.
 

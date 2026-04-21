@@ -42,6 +42,12 @@ from app.services.widget_templates import (
     apply_state_poll,
     substitute_vars,
 )
+from app.services.native_app_widgets import (
+    build_envelope_for_native_instance,
+    dispatch_native_widget_action,
+    get_native_widget_instance_for_pin,
+    get_widget_instance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +108,7 @@ _API_ALLOWLIST = [
 
 class WidgetActionRequest(BaseModel):
     dispatch: Literal[
-        "tool", "api", "widget_config", "db_query", "db_exec", "widget_handler",
+        "tool", "api", "widget_config", "db_query", "db_exec", "widget_handler", "native_widget",
     ] = "tool"
     # For tool dispatch
     tool: str | None = None
@@ -119,11 +125,13 @@ class WidgetActionRequest(BaseModel):
     # user dashboards and implicit channel dashboards) live in the dashboard
     # pin table and are addressed via ``dashboard_pin_id``.
     dashboard_pin_id: uuid.UUID | None = None
+    widget_instance_id: uuid.UUID | None = None
     config: dict | None = None
     # For db_query / db_exec dispatch — SQL statement + optional params.
     # ``dashboard_pin_id`` above identifies which pin's DB to target.
     sql: str | None = None
     params: list | None = None
+    action: str | None = None
     # Context
     channel_id: uuid.UUID | None = None
     bot_id: str | None = None
@@ -161,6 +169,8 @@ async def dispatch_widget_action(req: WidgetActionRequest, db: AsyncSession = De
         return await _dispatch_db(req, db)
     elif req.dispatch == "widget_handler":
         return await _dispatch_widget_handler(req, db)
+    elif req.dispatch == "native_widget":
+        return await _dispatch_native_widget(req, db)
     else:
         raise HTTPException(400, f"Unknown dispatch type: {req.dispatch}")
 
@@ -488,6 +498,71 @@ async def _dispatch_widget_handler(
         "widget_handler dispatch: pin=%s handler=%s", req.dashboard_pin_id, req.handler,
     )
     return WidgetActionResponse(ok=True, result=result)
+
+
+async def _dispatch_native_widget(
+    req: WidgetActionRequest, db: AsyncSession,
+) -> WidgetActionResponse:
+    """Invoke a first-party native widget action.
+
+    Accepts either ``widget_instance_id`` directly or ``dashboard_pin_id`` for
+    convenience when the caller only knows the pinned host surface.
+    """
+    if not req.action:
+        return WidgetActionResponse(ok=False, error="native_widget requires 'action'")
+
+    instance = None
+    pin = None
+    if req.widget_instance_id is not None:
+        instance = await get_widget_instance(db, req.widget_instance_id)
+    elif req.dashboard_pin_id is not None:
+        from app.services.dashboard_pins import get_pin
+
+        try:
+            pin = await get_pin(db, req.dashboard_pin_id)
+        except HTTPException as exc:
+            return WidgetActionResponse(ok=False, error=str(exc.detail))
+        instance = await get_native_widget_instance_for_pin(db, pin)
+    else:
+        return WidgetActionResponse(
+            ok=False,
+            error="native_widget requires widget_instance_id or dashboard_pin_id",
+        )
+
+    if instance is None:
+        return WidgetActionResponse(ok=False, error="Native widget instance not found")
+
+    try:
+        result = await dispatch_native_widget_action(
+            db,
+            instance=instance,
+            action=req.action,
+            args=req.args or {},
+        )
+        await db.commit()
+        await db.refresh(instance)
+    except HTTPException as exc:
+        await db.rollback()
+        return WidgetActionResponse(ok=False, error=str(exc.detail))
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("native_widget %s failed", req.action)
+        return WidgetActionResponse(ok=False, error=f"{type(exc).__name__}: {exc}")
+
+    envelope = build_envelope_for_native_instance(
+        instance,
+        display_label=pin.display_label if pin is not None else None,
+        source_bot_id=pin.source_bot_id if pin is not None else req.bot_id,
+    )
+    if pin is not None:
+        pin.envelope = envelope
+        await db.commit()
+
+    logger.info(
+        "native_widget dispatch: instance=%s action=%s pin=%s",
+        instance.id, req.action, req.dashboard_pin_id,
+    )
+    return WidgetActionResponse(ok=True, result=result, envelope=envelope)
 
 
 def _build_result_envelope(

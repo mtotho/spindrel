@@ -14,6 +14,7 @@
  *   application/vnd.spindrel.diff+text      → DiffRenderer
  *   application/vnd.spindrel.file-listing+json → FileListingRenderer
  *   application/vnd.spindrel.components+json → ComponentRenderer
+ *   application/vnd.spindrel.native-app+json → NativeAppRenderer
  *
  * Truncated envelopes (body=null, truncated=true, record_id set) render a
  * "Show full output" button. On click, the full body is fetched from the
@@ -34,6 +35,7 @@ import { InteractiveHtmlRenderer, type WidgetLayout } from "./renderers/Interact
 import { DiffRenderer } from "./renderers/DiffRenderer";
 import { FileListingRenderer } from "./renderers/FileListingRenderer";
 import { ComponentRenderer } from "./renderers/ComponentRenderer";
+import { NativeAppRenderer } from "./renderers/NativeAppRenderer";
 import type { WidgetActionDispatcher } from "./renderers/ComponentRenderer";
 import { WidgetActionContext } from "./renderers/ComponentRenderer";
 
@@ -220,6 +222,16 @@ export function RichToolResult({
         break;
       case "application/vnd.spindrel.components+json":
         content = <ComponentRenderer body={body} t={t} />;
+        break;
+      case "application/vnd.spindrel.native-app+json":
+        content = (
+          <NativeAppRenderer
+            envelope={envelope}
+            dashboardPinId={dashboardPinId}
+            channelId={channelId}
+            t={t}
+          />
+        );
         break;
       case "text/plain":
       default:

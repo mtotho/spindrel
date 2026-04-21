@@ -2463,7 +2463,8 @@ export function InteractiveHtmlRenderer({
   // if the bot turns out to have no key. Inline is the common case (every
   // tool-emitted widget template), so the weather-widget false-positive
   // banner is solved.
-  const inlineNeedsAuth = !pathMode && bodyNeedsAuth(envelope.body);
+  const inlineBody = typeof envelope.body === "string" ? envelope.body : null;
+  const inlineNeedsAuth = !pathMode && bodyNeedsAuth(inlineBody);
   const needsAuth = pathMode || inlineNeedsAuth;
   // Two auth scopes: bot-scoped (mint via /widget-auth/mint) or user-scoped
   // (inject the viewer's bearer directly; endpoints accept both via
@@ -2748,7 +2749,7 @@ export function InteractiveHtmlRenderer({
 
   const rawBody = useMemo(() => {
     if (pathMode) return fileQuery.data?.content ?? "";
-    return envelope.body ?? "";
+    return typeof envelope.body === "string" ? envelope.body : "";
   }, [pathMode, fileQuery.data?.content, envelope.body]);
 
   // Declarative HTML widgets ship the tool's JSON result baked into a

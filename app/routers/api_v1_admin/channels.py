@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
@@ -352,9 +352,6 @@ class ChannelSettingsOut(BaseModel):
     workspace_schema_template_id: Optional[uuid.UUID] = None
     workspace_schema_content: Optional[str] = None
     index_segments: list[dict] = []
-    # Carapace overrides
-    carapaces_extra: Optional[list[str]] = None
-    carapaces_disabled: Optional[list[str]] = None
     # Model tier overrides (sparse — only override tiers you want to change)
     model_tier_overrides: dict = {}
     # Resolved defaults for index segment fields (computed, not stored)
@@ -429,9 +426,6 @@ class ChannelSettingsUpdate(BaseModel):
     workspace_schema_template_id: Optional[uuid.UUID] = None
     workspace_schema_content: Optional[str] = None
     index_segments: Optional[list[dict]] = None
-    # Carapace overrides
-    carapaces_extra: Optional[list[str]] = None
-    carapaces_disabled: Optional[list[str]] = None
     # Model tier overrides
     model_tier_overrides: Optional[dict] = None
     # Workspace scope
@@ -768,6 +762,82 @@ async def admin_channel_settings_update(
     return out
 
 
+@router.get("/channels/{channel_id}/enrolled-skills", response_model=list[EnrolledChannelSkillOut])
+async def admin_channel_enrolled_skills_list(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_scopes("channels:read")),
+):
+    from app.db.models import ChannelSkillEnrollment
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    rows = (await db.execute(
+        select(
+            ChannelSkillEnrollment.skill_id,
+            ChannelSkillEnrollment.source,
+            ChannelSkillEnrollment.enrolled_at,
+            SkillRow.name,
+            SkillRow.description,
+        )
+        .join(SkillRow, SkillRow.id == ChannelSkillEnrollment.skill_id)
+        .where(ChannelSkillEnrollment.channel_id == channel_id)
+        .order_by(ChannelSkillEnrollment.enrolled_at.desc())
+    )).all()
+
+    return [
+        EnrolledChannelSkillOut(
+            skill_id=row.skill_id,
+            name=row.name,
+            description=row.description,
+            source=row.source,
+            enrolled_at=row.enrolled_at,
+        )
+        for row in rows
+    ]
+
+
+@router.post("/channels/{channel_id}/enrolled-skills", status_code=201)
+async def admin_channel_enrolled_skill_add(
+    channel_id: uuid.UUID,
+    body: EnrollChannelSkillIn = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_scopes("channels.config:write")),
+):
+    from app.services.channel_skill_enrollment import enroll
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    skill_row = await db.get(SkillRow, body.skill_id)
+    if not skill_row:
+        raise HTTPException(status_code=404, detail=f"Skill not found: {body.skill_id}")
+
+    inserted = await enroll(str(channel_id), body.skill_id, source=body.source or "manual")
+    return {"status": "ok", "skill_id": body.skill_id, "inserted": inserted}
+
+
+@router.delete("/channels/{channel_id}/enrolled-skills/{skill_id:path}", status_code=204)
+async def admin_channel_enrolled_skill_remove(
+    channel_id: uuid.UUID,
+    skill_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_scopes("channels.config:write")),
+):
+    from app.services.channel_skill_enrollment import unenroll
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    deleted = await unenroll(str(channel_id), skill_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Enrollment not found: {channel_id}/{skill_id}")
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Effective tools (resolved with channel overrides)
 # ---------------------------------------------------------------------------
@@ -780,8 +850,19 @@ class EffectiveToolsOut(BaseModel):
     skills: list[dict]
     mode: dict  # per-category mode: "inherit" | "disabled"
     disabled: dict = {}  # per-category disabled lists
-    carapaces: list[str] = []  # resolved carapace IDs
-    carapace_sources: dict[str, str] = {}  # carapace_id → source label
+
+
+class EnrolledChannelSkillOut(BaseModel):
+    skill_id: str
+    name: str
+    description: Optional[str] = None
+    source: str
+    enrolled_at: datetime
+
+
+class EnrollChannelSkillIn(BaseModel):
+    skill_id: str
+    source: str = "manual"
 
 
 @router.get("/channels/{channel_id}/effective-tools", response_model=EffectiveToolsOut)
@@ -792,7 +873,7 @@ async def admin_channel_effective_tools(
 ):
     """Return the resolved tool/skill lists after applying channel overrides."""
     from app.agent.channel_overrides import resolve_effective_tools
-    from app.db.models import ChannelIntegration, Skill as SkillRow
+    from app.db.models import ChannelIntegration, ChannelSkillEnrollment, Skill as SkillRow
 
     result = await db.execute(
         select(Channel).where(Channel.id == channel_id).options(selectinload(Channel.integrations))
@@ -802,36 +883,14 @@ async def admin_channel_effective_tools(
         raise HTTPException(status_code=404, detail="Channel not found")
 
     bot = get_bot(channel.bot_id)
-
-    # Build carapace provenance before resolving (tracks where each came from)
-    _carapace_sources: dict[str, str] = {}
-    for cid in bot.carapaces:
-        _carapace_sources[cid] = "bot"
-    for cid in (getattr(channel, "carapaces_extra", None) or []):
-        if cid not in _carapace_sources:
-            _carapace_sources[cid] = "channel_extra"
-    # Activation-injected carapaces
-    try:
-        from integrations import get_activation_manifests
-        _manifests = get_activation_manifests()
-        for _ci in (getattr(channel, "integrations", None) or []):
-            if not _ci.activated:
-                continue
-            _manifest = _manifests.get(_ci.integration_type)
-            if _manifest:
-                for _cap_id in _manifest.get("carapaces", []):
-                    if _cap_id not in _carapace_sources:
-                        _carapace_sources[_cap_id] = f"activation:{_ci.integration_type}"
-    except Exception:
-        pass
+    channel_skill_ids = (await db.execute(
+        select(ChannelSkillEnrollment.skill_id).where(ChannelSkillEnrollment.channel_id == channel_id)
+    )).scalars().all()
+    setattr(channel, "_channel_skill_enrollment_ids", list(channel_skill_ids))
 
     from app.agent.channel_overrides import apply_auto_injections
     eff = resolve_effective_tools(bot, channel)
     eff = apply_auto_injections(eff, bot)
-
-    # Filter sources to only include carapaces that survived resolution
-    _eff_set = set(eff.carapaces)
-    carapace_sources = {k: v for k, v in _carapace_sources.items() if k in _eff_set}
 
     def _mode(disabled):
         if disabled is not None:
@@ -868,8 +927,6 @@ async def admin_channel_effective_tools(
             "mcp_servers": channel.mcp_servers_disabled or [],
             "client_tools": channel.client_tools_disabled or [],
         },
-        carapaces=eff.carapaces,
-        carapace_sources=carapace_sources,
     )
 
 

@@ -28,6 +28,19 @@ interface ToolItem {
   envelopes: (ToolResultEnvelope | undefined)[];
 }
 
+function envelopeBodyText(env: ToolResultEnvelope | undefined): string {
+  if (!env) return "";
+  if (typeof env.body === "string") return env.body;
+  return env.plain_body ?? "";
+}
+
+function envelopeBodyLength(env: ToolResultEnvelope | undefined): number {
+  if (!env) return 0;
+  if (typeof env.body === "string") return env.body.length;
+  if (env.body && typeof env.body === "object") return JSON.stringify(env.body).length;
+  return (env.plain_body ?? "").length;
+}
+
 /**
  * For introspection tools (`get_tool_info`, `get_skill`) pull the target name
  * out of the arguments so it renders inline on the pill — answers "which tool
@@ -52,7 +65,7 @@ function introspectionTarget(name: string, argsList: (string | undefined)[]): st
 /** Check if an envelope represents an error result. */
 function isErrorEnvelope(env: ToolResultEnvelope | undefined): boolean {
   if (!env) return false;
-  const body = env.body ?? env.plain_body ?? "";
+  const body = envelopeBodyText(env);
   if (!body) return false;
   try {
     const parsed = JSON.parse(body);
@@ -72,7 +85,7 @@ function resultSummary(env: ToolResultEnvelope | undefined): string {
   if (!env) return "";
   if (isErrorEnvelope(env)) {
     try {
-      const parsed = JSON.parse(env.body ?? env.plain_body ?? "");
+      const parsed = JSON.parse(envelopeBodyText(env));
       const msg = parsed.error;
       return typeof msg === "string" ? msg.slice(0, 80) : "error";
     } catch {
@@ -417,7 +430,7 @@ export function ToolBadges({
                           ) : (
                             <RichToolResult envelope={env} sessionId={sessionId} channelId={channelId} botId={botId} t={t} />
                           )}
-                          {isCapped && (env.byte_size > 2000 || (env.body ?? "").length > 1500) && (
+                          {isCapped && (env.byte_size > 2000 || envelopeBodyLength(env) > 1500) && (
                             <div
                               className="absolute bottom-0 left-0 right-0 h-12 flex items-end justify-center pb-1.5"
                               style={{ background: `linear-gradient(transparent, ${t.surfaceRaised})` }}
@@ -466,8 +479,8 @@ function ErrorResult({
   channelId?: string;
   botId?: string;
 }) {
-  const body = env.body ?? env.plain_body ?? "";
-  let errorMsg = body;
+  const body = envelopeBodyText(env);
+  let errorMsg: string = body;
   try {
     const parsed = JSON.parse(body);
     if (typeof parsed?.error === "string") {

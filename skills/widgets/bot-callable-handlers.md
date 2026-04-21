@@ -1,13 +1,29 @@
 ---
 name: Bot-callable widget handlers
-description: How to make a widget's @on_action handlers invokable from a bot's turn — declare them in widget.yaml `handlers:`, set `bot_callable: true`, and the framework surfaces each one as a `widget__<slug>__<handler>` tool automatically. Bots can then read or mutate widget state in chat ("mark laundry done", "what's on my todo list?") without bespoke per-widget tools.
+description: How HTML-widget @on_action handlers plug into the unified bot widget-action surface. Declare them in widget.yaml `handlers:`, set `bot_callable: true`, and the framework exposes declared schemas the bot can inspect before calling a widget action.
 triggers: bot-callable handler, bot call widget, bot tool for widget, agent controls widget, widget__todo, widget__<slug>, handlers: block, handler tool, bot mutate widget state, widget bot bridge, ask the bot to add a todo
 category: core
 ---
 
 # Bot-callable widget handlers
 
-Widget handlers (`@on_action` in `widget.py`) are already callable from the iframe via `spindrel.callHandler`. **Opt a handler in for bots too, and the framework auto-registers it as a tool** named `widget__<slug>__<handler_name>`. No per-widget Python tool module to write, no manifest plumbing beyond one block.
+Widget handlers (`@on_action` in `widget.py`) are already callable from the iframe via `spindrel.callHandler`.
+
+Current bot-facing rule:
+
+- `describe_dashboard` exposes a pin's `available_actions`.
+- library/catalog entries may also expose `actions` before the widget is pinned.
+- Bots should inspect that declared schema first.
+- Bots should prefer the shared `invoke_widget_action` tool when acting on a pinned widget.
+- The lower-level `widget__<slug>__<handler_name>` dynamic tools still exist underneath, but they are implementation detail and fallback, not the preferred interface.
+
+This is now part of the unified widget interface:
+
+- HTML widgets expose bot-safe `@on_action` handlers through this path.
+- Native app widgets expose first-party action manifests through the same bot tool.
+- Bots should not care which runtime kind is underneath unless they are authoring the widget itself.
+
+No per-widget Python tool module to write, no manifest plumbing beyond one block.
 
 ## Opt in — one block in `widget.yaml`
 
@@ -61,9 +77,13 @@ Every field:
 
 A handler with `bot_callable: true` must have a non-empty `description` — the ranker can't surface an unlabelled tool.
 
-## How the tool appears to bots
+## How the action appears to bots
 
-Given a manifest `name: Todo` with `handlers: [{name: add_todo, bot_callable: true, ...}]`, a pinned instance on a channel surfaces as:
+Given a manifest `name: Todo` with `handlers: [{name: add_todo, bot_callable: true, ...}]`, a pinned instance on a channel surfaces in `describe_dashboard.available_actions` as a declared action schema the bot can pass to `invoke_widget_action`.
+
+That declared action metadata is the source of truth. If a handler is not surfaced there, treat it as not bot-callable even if there is some lower-level implementation hook.
+
+The lower-level dynamic tool still exists and looks like:
 
 ```
 widget__todo__add_todo — [Todo] Add a new todo item to this list.
@@ -163,4 +183,6 @@ Every bot-callable handler is an agent-reachable surface. Declaring only what bo
 
 - `widgets/handlers.md` — how `@on_action`, `@on_cron`, `@on_event` work and what `ctx` exposes.
 - `widgets/manifest.md` — the full `widget.yaml` schema (the `handlers:` block is documented here and there).
+- `widgets/index.md` — the three widget lanes and the unified operator loop.
+- `widgets/dashboards.md` — how bots inspect placed widgets and act on them.
 - `widgets/errors.md` — "tool not found after pinning" / "approval always fires" entries.

@@ -3,7 +3,7 @@ import { apiFetch } from "../client";
 import type { WidgetAction, ToolResultEnvelope } from "../../types/api";
 
 interface WidgetActionRequest {
-  dispatch: "tool" | "api" | "widget_config";
+  dispatch: "tool" | "api" | "widget_config" | "native_widget";
   tool?: string;
   args?: Record<string, unknown>;
   endpoint?: string;
@@ -12,7 +12,9 @@ interface WidgetActionRequest {
   // widget_config dispatch — channel pin by id, dashboard pin by dashboard_pin_id.
   pin_id?: string;
   dashboard_pin_id?: string;
+  widget_instance_id?: string;
   config?: Record<string, unknown>;
+  action?: string;
   channel_id?: string;
   bot_id?: string;
   source_record_id?: string;
@@ -47,6 +49,8 @@ export function useWidgetAction(
   /** Dashboard-pin ID — routes widget_config dispatch to the dashboard table.
    *  Mutually exclusive with `pinId`. */
   dashboardPinId?: string | null,
+  /** Native widget instance id for dispatch:"native_widget". */
+  widgetInstanceId?: string | null,
 ) {
   const dispatchAction = useCallback(
     async (action: WidgetAction, value: unknown): Promise<WidgetActionResult> => {
@@ -74,6 +78,14 @@ export function useWidgetAction(
       if (action.dispatch === "tool") {
         req.tool = action.tool;
         req.args = args;
+      } else if (action.dispatch === "native_widget") {
+        req.action = action.action;
+        req.args = args;
+        if (widgetInstanceId) req.widget_instance_id = widgetInstanceId;
+        if (dashboardPinId) req.dashboard_pin_id = dashboardPinId;
+        if (!req.widget_instance_id && !req.dashboard_pin_id) {
+          throw new Error("native_widget dispatch requires widget instance or pin context");
+        }
       } else if (action.dispatch === "widget_config") {
         if (dashboardPinId) {
           req.dashboard_pin_id = dashboardPinId;
@@ -107,7 +119,7 @@ export function useWidgetAction(
         apiResponse: resp.api_response ?? null,
       };
     },
-    [channelId, botId, displayLabel, pinId, widgetConfig, dashboardPinId],
+    [channelId, botId, displayLabel, pinId, widgetConfig, dashboardPinId, widgetInstanceId],
   );
 
   return dispatchAction;

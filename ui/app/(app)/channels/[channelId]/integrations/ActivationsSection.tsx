@@ -42,8 +42,8 @@ export function ActivationsSection({ channelId }: { channelId: string }) {
 
   return (
     <Section
-      title="Integration Capabilities"
-      description="Capabilities provided by installed integrations. Adding one gives the bot its tools, skills, and system prompts."
+      title="Integration Add-ons"
+      description="Installed integrations can add tools, skills, and prompts to this channel."
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {visible.map((ig) => (

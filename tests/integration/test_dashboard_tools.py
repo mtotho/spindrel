@@ -22,6 +22,7 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.db.models import WidgetTemplatePackage
 
 @contextmanager
 def _patch_tool_engine(engine):
@@ -260,6 +261,64 @@ class TestPinWidget:
 
         assert "error" in second
         assert "already pinned" in second["error"]
+
+    @pytest.mark.asyncio
+    async def test_pins_native_library_widget_and_creates_instance(
+        self, engine, channel_id, bot_with_key,
+    ):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import pin_widget
+
+        with _patch_tool_engine(engine):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                raw = await pin_widget(
+                    widget="core/notes_native",
+                    source_kind="library",
+                    zone="grid",
+                )
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        result = json.loads(raw)
+        assert "error" not in result, result
+        assert result["tool_name"] == "core/notes_native"
+        assert result["widget_instance_id"]
+
+    @pytest.mark.asyncio
+    async def test_invoke_widget_action_updates_native_notes(
+        self, engine, channel_id, bot_with_key,
+    ):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import describe_dashboard, invoke_widget_action, pin_widget
+
+        with _patch_tool_engine(engine):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                pin = json.loads(await pin_widget(
+                    widget="core/notes_native",
+                    source_kind="library",
+                    zone="grid",
+                ))
+                assert "error" not in pin, pin
+                action = json.loads(await invoke_widget_action(
+                    pin_id=pin["pin_id"],
+                    action="replace_body",
+                    args={"body": "Buy milk"},
+                ))
+                described = json.loads(await describe_dashboard())
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        assert action["ok"] is True
+        assert action["result"]["body"] == "Buy milk"
+        notes_pin = next(p for p in described["pins"] if p["id"] == pin["pin_id"])
+        assert any(a["id"] == "replace_body" for a in notes_pin["available_actions"])
+        assert notes_pin["envelope"]["body"]["state"]["body"] == "Buy milk"
 
     @pytest.mark.asyncio
     async def test_auth_scope_bot_stamps_source_bot_id(
@@ -511,6 +570,70 @@ class TestPinWidgetLibrary:
         result = json.loads(raw)
         assert "error" in result
         assert "not found" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_pins_template_tool_renderer_as_adhoc_widget(
+        self, engine, db_session, channel_id, bot_with_key,
+    ):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import describe_dashboard, pin_widget
+
+        db_session.add(WidgetTemplatePackage(
+            tool_name="fake_template_tool",
+            name="fake template tool",
+            yaml_template=(
+                "display: inline\n"
+                "display_label: 'Hello {{name}}'\n"
+                "template:\n"
+                "  v: 1\n"
+                "  components:\n"
+                "    - type: heading\n"
+                "      text: 'Hi {{name}}'\n"
+                "      level: 3\n"
+            ),
+            source="user",
+            is_readonly=False,
+            is_active=True,
+            content_hash="hash-template-pin",
+            version=1,
+        ))
+        await db_session.commit()
+
+        async def _call_local_tool(name: str, args_json: str) -> str:
+            assert name == "fake_template_tool"
+            args = json.loads(args_json)
+            return json.dumps({"name": args.get("name", "missing")})
+
+        with _patch_tool_engine(engine):
+            with patch("app.tools.registry.is_local_tool", lambda name: name == "fake_template_tool"), patch(
+                "app.tools.registry.call_local_tool",
+                _call_local_tool,
+            ), patch(
+                "app.tools.registry.get_tool_context_requirements",
+                lambda name: (True, False),
+            ):
+                ch_tok = current_channel_id.set(channel_id)
+                bot_tok = current_bot_id.set("test-bot")
+                try:
+                    raw = await pin_widget(
+                        widget="fake_template_tool",
+                        source_kind="library",
+                        auth_scope="bot",
+                        tool_args={"name": "Template"},
+                    )
+                    described = json.loads(await describe_dashboard())
+                finally:
+                    current_channel_id.reset(ch_tok)
+                    current_bot_id.reset(bot_tok)
+
+        result = json.loads(raw)
+        assert "error" not in result, result
+        pins = described["pins"]
+        assert len(pins) == 1
+        assert pins[0]["tool_name"] == "fake_template_tool"
+        assert pins[0]["tool_args"] == {"name": "Template"}
+        body = json.loads(pins[0]["envelope"]["body"])
+        assert body["components"][0]["text"] == "Hi Template"
 
 
 # ---------------------------------------------------------------------------

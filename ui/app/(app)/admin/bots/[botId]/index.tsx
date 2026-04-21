@@ -7,7 +7,6 @@ import { useBotEditorData, useUpdateBot, useCreateBot, useDeleteBot } from "@/sr
 import { useSettings } from "@/src/api/hooks/useSettings";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useHashTab } from "@/src/hooks/useHashTab";
-import { CarapacesSection } from "./CarapacesSection";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt, GenerateButton } from "@/src/components/shared/LlmPrompt";
@@ -141,7 +140,6 @@ export default function BotEditorScreen() {
       tools: ["tool", "mcp", "client", "pin", "rag", "retrieval", "discovery", "summarization"],
       skills: ["skill"],
       learning: ["learning", "authored", "surfac", "knowledge"],
-      carapaces: ["capability", "carapace", "bundle", "expert"],
       memory: ["memory", "cross", "channel"],
       attachments: ["attachment", "summarization", "vision"],
       workspace: ["workspace", "docker", "host", "exec", "sandbox", "index", "command", "port", "mount"],
@@ -473,10 +471,6 @@ export default function BotEditorScreen() {
 
           {activeSection === "learning" && draft.id && (
             <LearningSection botId={draft.id} />
-          )}
-
-          {activeSection === "carapaces" && (
-            <CarapacesSection draft={draft} update={update} />
           )}
 
           {activeSection === "memory" && (
@@ -844,4 +838,3 @@ export default function BotEditorScreen() {
     </div>
   );
 }
-

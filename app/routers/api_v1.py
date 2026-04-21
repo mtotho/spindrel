@@ -17,7 +17,6 @@ from app.routers.api_v1_tool_calls import router as tool_calls_router
 from app.routers.api_v1_tool_policies import router as tool_policies_router
 from app.routers.api_v1_bot_hooks import router as bot_hooks_router
 from app.routers.api_v1_approvals import router as approvals_router
-from app.routers.api_v1_carapaces import router as carapaces_router
 from app.routers.api_v1_llm import router as llm_router
 from app.routers.api_v1_modals import router as modals_router
 from app.routers.api_v1_search import router as search_router
@@ -36,7 +35,6 @@ router = APIRouter(prefix="/api/v1")
 router.include_router(admin_router)
 router.include_router(approvals_router)
 router.include_router(attachments_router)
-router.include_router(carapaces_router)
 router.include_router(channels_router)
 router.include_router(discover_router)
 router.include_router(documents_router)

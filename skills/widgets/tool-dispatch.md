@@ -7,6 +7,15 @@ category: core
 
 # Widget tool dispatch — `POST /api/v1/widget-actions` + `callTool`
 
+This skill is about frontend dispatch from inside an HTML widget.
+
+Do not confuse it with the bot-facing widget action interface:
+
+- widget JS uses `window.spindrel.callTool(...)` or `window.spindrel.api("/api/v1/widget-actions", ...)`
+- bots use `invoke_widget_action(...)`
+
+They share backend plumbing, but they are different interfaces for different actors.
+
 Dashboards aren't just read surfaces. You trigger work from a widget by dispatching a **tool call** through the host, which runs the tool under your bot's scopes and pushes the fresh result back into the widget.
 
 The endpoint is `POST /api/v1/widget-actions`. Three dispatch types:
@@ -209,6 +218,21 @@ await window.spindrel.callTool("web_search", { query: "docs" }, {
 - Tool runs under your bot's scopes. If the tool needs a capability your bot doesn't have, the dispatch fails cleanly — don't try to work around it.
 - The `state_poll` cache (for declarative widgets) has a 30 s TTL keyed by `(tool, args)`; mutations invalidate it.
 - `dispatch:"api"` is **whitelisted** to `/api/v1/admin/tasks` and `/api/v1/channels/*`. For any other endpoint, use `spindrel.api()` directly. `callTool` is only for tool dispatch — for `dispatch:"api"` or `dispatch:"widget_config"`, use `spindrel.api("/api/v1/widget-actions", ...)` directly.
+
+## When not to use this skill
+
+If the question is about:
+
+- how a bot should operate a pinned widget
+- how to inspect what actions a widget supports
+- how native Notes or other first-party widgets should be invoked
+
+then use the shared bot flow instead:
+
+- `widget_library_list`
+- `pin_widget`
+- `describe_dashboard`
+- `invoke_widget_action`
 
 ## Knowing the output shape before you call
 

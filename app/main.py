@@ -476,7 +476,7 @@ async def lifespan(application: FastAPI):
     await _cleanup_orphaned_tools(_registered_tools)
     _t = _tlog("Orphaned tool cleanup", _t)
 
-    # Feature validation (carapace requires, memory scheme tools, etc.)
+    # Feature validation (memory scheme tools, etc.)
     from app.services.feature_validation import validate_features
     _feature_warnings = await validate_features()
     if _feature_warnings:
@@ -484,14 +484,10 @@ async def lifespan(application: FastAPI):
 
     logger.info("Syncing file-sourced skills and knowledge...")
     await file_sync.sync_all_files()
-    _t = _tlog("File sync (skills, knowledge, carapaces, prompts, workflows)", _t)
+    _t = _tlog("File sync (skills, knowledge, prompts, workflows)", _t)
     logger.info("Loading skills from DB...")
     await load_skills()
     _t = _tlog("Load skills (embedding check)", _t)
-    # Carapace YAML seeding is handled by sync_all_files() above; just load registry.
-    from app.agent.carapaces import load_carapaces
-    logger.info("Loading carapaces from DB...")
-    await load_carapaces()
     # Workflow YAML seeding is handled by sync_all_files() above; just load registry.
     from app.services.workflows import load_workflows
     logger.info("Loading workflows from DB...")
@@ -509,7 +505,7 @@ async def lifespan(application: FastAPI):
     # Register workflow task completion hook
     from app.services.workflow_hooks import register_workflow_hooks
     register_workflow_hooks()
-    _t = _tlog("Load carapaces, workflows, webhooks", _t)
+    _t = _tlog("Load workflows, webhooks", _t)
     logger.info("Starting file watcher...")
     _workers: list[asyncio.Task] = []
     _workers.append(safe_create_task(file_sync.watch_files(), name="file_watcher"))
@@ -625,13 +621,8 @@ async def lifespan(application: FastAPI):
             await warm_mcp_tool_index_for_all_bots()
             await validate_pinned_tools()
 
-        async def _index_caps():
-            from app.agent.capability_rag import index_capabilities
-            await index_capabilities()
-
         await asyncio.gather(
             _index_tools(),
-            _index_caps(),
             return_exceptions=True,
         )
 
@@ -732,24 +723,22 @@ async def lifespan(application: FastAPI):
         from app.services.config_export import config_export_worker
         _workers.append(safe_create_task(config_export_worker(), name="config_export"))
 
-    # Periodic session store cleanup (capability activations + session allows)
+    # Periodic session store cleanup (session allows only)
     async def _session_cleanup_worker():
         while True:
             try:
                 await asyncio.sleep(600)  # every 10 minutes
-                from app.agent.capability_session import cleanup_stale as _cap_cleanup
                 from app.agent.session_allows import cleanup_stale as _allow_cleanup
                 from app.services.session_locks import sweep_stale as _lock_sweep
-                cap_removed = _cap_cleanup()
                 allow_removed = _allow_cleanup()
                 # session_locks janitor: sweep entries older than the
                 # default TTL (2 hours). Drops locks leaked by background
                 # tasks cancelled before their try-block runs.
                 lock_removed = _lock_sweep()
-                if cap_removed or allow_removed or lock_removed:
+                if allow_removed or lock_removed:
                     logger.debug(
-                        "Session cleanup: %d capability + %d allow + %d session-lock entries evicted",
-                        cap_removed, allow_removed, lock_removed,
+                        "Session cleanup: %d allow + %d session-lock entries evicted",
+                        allow_removed, lock_removed,
                     )
             except Exception:
                 logger.warning("Session cleanup failed", exc_info=True)

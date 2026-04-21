@@ -32,6 +32,13 @@ from app.services.widget_package_loader import (
     rewrite_refs_for_preview,
 )
 from app.services.widget_package_validation import validate_package
+from app.services.widget_preview import (
+    PreviewEnvelope,
+    PreviewOut,
+    ValidationIssueOut,
+    preview_active_widget_for_tool,
+    render_preview_envelope,
+)
 from app.services.widget_templates import (
     _pick_fallback_seed,
     _substitute,
@@ -117,13 +124,6 @@ class ValidateIn(BaseModel):
     python_code: Optional[str] = None
 
 
-class ValidationIssueOut(BaseModel):
-    phase: str
-    message: str
-    line: Optional[int] = None
-    severity: str = "error"
-
-
 class ValidateOut(BaseModel):
     ok: bool
     errors: list[ValidationIssueOut] = []
@@ -160,26 +160,6 @@ class PreviewForToolIn(BaseModel):
     widget_config: Optional[dict] = None
     source_bot_id: Optional[str] = None
     source_channel_id: Optional[str] = None
-
-
-class PreviewEnvelope(BaseModel):
-    content_type: str
-    body: str
-    display: str
-    display_label: Optional[str] = None
-    refreshable: bool = False
-    refresh_interval_seconds: Optional[int] = None
-    # Forwarded when rendering an html_template widget so the preview pane's
-    # iframe can mint a widget-auth token and call /api/v1/* endpoints as the
-    # intended bot. Empty for component-tree widgets.
-    source_bot_id: Optional[str] = None
-    source_channel_id: Optional[str] = None
-
-
-class PreviewOut(BaseModel):
-    ok: bool
-    envelope: Optional[PreviewEnvelope] = None
-    errors: list[ValidationIssueOut] = []
 
 
 class GenericRenderIn(BaseModel):
@@ -557,86 +537,14 @@ async def preview_widget_for_tool(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("admin")),
 ):
-    """Render ``tool_name``'s active widget template against ``sample_payload``.
-
-    Resolves the active package via ``WidgetTemplatePackage.is_active`` and
-    falls back to the in-memory registry when no DB package is active (covers
-    integration-declared ``tool_widgets`` registered at startup).
-    """
-    # Prefer an active DB-backed package when present.
-    pkg = (
-        await db.execute(
-            select(WidgetTemplatePackage).where(
-                WidgetTemplatePackage.tool_name == body.tool_name,
-                WidgetTemplatePackage.is_active.is_(True),
-                WidgetTemplatePackage.is_orphaned.is_(False),
-                WidgetTemplatePackage.is_invalid.is_(False),
-            )
-        )
-    ).scalar_one_or_none()
-
-    widget_def: dict[str, Any] | None = None
-    preview_mod_name: str | None = None
-    try:
-        if pkg is not None:
-            result = validate_package(pkg.yaml_template, pkg.python_code)
-            if not result.ok:
-                return PreviewOut(
-                    ok=False,
-                    errors=[_issue_out(e) for e in result.errors],
-                )
-            widget_def = result.template or yaml.safe_load(pkg.yaml_template) or {}
-            if pkg.python_code and pkg.python_code.strip():
-                _, preview_mod_name = load_preview_module(pkg.python_code)
-            widget_def = rewrite_refs_for_preview(widget_def, preview_mod_name)
-        else:
-            # Fallback to in-memory registry (integration tool_widgets).
-            from app.services.widget_templates import _widget_templates
-
-            entry = _widget_templates.get(body.tool_name)
-            if entry is None:
-                # Also try the bare name (strip MCP server prefix).
-                bare = body.tool_name.split("-", 1)[1] if "-" in body.tool_name else None
-                if bare:
-                    entry = _widget_templates.get(bare)
-            if entry is None:
-                return PreviewOut(
-                    ok=False,
-                    errors=[
-                        ValidationIssueOut(
-                            phase="lookup",
-                            message=f"No active widget template for tool '{body.tool_name}'",
-                        )
-                    ],
-                )
-            widget_def = {
-                "content_type": entry.get("content_type"),
-                "display": entry.get("display", "inline"),
-                "display_label": entry.get("display_label"),
-                "template": entry.get("template"),
-                "default_config": entry.get("default_config"),
-                "transform": entry.get("transform"),
-                "state_poll": entry.get("state_poll"),
-            }
-
-        envelope = _render_preview(
-            widget_def,
-            tool_name=body.tool_name,
-            sample_payload=body.sample_payload or {},
-            widget_config=body.widget_config,
-            source_bot_id=body.source_bot_id,
-            source_channel_id=body.source_channel_id,
-        )
-    except Exception as exc:
-        logger.warning("preview-for-tool failed for %s: %s", body.tool_name, exc, exc_info=True)
-        return PreviewOut(
-            ok=False,
-            errors=[ValidationIssueOut(phase="python", message=str(exc))],
-        )
-    finally:
-        discard_preview_module(preview_mod_name)
-
-    return PreviewOut(ok=True, envelope=envelope)
+    return await preview_active_widget_for_tool(
+        db,
+        tool_name=body.tool_name,
+        sample_payload=body.sample_payload,
+        widget_config=body.widget_config,
+        source_bot_id=body.source_bot_id,
+        source_channel_id=body.source_channel_id,
+    )
 
 
 @router.post("/widget-packages/preview-inline", response_model=PreviewOut)
@@ -664,7 +572,7 @@ async def preview_widget_inline(
         if body.python_code and body.python_code.strip():
             _, preview_mod_name = load_preview_module(body.python_code)
         rewritten = rewrite_refs_for_preview(widget_def, preview_mod_name)
-        envelope = _render_preview(
+        envelope = render_preview_envelope(
             rewritten,
             tool_name=body.tool_name or "",
             sample_payload=body.sample_payload or {},
@@ -749,7 +657,7 @@ async def preview_widget_package(
         if python_code and python_code.strip():
             _, preview_mod_name = load_preview_module(python_code)
         rewritten = rewrite_refs_for_preview(widget_def, preview_mod_name)
-        envelope = _render_preview(
+        envelope = render_preview_envelope(
             rewritten,
             tool_name=row.tool_name,
             sample_payload=sample_payload or {},
@@ -766,72 +674,3 @@ async def preview_widget_package(
 
     return PreviewOut(ok=True, envelope=envelope)
 
-
-def _render_preview(
-    widget_def: dict[str, Any],
-    *,
-    tool_name: str,
-    sample_payload: dict,
-    widget_config: dict | None,
-    source_bot_id: str | None = None,
-    source_channel_id: str | None = None,
-) -> PreviewEnvelope:
-    """Run the widget_templates pipeline against a sample payload, return envelope.
-
-    Does NOT touch the global ``_widget_templates`` registry.
-    """
-    from app.services.widget_templates import (
-        _apply_code_transform,
-        _build_html_widget_body,
-    )
-
-    data = dict(sample_payload) if isinstance(sample_payload, dict) else {}
-    default_config = widget_def.get("default_config") or {}
-    merged_config = {**default_config, **(widget_config or {})}
-    data_with_config = {**data, "config": merged_config}
-
-    display_label = None
-    raw_label = widget_def.get("display_label")
-    if isinstance(raw_label, str):
-        resolved = _substitute_string(raw_label, data_with_config)
-        if isinstance(resolved, str) and resolved.strip():
-            display_label = resolved.strip()
-
-    state_poll = widget_def.get("state_poll") or {}
-    interval = state_poll.get("refresh_interval_seconds")
-
-    html_template = widget_def.get("html_template")
-    if isinstance(html_template, dict) and isinstance(html_template.get("body"), str):
-        body = _build_html_widget_body(html_template["body"], data)
-        return PreviewEnvelope(
-            content_type=widget_def.get(
-                "content_type", "application/vnd.spindrel.html+interactive",
-            ),
-            body=body,
-            display=widget_def.get("display", "inline"),
-            display_label=display_label,
-            refreshable=bool(widget_def.get("state_poll")),
-            refresh_interval_seconds=int(interval) if interval else None,
-            source_bot_id=source_bot_id,
-            source_channel_id=source_channel_id,
-        )
-
-    template = widget_def.get("template") or {}
-    filled = _substitute(copy.deepcopy(template), data_with_config)
-
-    transform_ref = widget_def.get("transform")
-    if transform_ref and isinstance(filled, dict):
-        components = filled.get("components")
-        if isinstance(components, list):
-            filled["components"] = _apply_code_transform(transform_ref, data_with_config, components)
-
-    return PreviewEnvelope(
-        content_type=widget_def.get(
-            "content_type", "application/vnd.spindrel.components+json",
-        ),
-        body=json.dumps(filled),
-        display=widget_def.get("display", "inline"),
-        display_label=display_label,
-        refreshable=bool(widget_def.get("state_poll")),
-        refresh_interval_seconds=int(interval) if interval else None,
-    )

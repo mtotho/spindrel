@@ -104,17 +104,6 @@ export function IntegrationActivationList({
                   {integration.tools.length} tool{integration.tools.length !== 1 ? "s" : ""}
                 </span>
               )}
-              {integration.carapaces.length > 0 && (
-                <span style={{
-                  backgroundColor: t.surfaceBorder,
-                  padding: "2px 6px",
-                  borderRadius: 4,
-                  fontSize: 10,
-                  color: t.textDim,
-                }}>
-                  via {integration.carapaces.join(", ")}
-                </span>
-              )}
             </div>
           </div>
         );

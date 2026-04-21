@@ -601,7 +601,6 @@ class Settings(BaseSettings):
     INTEGRATION_DIRS: str = ""
 
     # Capability auto-discovery
-    CAPABILITIES_DISABLED: str = ""  # comma-separated carapace IDs to hide globally
     CAPABILITY_RETRIEVAL_TOP_K: int = 5
     CAPABILITY_RETRIEVAL_THRESHOLD: float = 0.50
     CAPABILITY_APPROVAL: str = "required"  # "required" = ask user, "none" = silent
@@ -671,7 +670,7 @@ class Settings(BaseSettings):
     WORKSPACE_HOST_DIR: str = ""    # e.g., "/home/you/.spindrel-workspaces"
     WORKSPACE_LOCAL_DIR: str = ""   # e.g., "/workspace-data"
 
-    # Spindrel home directory (integrations, carapaces, etc.)
+    # Spindrel home directory (integrations, prompts, workflows, etc.)
     # Same pattern as workspace paths: HOST is the real path on the host,
     # LOCAL is where it's mounted inside the container.
     HOME_HOST_DIR: str = ""         # e.g., "/home/you/spindrel-home"

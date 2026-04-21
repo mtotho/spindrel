@@ -43,15 +43,9 @@ class DelegationService:
         channel_id: uuid.UUID | None = None,
         ephemeral_delegate: bool = False,
         reply_in_thread: bool = False,
-        carapace_ids: list[str] | None = None,
         model_tier: str | None = None,
     ) -> str:
-        """Run a child agent immediately and return its final response.
-
-        When carapace_ids is set, the delegate bot config is cloned with
-        carapaces=[target_id] so context_assembly handles skill/tool/fragment
-        injection automatically.
-        """
+        """Run a child agent immediately and return its final response."""
         from app.agent.bots import get_bot
         from app.agent.loop import run_stream
         from app.agent.context import (
@@ -61,9 +55,8 @@ class DelegationService:
         )
         from app.services.sessions import _effective_system_prompt
 
-        # Global flag OR bot has explicit delegate_bots config enables delegation
-        # (carapace delegation bypasses this — authorized by the carapace's delegates list)
-        if not carapace_ids and not parent_bot.delegate_bots:
+        # Global flag OR bot has explicit delegate_bots config enables delegation.
+        if not parent_bot.delegate_bots:
             raise DelegationError(
                 "Delegation is disabled. Configure delegate_bots for this bot."
             )
@@ -84,21 +77,15 @@ class DelegationService:
         if _responded is not None:
             _responded.add(delegate_bot_id)
 
-        # Permission check: allowlist, wildcard, or ephemeral @-tag override
-        # (carapace delegation skips this — permission comes from carapace delegates list)
+        # Permission check: allowlist, wildcard, or ephemeral @-tag override.
         allowed = parent_bot.delegate_bots or []
-        if not carapace_ids and not ephemeral_delegate and "*" not in allowed and delegate_bot_id not in allowed:
+        if not ephemeral_delegate and "*" not in allowed and delegate_bot_id not in allowed:
             raise DelegationPermissionError(
                 f"Bot {parent_bot.id!r} is not allowed to delegate to {delegate_bot_id!r}. "
                 f"Allowed: {allowed}"
             )
 
         delegate_bot = get_bot(delegate_bot_id)
-
-        # If carapace_ids specified, clone the bot config with those carapaces
-        if carapace_ids:
-            import dataclasses
-            delegate_bot = dataclasses.replace(delegate_bot, carapaces=list(carapace_ids))
 
         # Resolve model tier → concrete model override
         _tier_model: str | None = None
@@ -223,13 +210,9 @@ class DelegationService:
         channel_id: uuid.UUID | None = None,
         reply_in_thread: bool = False,
         notify_parent: bool = True,
-        carapace_ids: list[str] | None = None,
         model_tier: str | None = None,
     ) -> str:
         """Create a Task for deferred execution. Returns task_id string.
-
-        When carapace_ids is set, they are stored in execution_config.carapaces
-        so the task worker injects them at execution time.
 
         When model_tier is set, it is resolved to a concrete model+provider and
         stored in execution_config.model_override / model_provider_id_override.
@@ -244,8 +227,6 @@ class DelegationService:
             if client_id:
                 callback_cfg["parent_client_id"] = client_id
         execution_cfg: dict | None = None
-        if carapace_ids:
-            execution_cfg = {"carapaces": carapace_ids}
 
         # Resolve model tier → concrete model override
         if model_tier:

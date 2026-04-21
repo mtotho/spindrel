@@ -44,6 +44,9 @@ _DESCRIBE_SCHEMA = {
             "pin JSON and an ASCII-art preview. Use this FIRST before "
             "proposing any layout change — it shows you what's pinned, "
             "where, and in which zone (rail, header, dock, grid).\n\n"
+            "Each pin also includes `available_actions` when the widget "
+            "declares a bot-callable action schema. Inspect that before "
+            "calling `invoke_widget_action`.\n\n"
             "Two views are rendered side-by-side by default:\n"
             "  • CHAT VIEW — header + rail + dock (what the user sees "
             "while chatting alongside a chat column).\n"
@@ -96,9 +99,12 @@ _PIN_WIDGET_SCHEMA = {
             "Call `describe_dashboard` first to see what's already pinned "
             "— this tool refuses to pin a widget that already exists on "
             "the target dashboard with the same source+path. Today the direct "
-            "`library` pin path is for standalone HTML widgets; template/tool-"
-            "renderer widgets are discoverable in the library but are not yet "
-            "directly instantiable through this tool."
+            "`library` pin path supports both standalone HTML widgets and "
+            "template/tool-renderer widgets. For template widgets, pass the "
+            "tool name as `widget` plus `tool_args` to instantiate the card "
+            "before pinning."
+            " Native app widgets shipped by the app also resolve through "
+            "this library path."
         ),
         "parameters": {
             "type": "object",
@@ -170,6 +176,22 @@ _PIN_WIDGET_SCHEMA = {
                         "sees the widget run as THIS bot — use when the "
                         "widget needs bot-scoped data the viewer doesn't "
                         "have access to."
+                    ),
+                },
+                "tool_args": {
+                    "type": "object",
+                    "description": (
+                        "Required when pinning a template/tool-renderer widget "
+                        "through source_kind='library'. These are the real tool "
+                        "arguments used to instantiate the widget preview that "
+                        "gets pinned as an adhoc dashboard card."
+                    ),
+                },
+                "widget_config": {
+                    "type": "object",
+                    "description": (
+                        "Optional per-pin config merged with the template "
+                        "widget's default_config before rendering."
                     ),
                 },
             },
@@ -336,6 +358,43 @@ _SET_CHROME_SCHEMA = {
 }
 
 
+_INVOKE_WIDGET_ACTION_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "invoke_widget_action",
+        "description": (
+            "Invoke an action exposed by a pinned widget or native widget instance. "
+            "Use `describe_dashboard` first to inspect each pin's `available_actions` "
+            "and copy the declared arg schema instead of guessing payloads. This is "
+            "the unified bot-facing action surface for HTML widget handlers and "
+            "first-party native app widgets."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pin_id": {
+                    "type": "string",
+                    "description": "Pinned widget id from describe_dashboard. Preferred when acting on a visible pin.",
+                },
+                "widget_instance_id": {
+                    "type": "string",
+                    "description": "Optional native widget instance id if you have it already.",
+                },
+                "action": {
+                    "type": "string",
+                    "description": "Action id exactly as declared in available_actions.",
+                },
+                "args": {
+                    "type": "object",
+                    "description": "Arguments matching the action's declared schema.",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+}
+
+
 # ---------------------------------------------------------------------------
 # Returns schemas
 # ---------------------------------------------------------------------------
@@ -360,7 +419,9 @@ _PIN_RESULT_SCHEMA = {
         "display_label": {"type": ["string", "null"]},
         "source_kind": {"type": "string"},
         "source_bot_id": {"type": ["string", "null"]},
+        "widget_instance_id": {"type": ["string", "null"]},
         "visible_in_chat": {"type": "boolean"},
+        "available_actions": {"type": "array"},
     },
 }
 
@@ -441,6 +502,19 @@ _SET_CHROME_RETURNS = {
 }
 
 
+_INVOKE_WIDGET_ACTION_RETURNS = {
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "action": {"type": "string"},
+        "pin_id": {"type": "string"},
+        "widget_instance_id": {"type": "string"},
+        "result": {},
+        "error": {"type": "string"},
+    },
+}
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -471,12 +545,56 @@ def _visible_in_chat(zone: str) -> bool:
     return zone in ("rail", "header", "dock")
 
 
-def _enriched_pins(pin_dicts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Add ``visible_in_chat`` to each serialized pin."""
+async def _enriched_pins(pin_dicts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add ``visible_in_chat`` and declared bot action metadata to each pin."""
+    from app.db.engine import async_session
+    from app.services.native_app_widgets import get_native_widget_actions
+    from app.services.widget_handler_tools import list_widget_handler_tools
+
     out: list[dict[str, Any]] = []
+    pin_ids = {str(pin.get("id")) for pin in pin_dicts if pin.get("id")}
+    handler_actions_by_pin: dict[str, list[dict[str, Any]]] = {}
+    bot_id = current_bot_id.get()
+    channel_id = current_channel_id.get()
+    async with async_session() as db:
+        schemas, resolver = await list_widget_handler_tools(
+            db,
+            bot_id=bot_id,
+            channel_id=str(channel_id) if channel_id else None,
+        )
+    for schema in schemas:
+        fn = schema.get("function") or {}
+        tool_name = fn.get("name")
+        if not isinstance(tool_name, str):
+            continue
+        resolved = resolver.get(tool_name)
+        if not resolved:
+            continue
+        pin, handler_name, _safety_tier = resolved
+        pin_id = str(pin.id)
+        if pin_id not in pin_ids:
+            continue
+        handler_actions_by_pin.setdefault(pin_id, []).append({
+            "id": handler_name,
+            "description": fn.get("description") or "",
+            "args_schema": fn.get("parameters") or {"type": "object", "properties": {}},
+        })
+
     for pin in pin_dicts:
         zone = pin.get("zone") or "grid"
-        out.append({**pin, "visible_in_chat": _visible_in_chat(zone)})
+        actions = handler_actions_by_pin.get(str(pin.get("id")), [])
+        envelope = pin.get("envelope") or {}
+        body = envelope.get("body")
+        widget_ref = None
+        if isinstance(body, dict):
+            widget_ref = body.get("widget_ref")
+        if not actions and isinstance(widget_ref, str):
+            actions = get_native_widget_actions(widget_ref)
+        out.append({
+            **pin,
+            "visible_in_chat": _visible_in_chat(zone),
+            "available_actions": actions,
+        })
     return out
 
 
@@ -537,6 +655,30 @@ async def _resolve_library_entry(
     if not ref:
         return None, "library ref is empty."
 
+    from app.services.native_app_widgets import list_native_widget_catalog_entries
+
+    native_entries = list_native_widget_catalog_entries()
+    native_ref = ref if "/" in ref else f"core/{ref}"
+    native_entry = next(
+        (
+            entry for entry in native_entries
+            if entry.get("widget_ref") == native_ref
+            or f"{entry.get('scope')}/{entry.get('name')}" == native_ref
+        ),
+        None,
+    )
+    if native_entry is not None:
+        return {
+            "source": "library",
+            "library_ref": f"{native_entry['scope']}/{native_entry['name']}",
+            "name": native_entry.get("name"),
+            "display_label": native_entry.get("display_label"),
+            "description": native_entry.get("description"),
+            "widget_kind": "native_app",
+            "widget_ref": native_entry.get("widget_ref"),
+            "actions": native_entry.get("actions") or [],
+        }, None
+
     from app.services.workspace import workspace_service
     from app.tools.local.emit_html_widget import _load_library_widget
 
@@ -575,6 +717,7 @@ async def _resolve_library_entry(
         "name": meta.get("name"),
         "display_label": meta.get("display_label"),
         "description": meta.get("description"),
+        "actions": meta.get("actions") or [],
     }
     return entry, None
 
@@ -653,6 +796,14 @@ def _envelope_for_entry(
         "source_bot_id": source_bot_id,
         "extra_csp": entry.get("extra_csp"),
     }
+    if entry.get("widget_kind") == "native_app":
+        from app.services.native_app_widgets import build_native_widget_preview_envelope
+
+        return build_native_widget_preview_envelope(
+            entry["widget_ref"],
+            display_label=label,
+            source_bot_id=source_bot_id,
+        )
     if source == "library":
         # Library widgets don't carry a filesystem-style source_path — the
         # renderer fetches fresh body via /html-widget-content/library?ref=...
@@ -670,6 +821,62 @@ def _envelope_for_entry(
             if channel_id is not None:
                 envelope["source_channel_id"] = str(channel_id)
     return envelope
+
+
+async def _instantiate_tool_renderer_entry(
+    widget: str,
+    *,
+    tool_args: dict[str, Any] | None,
+    widget_config: dict[str, Any] | None,
+    bot_id: str | None,
+    channel_id: uuid.UUID | None,
+    auth_scope: str,
+) -> tuple[str | None, dict[str, Any] | None, str | None]:
+    from app.services.tool_execution import validate_tool_context_requirements
+    from app.services.widget_preview import preview_active_widget_for_tool
+    from app.db.engine import async_session
+
+    tool_name = (widget or "").strip()
+    if tool_name.startswith("widget://"):
+        tool_name = tool_name[len("widget://"):].strip("/")
+    if "/" in tool_name:
+        tool_name = tool_name.rsplit("/", 1)[-1]
+    if not tool_name:
+        return None, None, "tool-renderer ref is empty."
+
+    requires_bot, _requires_channel, _channel_uuid = validate_tool_context_requirements(
+        tool_name,
+        bot_id=bot_id,
+        channel_id=str(channel_id) if channel_id else None,
+    )
+    if requires_bot and auth_scope != "bot":
+        return None, None, (
+            f"tool-renderer widget {tool_name!r} requires bot auth. "
+            "Call pin_widget(..., auth_scope='bot')."
+        )
+
+    async with async_session() as db:
+        from app.services.tool_execution import execute_tool_with_context
+
+        parsed_result, _raw = await execute_tool_with_context(
+            tool_name,
+            tool_args or {},
+            bot_id=bot_id,
+            channel_id=str(channel_id) if channel_id else None,
+        )
+        payload = parsed_result if isinstance(parsed_result, dict) else {"result": parsed_result}
+        preview = await preview_active_widget_for_tool(
+            db,
+            tool_name=tool_name,
+            sample_payload=payload,
+            widget_config=widget_config,
+            source_bot_id=bot_id if auth_scope == "bot" else None,
+            source_channel_id=str(channel_id) if channel_id else None,
+        )
+    if not preview.ok or preview.envelope is None:
+        issue = preview.errors[0].message if preview.errors else "preview failed"
+        return None, None, issue
+    return tool_name, preview.envelope.model_dump(), None
 
 
 def _render_preview(dashboard: dict[str, Any], pins: list[dict[str, Any]]) -> str:
@@ -712,7 +919,7 @@ async def describe_dashboard(
         logger.exception("describe_dashboard failed")
         return json.dumps({"error": str(exc), "llm": f"describe_dashboard failed: {exc}"})
 
-    enriched = _enriched_pins(pin_dicts)
+    enriched = await _enriched_pins(pin_dicts)
 
     from app.services.dashboard_ascii import render_layout
     v = view if view in ("chat", "full", "both") else "both"
@@ -762,6 +969,8 @@ async def pin_widget(
     h: int | None = None,
     display_label: str | None = None,
     auth_scope: str = "user",
+    tool_args: dict[str, Any] | None = None,
+    widget_config: dict[str, Any] | None = None,
 ) -> str:
     if zone not in ("rail", "header", "dock", "grid"):
         return json.dumps({"error": f"invalid zone: {zone!r}"})
@@ -782,19 +991,32 @@ async def pin_widget(
         channel_id=channel_id,
         bot_id=bot_id,
     )
-    if err:
-        return json.dumps({"error": err, "llm": err})
-    assert entry is not None  # narrowing after err-check
-
-    # Determine the pin's effective identity so we can refuse duplicates.
     effective_bot_id = bot_id if auth_scope == "bot" else None
-
-    envelope = _envelope_for_entry(
-        entry,
-        channel_id=channel_id,
-        source_bot_id=effective_bot_id,
-        display_label=display_label,
-    )
+    template_tool_name: str | None = None
+    envelope: dict[str, Any]
+    if err and source_kind == "library":
+        template_tool_name, template_envelope, template_err = await _instantiate_tool_renderer_entry(
+            widget,
+            tool_args=tool_args,
+            widget_config=widget_config,
+            bot_id=bot_id,
+            channel_id=channel_id,
+            auth_scope=auth_scope,
+        )
+        if template_err:
+            return json.dumps({"error": template_err, "llm": template_err})
+        assert template_envelope is not None
+        envelope = template_envelope
+    else:
+        if err:
+            return json.dumps({"error": err, "llm": err})
+        assert entry is not None  # narrowing after err-check
+        envelope = _envelope_for_entry(
+            entry,
+            channel_id=channel_id,
+            source_bot_id=effective_bot_id,
+            display_label=display_label,
+        )
 
     # Resolve target slot — if any of (x, y) are missing, first-free-slot
     # within the zone at the defaulted or supplied (w, h).
@@ -826,22 +1048,44 @@ async def pin_widget(
 
         existing_pins = await list_pins(db, dashboard_key=key)
         existing = [serialize_pin(p) for p in existing_pins]
+        native_widget_ref = entry.get("widget_ref") if entry else None
 
         # Refuse duplicates — same source + identity on the same dashboard.
-        needle_path = entry.get("path")
+        needle_path = entry.get("path") if entry else None
         needle_library_ref = envelope.get("source_library_ref")
         for existing_pin in existing:
             env = existing_pin.get("envelope") or {}
-            if env.get("source_kind") != envelope.get("source_kind"):
-                continue
             same = False
-            if envelope.get("source_kind") == "library":
-                same = env.get("source_library_ref") == needle_library_ref
-            else:
+            if template_tool_name:
                 same = (
-                    env.get("source_integration_id") == envelope.get("source_integration_id")
-                    and env.get("source_path") == needle_path
+                    existing_pin.get("tool_name") == template_tool_name
+                    and (existing_pin.get("tool_args") or {}) == (tool_args or {})
+                    and (existing_pin.get("widget_config") or {}) == (widget_config or {})
+                    and existing_pin.get("source_bot_id") == effective_bot_id
+                    and existing_pin.get("source_channel_id") == (str(channel_id) if channel_id else None)
                 )
+            elif envelope.get("content_type") == "application/vnd.spindrel.native-app+json":
+                existing_body = env.get("body") or {}
+                if isinstance(existing_body, str):
+                    try:
+                        existing_body = json.loads(existing_body)
+                    except Exception:
+                        existing_body = {}
+                same = (
+                    env.get("content_type") == envelope.get("content_type")
+                    and isinstance(existing_body, dict)
+                    and existing_body.get("widget_ref") == native_widget_ref
+                )
+            else:
+                if env.get("source_kind") != envelope.get("source_kind"):
+                    continue
+                if envelope.get("source_kind") == "library":
+                    same = env.get("source_library_ref") == needle_library_ref
+                else:
+                    same = (
+                        env.get("source_integration_id") == envelope.get("source_integration_id")
+                        and env.get("source_path") == needle_path
+                    )
             if same:
                 err_msg = (
                     f"{widget!r} is already pinned to {key!r} as pin "
@@ -864,10 +1108,12 @@ async def pin_widget(
             pin = await create_pin(
                 db,
                 source_kind="adhoc",
-                tool_name="emit_html_widget",  # renders through InteractiveHtmlRenderer
+                tool_name=template_tool_name or native_widget_ref or "emit_html_widget",
                 envelope=envelope,
                 source_channel_id=channel_id,
                 source_bot_id=effective_bot_id,
+                tool_args=tool_args if template_tool_name else None,
+                widget_config=widget_config if template_tool_name else None,
                 display_label=display_label or envelope.get("display_label"),
                 dashboard_key=key,
             )
@@ -894,7 +1140,7 @@ async def pin_widget(
         # Re-fetch to render preview against final state.
         dashboard_dict, pins = await _fetch_dashboard_and_pins(key)
 
-    enriched = _enriched_pins(pins)
+    enriched = await _enriched_pins(pins)
     ascii_preview = _render_preview(dashboard_dict, enriched)
     label = envelope.get("display_label") or widget
     scope_desc = "user" if auth_scope == "user" else f"bot ({bot_id})"
@@ -974,7 +1220,7 @@ async def move_pins(
         dashboard_dict = serialize_dashboard(dashboard_row)
         pin_dicts = [serialize_pin(p) for p in pins]
 
-    enriched = _enriched_pins(pin_dicts)
+    enriched = await _enriched_pins(pin_dicts)
     ascii_preview = _render_preview(dashboard_dict, enriched)
     narrative = (
         f"Moved {result.get('updated', 0)} pin(s) on {key}. "
@@ -1148,4 +1394,146 @@ async def set_dashboard_chrome(
         "dashboard_key": key,
         "grid_config": updated.grid_config or {},
         "llm": narrative,
+    })
+
+
+def _validate_action_args(schema: dict[str, Any], args: dict[str, Any] | None) -> str | None:
+    args = args or {}
+    props = schema.get("properties") or {}
+    required = schema.get("required") or []
+    for key in required:
+        if key not in args:
+            return f"missing required action arg: {key}"
+    for key, value in args.items():
+        prop = props.get(key)
+        if not isinstance(prop, dict):
+            continue
+        typ = prop.get("type")
+        if typ == "string" and not isinstance(value, str):
+            return f"action arg {key!r} must be a string"
+        if typ == "boolean" and not isinstance(value, bool):
+            return f"action arg {key!r} must be a boolean"
+        if typ == "integer" and not (isinstance(value, int) and not isinstance(value, bool)):
+            return f"action arg {key!r} must be an integer"
+        if typ == "number" and not (
+            (isinstance(value, int) and not isinstance(value, bool)) or isinstance(value, float)
+        ):
+            return f"action arg {key!r} must be a number"
+        if typ == "object" and not isinstance(value, dict):
+            return f"action arg {key!r} must be an object"
+        if typ == "array" and not isinstance(value, list):
+            return f"action arg {key!r} must be an array"
+    return None
+
+
+@register(
+    _INVOKE_WIDGET_ACTION_SCHEMA,
+    safety_tier="mutating",
+    requires_bot_context=True,
+    returns=_INVOKE_WIDGET_ACTION_RETURNS,
+)
+async def invoke_widget_action(
+    action: str,
+    pin_id: str | None = None,
+    widget_instance_id: str | None = None,
+    args: dict[str, Any] | None = None,
+) -> str:
+    from app.db.engine import async_session
+    from app.services.dashboard_pins import get_pin
+    from app.services.native_app_widgets import get_native_widget_instance_for_pin, get_widget_instance
+    from app.services.widget_handler_tools import list_widget_handler_tools
+    from app.services.widget_py import invoke_action as invoke_widget_handler
+
+    if not pin_id and not widget_instance_id:
+        return json.dumps({
+            "error": "invoke_widget_action requires pin_id or widget_instance_id",
+        })
+
+    async with async_session() as db:
+        pin = None
+        instance = None
+        if pin_id:
+            try:
+                pin = await get_pin(db, uuid.UUID(pin_id))
+            except Exception as exc:
+                return json.dumps({"error": f"pin lookup failed: {exc}"})
+        if widget_instance_id:
+            try:
+                instance = await get_widget_instance(db, widget_instance_id)
+            except Exception as exc:
+                return json.dumps({"error": f"widget instance lookup failed: {exc}"})
+        if pin is not None and instance is None:
+            instance = await get_native_widget_instance_for_pin(db, pin)
+
+        if instance is not None:
+            body = {
+                "dispatch": "native_widget",
+                "action": action,
+                "args": args or {},
+                "widget_instance_id": str(instance.id),
+            }
+            if pin is not None:
+                body["dashboard_pin_id"] = str(pin.id)
+            from app.routers.api_v1_widget_actions import WidgetActionRequest, dispatch_widget_action
+
+            resp = await dispatch_widget_action(WidgetActionRequest(**body), db)
+            payload = {
+                "ok": resp.ok,
+                "action": action,
+                "pin_id": str(pin.id) if pin is not None else None,
+                "widget_instance_id": str(instance.id),
+                "result": resp.result,
+                "error": resp.error,
+            }
+            if resp.ok and pin is not None and resp.envelope is not None:
+                payload["llm"] = f"Invoked native widget action {action!r} on pin {pin.id}."
+            return json.dumps(payload)
+
+        if pin is None:
+            return json.dumps({"error": "widget instance not found"})
+
+        bot_id = current_bot_id.get()
+        channel_id = current_channel_id.get()
+        schemas, resolver = await list_widget_handler_tools(
+            db,
+            bot_id=bot_id,
+            channel_id=str(channel_id) if channel_id else None,
+        )
+        available = [
+            schema for schema in schemas
+            if (resolver.get(schema.get("function", {}).get("name", "")) or (None, None, None))[0] is not None
+            and str(resolver[schema["function"]["name"]][0].id) == str(pin.id)
+        ]
+        schema = next(
+            (
+                item.get("function", {}).get("parameters")
+                for item in available
+                if item.get("function", {}).get("name")
+                and resolver[item["function"]["name"]][1] == action
+            ),
+            None,
+        )
+        if schema is None:
+            return json.dumps({
+                "error": (
+                    f"pin {pin.id} does not expose action {action!r}. "
+                    "Call describe_dashboard first and inspect available_actions."
+                ),
+            })
+        validation_error = _validate_action_args(schema, args or {})
+        if validation_error:
+            return json.dumps({"error": validation_error})
+
+        try:
+            result = await invoke_widget_handler(pin, action, args or {})
+        except Exception as exc:
+            logger.exception("invoke_widget_action html handler failed")
+            return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
+
+    return json.dumps({
+        "ok": True,
+        "action": action,
+        "pin_id": str(pin.id),
+        "result": result,
+        "llm": f"Invoked widget action {action!r} on pin {pin.id}.",
     })

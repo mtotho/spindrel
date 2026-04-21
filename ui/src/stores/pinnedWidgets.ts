@@ -81,7 +81,7 @@ interface PinnedWidgetsState {
 /**
  * Extract entity identifiers from a widget envelope body.
  */
-function extractEntities(body: string | null): Set<string> {
+function extractEntities(body: string | Record<string, unknown> | null): Set<string> {
   const entities = new Set<string>();
   if (!body) return entities;
   try {

@@ -48,6 +48,7 @@ import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/Com
 import { ToolRenderersPane } from "./ToolRenderersPane";
 
 const HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive";
+const NATIVE_APP_CT = "application/vnd.spindrel.native-app+json";
 
 const NOOP_DISPATCHER: WidgetActionDispatcher = {
   dispatchAction: async () => ({ envelope: null, apiResponse: null }),
@@ -91,6 +92,17 @@ export interface WidgetLibraryProps {
 }
 
 export function libraryPinIdentity(envelope: ToolResultEnvelope): string | null {
+  if (envelope.content_type === NATIVE_APP_CT) {
+    try {
+      const body = typeof envelope.body === "string"
+        ? JSON.parse(envelope.body)
+        : envelope.body;
+      const widgetRef = body && typeof body === "object" ? (body as { widget_ref?: string }).widget_ref : null;
+      if (typeof widgetRef === "string" && widgetRef) return `native:${widgetRef}`;
+    } catch {
+      return null;
+    }
+  }
   const ref = envelope.source_library_ref;
   if (typeof ref === "string" && ref) return `library:${ref}`;
   const kind = envelope.source_kind;
@@ -114,6 +126,9 @@ function entryKey(e: WidgetLibraryEntry): string {
 }
 
 function entryIdentity(e: WidgetLibraryEntry): string {
+  if (e.widget_kind === "native_app" && e.widget_ref) {
+    return `native:${e.widget_ref}`;
+  }
   if (e.scope === "integration") {
     return `integration::${e.integration_id ?? ""}::${e.path ?? ""}`;
   }
@@ -130,6 +145,27 @@ export function envelopeForLibraryEntry(
 ): ToolResultEnvelope {
   const label = entry.display_label ?? entry.name;
   const sourceBotId = effectiveEntryBotId(entry, pinBotId, resolutionBotId);
+  if (entry.widget_kind === "native_app" && entry.widget_ref) {
+    return {
+      content_type: NATIVE_APP_CT,
+      body: {
+        widget_ref: entry.widget_ref,
+        display_label: label,
+        actions: entry.actions ?? [],
+        config: {},
+        state: {},
+      },
+      plain_body: entry.description ?? label,
+      display: "inline",
+      display_label: label,
+      panel_title: entry.panel_title ?? null,
+      show_panel_title: entry.show_panel_title ?? null,
+      truncated: false,
+      record_id: null,
+      byte_size: 0,
+      source_bot_id: sourceBotId,
+    };
+  }
   const base = {
     content_type: HTML_INTERACTIVE_CT,
     body: "",

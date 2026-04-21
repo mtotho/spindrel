@@ -442,6 +442,9 @@ def _scanner_entry_to_library(entry: dict) -> dict:
         "theme_support": entry.get("theme_support") or "html",
         "group_kind": entry.get("group_kind"),
         "group_ref": entry.get("group_ref"),
+        "actions": entry.get("actions") or [],
+        "widget_ref": entry.get("widget_ref"),
+        "supported_scopes": entry.get("supported_scopes") or [],
     }
 
 
@@ -501,6 +504,7 @@ async def list_library_widgets(
         scan_all_integrations,
         scan_channel,
     )
+    from app.services.native_app_widgets import list_native_widget_catalog_entries
     from app.services.widget_paths import scope_root
     from app.tools.local.widget_library import (
         _iter_core_widgets,
@@ -525,6 +529,7 @@ async def list_library_widgets(
     # those are tool renderers that need tool args to render and belong in
     # the dev panel, not a pinnable library.
     core = [w for w in _iter_core_widgets() if w.get("format") != "template"]
+    core.extend(list_native_widget_catalog_entries())
 
     # Integration widgets — use the scanner (already filters tool renderers
     # referenced by integration.yaml's tool_widgets block). Flatten the
@@ -606,6 +611,7 @@ async def list_library_widgets_all_bots(
     from app.agent.bots import get_bot, list_bots
     from app.db.models import Channel
     from app.services.html_widget_scanner import scan_all_integrations, scan_channel
+    from app.services.native_app_widgets import list_native_widget_catalog_entries
     from app.services.shared_workspace import shared_workspace_service
     from app.services.widget_paths import scope_root
     from app.services.workspace import workspace_service
@@ -615,6 +621,7 @@ async def list_library_widgets_all_bots(
     )
 
     core = [w for w in _iter_core_widgets() if w.get("format") != "template"]
+    core.extend(list_native_widget_catalog_entries())
 
     integration_entries: list[dict] = []
     for _integ_id, entries in scan_all_integrations():
@@ -1080,6 +1087,14 @@ class CreatePinRequest(BaseModel):
     dashboard_key: str | None = None
 
 
+class PreviewForToolRequest(BaseModel):
+    tool_name: str
+    tool_args: dict | None = None
+    widget_config: dict | None = None
+    source_bot_id: str | None = None
+    source_channel_id: uuid.UUID | None = None
+
+
 class WidgetConfigPatch(BaseModel):
     config: dict
     merge: bool = True
@@ -1154,6 +1169,38 @@ async def get_dashboard_pins(
     pins = await list_pins(db, dashboard_key=slug)
     await touch_last_viewed(db, slug)
     return {"pins": [serialize_pin(p) for p in pins]}
+
+
+@router.post(
+    "/preview-for-tool",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def preview_dashboard_widget_for_tool(
+    body: PreviewForToolRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.tool_execution import execute_tool_with_context
+    from app.services.widget_preview import preview_active_widget_for_tool
+
+    parsed_result, _raw = await execute_tool_with_context(
+        body.tool_name,
+        body.tool_args or {},
+        bot_id=body.source_bot_id,
+        channel_id=str(body.source_channel_id) if body.source_channel_id else None,
+    )
+    payload = (
+        parsed_result
+        if isinstance(parsed_result, dict)
+        else {"result": parsed_result}
+    )
+    return await preview_active_widget_for_tool(
+        db,
+        tool_name=body.tool_name,
+        sample_payload=payload,
+        widget_config=body.widget_config,
+        source_bot_id=body.source_bot_id,
+        source_channel_id=str(body.source_channel_id) if body.source_channel_id else None,
+    )
 
 
 @router.post(

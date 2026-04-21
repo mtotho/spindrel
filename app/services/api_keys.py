@@ -56,8 +56,6 @@ ALL_SCOPES = [
     "operations:read", "operations:write",
     # Usage
     "usage:read", "usage:write",
-    # Carapaces
-    "carapaces:read", "carapaces:write",
     # Workflows
     "workflows:read", "workflows:write",
     # LLM
@@ -135,8 +133,6 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "operations:write": "Trigger backups, git pull, server restart, and update backup config",
     "usage:read": "View usage summary, logs, breakdown, timeseries, forecast, and limit status",
     "usage:write": "Create, update, and delete usage limits",
-    "carapaces:read": "List and get carapace details (skill+tool bundles)",
-    "carapaces:write": "Create, update, and delete carapaces",
     "workflows:read": "List workflows, view workflow runs and step details",
     "workflows:write": "Create, update, delete workflows; trigger, cancel, approve, skip, retry runs",
     "llm:completions": "Make LLM chat completion calls through the server's provider system",
@@ -246,10 +242,6 @@ SCOPE_GROUPS: dict[str, dict] = {
     "Usage": {
         "description": "Cost analytics, forecasting, and usage limits",
         "scopes": ["usage:read", "usage:write"],
-    },
-    "Carapaces": {
-        "description": "Manage skill+tool bundles (composable expert configurations)",
-        "scopes": ["carapaces:read", "carapaces:write"],
     },
     "Workflows": {
         "description": "Multi-step automations with conditions, approvals, and cross-bot coordination",

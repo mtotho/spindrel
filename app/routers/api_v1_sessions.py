@@ -5,13 +5,14 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Attachment as AttachmentModel, Message, Session, Task, ToolCall
-from app.dependencies import get_db, require_scopes
+from app.db.models import Attachment, Attachment as AttachmentModel, Channel, Message, Session, Task, ToolCall
+from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user
+from app.services.api_keys import has_scope
 from app.services.sessions import store_passive_message
 
 logger = logging.getLogger(__name__)
@@ -174,6 +175,11 @@ class ScratchSessionOut(BaseModel):
     bot_id: str
     created_at: datetime
     is_current: bool
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    message_count: int = 0
+    section_count: int = 0
+    session_scope: str = "scratch"
 
 
 class ScratchResetRequest(BaseModel):
@@ -189,6 +195,124 @@ class ScratchHistoryItem(BaseModel):
     is_current: bool
     message_count: int
     preview: Optional[str] = None
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    section_count: int = 0
+    session_scope: str = "scratch"
+
+
+class SessionPatchRequest(BaseModel):
+    title: str
+
+
+class SessionOutDetail(BaseModel):
+    session_id: uuid.UUID
+    title: Optional[str] = None
+    summary: Optional[str] = None
+
+
+class PromoteScratchSessionResponse(BaseModel):
+    channel_id: uuid.UUID
+    primary_session_id: uuid.UUID
+    demoted_session_id: uuid.UUID
+
+
+def _auth_has_scope(auth, scope: str) -> bool:
+    if isinstance(auth, ApiKeyAuth):
+        return has_scope(auth.scopes, scope)
+    scopes = getattr(auth, "_resolved_scopes", None) or []
+    return bool(getattr(auth, "is_admin", False) or has_scope(scopes, scope))
+
+
+def _derive_session_scope(session: Session, channel: Channel | None) -> str:
+    if session.session_type == "ephemeral":
+        if session.metadata_.get("demoted_from_primary"):
+            return "demoted_primary"
+        return "scratch"
+    if channel is not None and channel.active_session_id == session.id:
+        return "primary"
+    return "session"
+
+
+def _selector_title(session: Session, preview: str | None) -> str | None:
+    title = (session.title or "").strip()
+    if title:
+        return title
+    preview = (preview or "").strip()
+    return preview or None
+
+
+async def _session_stats(
+    db: AsyncSession,
+    sessions: list[Session],
+) -> tuple[dict[uuid.UUID, int], dict[uuid.UUID, int], dict[uuid.UUID, str]]:
+    if not sessions:
+        return {}, {}, {}
+
+    session_ids = [s.id for s in sessions]
+    count_rows = (await db.execute(
+        select(Message.session_id, func.count(Message.id))
+        .where(
+            Message.session_id.in_(session_ids),
+            Message.role.in_(("user", "assistant")),
+        )
+        .group_by(Message.session_id)
+    )).all()
+    counts = {sid: int(c) for sid, c in count_rows}
+
+    from app.db.models import ConversationSection
+
+    section_count_rows = (await db.execute(
+        select(ConversationSection.session_id, func.count(ConversationSection.id))
+        .where(ConversationSection.session_id.in_(session_ids))
+        .group_by(ConversationSection.session_id)
+    )).all()
+    section_counts = {
+        sid: int(c)
+        for sid, c in section_count_rows
+        if sid is not None
+    }
+
+    preview_rows = (await db.execute(
+        select(Message.session_id, Message.content, Message.created_at)
+        .where(
+            Message.session_id.in_(session_ids),
+            Message.role == "user",
+            Message.content.is_not(None),
+        )
+        .order_by(Message.session_id, Message.created_at.asc())
+    )).all()
+    previews: dict[uuid.UUID, str] = {}
+    for sid, content, _ in preview_rows:
+        if sid in previews:
+            continue
+        text = (content or "").strip().replace("\n", " ")
+        if len(text) > 120:
+            text = text[:120] + "…"
+        previews[sid] = text
+
+    return counts, section_counts, previews
+
+
+async def _build_bootstrap_metadata(
+    db: AsyncSession,
+    parent_channel_id: uuid.UUID,
+) -> dict[str, str] | None:
+    channel = await db.get(Channel, parent_channel_id)
+    if channel is None or channel.active_session_id is None:
+        return None
+    primary = await db.get(Session, channel.active_session_id)
+    if primary is None:
+        return None
+    summary = (primary.summary or "").strip()
+    title = (primary.title or "").strip() or "Primary session"
+    if not summary:
+        return None
+    return {
+        "bootstrap_source_session_id": str(primary.id),
+        "bootstrap_source_title": title,
+        "bootstrap_summary": summary,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +409,7 @@ async def get_current_scratch_session(
     the authenticated user hasn't reset since.
     """
     from app.agent.bots import get_bot
-    from app.db.models import Channel as ChannelModel, User
+    from app.db.models import User
     from app.services.sub_sessions import (
         SESSION_TYPE_EPHEMERAL,
         spawn_ephemeral_session,
@@ -303,7 +427,7 @@ async def get_current_scratch_session(
     except HTTPException:
         raise HTTPException(status_code=400, detail=f"Unknown bot: {bot_id}")
 
-    channel = await db.get(ChannelModel, parent_channel_id)
+    channel = await db.get(Channel, parent_channel_id)
     if channel is None:
         raise HTTPException(status_code=404, detail="Parent channel not found")
 
@@ -317,14 +441,21 @@ async def get_current_scratch_session(
     )).scalar_one_or_none()
 
     if existing is not None:
+        counts, section_counts, previews = await _session_stats(db, [existing])
         return ScratchSessionOut(
             session_id=existing.id,
             parent_channel_id=parent_channel_id,
             bot_id=existing.bot_id,
             created_at=existing.created_at,
             is_current=True,
+            title=_selector_title(existing, previews.get(existing.id)),
+            summary=existing.summary,
+            message_count=counts.get(existing.id, 0),
+            section_count=section_counts.get(existing.id, 0),
+            session_scope=_derive_session_scope(existing, channel),
         )
 
+    bootstrap_metadata = await _build_bootstrap_metadata(db, parent_channel_id)
     sub = await spawn_ephemeral_session(
         db,
         bot_id=bot_id,
@@ -332,6 +463,8 @@ async def get_current_scratch_session(
         owner_user_id=auth_user.id,
         is_current=True,
     )
+    if bootstrap_metadata:
+        sub.metadata_ = {**(sub.metadata_ or {}), **bootstrap_metadata}
     await db.commit()
     await db.refresh(sub)
 
@@ -341,6 +474,11 @@ async def get_current_scratch_session(
         bot_id=sub.bot_id,
         created_at=sub.created_at,
         is_current=True,
+        title=sub.title,
+        summary=sub.summary,
+        message_count=0,
+        section_count=0,
+        session_scope=_derive_session_scope(sub, channel),
     )
 
 
@@ -356,7 +494,7 @@ async def reset_scratch_session(
     queryable via ``GET /sessions/scratch/list``.
     """
     from app.agent.bots import get_bot
-    from app.db.models import Channel as ChannelModel, User
+    from app.db.models import User
     from app.services.sub_sessions import (
         SESSION_TYPE_EPHEMERAL,
         spawn_ephemeral_session,
@@ -374,7 +512,7 @@ async def reset_scratch_session(
     except HTTPException:
         raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
 
-    channel = await db.get(ChannelModel, body.parent_channel_id)
+    channel = await db.get(Channel, body.parent_channel_id)
     if channel is None:
         raise HTTPException(status_code=404, detail="Parent channel not found")
 
@@ -391,6 +529,7 @@ async def reset_scratch_session(
         .values(is_current=False)
     )
 
+    bootstrap_metadata = await _build_bootstrap_metadata(db, body.parent_channel_id)
     sub = await spawn_ephemeral_session(
         db,
         bot_id=body.bot_id,
@@ -398,6 +537,8 @@ async def reset_scratch_session(
         owner_user_id=auth_user.id,
         is_current=True,
     )
+    if bootstrap_metadata:
+        sub.metadata_ = {**(sub.metadata_ or {}), **bootstrap_metadata}
     await db.commit()
     await db.refresh(sub)
 
@@ -407,6 +548,11 @@ async def reset_scratch_session(
         bot_id=sub.bot_id,
         created_at=sub.created_at,
         is_current=True,
+        title=sub.title,
+        summary=sub.summary,
+        message_count=0,
+        section_count=0,
+        session_scope=_derive_session_scope(sub, channel),
     )
 
 
@@ -423,7 +569,6 @@ async def list_scratch_sessions(
     archived ones. Each row carries a short preview of the first user
     message for UI rendering.
     """
-    from sqlalchemy import func
     from app.db.models import User
     from app.services.sub_sessions import SESSION_TYPE_EPHEMERAL
 
@@ -451,33 +596,8 @@ async def list_scratch_sessions(
         return []
 
     session_ids = [s.id for s in rows]
-    count_rows = (await db.execute(
-        select(Message.session_id, func.count(Message.id))
-        .where(
-            Message.session_id.in_(session_ids),
-            Message.role.in_(("user", "assistant")),
-        )
-        .group_by(Message.session_id)
-    )).all()
-    counts = {sid: int(c) for sid, c in count_rows}
-
-    preview_rows = (await db.execute(
-        select(Message.session_id, Message.content, Message.created_at)
-        .where(
-            Message.session_id.in_(session_ids),
-            Message.role == "user",
-            Message.content.is_not(None),
-        )
-        .order_by(Message.session_id, Message.created_at.asc())
-    )).all()
-    preview_by_session: dict[uuid.UUID, str] = {}
-    for sid, content, _ in preview_rows:
-        if sid in preview_by_session:
-            continue
-        text = (content or "").strip().replace("\n", " ")
-        if len(text) > 120:
-            text = text[:120] + "…"
-        preview_by_session[sid] = text
+    counts, section_counts, preview_by_session = await _session_stats(db, rows)
+    channel = await db.get(Channel, parent_channel_id)
 
     return [
         ScratchHistoryItem(
@@ -488,9 +608,134 @@ async def list_scratch_sessions(
             is_current=bool(s.is_current),
             message_count=counts.get(s.id, 0),
             preview=preview_by_session.get(s.id),
+            title=_selector_title(s, preview_by_session.get(s.id)),
+            summary=s.summary,
+            section_count=section_counts.get(s.id, 0),
+            session_scope=_derive_session_scope(s, channel),
         )
         for s in rows
     ]
+
+
+@router.patch("/{session_id}", response_model=SessionOutDetail)
+async def update_session(
+    session_id: uuid.UUID,
+    body: SessionPatchRequest,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    from app.db.models import User
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="title is required")
+
+    auth_user = auth if isinstance(auth, User) else None
+    if auth_user is None:
+        raise HTTPException(status_code=403, detail="User auth required")
+
+    if session.session_type == "ephemeral":
+        if session.owner_user_id != auth_user.id:
+            raise HTTPException(status_code=403, detail="Scratch session not owned by user")
+        if not (_auth_has_scope(auth, "chat") or _auth_has_scope(auth, "sessions:write")):
+            raise HTTPException(status_code=403, detail="sessions:write required")
+    else:
+        channel = await db.get(Channel, session.channel_id) if session.channel_id else None
+        if channel is None:
+            raise HTTPException(status_code=400, detail="Channel session missing channel")
+        if not _auth_has_scope(auth, "channels.messages:write"):
+            raise HTTPException(status_code=403, detail="channels.messages:write required")
+        from app.routers.api_v1_channels import _check_protected
+        _check_protected(channel, auth)
+
+    session.title = title
+    await db.commit()
+    return SessionOutDetail(session_id=session.id, title=session.title, summary=session.summary)
+
+
+@router.post("/{session_id}/promote-to-primary", response_model=PromoteScratchSessionResponse)
+async def promote_scratch_to_primary(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    from app.db.models import User
+
+    auth_user = auth if isinstance(auth, User) else None
+    if auth_user is None:
+        raise HTTPException(status_code=403, detail="User auth required")
+    if not _auth_has_scope(auth, "channels.messages:write"):
+        raise HTTPException(status_code=403, detail="channels.messages:write required")
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.session_type != "ephemeral" or session.parent_channel_id is None:
+        raise HTTPException(status_code=400, detail="Session is not a scratch session")
+    if session.owner_user_id != auth_user.id:
+        raise HTTPException(status_code=403, detail="Scratch session not owned by user")
+
+    channel = await db.get(Channel, session.parent_channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404, detail="Parent channel not found")
+
+    from app.routers.api_v1_channels import _check_protected
+    _check_protected(channel, auth)
+
+    previous_primary_id = channel.active_session_id
+    if previous_primary_id is None:
+        raise HTTPException(status_code=400, detail="Channel has no active session")
+    if previous_primary_id == session.id:
+        raise HTTPException(status_code=400, detail="Scratch session is already primary")
+
+    previous_primary = await db.get(Session, previous_primary_id)
+    if previous_primary is None:
+        raise HTTPException(status_code=404, detail="Current primary session not found")
+
+    await db.execute(
+        update(Session)
+        .where(
+            Session.parent_channel_id == channel.id,
+            Session.owner_user_id == auth_user.id,
+            Session.session_type == "ephemeral",
+            Session.is_current.is_(True),
+        )
+        .values(is_current=False)
+    )
+
+    session.channel_id = channel.id
+    session.parent_channel_id = None
+    session.owner_user_id = None
+    session.is_current = False
+    session.session_type = "channel"
+    session.metadata_ = {
+        **(session.metadata_ or {}),
+        "promoted_from_scratch": True,
+    }
+
+    previous_primary.channel_id = None
+    previous_primary.parent_channel_id = channel.id
+    previous_primary.owner_user_id = auth_user.id
+    previous_primary.is_current = True
+    previous_primary.session_type = "ephemeral"
+    previous_primary.metadata_ = {
+        **(previous_primary.metadata_ or {}),
+        "demoted_from_primary": True,
+    }
+
+    channel.active_session_id = session.id
+    channel.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return PromoteScratchSessionResponse(
+        channel_id=channel.id,
+        primary_session_id=session.id,
+        demoted_session_id=previous_primary.id,
+    )
 
 
 @router.post("/{session_id}/messages", response_model=InjectResponse, status_code=201)

@@ -217,9 +217,6 @@ class ChannelConfigOut(BaseModel):
     workspace_schema_template_id: Optional[uuid.UUID] = None
     workspace_schema_content: Optional[str] = None
     index_segments: list[dict] = []
-    # Carapace overrides
-    carapaces_extra: Optional[list[str]] = None
-    carapaces_disabled: Optional[list[str]] = None
     # Model tier overrides
     model_tier_overrides: dict = {}
     # Chat-screen layout mode. Controls which dashboard zones render on the
@@ -293,9 +290,6 @@ class ChannelConfigUpdate(BaseModel):
     workspace_schema_template_id: Optional[uuid.UUID] = None
     workspace_schema_content: Optional[str] = None
     index_segments: Optional[list[dict]] = None
-    # Carapace overrides
-    carapaces_extra: Optional[list[str]] = None
-    carapaces_disabled: Optional[list[str]] = None
     # Model tier overrides
     model_tier_overrides: Optional[dict] = None
     # Chat-screen layout mode (see ChannelConfigOut.layout_mode for semantics).
@@ -812,8 +806,6 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "workspace_schema_template_id": channel.workspace_schema_template_id,
         "workspace_schema_content": channel.workspace_schema_content,
         "index_segments": channel.index_segments or [],
-        "carapaces_extra": channel.carapaces_extra,
-        "carapaces_disabled": channel.carapaces_disabled,
         "model_tier_overrides": channel.model_tier_overrides or {},
         "layout_mode": (channel.config or {}).get("layout_mode", "full"),
         "chat_mode": (channel.config or {}).get("chat_mode", "default"),
@@ -1795,7 +1787,6 @@ class AvailableIntegrationOut(BaseModel):
     description: str
     requires_workspace: bool
     activated: bool
-    carapaces: list[str] = []
     tools: list[str] = []
     has_system_prompt: bool = False
     version: Optional[str] = None
@@ -2077,17 +2068,10 @@ async def list_available_integrations(
     )
     ci_rows = {ci.integration_type: ci for ci in ci_result.scalars().all()}
 
-    from app.agent.carapaces import resolve_carapaces
-
     result = []
     for itype, manifest in manifests.items():
-        carapace_ids = manifest.get("carapaces", [])
-        resolved = resolve_carapaces(carapace_ids) if carapace_ids else None
-        tool_names: list[str] = []
-        has_system_prompt = False
-        if resolved:
-            tool_names = list(resolved.local_tools)
-            has_system_prompt = len(resolved.system_prompt_fragments) > 0
+        tool_names = list(manifest.get("tools", []) or [])
+        has_system_prompt = bool(manifest.get("system_prompt"))
 
         ci_row = ci_rows.get(itype)
         activation_config = (ci_row.activation_config or {}) if ci_row else {}
@@ -2097,7 +2081,6 @@ async def list_available_integrations(
             description=manifest.get("description", ""),
             requires_workspace=manifest.get("requires_workspace", False),
             activated=itype in ci_rows,
-            carapaces=carapace_ids,
             tools=tool_names,
             has_system_prompt=has_system_prompt,
             version=manifest.get("version"),

@@ -775,11 +775,6 @@ def _build_step_task(
         if tools:
             ecfg["tools"] = tools
 
-        # Carapaces
-        carapaces = step_def.get("carapaces") or defaults.get("carapaces")
-        if carapaces:
-            ecfg["carapaces"] = carapaces
-
     # Scoped secrets — intersection of workflow.secrets and step.secrets
     snap_secrets = (run.workflow_snapshot or {}).get("secrets", []) if run.workflow_snapshot else (workflow.secrets or [])
     step_secrets = step_def.get("secrets")

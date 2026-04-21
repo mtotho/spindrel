@@ -25,11 +25,22 @@ async def test_lists_core_widgets():
     names = {w["name"] for w in data["widgets"]}
     # ``notes`` and ``context_tracker`` are known-shipping core bundles.
     assert "notes" in names
+    assert "notes_native" in names
     # Every entry carries the required fields.
     for widget in data["widgets"]:
         assert widget["scope"] == "core"
-        assert widget["format"] in {"html", "template", "suite"}
+        assert widget["format"] in {"html", "template", "suite", "native_app"}
         assert "name" in widget
+
+
+@pytest.mark.asyncio
+async def test_native_widget_entries_surface_action_schema():
+    raw = await widget_library_list(q="notes_native")
+    data = _parse(raw)
+    native = next(w for w in data["widgets"] if w["name"] == "notes_native")
+    assert native["widget_kind"] == "native_app"
+    actions = native.get("actions") or []
+    assert {action["id"] for action in actions} >= {"replace_body", "append_text", "clear"}
 
 
 @pytest.mark.asyncio

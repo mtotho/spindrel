@@ -51,8 +51,6 @@ const AdminApprovals = lazy(() => import("@/app/(app)/admin/approvals/index"));
 const AdminAttachments = lazy(() => import("@/app/(app)/admin/attachments/index"));
 const AdminBotsIndex = lazy(() => import("@/app/(app)/admin/bots/index"));
 const AdminBotDetail = lazy(() => import("@/app/(app)/admin/bots/[botId]/index"));
-const AdminCaparacesIndex = lazy(() => import("@/app/(app)/admin/carapaces/index"));
-const AdminCaparaceDetail = lazy(() => import("@/app/(app)/admin/carapaces/[carapaceId]"));
 const AdminConfigState = lazy(() => import("@/app/(app)/admin/config-state"));
 const AdminDelegations = lazy(() => import("@/app/(app)/admin/delegations"));
 const AdminDiagnostics = lazy(() => import("@/app/(app)/admin/diagnostics/index"));
@@ -187,8 +185,8 @@ export const router = createBrowserRouter([
               { path: "attachments", element: <AdminAttachments /> },
               { path: "bots", element: <AdminBotsIndex /> },
               { path: "bots/:botId", element: <AdminBotDetail /> },
-              { path: "carapaces", element: <AdminCaparacesIndex /> },
-              { path: "carapaces/:carapaceId", element: <AdminCaparaceDetail /> },
+              { path: "carapaces", element: <Navigate to="/admin/skills" replace /> },
+              { path: "carapaces/:carapaceId", element: <Navigate to="/admin/skills" replace /> },
               { path: "config-state", element: <AdminConfigState /> },
               { path: "delegations", element: <AdminDelegations /> },
               { path: "diagnostics", element: <AdminDiagnostics /> },

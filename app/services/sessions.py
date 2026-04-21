@@ -381,6 +381,26 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
             messages.append({"role": "system", "content": _format_passive_context(passive)})
         return messages
 
+    def _inject_bootstrap_context(messages: list[dict], active_count: int) -> None:
+        meta = session.metadata_ or {}
+        bootstrap_summary = (meta.get("bootstrap_summary") or "").strip()
+        if not bootstrap_summary or active_count > 0:
+            return
+        bootstrap_title = (meta.get("bootstrap_source_title") or "Primary session").strip()
+        bootstrap_session_id = meta.get("bootstrap_source_session_id")
+        pointer = (
+            f"\nUse read_conversation_history(section='index') for this scratch session. "
+            f"The originating primary session was {bootstrap_title!r}"
+            + (f" (session {bootstrap_session_id})." if bootstrap_session_id else ".")
+        )
+        messages.append({
+            "role": "system",
+            "content": (
+                f"Initial bootstrap from the current primary session ({bootstrap_title}):\n\n"
+                f"{bootstrap_summary}{pointer}"
+            ),
+        })
+
     # Load channel once for history mode
     _channel: Channel | None = None
     if session.channel_id:
@@ -422,6 +442,7 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
                 messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
 
             _inject_channel_context(messages, passive)
+            _inject_bootstrap_context(messages, len(active))
             if active:
                 messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
                 messages.extend(active)
@@ -447,6 +468,7 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
                 # skip executive summary here to avoid duplication.
                 messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
             _inject_channel_context(messages, passive)
+            _inject_bootstrap_context(messages, len(active))
             if active:
                 messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
                 messages.extend(active)
@@ -466,6 +488,7 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
     active = _filter_old_heartbeats(active)
     messages = _base_messages()
     _inject_channel_context(messages, passive)
+    _inject_bootstrap_context(messages, len(active))
     messages.extend(active)
     return _sanitize_tool_messages(messages if preserve_metadata else _strip_metadata_keys(messages))
 

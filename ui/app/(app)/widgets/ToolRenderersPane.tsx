@@ -14,13 +14,16 @@ import {
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import {
-  previewWidgetForTool,
+  previewDashboardWidgetForTool,
   useWidgetPackages,
   type PreviewEnvelope,
   type ValidationIssue,
   type WidgetPackageListItem,
 } from "@/src/api/hooks/useWidgetPackages";
-import { executeTool, useTools, type ToolItem } from "@/src/api/hooks/useTools";
+import {
+  usePublicToolSignature,
+  type PublicToolSignature,
+} from "@/src/api/hooks/useTools";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
 import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
 import { adaptToToolResultEnvelope } from "@/src/components/chat/renderers/resolveEnvelope";
@@ -36,21 +39,8 @@ const NOOP_DISPATCHER: WidgetActionDispatcher = {
   dispatchAction: async () => ({ envelope: null, apiResponse: null }),
 };
 
-function toolDisplayName(tool: ToolItem): string {
-  return tool.tool_name.includes("-")
-    ? tool.tool_name.split("-").slice(1).join("-")
-    : tool.tool_name;
-}
-
-function resolvedToolName(tool: ToolItem | null, fallback: string): string {
-  return tool ? toolDisplayName(tool) : fallback;
-}
-
-function findToolForName(toolName: string, tools: ToolItem[] | undefined): ToolItem | null {
-  if (!tools || tools.length === 0) return null;
-  return tools.find((tool) => tool.tool_name === toolName)
-    ?? tools.find((tool) => toolDisplayName(tool) === toolName)
-    ?? null;
+function resolvedToolName(signature: PublicToolSignature | null, fallback: string): string {
+  return signature?.name ?? fallback;
 }
 
 type RendererMode = "pin" | "browse";
@@ -69,7 +59,6 @@ export function ToolRenderersPane({
   onPinCreated?: (pinId: string) => void;
 }) {
   const { data: packages, isLoading, error } = useWidgetPackages();
-  const { data: tools } = useTools();
   const q = query.trim().toLowerCase();
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
 
@@ -123,7 +112,6 @@ export function ToolRenderersPane({
           key={toolName}
           toolName={toolName}
           packages={pkgs}
-          tool={findToolForName(toolName, tools)}
           mode={mode}
           pinScope={pinScope}
           scopeChannelId={scopeChannelId ?? null}
@@ -139,7 +127,6 @@ export function ToolRenderersPane({
 function RendererToolCard({
   toolName,
   packages,
-  tool,
   mode,
   pinScope,
   scopeChannelId,
@@ -149,7 +136,6 @@ function RendererToolCard({
 }: {
   toolName: string;
   packages: WidgetPackageListItem[];
-  tool: ToolItem | null;
   mode: RendererMode;
   pinScope?: PinScope;
   scopeChannelId: string | null;
@@ -160,6 +146,7 @@ function RendererToolCard({
   const t = useThemeTokens();
   const { data: bots } = useBots();
   const { data: channels } = useChannels();
+  const { data: signature } = usePublicToolSignature(expanded ? toolName : null);
   const pinWidget = useDashboardPinsStore((s) => s.pinWidget);
   const activePackage = packages.find((pkg) => pkg.is_active) ?? null;
 
@@ -194,9 +181,9 @@ function RendererToolCard({
 
   const effectiveBotId = mode === "pin" ? pinnedBotId : selectedBotId;
   const effectiveChannelId = scopeChannelId ?? selectedChannelId;
-  const toolNameForRun = resolvedToolName(tool, toolName);
-  const requiresBot = !!tool?.requires_bot_context;
-  const requiresChannel = !!tool?.requires_channel_context;
+  const toolNameForRun = resolvedToolName(signature ?? null, toolName);
+  const requiresBot = !!signature?.requires_bot_context;
+  const requiresChannel = !!signature?.requires_channel_context;
   const missingBot = requiresBot && !effectiveBotId;
   const missingChannel = requiresChannel && !effectiveChannelId;
   const runDisabledReason =
@@ -226,20 +213,9 @@ function RendererToolCard({
     setEnvelope(null);
     setPinSuccess(false);
     try {
-      const exec = await executeTool(toolNameForRun, argValues, {
-        bot_id: effectiveBotId || null,
-        channel_id: effectiveChannelId || null,
-      });
-      if (exec.error) {
-        setExecError(exec.error);
-      }
-      const payload =
-        exec.result && typeof exec.result === "object" && !Array.isArray(exec.result)
-          ? (exec.result as Record<string, unknown>)
-          : { result: exec.result };
-      const preview = await previewWidgetForTool({
+      const preview = await previewDashboardWidgetForTool({
         tool_name: toolNameForRun,
-        sample_payload: payload,
+        tool_args: argValues,
         source_bot_id: effectiveBotId || null,
         source_channel_id: effectiveChannelId || null,
       });
@@ -298,7 +274,7 @@ function RendererToolCard({
                 active: {activePackage.name}
               </span>
             )}
-            {!tool && (
+            {!signature && (
               <span className="rounded bg-warning/15 px-1 py-px text-[10px] text-warning">
                 tool metadata missing
               </span>
@@ -365,14 +341,14 @@ function RendererToolCard({
               </div>
             </div>
 
-            {!tool && (
+            {!signature && (
               <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[12px] text-warning">
                 This renderer is registered, but the tool catalog entry is missing, so the
                 library can’t build an argument form for it yet.
               </div>
             )}
 
-            {tool && (
+            {signature && (
               <>
                 <div className="grid gap-3 md:grid-cols-2">
                   <ContextCard
@@ -423,7 +399,7 @@ function RendererToolCard({
                     Tool arguments
                   </div>
                   <ToolArgsForm
-                    schema={tool.parameters}
+                    schema={signature.input_schema}
                     values={argValues}
                     onChange={setArgValues}
                   />

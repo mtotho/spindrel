@@ -1,7 +1,7 @@
 ---
 tags: [widgets, library, sdk, track]
 status: active
-updated: 2026-04-21 (Phase 16 — tool renderers can instantiate from library UI)
+updated: 2026-04-21 (Phase 18 — native app widgets + unified bot action tool)
 ---
 
 # Track — Widget Library
@@ -34,6 +34,8 @@ Adjacent: make chips a first-class authoring target, close the AI feedback loop 
 | 14 | Library context repair: Add Widget resolves bot/workspace library visibility from channel/bot context instead of `Runs as`, dev-panel all-bots library accepts `channel_id`, shared widget metadata grows `theme_support` + `group_kind/group_ref`, and tool-renderer packages expose suite/package grouping | **complete** (2026-04-21) |
 | 15 | Bot-facing widget authoring guidance: tool descriptions and widget skills now reflect the repaired library model, `suite`/`package` grouping, and the HTML-vs-template decision split | **complete** (2026-04-21) |
 | 16 | Direct tool-renderer instantiation from the unified library UI: run with args, preview the active renderer, and pin the configured adhoc instance from the Tool renderers tab | **complete** (2026-04-21) |
+| 17 | Public template-widget instantiate/preview path + `pin_widget` parity for template/tool-renderer refs | **complete** (2026-04-21) |
+| 18 | First-party native app widgets: `native_app` catalog entries, instance-backed pins, unified `invoke_widget_action` bot tool, declared action schemas, and native Notes proving widget | **complete** (2026-04-21) |
 
 Phase 1a + 1b shipped 2026-04-20 — bots can now list, emit, and author widget bundles end-to-end. The seam lives in `app/services/widget_paths.py` (one resolver, three scopes) and is re-used by `file_ops._resolve_path`, `widget_library.widget_library_list`, and `emit_html_widget._load_library_widget` so there is a single source of truth for `widget://` resolution and the read-only contract on `core`.
 
@@ -187,6 +189,45 @@ Verification:
 
 - `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` clean after extracting `ToolRenderersPane` and wiring it into the shared library surface.
 
+Phase 17 shipped 2026-04-21 — template-widget instantiation now has a shared public preview path, and bot/dashboard tools can use the same capability.
+
+- **New public widget preview endpoint** — `POST /api/v1/widgets/preview-for-tool` now executes a tool with optional `tool_args`, `source_bot_id`, and `source_channel_id`, then renders the active template/tool-renderer widget for that tool into a normal pin-ready envelope. The route lives on the regular widget/dashboard surface rather than under admin-only widget-package APIs.
+- **Shared backend services now own the real work.** Tool execution with ContextVars moved into `app/services/tool_execution.py`, and active-template resolution + envelope rendering moved into `app/services/widget_preview.py`. The admin tool execute route and admin `preview-for-tool` route now reuse those helpers instead of carrying their own copies of the logic.
+- **Public tool signatures now expose context requirements.** `/api/v1/tools/{tool}/signature` includes `requires_bot_context` and `requires_channel_context`, so non-admin widget/library surfaces can build argument/context forms without depending on the admin tools catalog.
+- **Shared library renderer preview is no longer admin execute + admin preview chained together.** `ToolRenderersPane` now uses the public tool-signature endpoint for argument metadata and the new public widget preview endpoint for execution + rendering. The package list still comes from the existing widget-package catalog, but the instantiate path itself is no longer tied to admin-only preview semantics.
+- **`pin_widget` gained template/tool-renderer parity.** `pin_widget(source_kind='library', widget='<tool_name>', tool_args={...})` now instantiates a template widget, renders its envelope, and persists it as the existing `adhoc` pin shape with `tool_name`, `tool_args`, and optional `widget_config`. Duplicate detection now covers that instantiated-template path as well.
+- **Bot-facing tool copy updated.** `pin_widget` and `widget_library_list` now describe template/tool-renderer widgets as directly pinnable/instantiable via `tool_args` instead of browse-only entries.
+
+Verification:
+
+- Touched backend files pass `python -m py_compile`.
+- `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` reached the targeted file checks and the only surfaced regression in-session (`ToolRenderersPane` stale `tool` reference) was fixed; the wrapper did not return a final clean completion signal afterward.
+- Added targeted integration coverage for the new public preview endpoint and the `pin_widget` template-tool-renderer path, but the same shell-wrapper issue that affected earlier `pytest` runs in this track prevented a trustworthy final completion signal from the targeted commands in-session.
+
+Phase 18 shipped 2026-04-21 — the unified widget interface now covers a third runtime kind, `native_app`, without inventing a second bot UX.
+
+- **New first-party widget kind** — added `native_app` as a catalog/runtime kind beside `html` and `template`. Initial shipped entry is `core/notes_native`, exposed through the same library/catalog surfaces as the other widget kinds with `widget_ref`, supported scopes, and declared action metadata.
+- **Instance-backed persistence for stateful native widgets** — new `widget_instances` table stores `widget_kind`, `widget_ref`, scope linkage, `config`, and `state`. Dashboard pins now carry an optional `widget_instance_id`; `native_app` pins resolve to a stable widget instance instead of storing all meaningful state in the adhoc pin envelope.
+- **Unified bot action tool** — new `invoke_widget_action` local tool gives bots one interaction surface across widget kinds. Runtime dispatch stays kind-aware underneath:
+  - HTML widgets route to existing bot-callable `@on_action` handlers
+  - native app widgets route to the new native widget registry/service
+  - only actions with declared schemas are exposed through the tool
+- **Declared action schemas are now first-class catalog data** — native widget specs define `action_manifest` entries with `args_schema` / optional `returns_schema`; HTML widget library entries surface bot-callable handler schemas from `widget.yaml` / manifest metadata so bots can inspect before invoking instead of guessing payloads.
+- **Native Notes proving widget** — `core/notes_native` ships as the first `native_app`:
+  - rendered by a new `NativeAppRenderer` path in the React UI
+  - persistent note body stored in `widget_instances.state`
+  - direct inline editing in the UI via the shared widget-actions plumbing
+  - bot action support through `invoke_widget_action`
+- **Shared placement/catalog semantics kept intact** — `widget_library_list`, `/api/v1/widgets/library-widgets*`, `pin_widget`, dashboard pin serialization, and `describe_dashboard` now surface native widget metadata/action availability without changing the existing HTML/template mental model.
+- **Docs/skills updated** — `skills/widgets/index.md` and `skills/widgets/bot-callable-handlers.md` now teach the three-lane model (`template` / `html` / `native_app`), the unified bot tool, and the rule that bots must inspect declared action schemas before calling actions.
+
+Verification:
+
+- `python -m py_compile` passed for touched backend files
+- `pytest tests/unit/test_widget_library_list.py -q` passed (`11 passed`)
+- `npx tsc --noEmit` passed in `ui/`
+- Targeted native integration coverage was added to `tests/integration/test_dashboard_tools.py`, but the current shell wrapper again failed to produce a trustworthy completion signal for the focused `pytest -k native` run in-session
+
 ## MVP decision — FS-backed, not DB-backed
 
 Per-bot and workspace-scoped widgets will live under `<ws_root>/.widget_library/<name>/` on the host FS (not a `bot_widgets` DB table as originally sketched in the plan). Trade-off: file-backed reuses all existing file-op machinery for free, survives workspace persistence exactly like any other bot file, and listing is a directory walk. DB-backed can come later if we need cross-workspace reuse, but the FS approach unblocks authoring without a migration.
@@ -202,6 +243,25 @@ Per-bot and workspace-scoped widgets will live under `<ws_root>/.widget_library/
 - **Library discovery and pin auth are distinct concerns.** `Runs as` controls eventual pin auth; bot/workspace library enumeration may resolve through the current channel's bot even when pin auth remains user-scoped.
 - **Theme support must stay explicit.** The unified catalog can badge/filter `theme_support`, but only HTML widgets participate in the widget theme system today.
 - **Related-widget grouping uses one shared metadata shape.** Public catalog/package responses should prefer `group_kind/group_ref` over inventing separate UI-only `suite` and `package` code paths.
+- **Product-level widget interfaces are unified; runtime substrates are not.** Library discovery, placement, and bot action invocation should look uniform across `html`, `template`, and `native_app`, but backend dispatch remains widget-kind-specific.
+- **`native_app` is first-party only.** Native React widgets are for core / vetted shipped integrations only; bots and workspace users do not author them directly.
+
+## Current Assessment
+
+### Gaps
+
+- **Schema inspection is stronger in bot/tool surfaces than in human UI.** Bots can inspect `available_actions`, but the shared library and pin-management UI still do not foreground action schemas strongly for human operators.
+- **Integration verification is still weaker than the implementation.** The native Notes path and unified action tool have targeted coverage, but the current shell/test wrapper still makes focused integration confirmation unreliable in-session.
+
+### Double Down
+
+- **Declared action schemas as the contract.** Keep pushing more widget operations behind explicit schemas instead of informal payload conventions.
+- **One library / one placement model / one bot action tool.** The unified interface is paying off; future widget work should preserve that surface instead of adding kind-specific bot ergonomics first.
+
+### Needs Improvement
+
+- **Authoring guidance is still HTML-heavy in some deeper docs.** The umbrella docs now acknowledge `native_app`, but some sub-skills still read as if HTML is the only interactive lane.
+- **Action discoverability after pinning needs a better operational story.** `describe_dashboard.available_actions` works, but there is not yet a dedicated “inspect widget contract” surface that makes instance id, action schemas, and scope rules easy to audit.
 
 ## References
 

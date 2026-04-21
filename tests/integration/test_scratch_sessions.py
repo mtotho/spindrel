@@ -108,7 +108,7 @@ async def user_client(engine, db_session, scratch_user):
 
     async def _override_auth_or_user():
         # Resolve as the user — require_scopes + User path.
-        scratch_user._resolved_scopes = ["admin", "chat"]
+        scratch_user._resolved_scopes = ["admin", "chat", "channels.messages:write"]
         return scratch_user
 
     app.dependency_overrides[get_db] = _override_get_db
@@ -157,6 +157,32 @@ class TestCurrentScratchSession:
         assert row.parent_channel_id == test_channel.id
         assert row.owner_user_id == scratch_user.id
         assert row.is_current is True
+
+    async def test_bootstraps_from_primary_summary(self, user_client, db_session, test_channel):
+        primary_session = SessionRow(
+            id=uuid.uuid4(),
+            client_id=f"primary-{uuid.uuid4().hex[:6]}",
+            bot_id="test-bot",
+            channel_id=test_channel.id,
+            title="Main thread",
+            summary="Current primary summary",
+        )
+        db_session.add(primary_session)
+        await db_session.flush()
+        test_channel.active_session_id = primary_session.id
+        await db_session.commit()
+
+        resp = await user_client.get(
+            "/api/v1/sessions/scratch/current",
+            params={"parent_channel_id": str(test_channel.id), "bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        scratch = await db_session.get(SessionRow, uuid.UUID(resp.json()["session_id"]))
+        assert scratch is not None
+        assert scratch.metadata_["bootstrap_source_session_id"] == str(primary_session.id)
+        assert scratch.metadata_["bootstrap_source_title"] == "Main thread"
+        assert scratch.metadata_["bootstrap_summary"] == "Current primary summary"
 
     async def test_idempotent_across_calls(self, user_client, test_channel):
         """Second call returns the same session_id (cross-device stability)."""
@@ -257,3 +283,111 @@ class TestListScratchSessions:
         assert rows[0]["is_current"] is True
         assert rows[1]["session_id"] == first_sid
         assert rows[1]["is_current"] is False
+
+    async def test_returns_title_summary_and_section_stats(
+        self, user_client, db_session, test_channel
+    ):
+        params = {"parent_channel_id": str(test_channel.id), "bot_id": "test-bot"}
+        current = await user_client.get("/api/v1/sessions/scratch/current", params=params, headers=AUTH_HEADERS)
+        scratch_id = uuid.UUID(current.json()["session_id"])
+
+        scratch = await db_session.get(SessionRow, scratch_id)
+        assert scratch is not None
+        scratch.title = "Named scratch"
+        scratch.summary = "Short summary"
+        db_session.add(Message(
+            id=uuid.uuid4(),
+            session_id=scratch_id,
+            role="user",
+            content="first message",
+        ))
+        from app.db.models import ConversationSection
+        db_session.add(ConversationSection(
+            id=uuid.uuid4(),
+            channel_id=test_channel.id,
+            session_id=scratch_id,
+            sequence=1,
+            title="Section 1",
+            summary="Archived chunk",
+            message_count=1,
+            chunk_size=1,
+        ))
+        await db_session.commit()
+
+        resp = await user_client.get(
+            "/api/v1/sessions/scratch/list",
+            params={"parent_channel_id": str(test_channel.id)},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        row = resp.json()[0]
+        assert row["title"] == "Named scratch"
+        assert row["summary"] == "Short summary"
+        assert row["message_count"] == 1
+        assert row["section_count"] == 1
+        assert row["session_scope"] == "scratch"
+
+
+class TestScratchSessionMutations:
+    async def test_can_rename_scratch_session(self, user_client, db_session, test_channel):
+        current = await user_client.get(
+            "/api/v1/sessions/scratch/current",
+            params={"parent_channel_id": str(test_channel.id), "bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+        scratch_id = current.json()["session_id"]
+
+        resp = await user_client.patch(
+            f"/api/v1/sessions/{scratch_id}",
+            json={"title": "Planning pad"},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["title"] == "Planning pad"
+
+        row = await db_session.get(SessionRow, uuid.UUID(scratch_id))
+        assert row is not None
+        assert row.title == "Planning pad"
+
+    async def test_promote_scratch_to_primary_swaps_sessions(self, user_client, db_session, test_channel):
+        primary = SessionRow(
+            id=uuid.uuid4(),
+            client_id=f"primary-{uuid.uuid4().hex[:6]}",
+            bot_id="test-bot",
+            channel_id=test_channel.id,
+            title="Primary",
+        )
+        db_session.add(primary)
+        await db_session.flush()
+        test_channel.active_session_id = primary.id
+        await db_session.commit()
+
+        current = await user_client.get(
+            "/api/v1/sessions/scratch/current",
+            params={"parent_channel_id": str(test_channel.id), "bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+        scratch_id = uuid.UUID(current.json()["session_id"])
+
+        resp = await user_client.post(
+            f"/api/v1/sessions/{scratch_id}/promote-to-primary",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["primary_session_id"] == str(scratch_id)
+        assert body["demoted_session_id"] == str(primary.id)
+
+        await db_session.refresh(test_channel)
+        promoted = await db_session.get(SessionRow, scratch_id)
+        demoted = await db_session.get(SessionRow, primary.id)
+        assert test_channel.active_session_id == scratch_id
+        assert promoted is not None
+        assert promoted.session_type == "channel"
+        assert promoted.channel_id == test_channel.id
+        assert promoted.parent_channel_id is None
+        assert demoted is not None
+        assert demoted.session_type == "ephemeral"
+        assert demoted.parent_channel_id == test_channel.id
+        assert demoted.channel_id is None
+        assert demoted.is_current is True

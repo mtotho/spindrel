@@ -37,6 +37,10 @@ class SkillOut(BaseModel):
     total_auto_injects: int = 0
     bot_id: Optional[str] = None
     enrolled_bot_count: int = 0
+    skill_layout: str = "loose"
+    folder_root_id: Optional[str] = None
+    parent_skill_id: Optional[str] = None
+    has_children: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -50,6 +54,23 @@ class SkillCreateIn(BaseModel):
 class SkillUpdateIn(BaseModel):
     name: Optional[str] = None
     content: Optional[str] = None
+
+
+def _skill_layout_fields(skill_id: str, *, has_children: bool = False) -> dict[str, str | bool | None]:
+    if "/" not in skill_id:
+        return {
+            "skill_layout": "folder_root" if has_children else "loose",
+            "folder_root_id": skill_id if has_children else None,
+            "parent_skill_id": None,
+        }
+
+    root_id = skill_id.split("/", 1)[0]
+    parent_id = root_id if skill_id.count("/") == 1 else skill_id.rsplit("/", 1)[0]
+    return {
+        "skill_layout": "child",
+        "folder_root_id": root_id,
+        "parent_skill_id": parent_id,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +119,12 @@ async def admin_list_skills(
     enrollment_map = {row.skill_id: row.cnt for row in enrollment_rows}
 
     # Aggregate auto-inject + surfacing counts (time-windowed or all-time)
+    child_prefix_rows = (await db.execute(
+        select(SkillRow.id)
+        .where(SkillRow.id.like("%/%"))
+    )).scalars().all()
+    folder_roots_with_children = {sid.split("/", 1)[0] for sid in child_prefix_rows}
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days > 0 else None
 
     if cutoff:
@@ -155,6 +182,8 @@ async def admin_list_skills(
             total_auto_injects=ai_map.get(s.id, 0),
             bot_id=_extract_bot_id(s.id, s.source_type),
             enrolled_bot_count=enrollment_map.get(s.id, 0),
+            has_children=s.id in folder_roots_with_children,
+            **_skill_layout_fields(s.id, has_children=s.id in folder_roots_with_children),
         )
         for s in skills
     ]
@@ -179,6 +208,10 @@ async def admin_get_skill(
         select(func.count()).select_from(BotSkillEnrollment)
         .where(BotSkillEnrollment.skill_id == skill_id)
     )).scalar_one()
+    has_children = (await db.execute(
+        select(func.count()).select_from(SkillRow)
+        .where(SkillRow.id.like(f"{skill_id}/%"))
+    )).scalar_one() > 0
     return SkillOut(
         id=row.id, name=row.name, content=row.content or "",
         description=row.description, category=row.category,
@@ -189,6 +222,8 @@ async def admin_get_skill(
         last_surfaced_at=row.last_surfaced_at,
         surface_count=row.surface_count,
         enrolled_bot_count=enrolled_bot_count,
+        has_children=has_children,
+        **_skill_layout_fields(row.id, has_children=has_children),
     )
 
 
@@ -223,6 +258,7 @@ async def admin_create_skill(
         id=row.id, name=row.name, content=row.content or "",
         source_type=row.source_type, source_path=row.source_path,
         chunk_count=0, created_at=row.created_at, updated_at=row.updated_at,
+        **_skill_layout_fields(row.id),
     )
 
 
@@ -259,6 +295,8 @@ async def admin_update_skill(
         source_type=row.source_type, source_path=row.source_path,
         chunk_count=chunk_count,
         created_at=row.created_at, updated_at=row.updated_at,
+        has_children=False,
+        **_skill_layout_fields(row.id),
     )
 
 

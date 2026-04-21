@@ -18,7 +18,6 @@ export interface StepDef {
   tool_args?: Record<string, any> | null;
   model?: string | null;
   tools?: string[] | null;
-  carapaces?: string[] | null;
   when?: Record<string, any> | null;
   on_failure?: "abort" | "continue";
   result_max_chars?: number;

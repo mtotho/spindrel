@@ -574,12 +574,6 @@ async def ensure_orchestrator_channel() -> None:
         if changed:
             ch.updated_at = datetime.now(timezone.utc)
         await ensure_active_session(db, ch)
-        # Auto-apply orchestrator carapace if not already present
-        existing = ch.carapaces_extra or []
-        if "orchestrator" not in existing:
-            ch.carapaces_extra = existing + ["orchestrator"]
-            ch.updated_at = datetime.now(timezone.utc)
-
         # Ensure orchestrator has an allow-all tool policy rule
         from app.db.models import ToolPolicyRule
         has_rule = (await db.execute(

@@ -1,18 +1,16 @@
 /**
- * BotInfoPanel — portal modal showing a bot's resolved tools/capabilities/skills
+ * BotInfoPanel — portal modal showing a bot's resolved tools/skills
  * for a given channel. Triggered by clicking a bot avatar/name in chat.
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, Bot, Wrench, Puzzle, Server, Shield, ExternalLink } from "lucide-react";
+import { X, Bot, Wrench, Puzzle, Server, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "../../theme/tokens";
 import { useBot } from "../../api/hooks/useBots";
 import { useChannel, useChannelEffectiveTools, useChannelConfigOverhead } from "../../api/hooks/useChannels";
 import type { ContextEstimate } from "../../api/hooks/useChannels";
-import { useCarapaces } from "../../api/hooks/useCarapaces";
-import { buildToolCarapaceMap } from "../../utils/carapaceMapping";
 
 interface Props {
   botId: string;
@@ -81,7 +79,6 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget, configO
 
   // effective-tools is resolved for the channel's primary bot — only show for primary
   const { data: effective } = useChannelEffectiveTools(isMemberBot ? undefined : channelId);
-  const { data: allCarapaces } = useCarapaces();
   // Prefer the parent-provided estimate when present; fall back to fetching
   // ourselves so standalone mounts (outside the channel page) keep working.
   // Gate on isMemberBot in both cases — member bots don't show config overhead.
@@ -102,42 +99,13 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget, configO
 
   // For member bots, show their bot-level config instead of channel effective tools
   const displayTools = isMemberBot
-    ? { local_tools: bot?.local_tools || [], pinned_tools: bot?.pinned_tools || [], mcp_servers: bot?.mcp_servers || [], client_tools: bot?.client_tools || [], skills: (bot?.skills || []).map((s) => ({ id: s.id, mode: s.mode || "on-demand", name: s.id })), carapaces: bot?.carapaces || [], carapace_sources: {} as Record<string, string> }
+    ? { local_tools: bot?.local_tools || [], pinned_tools: bot?.pinned_tools || [], mcp_servers: bot?.mcp_servers || [], client_tools: bot?.client_tools || [], skills: (bot?.skills || []).map((s) => ({ id: s.id, mode: s.mode || "on-demand", name: s.id })) }
     : effective;
-
-  // Provenance maps
-  const toolCapMap = useMemo(() => {
-    if (!allCarapaces || !displayTools?.carapaces) return new Map();
-    return buildToolCarapaceMap(allCarapaces, displayTools.carapaces);
-  }, [allCarapaces, displayTools]);
-
-  // Group tools by capability
-  const toolGroups = useMemo(() => {
-    if (!displayTools) return [];
-    const allTools = displayTools.local_tools;
-    const groups = new Map<string, { name: string; tools: string[] }>();
-    const ungrouped: string[] = [];
-    for (const tool of allTools) {
-      const cap = toolCapMap.get(tool);
-      if (cap) {
-        const g = groups.get(cap.carapaceId);
-        if (g) g.tools.push(tool);
-        else groups.set(cap.carapaceId, { name: cap.carapaceName, tools: [tool] });
-      } else {
-        ungrouped.push(tool);
-      }
-    }
-    const result: { label: string; tools: string[] }[] = [];
-    for (const [, g] of groups) result.push({ label: g.name, tools: g.tools });
-    if (ungrouped.length > 0) result.push({ label: "Other tools", tools: ungrouped });
-    return result;
-  }, [displayTools, toolCapMap]);
 
   // Summary counts
   const toolCount = displayTools?.local_tools.length ?? 0;
   const skillCount = displayTools?.skills.length ?? 0;
   const mcpCount = displayTools?.mcp_servers.length ?? 0;
-  const carapaceCount = displayTools?.carapaces.length ?? 0;
 
   return (
     <div
@@ -225,7 +193,6 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget, configO
           {/* Summary badges */}
           <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             {toolCount > 0 && <CountBadge icon={<Wrench size={10} />} label={`${toolCount} tools`} />}
-            {carapaceCount > 0 && <CountBadge icon={<Shield size={10} />} label={`${carapaceCount} capabilities`} />}
             {skillCount > 0 && <CountBadge icon={<Puzzle size={10} />} label={`${skillCount} skills`} />}
             {mcpCount > 0 && <CountBadge icon={<Server size={10} />} label={`${mcpCount} MCP`} />}
           </div>
@@ -269,15 +236,9 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget, configO
           {/* Configuration overhead */}
           {configOverhead && <ConfigOverhead estimate={configOverhead} t={t} />}
 
-          {/* Capabilities (carapaces) */}
-          {displayTools && displayTools.carapaces.length > 0 && (
-            <CaparacesSection carapaces={displayTools.carapaces} sources={displayTools.carapace_sources} />
+          {displayTools && displayTools.local_tools.length > 0 && (
+            <ToolGroupSection label="Tools" tools={displayTools.local_tools} />
           )}
-
-          {/* Tools grouped by capability */}
-          {displayTools && toolGroups.map((g) => (
-            <ToolGroupSection key={g.label} label={g.label} tools={g.tools} />
-          ))}
 
           {/* Skills with provenance */}
           {displayTools && displayTools.skills.length > 0 && (
@@ -317,9 +278,9 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget, configO
           {!displayTools && (
             <span style={{ fontSize: 11, color: t.textDim }}>Loading...</span>
           )}
-          {displayTools && toolCount === 0 && skillCount === 0 && carapaceCount === 0 && mcpCount === 0 && (
+          {displayTools && toolCount === 0 && skillCount === 0 && mcpCount === 0 && (
             <span style={{ fontSize: 11, color: t.textDim, fontStyle: "italic" }}>
-              No tools or capabilities configured for this bot.
+              No tools or skills configured for this bot.
             </span>
           )}
         </div>
@@ -447,36 +408,6 @@ function ConfigOverhead({ estimate, t }: { estimate: ContextEstimate; t: any }) 
       </div>
       <div style={{ fontSize: 9, color: t.textDim, marginTop: 4, fontStyle: "italic" }}>
         {estimate.disclaimer}
-      </div>
-    </div>
-  );
-}
-
-function CaparacesSection({ carapaces, sources }: { carapaces: string[]; sources: Record<string, string> }) {
-  const t = useThemeTokens();
-  return (
-    <div>
-      <div style={{
-        fontSize: 9, fontWeight: 700, color: t.textDim,
-        textTransform: "uppercase", letterSpacing: 1, marginBottom: 4,
-      }}>
-        Capabilities ({carapaces.length})
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        {carapaces.map((id) => (
-          <div key={id} style={{
-            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-            padding: "3px 8px", borderRadius: 4,
-            background: t.purpleSubtle,
-            border: `1px solid ${t.purpleBorder}`,
-          }}>
-            <Shield size={10} color={t.purple} />
-            <span style={{ fontSize: 11, color: t.text, flex: 1 }}>{id}</span>
-            {sources[id] && (
-              <span style={{ fontSize: 9, color: t.textDim }}>{sources[id]}</span>
-            )}
-          </div>
-        ))}
       </div>
     </div>
   );

@@ -1076,22 +1076,6 @@ async def run_task(task: Task) -> None:
             from app.tools.registry import get_local_tool_schemas
             _ecfg_injected_tools = get_local_tool_schemas(_ecfg_tool_names) or None
 
-        # Carapaces from execution_config
-        _ecfg_carapaces = _ecfg_pre.get("carapaces") or None
-        if _ecfg_carapaces:
-            from app.agent.carapaces import resolve_carapaces as _resolve_carapaces
-            _resolved_c = _resolve_carapaces(_ecfg_carapaces)
-            # Merge resolved carapace tools into injected tools
-            if _resolved_c.local_tools:
-                from app.tools.registry import get_local_tool_schemas
-                _c_tool_schemas = get_local_tool_schemas(_resolved_c.local_tools) or []
-                if _c_tool_schemas:
-                    _ecfg_injected_tools = (_ecfg_injected_tools or []) + _c_tool_schemas
-            # Prepend system prompt fragments to preamble
-            if _resolved_c.system_prompt_fragments:
-                _c_prompt = "\n\n".join(_resolved_c.system_prompt_fragments)
-                _system_preamble = (_system_preamble + "\n\n" + _c_prompt) if _system_preamble else _c_prompt
-
         # Exclude specific tools (e.g. block delegate_to_agent in callback tasks)
         _exclude_tools = _ecfg_pre.get("exclude_tools") or None
         if _exclude_tools:

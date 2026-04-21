@@ -13,7 +13,6 @@ import {
   Plug,
   Server,
   Cable,
-  Layers,
   Wrench,
   BookOpen,
   FileText,
@@ -128,7 +127,6 @@ const ADMIN_ITEMS: PaletteItem[] = [
   { id: "nav-integrations", label: "Integrations", href: "/admin/integrations", icon: Plug, category: "Configure" },
   { id: "nav-providers", label: "Providers", href: "/admin/providers", icon: Server, category: "Configure" },
   { id: "nav-mcp", label: "MCP Servers", href: "/admin/mcp-servers", icon: Cable, category: "Configure" },
-  { id: "nav-carapaces", label: "Capabilities", href: "/admin/carapaces", icon: Layers, category: "Configure" },
   { id: "nav-tools", label: "Tools", href: "/admin/tools", icon: Wrench, category: "Configure" },
   { id: "nav-skills", label: "Skills", href: "/admin/skills", icon: BookOpen, category: "Configure" },
   { id: "nav-templates", label: "Templates", href: "/admin/prompt-templates", icon: FileText, category: "Configure" },
@@ -249,7 +247,6 @@ interface RouteMeta {
 const ROUTE_PREFIX_MAP: { prefix: string; meta: RouteMeta }[] = [
   { prefix: "/admin/tasks/", meta: { icon: ClipboardList, category: "Automate", fallbackLabel: "Task" } },
   { prefix: "/admin/bots/", meta: { icon: Bot, category: "Bots", fallbackLabel: "Edit Bot" } },
-  { prefix: "/admin/carapaces/", meta: { icon: Layers, category: "Configure", fallbackLabel: "Capability" } },
   { prefix: "/admin/skills/", meta: { icon: BookOpen, category: "Configure", fallbackLabel: "Skill" } },
   { prefix: "/admin/tools/", meta: { icon: Wrench, category: "Configure", fallbackLabel: "Tool" } },
   { prefix: "/admin/integrations/", meta: { icon: Plug, category: "Integrations", fallbackLabel: "Integration" } },

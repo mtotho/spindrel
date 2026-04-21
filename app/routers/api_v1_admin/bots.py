@@ -359,11 +359,9 @@ def _build_tool_groups(tool_rows, *, memory_scheme: str | None = None) -> list[d
 def _build_resolved_preview(bot, tool_rows) -> ResolvedPreview:
     """Compute the full resolved tool set at bot level (before channel overrides).
 
-    Resolves carapaces and memory scheme to show what tools the bot will
-    actually have at runtime, with provenance labels for each.
+    Shows the bot-level tool set and auto-injected runtime tools with
+    provenance labels for each.
     """
-    from app.agent.carapaces import get_carapace, resolve_carapaces
-
     # Build a lookup: tool_name → source_integration (or server_name for MCP tools)
     tool_integration: dict[str, str] = {}
     for r in tool_rows:
@@ -417,37 +415,7 @@ def _build_resolved_preview(bot, tool_rows) -> ResolvedPreview:
     for t in bot.mcp_servers or []:
         _add_mcp(t, "bot", "Bot config")
 
-    # 4. Carapace resolution — walk each carapace and its includes recursively
-    carapace_ids = list(bot.carapaces or [])
-    if carapace_ids:
-        _visited_caps: set[str] = set()
-
-        def _walk_carapace(cid: str, via: str | None = None, depth: int = 0) -> None:
-            if cid in _visited_caps or depth > 5:
-                return
-            _visited_caps.add(cid)
-            c = get_carapace(cid)
-            if not c:
-                return
-            cap_name = c.get("name", cid)
-            source = f"carapace:{cid}"
-            label = f"Capability: {cap_name}" + (f" (via {via})" if via else "")
-
-            # Resolve includes first (depth-first, matching resolve_carapaces order)
-            for inc_id in c.get("includes", []):
-                _walk_carapace(inc_id, via=cap_name, depth=depth + 1)
-
-            for t in c.get("local_tools", []):
-                _add_tool(t, source, label)
-            for t in c.get("pinned_tools", []):
-                _add_pinned(t, source, label)
-            for t in c.get("mcp_tools", []):
-                _add_mcp(t, source, label)
-
-        for cid in carapace_ids:
-            _walk_carapace(cid)
-
-    # 5. Memory scheme injections
+    # 4. Memory scheme injections
     memory_scheme = getattr(bot, "memory_scheme", None)
     if memory_scheme == "workspace-files":
         from app.services.memory_scheme import MEMORY_SCHEME_TOOLS, MEMORY_SCHEME_HIDDEN_TOOLS
@@ -458,7 +426,7 @@ def _build_resolved_preview(bot, tool_rows) -> ResolvedPreview:
             _add_tool(t, "memory_scheme", "Memory scheme (workspace-files)")
             _add_pinned(t, "memory_scheme", "Memory scheme (workspace-files)")
 
-    # 6. Auto-injected tools (always available at runtime)
+    # 5. Auto-injected tools (always available at runtime)
     tool_retrieval = getattr(bot, "tool_retrieval", True)
     if tool_retrieval:
         _add_tool("get_tool_info", "auto", "Auto-injected (tool retrieval)")
@@ -476,8 +444,6 @@ def _build_resolved_preview(bot, tool_rows) -> ResolvedPreview:
     ):
         _add_tool(_history_tool, "auto", "Auto-injected (channel awareness)")
         _add_pinned(_history_tool, "auto", "Auto-injected (channel awareness)")
-    # activate_capability is injected dynamically when capability RAG finds matches
-    _add_tool("activate_capability", "auto", "Auto-injected (capability discovery)")
 
     return ResolvedPreview(tools=tools, pinned_tools=pinned, mcp_servers=mcp)
 

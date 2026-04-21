@@ -18,6 +18,10 @@ export interface SkillItem {
   total_auto_injects: number;
   bot_id?: string | null;
   enrolled_bot_count: number;
+  skill_layout: "loose" | "folder_root" | "child";
+  folder_root_id?: string | null;
+  parent_skill_id?: string | null;
+  has_children: boolean;
 }
 
 export function useSkills(opts?: {

@@ -247,16 +247,6 @@ export function WorkflowStepDetail({
             />
           </FormRow>
 
-          <FormRow label="Capabilities" description="Comma-separated capability IDs">
-            <input
-              value={(step.carapaces || []).join(", ")}
-              onChange={(e) => onChange({ carapaces: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-              placeholder="qa, code-review"
-              style={inputStyle}
-              disabled={disabled}
-            />
-          </FormRow>
-
           <FormRow label="Secrets" description={workflowSecrets.length > 0 ? "Scope which workflow secrets this step can access" : "Add secrets at the workflow level first"}>
             <SecretChipPicker
               available={workflowSecrets}

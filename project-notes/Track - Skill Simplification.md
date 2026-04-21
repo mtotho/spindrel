@@ -26,6 +26,17 @@ For the *why*, see [[Architecture Decisions#Per-Bot Persistent Skill Working Set
 | Phase 6 — Workspace singleton cleanup | ✅ DONE 2026-04-10 | Promoted `workspace_member`/`channel_workspaces`/`docker_stacks` to `STARTER_SKILL_IDS`. Dropped `source="auto"` Literal + tests + UI badge. Retired POST/DELETE workspace-bot endpoints with 410. Removed `bots.workspace_only` (column drop migration 186, ORM/API/UI/tool/schema). UI BotsTab no longer exposes add/remove. Skill copy + carapace + docs + CLAUDE.md updated. 171/171 targeted tests pass; full suite has same 15 pre-existing failures as baseline. See [[Plan - Workspace Singleton Cleanup]] |
 | Phase 7 — Enrolled skill ranking + auto-inject | ✅ DONE 2026-04-14 | Per-turn semantic ranking of enrolled skills against user message via `rank_enrolled_skills()`. Two-tier annotation (relevant ↑ / auto-inject). Top match auto-injected as synthetic `get_skill()` tool call/result pairs with `_no_prune` persistence. Budget accounting (`_budget_can_afford`/`_budget_consume`). History-scan dedup. Separate tracking: `auto_inject_count`/`last_auto_injected_at` on enrollment. 5 tests. Trace events: `skills_in_history`, `skipped_in_history`, `skipped_budget`. See [[Architecture Decisions#Enrolled Skill Relevance Ranking + Auto-Inject]] |
 
+## 2026-04-21 follow-on
+- Product direction changed again: there is no replacement "capability package" model. Foldered skills are still just skills.
+- Runtime `activate_capability`, capability approval handling, capability discovery prompt injection, and channel capability UI started coming out in favor of plain skill/tool enrollment.
+- Channel-level skill enrollment was introduced (`channel_skill_enrollment`, migration 236) so channel capability assignment can fold into the existing skills surface instead of inventing a new package abstraction.
+- Admin/UI direction now is: remove capability pages/sections, make `/admin/skills` folder-aware (`index.md` roots + child skills), and let bots/channels show enrolled skills/tools only.
+- Remaining cleanup is mostly deletion of dormant carapace CRUD/routes/docs/workflow fields; the runtime path is the important cut.
+- Follow-up removal pass deleted the public/admin carapace routers and local management tools, removed approval pinning, removed workflow/pipeline/delegation `carapaces` execution config, and removed the admin capability pages/hooks/types from the UI.
+- Integration activation summaries now expose only tools + system prompt presence on the active channel UI path; they no longer resolve carapaces for tool summaries.
+- Targeted verification after the removal pass: `pytest tests/unit/test_file_sync_skills.py -q` passed, `pytest tests/unit/test_tool_dispatch_core_gaps.py -q -k approval` passed after deleting obsolete `activate_capability` approval tests, `pytest tests/unit/test_workflow_tool.py -q -k step` reported `1 skipped, 17 deselected`, and `timeout 30s npx tsc --noEmit` exited cleanly.
+- Remaining backend blast area is now mostly dormant/internal code: `app.agent.carapaces`, file-sync carapace loading, bot/channel ORM fields, admin helper previews, integration admin metadata, and legacy docs/tests. Those still need a dedicated deletion pass before storage/migration cleanup.
+
 ## Phase 4 channel half — DONE 2026-04-14
 Dropped `skills_disabled` and `skills_extra` columns (migration 195). Remaining channel-level overrides (`local_tools_disabled`, `mcp_servers_disabled`, `client_tools_disabled`, `carapaces_disabled`, `carapaces_extra`) are still active — they control tool/carapace availability, not skills.
 
@@ -37,12 +48,12 @@ Dropped `skills_disabled` and `skills_extra` columns (migration 195). Remaining 
 - **Enrolled skills are ranked per-turn** — RAG as ranker, not filter (all enrolled stay visible)
 - **Top-match auto-inject** — highest-confidence enrolled skill injected as synthetic tool call/result pairs with `_no_prune`
 - **Auto-inject tracking is separate from fetch tracking** — `auto_inject_count` vs `surface_count`/`fetch_count`
-- **Capability RAG discovery** continues — semantic matching to suggest capabilities
-- **`activate_capability`** runtime activation with approval continues
+- **Capability RAG discovery is being removed** — do not build new product behavior on top of it
+- **`activate_capability` is being removed** — use skill/tool discovery + enrollment only
 - **Tool RAG + tool enrollment** — semantic tool discovery + persistent working set (mirrors skill enrollment)
-- **Capability composition** (`includes`) — reusable bundles
 - **Per-bot working set** is the canonical assignment surface — manual prune via UI, hygiene loop curation, on-fetch promotion via `get_skill()`
 - **Channel `skills_extra` / `skills_disabled` are dead** — UI doesn't read them; do not add new code that does
+- **Channel capability UI is dead** — replace it with channel-level skill enrollment, not a new package layer
 
 ## What we killed
 - Pinned skill mode (Phase 2)

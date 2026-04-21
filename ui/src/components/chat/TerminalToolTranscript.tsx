@@ -97,7 +97,8 @@ function summarizeEnvelope(envelope: ToolResultEnvelope | undefined | null): str
   if (!envelope) return null;
   const label = envelope.display_label?.trim();
   if (label) return truncate(label, 100);
-  const firstLine = firstMeaningfulLine(envelope.plain_body || envelope.body || "");
+  const bodyText = typeof envelope.body === "string" ? envelope.body : "";
+  const firstLine = firstMeaningfulLine(envelope.plain_body || bodyText || "");
   if (!firstLine || looksLikeJson(firstLine)) return null;
   return truncate(firstLine, 160);
 }
@@ -142,7 +143,7 @@ function basicBulletColor(entry: TranscriptEntry, t: ThemeTokens): string {
 
 function extractNonJsonOutput(envelope: ToolResultEnvelope | undefined): string | null {
   if (!envelope) return null;
-  const body = envelope.body || envelope.plain_body || "";
+  const body = typeof envelope.body === "string" ? envelope.body : (envelope.plain_body || "");
   if (!body.trim() || looksLikeJson(body)) return null;
   const diff = extractDiff(body);
   if (diff) return diff;
@@ -186,11 +187,12 @@ function buildPersistedEntry(toolName: string, args: string | undefined, result:
   const envelopeSummary = summarizeEnvelope(result);
   const fileAction = envelopeSummary ? parseFileAction(envelopeSummary) : null;
   if (fileAction) {
+    const bodyText = typeof result?.body === "string" ? result.body : undefined;
     return {
       kind: "activity",
       id: `${toolName}:${fileAction.verb}:${fileAction.path}`,
       summary: `${fileAction.verb} ${fileAction.path}`,
-      detail: fileAction.detail ?? extractDiff(result?.body || result?.plain_body),
+      detail: fileAction.detail ?? extractDiff(bodyText || result?.plain_body),
       tone: fileAction.verb.toLowerCase() === "deleted" ? "danger" : "muted",
     };
   }
@@ -248,7 +250,7 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
   t: ThemeTokens;
   onAddWidget?: (widget: InlineWidgetEntry) => void;
   decidingIds?: Set<string>;
-  onApproval?: (approvalId: string, approved: boolean, pinCapabilityId?: string) => void;
+  onApproval?: (approvalId: string, approved: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -364,25 +366,6 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
               >
                 Approve
               </button>
-              {entry.approval.capabilityId && (
-                <button
-                  type="button"
-                  disabled={decidingIds?.has(entry.approval.approvalId)}
-                  onClick={() => onApproval(entry.approval!.approvalId, true, entry.approval!.capabilityId)}
-                  style={{
-                    border: `1px solid ${t.accentBorder}`,
-                    background: "transparent",
-                    color: t.accent,
-                    fontFamily: TERMINAL_FONT_STACK,
-                    fontSize: 11.5,
-                    padding: "2px 6px",
-                    borderRadius: 2,
-                    cursor: "pointer",
-                  }}
-                >
-                  Approve + pin
-                </button>
-              )}
               <button
                 type="button"
                 disabled={decidingIds?.has(entry.approval.approvalId)}
@@ -504,10 +487,9 @@ export function TerminalStreamingToolTranscript({
   const decideApproval = useDecideApproval();
   const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
 
-  const handleDecide = (approvalId: string, approved: boolean, pinCapabilityId?: string) => {
+  const handleDecide = (approvalId: string, approved: boolean) => {
     setDecidingIds((prev) => new Set(prev).add(approvalId));
     const data: DecideRequest = { approved, decided_by: "web:admin" };
-    if (pinCapabilityId) data.pin_capability = pinCapabilityId;
     decideApproval.mutate(
       { approvalId, data },
       {

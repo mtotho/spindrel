@@ -53,8 +53,6 @@ class DecideRequest(BaseModel):
     # Optional: create an allow rule along with the approval
     # {tool_name, conditions, scope ("bot"|"global"), priority}
     create_rule: Optional[dict] = None
-    # Optional: pin a capability (carapace ID) to the bot's permanent list
-    pin_capability: Optional[str] = None
 
 
 class DecideResponse(BaseModel):
@@ -63,7 +61,6 @@ class DecideResponse(BaseModel):
     decided_by: str
     decided_at: datetime
     rule_created: Optional[uuid.UUID] = None  # ID of the created rule, if any
-    capability_pinned: Optional[str] = None  # set if capability was pinned
 
 
 class SuggestionOut(BaseModel):
@@ -205,20 +202,6 @@ async def decide_approval(
         rule_id = rule.id
         invalidate_cache()
 
-    # Optionally pin a capability to the bot's carapace list
-    pinned_cap = None
-    if body.pin_capability and body.approved:
-        from sqlalchemy.orm.attributes import flag_modified
-        from app.db.models import Bot as BotRow
-        bot_row = await db.get(BotRow, row.bot_id)
-        if bot_row:
-            current = list(bot_row.carapaces or [])
-            if body.pin_capability not in current:
-                current.append(body.pin_capability)
-                bot_row.carapaces = current
-                flag_modified(bot_row, "carapaces")
-            pinned_cap = body.pin_capability
-
     # Session-scoped allow: when approving (even without a permanent rule),
     # allow this tool for the rest of this conversation so the user isn't
     # asked again for the same tool in the same agent run.
@@ -228,11 +211,6 @@ async def decide_approval(
 
     await db.commit()
     await db.refresh(row)
-
-    # Reload bots if a capability was pinned (so it takes effect immediately)
-    if pinned_cap:
-        from app.agent.bots import reload_bots
-        await reload_bots()
 
     # Resolve the in-process Future (if the agent loop is still waiting)
     from app.agent.approval_pending import resolve_approval
@@ -246,7 +224,6 @@ async def decide_approval(
         decided_by=row.decided_by,
         decided_at=row.decided_at,
         rule_created=rule_id,
-        capability_pinned=pinned_cap,
     )
 
 

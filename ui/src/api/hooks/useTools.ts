@@ -25,6 +25,17 @@ export interface ToolItem {
   requires_channel_context?: boolean;
 }
 
+export interface PublicToolSignature {
+  name: string;
+  kind: string;
+  description?: string | null;
+  input_schema?: Record<string, any> | null;
+  returns_schema?: Record<string, any> | null;
+  source_integration?: string | null;
+  requires_bot_context?: boolean;
+  requires_channel_context?: boolean;
+}
+
 export function useTools() {
   return useQuery({
     queryKey: ["admin-tools"],
@@ -37,6 +48,15 @@ export function useTool(toolId: string | undefined) {
     queryKey: ["admin-tool", toolId],
     queryFn: () => apiFetch<ToolItem>(`/api/v1/admin/tools/${toolId}`),
     enabled: !!toolId,
+  });
+}
+
+export function usePublicToolSignature(toolName: string | null | undefined) {
+  return useQuery({
+    queryKey: ["tool-signature", toolName],
+    queryFn: () =>
+      apiFetch<PublicToolSignature>(`/api/v1/tools/${encodeURIComponent(toolName ?? "")}/signature`),
+    enabled: !!toolName,
   });
 }
 

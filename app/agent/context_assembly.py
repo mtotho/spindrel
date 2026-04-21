@@ -652,6 +652,7 @@ async def _inject_conversation_sections(
     bot: BotConfig,
     ch_row: Any,
     channel_id: uuid.UUID,
+    session_id: uuid.UUID | None,
     user_message: str,
     inject_chars: dict[str, int],
 ) -> AsyncGenerator[dict[str, Any], None]:
@@ -671,7 +672,10 @@ async def _inject_conversation_sections(
         async with async_session() as db:
             rows = (await db.execute(
                 select(ConversationSection)
-                .where(ConversationSection.channel_id == channel_id, ConversationSection.embedding.is_not(None))
+                .where(
+                    ConversationSection.session_id == session_id,
+                    ConversationSection.embedding.is_not(None),
+                )
                 .order_by(halfvec_cosine_distance(ConversationSection.embedding, query_vec))
                 .limit(3)
             )).scalars().all()
@@ -686,6 +690,8 @@ async def _inject_conversation_sections(
             yield {"type": "section_context", "count": len(rows), "chars": chars}
 
     elif hist_mode == "file":
+        if session_id is None:
+            return
         si_count = getattr(ch_row, "section_index_count", None)
         si_count = si_count if si_count is not None else settings.SECTION_INDEX_COUNT
         if si_count > 0:
@@ -693,7 +699,7 @@ async def _inject_conversation_sections(
             async with async_session() as db:
                 rows = (await db.execute(
                     select(ConversationSection)
-                    .where(ConversationSection.channel_id == channel_id)
+                    .where(ConversationSection.session_id == session_id)
                     .order_by(ConversationSection.sequence.desc())
                     .limit(si_count)
                     .options(defer(ConversationSection.transcript), defer(ConversationSection.embedding))
@@ -701,13 +707,13 @@ async def _inject_conversation_sections(
                 total = (await db.execute(
                     select(func.count())
                     .select_from(ConversationSection)
-                    .where(ConversationSection.channel_id == channel_id)
+                    .where(ConversationSection.session_id == session_id)
                 )).scalar() or 0
                 all_tags: list[str] | None = None
                 if rows and total > len(rows):
                     tag_rows = (await db.execute(
                         select(ConversationSection.tags)
-                        .where(ConversationSection.channel_id == channel_id)
+                        .where(ConversationSection.session_id == session_id)
                     )).scalars().all()
                     all_tags = [tag for tags in tag_rows if tags for tag in tags]
             if rows:
@@ -862,7 +868,7 @@ async def assemble_context(
             from sqlalchemy import select as _sa_select
             from sqlalchemy.orm import selectinload as _selectinload
             from app.db.engine import async_session
-            from app.db.models import Channel, ChannelIntegration
+            from app.db.models import Channel, ChannelIntegration, ChannelSkillEnrollment
             async with async_session() as _ch_db:
                 _ch_result = await _ch_db.execute(
                     _sa_select(Channel)
@@ -870,6 +876,13 @@ async def assemble_context(
                     .options(_selectinload(Channel.integrations))
                 )
                 _ch_row = _ch_result.scalar_one_or_none()
+                if _ch_row is not None:
+                    _skill_rows = (await _ch_db.execute(
+                        _sa_select(ChannelSkillEnrollment.skill_id).where(
+                            ChannelSkillEnrollment.channel_id == channel_id
+                        )
+                    )).scalars().all()
+                    setattr(_ch_row, "_channel_skill_enrollment_ids", list(_skill_rows))
         except Exception:
             logger.warning("Failed to load channel %s for context assembly, continuing without overrides", channel_id, exc_info=True)
 
@@ -919,14 +932,6 @@ async def assemble_context(
     if _ch_row is not None:
         _eff = resolve_effective_tools(bot, _ch_row)
         _eff = apply_auto_injections(_eff, bot)
-        # Member bots keep their own carapaces — channel-level
-        # carapaces_extra are for the primary bot's role.
-        _is_member_bot = (
-            _ch_row is not None
-            and getattr(_ch_row, "bot_id", None)
-            and bot.id != _ch_row.bot_id
-        )
-        _eff_carapaces = list(bot.carapaces or []) if _is_member_bot else _eff.carapaces
         bot = _dc_replace(
             bot,
             local_tools=_eff.local_tools,
@@ -934,7 +939,6 @@ async def assemble_context(
             client_tools=_eff.client_tools,
             pinned_tools=_eff.pinned_tools,
             skills=_eff.skills,
-            carapaces=_eff_carapaces,
         )
         if _ch_row.model_override:
             result.channel_model_override = _ch_row.model_override
@@ -953,7 +957,6 @@ async def assemble_context(
             client_tools=list(bot.client_tools),
             pinned_tools=list(bot.pinned_tools),
             skills=list(bot.skills),
-            carapaces=list(bot.carapaces or []),
         )
         _eff = apply_auto_injections(_eff, bot)
         bot = _dc_replace(
@@ -961,136 +964,6 @@ async def assemble_context(
             local_tools=_eff.local_tools,
             pinned_tools=_eff.pinned_tools,
         )
-
-    # --- auto-inject carapaces from activated integrations ---
-    if _ch_row is not None:
-        _ch_carapaces_disabled = set(getattr(_ch_row, "carapaces_disabled", None) or [])
-        try:
-            from integrations import get_activation_manifests
-            _manifests = get_activation_manifests()
-            from app.services.integration_settings import is_active as _intg_active
-            for _ci in (getattr(_ch_row, "integrations", None) or []):
-                if not _ci.activated:
-                    continue
-                if not _intg_active(_ci.integration_type):
-                    continue
-                _manifest = _manifests.get(_ci.integration_type)
-                if not _manifest:
-                    continue
-                for _cap_id in _manifest.get("carapaces", []):
-                    if _cap_id not in (bot.carapaces or []) and _cap_id not in _ch_carapaces_disabled:
-                        bot = _dc_replace(bot, carapaces=list(bot.carapaces or []) + [_cap_id])
-        except Exception:
-            logger.warning("Failed to inject activation carapaces", exc_info=True)
-
-    # --- merge session-activated capabilities into bot's carapace list ---
-    _session_cap_ids: set[str] = set()
-    if correlation_id is not None:
-        from app.agent.capability_session import get_activated as _get_cap_activated
-        _session_cap_ids = _get_cap_activated(str(correlation_id))
-        if _session_cap_ids:
-            _existing_caps = set(bot.carapaces or [])
-            _ch_caps_disabled = set(getattr(_ch_row, "carapaces_disabled", None) or []) if _ch_row else set()
-            _new_session_caps = [
-                cid for cid in _session_cap_ids
-                if cid not in _existing_caps and cid not in _ch_caps_disabled
-            ]
-            if _new_session_caps:
-                bot = _dc_replace(bot, carapaces=list(bot.carapaces or []) + _new_session_caps)
-                yield {"type": "session_capabilities_merged", "count": len(_new_session_caps), "ids": _new_session_caps}
-
-    # --- carapace resolution ---
-    _carapace_ids = list(bot.carapaces or [])
-    if _carapace_ids:
-        from app.agent.carapaces import resolve_carapaces as _resolve_carapaces
-        _resolved_c = _resolve_carapaces(_carapace_ids)
-        # Merge tools (deduplicate). Carapaces no longer carry skills — skills
-        # live in the per-bot working set; carapace fragments surface them via
-        # get_skill() pointers in their Deep Knowledge tables.
-        _existing_tools = set(bot.local_tools)
-        _new_local = [t for t in _resolved_c.local_tools if t not in _existing_tools]
-        _existing_mcp = set(bot.mcp_servers)
-        _new_mcp = [t for t in _resolved_c.mcp_tools if t not in _existing_mcp]
-        # Inject MCP servers from activated integrations
-        try:
-            from app.services.integration_manifests import collect_integration_mcp_servers
-            _int_mcp = collect_integration_mcp_servers(
-                getattr(_ch_row, "integrations", None),
-                exclude=_existing_mcp | set(_new_mcp),
-            )
-            _new_mcp.extend(_int_mcp)
-        except ImportError:
-            pass
-        _existing_pinned = set(bot.pinned_tools)
-        _new_pinned = [t for t in _resolved_c.pinned_tools if t not in _existing_pinned]
-        # Re-apply channel disabled lists so carapaces can't bypass channel restrictions
-        if _ch_row is not None:
-            _ch_tools_disabled = set(getattr(_ch_row, "local_tools_disabled", None) or [])
-            _ch_mcp_disabled = set(getattr(_ch_row, "mcp_servers_disabled", None) or [])
-            if _ch_tools_disabled:
-                _new_local = [t for t in _new_local if t not in _ch_tools_disabled]
-            if _ch_mcp_disabled:
-                _new_mcp = [t for t in _new_mcp if t not in _ch_mcp_disabled]
-        bot = _dc_replace(
-            bot,
-            local_tools=list(bot.local_tools) + _new_local,
-            mcp_servers=list(bot.mcp_servers) + _new_mcp,
-            pinned_tools=list(bot.pinned_tools) + _new_pinned,
-        )
-
-        # Inject system prompt fragments
-        if _resolved_c.system_prompt_fragments:
-            _carapace_prompt = "\n\n".join(_resolved_c.system_prompt_fragments)
-            _inject_chars["carapace_prompts"] = len(_carapace_prompt)
-            messages.append({
-                "role": "system",
-                "content": _carapace_prompt,
-            })
-            _budget_consume("carapace_prompts", _carapace_prompt)
-            yield {"type": "carapace_context", "count": len(_carapace_ids), "chars": len(_carapace_prompt)}
-
-    # --- capability auto-discovery index (RAG-based) ---
-    # Retrieve semantically relevant capabilities for the user's message,
-    # excluding already-active and disabled ones.
-    _cap_index_ids: list[str] = []
-    try:
-        _active_cap_ids = set(_carapace_ids) if _carapace_ids else set()
-        _globally_disabled_raw = getattr(settings, "CAPABILITIES_DISABLED", "") or ""
-        _globally_disabled = {s.strip() for s in _globally_disabled_raw.split(",") if s.strip()}
-        _ch_caps_disabled_set = set(getattr(_ch_row, "carapaces_disabled", None) or []) if _ch_row else set()
-        _cap_excluded = _active_cap_ids | _globally_disabled | _ch_caps_disabled_set
-
-        from app.agent.capability_rag import retrieve_capabilities as _retrieve_caps
-        _cap_query = (user_message or "").strip()
-        _cap_results: list[dict] = []
-        if _cap_query:
-            _cap_results, _cap_best_sim = await _retrieve_caps(
-                _cap_query, excluded_ids=_cap_excluded,
-            )
-
-        if _cap_results:
-            _cap_lines: list[str] = []
-            for _cr in _cap_results:
-                _cid = _cr["id"]
-                _cname = _cr["name"]
-                _cdesc = _cr.get("description") or ""
-                _cap_lines.append(f"- {_cid}: {_cname}" + (f" — {_cdesc}" if _cdesc else ""))
-                _cap_index_ids.append(_cid)
-
-            _cap_index_content = (
-                "Available capabilities (not yet active). "
-                "Call activate_capability(id=\"<id>\", reason=\"...\") to load one for this session:\n"
-                + "\n".join(_cap_lines)
-            )
-            if _budget_can_afford(_cap_index_content):
-                messages.append({"role": "system", "content": _cap_index_content})
-                _budget_consume("capability_index", _cap_index_content)
-                _inject_chars["capability_index"] = len(_cap_index_content)
-                yield {"type": "capability_index", "count": len(_cap_lines)}
-
-                # activate_capability tool already injected by apply_auto_injections()
-    except Exception:
-        logger.warning("Failed to build capability index", exc_info=True)
 
     # --- skill enrollment loading (Phase 3 working set model) ---
     #
@@ -1661,18 +1534,6 @@ async def assemble_context(
             except Exception:
                 _delegate_lines.append(f"  [bot] {_did}")
 
-    # Carapace delegates from resolved carapaces (bot delegates take precedence on conflict)
-    if _carapace_ids:
-        for _cd in _resolved_c.delegates:
-            if _cd.id not in _seen_delegate_ids:
-                _seen_delegate_ids.add(_cd.id)
-                _label = f"  [{_cd.type}] {_cd.id}"
-                if _cd.description:
-                    _label += f" — {_cd.description}"
-                if _cd.model_tier:
-                    _label += f" (tier: {_cd.model_tier})"
-                _delegate_lines.append(_label)
-
     if _delegate_lines:
         _delegate_content = (
             "Available delegates for delegate_to_agent:\n"
@@ -1695,7 +1556,7 @@ async def assemble_context(
     # --- conversation section retrieval (structured mode) + section index (file mode) ---
     if channel_id is not None and _ch_row is not None:
         async for evt in _inject_conversation_sections(
-            messages, bot, _ch_row, channel_id, user_message, _inject_chars,
+            messages, bot, _ch_row, channel_id, session_id, user_message, _inject_chars,
         ):
             yield evt
 
@@ -2389,6 +2250,3 @@ async def assemble_for_preview(
         bot_id=bot.id,
         model=effective_model,
     )
-
-
-

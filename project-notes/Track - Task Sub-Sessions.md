@@ -1,10 +1,57 @@
 ---
 tags: [agent-server, track, architecture]
 status: active
-updated: 2026-04-21 (Phase 8 polish — bot sub-session visibility + mobile dock + cross-device scratch; thread dock parity; dashboard scratch handoff clarity; session switcher/menu polish)
+updated: 2026-04-21 (Phase 9 session-aware scratch metadata/history/promotion shipped; Phase 8 polish — bot sub-session visibility + mobile dock + cross-device scratch; thread dock parity; dashboard scratch handoff clarity; session switcher/menu polish)
 ---
 
 # Track — Task Sub-Sessions (pipeline-as-chat refactor)
+
+## Phase 9 session-aware scratch metadata, history, and promotion (shipped 2026-04-21)
+
+Scratch sessions stopped being a thin "current pointer + first-message preview" layer and became first-class session records with names, summaries, section stats, and session-aware history semantics.
+
+### What shipped
+
+- **Scratch metadata contract** — `Session.title` is now the canonical session name and `Session.summary` is the canonical compact summary for both primary and scratch sessions. `/api/v1/sessions/scratch/current` and `/scratch/list` now return `title`, `summary`, `message_count`, `section_count`, and `session_scope` in addition to the existing identifiers.
+- **Rename + promote endpoints** — `PATCH /api/v1/sessions/{session_id}` updates `Session.title`; `POST /api/v1/sessions/{session_id}/promote-to-primary` swaps a scratch session into `channel.active_session_id` and demotes the former primary session into the caller's scratch history. This is a role swap, not transcript copy.
+- **One-shot scratch bootstrap** — new scratch sessions inherit lightweight bootstrap metadata from the current primary session (`bootstrap_source_session_id`, `bootstrap_source_title`, `bootstrap_summary`). `app/services/sessions.py` injects that summary only when the scratch session has no active messages yet, so new scratch turns start with main-session orientation but do not carry it forever.
+- **Session-aware compaction/history runtime** — the runtime section index moved from channel-scoped reads to session-scoped reads. `context_assembly._inject_conversation_sections(...)`, `read_conversation_history`, and the core compaction executive-summary path now query `ConversationSection.session_id` for the active session rather than treating the channel as one shared archive.
+- **Backfill/compaction metadata refresh** — automatic compaction and backfill now update session metadata, not just explicit `/compact`. Structured/file compaction continues writing section rows, but also keeps `Session.summary` as the selector-safe executive summary.
+- **Scratch/tooling visibility polish** — `read_conversation_history(section='recent')` now identifies the current session by title/summary and surfaces nearby-session pointers instead of mixing section indexes. `list_sub_sessions` prefers scratch titles/summaries when describing scratch rows.
+- **Selector UX** — `ScratchSessionMenu` now prefers `title`, shows optional summary plus `messages / sections / last active`, and exposes rename + "make primary" actions inline. The menu still keeps scratch sessions internal; promotion is the only moment a session becomes the channel-visible primary conversation.
+
+### Key decisions
+
+- **Scratch remains internal-only until promotion.** Slack/integrations never receive "entered scratch" or "switched scratch session" traffic. External delivery only follows `channel.active_session_id`, which changes on promotion.
+- **Reply threads remain out of scope.** Threads stay on the existing thread sub-session model for now; no naming/promotion/session-selector behavior was extended to them in this slice.
+- **Section indexes are session-scoped at runtime.** Channel-level aggregation can still exist for admin/reporting views, but prompt injection and runtime history reads must follow the current session's own sections.
+- **Demoted primary sessions become scratch rows for the acting user.** On promotion, the former primary keeps its transcript/summary/sections intact but moves to `session_type="ephemeral"`, `parent_channel_id=<channel>`, `owner_user_id=<user>`, `is_current=True`.
+
+### Verification
+
+- `python -m py_compile app/routers/api_v1_sessions.py app/services/sessions.py app/agent/context_assembly.py app/services/compaction.py app/tools/local/conversation_history.py app/tools/local/sub_sessions.py`
+- `cd agent-server/ui && npx tsc --noEmit`
+- Targeted pytest remained unreliable under the local shell wrapper:
+  - `tests/integration/test_scratch_sessions.py -q`
+  - `tests/integration/test_conversation_history_tool.py -q`
+  - single-test probes for each file also timed out without emitting a Python failure trace
+
+### Files
+
+- `app/routers/api_v1_sessions.py`
+- `app/services/sessions.py`
+- `app/agent/context_assembly.py`
+- `app/services/compaction.py`
+- `app/tools/local/conversation_history.py`
+- `app/tools/local/sub_sessions.py`
+- `ui/src/api/hooks/useEphemeralSession.ts`
+- `ui/src/components/chat/ScratchSessionMenu.tsx`
+- `tests/integration/test_scratch_sessions.py`
+
+### Follow-ups parked
+
+- `repair_section_periods` / retention/admin surfaces still have channel-scoped section queries in a few maintenance-only paths; runtime prompting/history no longer depends on them, but the cleanup pass is still worth doing.
+- Targeted pytest needs a trustworthy local harness pass before calling the new scratch promotion contract fully regression-covered.
 
 ## Phase 8 polish — bot visibility + mobile dock + cross-device scratch (shipped 2026-04-21)
 

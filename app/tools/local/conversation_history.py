@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 
-from app.agent.context import current_bot_id, current_channel_id
+from app.agent.context import current_bot_id, current_channel_id, current_session_id
 from app.db.engine import async_session
-from app.db.models import Channel, ConversationSection, ToolCall
+from app.db.models import Channel, ConversationSection, Message, Session, ToolCall
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,7 @@ async def _track_view(section_id: uuid.UUID) -> None:
         await db.commit()
 
 
-async def search_sections(channel_id: uuid.UUID, query: str) -> list[dict]:
+async def search_sections(session_id: uuid.UUID, query: str) -> list[dict]:
     """Smart search: keyword + transcript grep + semantic. Returns deduplicated results.
 
     Each result dict has: section (ConversationSection), source (str), snippet (str|None).
@@ -151,7 +151,7 @@ async def search_sections(channel_id: uuid.UUID, query: str) -> list[dict]:
         # --- Phase 1: metadata keyword ---
         meta_result = await db.execute(
             select(ConversationSection)
-            .where(ConversationSection.channel_id == channel_id, *filters)
+            .where(ConversationSection.session_id == session_id, *filters)
             .order_by(ConversationSection.sequence.desc())
             .limit(10)
         )
@@ -165,7 +165,7 @@ async def search_sections(channel_id: uuid.UUID, query: str) -> list[dict]:
             grep_result = await db.execute(
                 select(ConversationSection)
                 .where(
-                    ConversationSection.channel_id == channel_id,
+                    ConversationSection.session_id == session_id,
                     ConversationSection.transcript.ilike(f"%{escaped_query}%"),
                 )
                 .order_by(ConversationSection.sequence.desc())
@@ -186,7 +186,7 @@ async def search_sections(channel_id: uuid.UUID, query: str) -> list[dict]:
                 sem_result = await db.execute(
                     select(ConversationSection)
                     .where(
-                        ConversationSection.channel_id == channel_id,
+                        ConversationSection.session_id == session_id,
                         ConversationSection.embedding.is_not(None),
                     )
                     .order_by(halfvec_cosine_distance(ConversationSection.embedding, query_vec))
@@ -221,6 +221,7 @@ def _extract_snippet(text: str, query: str, context_chars: int = 100) -> str | N
 @register(_SCHEMA, requires_bot_context=True, requires_channel_context=True)
 async def read_conversation_history(section: str, channel_id: str | None = None) -> str:
     my_channel_id = current_channel_id.get()
+    my_session_id = current_session_id.get()
     bot_id = current_bot_id.get()
     owner_bot_id = None  # set when reading another bot's channel via cross_workspace_access
 
@@ -274,21 +275,99 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
     if not resolved_channel_id:
         return "No channel context available. This tool requires a channel-based conversation."
 
+    current_session: Session | None = None
+    primary_session: Session | None = None
+    nearby_scratches: list[Session] = []
+    if resolved_channel_id:
+        async with async_session() as db:
+            channel_row = await db.get(Channel, resolved_channel_id)
+            if channel_row and channel_row.active_session_id:
+                primary_session = await db.get(Session, channel_row.active_session_id)
+
+            if my_session_id and channel_id is None:
+                current_session = await db.get(Session, my_session_id)
+                if current_session and current_session.parent_channel_id != resolved_channel_id and current_session.channel_id != resolved_channel_id:
+                    current_session = primary_session
+            else:
+                current_session = primary_session
+
+            if current_session is None:
+                current_session = primary_session
+
+            nearby_scratches = (await db.execute(
+                select(Session)
+                .where(
+                    Session.session_type == "ephemeral",
+                    Session.parent_channel_id == resolved_channel_id,
+                )
+                .order_by(Session.last_active.desc(), Session.created_at.desc())
+                .limit(5)
+            )).scalars().all()
+
+    if current_session is None:
+        return "No conversation found for this channel."
+
+    target_session_id = current_session.id
+
+    def _session_label(session: Session | None, fallback: str) -> str:
+        if session is None:
+            return fallback
+        return (session.title or fallback).strip() or fallback
+
+    def _session_summary(session: Session | None) -> str:
+        return (session.summary or "").strip() if session else ""
+
+    def _same_session(a: Session | None, b: Session | None) -> bool:
+        return bool(a and b and a.id == b.id)
+
+    def _nearby_lines() -> list[str]:
+        lines: list[str] = []
+        if (
+            current_session
+            and current_session.session_type == "ephemeral"
+            and primary_session is not None
+            and not _same_session(current_session, primary_session)
+        ):
+            title = _session_label(primary_session, "Primary session")
+            summary = _session_summary(primary_session)
+            lines.append(
+                f"Primary session nearby: session_id={primary_session.id} title={title!r}"
+            )
+            if summary:
+                lines.append(f"Summary: {summary}")
+        elif nearby_scratches:
+            lines.append("Recent scratch sessions nearby:")
+            for scratch in nearby_scratches[:3]:
+                if scratch.id == target_session_id:
+                    continue
+                label = _session_label(scratch, "Untitled scratch")
+                summary = _session_summary(scratch)
+                lines.append(
+                    f"  - session_id={scratch.id} title={label!r} last_active={scratch.last_active.isoformat()}"
+                )
+                if summary:
+                    lines.append(f"    summary={summary}")
+        return lines
+
     if section == "index":
         from sqlalchemy.orm import defer
         async with async_session() as db:
             result = await db.execute(
                 select(ConversationSection)
-                .where(ConversationSection.channel_id == resolved_channel_id)
+                .where(ConversationSection.session_id == target_session_id)
                 .order_by(ConversationSection.sequence)
                 .options(defer(ConversationSection.transcript), defer(ConversationSection.embedding))
             )
             sections = result.scalars().all()
 
         if not sections:
-            return "No archived conversation sections found for this channel. Try section='recent' to see the latest messages."
+            lines = ["No archived conversation sections found for this session. Try section='recent' to see the latest messages."]
+            nearby = _nearby_lines()
+            if nearby:
+                lines.extend(["", *nearby])
+            return "\n".join(lines)
 
-        lines = ["Archived conversation sections:\n"]
+        lines = [f"Archived conversation sections for session {target_session_id}:\n"]
         for s in sections:
             date_str = s.period_start.strftime("%Y-%m-%d %H:%M") if s.period_start else "unknown"
             tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
@@ -297,30 +376,22 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
                 f"({s.message_count} msgs, {date_str}){tag_str}\n"
                 f"  {s.summary}"
             )
+        nearby = _nearby_lines()
+        if nearby:
+            lines.extend(["", *nearby])
         return "\n".join(lines)
 
     # Recent messages — reads live messages from the channel's latest session
     if section.lower() == "recent":
-        from app.db.models import Message, Session as SessionModel
+        from app.db.models import Session as SessionModel
         _RECENT_LIMIT = 50
 
         async with async_session() as db:
-            # Find the most recent session for this channel
-            latest_session = (await db.execute(
-                select(SessionModel)
-                .where(SessionModel.channel_id == resolved_channel_id)
-                .order_by(SessionModel.last_active.desc())
-                .limit(1)
-            )).scalar_one_or_none()
-
-            if not latest_session:
-                return "No conversation found for this channel."
-
             # Load recent messages (newest first, then reverse for chronological order)
             msg_result = await db.execute(
                 select(Message)
                 .where(
-                    Message.session_id == latest_session.id,
+                    Message.session_id == target_session_id,
                     Message.role.in_(["user", "assistant"]),
                 )
                 .order_by(Message.created_at.desc())
@@ -349,22 +420,22 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
                     parent = await db.get(Message, s.parent_message_id) if s.parent_message_id else None
                     sub_rows.append(("thread", str(s.id), s, parent))
 
-            scratch_sessions = (await db.execute(
-                select(SessionModel)
-                .where(
-                    SessionModel.session_type == "ephemeral",
-                    SessionModel.parent_channel_id == resolved_channel_id,
-                )
-                .order_by(SessionModel.is_current.desc(), SessionModel.created_at.desc())
-                .limit(5)
-            )).scalars().all()
+            scratch_sessions = nearby_scratches
             for s in scratch_sessions:
                 sub_rows.append(("scratch", str(s.id), s, None))
 
         if not messages:
-            return "No messages found in this channel's latest session."
+            return "No messages found in this session."
 
-        lines = [f"Recent messages ({len(messages)} shown):\n"]
+        session_label = "scratch session" if current_session.session_type == "ephemeral" else "primary session"
+        lines = [
+            f"Recent messages from the current {session_label} ({len(messages)} shown):",
+            f"Session: {_session_label(current_session, 'Untitled session')} ({target_session_id})",
+        ]
+        current_summary = _session_summary(current_session)
+        if current_summary:
+            lines.append(f"Summary: {current_summary}")
+        lines.append("")
         for msg in messages:
             ts = msg.created_at.strftime("%Y-%m-%d %H:%M") if msg.created_at else "?"
             content = msg.content or ""
@@ -406,11 +477,14 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
         async with async_session() as db:
             section_count = (await db.execute(
                 select(ConversationSection.id)
-                .where(ConversationSection.channel_id == resolved_channel_id)
+                .where(ConversationSection.session_id == target_session_id)
                 .limit(1)
             )).scalar_one_or_none()
         if section_count:
             lines.append("\nOlder history available — use section='index' to browse archived sections.")
+        nearby = _nearby_lines()
+        if nearby:
+            lines.extend(["", *nearby])
 
         return "\n".join(lines)
 
@@ -420,7 +494,7 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
         if not query:
             return "Please provide a search query, e.g. 'search:database migration'."
 
-        results = await search_sections(resolved_channel_id, query)
+        results = await search_sections(target_session_id, query)
 
         if not results:
             return f"No sections found matching '{query}'."
@@ -444,6 +518,9 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
             if r.get("snippet"):
                 lines.append(f"  > {r['snippet']}")
         lines.append("\nUse read_conversation_history with a section number to read the full transcript.")
+        nearby = _nearby_lines()
+        if nearby:
+            lines.extend(["", *nearby])
         return "\n".join(lines)
 
     # Retrieve full tool call output by ID
@@ -477,7 +554,7 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
         async with async_session() as db:
             result = await db.execute(
                 select(ConversationSection)
-                .where(ConversationSection.channel_id == resolved_channel_id, ConversationSection.sequence == seq_num)
+                .where(ConversationSection.session_id == target_session_id, ConversationSection.sequence == seq_num)
             )
             sec_obj = result.scalar_one_or_none()
         if not sec_obj:

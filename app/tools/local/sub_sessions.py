@@ -229,11 +229,14 @@ async def _collect_scratch_rows(
             if len(first_preview) > 60:
                 first_preview = first_preview[:60] + "…"
         marker = " [current]" if s.is_current else ""
+        base_title = (s.title or "").strip() or first_preview or "(empty)"
+        if s.summary:
+            base_title = f"{base_title} — {s.summary.strip()[:80]}"
         rows.append(_SubSessionRow(
             kind="scratch",
             session_id=s.id,
             created_at=s.created_at,
-            title=f"Scratch{marker}: {first_preview or '(empty)'}",
+            title=f"Scratch{marker}: {base_title}",
             status="current" if s.is_current else "archived",
             follow_ups=follow_ups,
         ))
