@@ -3,7 +3,7 @@
 name: Todo
 description: Focused channel-scoped todo list. Bots can add, list, toggle, or delete items.
 display_label: Todo
-version: 1.0.0
+version: 1.1.0
 author: spindrel
 tags: [todo, spindrel-sdk, bot-callable]
 icon: check-square
@@ -12,45 +12,29 @@ icon: check-square
 <style>
   #td-root { display: flex; flex-direction: column; height: 100%; }
   #td-root .td-body { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
-  #td-root .td-form { display: flex; gap: 6px; }
-  #td-root .td-form input { flex: 1; }
-  #td-root .td-list { display: flex; flex-direction: column; gap: 0; flex: 1; min-height: 0; overflow-y: auto; }
-  #td-root .td-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 4px;
-    border-top: 1px solid var(--sd-border-subtle);
-    font-size: 13px;
+  #td-root .td-list {
+    display: flex; flex-direction: column; gap: 0;
+    flex: 1; min-height: 0; overflow-y: auto;
+    margin: 0 -4px;
   }
-  #td-root .td-row:first-child { border-top: none; }
-  #td-root .td-row.done .td-title { text-decoration: line-through; color: var(--sd-text-muted); }
-  #td-root .td-checkbox {
-    width: 16px; height: 16px;
-    flex: 0 0 auto;
-    accent-color: var(--sd-accent, currentColor);
-    cursor: pointer;
-  }
-  #td-root .td-title { flex: 1; overflow-wrap: anywhere; }
-  #td-root .td-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 120ms ease; }
-  #td-root .td-row:hover .td-actions,
-  #td-root .td-row:focus-within .td-actions { opacity: 1; }
-  #td-root .td-empty {
-    padding: 24px 4px;
-    text-align: center;
-    color: var(--sd-text-muted);
-    font-size: 12px;
+  #td-root .td-row-exit { animation: td-row-fade-out 160ms ease-in forwards; }
+  @keyframes td-row-fade-out {
+    to { opacity: 0; transform: translateX(8px); max-height: 0; padding-top: 0; padding-bottom: 0; }
   }
   #td-root .td-count { font-variant-numeric: tabular-nums; }
+  #td-root .td-empty-wrap { padding: 20px 4px 8px; }
 </style>
 <div class="sd-card" id="td-root">
-  <header class="sd-card-header sd-hstack-between">
+  <header class="sd-card-header">
     <div class="sd-stack" style="gap: 2px;">
       <h3 class="sd-title">Todo</h3>
       <span class="sd-meta" id="td-sub">Channel list</span>
     </div>
-    <span class="sd-chip td-count" id="td-count">0 / 0</span>
+    <span class="sd-tag td-count" id="td-count">0 / 0</span>
   </header>
   <div class="sd-card-body td-body">
-    <form class="td-form" id="td-form">
+    <form class="sd-input-group" id="td-form" autocomplete="off">
+      <span class="sd-input-group__icon"></span>
       <input
         type="text"
         class="sd-input"
@@ -60,10 +44,10 @@ icon: check-square
         autocomplete="off"
         required
       />
-      <button type="submit" class="sd-btn sd-btn-primary" id="td-submit">Add</button>
+      <button type="submit" class="sd-btn sd-btn-primary sd-input-group__action" id="td-submit">Add</button>
     </form>
-    <div class="td-list" id="td-list">
-      <div class="td-empty" id="td-empty">Nothing yet. Add one above or ask a bot to remember something.</div>
+    <div class="td-list sd-list" id="td-list">
+      <div class="td-empty-wrap" id="td-empty" hidden></div>
     </div>
   </div>
 </div>
@@ -76,6 +60,9 @@ icon: check-square
   const formEl = document.getElementById("td-form");
   const titleEl = document.getElementById("td-title");
   const submitEl = document.getElementById("td-submit");
+  const leadIconSlot = formEl.querySelector(".sd-input-group__icon");
+
+  leadIconSlot.innerHTML = sp.ui.icon("plus", { size: "sm", tone: "muted" });
 
   function esc(s) {
     return String(s || "").replace(/[&<>"']/g, (c) => ({
@@ -83,61 +70,105 @@ icon: check-square
     }[c]));
   }
 
-  async function guarded(fn) {
-    try { await fn(); }
-    catch (e) { sp.notify("error", (e && e.message) || String(e)); }
+  function rowHtml(r, isNew) {
+    const checked = r.done ? "checked" : "";
+    const doneCls = r.done ? " sd-row--done" : "";
+    const animCls = isNew ? " sd-anim-fade-in" : "";
+    return (
+      '<div class="sd-row' + doneCls + animCls + '" data-id="' + esc(r.id) + '">' +
+        '<label class="sd-check" data-toggle="' + esc(r.id) + '">' +
+          '<input type="checkbox" ' + checked + ' aria-label="Toggle done" />' +
+          '<span class="sd-check__box">' +
+            '<svg class="sd-check__mark" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>' +
+          '</span>' +
+        '</label>' +
+        '<span class="sd-row__title">' + esc(r.title) + '</span>' +
+        '<span class="sd-row__actions">' +
+          '<button class="sd-btn sd-btn-subtle" data-delete="' + esc(r.id) + '" ' +
+            'aria-label="Delete todo" title="Delete">' +
+            sp.ui.icon("trash", { size: "sm" }) +
+          '</button>' +
+        '</span>' +
+      '</div>'
+    );
   }
+
+  function renderEmpty() {
+    emptyEl.innerHTML =
+      '<div class="sd-empty">' +
+        '<svg class="sd-icon sd-icon--xl sd-empty__icon"><use href="#sd-icon-list"/></svg>' +
+        '<div class="sd-empty__title">No todos yet</div>' +
+        '<div class="sd-empty__subtitle">Add your first task above, or ask a bot to remember something.</div>' +
+      '</div>';
+  }
+
+  function wireRows() {
+    listEl.querySelectorAll("[data-toggle]").forEach((label) => {
+      const inp = label.querySelector('input[type="checkbox"]');
+      if (!inp || inp.__sdWired) return;
+      inp.__sdWired = true;
+      inp.addEventListener("change", () => {
+        const id = label.dataset.toggle;
+        // Optimistic: the row animation kicks in on next loadAndRender.
+        sp.callHandler("toggle_done", { id }).catch((e) => {
+          sp.notify("error", "Toggle failed: " + ((e && e.message) || e));
+        });
+      });
+    });
+    listEl.querySelectorAll("button[data-delete]").forEach((btn) => {
+      if (btn.__sdWired) return;
+      btn.__sdWired = true;
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.delete;
+        const row = btn.closest(".sd-row");
+        // Fade out locally for responsiveness, then call handler.
+        if (row) row.classList.add("td-row-exit");
+        try {
+          await sp.callHandler("delete_todo", { id });
+        } catch (e) {
+          if (row) row.classList.remove("td-row-exit");
+          sp.notify("error", "Delete failed: " + ((e && e.message) || e));
+        }
+      });
+    });
+  }
+
+  let seenIds = new Set();
 
   function render(rows) {
     const done = rows.filter((r) => r.done).length;
     countEl.textContent = done + " / " + rows.length;
 
-    // Clear prior rows but keep the empty-state div in the DOM for reuse.
-    Array.from(listEl.querySelectorAll(".td-row")).forEach((n) => n.remove());
+    // Clear prior rows but keep the empty-state div in the DOM.
+    Array.from(listEl.querySelectorAll(".sd-row")).forEach((n) => n.remove());
 
     if (rows.length === 0) {
+      renderEmpty();
       emptyEl.hidden = false;
+      seenIds = new Set();
       return;
     }
     emptyEl.hidden = true;
+    emptyEl.innerHTML = "";
 
-    const html = rows.map((r) => {
-      const checked = r.done ? "checked" : "";
-      const doneCls = r.done ? " done" : "";
-      return `
-        <div class="td-row${doneCls}" data-id="${esc(r.id)}">
-          <input type="checkbox" class="td-checkbox" data-toggle="${esc(r.id)}" ${checked} aria-label="Toggle done" />
-          <span class="td-title">${esc(r.title)}</span>
-          <span class="td-actions">
-            <button class="sd-btn sd-btn-ghost" data-delete="${esc(r.id)}" title="Delete" aria-label="Delete todo">✕</button>
-          </span>
-        </div>
-      `;
-    }).join("");
+    const newIds = new Set(rows.map((r) => r.id));
+    const html = rows.map((r) => rowHtml(r, !seenIds.has(r.id))).join("");
+    seenIds = newIds;
 
     const frag = document.createElement("div");
     frag.innerHTML = html;
     while (frag.firstChild) listEl.appendChild(frag.firstChild);
 
-    listEl.querySelectorAll("input[data-toggle]").forEach((inp) => {
-      inp.addEventListener("change", () => {
-        guarded(async () => {
-          await sp.callHandler("toggle_done", { id: inp.dataset.toggle });
-        });
-      });
-    });
-    listEl.querySelectorAll("button[data-delete]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        guarded(async () => {
-          await sp.callHandler("delete_todo", { id: btn.dataset.delete });
-        });
-      });
-    });
+    wireRows();
   }
 
   async function loadAndRender() {
-    const rows = await sp.callHandler("list_todos", {});
-    render(Array.isArray(rows) ? rows : []);
+    try {
+      const rows = await sp.callHandler("list_todos", {});
+      render(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      sp.notify("error", (e && e.message) || String(e));
+    }
   }
 
   formEl.addEventListener("submit", async (e) => {
@@ -145,6 +176,7 @@ icon: check-square
     const title = titleEl.value.trim();
     if (!title) return;
     submitEl.disabled = true;
+    submitEl.classList.add("sd-is-loading");
     try {
       await sp.callHandler("add_todo", { title });
       titleEl.value = "";
@@ -153,6 +185,7 @@ icon: check-square
       sp.notify("error", "Add failed: " + ((err && err.message) || err));
     } finally {
       submitEl.disabled = false;
+      submitEl.classList.remove("sd-is-loading");
     }
   });
 

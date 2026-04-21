@@ -328,6 +328,39 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
             )
             messages = list(reversed(msg_result.scalars().all()))
 
+            # Discover any sub-sessions (threads + scratch) attached to
+            # this channel so the bot knows to read them if the user
+            # references them. Threads anchor to messages in the main
+            # transcript; scratch sessions link via parent_channel_id
+            # (migration 232).
+            shown_msg_ids = {m.id for m in messages}
+            sub_rows: list[tuple[str, str, SessionModel, Message | None]] = []
+            if shown_msg_ids:
+                thread_sessions = (await db.execute(
+                    select(SessionModel)
+                    .where(
+                        SessionModel.session_type == "thread",
+                        SessionModel.parent_message_id.in_(shown_msg_ids),
+                    )
+                    .order_by(SessionModel.created_at.desc())
+                    .limit(10)
+                )).scalars().all()
+                for s in thread_sessions:
+                    parent = await db.get(Message, s.parent_message_id) if s.parent_message_id else None
+                    sub_rows.append(("thread", str(s.id), s, parent))
+
+            scratch_sessions = (await db.execute(
+                select(SessionModel)
+                .where(
+                    SessionModel.session_type == "ephemeral",
+                    SessionModel.parent_channel_id == resolved_channel_id,
+                )
+                .order_by(SessionModel.is_current.desc(), SessionModel.created_at.desc())
+                .limit(5)
+            )).scalars().all()
+            for s in scratch_sessions:
+                sub_rows.append(("scratch", str(s.id), s, None))
+
         if not messages:
             return "No messages found in this channel's latest session."
 
@@ -343,6 +376,31 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
                 content = content[:500] + "..."
             sender = msg.metadata_.get("sender_id") or msg.role
             lines.append(f"[{ts}] {sender}: {content}")
+
+        # Sub-session index — threads anchored in the window + any scratch
+        # sessions on this channel. Points at read_sub_session for detail.
+        if sub_rows:
+            lines.append("\n--- Sub-sessions ---")
+            lines.append(
+                "Thread replies and scratch-pad chats live off this channel. "
+                "Call read_sub_session(session_id=<id>) to read one."
+            )
+            for kind, sid, s, parent in sub_rows[:10]:
+                ts = s.created_at.strftime("%Y-%m-%d %H:%M") if s.created_at else "?"
+                if kind == "thread" and parent is not None:
+                    preview = (parent.content or "").strip().replace("\n", " ")
+                    if len(preview) > 60:
+                        preview = preview[:60] + "…"
+                    lines.append(
+                        f"[{ts}] thread on msg {parent.id}: {preview!r} — "
+                        f"read with read_sub_session(session_id='{sid}')"
+                    )
+                else:
+                    marker = " [current]" if getattr(s, "is_current", False) else ""
+                    lines.append(
+                        f"[{ts}] scratch{marker} session={sid} — "
+                        f"read with read_sub_session(session_id='{sid}')"
+                    )
 
         # Hint about archived sections if they exist
         async with async_session() as db:

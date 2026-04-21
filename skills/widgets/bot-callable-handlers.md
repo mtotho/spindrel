@@ -1,13 +1,13 @@
 ---
 name: Bot-callable widget handlers
-description: How to make a widget's @on_action handlers invokable from a bot's turn — declare them in widget.yaml `handlers:`, set `bot_callable: true`, and the framework surfaces each one as a `widget.<slug>.<handler>` tool automatically. Bots can then read or mutate widget state in chat ("mark laundry done", "what's on my todo list?") without bespoke per-widget tools.
-triggers: bot-callable handler, bot call widget, bot tool for widget, agent controls widget, widget.todo, widget.<slug>, handlers: block, handler tool, bot mutate widget state, widget bot bridge, ask the bot to add a todo
+description: How to make a widget's @on_action handlers invokable from a bot's turn — declare them in widget.yaml `handlers:`, set `bot_callable: true`, and the framework surfaces each one as a `widget__<slug>__<handler>` tool automatically. Bots can then read or mutate widget state in chat ("mark laundry done", "what's on my todo list?") without bespoke per-widget tools.
+triggers: bot-callable handler, bot call widget, bot tool for widget, agent controls widget, widget__todo, widget__<slug>, handlers: block, handler tool, bot mutate widget state, widget bot bridge, ask the bot to add a todo
 category: core
 ---
 
 # Bot-callable widget handlers
 
-Widget handlers (`@on_action` in `widget.py`) are already callable from the iframe via `spindrel.callHandler`. **Opt a handler in for bots too, and the framework auto-registers it as a tool** named `widget.<slug>.<handler_name>`. No per-widget Python tool module to write, no manifest plumbing beyond one block.
+Widget handlers (`@on_action` in `widget.py`) are already callable from the iframe via `spindrel.callHandler`. **Opt a handler in for bots too, and the framework auto-registers it as a tool** named `widget__<slug>__<handler_name>`. No per-widget Python tool module to write, no manifest plumbing beyond one block.
 
 ## Opt in — one block in `widget.yaml`
 
@@ -66,10 +66,10 @@ A handler with `bot_callable: true` must have a non-empty `description` — the 
 Given a manifest `name: Todo` with `handlers: [{name: add_todo, bot_callable: true, ...}]`, a pinned instance on a channel surfaces as:
 
 ```
-widget.todo.add_todo — [Todo] Add a new todo item to this list.
+widget__todo__add_todo — [Todo] Add a new todo item to this list.
 ```
 
-Names are `widget.<slug>.<handler>` where `<slug>` is the manifest name lowercased and stripped to `[a-z0-9_-]`. Two pins of the same widget on the same view (rare) disambiguate with a short `~hash` suffix derived from the pin id.
+Names are `widget__<slug>__<handler>` where `<slug>` is the manifest name lowercased and stripped to `[a-z0-9-]` (OpenAI/Gemini tool names only allow `[a-zA-Z0-9_-]`, so `__` is the separator). Two pins of the same widget on the same view (rare) disambiguate with a short `__<hash>` suffix derived from the pin id.
 
 ## Visibility rules (who sees the tool)
 
@@ -147,7 +147,7 @@ async def list_todos(args):
   safety_tier: readonly
 ```
 
-From the bot's seat: "remember to buy cheese" → `widget.todo.add_todo({title: "Buy cheese"})` → (optional approval) → INSERT → `ctx.notify_reload()` → iframe re-renders within the `autoReload` interval.
+From the bot's seat: "remember to buy cheese" → `widget__todo__add_todo({title: "Buy cheese"})` → (optional approval) → INSERT → `ctx.notify_reload()` → iframe re-renders within the `autoReload` interval.
 
 ## When a handler should stay iframe-only
 

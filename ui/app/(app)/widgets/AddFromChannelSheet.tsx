@@ -18,6 +18,10 @@ import type {
 } from "@/src/types/api";
 import { HtmlWidgetsTab, pinIdentity } from "./HtmlWidgetsTab";
 import { PinScopePicker } from "./PinScopePicker";
+import {
+  LibraryWidgetsTab,
+  libraryPinIdentity,
+} from "./LibraryWidgetsTab";
 
 /** Previews are read-only — widget `callTool` dispatches inside the sheet
  *  don't mutate anything. A no-op dispatcher makes that explicit. */
@@ -38,7 +42,7 @@ interface Props {
   scopeChannelId?: string | null;
 }
 
-type Tab = "channel" | "recent" | "html-widgets" | "suites" | "build";
+type Tab = "channel" | "recent" | "library" | "html-widgets" | "suites" | "build";
 
 interface SuiteEntry {
   suite_id: string;
@@ -216,6 +220,18 @@ export default function AddFromChannelSheet({
     return set;
   }, [pins]);
 
+  // Identity set for library-scoped pins keyed by ``library:<scope>/<name>``
+  // so the Library tab can dim already-pinned entries regardless of which
+  // tool originally emitted them.
+  const existingLibraryRefs = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of pins) {
+      const id = libraryPinIdentity(p.envelope);
+      if (id) set.add(id);
+    }
+    return set;
+  }, [pins]);
+
   const filteredSections = useMemo(() => {
     if (!loaded) return [];
     const q = query.trim().toLowerCase();
@@ -277,6 +293,9 @@ export default function AddFromChannelSheet({
               HTML widgets
             </TabButton>
           )}
+          <TabButton active={tab === "library"} onClick={() => setTab("library")}>
+            Library
+          </TabButton>
           {suites && suites.length > 0 && (
             <TabButton active={tab === "suites"} onClick={() => setTab("suites")}>
               Suites
@@ -287,7 +306,7 @@ export default function AddFromChannelSheet({
           </TabButton>
         </div>
 
-        {(tab === "html-widgets" || tab === "suites") && (
+        {(tab === "html-widgets" || tab === "suites" || tab === "library") && (
           <div className="mx-4 mt-2">
             <PinScopePicker
               scope={pinScope}
@@ -297,7 +316,7 @@ export default function AddFromChannelSheet({
           </div>
         )}
 
-        {(tab === "channel" || tab === "html-widgets") && (
+        {(tab === "channel" || tab === "html-widgets" || tab === "library") && (
           <div className="px-4 py-2.5">
             <label className="flex items-center gap-2 rounded-md border border-surface-border bg-surface px-2.5 py-1.5 focus-within:border-accent/60">
               <Search size={13} className="text-text-dim" />
@@ -307,7 +326,9 @@ export default function AddFromChannelSheet({
                 placeholder={
                   tab === "html-widgets"
                     ? "Search HTML widgets"
-                    : "Search channels or widgets"
+                    : tab === "library"
+                      ? "Search library widgets"
+                      : "Search channels or widgets"
                 }
                 className="flex-1 bg-transparent text-[12px] text-text placeholder-text-dim outline-none"
               />
@@ -462,6 +483,44 @@ export default function AddFromChannelSheet({
                 toast({
                   kind: "success",
                   message: `Added ${entry.display_label} to ${dashboardName ?? "dashboard"}`,
+                  action: onPinned
+                    ? {
+                        label: "View",
+                        onClick: () => {
+                          onPinned(created.id);
+                          onClose();
+                        },
+                      }
+                    : undefined,
+                });
+                onPinned?.(created.id);
+              }}
+            />
+          )}
+          {tab === "library" && (
+            <LibraryWidgetsTab
+              query={query}
+              pinScope={pinScope}
+              existingRefs={existingLibraryRefs}
+              onPin={async ({ entry, envelope, botId }) => {
+                // Library pins always use ``source_kind="adhoc"`` at the DB
+                // level; the envelope's ``source_kind="library"`` +
+                // ``source_library_ref`` drive the renderer's content fetch.
+                const created = await pinWidget({
+                  source_kind: "adhoc",
+                  source_channel_id: scopeChannelId ?? null,
+                  source_bot_id: botId,
+                  tool_name: "emit_html_widget",
+                  tool_args: {
+                    library_ref: `${entry.scope}/${entry.name}`,
+                  },
+                  envelope,
+                  display_label: entry.display_label ?? entry.name,
+                });
+                const label = entry.display_label ?? entry.name;
+                toast({
+                  kind: "success",
+                  message: `Added ${label} to ${dashboardName ?? "dashboard"}`,
                   action: onPinned
                     ? {
                         label: "View",

@@ -118,8 +118,17 @@ export function useChannelState(channelId: string | undefined, primaryBotId?: st
     // and pre-tool thinking streams vanish on every window-focus refetch.
     // Only turns whose last SSE event is older than SSE_QUIET_MS AND
     // startedAt is older than the grace window count as real ghosts.
+    //
+    // SSE_QUIET_MS matches OBSERVER_TURN_TIMEOUT in useChannelEvents. The
+    // prior 10s was aggressive enough that long-running tool calls (file
+    // reads, search_tools, preview_widget) silently nuked live turns on any
+    // window-focus refetch that happened during a silent tool-execution
+    // window. Raising to 180s makes the observer the authoritative
+    // kill-switch (it already resets on every SSE event for the turn) and
+    // reserves this reconcile for truly-stale rehydrated turns whose
+    // observer was never attached (post-refresh state).
     const GHOST_GRACE_MS = 3000;
-    const SSE_QUIET_MS = 10_000;
+    const SSE_QUIET_MS = 180_000;
     const now = Date.now();
     const ch = store.getChannel(channelId);
     for (const [turnId, turn] of Object.entries(ch.turns)) {

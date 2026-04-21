@@ -118,6 +118,8 @@ async def spawn_ephemeral_session(
     bot_id: str,
     parent_channel_id: uuid.UUID | None = None,
     context: dict | None = None,
+    owner_user_id: uuid.UUID | None = None,
+    is_current: bool = False,
 ) -> Session:
     """Create a stand-alone ephemeral sub-session not tied to any Task.
 
@@ -126,6 +128,10 @@ async def spawn_ephemeral_session(
 
     parent_channel_id, if supplied, links the session to a parent channel's
     active session for SSE bus routing (same mechanism as pipeline sub-sessions).
+    When ``owner_user_id`` + ``parent_channel_id`` are both set and
+    ``is_current=True``, the row also serves as the cross-device scratch
+    pointer for that (user, channel) pair (migration 232). Partial unique
+    index prevents two concurrent current-scratch rows.
     context, if supplied, is persisted as a system message with
     metadata.kind="ephemeral_context" so the agent's first turn sees it.
 
@@ -156,6 +162,9 @@ async def spawn_ephemeral_session(
         depth=depth,
         source_task_id=None,
         session_type=SESSION_TYPE_EPHEMERAL,
+        parent_channel_id=parent_channel_id,
+        owner_user_id=owner_user_id,
+        is_current=is_current,
     )
     db.add(sub)
 

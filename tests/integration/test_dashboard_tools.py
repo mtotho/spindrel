@@ -346,6 +346,174 @@ class TestPinWidget:
 
 
 # ---------------------------------------------------------------------------
+# pin_widget — library source (widget:// bundles)
+# ---------------------------------------------------------------------------
+
+
+def _seed_bot_library_widget(ws_root, name: str, body: str = "<p>hi</p>"):
+    """Create a widget://bot/<name>/ bundle on disk for tests to resolve."""
+    import os as _os
+    bundle = _os.path.join(ws_root, ".widget_library", name)
+    _os.makedirs(bundle, exist_ok=True)
+    with open(_os.path.join(bundle, "index.html"), "w") as f:
+        f.write(body)
+    return bundle
+
+
+class TestPinWidgetLibrary:
+    @pytest.mark.asyncio
+    async def test_pins_bot_library_widget(
+        self, engine, channel_id, bot_with_key, tmp_path,
+    ):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import describe_dashboard, pin_widget
+
+        _seed_bot_library_widget(str(tmp_path), "home_control")
+
+        with _patch_tool_engine(engine), patch(
+            "app.services.workspace.workspace_service.get_workspace_root",
+            return_value=str(tmp_path),
+        ):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                raw = await pin_widget(
+                    widget="home_control",
+                    source_kind="library",
+                    zone="grid",
+                )
+                described = json.loads(await describe_dashboard())
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        result = json.loads(raw)
+        assert "error" not in result, result
+        assert uuid.UUID(result["pin_id"])
+        assert result["zone"] == "grid"
+
+        pins = described["pins"]
+        assert len(pins) == 1
+        env = pins[0]["envelope"]
+        assert env["source_kind"] == "library"
+        assert env["source_library_ref"] == "bot/home_control"
+
+    @pytest.mark.asyncio
+    async def test_accepts_explicit_bot_scope_prefix(
+        self, engine, channel_id, bot_with_key, tmp_path,
+    ):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import pin_widget
+
+        _seed_bot_library_widget(str(tmp_path), "home_control")
+
+        with _patch_tool_engine(engine), patch(
+            "app.services.workspace.workspace_service.get_workspace_root",
+            return_value=str(tmp_path),
+        ):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                raw = await pin_widget(
+                    widget="bot/home_control",
+                    source_kind="library",
+                )
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        result = json.loads(raw)
+        assert "error" not in result, result
+
+    @pytest.mark.asyncio
+    async def test_accepts_widget_uri_input(
+        self, engine, channel_id, bot_with_key, tmp_path,
+    ):
+        """`widget://bot/home_control/index.html` is accepted; trailing path stripped."""
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import describe_dashboard, pin_widget
+
+        _seed_bot_library_widget(str(tmp_path), "home_control")
+
+        with _patch_tool_engine(engine), patch(
+            "app.services.workspace.workspace_service.get_workspace_root",
+            return_value=str(tmp_path),
+        ):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                raw = await pin_widget(
+                    widget="widget://bot/home_control/index.html",
+                    source_kind="library",
+                )
+                described = json.loads(await describe_dashboard())
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        assert "error" not in json.loads(raw)
+        env = described["pins"][0]["envelope"]
+        assert env["source_library_ref"] == "bot/home_control"
+
+    @pytest.mark.asyncio
+    async def test_refuses_duplicate_library_pin(
+        self, engine, channel_id, bot_with_key, tmp_path,
+    ):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import pin_widget
+
+        _seed_bot_library_widget(str(tmp_path), "home_control")
+
+        with _patch_tool_engine(engine), patch(
+            "app.services.workspace.workspace_service.get_workspace_root",
+            return_value=str(tmp_path),
+        ):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                first = json.loads(await pin_widget(
+                    widget="home_control", source_kind="library", zone="grid",
+                ))
+                assert "error" not in first, first
+                second = json.loads(await pin_widget(
+                    widget="home_control", source_kind="library", zone="rail",
+                ))
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        assert "error" in second
+        assert "already pinned" in second["error"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_library_widget_returns_error(
+        self, engine, channel_id, bot_with_key, tmp_path,
+    ):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import pin_widget
+
+        # No bundle seeded — resolution must fail cleanly.
+        with _patch_tool_engine(engine), patch(
+            "app.services.workspace.workspace_service.get_workspace_root",
+            return_value=str(tmp_path),
+        ):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                raw = await pin_widget(
+                    widget="nonexistent_widget",
+                    source_kind="library",
+                )
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        result = json.loads(raw)
+        assert "error" in result
+        assert "not found" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
 # move_pins
 # ---------------------------------------------------------------------------
 

@@ -299,6 +299,126 @@ async def read_integration_widget_content(
     return _serve_widget_file(widgets_dir, path)
 
 
+@router.get(
+    "/html-widget-content/library",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def read_library_widget_content(
+    ref: str = Query(..., description="Library ref: '<scope>/<name>' or 'name'"),
+    bot_id: str | None = Query(
+        None,
+        description=(
+            "Bot whose library to resolve against. Required for bot/"
+            "workspace scopes; core scope resolves without a bot."
+        ),
+    ),
+):
+    """Serve the current body of a ``widget://<scope>/<name>/`` bundle.
+
+    Pairs with envelopes that carry ``source_kind='library'`` +
+    ``source_library_ref='<scope>/<name>'``. Returns ``{path, content}`` to
+    match the shape of the sibling builtin / integration endpoints so the
+    renderer's content fetch stays uniform.
+    """
+    import os as _os
+
+    ws_root: str | None = None
+    shared_root: str | None = None
+    if bot_id:
+        from app.agent.bots import get_bot
+        from app.services.shared_workspace import shared_workspace_service
+        from app.services.workspace import workspace_service
+        bot = get_bot(bot_id)
+        if bot is None:
+            raise HTTPException(404, f"Unknown bot {bot_id!r}")
+        ws_root = workspace_service.get_workspace_root(bot_id, bot)
+        if bot.shared_workspace_id:
+            shared_root = _os.path.realpath(
+                shared_workspace_service.get_host_root(bot.shared_workspace_id)
+            )
+
+    from app.tools.local.emit_html_widget import _load_library_widget
+    try:
+        body, meta = _load_library_widget(
+            ref, ws_root=ws_root, shared_root=shared_root,
+        )
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    return {"path": f"{meta['scope']}/{meta['name']}/index.html", "content": body}
+
+
+@router.get(
+    "/library-widgets",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def list_library_widgets(
+    bot_id: str | None = Query(
+        None,
+        description=(
+            "Bot whose library to enumerate. Required for the bot/workspace "
+            "scopes; core always returns regardless. Omit to see core only."
+        ),
+    ),
+):
+    """Enumerate widget-library bundles across the three scopes.
+
+    Pairs with ``widget_library_list`` (the bot-facing tool) so the Add-widget
+    sheet can browse bot- and workspace-authored bundles that the tool
+    catalog (``/html-widget-catalog``) doesn't cover. Shape::
+
+        {
+          "core":      [WidgetLibraryEntry, ...],
+          "bot":       [WidgetLibraryEntry, ...],
+          "workspace": [WidgetLibraryEntry, ...],
+        }
+
+    ``WidgetLibraryEntry`` is the dict produced by
+    ``widget_library._read_widget_meta`` — ``name``, ``scope``, ``format``,
+    plus any frontmatter metadata (``display_label``, ``description``,
+    ``version``, ``tags``, ``icon``, ``updated_at``).
+    """
+    import os as _os
+
+    from app.services.widget_paths import scope_root
+    from app.tools.local.widget_library import (
+        _iter_core_widgets,
+        _iter_scope_dir,
+    )
+
+    ws_root: str | None = None
+    shared_root: str | None = None
+    if bot_id:
+        from app.agent.bots import get_bot
+        from app.services.shared_workspace import shared_workspace_service
+        from app.services.workspace import workspace_service
+        bot = get_bot(bot_id)
+        if bot is None:
+            raise HTTPException(404, f"Unknown bot {bot_id!r}")
+        ws_root = workspace_service.get_workspace_root(bot_id, bot)
+        if bot.shared_workspace_id:
+            shared_root = _os.path.realpath(
+                shared_workspace_service.get_host_root(bot.shared_workspace_id)
+            )
+
+    core = _iter_core_widgets()
+    bot_entries = _iter_scope_dir(
+        scope_root("bot", ws_root=ws_root, shared_root=shared_root),
+        "bot",
+    )
+    workspace_entries = _iter_scope_dir(
+        scope_root("workspace", ws_root=ws_root, shared_root=shared_root),
+        "workspace",
+    )
+    return {
+        "core": core,
+        "bot": bot_entries,
+        "workspace": workspace_entries,
+    }
+
+
 def _serve_widget_file(root: str, rel_path: str) -> dict:
     """Shared read-and-return body with path-traversal guards.
 

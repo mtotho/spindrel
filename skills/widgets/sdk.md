@@ -73,6 +73,11 @@ window.spindrel.log.info|warn|error(...args)    // ring buffer (200) + live in W
 window.spindrel.ui.status(el, state, {message?, height?})  // state: "loading" | "error" | "empty" | "ready"
 window.spindrel.ui.table(rows, columns, {emptyMessage?})   // returns HTML string — set innerHTML or append
 window.spindrel.ui.chart(el, data, {type?, height?, color?, min?, max?, showAxis?, format?})  // SVG sparkline / line / bar / area
+window.spindrel.ui.icon(name, {size?, tone?, className?})  // returns <svg class="sd-icon">…</svg> string (Lucide subset sprite)
+window.spindrel.ui.autogrow(textarea, {maxHeight?})        // textarea grows to fit content; returns teardown fn
+window.spindrel.ui.menu(anchorEl, items, {minWidth?})      // popover menu, keyboard nav + outside-click dismiss
+window.spindrel.ui.tooltip(el, text, {delay?})             // hover/focus tooltip; returns teardown fn
+window.spindrel.ui.confirm({title, body, confirmLabel?, cancelLabel?, danger?})  // → Promise<boolean>
 
 // Versioned state.json — wraps spindrel.data with schema migrations
 window.spindrel.state.load(path, {schema_version, migrations, defaults})  // runs migrations on load, persists bumped version
@@ -438,6 +443,82 @@ window.spindrel.ui.chart(el, [{x:0,y:1},{x:2,y:4},{x:5,y:3}]);
 Re-call on every update — the SVG is rebuilt cheaply. For a rolling series, keep a `const values = []` and `values.push(...); if (values.length > CAP) values.splice(0, values.length - CAP); chart(el, values, opts)`.
 
 **Not in the built-in chart**: tooltips on hover, axes beyond min/max ticks, multi-series overlays, colour palettes for categorical bars. If you need those, inline a tiny third-party lib — the goal here is "sparkline under a stat card", not Grafana.
+
+## ui.icon — inline SVG icons
+
+Every widget iframe ships a curated Lucide subset as an inline SVG sprite at
+the top of `<body>`. Reference it from HTML or JS:
+
+```html
+<svg class="sd-icon"><use href="#sd-icon-check"/></svg>
+<svg class="sd-icon sd-icon--lg sd-icon--accent"><use href="#sd-icon-bell"/></svg>
+```
+
+```js
+// Dynamic — returns an <svg> string suitable for innerHTML or concat.
+buttonEl.innerHTML = window.spindrel.ui.icon("trash", { size: "sm", tone: "danger" });
+```
+
+Options: `size` = `"sm"` (14px) | `"lg"` (20px) | `"xl"` (28px); `tone` =
+`muted` | `dim` | `accent` | `success` | `danger` | `warning`; `className`
+appended as-is. Unknown names log a warning and render an empty `<svg>`.
+
+See `widgets/styling.md` for the full icon list.
+
+## ui.autogrow — textarea that grows to fit content
+
+```js
+const teardown = window.spindrel.ui.autogrow(textareaEl, { maxHeight: 240 });
+// Call teardown() on cleanup (optional — iframe unmount frees everything).
+```
+
+The textarea gets `data-autogrow="true"` + `resize: none`; height recalculates
+on every `input` event. Caps at `maxHeight` (default 240px) then scrolls.
+
+## ui.menu — popover menu anchored to an element
+
+```js
+openBtn.addEventListener("click", () => {
+  window.spindrel.ui.menu(openBtn, [
+    { label: "Edit",   icon: "pencil",  onSelect: () => startEdit() },
+    { label: "Share",  icon: "send",    kbd: "⌘S", onSelect: () => share() },
+    { divider: true },
+    { label: "Delete", icon: "trash",   danger: true, onSelect: () => confirmDelete() },
+  ]);
+});
+```
+
+Handles positioning (flips above the anchor when the viewport is tight),
+keyboard (ArrowUp/Down/Enter/Escape), outside-click dismissal, and entry
+animation. Items: `{label, icon?, kbd?, danger?, onSelect()}` or
+`{divider: true}`. Returns `{close()}` for programmatic dismissal.
+`opts.minWidth = "anchor"` makes the menu width match the trigger.
+
+## ui.tooltip — hover/focus tooltip
+
+```js
+window.spindrel.ui.tooltip(infoIconEl, "Last synced 3m ago");
+```
+
+Attaches `mouseenter` / `mouseleave` / `focus` / `blur` listeners. Default
+`delay: 200ms`. Returns a teardown function.
+
+## ui.confirm — promise-based confirm modal
+
+```js
+const ok = await window.spindrel.ui.confirm({
+  title: "Delete todo?",
+  body: "This can't be undone.",
+  confirmLabel: "Delete",
+  danger: true,
+});
+if (ok) await sp.callHandler("delete_todo", { id });
+```
+
+Backdrop click, Escape, and Cancel all resolve `false`; Enter and Confirm
+resolve `true`. `danger: true` styles the confirm button as a danger
+action and focuses the Cancel button by default (safer default for
+destructive ops). Omit `body` to render a title-only modal.
 
 ## form — declarative, validated, sd-* styled
 

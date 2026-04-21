@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useUIStore } from "@/src/stores/ui";
 import { useKioskMode } from "@/src/hooks/useKioskMode";
-import { Check, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, RotateCcw, Wrench } from "lucide-react";
+import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, RotateCcw, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
 import {
@@ -421,33 +421,15 @@ export default function WidgetsDashboardPage() {
           auto-entered via `?kiosk=true` in the URL — see the mount-time
           handler that consumes the flag. Removed because the button clutters
           the cross-view toggle affordance the user navigates with. */}
-      <button
-        type="button"
-        onClick={() => setSheetOpen(true)}
-        className="inline-flex items-center gap-1.5 h-8 rounded-md bg-accent px-2.5 text-[12px] font-medium text-white hover:opacity-90 transition-opacity"
-        aria-label="Add widget"
-        title="Add widget"
-      >
-        <Plus size={13} />
-        <span className="hidden md:inline">Add widget</span>
-      </button>
-      {/* Developer panel — global tool, reached from the sidebar rail. Hidden
-          on channel-scoped dashboards to keep the top bar focused on the
-          channel's own controls; still rendered on global dashboards where
-          it's the fastest path to pin-testing a new widget.
-          Carry the active dashboard slug via ?from= so the dev-panel's Pin
-          target picker can seed to the board the user came from. */}
-      {!isChannelScoped && (
-        <Link
-          to={`/widgets/dev?from=${encodeURIComponent(slug)}`}
-          className="hidden sm:inline-flex items-center gap-1.5 h-8 rounded-md border border-surface-border px-2.5 text-[12px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
-          aria-label="Developer panel"
-          title="Developer panel"
-        >
-          <Wrench size={13} />
-          <span className="hidden lg:inline">Developer panel</span>
-        </Link>
-      )}
+      {/* Split-button: primary "Add widget" on the left, caret on the right
+          opening a small menu with secondary actions (currently Developer
+          tools). The caret carries the `?from=<slug>` param so the dev panel
+          back-button + Pin target picker seed to this dashboard — works the
+          same on channel-scoped and global dashboards. */}
+      <AddWidgetSplitButton
+        onOpenSheet={() => setSheetOpen(true)}
+        devPanelHref={`/widgets/dev?from=${encodeURIComponent(slug)}`}
+      />
       {/* Open chat — ALWAYS rendered as the rightmost button so it occupies
           the mirror-image slot of the "Open dashboard" button in the channel
           header. Clicking either lands you back at the same screen x/y
@@ -789,6 +771,87 @@ function DashboardSkeleton() {
           className="h-40 animate-pulse rounded-lg border border-surface-border bg-surface-raised"
         />
       ))}
+    </div>
+  );
+}
+
+/** Primary "Add widget" button with an attached caret that reveals secondary
+ *  dashboard actions (currently just "Developer tools"). Keeps the top bar
+ *  focused while still surfacing the dev panel from every dashboard — the
+ *  `?from=<slug>` query param already ties the dev panel's back nav + Pin
+ *  target picker to whichever dashboard opened it. */
+function AddWidgetSplitButton({
+  onOpenSheet,
+  devPanelHref,
+}: {
+  onOpenSheet: () => void;
+  devPanelHref: string;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // Close on outside click / Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDocDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  return (
+    <div ref={wrapRef} className="relative inline-flex items-stretch">
+      <button
+        type="button"
+        onClick={onOpenSheet}
+        className="inline-flex items-center gap-1.5 h-8 rounded-l-md bg-accent pl-2.5 pr-2 text-[12px] font-medium text-white hover:opacity-90 transition-opacity"
+        aria-label="Add widget"
+        title="Add widget"
+      >
+        <Plus size={13} />
+        <span className="hidden md:inline">Add widget</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        className="inline-flex items-center justify-center h-8 w-7 rounded-r-md bg-accent pl-0 pr-1 text-white hover:opacity-90 transition-opacity border-l border-white/20"
+        aria-label="More widget actions"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        title="More actions"
+      >
+        <ChevronDown size={13} />
+      </button>
+      {menuOpen && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-40 mt-1.5 min-w-[200px] overflow-hidden rounded-md bg-surface-raised shadow-xl"
+        >
+          <Link
+            role="menuitem"
+            to={devPanelHref}
+            onClick={() => setMenuOpen(false)}
+            className="flex items-center gap-2 px-3 py-2 text-[12px] text-text hover:bg-surface-overlay transition-colors"
+          >
+            <Wrench size={13} className="text-text-muted" />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium">Developer tools</div>
+              <div className="text-[11px] text-text-dim">
+                Call tools, author templates, pin to this dashboard
+              </div>
+            </div>
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

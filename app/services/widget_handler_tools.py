@@ -4,14 +4,17 @@ Widgets can opt-in handlers to be invoked from a bot's turn by adding a
 ``handlers:`` block to their ``widget.yaml`` with ``bot_callable: true``.
 This module walks the pins visible to ``(bot_id, channel_id)``, parses
 each pin's manifest, and yields an OpenAI function-call schema per
-bot-callable handler named ``widget.<slug>.<handler>``.
+bot-callable handler named ``widget__<slug>__<handler>``.
 
 Dispatch path: the LLM calls the tool, ``tool_dispatch`` recognises the
-``widget.``-prefix, this module's :func:`resolve_widget_handler` looks up
+``widget__``-prefix, this module's :func:`resolve_widget_handler` looks up
 ``(pin, handler_name)`` by tool name, and ``widget_py.invoke_action`` runs
 the handler under the pin's ``source_bot_id`` (same identity flow as the
 iframe). The calling bot's scopes never widen the handler — the pin's bot
 is the ceiling, matching the existing "widget runs as its bot" invariant.
+
+Tool names are restricted to ``[a-zA-Z0-9_-]`` by OpenAI/Gemini function
+schemas, so ``__`` is the separator (dots + tildes both reject).
 
 Read-side visibility rules:
 
@@ -41,7 +44,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-TOOL_NAME_PREFIX = "widget."
+TOOL_NAME_PREFIX = "widget__"
+TOOL_NAME_SEP = "__"
 
 # Same character class as manifest handler names + dashes for slugs.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -51,13 +55,15 @@ def _safe_slug(name: str) -> str:
     """Normalize a manifest name into a tool-name fragment.
 
     We can't trust the raw ``manifest.name`` (``"MC Tasks"``) — tool names
-    must be grep-safe identifiers. Lowercase, spaces → ``-``, drop
-    everything else, bound to 48 chars. Empty or all-stripped names fall
-    back to ``"widget"`` so we never emit ``widget..add_todo``.
+    must be grep-safe identifiers drawn from ``[a-zA-Z0-9_-]``. Lowercase,
+    spaces → ``-``, underscores → ``-`` (the ``__`` separator owns that
+    character), drop everything else, bound to 48 chars. Empty or
+    all-stripped names fall back to ``"widget"`` so we never emit
+    ``widget____add_todo``.
     """
-    s = name.strip().lower().replace(" ", "-")
-    s = re.sub(r"[^a-z0-9_-]+", "", s)
-    s = s.strip("-_")[:48]
+    s = name.strip().lower().replace(" ", "-").replace("_", "-")
+    s = re.sub(r"[^a-z0-9-]+", "", s)
+    s = s.strip("-")[:48]
     return s or "widget"
 
 
@@ -195,13 +201,13 @@ async def list_widget_handler_tools(
         for spec in manifest.handlers:
             if not spec.bot_callable:
                 continue
-            base = f"{TOOL_NAME_PREFIX}{slug}.{spec.name}"
+            base = f"{TOOL_NAME_PREFIX}{slug}{TOOL_NAME_SEP}{spec.name}"
             candidates.append((pin, slug, spec, base))
             name_counts[base] = name_counts.get(base, 0) + 1
 
     for pin, slug, spec, base in candidates:
         if name_counts[base] > 1:
-            tool_name = f"{base}~{_pin_hash(pin.id)}"
+            tool_name = f"{base}{TOOL_NAME_SEP}{_pin_hash(pin.id)}"
         else:
             tool_name = base
         manifest_name = pin.display_label or slug
@@ -232,9 +238,10 @@ async def resolve_widget_handler(
 
 
 def is_widget_handler_tool_name(name: str) -> bool:
-    """True if ``name`` is in the ``widget.*.*`` namespace."""
+    """True if ``name`` is in the ``widget__<slug>__<handler>`` namespace."""
     if not name.startswith(TOOL_NAME_PREFIX):
         return False
-    # Must have exactly two dots, yielding ``widget.<slug>.<handler>[~hash]``.
+    # Must contain the slug/handler separator after the prefix, yielding
+    # ``widget__<slug>__<handler>[__<hash>]``.
     tail = name[len(TOOL_NAME_PREFIX):]
-    return "." in tail
+    return TOOL_NAME_SEP in tail

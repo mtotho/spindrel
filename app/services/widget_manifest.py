@@ -65,7 +65,7 @@ class HandlerSpec:
 
     When ``bot_callable`` is true, the dynamic widget-handler tool source
     (``app/services/widget_handler_tools.py``) exposes this handler to bots
-    as a tool named ``widget.<slug>.<name>``. Bots get schema-correct calls
+    as a tool named ``widget__<slug>__<name>``. Bots get schema-correct calls
     via the standard tool-policy pipeline; the handler still runs under the
     pin's ``source_bot_id`` (same identity as iframe-dispatched calls).
 
@@ -128,7 +128,7 @@ class WidgetManifest:
     # leave this unset. Never enforced server-side.
     layout_hints: LayoutHints | None = None
     # Declarative per-handler metadata. Entries whose ``bot_callable`` is
-    # true surface as dynamic tools (``widget.<slug>.<name>``) to bots with
+    # true surface as dynamic tools (``widget__<slug>__<name>``) to bots with
     # the pin in scope. Absent list = no bot-callable handlers on this
     # bundle, which is the safe default.
     handlers: list[HandlerSpec] = field(default_factory=list)

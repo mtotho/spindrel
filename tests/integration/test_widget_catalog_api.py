@@ -191,3 +191,134 @@ class TestIntegrationContentEndpoint:
             headers=AUTH_HEADERS,
         )
         assert r.status_code == 404
+
+
+class TestLibraryContentEndpoint:
+    @pytest.mark.asyncio
+    async def test_read_core_library_widget(self, client):
+        """Core scope resolves without a bot_id — it's in-repo content."""
+        r = await client.get(
+            "/api/v1/widgets/html-widget-content/library",
+            params={"ref": "core/notes"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["path"] == "core/notes/index.html"
+        assert "<" in body["content"] and body["content"].strip()
+
+    @pytest.mark.asyncio
+    async def test_read_bot_library_widget(self, client, tmp_path, monkeypatch):
+        """widget://bot/<name>/ bundles resolve via the caller-supplied bot_id."""
+        from app.services import workspace as _ws
+
+        (tmp_path / ".widget_library" / "home_control").mkdir(parents=True)
+        (tmp_path / ".widget_library" / "home_control" / "index.html").write_text(
+            "<h1>home control</h1>"
+        )
+        monkeypatch.setattr(
+            _ws.workspace_service,
+            "get_workspace_root",
+            lambda bot_id, bot=None: str(tmp_path),
+        )
+
+        r = await client.get(
+            "/api/v1/widgets/html-widget-content/library",
+            params={"ref": "bot/home_control", "bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["content"] == "<h1>home control</h1>"
+        assert body["path"] == "bot/home_control/index.html"
+
+    @pytest.mark.asyncio
+    async def test_read_library_404_on_missing(self, client):
+        r = await client.get(
+            "/api/v1/widgets/html-widget-content/library",
+            params={"ref": "core/definitely-not-a-widget"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_read_library_400_on_malformed_ref(self, client):
+        r = await client.get(
+            "/api/v1/widgets/html-widget-content/library",
+            params={"ref": "bogus-scope/name"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 400
+
+
+class TestLibraryWidgetsEndpoint:
+    """``GET /widgets/library-widgets`` — inventory for the Add-widget sheet's
+    Library tab. Shape: ``{core, bot, workspace}`` with each value a list of
+    entries matching ``widget_library._read_widget_meta`` output."""
+
+    @pytest.mark.asyncio
+    async def test_core_only_without_bot_id(self, client):
+        """Without a bot_id the bot/workspace scopes are empty; core always fills."""
+        r = await client.get(
+            "/api/v1/widgets/library-widgets", headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert set(body.keys()) == {"core", "bot", "workspace"}
+        assert body["bot"] == []
+        assert body["workspace"] == []
+        # At minimum the todo reference widget ships with the server.
+        names = {e["name"] for e in body["core"]}
+        assert "todo" in names
+        for e in body["core"]:
+            assert e["scope"] == "core"
+            assert e["format"] in {"html", "template", "suite"}
+
+    @pytest.mark.asyncio
+    async def test_bot_scope_enumerates_via_bot_id(
+        self, client, tmp_path, monkeypatch,
+    ):
+        """With ``bot_id`` the endpoint walks ``<ws_root>/.widget_library/`` for
+        the bot's workspace and surfaces every bundle."""
+        from app.services import workspace as _ws
+
+        bundle = tmp_path / ".widget_library" / "dog_dashboard"
+        bundle.mkdir(parents=True)
+        (bundle / "index.html").write_text("<div></div>")
+        # Metadata comes from widget.yaml, not HTML frontmatter.
+        (bundle / "widget.yaml").write_text(
+            "name: Dog Dashboard\n"
+            "description: Track the dog\n"
+        )
+        monkeypatch.setattr(
+            _ws.workspace_service,
+            "get_workspace_root",
+            lambda bot_id, bot=None: str(tmp_path),
+        )
+
+        r = await client.get(
+            "/api/v1/widgets/library-widgets",
+            params={"bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        bot_names = {e["name"] for e in body["bot"]}
+        assert "dog_dashboard" in bot_names
+        dog = next(e for e in body["bot"] if e["name"] == "dog_dashboard")
+        assert dog["scope"] == "bot"
+        assert dog["format"] == "html"
+        assert dog["display_label"] == "Dog Dashboard"
+
+    @pytest.mark.asyncio
+    async def test_unknown_bot_id_returns_404(self, client, monkeypatch):
+        """Unknown bot id is an explicit 404 — the client is asking for a
+        bot-scoped view and we can't honor it."""
+        from app.agent import bots as _bots
+        monkeypatch.setattr(_bots, "get_bot", lambda _bot_id: None)
+        r = await client.get(
+            "/api/v1/widgets/library-widgets",
+            params={"bot_id": "00000000-0000-0000-0000-000000000000"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 404

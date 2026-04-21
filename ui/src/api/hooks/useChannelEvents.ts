@@ -4,8 +4,18 @@ import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { useChatStore } from "../../stores/chat";
 import { useBots } from "./useBots";
 
-/** Timeout (ms) for in-flight turn observation — if turn_ended doesn't arrive, force-finish. */
-const OBSERVER_TURN_TIMEOUT = 60_000;
+/** Timeout (ms) for in-flight turn observation — if no SSE event arrives
+ *  for a given turn in this window, force-finish. Resets on every event
+ *  dispatched to the turn (TURN_STARTED, TEXT_DELTA, TOOL_CALL_*, etc.).
+ *
+ *  Tuned to 180s because: single long-running tool calls (deep file reads,
+ *  multi-sub-call tools like `file 1/6`, or slow external APIs like
+ *  search/preview) can legitimately go silent for over a minute before the
+ *  next progress event. 60s was reaping live turns and producing the
+ *  "assistant poofs to nothing" bug users saw for weeks. A missing
+ *  turn_ended is genuinely abnormal — a 3-minute grace window is still
+ *  short enough to clean up after a real server crash. */
+const OBSERVER_TURN_TIMEOUT = 180_000;
 
 /**
  * Subscribe to typed channel-event bus events via SSE.

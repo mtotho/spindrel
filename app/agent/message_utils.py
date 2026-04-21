@@ -123,20 +123,31 @@ def _merge_tool_schemas(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-async def _all_tool_schemas_by_name(bot: BotConfig) -> dict[str, dict[str, Any]]:
+async def _all_tool_schemas_by_name(
+    bot: BotConfig,
+    *,
+    enrolled_tool_names: list[str] | None = None,
+) -> dict[str, dict[str, Any]]:
     by_name: dict[str, dict[str, Any]] = {}
     pins = list(bot.pinned_tools or [])
-    local_names = set(bot.local_tools) | set(pins)
+    # Enrolled tools are the persistent working set — they were already proven
+    # relevant by prior use (starter / fetched / manual). Fold them into the
+    # same pools as pinned tools so their MCP server is fetched and their
+    # local/client schema is loaded. Otherwise the enrollment writes a row
+    # but the schema silently drops out of `by_name` next turn, and the bot
+    # has to call get_tool_info on the same tool again and again.
+    enrolled = list(enrolled_tool_names or [])
+    local_names = set(bot.local_tools) | set(pins) | set(enrolled)
     for t in get_local_tool_schemas(list(local_names)):
         by_name[t["function"]["name"]] = t
     mcp_servers = list(bot.mcp_servers or [])
-    for pin in pins:
-        server = get_mcp_server_for_tool(pin)
+    for name in pins + enrolled:
+        server = get_mcp_server_for_tool(name)
         if server and server not in mcp_servers:
             mcp_servers.append(server)
     for t in await fetch_mcp_tools(mcp_servers):
         by_name[t["function"]["name"]] = t
-    client_names = set(bot.client_tools) | set(pins)
+    client_names = set(bot.client_tools) | set(pins) | set(enrolled)
     for t in get_client_tool_schemas(list(client_names)):
         by_name[t["function"]["name"]] = t
     return by_name

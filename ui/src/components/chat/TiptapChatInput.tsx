@@ -14,7 +14,9 @@ import { filterSlashCommands } from "./slashCommands";
 import type { SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
 import "./tiptap-input.css";
 
-// Extend Mention with markdown serialization so getMarkdown() outputs @value
+// Extend Mention with markdown serialization so getMarkdown() outputs @value,
+// and emit a data-type="<prefix>" attr so CSS can color chips by kind
+// (skill / tool / bot / knowledge) to match the @-picker badges.
 const Mention = MentionBase.extend({
   addStorage() {
     return {
@@ -25,6 +27,19 @@ const Mention = MentionBase.extend({
         },
       },
     };
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    const id: string = (node.attrs?.id ?? "") as string;
+    const prefix = id.includes(":") ? id.split(":")[0] : "";
+    return [
+      "span",
+      {
+        ...HTMLAttributes,
+        class: "mention",
+        "data-type": prefix || "mention",
+      },
+      `@${(node.attrs?.label ?? id) as string}`,
+    ];
   },
 });
 

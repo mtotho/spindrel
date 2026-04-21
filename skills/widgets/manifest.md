@@ -64,7 +64,7 @@ handlers:
       type: object
       properties:
         id: {type: string}
-    bot_callable: true        # opt-in: surfaces as `widget.<slug>.add_item`
+    bot_callable: true        # opt-in: surfaces as `widget__<slug>__add_item`
     safety_tier: mutating     # readonly | mutating | exec_capable
 ```
 

@@ -42,10 +42,19 @@ Prefer these over hand-rolled CSS:
 | Bordered tile | `sd-tile` |
 | Text | `sd-title`, `sd-subtitle`, `sd-meta`, `sd-muted`, `sd-dim`, `sd-mono` |
 | Button | `sd-btn`, `sd-btn-primary`, `sd-btn-subtle`, `sd-btn-danger` |
-| Form controls | `sd-input`, `sd-select`, `sd-textarea` |
+| Form controls | `sd-input`, `sd-select`, `sd-textarea`, `sd-input-group` |
+| Styled controls | `sd-check` (checkbox), `sd-radio`, `sd-switch` |
+| Rows & lists | `sd-list`, `sd-list--divided`, `sd-row`, `sd-row__title`, `sd-row__meta`, `sd-row__actions` |
+| Section grouping | `sd-section`, `sd-section__header`, `sd-section__title`, `sd-inline` |
 | Status chip | `sd-chip`, `sd-chip-accent/success/warning/danger/purple` |
+| Tag (pill) | `sd-tag`, `sd-tag--accent/success/warning/danger/purple`, `sd-tag__remove` |
+| Icons | `sd-icon`, `sd-icon--sm/lg/xl`, `sd-icon--muted/dim/accent/success/danger/warning` |
+| Keyboard hint | `sd-kbd` |
+| Menu / Tooltip / Modal | `sd-menu`, `sd-menu-item`, `sd-menu-item--danger`, `sd-menu-divider`, `sd-tooltip`, `sd-modal` (built by `spindrel.ui.menu/tooltip/confirm`) |
 | Progress bar | `sd-progress` (+ `style="--p: 60"` for 60%) + color variants |
-| Feedback | `sd-error`, `sd-empty`, `sd-skeleton`, `sd-spinner`, `sd-divider` |
+| Feedback | `sd-error`, `sd-empty`, `sd-empty__icon/title/subtitle/cta`, `sd-skeleton`, `sd-spinner`, `sd-divider` |
+| State | `sd-is-selected`, `sd-is-disabled`, `sd-is-loading` (shows spinner overlay) |
+| Motion | `sd-anim-fade-in`, `sd-anim-pop` (respects `prefers-reduced-motion`) |
 
 Toggle buttons work via `aria-pressed="true"` — the base `.sd-btn` handles the pressed styling:
 
@@ -112,8 +121,149 @@ See `widgets/sdk.md#reacting-to-live-updates` for the full event surface.
 
 See `widgets/sdk.md#uichart---sparkline--line--bar--area` for the chart API.
 
+## Component cookbook (sd-* v2)
+
+Copy-paste starting points. Each snippet uses only preamble-injected CSS and
+the icon sprite — no `<style>` block required.
+
+### Styled checkbox (`sd-check`)
+
+```html
+<label class="sd-check">
+  <input type="checkbox" />
+  <span class="sd-check__box">
+    <svg class="sd-check__mark" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+  </span>
+  <span class="sd-check__label">Mark done</span>
+</label>
+```
+
+The native `<input>` stays in the label so form semantics work; the
+styled box + animated check mark are siblings. Checked state flips on the
+real input — read `.checked` / listen to `change` events as usual.
+
+### Radio and switch
+
+```html
+<label class="sd-radio">
+  <input type="radio" name="scope" value="channel" checked />
+  <span class="sd-radio__dot"></span>
+  <span>Channel</span>
+</label>
+
+<label class="sd-switch">
+  <input type="checkbox" />
+  <span class="sd-switch__track"><span class="sd-switch__thumb"></span></span>
+  <span class="sd-switch__label">Enable notifications</span>
+</label>
+```
+
+### Input group (leading icon + trailing action)
+
+```html
+<form class="sd-input-group">
+  <span class="sd-input-group__icon">
+    <svg class="sd-icon sd-icon--sm"><use href="#sd-icon-search"/></svg>
+  </span>
+  <input class="sd-input" placeholder="Search…" />
+  <button type="submit" class="sd-btn sd-btn-primary sd-input-group__action">Go</button>
+</form>
+```
+
+Hook `spindrel.ui.autogrow(textarea)` on a `<textarea class="sd-textarea">` to
+make it grow to fit content (caps at 240px by default).
+
+### List of rows with hover actions
+
+```html
+<div class="sd-list sd-list--divided">
+  <div class="sd-row">
+    <svg class="sd-icon"><use href="#sd-icon-file"/></svg>
+    <span class="sd-row__title">Quarterly report</span>
+    <span class="sd-row__meta">12m ago</span>
+    <span class="sd-row__actions">
+      <button class="sd-btn sd-btn-subtle" aria-label="Edit">
+        <svg class="sd-icon sd-icon--sm"><use href="#sd-icon-pencil"/></svg>
+      </button>
+      <button class="sd-btn sd-btn-subtle" aria-label="Delete">
+        <svg class="sd-icon sd-icon--sm"><use href="#sd-icon-trash"/></svg>
+      </button>
+    </span>
+  </div>
+  <!-- more .sd-row children … -->
+</div>
+```
+
+Actions auto-hide until the row is hovered or focus-within. Add
+`.sd-row--done` to apply line-through + muted text, or `.sd-is-selected` /
+`aria-selected="true"` to highlight.
+
+### Empty state
+
+```html
+<div class="sd-empty">
+  <svg class="sd-icon sd-icon--xl sd-empty__icon"><use href="#sd-icon-inbox"/></svg>
+  <div class="sd-empty__title">No messages</div>
+  <div class="sd-empty__subtitle">New items will appear here as they arrive.</div>
+  <div class="sd-empty__cta"><button class="sd-btn sd-btn-primary">Compose</button></div>
+</div>
+```
+
+### Tag (removable)
+
+```html
+<span class="sd-tag sd-tag--accent">
+  urgent
+  <button class="sd-tag__remove" aria-label="Remove tag">×</button>
+</span>
+```
+
+### Icons
+
+Every widget iframe ships the Lucide subset as an inline SVG sprite at the
+top of `<body>`. Reference by id:
+
+```html
+<svg class="sd-icon"><use href="#sd-icon-check"/></svg>
+<svg class="sd-icon sd-icon--lg sd-icon--accent"><use href="#sd-icon-bell"/></svg>
+```
+
+Or render from JS:
+
+```js
+el.innerHTML = window.spindrel.ui.icon("trash", { size: "sm", tone: "danger" });
+```
+
+Available names are listed in `WIDGET_ICON_NAMES` in
+`ui/src/components/chat/renderers/widgetIcons.ts` — common picks:
+`check`, `x`, `plus`, `minus`, `trash`, `pencil`, `search`, `filter`,
+`chevron-{up,down,left,right}`, `arrow-{up,down,left,right}`,
+`more-{horizontal,vertical}`, `calendar`, `clock`, `bell`, `user`, `users`,
+`mail`, `file`, `folder`, `link`, `external-link`, `settings`, `eye`,
+`eye-off`, `refresh`, `play`, `pause`, `star`, `heart`, `tag`, `pin`,
+`check-circle`, `alert-circle`, `info`, `alert-triangle`, `loader`,
+`list`, `grid`, `home`, `inbox`, `send`, `download`, `upload`, `sun`,
+`moon`, `copy`, `save`, `bookmark`, `flag`, `lock`, `unlock`, `zap`,
+`chart-bar`.
+
+Unknown names produce a warning via `spindrel.log.warn` and render empty.
+
+### Motion
+
+Apply `.sd-anim-fade-in` to newly inserted nodes and `.sd-anim-pop` to
+popovers. Both respect `prefers-reduced-motion: reduce` — animation is
+automatically disabled for users who opt out.
+
+### Loading state
+
+```html
+<button class="sd-btn sd-btn-primary sd-is-loading">Save</button>
+```
+
+Hides the label and shows a centered spinner; blocks clicks.
+
 ## See also
 
-- `widgets/sdk.md` — `window.spindrel.theme`, `onTheme`, `ui.chart`
+- `widgets/sdk.md` — `window.spindrel.theme`, `onTheme`, `ui.chart`, `ui.icon`, `ui.autogrow`, `ui.menu`, `ui.tooltip`, `ui.confirm`
 - `widgets/html.md` — sandbox, CSP, auth model
 - `widgets/errors.md` — theme-related rendering bugs

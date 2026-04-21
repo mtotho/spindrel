@@ -174,8 +174,8 @@ When the user says "build me a dashboard for X":
 2. **Pick a scope** — `widget://bot/<name>/...` (your bot's private library) or `widget://workspace/<name>/...` (shared with every bot in this workspace).
 3. **Pick an archetype** — status (RMW `state.json`), feed (poll API), control panel (dispatch tools), KB reader (workspace files + markdown). Most real dashboards mix two.
 4. **One-shot the bundle** — `file(create, path="widget://bot/<name>/index.html", content=<full doc>)` plus any `widget://bot/<name>/state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
-5. **Emit** — `emit_html_widget(library_ref="<name>", display_label="<Name>")`. User pins it to the dashboard.
-6. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
+5. **Emit or pin** — `emit_html_widget(library_ref="<name>", display_label="<Name>")` drops the widget into chat for the user to pin. To skip the user and place it directly, call `pin_widget(widget="<name>", source_kind="library", zone="grid")` — the bundle is resolved against your widget library, the pin carries `source_kind="library"` + `source_library_ref="bot/<name>"`, and the renderer re-fetches the body on every poll so live edits propagate. `display_label` falls back to the bundle's `widget.yaml` / frontmatter when omitted.
+6. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit or re-pin needed.
 7. **Record it** — leave breadcrumbs in your memory (see "Remember what you built" below) so future-you knows the widget exists and where to find it.
 
 This is the highest-leverage pattern: a `widget://` bundle + the `file` tool + `library_ref` emission turns "build me a widget" into a live, iteratively-editable surface.

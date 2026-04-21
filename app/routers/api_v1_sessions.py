@@ -164,6 +164,33 @@ class EphemeralSessionOut(BaseModel):
     parent_channel_id: Optional[uuid.UUID] = None
 
 
+class ScratchSessionOut(BaseModel):
+    """Current scratch session for (parent_channel_id, owner_user_id, bot_id).
+
+    ``is_current=True`` on the Session row. Created on demand if none exists.
+    """
+    session_id: uuid.UUID
+    parent_channel_id: uuid.UUID
+    bot_id: str
+    created_at: datetime
+    is_current: bool
+
+
+class ScratchResetRequest(BaseModel):
+    parent_channel_id: uuid.UUID
+    bot_id: str
+
+
+class ScratchHistoryItem(BaseModel):
+    session_id: uuid.UUID
+    bot_id: str
+    created_at: datetime
+    last_active: datetime
+    is_current: bool
+    message_count: int
+    preview: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -242,6 +269,229 @@ async def create_ephemeral_session(
         session_id=sub.id,
         parent_channel_id=body.parent_channel_id,
     )
+
+
+@router.get("/scratch/current", response_model=ScratchSessionOut)
+async def get_current_scratch_session(
+    parent_channel_id: uuid.UUID = Query(...),
+    bot_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    auth_result=Depends(require_scopes("chat")),
+):
+    """Resolve the caller's current scratch session for ``(channel, user)``.
+
+    Spawns one if none exists. The returned session_id is stable across
+    devices — different tabs / phones / etc. hit the same row as long as
+    the authenticated user hasn't reset since.
+    """
+    from app.agent.bots import get_bot
+    from app.db.models import Channel as ChannelModel, User
+    from app.services.sub_sessions import (
+        SESSION_TYPE_EPHEMERAL,
+        spawn_ephemeral_session,
+    )
+
+    auth_user = auth_result if isinstance(auth_result, User) else None
+    if auth_user is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Scratch sessions require an authenticated user.",
+        )
+
+    try:
+        get_bot(bot_id)
+    except HTTPException:
+        raise HTTPException(status_code=400, detail=f"Unknown bot: {bot_id}")
+
+    channel = await db.get(ChannelModel, parent_channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404, detail="Parent channel not found")
+
+    existing = (await db.execute(
+        select(Session).where(
+            Session.parent_channel_id == parent_channel_id,
+            Session.owner_user_id == auth_user.id,
+            Session.session_type == SESSION_TYPE_EPHEMERAL,
+            Session.is_current.is_(True),
+        ).limit(1)
+    )).scalar_one_or_none()
+
+    if existing is not None:
+        return ScratchSessionOut(
+            session_id=existing.id,
+            parent_channel_id=parent_channel_id,
+            bot_id=existing.bot_id,
+            created_at=existing.created_at,
+            is_current=True,
+        )
+
+    sub = await spawn_ephemeral_session(
+        db,
+        bot_id=bot_id,
+        parent_channel_id=parent_channel_id,
+        owner_user_id=auth_user.id,
+        is_current=True,
+    )
+    await db.commit()
+    await db.refresh(sub)
+
+    return ScratchSessionOut(
+        session_id=sub.id,
+        parent_channel_id=parent_channel_id,
+        bot_id=sub.bot_id,
+        created_at=sub.created_at,
+        is_current=True,
+    )
+
+
+@router.post("/scratch/reset", response_model=ScratchSessionOut, status_code=201)
+async def reset_scratch_session(
+    body: ScratchResetRequest,
+    db: AsyncSession = Depends(get_db),
+    auth_result=Depends(require_scopes("chat")),
+):
+    """Mark the current scratch session ended and spawn a fresh one.
+
+    The old session is preserved (``is_current=False``) and remains
+    queryable via ``GET /sessions/scratch/list``.
+    """
+    from app.agent.bots import get_bot
+    from app.db.models import Channel as ChannelModel, User
+    from app.services.sub_sessions import (
+        SESSION_TYPE_EPHEMERAL,
+        spawn_ephemeral_session,
+    )
+
+    auth_user = auth_result if isinstance(auth_result, User) else None
+    if auth_user is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Scratch sessions require an authenticated user.",
+        )
+
+    try:
+        get_bot(body.bot_id)
+    except HTTPException:
+        raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
+
+    channel = await db.get(ChannelModel, body.parent_channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404, detail="Parent channel not found")
+
+    # Flip any existing current scratch(es) to archived BEFORE inserting
+    # the new row so the partial unique index never sees two currents.
+    await db.execute(
+        update(Session)
+        .where(
+            Session.parent_channel_id == body.parent_channel_id,
+            Session.owner_user_id == auth_user.id,
+            Session.session_type == SESSION_TYPE_EPHEMERAL,
+            Session.is_current.is_(True),
+        )
+        .values(is_current=False)
+    )
+
+    sub = await spawn_ephemeral_session(
+        db,
+        bot_id=body.bot_id,
+        parent_channel_id=body.parent_channel_id,
+        owner_user_id=auth_user.id,
+        is_current=True,
+    )
+    await db.commit()
+    await db.refresh(sub)
+
+    return ScratchSessionOut(
+        session_id=sub.id,
+        parent_channel_id=body.parent_channel_id,
+        bot_id=sub.bot_id,
+        created_at=sub.created_at,
+        is_current=True,
+    )
+
+
+@router.get("/scratch/list", response_model=list[ScratchHistoryItem])
+async def list_scratch_sessions(
+    parent_channel_id: uuid.UUID = Query(...),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    auth_result=Depends(require_scopes("chat")),
+):
+    """List the caller's scratch sessions for a channel, newest first.
+
+    Includes both the current scratch (``is_current=True``) and prior
+    archived ones. Each row carries a short preview of the first user
+    message for UI rendering.
+    """
+    from sqlalchemy import func
+    from app.db.models import User
+    from app.services.sub_sessions import SESSION_TYPE_EPHEMERAL
+
+    auth_user = auth_result if isinstance(auth_result, User) else None
+    if auth_user is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Scratch sessions require an authenticated user.",
+        )
+
+    rows = (await db.execute(
+        select(Session)
+        .where(
+            Session.parent_channel_id == parent_channel_id,
+            Session.owner_user_id == auth_user.id,
+            Session.session_type == SESSION_TYPE_EPHEMERAL,
+        )
+        # Pin the current scratch to the top so fast resets don't
+        # collide with ``created_at`` tie-breaks, then fall back to
+        # newest-first for archived rows.
+        .order_by(Session.is_current.desc(), Session.created_at.desc())
+        .limit(limit)
+    )).scalars().all()
+
+    if not rows:
+        return []
+
+    session_ids = [s.id for s in rows]
+    count_rows = (await db.execute(
+        select(Message.session_id, func.count(Message.id))
+        .where(
+            Message.session_id.in_(session_ids),
+            Message.role.in_(("user", "assistant")),
+        )
+        .group_by(Message.session_id)
+    )).all()
+    counts = {sid: int(c) for sid, c in count_rows}
+
+    preview_rows = (await db.execute(
+        select(Message.session_id, Message.content, Message.created_at)
+        .where(
+            Message.session_id.in_(session_ids),
+            Message.role == "user",
+            Message.content.is_not(None),
+        )
+        .order_by(Message.session_id, Message.created_at.asc())
+    )).all()
+    preview_by_session: dict[uuid.UUID, str] = {}
+    for sid, content, _ in preview_rows:
+        if sid in preview_by_session:
+            continue
+        text = (content or "").strip().replace("\n", " ")
+        if len(text) > 120:
+            text = text[:120] + "…"
+        preview_by_session[sid] = text
+
+    return [
+        ScratchHistoryItem(
+            session_id=s.id,
+            bot_id=s.bot_id,
+            created_at=s.created_at,
+            last_active=s.last_active,
+            is_current=bool(s.is_current),
+            message_count=counts.get(s.id, 0),
+            preview=preview_by_session.get(s.id),
+        )
+        for s in rows
+    ]
 
 
 @router.post("/{session_id}/messages", response_model=InjectResponse, status_code=201)

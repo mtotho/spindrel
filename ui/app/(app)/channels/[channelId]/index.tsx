@@ -378,6 +378,9 @@ export default function ChatScreen() {
               page_name: "channel_scratch",
               payload: { channel_id: channelId },
             },
+            // Cross-device continuity — resolves (user, channel, bot)
+            // via /sessions/scratch/current instead of localStorage.
+            scratchBoundChannelId: channelId,
           })
         : null,
     [channelId, channel?.bot_id],

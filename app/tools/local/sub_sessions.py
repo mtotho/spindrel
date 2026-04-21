@@ -5,6 +5,13 @@ or widget-dashboard ad-hoc chat) so the run's own messages stay separate
 from the parent channel transcript. The parent channel sees a compact
 "anchor" card; the timeline lives on ``task.run_session_id``.
 
+Also surfaces message-anchored *thread* sub-sessions (session_type=
+'thread', parent_message_id set) and standalone ephemeral scratch
+sessions (parent_channel_id set, session_type='ephemeral'). Neither is
+backed by a Task — the listing unions Task-driven runs with these
+Session-only variants so dreaming / memory-hygiene / skill-review bots
+see every child conversation hanging off a channel.
+
 These tools let an orchestrator bot discover past runs on a channel and
 read what happened inside a specific run — including any follow-up
 questions the user typed into the run-view modal after the pipeline
@@ -12,9 +19,10 @@ terminated.
 """
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.agent.context import current_channel_id
 from app.db.engine import async_session
@@ -56,13 +64,15 @@ _LIST_SCHEMA = {
     "function": {
         "name": "list_sub_sessions",
         "description": (
-            "List recent task sub-sessions (pipeline runs, evals) on a channel, "
-            "most recent first. Use this to discover past runs the user may want "
-            "to reference, resume, or push back on. Each entry carries the run's "
-            "task_id, title, status, step count, follow-up count (user messages "
-            "sent into the run-view modal after the pipeline terminated), and "
-            "ISO timestamps. Call read_sub_session(session_id) to see the full "
-            "transcript of any entry."
+            "List recent child sessions on a channel, most recent first. "
+            "Includes pipeline runs, evals, message-anchored thread replies, "
+            "and standalone scratch-chat sessions. Use this to discover past "
+            "work the user may want to reference, resume, or push back on. "
+            "Each entry carries kind (pipeline/eval/thread/scratch), the "
+            "session_id, a task_id if applicable, title/preview, status, "
+            "follow-up count, and ISO timestamps. Call "
+            "read_sub_session(session_id) to see the full transcript of any "
+            "entry."
         ),
         "parameters": {
             "type": "object",
@@ -93,6 +103,143 @@ _LIST_SCHEMA = {
 }
 
 
+@dataclass
+class _SubSessionRow:
+    kind: str  # "pipeline" | "eval" | "thread" | "scratch"
+    session_id: uuid.UUID
+    created_at: datetime
+    title: str
+    status: str
+    follow_ups: int
+    task_id: uuid.UUID | None = None
+
+
+async def _collect_task_rows(
+    db, resolved_channel_id: uuid.UUID
+) -> list[_SubSessionRow]:
+    tasks = (await db.execute(
+        select(Task)
+        .where(
+            Task.channel_id == resolved_channel_id,
+            Task.run_isolation == "sub_session",
+            Task.run_session_id.is_not(None),
+        )
+        .order_by(Task.created_at.desc())
+    )).scalars().all()
+
+    rows: list[_SubSessionRow] = []
+    for t in tasks:
+        follow_ups = 0
+        if t.run_session_id is not None:
+            user_msgs = (await db.execute(
+                select(Message).where(
+                    Message.session_id == t.run_session_id,
+                    Message.role == "user",
+                )
+            )).scalars().all()
+            follow_ups = sum(
+                1 for m in user_msgs
+                if (m.metadata_ or {}).get("sender_type") != "pipeline"
+            )
+        kind = "eval" if t.task_type == "eval" else "pipeline"
+        rows.append(_SubSessionRow(
+            kind=kind,
+            session_id=t.run_session_id,  # type: ignore[arg-type]
+            created_at=t.created_at,
+            title=t.title or (t.prompt[:60] if t.prompt else "(untitled)"),
+            status=t.status or "unknown",
+            follow_ups=follow_ups,
+            task_id=t.id,
+        ))
+    return rows
+
+
+async def _collect_thread_rows(
+    db, resolved_channel_id: uuid.UUID
+) -> list[_SubSessionRow]:
+    """Thread sessions anchored at messages that live in this channel."""
+    # Two-step resolution: fetch threads, then filter by the parent
+    # message's session's channel. Cheap enough at N=10 to avoid a tricky
+    # triple-self-join.
+    threads = (await db.execute(
+        select(Session)
+        .where(
+            Session.session_type == "thread",
+            Session.parent_message_id.is_not(None),
+        )
+        .order_by(Session.created_at.desc())
+    )).scalars().all()
+
+    rows: list[_SubSessionRow] = []
+    for s in threads:
+        # Resolve the parent message → its session → its channel.
+        parent_msg = await db.get(Message, s.parent_message_id)
+        if parent_msg is None:
+            continue
+        parent_sess = await db.get(Session, parent_msg.session_id)
+        if parent_sess is None or parent_sess.channel_id != resolved_channel_id:
+            continue
+        user_msgs = (await db.execute(
+            select(Message).where(
+                Message.session_id == s.id,
+                Message.role == "user",
+            )
+        )).scalars().all()
+        follow_ups = len(user_msgs)
+        preview = (parent_msg.content or "").strip().replace("\n", " ")
+        if len(preview) > 60:
+            preview = preview[:60] + "…"
+        rows.append(_SubSessionRow(
+            kind="thread",
+            session_id=s.id,
+            created_at=s.created_at,
+            title=f"Thread on msg {parent_msg.id}: {preview}",
+            status="active" if s.locked is False else "locked",
+            follow_ups=follow_ups,
+        ))
+    return rows
+
+
+async def _collect_scratch_rows(
+    db, resolved_channel_id: uuid.UUID
+) -> list[_SubSessionRow]:
+    """Ephemeral scratch sessions anchored at this channel."""
+    scratches = (await db.execute(
+        select(Session)
+        .where(
+            Session.session_type == "ephemeral",
+            Session.parent_channel_id == resolved_channel_id,
+        )
+        .order_by(Session.created_at.desc())
+    )).scalars().all()
+
+    rows: list[_SubSessionRow] = []
+    for s in scratches:
+        user_msgs = (await db.execute(
+            select(Message).where(
+                Message.session_id == s.id,
+                Message.role == "user",
+            )
+        )).scalars().all()
+        follow_ups = len(user_msgs)
+        first_preview = ""
+        if user_msgs:
+            first = sorted(user_msgs, key=lambda m: m.created_at)[0]
+            first_preview = (first.content or "").strip().replace("\n", " ")
+            if len(first_preview) > 60:
+                first_preview = first_preview[:60] + "…"
+        marker = " [current]" if s.is_current else ""
+        rows.append(_SubSessionRow(
+            kind="scratch",
+            session_id=s.id,
+            created_at=s.created_at,
+            title=f"Scratch{marker}: {first_preview or '(empty)'}",
+            status="current" if s.is_current else "archived",
+            follow_ups=follow_ups,
+        ))
+    return rows
+
+
 @register(_LIST_SCHEMA, requires_channel_context=True)
 async def list_sub_sessions(
     channel_id: str | None = None,
@@ -113,60 +260,36 @@ async def list_sub_sessions(
     limit = max(1, min(int(limit or 10), 50))
 
     async with async_session() as db:
-        tasks = (await db.execute(
-            select(Task)
-            .where(
-                Task.channel_id == resolved_channel_id,
-                Task.run_isolation == "sub_session",
-                Task.run_session_id.is_not(None),
-            )
-            .order_by(Task.created_at.desc())
-            .limit(limit * 3 if only_with_follow_ups else limit)
-        )).scalars().all()
+        all_rows: list[_SubSessionRow] = []
+        all_rows.extend(await _collect_task_rows(db, resolved_channel_id))
+        all_rows.extend(await _collect_thread_rows(db, resolved_channel_id))
+        all_rows.extend(await _collect_scratch_rows(db, resolved_channel_id))
 
-        if not tasks:
-            return f"No sub-sessions found on channel {resolved_channel_id}."
+    if not all_rows:
+        return f"No sub-sessions found on channel {resolved_channel_id}."
 
-        rows: list[str] = []
-        for t in tasks:
-            follow_ups = 0
-            if t.run_session_id is not None:
-                user_msgs = (await db.execute(
-                    select(Message)
-                    .where(
-                        Message.session_id == t.run_session_id,
-                        Message.role == "user",
-                    )
-                )).scalars().all()
-                follow_ups = sum(
-                    1 for m in user_msgs
-                    if (m.metadata_ or {}).get("sender_type") != "pipeline"
-                )
+    all_rows.sort(key=lambda r: r.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
 
-            if only_with_follow_ups and follow_ups == 0:
-                continue
+    if only_with_follow_ups:
+        all_rows = [r for r in all_rows if r.follow_ups > 0]
 
-            title = t.title or (t.prompt[:60] if t.prompt else "(untitled)")
-            rows.append(
-                f"- task_id={t.id}  session_id={t.run_session_id}  "
-                f"status={t.status}  type={t.task_type}  "
-                f"follow_ups={follow_ups}  "
-                f"started={_ago(t.created_at)}  "
-                f"title={title!r}"
-            )
-            if len(rows) >= limit:
-                break
+    capped = all_rows[:limit]
+    if not capped:
+        return f"No sub-sessions on channel {resolved_channel_id} match the filter."
 
-        if not rows:
-            return (
-                f"No sub-sessions on channel {resolved_channel_id} match the filter."
-            )
-
-        header = (
-            f"Sub-sessions on channel {resolved_channel_id} "
-            f"(newest first, {len(rows)} of up to {limit}):"
+    header = (
+        f"Sub-sessions on channel {resolved_channel_id} "
+        f"(newest first, {len(capped)} of up to {limit}):"
+    )
+    lines: list[str] = []
+    for r in capped:
+        task_part = f"task_id={r.task_id}  " if r.task_id else ""
+        lines.append(
+            f"- kind={r.kind}  {task_part}session_id={r.session_id}  "
+            f"status={r.status}  follow_ups={r.follow_ups}  "
+            f"started={_ago(r.created_at)}  title={r.title!r}"
         )
-        return header + "\n" + "\n".join(rows)
+    return header + "\n" + "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

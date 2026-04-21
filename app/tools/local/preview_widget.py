@@ -256,8 +256,11 @@ async def preview_widget(
     notes: list[dict] = []
 
     if library_ref_set:
+        ws_root, shared_root = _ehw._resolve_scope_roots()
         try:
-            body, ref_meta = _ehw._load_library_widget(library_ref)
+            body, ref_meta = _ehw._load_library_widget(
+                library_ref, ws_root=ws_root, shared_root=shared_root,
+            )
         except (LookupError, ValueError) as exc:
             return _fail("library_ref", str(exc))
 

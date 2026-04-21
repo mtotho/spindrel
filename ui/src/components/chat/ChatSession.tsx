@@ -5,6 +5,8 @@ import { useSubmitChat } from "@/src/api/hooks/useChat";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useSpawnEphemeralSession,
+  useScratchSession,
+  useResetScratchSession,
   loadEphemeralState,
   saveEphemeralState,
   clearEphemeralState,
@@ -32,7 +34,8 @@ import {
   getTurnText,
 } from "@/app/(app)/channels/[channelId]/chatUtils";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { Maximize2, Minimize2, RotateCcw, X } from "lucide-react";
+import { History, Maximize2, Minimize2, RotateCcw, X } from "lucide-react";
+import { ScratchHistoryModal } from "./ScratchHistoryModal";
 import type { Message } from "@/src/types/api";
 
 export interface EphemeralContextPayload {
@@ -60,6 +63,12 @@ export type ChatSource =
       parentChannelId?: string;
       defaultBotId?: string;
       context?: EphemeralContextPayload;
+      /** When set, the ephemeral session uses a user-scoped server
+       *  pointer (``/sessions/scratch/current``) instead of a per-device
+       *  localStorage session id. Enables cross-device scratch chat
+       *  continuity. Only meaningful for the channel-page "Scratch" mount;
+       *  dashboard ad-hoc ephemerals leave it undefined and stay local. */
+      scratchBoundChannelId?: string;
     }
   | {
       kind: "thread";
@@ -98,6 +107,12 @@ export interface ChatSessionProps {
    *  Used for the minimize-from-channel round-trip so the user lands on
    *  the dashboard with the chat already visible. */
   initiallyExpanded?: boolean;
+  /** What happens when the user dismisses the dock — via swipe-down on
+   *  mobile or the header collapse button. Defaults to 'collapse' which
+   *  retreats to the bottom-right FAB (dashboard surface). The chat
+   *  screen uses 'close' because it intentionally hides the FAB: the
+   *  dock is reachable only from the channel header button. */
+  dismissMode?: "collapse" | "close";
 }
 
 /**
@@ -400,20 +415,42 @@ function EphemeralChatSession({
   title = "Chat",
   emptyState,
   initiallyExpanded,
+  dismissMode,
 }: EphemeralChatSessionProps) {
   const t = useThemeTokens();
   const qc = useQueryClient();
   const { data: bots } = useBots();
 
-  const { sessionStorageKey, parentChannelId, defaultBotId, context } = source;
+  const { sessionStorageKey, parentChannelId, defaultBotId, context, scratchBoundChannelId } = source;
   const resolvedDefault = defaultBotId ?? bots?.[0]?.id ?? "";
 
   const [stored, setStored] = useState<StoredEphemeralState | null>(() =>
     sessionStorageKey ? loadEphemeralState(sessionStorageKey) : null,
   );
 
-  const sessionId = stored?.sessionId && stored.sessionId.length > 0 ? stored.sessionId : null;
-  const botId = stored?.botId ?? resolvedDefault;
+  // Server-backed scratch pointer — resolves the caller's active
+  // scratch session for (channel, user, bot) so the session_id is
+  // stable across devices. Local storage is kept only as a first-paint
+  // cache for model overrides.
+  const scratchQuery = useScratchSession(
+    scratchBoundChannelId ?? null,
+    scratchBoundChannelId ? stored?.botId ?? resolvedDefault : null,
+  );
+  const resetScratch = useResetScratchSession();
+
+  const serverSessionId = scratchBoundChannelId
+    ? scratchQuery.data?.session_id ?? null
+    : null;
+  const serverBotId = scratchBoundChannelId
+    ? scratchQuery.data?.bot_id ?? null
+    : null;
+
+  const sessionId = scratchBoundChannelId
+    ? serverSessionId
+    : (stored?.sessionId && stored.sessionId.length > 0 ? stored.sessionId : null);
+  const botId = scratchBoundChannelId
+    ? (serverBotId ?? stored?.botId ?? resolvedDefault)
+    : (stored?.botId ?? resolvedDefault);
   const modelOverride = stored?.modelOverride ?? undefined;
   const modelProviderId = stored?.modelProviderId ?? null;
 
@@ -497,6 +534,13 @@ function EphemeralChatSession({
       let activeSessionId = sessionId;
 
       if (!activeSessionId) {
+        if (scratchBoundChannelId) {
+          // Server-scratch mode: the hook auto-creates on mount. If we
+          // still have no id something is wrong upstream — surface it
+          // rather than silently double-spawning via the ephemeral POST.
+          setSendError("Scratch session not ready yet — try again.");
+          return;
+        }
         try {
           const result = await spawn.mutateAsync({
             bot_id: botId,
@@ -531,6 +575,8 @@ function EphemeralChatSession({
     [botId, sessionId, parentChannelId, context, spawn, submitChat, modelOverride, modelProviderId, qc],
   );
 
+  const [historyOpen, setHistoryOpen] = useState(false);
+
   // Two-click speed-bump for reset.
   const [resetArmed, setResetArmed] = useState(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -547,11 +593,26 @@ function EphemeralChatSession({
       setResetArmed(true);
       return;
     }
-    if (sessionStorageKey) clearEphemeralState(sessionStorageKey);
+    if (scratchBoundChannelId && botId) {
+      // Server-backed reset: prior session stays in history, a fresh
+      // one becomes is_current. Optimistic local clear keeps the UI
+      // snappy; the query invalidation inside the mutation brings the
+      // new session id in.
+      resetScratch.mutate(
+        { parent_channel_id: scratchBoundChannelId, bot_id: botId },
+        {
+          onError: (err) => {
+            setSendError(err instanceof Error ? err.message : "Failed to reset scratch.");
+          },
+        },
+      );
+    } else if (sessionStorageKey) {
+      clearEphemeralState(sessionStorageKey);
+    }
     setStored(null);
     setSendError(null);
     setResetArmed(false);
-  }, [resetArmed, sessionStorageKey]);
+  }, [resetArmed, scratchBoundChannelId, botId, resetScratch, sessionStorageKey]);
 
   // Ephemeral session: X always closes. No FAB-collapse intermediate (the
   // only entry point is the channel header button, so a minimized dock-FAB
@@ -604,6 +665,16 @@ function EphemeralChatSession({
         >
           <ExpandIcon size={13} />
         </button>
+        {scratchBoundChannelId && (
+          <button
+            onClick={() => setHistoryOpen(true)}
+            title="Scratch history"
+            aria-label="Open scratch history"
+            className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
+          >
+            <History size={13} />
+          </button>
+        )}
         {sessionId && (
           <button
             onClick={handleReset}
@@ -677,29 +748,43 @@ function EphemeralChatSession({
     </div>
   );
 
+  const historyModal = scratchBoundChannelId ? (
+    <ScratchHistoryModal
+      open={historyOpen}
+      onClose={() => setHistoryOpen(false)}
+      channelId={scratchBoundChannelId}
+    />
+  ) : null;
+
   if (mode === "modal") {
     return (
-      <ChatSessionModal open={open} onClose={onClose} title={title}>
-        {body}
-      </ChatSessionModal>
+      <>
+        <ChatSessionModal open={open} onClose={onClose} title={title}>
+          {body}
+        </ChatSessionModal>
+        {historyModal}
+      </>
     );
   }
 
   return (
+    <>
     <ChatSessionDock
       open={open}
       expanded={dockExpanded}
-      // Collapse → close. Never drop back into the FAB shell; the only
-      // entry point is the channel header button, so re-minimizing to a
-      // FAB would duplicate chrome.
-      onExpandedChange={(next) => {
-        if (next) setDockExpanded(true);
-        else onClose();
-      }}
+      onExpandedChange={setDockExpanded}
+      // Chat-screen scratch has no FAB: the only entry point is the
+      // channel header button, so dismissal goes straight to close.
+      // Dashboard widget ephemerals would pass dismissMode='collapse'.
+      onDismiss={
+        dismissMode === "collapse" ? undefined : onClose
+      }
       title={title}
     >
       {body}
     </ChatSessionDock>
+    {historyModal}
+    </>
   );
 }
 
@@ -722,6 +807,7 @@ function ThreadChatSession({
   title,
   emptyState,
   initiallyExpanded,
+  dismissMode,
 }: ThreadChatSessionProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
@@ -925,6 +1011,7 @@ function ThreadChatSession({
       open={open}
       expanded={dockExpanded}
       onExpandedChange={setDockExpanded}
+      onDismiss={dismissMode === "collapse" ? undefined : onClose}
       title={displayTitle}
     >
       {body}

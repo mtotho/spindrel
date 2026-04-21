@@ -4,7 +4,7 @@
 // popover shell it needs.
 
 import { useMemo, useState } from "react";
-import { Sparkles, X, Search } from "lucide-react";
+import { Sparkles, X, Search, RefreshCw } from "lucide-react";
 
 import { useThemeTokens } from "../../theme/tokens";
 import { useChatStore } from "../../stores/chat";
@@ -26,7 +26,8 @@ const SOURCE_BADGE: Record<string, { label: string; bg: string; fg: string }> = 
 export type LoadedEntry = {
   id: string;
   name: string;
-  origin: "loaded" | "queued";
+  /** "loaded" = last get_skill call; "auto" = present in metadata but never fetched via get_skill in-window; "queued" = composer @skill: tag. */
+  origin: "loaded" | "auto" | "queued";
   msgsAgo?: number;
 };
 
@@ -62,6 +63,12 @@ export interface SkillsInContextPanelProps {
   onInsertSkillTag?: (skillId: string) => void;
   /** Called when the close (×) button inside the panel header is pressed. */
   onClose: () => void;
+}
+
+function formatMsgsAgo(n: number | undefined): string {
+  if (n === undefined) return "auto-injected";
+  if (n === 0) return "loaded this turn";
+  return `loaded ${n} turn${n === 1 ? "" : "s"} ago`;
 }
 
 /** Panel contents: header, loaded entries, optional catalog search + list.
@@ -141,7 +148,13 @@ export function SkillsInContextPanel({
             borderBottom: canDrop ? `1px solid ${t.surfaceBorder}` : undefined,
           }}
         >
-          {entries.map((e) => <EntryRow key={`${e.origin}:${e.id}`} entry={e} />)}
+          {entries.map((e) => (
+            <EntryRow
+              key={`${e.origin}:${e.id}`}
+              entry={e}
+              onRefresh={onInsertSkillTag}
+            />
+          ))}
         </div>
       ) : !canDrop ? (
         <div
@@ -209,18 +222,26 @@ export function SkillsInContextPanel({
   );
 }
 
-function EntryRow({ entry }: { entry: LoadedEntry }) {
+function EntryRow({
+  entry,
+  onRefresh,
+}: {
+  entry: LoadedEntry;
+  onRefresh?: (skillId: string) => void;
+}) {
   const t = useThemeTokens();
+  const canRefresh = !!onRefresh && entry.origin !== "queued";
   return (
     <div
-      className="flex flex-col px-3 py-1.5"
+      className="flex flex-row items-center gap-2 px-3 py-1.5 group"
       style={{ backgroundColor: t.surface }}
     >
-      <div className="flex flex-row items-center gap-1.5">
-        <Sparkles
-          size={10}
-          color={entry.origin === "queued" ? t.accent : t.purple}
-        />
+      <Sparkles
+        size={12}
+        color={entry.origin === "queued" ? t.accent : t.purple}
+        className="shrink-0 mt-0.5 self-start"
+      />
+      <div className="flex flex-col min-w-0 flex-1">
         <span
           style={{
             fontSize: 12,
@@ -229,27 +250,30 @@ function EntryRow({ entry }: { entry: LoadedEntry }) {
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
-            flex: 1,
           }}
           title={entry.id}
         >
           {entry.name}
         </span>
+        <span style={{ fontSize: 10, color: t.textDim, marginTop: 1 }}>
+          {entry.origin === "queued"
+            ? "queued for next turn"
+            : entry.origin === "auto" && entry.msgsAgo !== undefined
+              ? `auto-injected · ${formatMsgsAgo(entry.msgsAgo)}`
+              : formatMsgsAgo(entry.msgsAgo)}
+        </span>
       </div>
-      <span
-        style={{
-          fontSize: 10,
-          color: t.textDim,
-          marginLeft: 16,
-          marginTop: 1,
-        }}
-      >
-        {entry.origin === "queued"
-          ? "queued for next turn"
-          : entry.msgsAgo === 0 || entry.msgsAgo === undefined
-            ? "loaded last turn"
-            : `loaded ${entry.msgsAgo} msg${entry.msgsAgo === 1 ? "" : "s"} ago`}
-      </span>
+      {canRefresh && (
+        <button
+          onClick={() => onRefresh!(entry.id)}
+          aria-label={`Refresh ${entry.name}`}
+          title="Re-fetch this skill on the next turn"
+          className="shrink-0 bg-transparent border-none cursor-pointer p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:bg-surface-raised"
+          style={{ display: "flex", alignItems: "center" }}
+        >
+          <RefreshCw size={11} color={t.textDim} />
+        </button>
+      )}
     </div>
   );
 }
@@ -273,8 +297,8 @@ function CatalogRow({
   return (
     <button
       onClick={onSelect}
+      title={loaded ? "Click to re-fetch this skill on the next turn" : undefined}
       className="flex flex-col gap-0.5 w-full px-3 py-2 bg-transparent border-none cursor-pointer text-left transition-colors hover:bg-surface-raised"
-      style={{ opacity: loaded ? 0.5 : 1 }}
     >
       <div className="flex flex-row items-center gap-2">
         <Sparkles
@@ -340,19 +364,26 @@ function deriveEntries(
     }
   }
 
+  // Track how fresh each skill is, counting assistant turns back from HEAD.
+  // Primary: the most recent explicit `get_skill` call. Fallback: the most
+  // recent assistant message with this skill in active_skills/auto_injected_skills
+  // metadata (covers auto-injected skills that never went through get_skill).
   const msgsAgo = new Map<string, number>();
+  const fromGetSkill = new Set<string>();
   for (const sk of active) {
     let dist = 0;
+    let found = false;
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m.role !== "assistant" && m.role !== "bot") continue;
       const calls = m.tool_calls ?? [];
-      let found = false;
       for (const tc of calls) {
         if (tc.name !== "get_skill") continue;
         try {
           const args = JSON.parse(tc.args ?? "{}") as { skill_id?: string };
           if (args.skill_id === sk.id) {
+            msgsAgo.set(sk.id, dist);
+            fromGetSkill.add(sk.id);
             found = true;
             break;
           }
@@ -360,7 +391,27 @@ function deriveEntries(
           // ignore
         }
       }
-      if (found) {
+      if (found) break;
+      dist++;
+    }
+
+    if (found) continue;
+
+    // Fallback: distance to most recent metadata mention.
+    dist = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role !== "assistant" && m.role !== "bot") continue;
+      const meta = (m.metadata ?? {}) as Record<string, unknown>;
+      const ids = [
+        ...((meta.active_skills as unknown[]) ?? []),
+        ...((meta.auto_injected_skills as unknown[]) ?? []),
+      ].map((r) => {
+        if (!r || typeof r !== "object") return "";
+        const o = r as Record<string, unknown>;
+        return (o.skill_id ?? o.skillId ?? "") as string;
+      });
+      if (ids.includes(sk.id)) {
         msgsAgo.set(sk.id, dist);
         break;
       }
@@ -375,7 +426,7 @@ function deriveEntries(
     ...active.map((s) => ({
       id: s.id,
       name: s.name,
-      origin: "loaded" as const,
+      origin: (fromGetSkill.has(s.id) ? "loaded" : "auto") as "loaded" | "auto",
       msgsAgo: msgsAgo.get(s.id),
     })),
     ...queuedIds

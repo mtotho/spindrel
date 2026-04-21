@@ -207,13 +207,32 @@ def _render_channel_workspace_prompt(
 
 
 def _compact_tool_usage(name: str, fn: dict[str, Any]) -> str:
-    """Build a compact usage hint like: tool_name(required, [optional]) — description."""
-    params = fn.get("parameters", {})
-    props = params.get("properties", {})
-    required = set(params.get("required", []))
+    """Compact usage hint with types + enums so the bot can skip get_tool_info.
+
+    Shape: ``tool_name(required: type, [optional: type=default]) — description``.
+    Small enums inline as ``mode: a|b|c``; longer enums fall back to the raw
+    type. Kept to one line per tool so a ~20-tool index stays under ~5 KB.
+    """
+    params = fn.get("parameters", {}) or {}
+    props = params.get("properties", {}) or {}
+    required = set(params.get("required", []) or [])
     parts: list[str] = []
-    for p in props:
-        parts.append(p if p in required else f"[{p}]")
+    for p, spec in props.items():
+        if not isinstance(spec, dict):
+            parts.append(p if p in required else f"[{p}]")
+            continue
+        t = spec.get("type")
+        enum = spec.get("enum")
+        if isinstance(enum, list) and 1 <= len(enum) <= 5:
+            type_hint = "|".join(str(v) for v in enum)
+        elif isinstance(t, list):
+            type_hint = "|".join(str(x) for x in t)
+        elif isinstance(t, str):
+            type_hint = t
+        else:
+            type_hint = ""
+        label = f"{p}: {type_hint}" if type_hint else p
+        parts.append(label if p in required else f"[{label}]")
     sig = f"{name}({', '.join(parts)})" if parts else f"{name}()"
     desc = fn.get("description", "")
     # First sentence only, capped at 80 chars
@@ -1620,8 +1639,24 @@ async def assemble_context(
     pre_selected_tools: list[dict[str, Any]] | None = None
     _authorized_names: set[str] | None = None
     if bot.tool_retrieval:
-        by_name = await _all_tool_schemas_by_name(bot) if (
-            bot.local_tools or bot.mcp_servers or bot.client_tools or bot.pinned_tools
+        # Load enrolled names first so `_all_tool_schemas_by_name` can fold
+        # their MCP servers + local/client schemas into the pool. Without
+        # this, an enrolled MCP tool whose server isn't in `bot.mcp_servers`
+        # drops out of `by_name`, falls off `pinned_list`, reappears in the
+        # unretrieved index, and the model re-calls get_tool_info every turn.
+        _enrolled_tool_names: list[str] = []
+        if bot.id:
+            try:
+                from app.services.tool_enrollment import get_enrolled_tool_names as _get_enrolled_tools
+                _enrolled_tool_names = await _get_enrolled_tools(bot.id)
+            except Exception:
+                logger.warning("Failed to load enrolled tools for %s", bot.id, exc_info=True)
+
+        by_name = await _all_tool_schemas_by_name(
+            bot, enrolled_tool_names=_enrolled_tool_names,
+        ) if (
+            bot.local_tools or bot.mcp_servers or bot.client_tools
+            or bot.pinned_tools or _enrolled_tool_names
         ) else {}
         # Always include get_tool_info when tool retrieval is on (inspect named tools).
         if "get_tool_info" not in by_name:
@@ -1699,15 +1734,6 @@ async def assemble_context(
                       "selected": [t["function"]["name"] for t in retrieved],
                       "top_candidates": tool_candidates},
             ))
-        # Load enrolled tools (persistent working set) and merge into pinned
-        _enrolled_tool_names: list[str] = []
-        if bot.id:
-            try:
-                from app.services.tool_enrollment import get_enrolled_tool_names as _get_enrolled_tools
-                _enrolled_tool_names = await _get_enrolled_tools(bot.id)
-            except Exception:
-                logger.warning("Failed to load enrolled tools for %s", bot.id, exc_info=True)
-
         if by_name:
             _effective_pinned = list(bot.pinned_tools or []) + _tagged_tool_names + ["get_tool_info"]
             if bot.tool_discovery:
@@ -1803,7 +1829,7 @@ async def assemble_context(
 
     # --- widget-handler tools (bot↔widget bridge) ---
     # For every pinned widget whose manifest declares bot-callable handlers,
-    # surface them as `widget.<slug>.<handler>` tools. Visibility is the
+    # surface them as `widget__<slug>__<handler>` tools. Visibility is the
     # caller's channel dashboard + any dashboard the calling bot authored.
     # See `app/services/widget_handler_tools.py` for visibility + dispatch.
     if channel_id or bot.id:

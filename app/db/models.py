@@ -324,6 +324,26 @@ class Session(Base):
     integration_thread_refs: Mapped[dict | None] = mapped_column(
         JSONB, nullable=True
     )
+    # Scratch-session pointer (migration 232). parent_channel_id links an
+    # ephemeral session back to the channel whose "Scratch chat" header
+    # button opened it; owner_user_id records which user owns it so two
+    # users sharing a channel each get their own scratch thread.
+    # is_current flags the active scratch for that (channel, user) pair —
+    # reset flips old rows to false and marks a fresh one true while
+    # keeping history queryable.
+    parent_channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    is_current: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
 
     channel: Mapped["Channel | None"] = relationship(
         back_populates="sessions",

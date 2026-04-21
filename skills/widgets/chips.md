@@ -69,24 +69,6 @@ Field notes:
 - `min_cells` / `max_cells` clamp the resize handles. Chips always want `h: 1`.
 - Omit `layout_hints` entirely for widgets that belong in the grid — that's the default mental model.
 
-## Reference chips (core library)
-
-Three copy-paste starting points ship in the core library. Read them with `read_file("widget://core/<name>/index.html")`:
-
-| Name | Purpose | Shape |
-|---|---|---|
-| `chip_status` | Colored dot + label (optional detail) | `● Healthy` · fades the detail line in grid layout |
-| `chip_metric` | Label + tabular numeric value (+ delta) | `UNREAD 12 +3` |
-| `chip_toggle` | Label + on/off switch, persists via `spindrel.state` | `Notifications [○ ]` |
-
-Emit any of them to see the shape rendered in-channel:
-
-```
-emit_html_widget(library_ref="chip_status")
-```
-
-Then pin it to the header row in the dashboard editor. Each file is ~40 lines of HTML + CSS + JS; read them to learn the pattern, copy the one closest to your goal, rename, edit.
-
 ## Common pitfalls
 
 - **Authoring a grid widget and hoping it renders as a chip** — the grid widget's padding + title row + card chrome will blow the 32 px band. Branch on `spindrel.layout === "chip"` and strip those explicitly.

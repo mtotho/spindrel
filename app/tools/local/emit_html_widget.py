@@ -78,7 +78,12 @@ def _resolve_scope_roots() -> tuple[str | None, str | None]:
     return ws_root, shared_root
 
 
-def _load_library_widget(ref: str) -> tuple[str, dict]:
+def _load_library_widget(
+    ref: str,
+    *,
+    ws_root: str | None,
+    shared_root: str | None,
+) -> tuple[str, dict]:
     """Resolve a ``library_ref`` to (body_html, metadata).
 
     Accepts ``"name"`` (defaults to core scope) or ``"<scope>/<name>"`` where
@@ -88,6 +93,10 @@ def _load_library_widget(ref: str) -> tuple[str, dict]:
     ``file(op="create", path="widget://bot/foo/index.html", ...)`` is
     immediately renderable via ``library_ref="bot/foo"`` (or just ``"foo"``
     if no core widget shadows the name).
+
+    Callers supply ``ws_root`` / ``shared_root`` explicitly; ``_resolve_scope_roots``
+    derives them from the current bot context var for agent-runtime callers,
+    and the widget content API resolves them from the pin's source bot.
     """
     ref = ref.strip().strip("/")
     if "/" in ref:
@@ -111,7 +120,6 @@ def _load_library_widget(ref: str) -> tuple[str, dict]:
     widget_dir: Path | None = None
     resolved_scope: str | None = None
     search: list[str] = [scope] if scope else ["bot", "workspace", "core"]
-    ws_root, shared_root = _resolve_scope_roots()
     for candidate in search:
         if candidate == "core":
             root_dir = str(_CORE_WIDGETS_DIR)
@@ -410,8 +418,11 @@ async def emit_html_widget(
     emit_bot_id = current_bot_id.get()
 
     if library_ref_set:
+        ws_root, shared_root = _resolve_scope_roots()
         try:
-            body, ref_meta = _load_library_widget(library_ref)
+            body, ref_meta = _load_library_widget(
+                library_ref, ws_root=ws_root, shared_root=shared_root,
+            )
         except LookupError as exc:
             return _error(str(exc))
         except ValueError as exc:
@@ -425,6 +436,7 @@ async def emit_html_widget(
                 display_label=resolved_label, path=None, body_len=len(body)
             ),
             "display": "inline",
+            "source_kind": "library",
             "source_library_ref": f"{ref_meta['scope']}/{ref_meta['name']}",
         }
         if emit_channel_id:

@@ -85,12 +85,14 @@ _PIN_WIDGET_SCHEMA = {
         "name": "pin_widget",
         "description": (
             "Pin a library widget onto a dashboard. Picks the widget by "
-            "slug, file path, or name from one of three catalogs: "
+            "slug, file path, or name from one of four catalogs: "
             "'builtin' (ships with the server), 'integration' (bundled by "
-            "a specific integration), or 'channel' (user/bot-authored in "
-            "the channel workspace). Place-at defaults to the grid zone "
-            "at the first empty slot; pass zone/x/y/w/h explicitly to "
-            "override.\n\n"
+            "a specific integration), 'channel' (user/bot-authored in the "
+            "channel workspace), or 'library' (bot-authored in the "
+            "`widget://` library — pass the library ref as `widget`, e.g. "
+            "`'home_control'` or `'bot/home_control'`). Place-at defaults "
+            "to the grid zone at the first empty slot; pass zone/x/y/w/h "
+            "explicitly to override.\n\n"
             "Call `describe_dashboard` first to see what's already pinned "
             "— this tool refuses to pin a widget that already exists on "
             "the target dashboard with the same source+path."
@@ -107,12 +109,16 @@ _PIN_WIDGET_SCHEMA = {
                 },
                 "source_kind": {
                     "type": "string",
-                    "enum": ["builtin", "integration", "channel"],
+                    "enum": ["builtin", "integration", "channel", "library"],
                     "description": (
                         "Which catalog to search. 'builtin' scans "
                         "app/tools/local/widgets/; 'integration' requires "
                         "source_integration_id; 'channel' scans the "
-                        "current channel's workspace."
+                        "current channel's workspace; 'library' resolves "
+                        "a `widget://<scope>/<name>/` bundle (bot → "
+                        "workspace → core) authored via the `file` tool. "
+                        "Pass the library ref in `widget` as `'name'` or "
+                        "`'bot/name'` / `'workspace/name'` / `'core/name'`."
                     ),
                 },
                 "source_integration_id": {
@@ -501,6 +507,73 @@ def _find_entry_by_match(entries: list[dict[str, Any]], needle: str) -> dict | N
     return None
 
 
+async def _resolve_library_entry(
+    widget: str, *, bot_id: str | None,
+) -> tuple[dict | None, str | None]:
+    """Resolve a library ref to an entry dict suitable for ``_envelope_for_entry``.
+
+    Accepts ``name``, ``<scope>/<name>``, or a full ``widget://<scope>/<name>/...``
+    URI (the trailing path is stripped — pinning always targets the bundle's
+    ``index.html``). Reuses ``emit_html_widget._load_library_widget`` so the
+    resolution semantics (bot → workspace → core fallback, name validation,
+    scope-specific errors) stay in one place.
+    """
+    if not bot_id:
+        return None, (
+            "source_kind='library' requires bot context — no bot bound."
+        )
+    ref = (widget or "").strip()
+    if ref.startswith("widget://"):
+        ref = ref[len("widget://"):]
+        # Drop anything past `<scope>/<name>` — pinning targets the bundle.
+        parts = ref.split("/", 2)
+        ref = "/".join(parts[:2]) if len(parts) >= 2 else ref
+    ref = ref.strip("/")
+    if not ref:
+        return None, "library ref is empty."
+
+    from app.services.workspace import workspace_service
+    from app.tools.local.emit_html_widget import _load_library_widget
+
+    # Best-effort bot lookup — needed only to discover a shared_workspace_id
+    # for the workspace scope. The common bot-scope path works fine without
+    # a registered bot (get_workspace_root falls back to the standalone
+    # ``<base>/<bot_id>`` layout), so we degrade gracefully when the bot
+    # isn't in the in-memory registry (tests, detached contexts).
+    bot = None
+    try:
+        from app.agent.bots import get_bot
+        bot = get_bot(bot_id)
+    except Exception:  # noqa: BLE001 — registry miss = no shared-workspace info
+        bot = None
+    ws_root = workspace_service.get_workspace_root(bot_id, bot)
+    shared_root: str | None = None
+    if bot is not None and getattr(bot, "shared_workspace_id", None):
+        import os
+        from app.services.shared_workspace import shared_workspace_service
+        shared_root = os.path.realpath(
+            shared_workspace_service.get_host_root(bot.shared_workspace_id)
+        )
+
+    try:
+        _body, meta = _load_library_widget(
+            ref, ws_root=ws_root, shared_root=shared_root,
+        )
+    except LookupError as exc:
+        return None, str(exc)
+    except ValueError as exc:
+        return None, str(exc)
+
+    entry = {
+        "source": "library",
+        "library_ref": f"{meta['scope']}/{meta['name']}",
+        "name": meta.get("name"),
+        "display_label": meta.get("display_label"),
+        "description": meta.get("description"),
+    }
+    return entry, None
+
+
 async def _resolve_widget_entry(
     widget: str,
     *,
@@ -537,6 +610,8 @@ async def _resolve_widget_entry(
         if bot is None:
             return None, f"bot {bot_id!r} not found."
         entries = scan_channel(str(channel_id), bot)
+    elif source_kind == "library":
+        return await _resolve_library_entry(widget, bot_id=bot_id)
     else:
         return None, f"unknown source_kind: {source_kind!r}"
 
@@ -563,26 +638,32 @@ def _envelope_for_entry(
     fetches content from the right endpoint based on ``source_kind``.
     """
     label = display_label or entry.get("display_label") or entry.get("name")
+    source = entry.get("source")
     envelope: dict[str, Any] = {
         "content_type": _HTML_INTERACTIVE_CT,
         "body": "",
         "plain_body": entry.get("description") or label,
         "display": "inline",
         "display_label": label,
-        "source_path": entry.get("path"),
         "source_bot_id": source_bot_id,
         "extra_csp": entry.get("extra_csp"),
     }
-    source = entry.get("source")
-    if source == "builtin":
-        envelope["source_kind"] = "builtin"
-    elif source == "integration":
-        envelope["source_kind"] = "integration"
-        envelope["source_integration_id"] = entry.get("integration_id")
-    else:  # channel
-        envelope["source_kind"] = "channel"
-        if channel_id is not None:
-            envelope["source_channel_id"] = str(channel_id)
+    if source == "library":
+        # Library widgets don't carry a filesystem-style source_path — the
+        # renderer fetches fresh body via /html-widget-content/library?ref=...
+        envelope["source_kind"] = "library"
+        envelope["source_library_ref"] = entry["library_ref"]
+    else:
+        envelope["source_path"] = entry.get("path")
+        if source == "builtin":
+            envelope["source_kind"] = "builtin"
+        elif source == "integration":
+            envelope["source_kind"] = "integration"
+            envelope["source_integration_id"] = entry.get("integration_id")
+        else:  # channel
+            envelope["source_kind"] = "channel"
+            if channel_id is not None:
+                envelope["source_channel_id"] = str(channel_id)
     return envelope
 
 
@@ -741,15 +822,22 @@ async def pin_widget(
         existing_pins = await list_pins(db, dashboard_key=key)
         existing = [serialize_pin(p) for p in existing_pins]
 
-        # Refuse duplicates — same source + path on the same dashboard.
+        # Refuse duplicates — same source + identity on the same dashboard.
         needle_path = entry.get("path")
+        needle_library_ref = envelope.get("source_library_ref")
         for existing_pin in existing:
             env = existing_pin.get("envelope") or {}
-            if (
-                env.get("source_kind") == envelope.get("source_kind")
-                and env.get("source_integration_id") == envelope.get("source_integration_id")
-                and env.get("source_path") == needle_path
-            ):
+            if env.get("source_kind") != envelope.get("source_kind"):
+                continue
+            same = False
+            if envelope.get("source_kind") == "library":
+                same = env.get("source_library_ref") == needle_library_ref
+            else:
+                same = (
+                    env.get("source_integration_id") == envelope.get("source_integration_id")
+                    and env.get("source_path") == needle_path
+                )
+            if same:
                 err_msg = (
                     f"{widget!r} is already pinned to {key!r} as pin "
                     f"{existing_pin['id']}. Unpin it first or move the "

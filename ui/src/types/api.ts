@@ -498,6 +498,33 @@ export interface HtmlWidgetCatalog {
   channels: ChannelHtmlWidgets[];
 }
 
+/** One entry in the widget-library catalog (core, bot, or workspace scope).
+ *  Produced by ``widget_library._read_widget_meta`` — YAML frontmatter keys
+ *  are optional. Pairs with ``GET /api/v1/widgets/library-widgets``. */
+export interface WidgetLibraryEntry {
+  /** Folder name under the scope root — also the machine identifier used
+   *  when composing ``widget://<scope>/<name>/...`` refs. */
+  name: string;
+  /** Which on-disk root this came from. */
+  scope: "core" | "bot" | "workspace";
+  /** Bundle format. ``html`` = iframe widget, ``template`` = YAML component
+   *  tree, ``suite`` = multi-widget bundle sharing a SQLite DB. */
+  format: "html" | "template" | "suite";
+  display_label?: string;
+  description?: string;
+  version?: string;
+  tags?: string[];
+  icon?: string;
+  updated_at?: number;
+}
+
+/** Response shape of ``GET /api/v1/widgets/library-widgets``. */
+export interface WidgetLibraryCatalog {
+  core: WidgetLibraryEntry[];
+  bot: WidgetLibraryEntry[];
+  workspace: WidgetLibraryEntry[];
+}
+
 /** A widget pinned to the chat-less `/widgets` dashboard. Row shape mirrors
  *  `channel.config.pinned_widgets[]` so the same renderer handles both. */
 export interface WidgetDashboardPin {
@@ -755,13 +782,17 @@ export interface ToolResultEnvelope {
   source_path?: string | null;
   /** Provenance of a path-backed widget. When omitted, the envelope behaves
    *  as if ``"channel"`` — back-compat default for existing pins. */
-  source_kind?: "channel" | "builtin" | "integration" | null;
+  source_kind?: "channel" | "builtin" | "integration" | "library" | null;
   /** Channel id scoping `source_path` to its channel workspace. Required
    *  for ``source_kind === "channel"`` envelopes. */
   source_channel_id?: string | null;
   /** Integration id scoping `source_path` to ``integrations/<id>/widgets/``.
    *  Set only for ``source_kind === "integration"`` envelopes. */
   source_integration_id?: string | null;
+  /** Library ref scoping the envelope to a ``widget://<scope>/<name>/`` bundle.
+   *  Set only for ``source_kind === "library"`` envelopes. The renderer fetches
+   *  fresh body from ``/api/v1/widgets/html-widget-content/library?ref=...``. */
+  source_library_ref?: string | null;
   /** Bot that emitted the envelope. Drives the widget-auth mint so
    *  interactive HTML widgets authenticate as this bot, not as the
    *  viewing user. */

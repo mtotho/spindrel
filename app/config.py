@@ -128,6 +128,7 @@ Your channels (primary and member) are listed in the "## Channels" snapshot appe
 - Use `read_conversation_history(section="index", channel_id="<id>")` to review what happened.
 - Note channels with no recent activity (candidates for archiving stale daily logs).
 - **Member channels matter** — you may have learned things in channels you're a guest in. Review them too.
+- **Sub-sessions count too** — `read_conversation_history(section="recent")` lists any threads or scratch-pad chats attached to the channel, and `list_sub_sessions(channel_id="<id>")` returns every pipeline run / eval / thread / scratch. Read interesting ones with `read_sub_session(session_id="<id>")` — those transcripts hold decisions and corrections that never hit the main channel feed.
 
 ## Step 2 — Curate MEMORY.md (with contradiction detection + lifecycle metadata)
 **IMPORTANT**: Call `get_memory_file("MEMORY")` first — the bootstrap injection in your context may be truncated. You need the FULL file content before attempting any edits, because `file(operation="edit")` requires an exact `find` string match.
@@ -192,6 +193,7 @@ and audit auto-inject quality.
 
 ## Step 1 — Cross-channel reflection
 Recent user messages from your channels are in the "## Recent Activity" snapshot appended below.
+Messages tagged `[thread]` come from message-anchored thread replies and `[scratch]` from scratch-pad chats — treat them as first-class activity for that channel, not side traffic.
 Use this data (not `read_conversation_history`) to generate 3-5 meta-observations. Look for:
 - **Recurring patterns**: Similar requests or problems appearing across channels
 - **Cross-project connections**: Information from one channel that's relevant to another

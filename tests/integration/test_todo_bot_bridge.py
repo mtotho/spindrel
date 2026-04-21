@@ -2,7 +2,7 @@
 
 Validates end-to-end:
 - Widget handlers surface as bot-callable tools via `list_widget_handler_tools`.
-- Tool names follow `widget.<slug>.<handler>` naming.
+- Tool names follow `widget__<slug>__<handler>` naming.
 - Dispatching through `widget-actions` (the iframe path) and the dynamic
   tool-source resolver (the bot path) end up at the same SQLite state.
 """
@@ -112,7 +112,7 @@ async def test_handler_tools_surface_for_pinned_widget(
     seeded, db_session, channel,
 ):
     """A bot in the channel where the todo widget is pinned sees its handlers
-    as ``widget.todo.*`` tools with proper schemas + safety tiers."""
+    as ``widget__todo__*`` tools with proper schemas + safety tiers."""
     from app.services.widget_handler_tools import list_widget_handler_tools
 
     with _bot_patch():
@@ -125,19 +125,19 @@ async def test_handler_tools_surface_for_pinned_widget(
 
     names = sorted(s["function"]["name"] for s in schemas)
     assert names == [
-        "widget.todo.add_todo",
-        "widget.todo.delete_todo",
-        "widget.todo.list_todos",
-        "widget.todo.toggle_done",
+        "widget__todo__add_todo",
+        "widget__todo__delete_todo",
+        "widget__todo__list_todos",
+        "widget__todo__toggle_done",
     ]
     add_schema = next(
-        s for s in schemas if s["function"]["name"] == "widget.todo.add_todo"
+        s for s in schemas if s["function"]["name"] == "widget__todo__add_todo"
     )
     assert add_schema["function"]["parameters"]["required"] == ["title"]
 
-    _, _, list_tier = resolver["widget.todo.list_todos"]
+    _, _, list_tier = resolver["widget__todo__list_todos"]
     assert list_tier == "readonly"
-    _, _, add_tier = resolver["widget.todo.add_todo"]
+    _, _, add_tier = resolver["widget__todo__add_todo"]
     assert add_tier == "mutating"
 
 
@@ -172,7 +172,7 @@ async def test_iframe_and_bot_paths_see_same_state(
     # --- bot path: resolve tool name → invoke_action ---
     with _bot_patch():
         resolved = await resolve_widget_handler(
-            db_session, "widget.todo.list_todos", _BOT_ID, str(channel),
+            db_session, "widget__todo__list_todos", _BOT_ID, str(channel),
         )
     assert resolved is not None
     resolved_pin, handler, _tier = resolved
@@ -198,9 +198,9 @@ async def test_cross_bot_widget_handler_triggers_approval_gate(
     still fires per the configured rule set.
 
     This test pins the approval-gate half of that contract:
-    ``evaluate_tool_policy`` receives a ``widget.todo.add_todo`` tool name
+    ``evaluate_tool_policy`` receives a ``widget__todo__add_todo`` tool name
     from a caller bot that does NOT own the pin, and an explicit
-    ``ToolPolicyRule`` with a ``widget.todo.*`` glob turns the call into
+    ``ToolPolicyRule`` with a ``widget__todo__*`` glob turns the call into
     ``require_approval`` — the same decision shape any other mutating
     tool would produce. No special-case bypass, no silent allow.
     """
@@ -213,7 +213,7 @@ async def test_cross_bot_widget_handler_triggers_approval_gate(
     # Global rule — bot_id is NULL so it applies to any caller bot.
     rule = ToolPolicyRule(
         bot_id=None,
-        tool_name="widget.todo.*",
+        tool_name="widget__todo__*",
         action="require_approval",
         priority=50,
         reason="Mutating Todo widget handlers require approval",
@@ -226,7 +226,7 @@ async def test_cross_bot_widget_handler_triggers_approval_gate(
     # so this doubles as a cross-bot invocation.
     caller_bot_id = "some-other-bot"
     decision = await evaluate_tool_policy(
-        db_session, caller_bot_id, "widget.todo.add_todo",
+        db_session, caller_bot_id, "widget__todo__add_todo",
         {"title": "pay bills"},
     )
     assert decision.action == "require_approval"
@@ -235,7 +235,7 @@ async def test_cross_bot_widget_handler_triggers_approval_gate(
     # Readonly handlers on the same widget also route through the gate —
     # the glob catches them — and the same policy choice applies.
     decision_ro = await evaluate_tool_policy(
-        db_session, caller_bot_id, "widget.todo.list_todos", {},
+        db_session, caller_bot_id, "widget__todo__list_todos", {},
     )
     assert decision_ro.action == "require_approval"
     assert decision_ro.rule_id == str(rule.id)
@@ -255,7 +255,7 @@ async def test_bot_path_mutation_visible_in_iframe_path(
 
     with _bot_patch():
         resolved = await resolve_widget_handler(
-            db_session, "widget.todo.add_todo", _BOT_ID, str(channel),
+            db_session, "widget__todo__add_todo", _BOT_ID, str(channel),
         )
     assert resolved is not None
     resolved_pin, handler, _ = resolved

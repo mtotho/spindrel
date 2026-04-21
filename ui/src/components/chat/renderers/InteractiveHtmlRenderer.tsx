@@ -51,6 +51,7 @@ import { getAuthToken } from "../../../stores/auth";
 import { pushWidgetLog } from "../../../stores/widgetLog";
 import { useIsAdmin } from "../../../hooks/useScope";
 import { buildWidgetThemeCss, buildWidgetThemeObject } from "./widgetTheme";
+import { WIDGET_ICON_SPRITE, WIDGET_ICON_NAMES } from "./widgetIcons";
 
 interface WidgetTokenResponse {
   token: string;
@@ -1342,6 +1343,251 @@ function spindrelBootstrap(
       '</svg>';
   }
 
+  // --- ui.icon: render an icon from the sprite injected at body top.
+  // Returns an SVG string suitable for innerHTML or template concatenation.
+  // Static usage (no JS): <svg class="sd-icon"><use href="#sd-icon-check"/></svg>
+  const __SD_ICON_NAMES = ${JSON.stringify(WIDGET_ICON_NAMES)};
+  function uiIcon(name, opts) {
+    const o = opts || {};
+    const cls = "sd-icon" + (o.size ? " sd-icon--" + o.size : "") +
+      (o.tone ? " sd-icon--" + o.tone : "") +
+      (o.className ? " " + o.className : "");
+    const safeName = String(name || "");
+    // Best-effort validation — unknown names produce an invisible <svg>.
+    // Known names render via sprite <use>.
+    if (!__SD_ICON_NAMES.includes(safeName)) {
+      if (window.spindrel && window.spindrel.log && window.spindrel.log.warn) {
+        window.spindrel.log.warn("spindrel.ui.icon: unknown name '" + safeName + "'");
+      }
+    }
+    return '<svg class="' + __esc(cls) + '" aria-hidden="true" focusable="false">' +
+      '<use href="#sd-icon-' + __esc(safeName) + '"></use></svg>';
+  }
+
+  // --- ui.autogrow: resize a textarea to fit its content on input.
+  // Returns a teardown function. Caps at opts.maxHeight (default 240px).
+  function uiAutogrow(elOrSelector, opts) {
+    const ta = __coerceEl(elOrSelector);
+    const o = opts || {};
+    const maxH = typeof o.maxHeight === "number" ? o.maxHeight : 240;
+    ta.setAttribute("data-autogrow", "true");
+    function resize() {
+      ta.style.height = "auto";
+      const next = Math.min(maxH, ta.scrollHeight);
+      ta.style.height = next + "px";
+      ta.style.overflowY = ta.scrollHeight > maxH ? "auto" : "hidden";
+    }
+    ta.addEventListener("input", resize);
+    // Run once on next frame so initial value sizes correctly.
+    Promise.resolve().then(resize);
+    return function teardown() {
+      ta.removeEventListener("input", resize);
+      ta.style.height = "";
+      ta.style.overflowY = "";
+      ta.removeAttribute("data-autogrow");
+    };
+  }
+
+  // --- ui.menu: popover menu anchored to an element.
+  //   const menu = spindrel.ui.menu(anchor, [
+  //     { label: "Edit", icon: "pencil", onSelect: () => … },
+  //     { label: "Delete", icon: "trash", danger: true, onSelect: () => … },
+  //     { divider: true },
+  //     { label: "Help",  onSelect: () => … },
+  //   ]);
+  //   // menu.close() to dismiss programmatically.
+  // Handles outside-click + Escape + ArrowUp/Down/Enter.
+  function uiMenu(anchorEl, items, opts) {
+    const anchor = __coerceEl(anchorEl);
+    const o = opts || {};
+    const list = Array.isArray(items) ? items : [];
+    const menu = document.createElement("div");
+    menu.className = "sd-menu";
+    menu.setAttribute("role", "menu");
+
+    const itemEls = [];
+    list.forEach(function (it, i) {
+      if (it && it.divider) {
+        const d = document.createElement("div");
+        d.className = "sd-menu-divider";
+        menu.appendChild(d);
+        return;
+      }
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "sd-menu-item" + (it.danger ? " sd-menu-item--danger" : "");
+      btn.setAttribute("role", "menuitem");
+      btn.tabIndex = -1;
+      const iconHtml = it.icon ? uiIcon(it.icon, { size: "sm" }) : '';
+      const kbdHtml = it.kbd ? '<span class="sd-spacer"></span><span class="sd-kbd">' + __esc(it.kbd) + '</span>' : '';
+      btn.innerHTML = iconHtml + '<span>' + __esc(it.label || "") + '</span>' + kbdHtml;
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        close();
+        if (typeof it.onSelect === "function") it.onSelect();
+      });
+      btn.addEventListener("mouseenter", function () { setActive(i); });
+      menu.appendChild(btn);
+      itemEls.push({ el: btn, index: i });
+    });
+
+    let activeIdx = -1;
+    function setActive(i) {
+      if (activeIdx >= 0 && itemEls[activeIdx]) {
+        itemEls[activeIdx].el.removeAttribute("data-active");
+      }
+      activeIdx = i;
+      if (itemEls[i]) {
+        itemEls[i].el.setAttribute("data-active", "true");
+        itemEls[i].el.focus();
+      }
+    }
+    function move(step) {
+      if (itemEls.length === 0) return;
+      let n = activeIdx < 0 ? (step > 0 ? 0 : itemEls.length - 1) : activeIdx + step;
+      if (n < 0) n = itemEls.length - 1;
+      if (n >= itemEls.length) n = 0;
+      setActive(n);
+    }
+    function onKey(ev) {
+      if (ev.key === "Escape") { close(); ev.preventDefault(); return; }
+      if (ev.key === "ArrowDown") { move(1); ev.preventDefault(); return; }
+      if (ev.key === "ArrowUp") { move(-1); ev.preventDefault(); return; }
+      if (ev.key === "Enter" && activeIdx >= 0 && itemEls[activeIdx]) {
+        itemEls[activeIdx].el.click();
+        ev.preventDefault();
+      }
+    }
+    function onDocClick(ev) {
+      if (!menu.contains(ev.target) && ev.target !== anchor) close();
+    }
+    let closed = false;
+    function close() {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("click", onDocClick, true);
+      document.removeEventListener("keydown", onKey, true);
+      if (menu.parentNode) menu.parentNode.removeChild(menu);
+    }
+
+    document.body.appendChild(menu);
+    // Position below-right of anchor. Menu shrinks against viewport edges.
+    const rect = anchor.getBoundingClientRect();
+    const mh = menu.offsetHeight || 120;
+    const mw = menu.offsetWidth || 140;
+    const gap = 4;
+    let top = rect.bottom + window.scrollY + gap;
+    let left = rect.left + window.scrollX;
+    const vh = window.innerHeight, vw = window.innerWidth;
+    if (rect.bottom + mh + gap > vh && rect.top - mh - gap > 0) {
+      top = rect.top + window.scrollY - mh - gap;
+    }
+    if (left + mw > vw - 4) left = Math.max(4, vw - mw - 4);
+    menu.style.top = top + "px";
+    menu.style.left = left + "px";
+    if (o.minWidth === "anchor") menu.style.minWidth = rect.width + "px";
+    menu.classList.add("sd-anim-pop");
+
+    setTimeout(function () {
+      document.addEventListener("click", onDocClick, true);
+      document.addEventListener("keydown", onKey, true);
+    }, 0);
+
+    return { close: close };
+  }
+
+  // --- ui.tooltip: attach a hover/focus tooltip to an element.
+  // Returns a teardown function.
+  function uiTooltip(elOrSelector, text, opts) {
+    const target = __coerceEl(elOrSelector);
+    const o = opts || {};
+    const delay = typeof o.delay === "number" ? o.delay : 200;
+    let tip = null;
+    let showT = 0;
+    function show() {
+      if (tip) return;
+      tip = document.createElement("div");
+      tip.className = "sd-tooltip";
+      tip.textContent = String(text);
+      document.body.appendChild(tip);
+      const rect = target.getBoundingClientRect();
+      const th = tip.offsetHeight, tw = tip.offsetWidth;
+      let top = rect.top + window.scrollY - th - 6;
+      if (top < window.scrollY + 4) top = rect.bottom + window.scrollY + 6;
+      let left = rect.left + window.scrollX + rect.width / 2 - tw / 2;
+      const vw = window.innerWidth;
+      if (left < 4) left = 4;
+      if (left + tw > vw - 4) left = vw - tw - 4;
+      tip.style.top = top + "px";
+      tip.style.left = left + "px";
+      tip.classList.add("sd-anim-fade-in");
+    }
+    function hide() {
+      if (showT) { clearTimeout(showT); showT = 0; }
+      if (tip && tip.parentNode) tip.parentNode.removeChild(tip);
+      tip = null;
+    }
+    function enter() { if (!showT) showT = setTimeout(show, delay); }
+    function leave() { hide(); }
+    target.addEventListener("mouseenter", enter);
+    target.addEventListener("mouseleave", leave);
+    target.addEventListener("focus", enter);
+    target.addEventListener("blur", leave);
+    return function teardown() {
+      hide();
+      target.removeEventListener("mouseenter", enter);
+      target.removeEventListener("mouseleave", leave);
+      target.removeEventListener("focus", enter);
+      target.removeEventListener("blur", leave);
+    };
+  }
+
+  // --- ui.confirm: promise-based confirm modal.
+  //   const ok = await spindrel.ui.confirm({
+  //     title: "Delete todo?",
+  //     body: "This can't be undone.",
+  //     confirmLabel: "Delete",
+  //     danger: true,
+  //   });
+  function uiConfirm(opts) {
+    const o = opts || {};
+    return new Promise(function (resolve) {
+      const backdrop = document.createElement("div");
+      backdrop.className = "sd-modal-backdrop";
+      const modal = document.createElement("div");
+      modal.className = "sd-modal sd-anim-pop";
+      const titleHtml = o.title ? '<h3 class="sd-modal__title">' + __esc(o.title) + '</h3>' : '';
+      const bodyHtml = o.body ? '<div class="sd-modal__body">' + __esc(o.body) + '</div>' : '';
+      const cancelLabel = o.cancelLabel || "Cancel";
+      const confirmLabel = o.confirmLabel || "Confirm";
+      const confirmCls = o.danger ? "sd-btn-danger" : "sd-btn-primary";
+      modal.innerHTML = titleHtml + bodyHtml +
+        '<div class="sd-modal__actions">' +
+        '<button type="button" class="sd-btn" data-act="cancel">' + __esc(cancelLabel) + '</button>' +
+        '<button type="button" class="sd-btn ' + confirmCls + '" data-act="confirm">' + __esc(confirmLabel) + '</button>' +
+        '</div>';
+      backdrop.appendChild(modal);
+      document.body.appendChild(backdrop);
+      function finish(result) {
+        document.removeEventListener("keydown", onKey, true);
+        if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+        resolve(result);
+      }
+      function onKey(ev) {
+        if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
+        if (ev.key === "Enter") { ev.preventDefault(); finish(true); }
+      }
+      modal.querySelector('[data-act="cancel"]').addEventListener("click", function () { finish(false); });
+      modal.querySelector('[data-act="confirm"]').addEventListener("click", function () { finish(true); });
+      backdrop.addEventListener("click", function (ev) {
+        if (ev.target === backdrop) finish(false);
+      });
+      document.addEventListener("keydown", onKey, true);
+      const focusBtn = modal.querySelector(o.danger ? '[data-act="cancel"]' : '[data-act="confirm"]');
+      if (focusBtn) focusBtn.focus();
+    });
+  }
+
   // --- Image: auth-aware image loader with a skeleton placeholder.
   //
   //   const tile = spindrel.image(url, { aspectRatio: "16/9", alt: "..." });
@@ -1655,6 +1901,11 @@ function spindrelBootstrap(
       status: uiStatus,
       table: uiTable,
       chart: uiChart,
+      icon: uiIcon,
+      autogrow: uiAutogrow,
+      menu: uiMenu,
+      tooltip: uiTooltip,
+      confirm: uiConfirm,
     },
     form: form,
     db: {
@@ -1779,6 +2030,7 @@ function wrapHtml(
 ${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions, layout)}
 </head>
 <body>
+${WIDGET_ICON_SPRITE}
 <div id="__sd_root">
 ${body}
 </div>
@@ -1831,16 +2083,23 @@ export function InteractiveHtmlRenderer({
   const sourcePath = envelope.source_path || null;
   const sourceChannelId = envelope.source_channel_id || null;
   const sourceIntegrationId = envelope.source_integration_id || null;
+  const sourceLibraryRef = envelope.source_library_ref || null;
   const sourceBotId = envelope.source_bot_id || null;
   // Default to "channel" when omitted so pre-catalog envelopes keep working.
+  // Library envelopes always carry an explicit source_kind.
   const sourceKind = envelope.source_kind
-    ?? (sourceIntegrationId ? "integration" : "channel");
+    ?? (sourceLibraryRef
+      ? "library"
+      : sourceIntegrationId ? "integration" : "channel");
   const pathMode =
-    !!sourcePath
-    && (
-      (sourceKind === "channel" && !!sourceChannelId)
-      || sourceKind === "builtin"
-      || (sourceKind === "integration" && !!sourceIntegrationId)
+    (sourceKind === "library" && !!sourceLibraryRef)
+    || (
+      !!sourcePath
+      && (
+        (sourceKind === "channel" && !!sourceChannelId)
+        || sourceKind === "builtin"
+        || (sourceKind === "integration" && !!sourceIntegrationId)
+      )
     );
   // The `channelId` prop is the authoritative source — set by every render
   // surface that knows which channel the widget lives on (chat view, channel
@@ -1933,10 +2192,17 @@ export function InteractiveHtmlRenderer({
     }
   }, [widgetToken]);
 
-  // Source-specific content endpoint. All three return ``{path, content}``
+  // Source-specific content endpoint. All four return ``{path, content}``
   // so the downstream body-building code stays uniform.
   const contentEndpoint = useMemo(() => {
-    if (!pathMode || !sourcePath) return null;
+    if (!pathMode) return null;
+    if (sourceKind === "library" && sourceLibraryRef) {
+      const botParam = sourceBotId
+        ? `&bot_id=${encodeURIComponent(sourceBotId)}`
+        : "";
+      return `/api/v1/widgets/html-widget-content/library?ref=${encodeURIComponent(sourceLibraryRef)}${botParam}`;
+    }
+    if (!sourcePath) return null;
     if (sourceKind === "builtin") {
       return `/api/v1/widgets/html-widget-content/builtin?path=${encodeURIComponent(sourcePath)}`;
     }
@@ -1947,7 +2213,7 @@ export function InteractiveHtmlRenderer({
       return `/api/v1/channels/${sourceChannelId}/workspace/files/content?path=${encodeURIComponent(sourcePath)}`;
     }
     return null;
-  }, [pathMode, sourcePath, sourceKind, sourceIntegrationId, sourceChannelId]);
+  }, [pathMode, sourcePath, sourceKind, sourceIntegrationId, sourceChannelId, sourceLibraryRef, sourceBotId]);
 
   const fileQuery = useQuery({
     queryKey: [
@@ -1955,6 +2221,8 @@ export function InteractiveHtmlRenderer({
       sourceKind,
       sourceChannelId,
       sourceIntegrationId,
+      sourceLibraryRef,
+      sourceBotId,
       sourcePath,
     ],
     queryFn: () =>

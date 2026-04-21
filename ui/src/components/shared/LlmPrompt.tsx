@@ -241,43 +241,69 @@ export function AutocompleteMenu({
         }}
       >
         {items.map((item, i) => {
-          const prefix = item.value.includes(":") ? item.value.split(":")[0] : "";
+          const hasPrefix = item.value.includes(":");
+          const prefix = hasPrefix ? item.value.split(":")[0] : "";
           const colors = TAG_COLORS[prefix] || { bg: "#374151", fg: t.contentText };
+          const path = hasPrefix ? item.value.split(":").slice(1).join(":") : item.value;
+          const leaf = path.split("/").filter(Boolean).pop() || path;
+          const hasSubPath = path !== leaf;
+          const isActive = i === activeIdx;
           return (
             <div
               key={item.value}
               onMouseDown={(e) => { e.preventDefault(); onSelect(item); }}
               onMouseEnter={() => onHover(i)}
               style={{
-                padding: "6px 12px",
+                padding: "7px 12px",
                 cursor: "pointer",
-                display: "flex", flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                background: i === activeIdx ? t.surfaceOverlay : "transparent",
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "flex-start",
+                gap: 9,
+                background: isActive ? t.surfaceOverlay : "transparent",
               }}
             >
               {prefix && (
                 <span style={{
-                  fontSize: 9, fontWeight: 600, padding: "1px 5px", borderRadius: 3,
+                  fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3,
                   background: colors.bg, color: colors.fg,
                   textTransform: "uppercase", letterSpacing: "0.05em",
+                  marginTop: 1, flexShrink: 0,
                 }}>
                   {prefix}
                 </span>
               )}
-              <span style={{ fontFamily: "monospace", fontSize: 12, color: t.text }}>
-                {item.value.includes(":") ? item.value.split(":").slice(1).join(":") : item.value}
-              </span>
-              {item.description ? (
-                <span style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.description}
+              <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1, gap: 1 }}>
+                <span style={{
+                  fontSize: 13, fontWeight: 600, color: t.text,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  {leaf}
                 </span>
-              ) : item.label !== item.value ? (
-                <span style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.label}
-                </span>
-              ) : null}
+                {hasSubPath && (
+                  <span style={{
+                    fontFamily: "monospace", fontSize: 10, color: t.textDim,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {path}
+                  </span>
+                )}
+                {item.description ? (
+                  <span style={{
+                    fontSize: 11, color: t.textDim,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {item.description}
+                  </span>
+                ) : (!hasSubPath && item.label !== item.value) ? (
+                  <span style={{
+                    fontSize: 11, color: t.textDim,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {item.label}
+                  </span>
+                ) : null}
+              </div>
             </div>
           );
         })}

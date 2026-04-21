@@ -619,6 +619,8 @@ async def _build_recent_activity_snapshot(bot_id: str, db: AsyncSession) -> str:
     Gives the skill review bot concrete conversation content to base
     reflections on, instead of requiring tool calls to read_conversation_history.
     """
+    from sqlalchemy import or_
+
     from app.db.models import Channel, Session as SessionRow
     from app.services.channels import bot_channel_filter
 
@@ -637,35 +639,62 @@ async def _build_recent_activity_snapshot(bot_id: str, db: AsyncSession) -> str:
     lines = [
         "## Recent Activity",
         "",
-        "Recent user messages from the last 7 days (newest first, max 5 per channel):",
+        "Recent user messages from the last 7 days (newest first, max 8 per "
+        "channel). [thread]/[scratch] tags mark messages from child "
+        "sub-sessions — treat them as part of the channel's activity.",
         "",
     ]
     for ch in channels:
         label = ch.name or ch.client_id or "unnamed"
-        recent_msgs = (await db.execute(
+
+        # Collect channel session ids so we can also pull thread-sub-session
+        # messages anchored at messages on those sessions.
+        channel_session_ids_subq = (
+            select(SessionRow.id)
+            .where(SessionRow.channel_id == ch.id)
+        )
+        parent_msg_ids_subq = (
+            select(Message.id)
+            .where(Message.session_id.in_(channel_session_ids_subq))
+        )
+
+        recent_rows = (await db.execute(
             select(
                 Message.content,
                 Message.created_at,
+                SessionRow.session_type,
+                SessionRow.parent_message_id,
             )
             .join(SessionRow, Message.session_id == SessionRow.id)
             .where(
-                SessionRow.channel_id == ch.id,
+                or_(
+                    SessionRow.channel_id == ch.id,
+                    SessionRow.parent_channel_id == ch.id,
+                    SessionRow.parent_message_id.in_(parent_msg_ids_subq),
+                ),
                 Message.role == "user",
                 Message.content.is_not(None),
                 Message.created_at >= week_ago,
             )
             .order_by(Message.created_at.desc())
-            .limit(5)
+            .limit(8)
         )).all()
 
-        if recent_msgs:
+        if recent_rows:
             lines.append(f"**{label}**:")
-            for msg in recent_msgs:
-                preview = (msg.content or "")[:150].replace("\n", " ").strip()
-                if len(msg.content or "") > 150:
+            for row in recent_rows:
+                content, created, stype, parent_msg = row
+                preview = (content or "")[:150].replace("\n", " ").strip()
+                if len(content or "") > 150:
                     preview += "..."
-                ts = msg.created_at.strftime("%m-%d %H:%M") if msg.created_at else "?"
-                lines.append(f"- [{ts}] {preview}")
+                ts = created.strftime("%m-%d %H:%M") if created else "?"
+                if stype == "thread":
+                    tag = " [thread]"
+                elif stype == "ephemeral":
+                    tag = " [scratch]"
+                else:
+                    tag = ""
+                lines.append(f"- [{ts}]{tag} {preview}")
         else:
             lines.append(f"**{label}** — _(no messages last 7d)_")
         lines.append("")

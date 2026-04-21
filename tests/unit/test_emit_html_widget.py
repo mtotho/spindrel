@@ -417,6 +417,7 @@ class TestLibraryRefMode:
         assert "error" not in parsed, parsed.get("error")
         env = parsed["_envelope"]
         assert env["content_type"] == INTERACTIVE_HTML_CONTENT_TYPE
+        assert env["source_kind"] == "library"
         assert env["source_library_ref"] == "core/notes"
         # Body is the real bundle's index.html content.
         assert "<" in env["body"] and env["body"].strip()

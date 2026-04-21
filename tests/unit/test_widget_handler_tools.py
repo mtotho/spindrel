@@ -172,9 +172,10 @@ class TestSafeSlug:
 
 class TestIsWidgetHandlerToolName:
     def test_widget_prefix_with_two_segments(self):
-        assert is_widget_handler_tool_name("widget.todo.add_todo") is True
+        assert is_widget_handler_tool_name("widget__todo__add_todo") is True
 
     def test_widget_prefix_without_handler(self):
+        assert is_widget_handler_tool_name("widget__todo") is False
         assert is_widget_handler_tool_name("widget.todo") is False
 
     def test_other_tool_namespaces(self):
@@ -202,18 +203,18 @@ class TestListWidgetHandlerTools:
             )
 
         names = sorted(s["function"]["name"] for s in schemas)
-        assert names == ["widget.todo.add_todo", "widget.todo.list_todos"]
+        assert names == ["widget__todo__add_todo", "widget__todo__list_todos"]
         # internal_helper is NOT exposed.
-        assert "widget.todo.internal_helper" not in names
+        assert "widget__todo__internal_helper" not in names
 
-        assert "widget.todo.add_todo" in resolver
-        pin_resolved, handler_name, tier = resolver["widget.todo.add_todo"]
+        assert "widget__todo__add_todo" in resolver
+        pin_resolved, handler_name, tier = resolver["widget__todo__add_todo"]
         assert pin_resolved.id == pin.id
         assert handler_name == "add_todo"
         assert tier == "mutating"
 
         # list_todos is readonly per manifest.
-        _, _, list_tier = resolver["widget.todo.list_todos"]
+        _, _, list_tier = resolver["widget__todo__list_todos"]
         assert list_tier == "readonly"
 
     @pytest.mark.asyncio
@@ -233,7 +234,7 @@ class TestListWidgetHandlerTools:
                 db_session, _BOT_ID, str(_CHANNEL_ID),
             )
 
-        add = next(s for s in schemas if s["function"]["name"] == "widget.todo.add_todo")
+        add = next(s for s in schemas if s["function"]["name"] == "widget__todo__add_todo")
         params = add["function"]["parameters"]
         assert params["type"] == "object"
         assert "title" in params["properties"]
@@ -311,8 +312,12 @@ class TestListWidgetHandlerTools:
         # Four handlers — two per pin, one is filtered out (internal_helper).
         # So 2 pins × 2 bot-callable = 4 tools total.
         assert len(names) == 4
-        # All names include a `~hash` suffix because of the collision.
-        assert all("~" in n for n in names)
+        # All names include a `__<hash>` suffix because of the collision.
+        # Base name is `widget__todo__<handler>` (3 `__` segments); colliding
+        # names gain a 4th segment, so any name with 4+ `__` is a hashed one.
+        assert all(n.count("__") >= 3 for n in names)
+        base_names = {"widget__todo__add_todo", "widget__todo__list_todos"}
+        assert all(n not in base_names for n in names)
         # Hashes are pin-deterministic.
         pin_ids = {p.id for p in (p1, p2)}
         resolved_pins = {pin.id for (pin, _, _) in resolver.values()}
@@ -339,7 +344,7 @@ class TestListWidgetHandlerTools:
             )
 
         names = {s["function"]["name"] for s in schemas}
-        assert "widget.todo.add_todo" in names
+        assert "widget__todo__add_todo" in names
 
 
 class TestResolveWidgetHandler:
@@ -357,7 +362,7 @@ class TestResolveWidgetHandler:
         bot_patch, ws_patch = _ws_root_patches(ws_root)
         with bot_patch, ws_patch:
             resolved = await resolve_widget_handler(
-                db_session, "widget.todo.add_todo", _BOT_ID, str(_CHANNEL_ID),
+                db_session, "widget__todo__add_todo", _BOT_ID, str(_CHANNEL_ID),
             )
         assert resolved is not None
         resolved_pin, handler, tier = resolved
@@ -377,7 +382,7 @@ class TestResolveWidgetHandler:
         bot_patch, ws_patch = _ws_root_patches(tmp_path)
         with bot_patch, ws_patch:
             resolved = await resolve_widget_handler(
-                db_session, "widget.ghost.do_thing", _BOT_ID, str(_CHANNEL_ID),
+                db_session, "widget__ghost__do_thing", _BOT_ID, str(_CHANNEL_ID),
             )
         assert resolved is None
 
@@ -417,4 +422,4 @@ class TestManifestErrorResilience:
             )
         # The healthy pin's handlers still surface despite the broken neighbour.
         names = {s["function"]["name"] for s in schemas}
-        assert "widget.todo.add_todo" in names
+        assert "widget__todo__add_todo" in names
