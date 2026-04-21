@@ -61,6 +61,8 @@ class WidgetPackageOut(BaseModel):
     invalid_reason: Optional[str] = None
     source_file: Optional[str] = None
     source_integration: Optional[str] = None
+    group_kind: Optional[str] = None
+    group_ref: Optional[str] = None
     version: int
     yaml_template: Optional[str] = None
     python_code: Optional[str] = None
@@ -83,6 +85,8 @@ class WidgetPackageListOut(BaseModel):
     is_invalid: bool
     has_python_code: bool
     source_integration: Optional[str] = None
+    group_kind: Optional[str] = None
+    group_ref: Optional[str] = None
     version: int
     updated_at: datetime
 
@@ -200,7 +204,26 @@ def _hash_body(yaml_text: str, python_code: str | None) -> str:
     return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
 
+def _extract_grouping(yaml_template: str | None) -> tuple[str | None, str | None]:
+    if not yaml_template or not yaml_template.strip():
+        return (None, None)
+    try:
+        parsed = yaml.safe_load(yaml_template) or {}
+    except yaml.YAMLError:
+        return (None, None)
+    if not isinstance(parsed, dict):
+        return (None, None)
+    suite = parsed.get("suite")
+    if isinstance(suite, str) and suite.strip():
+        return ("suite", suite.strip())
+    package = parsed.get("package")
+    if isinstance(package, str) and package.strip():
+        return ("package", package.strip())
+    return (None, None)
+
+
 def _to_out(row: WidgetTemplatePackage, *, include_bodies: bool = True) -> WidgetPackageOut:
+    group_kind, group_ref = _extract_grouping(row.yaml_template)
     return WidgetPackageOut(
         id=row.id,
         tool_name=row.tool_name,
@@ -214,6 +237,8 @@ def _to_out(row: WidgetTemplatePackage, *, include_bodies: bool = True) -> Widge
         invalid_reason=row.invalid_reason,
         source_file=row.source_file,
         source_integration=row.source_integration,
+        group_kind=group_kind,
+        group_ref=group_ref,
         version=row.version,
         yaml_template=row.yaml_template if include_bodies else None,
         python_code=row.python_code if include_bodies else None,
@@ -226,6 +251,7 @@ def _to_out(row: WidgetTemplatePackage, *, include_bodies: bool = True) -> Widge
 
 
 def _to_list_out(row: WidgetTemplatePackage) -> WidgetPackageListOut:
+    group_kind, group_ref = _extract_grouping(row.yaml_template)
     return WidgetPackageListOut(
         id=row.id,
         tool_name=row.tool_name,
@@ -238,6 +264,8 @@ def _to_list_out(row: WidgetTemplatePackage) -> WidgetPackageListOut:
         is_invalid=row.is_invalid,
         has_python_code=bool(row.python_code and row.python_code.strip()),
         source_integration=row.source_integration,
+        group_kind=group_kind,
+        group_ref=group_ref,
         version=row.version,
         updated_at=row.updated_at,
     )

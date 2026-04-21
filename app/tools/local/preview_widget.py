@@ -55,7 +55,9 @@ _SCHEMA = {
             "(`[{phase, message, severity}]`). When `library_ref` points at "
             "a bundle with a `widget.yaml` manifest, the manifest is parsed "
             "and `ManifestError` lines surface as errors in the `manifest` "
-            "phase."
+            "phase. Use this after authoring `widget://bot/...` or "
+            "`widget://workspace/...` bundles and before asking the user to pin "
+            "them."
         ),
         "parameters": {
             "type": "object",
@@ -66,8 +68,9 @@ _SCHEMA = {
                         "Name of a library widget to preview, e.g. `notes`, "
                         "`core/notes`, `bot/my_toggle`, or "
                         "`workspace/team_board`. Same resolution order as "
-                        "`emit_html_widget`. Mutually exclusive with `html` "
-                        "and `path`."
+                        "`emit_html_widget`. Supports grouped bundles authored "
+                        "with `suite:` or `package:` metadata. Mutually "
+                        "exclusive with `html` and `path`."
                     ),
                 },
                 "html": {

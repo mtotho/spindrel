@@ -520,6 +520,11 @@ export interface WidgetLibraryEntry {
    *  bundle sharing a SQLite DB. Tool-renderer ``template`` entries are
    *  filtered out server-side — they can't be pinned without runtime args. */
   format: "html" | "suite";
+  widget_kind?: "html" | "template";
+  widget_binding?: "standalone" | "tool_bound";
+  theme_support?: "html" | "template" | "none";
+  group_kind?: "suite" | "package" | null;
+  group_ref?: string | null;
   display_label?: string;
   panel_title?: string | null;
   show_panel_title?: boolean | null;

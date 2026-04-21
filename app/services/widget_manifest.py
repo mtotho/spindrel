@@ -117,6 +117,8 @@ class WidgetManifest:
     cron: list[CronEntry]
     events: list[EventEntry]
     db: DbConfig | None
+    suite: str | None = None
+    package: str | None = None
     source_path: Path | None = None
     # Third-party origin allowances the bundle needs at render time
     # (Google Maps JS, Mapbox tiles, etc.). Same shape + validation as the
@@ -153,6 +155,7 @@ def _valid_event_kinds() -> frozenset[str]:
 
 
 _SHARED_SLUG_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
+_GROUP_SLUG_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
 def _validate_db(raw: dict) -> DbConfig:
@@ -476,6 +479,22 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
     raw_show_panel_title = raw.get("show_panel_title")
     if raw_show_panel_title is not None and not isinstance(raw_show_panel_title, bool):
         raise ManifestError("show_panel_title must be a boolean when provided")
+    raw_suite = raw.get("suite")
+    if raw_suite is not None:
+        if not isinstance(raw_suite, str) or not _GROUP_SLUG_RE.match(raw_suite.strip()):
+            raise ManifestError(
+                "suite must be a slug matching ^[a-z0-9][a-z0-9_-]{0,63}$"
+            )
+        raw_suite = raw_suite.strip()
+    raw_package = raw.get("package")
+    if raw_package is not None:
+        if not isinstance(raw_package, str) or not _GROUP_SLUG_RE.match(raw_package.strip()):
+            raise ManifestError(
+                "package must be a slug matching ^[a-z0-9][a-z0-9_-]{0,63}$"
+            )
+        raw_package = raw_package.strip()
+    if raw_suite and raw_package:
+        raise ManifestError("suite and package are mutually exclusive")
 
     raw_perms = raw.get("permissions", {})
     permissions = _validate_permissions(raw_perms if isinstance(raw_perms, dict) else {})
@@ -517,6 +536,8 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
         description=description,
         panel_title=panel_title,
         show_panel_title=raw_show_panel_title,
+        suite=raw_suite,
+        package=raw_package,
         permissions=permissions,
         cron=cron,
         events=events,

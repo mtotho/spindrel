@@ -181,11 +181,15 @@ _SCHEMA = {
     "function": {
         "name": "emit_html_widget",
         "description": (
-            "Emit an interactive HTML widget as the tool result. Renders in "
-            "a sandboxed iframe that CAN run JavaScript and call this app's "
-            "own API. Cross-origin network is blocked by CSP. The user can "
-            "pin the result to a dashboard via the Pin button; to place a "
-            "library widget onto a dashboard yourself, use `pin_widget`.\n\n"
+            "Emit an interactive HTML widget as the tool result. This is the "
+            "HTML-widget path: use it for free-form layouts, charts, mini-apps, "
+            "and richer client-side behavior. If the request already fits a "
+            "tool-renderer/template widget, prefer that system instead of "
+            "wrapping it in HTML. Renders in a sandboxed iframe that CAN run "
+            "JavaScript and call this app's own API. Cross-origin network is "
+            "blocked by CSP. The user can pin the result to a dashboard via the "
+            "Pin button; to place a library widget onto a dashboard yourself, "
+            "use `pin_widget`.\n\n"
             "Widget JS authenticates as THIS bot (not the viewing user) via "
             "a short-lived bearer token scoped to this bot's API key. Use "
             "`window.spindrel.api(path, options?)` for every API call — "
@@ -204,7 +208,13 @@ _SCHEMA = {
             "— re-renders when the file changes). In inline mode, optional "
             "`js` and `css` are wrapped into the document for you; in path "
             "and library modes the bundle should contain the complete HTML "
-            "and js/css are ignored."
+            "and js/css are ignored.\n\n"
+            "Reusable bundles should usually be authored under "
+            "`widget://bot/<name>/...` or `widget://workspace/<name>/...` with "
+            "`index.html` plus optional `widget.yaml`. To group related widgets, "
+            "set exactly one of `suite:` or `package:` in the bundle metadata. "
+            "Widget themes currently apply to HTML widgets; template widgets do "
+            "not have theme parity yet."
         ),
         "parameters": {
             "type": "object",
@@ -220,7 +230,9 @@ _SCHEMA = {
                         "to discover what's available. Bot/workspace widgets "
                         "are authored via the file tool against "
                         "`widget://bot/<name>/...` or `widget://workspace/<name>/...` "
-                        "(write `index.html` + `widget.yaml`, then emit by ref). "
+                        "(write `index.html` + optional `widget.yaml`, then emit "
+                        "by ref). Add `suite:` or `package:` metadata when the "
+                        "widget belongs to a related group. "
                         "Preferred emission path — library widgets are reusable "
                         "and editable in place. Mutually exclusive with `html` "
                         "and `path`."

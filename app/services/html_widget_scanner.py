@@ -155,6 +155,16 @@ def _entry_from_metadata(
         tags = [str(tags)]
 
     extra_csp = meta.get("extra_csp")
+    suite = meta.get("suite")
+    package = meta.get("package")
+    group_kind: str | None = None
+    group_ref: str | None = None
+    if isinstance(suite, str) and suite.strip():
+        group_kind = "suite"
+        group_ref = suite.strip()
+    elif isinstance(package, str) and package.strip():
+        group_kind = "package"
+        group_ref = package.strip()
     return {
         "path": rel_path,
         "slug": slug,
@@ -175,6 +185,11 @@ def _entry_from_metadata(
         "source": source,
         "integration_id": integration_id,
         "extra_csp": extra_csp if isinstance(extra_csp, dict) else None,
+        "widget_kind": "html",
+        "widget_binding": "standalone",
+        "theme_support": "html",
+        "group_kind": group_kind,
+        "group_ref": group_ref,
     }
 
 
@@ -254,6 +269,12 @@ def _scan_metadata_for(
             meta["name"] = manifest.name
             meta["description"] = manifest.description
             meta["version"] = manifest.version
+            if manifest.suite:
+                meta["suite"] = manifest.suite
+                meta.pop("package", None)
+            if manifest.package:
+                meta["package"] = manifest.package
+                meta.pop("suite", None)
             if manifest.panel_title is not None:
                 meta["panel_title"] = manifest.panel_title
             if manifest.show_panel_title is not None:

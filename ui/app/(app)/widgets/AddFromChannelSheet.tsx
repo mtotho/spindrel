@@ -5,6 +5,7 @@ import { X, CheckCircle2, ChevronDown, Loader2, Wrench, Search, Pin, Clock } fro
 import { apiFetch } from "@/src/api/client";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useBots } from "@/src/api/hooks/useBots";
+import { useChannel } from "@/src/api/hooks/useChannels";
 import { envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { toast } from "@/src/stores/toast";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
@@ -114,6 +115,9 @@ export default function AddFromChannelSheet({
     { kind: "user" } | { kind: "bot"; botId: string }
   >({ kind: "user" });
   const { data: allBots } = useBots();
+  const { data: scopedChannel } = useChannel(scopeChannelId ?? undefined);
+  const libraryBotId =
+    pinScope.kind === "bot" ? pinScope.botId : scopedChannel?.bot_id ?? null;
 
   // Close on Escape — standard modal UX.
   useEffect(() => {
@@ -383,8 +387,26 @@ export default function AddFromChannelSheet({
               botEnumeration="single-bot"
               query={query}
               pinScope={pinScope}
+              libraryBotId={libraryBotId}
               scopeChannelId={scopeChannelId ?? null}
               existingRefs={existingLibraryRefs}
+              onToolRendererPinCreated={(pinId) => {
+                toast({
+                  kind: "success",
+                  message: `Added widget to ${dashboardName ?? "dashboard"}`,
+                  action: onPinned
+                    ? {
+                        label: "View",
+                        onClick: () => {
+                          onPinned(pinId);
+                          onClose();
+                        },
+                      }
+                    : undefined,
+                });
+                onPinned?.(pinId);
+                onClose();
+              }}
               onPin={async ({ entry, envelope, botId }) => {
                 // Scope determines pin shape. widget:// scopes ride the
                 // existing library_ref path; scanner scopes (integration /

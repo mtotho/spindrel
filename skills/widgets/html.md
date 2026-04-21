@@ -23,6 +23,7 @@ Theme note:
 - Global default comes from the widget theme library.
 - A channel may override it with `channel.config.widget_theme_ref`.
 - Widgets should read from `sd-*`, `var(--sd-*)`, and `window.spindrel.theme`; do not hardcode copied theme CSS into each bundle.
+- Theme support currently applies to **HTML widgets**. Template widgets should not be documented as theme-parity surfaces yet.
 
 ```
 <widget-root>/<widget-slug>/
@@ -50,6 +51,7 @@ version: 1.2.0                    # bump when you make a meaningful change
 author: crumb                     # bot or user who authored the widget
 tags: [dashboard, project]        # filters in the catalog
 icon: activity                    # lucide-react icon name (see https://lucide.dev)
+suite: home-ops                   # optional grouping; use exactly one of suite/package
 ---
 -->
 <div class="sd-card">...</div>
@@ -61,6 +63,7 @@ Rules:
 - **Only `name` is required.** Everything else has sensible fallbacks (`display_label` → `name`, `panel_title` → `display_label`, `version` → `"0.0.0"`, `tags` → `[]`, etc.). Still, description + tags dramatically improve discoverability — write one good sentence for `description` so the user recognizes what they're pinning.
 - **`panel_title` is host chrome, not widget body.** Use it when the title should stay visible on panel surfaces while the widget body scrolls. `display_label` stays the generic widget/library label.
 - **Bump `version` when you change the widget.** Semver — patch for bug fixes, minor for new features, major for incompatible state-shape changes. This is how you (or a future turn) know whether a pinned widget is running the latest code.
+- **Use exactly one of `suite` or `package` when grouping related widgets.** This lets the library show siblings together. Use a suite for a tighter, intentionally-related family; use package when the grouping is looser product/catalog organization.
 - **Malformed YAML is silently ignored** — the scanner won't crash over a bad block, but your widget will show up with slug-fallback defaults. If the card looks wrong, check the frontmatter.
 
 The scanner walks any `.html` under a directory named `widgets/` plus any `.html` anywhere in the channel workspace that references `window.spindrel.*`. Files matched only by the second rule show a "loose" badge — move them into a `widgets/<slug>/` folder to clear it.
@@ -168,6 +171,33 @@ emit_html_widget(
 ```
 
 After pinning, further edits to files in that bundle refresh the pinned widget within ~3 seconds. Iterate on the folder; no need to re-emit.
+
+### Group related widgets with `suite` or `package`
+
+If you are creating a family of widgets, declare the group in frontmatter or `widget.yaml` so the library can present them together:
+
+```html
+<!--
+---
+name: Home quick actions
+description: Shortcut controls for the house
+suite: home-ops
+---
+-->
+```
+
+```yaml
+name: Home energy
+description: Power and cost view
+package: home-ops
+```
+
+Rules:
+
+- Set **exactly one** of `suite` or `package`, not both.
+- Keep the value sluggy: lowercase letters, digits, `_`, `-`.
+- Use the same group name across sibling widgets that should browse together.
+- If the bundle is also a `suite.yaml` root, the folder name is already the suite identifier; do not invent a second conflicting grouping value.
 
 ### Optional: claim the dashboard's main area (`display_mode="panel"`)
 

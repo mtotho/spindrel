@@ -1,7 +1,7 @@
 ---
 tags: [widgets, library, sdk, track]
 status: active
-updated: 2026-04-21 (Phase 13 — widget theme library with immutable builtin default, global/per-channel applies, and bot/dev-panel management)
+updated: 2026-04-21 (Phase 16 — tool renderers can instantiate from library UI)
 ---
 
 # Track — Widget Library
@@ -31,6 +31,9 @@ Adjacent: make chips a first-class authoring target, close the AI feedback loop 
 | 11 | Dev Panel Library uses same `WidgetLibrary` component as Add-Widget sheet; new `/library-widgets/all-bots` endpoint unions every bot's `.widget_library/` with `bot_id`+`bot_name` per entry; inline preview expansion with Live/Source/Manifest tabs; new `/widget-manifest` endpoint; bot-authorship badge on `widget://bot/` rows; tool renderers moved to their own tab inside Library | **complete** (2026-04-21) |
 | 12 | Authored-widget SDK panel titles: `panel_title` + `show_panel_title` metadata, library/catalog/envelope propagation, and host-owned panel chrome across dashboard/chat/mobile panel surfaces | **complete** (2026-04-21) |
 | 13 | Widget theme library: immutable `builtin/default`, custom theme CRUD/fork, global default + per-channel `widget_theme_ref`, renderer resolution, `/widgets/dev#themes`, and bot theme management/apply-to-channel | **complete** (2026-04-21) |
+| 14 | Library context repair: Add Widget resolves bot/workspace library visibility from channel/bot context instead of `Runs as`, dev-panel all-bots library accepts `channel_id`, shared widget metadata grows `theme_support` + `group_kind/group_ref`, and tool-renderer packages expose suite/package grouping | **complete** (2026-04-21) |
+| 15 | Bot-facing widget authoring guidance: tool descriptions and widget skills now reflect the repaired library model, `suite`/`package` grouping, and the HTML-vs-template decision split | **complete** (2026-04-21) |
+| 16 | Direct tool-renderer instantiation from the unified library UI: run with args, preview the active renderer, and pin the configured adhoc instance from the Tool renderers tab | **complete** (2026-04-21) |
 
 Phase 1a + 1b shipped 2026-04-20 — bots can now list, emit, and author widget bundles end-to-end. The seam lives in `app/services/widget_paths.py` (one resolver, three scopes) and is re-used by `file_ops._resolve_path`, `widget_library.widget_library_list`, and `emit_html_widget._load_library_widget` so there is a single source of truth for `widget://` resolution and the read-only contract on `core`.
 
@@ -150,6 +153,40 @@ Phase 13 shipped 2026-04-21 — the shared HTML widget SDK now has a first-class
 - **Docs** — `skills/widgets/styling.md`, `skills/widgets/html.md`, `skills/widgets/sdk.md`, and `skills/configurator/channel.md` now document the immutable builtin theme, per-channel theme refs, and the rule that widgets should keep using `sd-*` + `window.spindrel.theme` rather than vend their own global stylesheet copies.
 - **Verification** — `npx tsc --noEmit` clean in `ui/`; targeted Python syntax compile on the new/changed backend files clean. Manual browser QA for `/widgets/dev#themes` is still pending.
 
+Phase 14 shipped 2026-04-21 — repaired the library surfaces that had drifted out of sync and threaded the first shared grouping/theming metadata through the catalog.
+
+- **Add Widget sheet no longer hides bot/workspace widgets behind `Runs as`.** `WidgetLibrary` now separates pin-auth bot identity from library-resolution bot identity. In pin mode, bot/workspace entries resolve through `libraryBotId` (channel bot fallback when `Runs as = You`) while core/integration/channel entries still keep user auth unless a bot is explicitly selected. This closes the "bot-authored widgets disappear unless I flip Runs as to a bot" regression.
+- **Dev panel library now carries channel context.** `/widgets/dev?from=channel:<id>` now passes `originChannelId` into `LibraryTab`, and `/api/v1/widgets/library-widgets/all-bots` accepts `channel_id` so the same unified library surface can populate the `channel` section instead of hardcoding it empty.
+- **Workspace entries in the all-bots catalog now keep a representative bot context.** The all-bots endpoint annotates shared-workspace rows with the first bot that discovered them so live preview/source fetches for `widget://workspace/...` can resolve through `/html-widget-content/library`.
+- **Shared widget metadata widened without pretending template-theme parity exists.** Library entries now surface `widget_kind`, `widget_binding`, `theme_support`, and optional `group_kind` / `group_ref`. HTML/library entries report `theme_support: html`; template/tool renderers are left theme-neutral for now.
+- **Suite/package grouping is now first-class metadata.** `widget.yaml`, HTML frontmatter, and template package YAML can declare `suite:` or `package:`. HTML scanner + `widget_library_list` normalize those into `group_kind/group_ref`; admin widget-package list/detail responses expose the same grouping so the "Tool renderers" tab can badge related definitions. Existing `suite.yaml` bundles also surface as `group_kind: suite`.
+- **Verification** — `ui` `npx tsc --noEmit` clean; touched backend files pass `python -m py_compile`. Added integration assertions for `group_kind/group_ref` on library widgets and `channel_id` support on the all-bots catalog. Direct `pytest tests/integration/test_widget_catalog_api.py -q` remained unreliable under the current shell wrapper and did not return a trustworthy completion signal in-session.
+
+Phase 15 shipped 2026-04-21 — aligned the bot-facing authoring surfaces with the repaired library model so bots get the correct guidance instead of defaulting every widget ask to HTML.
+
+- **Tool descriptions now reflect the real split.** `emit_html_widget`, `preview_widget`, `widget_library_list`, and `pin_widget` now describe HTML widgets as the iframe-backed path rather than the umbrella term for every widget, and they point bots at `widget://bot/...` / `widget://workspace/...` for reusable bundles.
+- **Grouping is now part of authoring guidance.** The tool descriptions and widget skills now tell authors to set exactly one of `suite:` or `package:` when a widget belongs to a related family, matching the catalog metadata surfaced in Phase 14.
+- **Skills start from template-vs-HTML instead of HTML-first.** `skills/widgets/index.md` now routes authors through the actual decision tree: prefer template/tool-renderer widgets when the renderer already fits; reach for HTML when the UI needs free-form layout, local JS, or current widget-theme support.
+- **Docs now call out the theme boundary honestly.** HTML widget docs mention that the widget theme system currently applies to HTML widgets; template-widget theme parity remains follow-up work.
+- **Supporting skills updated.** `widgets/html.md`, `widgets/manifest.md`, and `widgets/dashboards.md` now cover grouping, preview-before-emit, and the current reusable-library authoring flow.
+
+Verification:
+
+- Touched backend tool files pass `python -m py_compile`.
+- No product/UI behavior changed in this phase, so no new browser-flow verification was required beyond the already-completed Phase 14 library repair checks.
+
+Phase 16 shipped 2026-04-21 — the unified library's Tool renderers tab is no longer just a browse-only package list.
+
+- **Tool renderers can now be configured and previewed directly inside the shared library UI.** `WidgetLibrary` now mounts a dedicated `ToolRenderersPane` that groups renderer packages by tool, shows the active package, collects tool args, and runs the real tool to preview the resulting widget envelope inline.
+- **Add Widget can now pin configured template-widget instances from the same tab.** In pin mode, the renderer pane reuses the existing `adhoc` dashboard pin shape: execute tool with args, render the active widget template, then persist `tool_name` + `tool_args` + preview envelope through `pinWidget(...)`. That closes the old "Tool renderers are discoverable but only usable via Recent calls" gap.
+- **Pin scope stays aligned with the existing Add Widget controls.** The renderer flow treats `Runs as` as the authoritative bot scope in pin mode. If `Runs as = You`, bot-required renderers stay blocked with an explicit message rather than silently pinning under some other bot identity.
+- **Channel dashboards keep renderer instances bound to their own channel context.** When the library opens inside a channel dashboard, the renderer pane fixes `source_channel_id` to that channel for both preview and pin so later refreshes and actions keep running in the same channel context.
+- **This phase is UI-layer unification, not a new public widget-preview API.** The renderer pane currently reuses the existing admin tool execution / preview endpoints that were already backing the developer tooling; a future pass can add a user-safe widget-facing instantiate API if non-admin surfaces need to decouple from those routes.
+
+Verification:
+
+- `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` clean after extracting `ToolRenderersPane` and wiring it into the shared library surface.
+
 ## MVP decision — FS-backed, not DB-backed
 
 Per-bot and workspace-scoped widgets will live under `<ws_root>/.widget_library/<name>/` on the host FS (not a `bot_widgets` DB table as originally sketched in the plan). Trade-off: file-backed reuses all existing file-op machinery for free, survives workspace persistence exactly like any other bot file, and listing is a directory walk. DB-backed can come later if we need cross-workspace reuse, but the FS approach unblocks authoring without a migration.
@@ -162,6 +199,9 @@ Per-bot and workspace-scoped widgets will live under `<ws_root>/.widget_library/
 - **SQLite for bot suites works via written-schema, not written-files.** Bot writes `suite.yaml` + `migrations/*.sql`; `resolve_suite_db_path` creates the DB on first pin; `acquire_db` runs migrations on first read (Phase B.6 fix).
 - **`library_ref` is canonical.** `path=` stays for power-user / core refs. `html=` is for one-shot ephemera only.
 - **`panel_title` is host chrome, not widget content.** It only affects panel surfaces and only when `show_panel_title: true`; `display_label` remains the generic widget/library label used outside panel chrome.
+- **Library discovery and pin auth are distinct concerns.** `Runs as` controls eventual pin auth; bot/workspace library enumeration may resolve through the current channel's bot even when pin auth remains user-scoped.
+- **Theme support must stay explicit.** The unified catalog can badge/filter `theme_support`, but only HTML widgets participate in the widget theme system today.
+- **Related-widget grouping uses one shared metadata shape.** Public catalog/package responses should prefer `group_kind/group_ref` over inventing separate UI-only `suite` and `package` code paths.
 
 ## References
 

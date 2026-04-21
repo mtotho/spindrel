@@ -13,6 +13,8 @@ export interface WidgetPackageListItem {
   is_invalid: boolean;
   has_python_code: boolean;
   source_integration: string | null;
+  group_kind?: "suite" | "package" | null;
+  group_ref?: string | null;
   version: number;
   updated_at: string;
 }

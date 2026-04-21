@@ -6,6 +6,8 @@ path-mode widget HTML for non-channel sources.
 """
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 
@@ -407,6 +409,38 @@ class TestLibraryWidgetsEndpoint:
         assert home["show_panel_title"] is True
 
     @pytest.mark.asyncio
+    async def test_library_entries_surface_grouping_and_theme_metadata(
+        self, client, tmp_path, monkeypatch,
+    ):
+        from app.services import workspace as _ws
+
+        bundle = tmp_path / ".widget_library" / "climate_controls"
+        bundle.mkdir(parents=True)
+        (bundle / "index.html").write_text("<div></div>")
+        (bundle / "widget.yaml").write_text(
+            "name: Climate Controls\n"
+            "package: home-ops\n"
+        )
+        monkeypatch.setattr(
+            _ws.workspace_service,
+            "get_workspace_root",
+            lambda bot_id, bot=None: str(tmp_path),
+        )
+
+        r = await client.get(
+            "/api/v1/widgets/library-widgets",
+            params={"bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        entry = next(e for e in r.json()["bot"] if e["name"] == "climate_controls")
+        assert entry["group_kind"] == "package"
+        assert entry["group_ref"] == "home-ops"
+        assert entry["theme_support"] == "html"
+        assert entry["widget_kind"] == "html"
+        assert entry["widget_binding"] == "standalone"
+
+    @pytest.mark.asyncio
     async def test_unknown_bot_id_returns_404(self, client, monkeypatch):
         """Unknown bot id is an explicit 404 — the client is asking for a
         bot-scoped view and we can't honor it."""
@@ -533,3 +567,57 @@ class TestLibraryWidgetsAllBotsEndpoint:
             "shared workspace library must not double-count across bots "
             "that share it"
         )
+
+    @pytest.mark.asyncio
+    async def test_all_bots_can_include_channel_workspace_when_channel_id_supplied(
+        self, client, db_session, monkeypatch,
+    ):
+        from app.agent import bots as _bots
+        from app.services import html_widget_scanner as _scanner
+        from tests.factories.channels import build_channel
+
+        channel = build_channel(id=uuid.uuid4(), bot_id="channel-bot")
+        db_session.add(channel)
+        await db_session.commit()
+
+        monkeypatch.setattr(_bots, "list_bots", lambda: [])
+        monkeypatch.setattr(_bots, "get_bot", lambda bot_id: object() if bot_id == "channel-bot" else None)
+        monkeypatch.setattr(
+            _scanner,
+            "scan_channel",
+            lambda channel_id, bot: [{
+                "name": "room_status",
+                "slug": "room_status",
+                "path": "widgets/room_status/index.html",
+                "display_label": "Room Status",
+                "description": "Channel widget",
+                "version": "1.0.0",
+                "tags": ["status"],
+                "icon": None,
+                "modified_at": 0,
+                "source": "channel",
+                "integration_id": None,
+                "is_loose": False,
+                "has_manifest": False,
+                "widget_kind": "html",
+                "widget_binding": "standalone",
+                "theme_support": "html",
+                "group_kind": "suite",
+                "group_ref": "ops",
+            }],
+        )
+
+        r = await client.get(
+            "/api/v1/widgets/library-widgets/all-bots",
+            params={"channel_id": str(channel.id)},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        channel_entries = r.json()["channel"]
+        assert len(channel_entries) == 1
+        entry = channel_entries[0]
+        assert entry["scope"] == "channel"
+        assert entry["channel_id"] == str(channel.id)
+        assert entry["name"] == "room_status"
+        assert entry["group_kind"] == "suite"
+        assert entry["group_ref"] == "ops"

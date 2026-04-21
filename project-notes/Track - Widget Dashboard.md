@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dashboard, dev-panel]
 status: active
-updated: 2026-04-21 (session — shared HTML widget SDK styling + authorship contract pass)
+updated: 2026-04-21 (session — edit-layout cross-panel HTML keepalive + fixed header slot)
 ---
 <!-- session: 20 — P5 code shipped, UNTESTED; session 22 — cohesiveness + mobile polish pass landed (does NOT close P5-qa); session 2026-04-19 — P7 sandbox context + grouping -->
 
@@ -20,6 +20,10 @@ updated: 2026-04-21 (session — shared HTML widget SDK styling + authorship con
 > Safety bound added immediately after: the parked iframe lot is not unbounded. Idle parked iframes now evict after 5 minutes, and the pool only keeps up to 12 parked entries before evicting the oldest parked ones. New invariant: keepalive is for quick surface switches, not indefinite background retention.
 >
 > **2026-04-21 edit-layout follow-up.** Dragging a widget on `/widgets` could blank an interactive HTML pin until full page refresh even though the tile shell stayed mounted. Root cause: the dashboard pin keepalive path reattached a pooled iframe after `react-grid-layout` remounts, but reused iframes do not reliably emit a second `spindrel:ready` handshake. `PinnedToolWidget` was still waiting on that signal before dropping its preload gate, so the widget stayed visually empty. `InteractiveHtmlRenderer` now treats pooled-iframe reuse as ready immediately after reattachment (plus a next-frame confirmation). New invariant: reattaching a parked dashboard-pin iframe must restore visibility without requiring a fresh iframe boot cycle or manual refresh.
+>
+> Same-day follow-up: the resize fix needed the same invariant for cross-panel moves inside `/widgets/channel/:id`. The header editor renders the runtime chat-chip scope even though the widget is still a dashboard pin, so `PinnedToolWidget` now keys readiness off the pooled dashboard-pin identity for every pinned-widget surface, not just dashboard-scope renders. New invariant: moving an interactive HTML widget between grid, rail, dock, and header must reuse the parked iframe without waiting on a fresh `spindrel:ready`.
+>
+> Header layout is intentionally reduced for now: the channel-dashboard header editor is a single centered chip slot that mirrors the actual chat header footprint. No intra-header reorder, no resize, no alternate widths. Dropping into the slot always snaps to the fixed layout; dropping onto an occupied slot replaces the current header widget and demotes the displaced pin back into the main grid at default size. Backend normalization now clamps stale header coords to that one canonical layout so old data cannot resurrect the previous "funky strip" behavior.
 >
 > **2026-04-21 localhost→remote dev follow-up.** Interactive HTML widgets were still assuming same-origin API routing inside the iframe preamble: `window.spindrel.apiFetch()` called `fetch(path)` directly, so running the UI at `http://localhost:5173` against a remote server sent widget traffic to Vite (`/api/v1/widget-actions`, `/widget-debug/events`, `/widget-actions/stream`) and exploded in 404s. The main app already used auth-store `serverUrl`; the iframe SDK now does too. `InteractiveHtmlRenderer` injects the configured `serverUrl` into `window.spindrel`, resolves app-relative widget SDK requests against it, and keeps absolute URLs untouched. New invariant: widget iframe API traffic must follow the configured backend origin, not the browser origin hosting the UI shell.
 >

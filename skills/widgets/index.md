@@ -1,15 +1,18 @@
 ---
-name: HTML Widgets
-description: Decision tree for building interactive HTML widgets with `emit_html_widget` — which file to read next based on what you're building (inline one-shot, path-mode dashboard, backend handlers, shared-DB suite, chart, chip for the header band, styling question, error lookup)
-triggers: emit_html_widget, html widget, interactive widget, custom widget, build a widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui, project status dashboard, status board, tool control panel, chart widget, chip widget, header chip, panel title, sticky widget title
+name: Widgets
+description: Decision tree for building widgets in either system — template/tool-renderer widgets for bounded server-driven UI, or HTML widgets for free-form iframe-backed bundles. Covers library authoring under `widget://`, grouping with `suite`/`package`, themes, dashboards, and which follow-up skill to read next.
+triggers: emit_html_widget, html widget, template widget, yaml widget, tool renderer, interactive widget, custom widget, build a widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui, project status dashboard, status board, tool control panel, chart widget, chip widget, header chip, panel title, sticky widget title, suite widget, package widget
 category: core
 ---
 
-# HTML Widgets — where to start
+# Widgets — where to start
 
-When the user asks for something you can't render with the standard component widgets — a chart, a custom layout, a mini-dashboard, a scraped page distilled into a card, an interactive control — emit an **HTML widget**. You write the HTML (and optionally JavaScript + CSS); it renders inside a sandboxed iframe in the chat bubble. The user can pin the result to their dashboard.
+Treat **widget** as the umbrella term. There are currently two implementation paths:
 
-Unlike any string you might return as Markdown, an HTML widget can:
+- **Template widget** — YAML/tool-renderer path. Use this for bounded, server-driven UI that already fits the component grammar or should stay close to tool results.
+- **HTML widget** — iframe-backed bundle emitted with `emit_html_widget`. Use this for free-form layouts, charts, mini-apps, richer local interactivity, or when the component grammar is the wrong shape.
+
+HTML widgets can:
 
 - Run JavaScript (fetch app data, handle clicks, update itself)
 - Call the app's own API at `/api/v1/...` (same-origin — auth comes along for free)
@@ -22,24 +25,30 @@ Unlike any string you might return as Markdown, an HTML widget can:
 
 | Situation | Use |
 |---|---|
-| Entity detail, toggle, or status card that fits the component grammar | Component widgets (YAML template) |
-| Chart, table, free-form layout, or anything not in the grammar | `emit_html_widget` |
-| User says "make me a custom widget for X" | `emit_html_widget` |
-| User says "show me X live / as a dashboard" | `emit_html_widget` (usually path mode) |
-| User says "build a status board / project dashboard / control panel" | `emit_html_widget` + a bundle (see `html.md`) |
+| Entity detail, toggle, status card, or bounded dashboard tile that fits the component grammar | Template widget / YAML renderer |
+| Tool result should stay server-driven and refresh through tool actions + polls | Template widget / YAML renderer |
+| Chart, table, free-form layout, or anything not in the grammar | HTML widget via `emit_html_widget` |
+| User says "make me a custom widget for X" and the UI is bespoke | HTML widget |
+| User says "show me X live / as a dashboard" | Usually an HTML bundle; use template only if the layout is simple and renderer-driven |
+| User says "build a status board / project dashboard / control panel" | Usually HTML widget + bundle (see `html.md`) |
 | One-off inline result | Normal text/Markdown reply (no widget needed) |
 
-Default to component widgets when a template exists; reach for HTML when the component grammar doesn't cover it.
+Default to template widgets when a good renderer already exists; reach for HTML when the component grammar or server-driven model does not cover the request cleanly.
+
+Theme note:
+
+- The widget theme system is currently implemented for **HTML widgets**.
+- Keep shared widget naming generic, but do not promise template-widget theme parity yet.
 
 ## Decision tree — which sub-skill do you need?
 
 ```
 Start: what do you want to render?
 │
-├─ Entity card, toggle, status, detail grid
-│     → Component widget (YAML template). Not this skill.
+├─ Entity card, toggle, status, detail grid, tool result card
+│     → Template widget / tool renderer. Prefer the YAML path.
 │
-├─ Chart, table, free-form layout, scraped page distilled
+├─ Need a free-form layout, chart, table, mini app, or richer local JS
 │     → HTML widget. Continue.
 │
 ├─ One-shot, ephemeral, no backend state
@@ -63,7 +72,7 @@ Start: what do you want to render?
 ├─ Need per-widget SQLite storage
 │     → widgets/manifest + widgets/db
 │
-├─ Need multiple widgets sharing one DB on the same dashboard
+├─ Need multiple related widgets sharing one DB or grouped in the catalog
 │     → widgets/suites
 │
 ├─ Chip — compact 180×32 widget for the channel header band
@@ -80,7 +89,7 @@ Each of the target skills is loadable via `get_skill(skill_id="widgets/<name>")`
 
 ## The canonical shape — path-mode bundle
 
-The default shape is a **folder on disk** that you iterate on: `index.html` + `state.json` + optional assets, path-moded as the widget target, living in a well-known location the user can find. See `widgets/html.md` for the bundle layout and path grammar.
+The default HTML shape is a **folder on disk** that you iterate on: `index.html` + `state.json` + optional assets, emitted by `library_ref`, living in a well-known library location the user can find. See `widgets/html.md` for the bundle layout and path grammar.
 
 Inline mode (`emit_html_widget(html="...")`) is for one-off snapshots — a single view of data you already have in the turn. Anything the user will see more than once should be path-mode.
 
@@ -135,11 +144,14 @@ When the user says *"build me a dashboard for X"*:
 
 1. **Discover** — `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had. `widget_library_list()` to see what bundles already exist.
 2. **Pick a scope** — `widget://bot/<name>/...` (your bot's own library, always available) or `widget://workspace/<name>/...` (shared with every bot in this workspace, shared-workspace bots only). `widget://core/...` is read-only.
-3. **Pick an archetype** — status (RMW `state.json`), feed (poll API), control panel (dispatch tools), KB reader (workspace files + markdown). Most real dashboards mix two. See `widgets/dashboards.md`.
-4. **One-shot the bundle** — `file(create, path="widget://bot/<name>/index.html", content=<full doc>)` plus any `widget://bot/<name>/state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
-5. **Emit** — `emit_html_widget(library_ref="<name>", display_label="<Name>")`. The library resolves bot → workspace → core for unscoped refs; prefix with `bot/` or `workspace/` to disambiguate. User pins it to the dashboard.
-6. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit needed. When you hit a suspicious error — a CSP rejection, a missing manifest field, a path that won't resolve — call **`preview_widget(...)`** first with the same args you'd pass to `emit_html_widget`; it returns structured `{ok, envelope, errors}` so you can fix the bundle before the next emit. See `widgets/html.md#dry-run-first`.
-7. **Record it** — leave breadcrumbs in `memory/MEMORY.md` + `memory/reference/<name>.md` so future-you knows the widget exists and where to find it. See `widgets/dashboards.md#remember-what-you-built`.
+3. **Decide template vs HTML** — template if the renderer/model is already a good fit; HTML if you need bespoke layout, local interactivity, or theme-aware styling.
+4. **Pick an archetype** — status (RMW `state.json`), feed (poll API), control panel (dispatch tools), KB reader (workspace files + markdown). Most real dashboards mix two. See `widgets/dashboards.md`.
+5. **One-shot the bundle** — `file(create, path="widget://bot/<name>/index.html", content=<full doc>)` plus any `widget://bot/<name>/state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
+6. **Group it if it belongs with siblings** — set exactly one of `suite:` or `package:` in the HTML frontmatter or `widget.yaml`. Use a group when the widget is part of a related family the library should show together.
+7. **Preview** — call `preview_widget(...)` with the same args you plan to emit. Catch manifest, library-ref, and CSP problems before the next user-visible step.
+8. **Emit or pin** — `emit_html_widget(library_ref="<name>", display_label="<Name>")`. The library resolves bot → workspace → core for unscoped refs; prefix with `bot/` or `workspace/` to disambiguate. User pins it to the dashboard.
+9. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
+10. **Record it** — leave breadcrumbs in `memory/MEMORY.md` + `memory/reference/<name>.md` so future-you knows the widget exists and where to find it. See `widgets/dashboards.md#remember-what-you-built`.
 
 ## See also
 

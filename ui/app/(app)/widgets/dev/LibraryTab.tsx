@@ -4,7 +4,7 @@ import { WidgetLibrary } from "@/app/(app)/widgets/WidgetLibrary";
  *  mode with all-bots enumeration so every bot's ``widget://bot/<name>/``
  *  library is visible alongside core, integrations, workspace, and channel
  *  widgets. Tool renderers live under the component's second top-level tab. */
-export function LibraryTab() {
+export function LibraryTab({ originChannelId }: { originChannelId?: string | null }) {
   return (
     <div className="flex-1 flex flex-col overflow-y-auto">
       <div className="mx-auto w-full max-w-6xl px-4 pt-4 md:px-6">
@@ -19,7 +19,11 @@ export function LibraryTab() {
         </div>
       </div>
       <div className="mx-auto w-full max-w-6xl px-4 pt-2 md:px-6">
-        <WidgetLibrary mode="browse" botEnumeration="all-bots" />
+        <WidgetLibrary
+          mode="browse"
+          botEnumeration="all-bots"
+          scopeChannelId={originChannelId ?? null}
+        />
       </div>
     </div>
   );

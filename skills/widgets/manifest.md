@@ -21,6 +21,7 @@ version: 1.0.0
 description: What this widget does
 panel_title: Home command center
 show_panel_title: true
+package: home-ops
 ```
 
 Even a minimal manifest gets you the "manifest" catalog badge and overrides the HTML frontmatter name/description — worth adding whenever a widget is at-home-on-disk enough to deserve a stable identity.
@@ -37,6 +38,7 @@ version: 1.2.0
 description: Live phase tracker
 panel_title: Home command center
 show_panel_title: true
+suite: project-ops               # optional grouping; use exactly one of suite/package
 permissions:
   tools: [fetch_url]          # tools ctx.tool() may call; enforced at dispatch
   events: [new_message]       # ChannelEventKind values @on_event may subscribe to
@@ -86,6 +88,7 @@ handlers:
 - `handlers[].bot_callable` — defaults to false; when true, the handler must have a non-empty `description`
 - `handlers[].safety_tier` — `readonly` / `mutating` / `exec_capable` (default `mutating`)
 - `layout_hints.preferred_zone` — one of `chip` / `rail` / `dock` / `grid` (advisory — the dashboard editor never refuses a drop based on this)
+- `suite` / `package` — optional slug strings used for library grouping; set at most one of them
 - Tool names in `permissions.tools` are accepted as strings; unknown names surface as 403 at `ctx.tool()` call time
 - `db.shared` and `db.migrations` / `db.schema_version` are **mutually exclusive** at the bundle level — a member of a suite inherits schema from `suite.yaml` and must not redeclare it
 

@@ -46,6 +46,8 @@ _METADATA_KEYS = (
     "version",
     "tags",
     "icon",
+    "suite",
+    "package",
 )
 
 
@@ -100,6 +102,21 @@ def _read_widget_meta(widget_dir: Path, scope: str) -> dict | None:
         meta["updated_at"] = int(widget_dir.stat().st_mtime)
     except OSError:
         pass
+
+    meta["widget_kind"] = "template" if fmt == "template" else "html"
+    meta["widget_binding"] = "tool_bound" if fmt == "template" else "standalone"
+    meta["theme_support"] = "html" if fmt in {"html", "suite"} else "none"
+    suite = meta.get("suite")
+    package = meta.get("package")
+    if isinstance(suite, str) and suite.strip():
+        meta["group_kind"] = "suite"
+        meta["group_ref"] = suite.strip()
+    elif isinstance(package, str) and package.strip():
+        meta["group_kind"] = "package"
+        meta["group_ref"] = package.strip()
+    elif fmt == "suite":
+        meta["group_kind"] = "suite"
+        meta["group_ref"] = name
 
     return meta
 
@@ -174,16 +191,16 @@ def _resolve_scope_roots() -> tuple[str | None, str | None]:
         "function": {
             "name": "widget_library_list",
             "description": (
-                "List widget bundles available to emit via `emit_html_widget("
-                "library_ref=<name>)`. Returns name, scope (core/bot/workspace), "
-                "format (html/suite), display_label, and description per entry. "
-                "Use this to discover what widgets exist before composing inline "
-                "HTML — a library widget is editable, reusable, and pinnable by "
-                "name. Filter by `scope`, `format`, or free-text `q` (matches "
-                "name + display_label + description). Tool-renderer `template` "
-                "entries (tool-output widgets that need runtime args, e.g. "
-                "`get_task_result`, `manage_bot_skill`) are EXCLUDED by default "
-                "— pass `format=\"template\"` to inspect them."
+                "List widget bundles available to the bot across the core, bot, "
+                "and workspace libraries. Returns name, scope, format, display "
+                "metadata, and grouping/theme capabilities per entry. Use this "
+                "before composing a new widget so you can reuse or extend an "
+                "existing bundle instead of creating another one from scratch. "
+                "HTML entries can be emitted via `emit_html_widget(library_ref=...)` "
+                "or pinned with `pin_widget`; template entries are inspectable "
+                "here but still use their own tool-renderer/runtime path. Filter "
+                "by `scope`, `format`, or free-text `q` (matches name + "
+                "display_label + description)."
             ),
             "parameters": {
                 "type": "object",
@@ -206,8 +223,8 @@ def _resolve_scope_roots() -> tuple[str | None, str | None]:
                         "description": (
                             "Filter by bundle format. `html` = iframe-backed "
                             "HTML + SDK. `template` = YAML-declared component "
-                            "tree. `suite` = multi-widget bundle sharing a "
-                            "SQLite DB."
+                            "tree/tool renderer. `suite` = grouped HTML bundle "
+                            "family, typically sharing state or DB."
                         ),
                     },
                     "q": {

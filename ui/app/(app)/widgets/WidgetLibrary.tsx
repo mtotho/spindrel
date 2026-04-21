@@ -45,7 +45,7 @@ import type {
 import { useThemeTokens } from "@/src/theme/tokens";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
 import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
-import { useWidgetPackages, type WidgetPackageListItem } from "@/src/api/hooks/useWidgetPackages";
+import { ToolRenderersPane } from "./ToolRenderersPane";
 
 const HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive";
 
@@ -79,9 +79,13 @@ export interface WidgetLibraryProps {
   botEnumeration?: "single-bot" | "all-bots";
   /** Pin-mode only. */
   pinScope?: PinScope;
+  /** Optional bot context used to enumerate/resolve bot and workspace
+   *  libraries when pin auth is still "You". */
+  libraryBotId?: string | null;
   scopeChannelId?: string | null;
   existingRefs?: Set<string>;
   onPin?: (payload: LibraryPinPayload) => Promise<void>;
+  onToolRendererPinCreated?: (pinId: string) => void;
   /** Optional external filter text (Add Widget sheet has a global search). */
   query?: string;
 }
@@ -121,9 +125,11 @@ function entryIdentity(e: WidgetLibraryEntry): string {
 
 export function envelopeForLibraryEntry(
   entry: WidgetLibraryEntry,
-  botId: string | null,
+  pinBotId: string | null,
+  resolutionBotId: string | null,
 ): ToolResultEnvelope {
   const label = entry.display_label ?? entry.name;
+  const sourceBotId = effectiveEntryBotId(entry, pinBotId, resolutionBotId);
   const base = {
     content_type: HTML_INTERACTIVE_CT,
     body: "",
@@ -132,7 +138,7 @@ export function envelopeForLibraryEntry(
     display_label: label,
     panel_title: entry.panel_title ?? null,
     show_panel_title: entry.show_panel_title ?? null,
-    source_bot_id: botId ?? entry.bot_id ?? null,
+    source_bot_id: sourceBotId,
   } as ToolResultEnvelope;
 
   if (entry.scope === "integration") {
@@ -158,13 +164,26 @@ export function envelopeForLibraryEntry(
   } as ToolResultEnvelope;
 }
 
+function effectiveEntryBotId(
+  entry: WidgetLibraryEntry,
+  pinBotId: string | null,
+  resolutionBotId: string | null,
+): string | null {
+  if (entry.scope === "bot" || entry.scope === "workspace") {
+    return resolutionBotId ?? entry.bot_id ?? null;
+  }
+  return pinBotId ?? entry.bot_id ?? null;
+}
+
 export function WidgetLibrary({
   mode,
   botEnumeration = "single-bot",
   pinScope,
+  libraryBotId,
   scopeChannelId,
   existingRefs,
   onPin,
+  onToolRendererPinCreated,
   query = "",
 }: WidgetLibraryProps) {
   const [catalog, setCatalog] = useState<WidgetLibraryCatalog | null>(null);
@@ -175,7 +194,8 @@ export function WidgetLibrary({
   const [localQuery, setLocalQuery] = useState("");
   const effectiveQuery = query || localQuery;
 
-  const botId = pinScope?.kind === "bot" ? pinScope.botId : null;
+  const pinBotId = pinScope?.kind === "bot" ? pinScope.botId : null;
+  const resolutionBotId = pinBotId ?? libraryBotId ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -183,10 +203,12 @@ export function WidgetLibrary({
     setError(null);
     let url: string;
     if (botEnumeration === "all-bots") {
-      url = "/api/v1/widgets/library-widgets/all-bots";
+      const qs = new URLSearchParams();
+      if (scopeChannelId) qs.set("channel_id", scopeChannelId);
+      url = `/api/v1/widgets/library-widgets/all-bots${qs.toString() ? `?${qs}` : ""}`;
     } else {
       const qs = new URLSearchParams();
-      if (botId) qs.set("bot_id", botId);
+      if (resolutionBotId) qs.set("bot_id", resolutionBotId);
       if (scopeChannelId) qs.set("channel_id", scopeChannelId);
       url = `/api/v1/widgets/library-widgets${qs.toString() ? `?${qs}` : ""}`;
     }
@@ -196,7 +218,7 @@ export function WidgetLibrary({
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       });
     return () => { cancelled = true; };
-  }, [botId, scopeChannelId, botEnumeration]);
+  }, [resolutionBotId, scopeChannelId, botEnumeration]);
 
   const q = effectiveQuery.trim().toLowerCase();
   const match = (e: WidgetLibraryEntry) => {
@@ -277,7 +299,8 @@ export function WidgetLibrary({
           showBot={showBot}
           showWs={showWs}
           showChannel={showChannel}
-          botId={botId}
+          pinBotId={pinBotId}
+          resolutionBotId={resolutionBotId}
           scopeChannelId={scopeChannelId ?? null}
           botEnumeration={botEnumeration}
           botsByBucket={botsByBucket}
@@ -290,7 +313,13 @@ export function WidgetLibrary({
       )}
 
       {topTab === "renderers" && (
-        <ToolRenderersPane query={effectiveQuery} />
+        <ToolRenderersPane
+          query={effectiveQuery}
+          mode={mode}
+          pinScope={pinScope}
+          scopeChannelId={scopeChannelId ?? null}
+          onPinCreated={onToolRendererPinCreated}
+        />
       )}
     </div>
   );
@@ -319,7 +348,7 @@ function TopTabButton({
 function PinnablePane({
   catalog, error, totals, scopeFilter, setScopeFilter, match,
   showCore, showIntegration, showBot, showWs, showChannel,
-  botId, scopeChannelId, botEnumeration, botsByBucket,
+  pinBotId, resolutionBotId, scopeChannelId, botEnumeration, botsByBucket,
   allowPin, existingRefs, onPin, expandedKey, setExpandedKey,
 }: {
   catalog: WidgetLibraryCatalog | null;
@@ -333,7 +362,8 @@ function PinnablePane({
   showBot: boolean;
   showWs: boolean;
   showChannel: boolean;
-  botId: string | null;
+  pinBotId: string | null;
+  resolutionBotId: string | null;
   scopeChannelId: string | null;
   botEnumeration: "single-bot" | "all-bots";
   botsByBucket: Map<string, WidgetLibraryEntry[]>;
@@ -361,7 +391,7 @@ function PinnablePane({
   }
 
   const singleBotNoBotPicked =
-    botEnumeration === "single-bot" && !botId;
+    botEnumeration === "single-bot" && !resolutionBotId;
 
   return (
     <>
@@ -425,7 +455,8 @@ function PinnablePane({
             title="Core"
             subtitle="Ship with the app — reference widgets and chip templates"
             entries={catalog.core.filter(match)}
-            botId={botId}
+            pinBotId={pinBotId}
+            resolutionBotId={resolutionBotId}
             existingRefs={existingRefs}
             allowPin={allowPin}
             onPin={onPin}
@@ -439,7 +470,8 @@ function PinnablePane({
             title="Integrations"
             subtitle="Widgets shipped by enabled integrations"
             entries={catalog.integration.filter(match)}
-            botId={botId}
+            pinBotId={pinBotId}
+            resolutionBotId={resolutionBotId}
             existingRefs={existingRefs}
             allowPin={allowPin}
             onPin={onPin}
@@ -461,7 +493,8 @@ function PinnablePane({
                   title={`Bot library · ${botName}`}
                   subtitle={`widget://bot/… written by ${botName}`}
                   entries={filtered}
-                  botId={bId}
+                  pinBotId={pinBotId}
+                  resolutionBotId={bId}
                   existingRefs={existingRefs}
                   allowPin={allowPin}
                   onPin={onPin}
@@ -476,7 +509,8 @@ function PinnablePane({
                 title="Bot libraries"
                 subtitle="widget://bot/… authored by any bot"
                 entries={[]}
-                botId={null}
+                pinBotId={pinBotId}
+                resolutionBotId={null}
                 existingRefs={existingRefs}
                 allowPin={allowPin}
                 onPin={onPin}
@@ -492,19 +526,20 @@ function PinnablePane({
             icon={<BotIcon size={13} className="text-accent" />}
             title="Bot library"
             subtitle={
-              botId
+              resolutionBotId
                 ? "Widgets this bot has authored under widget://bot/…"
                 : "Pick a bot above to reveal this scope"
             }
             entries={catalog.bot.filter(match)}
-            botId={botId}
+            pinBotId={pinBotId}
+            resolutionBotId={resolutionBotId}
             existingRefs={existingRefs}
             allowPin={allowPin}
             onPin={onPin}
             expandedKey={expandedKey}
             setExpandedKey={setExpandedKey}
             emptyHint={
-              botId
+              resolutionBotId
                 ? "No bot-authored library widgets yet. Ask the bot: 'save this into your library'."
                 : null
             }
@@ -516,14 +551,15 @@ function PinnablePane({
             title="Workspace library"
             subtitle="widget://workspace/… shared across bots"
             entries={catalog.workspace.filter(match)}
-            botId={botId}
+            pinBotId={pinBotId}
+            resolutionBotId={resolutionBotId}
             existingRefs={existingRefs}
             allowPin={allowPin}
             onPin={onPin}
             expandedKey={expandedKey}
             setExpandedKey={setExpandedKey}
             emptyHint={
-              botEnumeration === "all-bots" || botId
+              botEnumeration === "all-bots" || resolutionBotId
                 ? "Empty. Needs a shared workspace — bots in a shared workspace can author under widget://workspace/…"
                 : null
             }
@@ -535,7 +571,8 @@ function PinnablePane({
             title="Channel workspace"
             subtitle="HTML widgets dropped into a channel's workspace"
             entries={catalog.channel.filter(match)}
-            botId={botId}
+            pinBotId={pinBotId}
+            resolutionBotId={resolutionBotId}
             existingRefs={existingRefs}
             allowPin={allowPin}
             onPin={onPin}
@@ -551,102 +588,6 @@ function PinnablePane({
         )}
       </div>
     </>
-  );
-}
-
-function ToolRenderersPane({ query }: { query: string }) {
-  const { data, isLoading, error } = useWidgetPackages();
-  const q = query.trim().toLowerCase();
-
-  const grouped = useMemo<Map<string, WidgetPackageListItem[]>>(() => {
-    const by = new Map<string, WidgetPackageListItem[]>();
-    if (!data) return by;
-    for (const pkg of data) {
-      if (q && !pkg.tool_name.toLowerCase().includes(q) && !(pkg.name ?? "").toLowerCase().includes(q)) continue;
-      const arr = by.get(pkg.tool_name) ?? [];
-      arr.push(pkg);
-      by.set(pkg.tool_name, arr);
-    }
-    return by;
-  }, [data, q]);
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-start gap-2 rounded-md bg-accent/5 px-3 py-2 text-[11px] text-text-muted">
-        <Wrench size={12} className="mt-0.5 shrink-0 text-accent/70" />
-        <span>
-          Tool renderers shape the output of a specific tool and render automatically when
-          that tool is called. <span className="font-medium text-text">They are not pinnable
-          standalone</span> — see them live in Recent calls.
-        </span>
-      </div>
-      {isLoading && (
-        <div className="space-y-2">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-12 animate-pulse rounded-md bg-surface-overlay/40" />
-          ))}
-        </div>
-      )}
-      {error && (
-        <p className="p-5 text-[12px] text-danger">
-          Failed to load tool renderers: {(error as Error).message}
-        </p>
-      )}
-      {!isLoading && !error && grouped.size === 0 && (
-        <p className="px-2 py-6 text-center text-[12px] text-text-muted">
-          No tool renderers{q ? " match the filter" : ""}.
-        </p>
-      )}
-      {Array.from(grouped.entries()).map(([toolName, pkgs]) => (
-        <div key={toolName} className="overflow-hidden rounded-md bg-surface">
-          <div className="flex items-baseline gap-2 px-3 py-2">
-            <Wrench size={13} className="text-accent" />
-            <span className="text-[12px] font-semibold text-text">{toolName}</span>
-            <span className="ml-auto text-[10px] text-text-dim">
-              {pkgs.length} renderer{pkgs.length === 1 ? "" : "s"}
-            </span>
-          </div>
-          <ul className="divide-y divide-surface-border/40">
-            {pkgs.map((pkg) => (
-              <li key={pkg.id} className="flex items-start gap-3 px-4 py-2.5">
-                <FileCode size={14} className="mt-0.5 shrink-0 text-text-dim" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[12px] font-medium text-text">{pkg.name}</span>
-                    <span className={[
-                      "rounded px-1 py-px text-[10px] font-medium uppercase tracking-wider",
-                      pkg.source === "seed"
-                        ? "bg-surface-overlay text-text-muted"
-                        : "bg-accent/15 text-accent",
-                    ].join(" ")}>
-                      {pkg.source}
-                    </span>
-                    {pkg.source_integration && (
-                      <span className="rounded bg-accent/10 px-1 py-px text-[10px] text-accent">
-                        {pkg.source_integration}
-                      </span>
-                    )}
-                    {pkg.is_invalid && (
-                      <span className="rounded bg-danger/15 px-1 py-px text-[10px] text-danger">
-                        invalid
-                      </span>
-                    )}
-                    {pkg.is_orphaned && (
-                      <span className="rounded bg-warning/15 px-1 py-px text-[10px] text-warning">
-                        orphan
-                      </span>
-                    )}
-                  </div>
-                  {pkg.description && (
-                    <p className="mt-0.5 text-[11px] text-text-muted">{pkg.description}</p>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -679,14 +620,15 @@ function ScopeChip({
 }
 
 function Section({
-  icon, title, subtitle, entries, botId, existingRefs, allowPin, onPin, emptyHint,
+  icon, title, subtitle, entries, pinBotId, resolutionBotId, existingRefs, allowPin, onPin, emptyHint,
   expandedKey, setExpandedKey,
 }: {
   icon: React.ReactNode;
   title: string;
   subtitle: string;
   entries: WidgetLibraryEntry[];
-  botId: string | null;
+  pinBotId: string | null;
+  resolutionBotId: string | null;
   existingRefs: Set<string>;
   allowPin: boolean;
   onPin?: (payload: LibraryPinPayload) => Promise<void>;
@@ -717,7 +659,8 @@ function Section({
               <LibraryRow
                 key={key}
                 entry={e}
-                botId={botId}
+                pinBotId={pinBotId}
+                resolutionBotId={resolutionBotId}
                 already={existingRefs.has(entryIdentity(e))}
                 allowPin={allowPin}
                 onPin={onPin}
@@ -733,10 +676,11 @@ function Section({
 }
 
 function LibraryRow({
-  entry, botId, already, allowPin, onPin, expanded, onToggle,
+  entry, pinBotId, resolutionBotId, already, allowPin, onPin, expanded, onToggle,
 }: {
   entry: WidgetLibraryEntry;
-  botId: string | null;
+  pinBotId: string | null;
+  resolutionBotId: string | null;
   already: boolean;
   allowPin: boolean;
   onPin?: (payload: LibraryPinPayload) => Promise<void>;
@@ -744,6 +688,7 @@ function LibraryRow({
   onToggle: () => void;
 }) {
   const label = entry.display_label ?? entry.name;
+  const effectiveBotId = effectiveEntryBotId(entry, pinBotId, resolutionBotId);
   const provenance =
     entry.scope === "integration"
       ? `integrations/${entry.integration_id ?? "?"}/widgets/${entry.path ?? ""}`
@@ -793,6 +738,14 @@ function LibraryRow({
                 <BotIcon size={9} /> {entry.bot_name}
               </span>
             )}
+            {entry.group_kind && entry.group_ref && (
+              <span
+                className="inline-flex items-center gap-0.5 rounded bg-accent/10 px-1 py-px text-[10px] font-medium text-accent"
+                title="Related widget group"
+              >
+                <Boxes size={9} /> {entry.group_kind}:{entry.group_ref}
+              </span>
+            )}
           </div>
           {entry.description && (
             <p className="mt-0.5 text-[12px] text-text-muted">
@@ -822,6 +775,14 @@ function LibraryRow({
                 <ScrollText size={8} /> manifest
               </span>
             )}
+            {entry.theme_support && entry.theme_support !== "none" && (
+              <span
+                className="rounded bg-surface-overlay px-1 py-px"
+                title="Supports the widget theme system"
+              >
+                theme
+              </span>
+            )}
             {(entry.tags ?? []).slice(0, 4).map((t) => (
               <span key={t} className="rounded bg-surface-overlay px-1 py-px">
                 #{t}
@@ -846,15 +807,16 @@ function LibraryRow({
       {expanded && (
         <PreviewPanel
           entry={entry}
-          botId={botId}
+          pinBotId={pinBotId}
+          resolutionBotId={resolutionBotId}
           allowPin={allowPin && !already}
           onPin={
             allowPin && onPin
               ? async () =>
                   onPin({
                     entry,
-                    envelope: envelopeForLibraryEntry(entry, botId),
-                    botId,
+                    envelope: envelopeForLibraryEntry(entry, pinBotId, resolutionBotId),
+                    botId: effectiveBotId,
                   })
               : undefined
           }
@@ -868,10 +830,11 @@ function LibraryRow({
 type PreviewTab = "live" | "source" | "manifest";
 
 function PreviewPanel({
-  entry, botId, allowPin, onPin, onClose,
+  entry, pinBotId, resolutionBotId, allowPin, onPin, onClose,
 }: {
   entry: WidgetLibraryEntry;
-  botId: string | null;
+  pinBotId: string | null;
+  resolutionBotId: string | null;
   allowPin: boolean;
   onPin?: () => Promise<void>;
   onClose: () => void;
@@ -880,10 +843,10 @@ function PreviewPanel({
   const [tab, setTab] = useState<PreviewTab>("live");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const effectiveBotId = botId ?? entry.bot_id ?? null;
+  const effectiveBotId = effectiveEntryBotId(entry, pinBotId, resolutionBotId);
   const envelope = useMemo(
-    () => envelopeForLibraryEntry(entry, effectiveBotId),
-    [entry, effectiveBotId],
+    () => envelopeForLibraryEntry(entry, pinBotId, resolutionBotId),
+    [entry, pinBotId, resolutionBotId],
   );
   const needsBot = entry.scope === "bot" || entry.scope === "workspace";
   const canPreview = !needsBot || !!effectiveBotId;

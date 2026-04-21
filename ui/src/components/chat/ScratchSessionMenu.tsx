@@ -124,31 +124,6 @@ export function ScratchSessionMenu({
       <div className="overflow-y-auto py-1">
         {currentSession ? (
           <>
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onNavigateSession(currentSession.session_id);
-              }}
-              className="flex w-full items-start gap-3 px-3 py-2 text-left transition-colors hover:bg-surface-overlay"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-[12px] font-medium text-text">
-                    {currentSession.session_id === currentSessionId ? "Current scratch session" : "Open current scratch"}
-                  </span>
-                  <span
-                    className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
-                    style={{ background: t.warningSubtle, color: t.warningMuted }}
-                  >
-                    Current
-                  </span>
-                </div>
-                <div className="mt-0.5 text-[11px] text-text-dim">
-                  {formatTimestamp(currentSession.created_at)}
-                </div>
-              </div>
-            </button>
             {onOpenSidePane && !currentSessionId && (
               <button
                 type="button"
@@ -158,7 +133,7 @@ export function ScratchSessionMenu({
                 }}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-text transition-colors hover:bg-surface-overlay"
               >
-                Open side pane
+                Open mini chat
               </button>
             )}
             {currentSessionId && onOpenMainChat && (
@@ -173,7 +148,9 @@ export function ScratchSessionMenu({
                 Return to channel
               </button>
             )}
-            <div className="mx-3 my-1 h-px bg-surface-border" />
+            {(onOpenSidePane && !currentSessionId) || (currentSessionId && onOpenMainChat) ? (
+              <div className="mx-3 my-1 h-px bg-surface-border" />
+            ) : null}
           </>
         ) : (
           <div className="px-3 py-2 text-[12px] text-text-dim">
@@ -210,18 +187,10 @@ export function ScratchSessionMenu({
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[12px] text-text">{previewLabel(row.preview)}</div>
                       <div className="mt-0.5 text-[11px] text-text-dim">
-                        {formatTimestamp(row.created_at)} · {row.message_count} msg{row.message_count === 1 ? "" : "s"}
+                        {formatTimestamp(row.last_active)} · {row.message_count} msg{row.message_count === 1 ? "" : "s"}
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
-                      {row.is_current && (
-                        <span
-                          className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
-                          style={{ background: t.warningSubtle, color: t.warningMuted }}
-                        >
-                          Current
-                        </span>
-                      )}
                       {isActiveView && (
                         <span
                           className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"

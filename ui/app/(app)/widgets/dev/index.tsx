@@ -113,7 +113,7 @@ export default function WidgetDevPanelPage() {
       </div>
 
       {/* Tab content */}
-      {tab === "library" && <LibraryTab />}
+      {tab === "library" && <LibraryTab originChannelId={originChannelId} />}
       {tab === "templates" && <TemplatesTab />}
       {tab === "themes" && <ThemesTab originChannelId={originChannelId} />}
       {tab === "tools" && <ToolsSandbox />}

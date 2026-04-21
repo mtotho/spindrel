@@ -368,11 +368,14 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const senderBotId = senderId?.startsWith("bot:") ? senderId.slice(4) : undefined;
 
   const thinkingText = typeof meta.thinking === "string" ? meta.thinking.trim() : "";
+  const hasTerminalToolTranscript =
+    isTerminalMode &&
+    (richEnvelope || inlineWidgets.length > 0 || remainingToolNames.length > 0 || remainingToolCalls.length > 0);
 
   const messageContent = (
     <>
       {thinkingText.length > 0 && <HistoricalThinking text={thinkingText} t={t} />}
-      {isTerminalMode && (richEnvelope || inlineWidgets.length > 0 || remainingToolNames.length > 0 || remainingToolCalls.length > 0) ? (
+      {hasTerminalToolTranscript ? (
         <TerminalPersistedToolTranscript
           richEnvelope={richEnvelope}
           richSource={(meta.source as string) || "event"}
@@ -385,7 +388,12 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           onPin={handlePinWidget}
           t={t}
         />
-      ) : richEnvelope ? (
+      ) : null}
+      {hasTerminalToolTranscript && displayContent.length > 0 ? (
+        <div style={{ marginTop: 8 }}>
+          <MarkdownContent text={displayContent} t={t} chatMode={chatMode} />
+        </div>
+      ) : !isTerminalMode && richEnvelope ? (
         <div className="rounded-lg border mt-1.5" style={{ borderColor: t.surfaceBorder, backgroundColor: t.surfaceRaised }}>
           <div className="px-3 pt-2 pb-0.5">
             <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: t.textDim }}>

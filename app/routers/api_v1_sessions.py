@@ -441,10 +441,9 @@ async def list_scratch_sessions(
             Session.owner_user_id == auth_user.id,
             Session.session_type == SESSION_TYPE_EPHEMERAL,
         )
-        # Pin the current scratch to the top so fast resets don't
-        # collide with ``created_at`` tie-breaks, then fall back to
-        # newest-first for archived rows.
-        .order_by(Session.is_current.desc(), Session.created_at.desc())
+        # Recents should reflect activity, not the implementation detail of
+        # which row currently owns the scratch pointer.
+        .order_by(Session.last_active.desc(), Session.created_at.desc())
         .limit(limit)
     )).scalars().all()
 

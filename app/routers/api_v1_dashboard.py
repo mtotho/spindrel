@@ -437,6 +437,11 @@ def _scanner_entry_to_library(entry: dict) -> dict:
         "integration_id": entry.get("integration_id"),
         "is_loose": bool(entry.get("is_loose", False)),
         "has_manifest": bool(entry.get("has_manifest", False)),
+        "widget_kind": entry.get("widget_kind") or "html",
+        "widget_binding": entry.get("widget_binding") or "standalone",
+        "theme_support": entry.get("theme_support") or "html",
+        "group_kind": entry.get("group_kind"),
+        "group_ref": entry.get("group_ref"),
     }
 
 
@@ -575,20 +580,32 @@ async def list_library_widgets(
     "/library-widgets/all-bots",
     dependencies=[Depends(require_scopes("channels:read"))],
 )
-async def list_library_widgets_all_bots():
+async def list_library_widgets_all_bots(
+    channel_id: str | None = Query(
+        None,
+        description=(
+            "Optional channel whose workspace HTML widgets should populate the "
+            "``channel`` section alongside the all-bots library view."
+        ),
+    ),
+    db: AsyncSession = Depends(get_db),
+):
     """Dev-panel variant of ``/library-widgets`` that enumerates EVERY bot's
     ``.widget_library/`` into one catalog. Each ``bot`` scope entry carries
     ``bot_id`` + ``bot_name`` so the UI can group/badge them. ``workspace``
     scope is deduped by shared_workspace_id so a shared library isn't
-    double-counted across bots that share it.
-
-    Shape mirrors ``/library-widgets``. ``channel`` is always empty here —
-    per-channel enumeration uses the base endpoint with ``channel_id``.
+    double-counted across bots that share it. When ``channel_id`` is
+    provided, the matching channel workspace also populates the ``channel``
+    section so the dev panel can show the same contextual library view as
+    the Add Widget sheet.
     """
     import os as _os
 
-    from app.agent.bots import list_bots
-    from app.services.html_widget_scanner import scan_all_integrations
+    from sqlalchemy import select
+
+    from app.agent.bots import get_bot, list_bots
+    from app.db.models import Channel
+    from app.services.html_widget_scanner import scan_all_integrations, scan_channel
     from app.services.shared_workspace import shared_workspace_service
     from app.services.widget_paths import scope_root
     from app.services.workspace import workspace_service
@@ -632,19 +649,40 @@ async def list_library_widgets_all_bots():
             if shared_root in seen_shared_roots:
                 continue
             seen_shared_roots.add(shared_root)
-            workspace_entries.extend(
-                _iter_scope_dir(
-                    scope_root("workspace", ws_root=None, shared_root=shared_root),
-                    "workspace",
-                )
+            for entry in _iter_scope_dir(
+                scope_root("workspace", ws_root=None, shared_root=shared_root),
+                "workspace",
+            ):
+                entry["bot_id"] = bot.id
+                entry["bot_name"] = getattr(bot, "name", None) or bot.id
+                workspace_entries.append(entry)
+
+    channel_entries: list[dict] = []
+    if channel_id:
+        try:
+            ch_uuid = uuid.UUID(channel_id)
+        except ValueError:
+            raise HTTPException(400, f"Invalid channel_id {channel_id!r}")
+        row = (
+            await db.execute(
+                select(Channel.bot_id).where(Channel.id == ch_uuid)
             )
+        ).first()
+        if row is not None and row[0]:
+            bot_for_channel = get_bot(str(row[0]))
+            if bot_for_channel is not None:
+                for e in scan_channel(str(ch_uuid), bot_for_channel):
+                    normalized = _scanner_entry_to_library(e)
+                    normalized["scope"] = "channel"
+                    normalized["channel_id"] = str(ch_uuid)
+                    channel_entries.append(normalized)
 
     return {
         "core": core,
         "integration": integration_entries,
         "bot": bot_entries,
         "workspace": workspace_entries,
-        "channel": [],
+        "channel": channel_entries,
     }
 
 

@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-21 (streaming liveness cursor kept visible during tool-only turns)
+updated: 2026-04-21 (scratch menu no longer exposes backend "current" concept; terminal mode keeps assistant text alongside tool transcripts; tool-only streaming cursor kept visible)
 ---
 # Track — UI Polish
 
@@ -81,6 +81,8 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Scratch view context budget now respects the active session** — the header budget indicator no longer stays pinned to the channel's latest turn while you're inside scratch; backend `context-budget` endpoints now accept optional `session_id`, and the scratch route prefers the scratch session's live SSE budget/store slot plus a session-scoped fallback fetch.
 - [x] **Scratch empty state now carries the guidance instead of the header** — removed the extra “messages here…” helper row from the scratch header and replaced the generic empty chat placeholder with scratch-specific copy/treatment in both docked and full-page scratch views.
 - [x] **Tool-only streaming stays visibly alive** — `StreamingIndicator` now keeps a blinking cursor footer visible while a turn is still open but the only visible activity is tool cards / thinking / auto-injected skills. This closes the long-conversation “is it still streaming?” gap where repeated tool use hid every liveness affordance until the next text delta arrived.
+- [x] **Terminal mode no longer drops assistant text on tool-call messages** — persisted assistant messages in terminal chat mode now render both the terminal tool transcript and the assistant markdown body. Previously the terminal transcript branch short-circuited the text render whenever `tool_calls`/tool envelopes were present, so tool-using replies looked like pure activity logs.
+- [x] **Scratch menu reflects the selected session, not an internal "current" pointer** — `ScratchSessionMenu` no longer renders a special "Open current scratch" row or `Current` badges. The menu now shows only the context action (`Open mini chat` / `Return to channel`) plus a recent sessions list, and the backend list ordering was switched to `last_active DESC` so recents are truly activity-based rather than pinned by `is_current`.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`

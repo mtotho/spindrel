@@ -95,7 +95,10 @@ _PIN_WIDGET_SCHEMA = {
             "explicitly to override.\n\n"
             "Call `describe_dashboard` first to see what's already pinned "
             "— this tool refuses to pin a widget that already exists on "
-            "the target dashboard with the same source+path."
+            "the target dashboard with the same source+path. Today the direct "
+            "`library` pin path is for standalone HTML widgets; template/tool-"
+            "renderer widgets are discoverable in the library but are not yet "
+            "directly instantiable through this tool."
         ),
         "parameters": {
             "type": "object",
@@ -114,13 +117,15 @@ _PIN_WIDGET_SCHEMA = {
                         "Which catalog to search. 'builtin' scans "
                         "app/tools/local/widgets/; 'integration' requires "
                         "source_integration_id; 'channel' scans the "
-                        "current channel's workspace; 'library' resolves "
-                        "a `widget://<scope>/<name>/` bundle (bot → "
-                        "workspace → core) authored via the `file` tool. "
-                        "Pass the library ref in `widget` as `'name'` or "
-                        "`'bot/name'` / `'workspace/name'` / `'core/name'`."
-                    ),
-                },
+                            "current channel's workspace; 'library' resolves "
+                            "a `widget://<scope>/<name>/` bundle (bot → "
+                            "workspace → core) authored via the `file` tool. "
+                            "Pass the library ref in `widget` as `'name'` or "
+                            "`'bot/name'` / `'workspace/name'` / `'core/name'`. "
+                            "Library widgets may also carry `suite`/`package` "
+                            "grouping metadata."
+                        ),
+                    },
                 "source_integration_id": {
                     "type": "string",
                     "description": (
