@@ -13,7 +13,7 @@ FROM python:3.12-slim
 # These run in-process via subprocess when bots use exec_tool.
 # gosu: drop from root to the non-privileged 'spindrel' user in entrypoint.
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-    curl wget git jq ripgrep fd-find tree unzip zip gosu \
+    curl wget git jq ripgrep fd-find tree unzip zip gosu sudo \
     build-essential sqlite3 openssh-client ca-certificates gnupg \
     && rm -rf /var/lib/apt/lists/*
 
@@ -80,6 +80,14 @@ RUN mkdir -p bots skills tools
 # the host docker-socket GID, then drops privileges via gosu.
 RUN groupadd -g 1000 spindrel \
     && useradd -u 1000 -g spindrel -m -s /bin/bash spindrel
+
+# Narrow sudoers rule: spindrel may run apt-get (and only apt-get) without a
+# password. Integrations declare system deps in their manifest; the server
+# installs them dynamically via install_system_package(). Without this rule
+# the non-root runtime user can't fulfil those declarations.
+RUN echo 'spindrel ALL=(root) NOPASSWD: /usr/bin/apt-get' > /etc/sudoers.d/spindrel-apt \
+    && chmod 0440 /etc/sudoers.d/spindrel-apt \
+    && visudo -cf /etc/sudoers.d/spindrel-apt
 
 EXPOSE 8000
 

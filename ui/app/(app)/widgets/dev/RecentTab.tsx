@@ -37,8 +37,6 @@ import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useWidgetImportStore } from "@/src/stores/widgetImport";
 import { formatRelativeTime } from "@/src/utils/format";
 import type { ToolResultEnvelope } from "@/src/types/api";
-import { WidgetLogView } from "./WidgetLogView";
-import { useWidgetLogStore } from "@/src/stores/widgetLog";
 
 const NOOP_DISPATCHER: WidgetActionDispatcher = {
   dispatchAction: async () => ({ envelope: null, apiResponse: null }),
@@ -151,9 +149,6 @@ export function RecentTab() {
   const setImport = useWidgetImportStore((s) => s.set);
   const pinWidget = useDashboardPinsStore((s) => s.pinWidget);
 
-  const [view, setView] = useState<"calls" | "log">("calls");
-  const logCount = useWidgetLogStore((s) => s.entries.length);
-
   const [toolFilter, setToolFilter] = useState<string>("");
   const [botFilter, setBotFilter] = useState<string>("");
   const [errorOnly, setErrorOnly] = useState(false);
@@ -190,28 +185,6 @@ export function RecentTab() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      {/* Subtab toggle — Tool calls vs Widget log */}
-      <div className="flex gap-1 px-3 py-2 bg-surface-raised border-b border-surface-border">
-        {(["calls", "log"] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => setView(v)}
-            className={
-              "rounded-md border px-3 py-1 text-[12px] font-medium transition-colors " +
-              (view === v
-                ? "border-accent/60 bg-accent/10 text-accent"
-                : "border-surface-border text-text-muted hover:bg-surface-overlay")
-            }
-          >
-            {v === "calls" ? "Tool calls" : `Widget log${logCount > 0 ? ` (${logCount})` : ""}`}
-          </button>
-        ))}
-      </div>
-
-      {view === "log" ? (
-        <WidgetLogView />
-      ) : (
     <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
       {/* Left column */}
       <div className="flex flex-col w-full md:w-[340px] md:shrink-0 md:border-r md:border-surface-border md:min-h-0 max-h-[45vh] md:max-h-none">
@@ -364,7 +337,6 @@ export function RecentTab() {
         )}
       </div>
     </div>
-      )}
     </div>
   );
 }

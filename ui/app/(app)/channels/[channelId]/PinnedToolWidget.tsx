@@ -6,7 +6,8 @@
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
-import { Pencil, X, GripVertical, RefreshCw } from "lucide-react";
+import { Pencil, X, GripVertical, RefreshCw, Bug } from "lucide-react";
+import { WidgetInspector } from "./WidgetInspector";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { ExternalDragBinding } from "@/app/(app)/widgets/DashboardDnd";
@@ -96,6 +97,7 @@ export function PinnedToolWidget({
 
   const t = useThemeTokens();
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   // Channel pins now live in the dashboard-pins store under the implicit
   // slug `channel:<uuid>`. Both scope.kind values read/write the same
   // store; the channel variant still fires the chat-side envelope
@@ -645,6 +647,15 @@ export function PinnedToolWidget({
               style={{ color: t.textMuted, opacity: 0.6 }}
             />
           </button>
+          <button
+            type="button"
+            onClick={() => setInspectorOpen(true)}
+            className={`${ctrlBtnClass} opacity-0 group-hover:opacity-100`}
+            aria-label="Inspect widget"
+            title="Inspect — see live tool traffic, errors, logs"
+          >
+            <Bug size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
+          </button>
           {(!isDashboard || editMode) && (
             <button
               type="button"
@@ -689,6 +700,15 @@ export function PinnedToolWidget({
               <Pencil size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.7 }} />
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setInspectorOpen(true)}
+            className={ctrlBtnClass}
+            aria-label="Inspect widget"
+            title="Inspect — see live tool traffic, errors, logs"
+          >
+            <Bug size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.7 }} />
+          </button>
           <button
             type="button"
             onClick={() => onUnpin(widget.id)}
@@ -741,6 +761,13 @@ export function PinnedToolWidget({
           </div>
         )}
       </div>
+      {inspectorOpen && (
+        <WidgetInspector
+          pinId={widget.id}
+          pinLabel={resolveDisplayName(widget)}
+          onClose={() => setInspectorOpen(false)}
+        />
+      )}
     </div>
   );
 }

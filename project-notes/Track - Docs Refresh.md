@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, docs, active]
 status: active
-updated: 2026-04-19 (session 19 — Phase B + D shipped; E partial)
+updated: 2026-04-21 (docs audit — README/setup/architecture drift + browser_live/widget-library gaps)
 ---
 
 # Track - Docs Refresh
@@ -31,6 +31,39 @@ Concrete gaps:
 | F | Delete workflow docs + stale images, add deprecation redirects | pending |
 
 Each phase is independently sized for its own session. Sequence: **A first** (everything below references screenshots), then **B + C in parallel** (touch different files), then **D** (new docs use new screenshots), then **E** (index update rolls up new files), then **F** (cleanup).
+
+### 2026-04-21 audit follow-up
+
+Post-session audit against code + commits from **2026-04-07 → 2026-04-21** found the April 19 docs pass landed cleanly for `docs/index.md` and the new guides, but three older entry points are still materially stale:
+
+- **`README.md`** is still pre-pipelines / pre-web-native / pre-current-integrations: leads with "workflows", shows `workflow-editor-1.png`, says UI is `Expo/React`, still lists Mission Control but omits Home Assistant / Excalidraw / browser_live / widget dashboards / sub-sessions / providers / PWA.
+- **`docs/setup.md`** still documents `workflows/`, `ui/` as "React Native/Expo", `mission_control/` as a live integration folder, and a Docker workspace-container model that no longer matches the current subprocess-first / single-workspace docs elsewhere.
+- **`docs/reference/architecture.md`** still has a full "Workflows" section (`workflow_executor.py`, `workflows/*.yaml`, `workflow_runs`) instead of the task-pipeline + sub-session model.
+
+New doc gaps introduced by the April 20–21 wave:
+
+- **No docs page / nav entry for `browser_live`** even though `integrations/browser_live/README.md` is the canonical operator-facing setup.
+- **Widget Library flow is under-documented**: `/widgets` Add-sheet **Library** tab, `GET /api/v1/widgets/library-widgets`, bot/workspace/core scopes, and the dashboard-header **Developer tools** split-button are not captured in `widget-dashboards.md` / `dev-panel.md`.
+- **Scratch-session history / server-owned current scratch pointer** (`/api/v1/sessions/scratch/current|reset|list`, `ScratchViewer`) are not covered in `task-sub-sessions.md`.
+- **Panel-mode dashboards / promote-to-panel flow** are called out in roadmap/track docs but not in the user docs.
+
+Small correctness fixes needed when touching docs:
+
+- `guides/dev-panel.md` references `ui/app/(app)/widgets/dev/LibraryTab.tsx`, but the shipped file is `LibraryWidgetsTab.tsx`.
+- README/docs still contain broad **Mission Control** framing in places where the codebase has moved to widget suites / task widgets / general dashboards. Audit each mention instead of blanket-deleting — some `mc_*` widgets still exist.
+
+### 2026-04-21 progress — priority entry points updated
+
+Shipped the first cleanup pass on the three highest-value stale entry points:
+
+- **`README.md`** rewritten away from workflows / Expo-era language toward pipelines, sub-sessions, widgets, current integrations, providers, and push. Removed dead workflow screenshot references and inserted explicit screenshot placeholders where new captures still need to land.
+- **`docs/setup.md`** updated to stop advertising `workflows/`, `mission_control/`, React Native/Expo UI, and long-lived per-bot workspace containers as the primary model. Reframed workspace docs around the current single-workspace + subprocess-first execution model, with Docker sandboxes called optional.
+- **`docs/reference/architecture.md`** replaced the workflow section with a task-pipeline + sub-session section and updated configuration/database language accordingly.
+
+Still next in queue from the audit:
+
+- Add a proper `browser_live` guide under `docs/guides/` and wire it into nav/index.
+- Update `dev-panel.md`, `widget-dashboards.md`, and `task-sub-sessions.md` for widget-library flow, dashboard "Developer tools" entry, scratch history/current-pointer endpoints, and panel mode.
 
 ### What shipped in session 19 (Phase B finish + Phase D + Phase E nav)
 

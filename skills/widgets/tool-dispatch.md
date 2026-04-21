@@ -92,13 +92,36 @@ await window.spindrel.callTool("web_search", { query: "docs" }, {
 
 ## Knowing the output shape before you call
 
-There's no dedicated output-schema field on tools today, but three practical ways to learn what a tool returns:
+Widgets are authored ahead of any real invocation, so you don't know the envelope shape until the tool actually runs. Don't guess. Don't write fallback chains like `env.data.state || env.body.data.state || env.result.data.state` — those are the primary cause of broken widgets. Pick one of two ground-truth paths:
 
-1. **Widget-template `sample_payload`** — tool packs declare a `sample_payload` block in per-widget `template.yaml` files under `app/tools/local/widgets/<tool_name>/` (e.g. `app/tools/local/widgets/list_tasks/template.yaml`, `app/tools/local/widgets/get_system_status/template.yaml`). When present, it's the de facto output contract — the shape the template's `{{field}}` substitutions expect. Read it from the bot turn before emitting the widget.
-2. **`GET /api/v1/admin/tools/{tool_name}`** — returns the input schema + description + the active widget package name; use that name to locate the template.yaml above. Input-shape authoritative, output-shape indirect.
-3. **Call it once from the bot turn, inspect, then write the widget.** The most reliable path: dispatch the tool in the same conversation before authoring the widget, copy the JSON structure out of the envelope body, and shape your widget around it. Live output trumps any doc.
+1. **`spindrel.toolSchema(name)`** — for local tools that register a `returns=` schema this returns `{input_schema, returns_schema}` with a concrete return shape. Code against it. Many of the core tools have it; MCP tools don't (the MCP protocol has no slot for return schemas), in which case `returns_schema` is `null`.
+2. **Inspect the real response** — the widget runs, auto-trace captures every `callTool` request + response to a server-side ring, you read it back. See `widgets/sdk.md` "Inspecting a pinned widget" for the full loop. Short version:
+   - Emit widget v1. Optionally add `spindrel.log.info("shape", await callTool(...))` on first iteration so the shape is logged even before you code extraction against it.
+   - Pin it.
+   - Call `inspect_widget_pin(pin_id)` from a bot turn, or open the Inspector (pin menu → Bug icon) in the UI.
+   - Read the `response` field on the most recent `tool-call` event.
+   - Rewrite extraction against the confirmed path and re-emit.
 
-For MCP tools, the upstream protocol only ships `inputSchema` — `outputSchema` isn't exposed. Fall back to path (3).
+Canonical shapes for the two most-requested tools:
+
+- `frigate_snapshot` → `{attachment_id, filename, size_bytes, camera, message, client_action}`. Extraction: `env.attachment_id`.
+- `ha_get_state` → `{data: {entity_id, state, attributes: {unit_of_measurement, friendly_name, ...}, last_changed}}`. Extraction: `env.data.state`, `env.data.attributes.unit_of_measurement`.
+
+A fully-working snapshot widget:
+
+```js
+const env = await window.spindrel.callTool("frigate_snapshot", { camera: "kitchen" });
+const url = await window.spindrel.loadAttachment(env.attachment_id);
+document.querySelector("img").src = url;
+```
+
+A fully-working HA state widget:
+
+```js
+const env = await window.spindrel.callTool("ha_get_state", { entity_id: "sensor.kitchen_temperature" });
+document.getElementById("value").textContent =
+  env.data.state + " " + env.data.attributes.unit_of_measurement;
+```
 
 ## Discovering what endpoints your widget can hit
 

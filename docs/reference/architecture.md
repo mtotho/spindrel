@@ -88,19 +88,24 @@ Per-channel file stores with schema-guided organization.
 - **Archive files** (`archive/`): searchable via tool, not auto-injected
 - **Data files** (`data/`): listed but not injected; referenced via search tool
 
-**Schema templates** define file structure (headings, column formats, which files to create). Templates can declare compatibility with specific integrations — e.g., a "Software Dev" template tagged as Mission Control-compatible defines `tasks.md` with the kanban format that MC tools expect.
+**Schema templates** define file structure (headings, column formats, which files to create). Templates can declare compatibility with specific integrations — e.g., a "Software Dev" template can define `tasks.md`, `status.md`, and other project files expected by the active toolset.
 
 **Indexing:** Background re-index on every message (content-hash makes it cheap). Searchable via `search_channel_workspace` and `search_channel_archive` tools.
 
-## Workflows
+## Task Pipelines + Sub-Sessions
 
-Reusable multi-step automations defined in YAML. Each workflow is a sequence of steps with conditions, approval gates, and cross-bot delegation.
+Reusable multi-step automations are modeled as `Task` rows running in pipeline mode, not as a
+separate workflow system. Pipelines support `exec`, `tool`, `agent`, `user_prompt`, and
+`foreach` steps with conditions, approval gates, params, and cross-bot delegation.
 
-- **Executor:** `app/services/workflow_executor.py` — state machine for advancing runs
-- **Execution model:** Workflows create Tasks (task_type="workflow"), the task worker executes them, and a completion hook advances the workflow to the next step
-- **Triggers:** API call, bot tool (`manage_workflow`), or heartbeat schedule
-- **Session modes:** `shared` (steps share channel context) or `isolated` (fresh context per step)
-- **Features:** Conditions, approval gates, scoped secrets, parameter validation
+- **Executor:** task worker + pipeline step engine advance the run through its step list
+- **Execution model:** pipeline runs write into a dedicated child `Session`, so every run has a
+  full chat-native transcript
+- **Triggers:** admin/API launch, bot tools such as `run_pipeline`, heartbeat `pipeline_id`, and
+  per-channel subscriptions
+- **UI model:** the parent channel gets an anchor card; the run itself renders as a sub-session
+  modal or docked transcript
+- **Legacy note:** old workflows are deprecated and retained only for historical compatibility
 
 ## Configuration Layers
 
@@ -110,7 +115,7 @@ Reusable multi-step automations defined in YAML. Each workflow is a sequence of 
 | Bot Config | `bots/*.yaml` → DB (seed-once) | Per-bot behavior |
 | Capabilities | `carapaces/*.yaml` + `integrations/*/carapaces/` | Composable expertise |
 | Skills | `skills/*.md` → DB (re-embed on change) | Knowledge injection |
-| Workflows | `workflows/*.yaml` + `integrations/*/workflows/` | Multi-step automations |
+| Tasks / Pipelines | DB `tasks` rows + `app/data/system_pipelines/` | Multi-step automations, scheduled runs, pipeline definitions |
 | MCP Servers | Admin UI (or `mcp.yaml` seed) → DB | Tool endpoints |
 | Integrations | `integrations/*/` + `INTEGRATION_DIRS` | External service connections |
 
@@ -124,8 +129,7 @@ PostgreSQL with pgvector for embedding storage. Key tables:
 - `bots` — bot configuration (seeded from YAML)
 - `carapaces` — composable expertise bundles (*`carapaces` is the DB table name for capabilities*)
 - `prompt_templates` — workspace schema templates
-- `tasks` — scheduled and on-demand agent execution
-- `workflows` / `workflow_runs` — multi-step automation definitions and execution history
+- `tasks` — scheduled work, deferred work, and pipeline definitions/runs
 - `channel_heartbeats` / `heartbeat_runs` — periodic automated prompts
 - `trace_events` — LLM usage tracking (tokens, cost, provider)
 - `tool_embeddings` — tool schema RAG index

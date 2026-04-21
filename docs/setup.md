@@ -101,7 +101,7 @@ You can also set `LLM_BASE_URL` and `LLM_API_KEY` in `.env` for a typeless OpenA
 docker compose up -d
 ```
 
-> **Tip:** The Docker image builds integration dashboards (e.g. Mission Control) by default. To skip this step and save build time:
+> **Tip:** The Docker image can build optional integration/dashboard assets during image build. To skip that step and save build time:
 > ```bash
 > docker compose build --build-arg BUILD_DASHBOARDS=false
 > ```
@@ -244,9 +244,9 @@ using your existing ChatGPT paid-subscription login — no API key, no per-call 
 Requests are metered against your ChatGPT plan quota instead. Useful when you already pay
 for ChatGPT and want the same quota available to Spindrel bots.
 
-**Model allowlist.** The OAuth flow only authorizes a subset of OpenAI's public catalog:
-`gpt-5-codex`, `gpt-5`, `gpt-5-mini`, `o4-mini`. These are auto-seeded into the provider's
-model list on boot.
+**Model allowlist.** The OAuth flow only authorizes a subset of OpenAI's public catalog.
+The live list is refreshed from Codex's `/models` endpoint on boot, with a shipped fallback
+list for offline cases. Expect this to evolve as GPT-5 point releases move.
 
 **Connecting:**
 
@@ -306,7 +306,9 @@ For a full walkthrough including capabilities, workspace templates, and a Home A
 
 ## Workspaces
 
-Workspaces provide persistent file storage for bots. Each bot with `workspace.enabled: true` gets a directory for memory files, daily logs, and reference documents.
+Spindrel uses a single workspace root on disk, with per-channel and shared subdirectories
+inside it. Bots operate against that shared filesystem model; they are not provisioned with
+their own long-lived per-bot containers.
 
 ```bash
 # .env
@@ -333,51 +335,14 @@ This creates:
 - `logs/YYYY-MM-DD.md` — daily session logs
 - `reference/` — longer guides and documentation
 
-### Docker Workspace Container
+### Command execution
 
-The Default Workspace runs a Docker container where bots can execute code, install packages, and run scripts. The workspace image is built during setup:
+By default, tools such as `exec_tool` run commands as subprocesses on the server host against
+the workspace filesystem. This is the current primary execution model.
 
-```bash
-docker build -t agent-workspace:latest -f Dockerfile.workspace .
-```
-
-The default image (`agent-workspace:latest`) ships with Python, Node.js, git, ripgrep, and common utilities. You can configure the container via **Admin UI > Workspaces > Docker** tab:
-
-- **Image** — use any Docker image you want (e.g. your own with extra tools pre-installed)
-- **Network** — `bridge` (default, internet access) or `none` (isolated)
-- **Startup Script** — runs every time the container starts or is recreated
-- **Resources** — CPU and memory limits
-
-#### Startup Script (recommended)
-
-Containers are ephemeral — anything installed at runtime (pip packages, apt packages, config files) is lost when the container restarts. Use the startup script to reinstall persistent dependencies:
-
-1. Create `/workspace/startup.sh` inside the workspace (via the Files tab or bot)
-2. Add your install commands:
-   ```bash
-   #!/bin/bash
-   pip install -q numpy scipy matplotlib
-   apt-get update && apt-get install -y -qq ffmpeg
-   ```
-3. The path `/workspace/startup.sh` is the default — it runs automatically on every container start
-
-Since `/workspace/` is a bind-mounted volume, the script persists across container restarts and recreations.
-
-#### Custom Images
-
-If you need a more specialized environment, build your own image and set it in the Docker tab:
-
-```dockerfile
-FROM agent-workspace:latest
-RUN apt-get update && apt-get install -y ffmpeg imagemagick
-RUN pip install numpy pandas matplotlib
-```
-
-```bash
-docker build -t my-workspace:latest -f Dockerfile.my-workspace .
-```
-
-Then set the image to `my-workspace:latest` in the workspace Docker settings. This is faster than a startup script since everything is baked into the image.
+If you want a more isolated execution environment, Spindrel also supports Docker-backed
+sandboxes for command execution. See the [Command Execution guide](guides/command-execution.md)
+for the current model, tradeoffs, and when to use host execution vs Docker.
 
 ## Integrations
 
@@ -406,7 +371,8 @@ Once an integration is enabled, you can **activate** it on individual channels t
 2. Click **Activate** on the integration
 3. The integration's capability is injected — the bot gains new capabilities for this channel only
 
-For example, activating Mission Control gives the bot task board tools, project management skills, and knowledge of the MC protocol — without manually configuring any of that on the bot.
+For example, activating Home Assistant gives the bot device-control tools, widget templates,
+and smart-home skills without manually wiring them onto the bot.
 
 ### Workspace Templates
 
@@ -516,21 +482,23 @@ agent-server/
 │   ├── discord/           # Discord integration
 │   ├── gmail/             # Gmail IMAP polling
 │   ├── frigate/           # Frigate NVR
-│   ├── mission_control/   # Dashboard + project management
+│   ├── browser_live/      # Real-browser automation via paired Chrome extension
 │   ├── arr/               # Sonarr/Radarr media management
 │   ├── claude_code/       # Claude Code CLI integration
 │   ├── bluebubbles/       # iMessage via BlueBubbles
 │   ├── ingestion/         # Document ingestion pipeline
 │   ├── web_search/        # Web search (SearXNG, DuckDuckGo)
 │   └── example/           # Template for new integrations
-├── workflows/              # Workflow YAML definitions (multi-step automations)
 ├── migrations/             # Alembic database migrations
 ├── scripts/                # Dev and setup scripts
-├── ui/                     # React Native/Expo admin UI
+├── ui/                     # Web UI (React + Vite)
 ├── docker-compose.yaml
 ├── .env                    # Runtime configuration (gitignored)
 └── .env.example            # Template
 ```
+
+> **Screenshot placeholder:** replace the older setup/admin images in this guide with the new
+> web-native UI captures as they become available.
 
 ## Remote Access & Networking
 

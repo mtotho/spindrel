@@ -31,11 +31,16 @@ window.spindrel.listWorkspaceFiles({include_archive?, include_data?, data_prefix
 window.spindrel.loadAsset(path)                   // → object URL (blob:) ready for <img src>, <video src>, etc.
 window.spindrel.revokeAsset(url)                  // free the object URL (optional; iframe teardown frees everything)
 
+// Channel attachments (tool-returned attachment_id → image/video/binary)
+window.spindrel.loadAttachment(id)                // → object URL (blob:) for <img src> / <video src>. Use when a tool returns an attachment_id (e.g. frigate_snapshot, generate_image).
+window.spindrel.revokeAttachment(url)             // free the object URL
+
 // Rendering helpers
 window.spindrel.renderMarkdown(text)       // HTML-safe Markdown → HTML string (see "Markdown Rendering" below)
 
 // Tool dispatch — see widgets/tool-dispatch.md for full details
 window.spindrel.callTool(name, args, opts?) // run a backend tool; returns fresh envelope, throws on failure
+window.spindrel.toolSchema(name)            // → {name, kind, input_schema, returns_schema|null}. Look up a tool's expected return shape before writing extraction code. `returns_schema` is null for MCP tools — fall back to inspecting the real response via the Inspector / inspect_widget_pin (see "Inspecting a pinned widget" below).
 
 // JSON state — read/merge/write over workspace files, deep-merge semantics
 window.spindrel.data.load(path, defaults?)           // parsed object (defaults deep-merged underneath); returns defaults if file missing
@@ -67,7 +72,7 @@ window.spindrel.cache.clear(key?)
 
 // Host-chrome toasts + uncaught-error banner + log ring
 window.spindrel.notify(level, message)          // level: "info" | "success" | "warn" | "error"
-window.spindrel.log.info|warn|error(...args)    // ring buffer (200) + live in Widgets → Dev → Recent → "Widget log"
+window.spindrel.log.info|warn|error(...args)    // forwarded to the pin's debug event ring — visible in the Widget Inspector (pin menu → Bug icon) and via the inspect_widget_pin tool
 
 // Minimal UI helpers (sd-* styled)
 window.spindrel.ui.status(el, state, {message?, height?})  // state: "loading" | "error" | "empty" | "ready"
@@ -103,14 +108,37 @@ window.spindrel.callHandler(action, args)
 
 `api(path, options)` is a thin `fetch` wrapper — attaches `Authorization: Bearer <short-lived bot token>`, sets `Content-Type: application/json`, parses JSON responses, and throws on non-2xx. **Always use this or `apiFetch` instead of raw `fetch()`**; raw fetch won't be authenticated.
 
-`apiFetch(path, options)` is the same auth but returns the raw `Response` object. Reach for it when you need a blob (images, video, downloads), headers, or streaming:
+`apiFetch(path, options)` is the same auth but returns the raw `Response` object. Reach for it when you need headers or streaming. For images from channel attachments, use `loadAttachment(id)` — it hides the `<img>`/auth dance and registers the object URL for you:
 
 ```js
-const r = await window.spindrel.apiFetch("/api/v1/attachments/" + id,
-  { headers: { Accept: "image/*" } });
-if (!r.ok) throw new Error("HTTP " + r.status);
-img.src = URL.createObjectURL(await r.blob());
+const env = await window.spindrel.callTool("frigate_snapshot", { camera });
+const url = await window.spindrel.loadAttachment(env.attachment_id);
+document.querySelector("img").src = url;
 ```
+
+## Inspecting a pinned widget (the authoring loop)
+
+Widgets are written ahead of any real invocation, so the bot doesn't actually see the envelope shape a tool returns until the widget runs. Guessing — `env.data.state || env.body.data.state || env.result.data.state` — is an anti-pattern and the #1 cause of broken widgets.
+
+Instead, use the ambient trace. Every `callTool` / `loadAttachment` / `loadAsset` invocation a pinned widget makes is auto-captured server-side (last 50 per pin), along with uncaught JS errors, unhandled promise rejections, `console.*` output, and `spindrel.log.*` entries.
+
+Two readers of that same ring:
+
+- **Human** — the Inspector side-panel. On any pinned widget, hover the tile → click the Bug icon → drawer opens with a newest-first timeline, expandable request/response JSON per event, copy-JSON, clear, pause.
+- **Bot** — the `inspect_widget_pin(pin_id, limit?)` tool. Call it after pinning a widget you just authored; it returns the same timeline as JSON. Read the `response` field on the most recent `tool-call` event — that's the ground truth for extraction paths.
+
+Iteration recipe:
+
+1. `toolSchema(toolName)` — if `returns_schema` is present, code against it.
+2. If `returns_schema` is null (MCP tool), emit widget v1 as a best-effort probe. Optionally wrap the first `callTool` in a `try { ...; spindrel.log.info("shape", env); } catch (e) { spindrel.log.error(e.message); }` so the shape is guaranteed to appear in the Inspector timeline.
+3. Pin the widget, then call `inspect_widget_pin(pin_id)` to read the real response shape.
+4. Rewrite extraction against the confirmed path. **One path, not a fallback chain.**
+5. Re-emit; confirm the Inspector shows only clean tool-call rows and no `error` / `rejection` events.
+
+Canonical shapes for the two tools people hit first:
+
+- `frigate_snapshot` → `{attachment_id, filename, size_bytes, camera, message, client_action}`. Extraction: `env.attachment_id`, feed into `loadAttachment(id)`.
+- `ha_get_state` → `{data: {entity_id, state, attributes: {unit_of_measurement, friendly_name, ...}, last_changed}}`. Extraction: `env.data.state`, `env.data.attributes.unit_of_measurement`. One level of `data:` wrap — no fallback chain.
 
 ## Reacting to live updates
 

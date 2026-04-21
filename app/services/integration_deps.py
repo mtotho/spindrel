@@ -255,23 +255,34 @@ async def _check_system_deps(integration_id: str, system_deps: list[dict]) -> No
             )
 
 
+def _apt_prefix() -> list[str]:
+    # Production runs as the non-root `spindrel` user; a narrow sudoers rule
+    # (Dockerfile: /etc/sudoers.d/spindrel-apt) allows passwordless apt-get.
+    # When already root (e.g. local shell), skip sudo so this still works
+    # outside the container.
+    if os.geteuid() == 0:
+        return []
+    return ["sudo", "-n"]
+
+
 async def install_system_package(apt_package: str) -> bool:
     """Install a system package via apt-get and persist to the workspace volume.
 
     Returns True on success, False on failure.
     """
     t0 = time.monotonic()
+    prefix = _apt_prefix()
     try:
         # apt-get update first (package lists may be cleared in slim images)
         update_proc = await asyncio.create_subprocess_exec(
-            "apt-get", "update", "-qq",
+            *prefix, "apt-get", "update", "-qq",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         await asyncio.wait_for(update_proc.communicate(), timeout=60)
 
         proc = await asyncio.create_subprocess_exec(
-            "apt-get", "install", "-y", "-qq", "--no-install-recommends", apt_package,
+            *prefix, "apt-get", "install", "-y", "-qq", "--no-install-recommends", apt_package,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

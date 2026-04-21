@@ -48,7 +48,6 @@ import type { ToolResultEnvelope } from "../../../types/api";
 import type { ThemeTokens } from "../../../theme/tokens";
 import { useThemeStore } from "../../../stores/theme";
 import { getAuthToken } from "../../../stores/auth";
-import { pushWidgetLog } from "../../../stores/widgetLog";
 import { useIsAdmin } from "../../../hooks/useScope";
 import { toast } from "../../../stores/toast";
 import { useDashboardPinsStore } from "../../../stores/dashboardPins";
@@ -496,13 +495,22 @@ function spindrelBootstrap(
     const resolved = resolvePath(path);
     const url = "/api/v1/channels/" + encodeURIComponent(cid) +
       "/workspace/files/raw?path=" + encodeURIComponent(resolved);
+    const __t0 = Date.now();
     const resp = await apiFetch(url);
     if (!resp.ok) {
+      __sendDebugEvent("load-asset", {
+        path: path, resolved: resolved, ok: false, status: resp.status,
+        error: "HTTP " + resp.status, durationMs: Date.now() - __t0,
+      });
       throw new Error("loadAsset '" + path + "': HTTP " + resp.status);
     }
     const blob = await resp.blob();
     const objectUrl = URL.createObjectURL(blob);
     __assetRegistry.add(objectUrl);
+    __sendDebugEvent("load-asset", {
+      path: path, resolved: resolved, ok: true, status: resp.status,
+      sizeBytes: blob && blob.size || 0, durationMs: Date.now() - __t0,
+    });
     return objectUrl;
   }
   function revokeAsset(url) {
@@ -523,12 +531,28 @@ function spindrelBootstrap(
   const __attachmentRegistry = new Set();
   async function loadAttachment(id) {
     if (!id) throw new Error("loadAttachment: id is required");
-    const resp = await apiFetch("/api/v1/attachments/" + encodeURIComponent(id) + "/file");
-    if (!resp.ok) throw new Error("loadAttachment '" + id + "': HTTP " + resp.status);
-    const blob = await resp.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    __attachmentRegistry.add(objectUrl);
-    return objectUrl;
+    const __t0 = Date.now();
+    try {
+      const resp = await apiFetch("/api/v1/attachments/" + encodeURIComponent(id) + "/file");
+      if (!resp.ok) {
+        __sendDebugEvent("load-attachment", {
+          id: id, ok: false, status: resp.status,
+          error: "HTTP " + resp.status, durationMs: Date.now() - __t0,
+        });
+        throw new Error("loadAttachment '" + id + "': HTTP " + resp.status);
+      }
+      const blob = await resp.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      __attachmentRegistry.add(objectUrl);
+      __sendDebugEvent("load-attachment", {
+        id: id, ok: true, status: resp.status,
+        sizeBytes: blob && blob.size || 0, durationMs: Date.now() - __t0,
+      });
+      return objectUrl;
+    } catch (e) {
+      // If we already emitted above (HTTP failure path), this just rethrows.
+      throw e;
+    }
   }
   function revokeAttachment(url) {
     if (__attachmentRegistry.has(url)) {
@@ -770,15 +794,52 @@ function spindrelBootstrap(
       },
       o.extra || {}
     );
-    const resp = await api("/api/v1/widget-actions", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    if (!resp || resp.ok !== true) {
-      throw new Error((resp && resp.error) || "callTool '" + name + "' failed");
+    const __t0 = Date.now();
+    const __argsClone = __safeJsonClone(args || {});
+    try {
+      const resp = await api("/api/v1/widget-actions", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      if (!resp || resp.ok !== true) {
+        const errMsg = (resp && resp.error) || "callTool '" + name + "' failed";
+        __sendDebugEvent("tool-call", {
+          tool: name, args: __argsClone, ok: false,
+          error: errMsg, durationMs: Date.now() - __t0,
+        });
+        throw new Error(errMsg);
+      }
+      const env = resp.envelope || null;
+      __sendDebugEvent("tool-call", {
+        tool: name, args: __argsClone, ok: true,
+        response: __safeJsonClone(env), durationMs: Date.now() - __t0,
+      });
+      return env;
+    } catch (e) {
+      // Rethrow after trace (the try/catch above already emits on !ok
+      // responses; this catches transport errors from api()).
+      if (!(e && e.__spindrel_traced)) {
+        __sendDebugEvent("tool-call", {
+          tool: name, args: __argsClone, ok: false,
+          error: (e && e.message) || String(e), durationMs: Date.now() - __t0,
+        });
+      }
+      throw e;
     }
-    return resp.envelope || null;
   }
+  // Fetch a tool's input + (optional) return schema so widget authors
+  // can look up the expected envelope shape before coding extraction.
+  // Local tools with a registered 'returns=' schema get a concrete
+  // 'returns_schema'; MCP tools return 'returns_schema: null' (the MCP
+  // spec doesn't carry return shapes — fall back to ambient trace via
+  // inspect_widget_pin). Throws on 404 / unknown tool.
+  async function toolSchema(name) {
+    if (!name || typeof name !== "string") {
+      throw new Error("toolSchema: name is required");
+    }
+    return api("/api/v1/tools/" + encodeURIComponent(name) + "/signature");
+  }
+
   // ───────────────────────────────────────────────────────────────────────
   // Phase B.1 SDK helper: spindrel.db — server-side SQLite per bundle.
   // Routes through POST /api/v1/widget-actions (dispatch:"db_query"|"db_exec").
@@ -1174,9 +1235,12 @@ function spindrelBootstrap(
     };
     __logBuffer.push(entry);
     if (__logBuffer.length > __LOG_CAP) __logBuffer.shift();
-    try {
-      window.parent.postMessage({ __spindrel: true, type: "log", entry: entry }, "*");
-    } catch (_) {}
+    // Forward to the ambient debug-event ring so the Inspector panel +
+    // inspect_widget_pin tool can read author-level logs alongside tool
+    // traffic + errors. __sendDebugEvent is a no-op when pinId is null.
+    if (typeof __sendDebugEvent === "function") {
+      __sendDebugEvent("log", { level: level, message: entry.message });
+    }
   }
   const log = {
     info:  function () { __logPush("info",  arguments); },
@@ -1185,6 +1249,54 @@ function spindrelBootstrap(
     buffer: function () { return __logBuffer.slice(); },
     clear:  function () { __logBuffer.length = 0; },
   };
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Debug-event ring (POST /api/v1/widget-debug/events). Ambient trace of
+  // every callTool / loadAttachment / loadAsset request-response pair, plus
+  // uncaught JS errors, unhandled promise rejections, console.log/warn/error
+  // output, and explicit spindrel.log.* entries. The authoring bot reads
+  // these via the inspect_widget_pin tool; the user reads them via the
+  // Inspector side-panel on the pin. Fire-and-forget: failures never bubble
+  // into widget runtime. No events emitted when dashboardPinId is null
+  // (inline chat renders don't have a pin to attach to).
+  // ───────────────────────────────────────────────────────────────────────
+  function __safeJsonClone(v) {
+    if (v == null) return v;
+    try { return JSON.parse(JSON.stringify(v)); } catch (_) {
+      try { return String(v); } catch (__) { return null; }
+    }
+  }
+  async function __sendDebugEvent(kind, payload) {
+    if (!dashboardPinId) return;
+    try {
+      await apiFetch("/api/v1/widget-debug/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pin_id: dashboardPinId,
+          kind: kind,
+          ts: Date.now(),
+          payload: payload || {},
+        }),
+      });
+    } catch (_) { /* debug telemetry — must never break the widget */ }
+  }
+  // console shim — tees through to the real console so native devtools
+  // still show the output, AND forwards to the event ring so the bot /
+  // Inspector can read it without the user opening devtools.
+  (function () {
+    const levels = ["log", "info", "warn", "error"];
+    levels.forEach(function (lvl) {
+      const orig = console[lvl] ? console[lvl].bind(console) : function () {};
+      console[lvl] = function () {
+        try { orig.apply(null, arguments); } catch (_) {}
+        try {
+          const args = Array.prototype.slice.call(arguments).map(__safeJsonClone);
+          __sendDebugEvent("console", { level: lvl === "log" ? "log" : lvl, args: args });
+        } catch (_) {}
+      };
+    });
+  })();
 
   // --- UI helpers: minimal DOM-fragment builders using sd-* utility classes.
   // No framework — ui.status replaces innerHTML; ui.table returns an HTML
@@ -1839,23 +1951,30 @@ function spindrelBootstrap(
   // widget card surfaces a banner instead of the widget going silently
   // dead. Host chrome re-renders with a Reload action.
   window.addEventListener("error", function (e) {
+    const msg = (e.error && e.error.message) || e.message || "Uncaught error";
+    const stack = (e.error && e.error.stack) || null;
     try {
       window.parent.postMessage({
         __spindrel: true, type: "error",
-        message: (e.error && e.error.message) || e.message || "Uncaught error",
-        source: e.filename || null, lineno: e.lineno || null,
+        message: msg, source: e.filename || null, lineno: e.lineno || null,
       }, "*");
     } catch (_) {}
+    __sendDebugEvent("error", {
+      message: msg, src: e.filename || null,
+      line: e.lineno || null, col: e.colno || null, stack: stack,
+    });
   });
   window.addEventListener("unhandledrejection", function (e) {
+    const reason = e.reason;
+    const msg = (reason && reason.message) || String(reason == null ? "Promise rejected" : reason);
+    const stack = (reason && reason.stack) || null;
     try {
-      const reason = e.reason;
-      const msg = (reason && reason.message) || String(reason == null ? "Promise rejected" : reason);
       window.parent.postMessage({
         __spindrel: true, type: "error",
         message: msg, source: "unhandledrejection", lineno: null,
       }, "*");
     } catch (_) {}
+    __sendDebugEvent("rejection", { reason: msg, stack: stack });
   });
 
   window.spindrel = {
@@ -1880,6 +1999,7 @@ function spindrelBootstrap(
     renderMarkdown: renderMarkdown,
     callTool: callTool,
     callHandler: callHandler,
+    toolSchema: toolSchema,
     data: {
       load: dataLoad,
       save: dataSave,
@@ -2315,25 +2435,6 @@ export function InteractiveHtmlRenderer({
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [widgetError, setWidgetError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
-  // Capture envelope context for log enrichment via ref so the handler's
-  // one-time `useEffect` doesn't stale-close over pinId / bot / channel when
-  // a re-mint swaps the token (bot_name lands after the first paint).
-  const logContextRef = useRef({
-    pinId: dashboardPinId ?? null,
-    channelId: effectiveChannelId ?? null,
-    botId: sourceBotId,
-    botName: botName ?? null,
-    widgetPath: sourcePath,
-  });
-  useEffect(() => {
-    logContextRef.current = {
-      pinId: dashboardPinId ?? null,
-      channelId: effectiveChannelId ?? null,
-      botId: sourceBotId,
-      botName: botName ?? null,
-      widgetPath: sourcePath,
-    };
-  }, [dashboardPinId, effectiveChannelId, sourceBotId, botName, sourcePath]);
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       const iframe = iframeRef.current;
@@ -2362,21 +2463,6 @@ export function InteractiveHtmlRenderer({
         }, 4000);
       } else if (data.type === "error") {
         setWidgetError(typeof data.message === "string" ? data.message : "Widget crashed");
-      } else if (data.type === "log") {
-        const entry = data.entry || {};
-        const rawLevel = entry.level;
-        const level = rawLevel === "warn" || rawLevel === "error" ? rawLevel : "info";
-        const ctx = logContextRef.current;
-        pushWidgetLog({
-          ts: typeof entry.ts === "number" ? entry.ts : Date.now(),
-          level,
-          message: typeof entry.message === "string" ? entry.message : "",
-          pinId: ctx.pinId,
-          channelId: ctx.channelId,
-          botId: ctx.botId,
-          botName: ctx.botName,
-          widgetPath: ctx.widgetPath,
-        });
       } else if (data.type === "ready") {
         onIframeReadyRef.current?.();
       }
