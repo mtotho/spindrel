@@ -4,7 +4,7 @@ import {
   Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
   Cog, PanelRight, Plug, StickyNote,
   MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle,
-  User as UserIcon, History, RotateCcw,
+  User as UserIcon, History, RotateCcw, MoreHorizontal,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
@@ -76,6 +76,8 @@ export function ChannelHeader({
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
+  const [mobileOverflowOpen, setMobileOverflowOpen] = React.useState(false);
+  const mobileOverflowRef = React.useRef<HTMLDivElement | null>(null);
   // Mobile hamburger opens the channel drawer (Widgets/Files/Jump) rather
   // than the plain command palette — drawer's Jump tab wraps the palette
   // content inline, so channel-route mobile users get one surface with nav
@@ -132,6 +134,101 @@ export function ChannelHeader({
   const showDashboardButton = !!channelId && !isSystemChannel;
   const showFindingsButton =
     !!toggleFindingsPanel && (findingsCount > 0 || !!findingsPanelOpen);
+  const isScratchArchive = !!scratchFullpageMode?.archive;
+  const showScratchState = !!scratchFullpageMode;
+  const scratchBadgeLabel = isScratchArchive ? "Archived scratch" : "Scratch pad";
+  const scratchSubline = isScratchArchive
+    ? "Read-only view of a previous scratch session."
+    : "Messages here stay out of the channel history.";
+  const scratchTone = isScratchArchive
+    ? {
+        bg: t.surfaceOverlay,
+        border: t.surfaceBorder,
+        text: t.textMuted,
+        icon: t.textDim,
+      }
+    : {
+        bg: t.warningSubtle,
+        border: t.warningBorder,
+        text: t.warningMuted,
+        icon: t.warning,
+      };
+  const showFindingsInline = !isMobile && showFindingsButton;
+  const showScratchExtrasInline = !isMobile && !!scratchFullpageMode;
+  const showSettingsInline = !isMobile;
+  const showDashboardInline = !isMobile;
+  const mobileOverflowActions = [
+    showFindingsButton
+      ? {
+          key: "findings",
+          label: findingsCount > 0 ? `Findings (${findingsCount})` : "Findings",
+          icon: PanelRight,
+          onClick: () => toggleFindingsPanel?.(),
+          active: !!findingsPanelOpen,
+          danger: false,
+        }
+      : null,
+    scratchFullpageMode
+      ? {
+          key: "history",
+          label: "Scratch history",
+          icon: History,
+          onClick: scratchFullpageMode.onOpenHistory,
+          active: false,
+          danger: false,
+        }
+      : null,
+    scratchFullpageMode && !scratchFullpageMode.archive
+      ? {
+          key: "reset",
+          label: scratchFullpageMode.resetArmed ? "Confirm scratch reset" : "Reset scratch session",
+          icon: RotateCcw,
+          onClick: scratchFullpageMode.onReset,
+          active: false,
+          danger: true,
+        }
+      : null,
+    channelId
+      ? {
+          key: "settings",
+          label: "Channel settings",
+          icon: Settings,
+          onClick: () => navigate(`/channels/${channelId}/settings`),
+          active: false,
+          danger: false,
+        }
+      : null,
+    showDashboardButton
+      ? {
+          key: "widgets",
+          label: "Widgets",
+          icon: LayoutDashboard,
+          onClick: isMobile ? toggleDrawerToWidgets : () => navigate(`/widgets/channel/${channelId}`),
+          active: !!widgetsDrawerActive,
+          danger: false,
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    key: string;
+    label: string;
+    icon: React.ComponentType<{ size: number; color: string }>;
+    onClick: () => void;
+    active: boolean;
+    danger: boolean;
+  }>;
+  const showMobileOverflow = isMobile && mobileOverflowActions.length > 0;
+
+  React.useEffect(() => {
+    if (!mobileOverflowOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (mobileOverflowRef.current && target && !mobileOverflowRef.current.contains(target)) {
+        setMobileOverflowOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [mobileOverflowOpen]);
 
   return (
     <header
@@ -179,6 +276,20 @@ export function ChannelHeader({
           <span style={{ fontSize: 15, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {displayName}
           </span>
+          {showScratchState && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold shrink-0"
+              style={{
+                background: scratchTone.bg,
+                border: `1px solid ${scratchTone.border}`,
+                color: scratchTone.text,
+              }}
+              title={scratchSubline}
+            >
+              <StickyNote size={10} color={scratchTone.icon} />
+              {scratchBadgeLabel}
+            </span>
+          )}
           {isSystemChannel && (
             <span
               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
@@ -221,6 +332,20 @@ export function ChannelHeader({
         )}
         {!isSystemChannel && !isMobile && bot && (
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1, minWidth: 0 }}>
+            {showScratchState && (
+              <span
+                className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium shrink-0"
+                style={{
+                  background: scratchTone.bg,
+                  border: `1px solid ${scratchTone.border}`,
+                  color: scratchTone.text,
+                }}
+                title={scratchSubline}
+              >
+                <StickyNote size={10} color={scratchTone.icon} />
+                <span className="truncate">{scratchSubline}</span>
+              </span>
+            )}
             <a
               className="header-bot-link"
               onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}
@@ -292,7 +417,7 @@ export function ChannelHeader({
       {/* Findings — inline when there's active signal (count > 0 or panel
           currently open). Stays out of the way on channels with no pipeline
           activity. */}
-      {showFindingsButton && (
+      {showFindingsInline && (
         <button
           type="button"
           className="header-icon-btn relative"
@@ -345,7 +470,7 @@ export function ChannelHeader({
           is on the scratch full-page route (or archive deep-link) so the
           main-chat header stays uncluttered. Reset is hidden on archive
           reads — you can't reset an archived session in place. */}
-      {channelId && scratchFullpageMode && (
+      {showScratchExtrasInline && channelId && scratchFullpageMode && (
         <>
           <button
             className="header-icon-btn"
@@ -375,7 +500,7 @@ export function ChannelHeader({
       )}
 
       {/* Settings — primary chrome. */}
-      {channelId && (
+      {showSettingsInline && channelId && (
         <button
           className="header-icon-btn"
           style={{ width: iconSize, height: iconSize }}
@@ -388,10 +513,9 @@ export function ChannelHeader({
 
       {/* Switch to dashboard — rightmost button, mirrors the "Switch to chat"
           button at the same spatial slot on the dashboard's top bar. Same
-          pixel on both views. `?dock=expanded` cues the dashboard's dock to
-          open expanded with its entry animation. Shown on both mobile and
-          desktop so users can pivot without hunting through menus. */}
-      {showDashboardButton && (
+          pixel on both views. Shown on both mobile and desktop so users can
+          pivot without hunting through menus. */}
+      {showDashboardInline && showDashboardButton && (
         <button
           className="header-icon-btn"
           style={{
@@ -402,7 +526,7 @@ export function ChannelHeader({
           onClick={
             isMobile
               ? toggleDrawerToWidgets
-              : () => navigate(`/widgets/channel/${channelId}?dock=expanded`)
+              : () => navigate(`/widgets/channel/${channelId}`)
           }
           title={isMobile ? "Widgets" : "Switch to dashboard view"}
           aria-label={isMobile ? "Widgets" : "Switch to dashboard view"}
@@ -410,6 +534,71 @@ export function ChannelHeader({
         >
           <LayoutDashboard size={16} color={widgetsDrawerActive ? t.accent : t.textDim} />
         </button>
+      )}
+
+      {showMobileOverflow && (
+        <div
+          ref={mobileOverflowRef}
+          style={{ position: "relative", flexShrink: 0 }}
+        >
+          <button
+            type="button"
+            className="header-icon-btn"
+            style={{
+              width: iconSize,
+              height: iconSize,
+              backgroundColor: mobileOverflowOpen ? t.surfaceOverlay : undefined,
+            }}
+            onClick={() => setMobileOverflowOpen((open) => !open)}
+            aria-label="More actions"
+            aria-haspopup="menu"
+            aria-expanded={mobileOverflowOpen}
+            title="More actions"
+          >
+            <MoreHorizontal size={18} color={mobileOverflowOpen ? t.text : t.textDim} />
+          </button>
+          {mobileOverflowOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 top-full mt-2 min-w-[190px] rounded-xl border shadow-lg overflow-hidden"
+              style={{
+                background: t.surfaceRaised,
+                borderColor: t.surfaceBorder,
+                boxShadow: "0 16px 40px rgba(0,0,0,0.28)",
+                zIndex: 40,
+              }}
+            >
+              {mobileOverflowActions.map((action) => {
+                const Icon = action.icon;
+                const color = action.danger
+                  ? t.danger
+                  : action.active
+                    ? t.accent
+                    : t.text;
+                return (
+                  <button
+                    key={action.key}
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm transition-colors"
+                    style={{
+                      background: action.active ? t.accentSubtle : "transparent",
+                      color,
+                      borderBottom: `1px solid ${t.surfaceBorder}`,
+                    }}
+                    onClick={() => {
+                      setMobileOverflowOpen(false);
+                      action.onClick();
+                    }}
+                  >
+                    <Icon size={16} color={color} />
+                    <span>{action.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       )}
     </header>
   );

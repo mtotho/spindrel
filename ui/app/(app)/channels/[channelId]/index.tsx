@@ -43,7 +43,6 @@ import { ChannelHeader } from "./ChannelHeader";
 import { ChannelHeaderChip } from "./ChannelHeaderChip";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { useScratchReturnStore } from "@/src/stores/scratchReturn";
-import { ScratchBanner } from "@/src/components/chat/ScratchBanner";
 import { ScratchHistoryModal } from "@/src/components/chat/ScratchHistoryModal";
 import { useResetScratchSession } from "@/src/api/hooks/useEphemeralSession";
 import { OrchestratorLaunchpad } from "./OrchestratorEmptyState";
@@ -394,6 +393,13 @@ export default function ChatScreen() {
   const setScratchReturn = useScratchReturnStore((s) => s.setScratchReturn);
   const clearScratchReturn = useScratchReturnStore((s) => s.clearScratchReturn);
   const [scratchHistoryOpen, setScratchHistoryOpen] = useState(false);
+  const handleExitScratchRoute = useCallback(() => {
+    if (!channelId) return;
+    clearScratchReturn(channelId);
+    setScratchHistoryOpen(false);
+    setScratchOpen(false);
+    navigate(`/channels/${channelId}`);
+  }, [channelId, clearScratchReturn, navigate]);
 
   // Track "last scratch session per channel" so a widget-dashboard detour
   // can bring the user back to the same scratch context. Archive deep
@@ -876,20 +882,12 @@ export default function ChatScreen() {
   const scratchColumnNode =
     scratchFullpageSource && channelId ? (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
-        <ScratchBanner
-          channelId={channelId}
-          channelName={channel?.name}
-          archive={scratchIsArchive}
-        />
         <div style={{ flex: 1, minHeight: 0 }}>
           <ChatSession
             source={scratchFullpageSource}
             shape="fullpage"
             open
-            onClose={() => {
-              clearScratchReturn(channelId);
-              navigate(`/channels/${channelId}`);
-            }}
+            onClose={handleExitScratchRoute}
             title={scratchIsArchive ? "Archived scratch" : "Scratch pad"}
             chatMode={chatMode}
           />
@@ -945,9 +943,9 @@ export default function ChatScreen() {
           onOpenScratch={() => {
             if (isScratchRoute && channelId) {
               // Already in scratch → clicking the button is the "minimize"
-              // action. Clear return target + go back to channel chat.
-              clearScratchReturn(channelId);
-              navigate(`/channels/${channelId}`);
+              // action. Clear route-local scratch state too so the dock
+              // doesn't reopen when the channel page remounts.
+              handleExitScratchRoute();
               return;
             }
             setScratchOpen(true);

@@ -115,7 +115,7 @@ export interface ChatSessionProps {
    *     page layout (e.g. the scratch full-page swap on ChannelPage). The
    *     controller still renders a small header row with bot picker +
    *     history + reset, but omits maximize/close (the host page owns
-   *     navigation via the ScratchBanner). Only supported for the
+   *     navigation via the surrounding page header). Only supported for the
    *     ``ephemeral`` source kind today. */
   shape: "modal" | "dock" | "fullpage";
   /** Controlled open state (caller owns open/close). */

@@ -1,6 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
+updated: 2026-04-21
 ---
 # Track — UI Polish
 
@@ -76,6 +77,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Session/thread parity for slash commands** — chat-session surfaces no longer just advertise `/context`; they execute it against the shared backend contract and merge the synthetic result into the mounted transcript.
 - [x] **Server-owned side-effect commands** — `/stop` and `/compact` now execute through the same slash-command API contract; web just applies the minimal local state sync after the server action lands.
 - [x] **Client-only scratch shortcut** — `/scratch` stays web-local for now and jumps straight into the scratch-pad route instead of pretending to be a shared backend command.
+- [x] **Scratch full-page warning folded into the real chat header** — removed the duplicate standalone scratch banner that was overlapping the header chip strip; scratch routes now show a compact header-owned state pill + amber subtitle in the channel header, with archive sessions rendered as muted read-only state instead of a warning.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
