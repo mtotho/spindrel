@@ -36,6 +36,79 @@ document.getElementById("run").addEventListener("click", async () => {
 
 Returns the fresh envelope (same shape as `window.spindrel.toolResult`) on success, or `null` if the tool produced no envelope. Throws with the server's error message on non-ok response.
 
+## Important: `callTool` does NOT auto-rerender the widget
+
+This is the behavior people get wrong when building HA-style control panels.
+
+`window.spindrel.callTool(name, args)`:
+
+- dispatches the tool
+- returns the fresh envelope to the caller
+- emits debug events for the Inspector
+- does **not** overwrite `window.spindrel.toolResult`
+- does **not** fire a magic re-render for your widget
+
+If the widget should visually update after a click, your JS must do it deliberately.
+
+Preferred pattern for control widgets:
+
+```js
+const state = {
+  entities: new Map(),   // local source of truth for the rendered controls
+  busy: new Set(),
+};
+
+function renderEntity(entityId) {
+  const row = document.querySelector(`[data-entity="${entityId}"]`);
+  const entity = state.entities.get(entityId);
+  const busy = state.busy.has(entityId);
+  row.querySelector(".js-state").textContent = entity.state;
+  row.querySelectorAll("button").forEach((btn) => {
+    btn.disabled = busy;
+    btn.classList.toggle("is-active", btn.dataset.target === entity.state);
+  });
+}
+
+async function setEntity(entityId, tool, args) {
+  state.busy.add(entityId);
+  renderEntity(entityId);                  // only the touched row goes busy
+  try {
+    const env = await window.spindrel.callTool(tool, args);
+    // Either extract the next state directly from the returned envelope...
+    // ...or do a follow-up state read if the mutation tool returns a thin ack.
+    const fresh = await window.spindrel.callTool("ha_get_state", { entity_id: entityId });
+    state.entities.set(entityId, fresh.data);
+    renderEntity(entityId);                // only the touched row rerenders
+  } finally {
+    state.busy.delete(entityId);
+    renderEntity(entityId);
+  }
+}
+```
+
+### What to optimize for
+
+- **Immediate local feedback** — disable or highlight only the clicked control.
+- **Targeted rerender** — update one row/card/section, not the whole widget root.
+- **Reconciliation** — after the mutation returns, fetch or extract the real new state and patch local state.
+- **Host refresh as backup** — `onToolResult()` / `onReload()` are for later consistency, not for the primary button-response path.
+
+### What causes the "whole thing is reloading" feel
+
+- Re-running `init()` on every click and rebuilding the entire DOM tree.
+- Replacing `root.innerHTML` for the whole widget after every button press.
+- Using `location.reload()` or forcing iframe reloads instead of local rerender.
+- Waiting for a host-driven refresh before updating button state at all.
+
+For tiny widgets that is survivable; for multi-card dashboards it feels broken.
+
+If the mutation tool's envelope is just an ack and not the next live state, use a two-step pattern:
+
+1. optimistic/local busy state now
+2. mutation via `callTool(...)`
+3. immediate follow-up state read
+4. patch local state and rerender just the affected controls
+
 ## The envelope shape
 
 Every envelope — whether returned from `callTool`, pushed into `window.spindrel.toolResult`, or received via `onToolResult` — has the same fields:

@@ -18,8 +18,10 @@ icon: activity
     <span class="sd-chip" id="clock" title="cached (TTL 3 s)">—</span>
   </header>
   <div class="sd-card-body sd-stack">
-    <section class="sd-stack-sm">
-      <h4 class="sd-label">1. Publish to bus</h4>
+    <section class="sd-section">
+      <div class="sd-section__header">
+        <h4 class="sd-label">1. Publish to bus</h4>
+      </div>
       <div id="publish-form"></div>
       <p class="sd-muted" style="font-size: var(--sd-font-size-sm); margin: 0;">
         Pin this widget <em>twice</em> on the same channel dashboard to see both sides of the bus —
@@ -27,15 +29,15 @@ icon: activity
       </p>
     </section>
 
-    <section class="sd-stack-sm">
+    <section class="sd-section">
       <div class="sd-hstack-between" style="align-items: baseline;">
         <h4 class="sd-label">2. Received on <code>smoke:ping</code></h4>
-        <button class="sd-btn sd-btn-subtle" id="clear-received" type="button" style="padding: 2px 8px; font-size: 11px;">Clear</button>
+        <button class="sd-btn sd-btn-subtle" id="clear-received" type="button">Clear</button>
       </div>
       <div id="received"></div>
     </section>
 
-    <section class="sd-stack-sm">
+    <section class="sd-section">
       <h4 class="sd-label">3. Trigger the error boundary</h4>
       <div class="sd-hstack-sm">
         <button class="sd-btn sd-btn-subtle" id="throw-sync" type="button">Throw sync</button>
@@ -48,12 +50,12 @@ icon: activity
       </p>
     </section>
 
-    <section class="sd-stack-sm">
+    <section class="sd-section">
       <h4 class="sd-label">4. Log ring buffer</h4>
       <div class="sd-hstack-sm">
         <span class="sd-meta" id="log-count">0 entries</span>
-        <button class="sd-btn sd-btn-subtle" id="log-dump" type="button" style="padding: 2px 8px; font-size: 11px;">Dump to console</button>
-        <button class="sd-btn sd-btn-subtle" id="log-clear" type="button" style="padding: 2px 8px; font-size: 11px;">Clear</button>
+        <button class="sd-btn sd-btn-subtle" id="log-dump" type="button">Dump to console</button>
+        <button class="sd-btn sd-btn-subtle" id="log-clear" type="button">Clear</button>
       </div>
     </section>
   </div>

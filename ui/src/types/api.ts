@@ -539,6 +539,10 @@ export interface WidgetLibraryEntry {
   is_loose?: boolean;
   /** True when a sibling ``widget.yaml`` was found next to the html file. */
   has_manifest?: boolean;
+  /** Populated on ``bot`` scope entries from the ``/library-widgets/all-bots``
+   *  endpoint so the dev-panel library can group/badge rows by bot. */
+  bot_id?: string | null;
+  bot_name?: string | null;
 }
 
 /** Response shape of ``GET /api/v1/widgets/library-widgets``. */

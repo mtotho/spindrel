@@ -178,6 +178,21 @@ export default function WidgetsDashboardPage() {
   // Read once, scrub from the URL on mount so a later refresh doesn't re-open.
   const [searchParams, setSearchParams] = useSearchParams();
   const [initialDockExpanded] = useState(() => searchParams.get("dock") === "expanded");
+  const scratchSessionIdFromQuery = searchParams.get("scratch_session_id");
+  const scratchReturnSessionId = useScratchReturnStore(
+    (s) => (channelScopedId ? s.byChannel[channelScopedId] ?? null : null),
+  );
+  const setScratchReturn = useScratchReturnStore((s) => s.setScratchReturn);
+  const activeScratchSessionId = scratchSessionIdFromQuery ?? scratchReturnSessionId;
+  const scratchChatHref = useMemo(() => {
+    if (!channelScopedId || !activeScratchSessionId) return null;
+    return `/channels/${channelScopedId}/session/${activeScratchSessionId}?scratch=true`;
+  }, [activeScratchSessionId, channelScopedId]);
+  useEffect(() => {
+    if (channelScopedId && scratchSessionIdFromQuery) {
+      setScratchReturn(channelScopedId, scratchSessionIdFromQuery);
+    }
+  }, [channelScopedId, scratchSessionIdFromQuery, setScratchReturn]);
 
   /** Edit mode is URL-driven via `?edit=true` so deep-links from the chat
    *  screen's "Add to dashboard" button (and page refreshes) land the user
@@ -480,9 +495,8 @@ export default function WidgetsDashboardPage() {
           onClick={() => {
             // If the user got here from a scratch full-page, bring them
             // back to the same scratch context instead of the main chat.
-            const sid = useScratchReturnStore.getState().byChannel[channelScopedId];
-            if (sid) {
-              navigate(`/channels/${channelScopedId}/session/${sid}?scratch=true`);
+            if (scratchChatHref) {
+              navigate(scratchChatHref);
             } else {
               navigate(`/channels/${channelScopedId}?from=dock`);
             }
@@ -512,6 +526,8 @@ export default function WidgetsDashboardPage() {
           channelName={channelRow?.name}
           railCount={railCount}
           pinCount={pins.length}
+          scratchSessionId={activeScratchSessionId}
+          scratchHref={scratchChatHref}
           onOpenManage={() => setManageSlug(slug)}
           right={actions}
         />
@@ -685,6 +701,7 @@ export default function WidgetsDashboardPage() {
           channelId={channelScopedId}
           botId={channelRow?.bot_id}
           channelName={channelRow?.name}
+          scratchSessionId={activeScratchSessionId}
           initiallyExpanded={initialDockExpanded}
         />
       )}
@@ -701,17 +718,16 @@ function DashboardChatDock({
   channelId,
   botId,
   channelName,
+  scratchSessionId,
   initiallyExpanded,
 }: {
   channelId: string;
   botId: string | undefined;
   channelName: string | undefined;
+  scratchSessionId: string | null;
   initiallyExpanded: boolean;
 }) {
-  const scratchReturnSessionId = useScratchReturnStore(
-    (s) => s.byChannel[channelId] ?? null,
-  );
-  const source: ChatSource = scratchReturnSessionId
+  const source: ChatSource = scratchSessionId
     ? {
         kind: "ephemeral",
         sessionStorageKey: `channel:${channelId}:scratch`,
@@ -722,12 +738,13 @@ function DashboardChatDock({
           payload: { channel_id: channelId },
         },
         scratchBoundChannelId: channelId,
+        pinnedSessionId: scratchSessionId,
       }
     : { kind: "channel", channelId };
-  const title = scratchReturnSessionId
+  const title = scratchSessionId
     ? channelName
-      ? `Scratch · #${channelName}`
-      : "Scratch pad"
+      ? `Scratch session · #${channelName}`
+      : "Scratch session"
     : channelName
       ? `#${channelName}`
       : "Channel chat";
@@ -739,6 +756,7 @@ function DashboardChatDock({
       onClose={() => {}}
       title={title}
       initiallyExpanded={initiallyExpanded}
+      dismissMode="collapse"
     />
   );
 }

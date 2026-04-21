@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, architecture]
 status: active
-updated: 2026-04-21 (Phase 8 polish — bot sub-session visibility + mobile dock + cross-device scratch; thread dock parity)
+updated: 2026-04-21 (Phase 8 polish — bot sub-session visibility + mobile dock + cross-device scratch; thread dock parity; dashboard scratch handoff clarity; session switcher/menu polish)
 ---
 
 # Track — Task Sub-Sessions (pipeline-as-chat refactor)
@@ -21,14 +21,19 @@ After Phases 6 + 7 + 7-hardening landed, three gaps surfaced in everyday use:
 - **Cross-device scratch (Phase 3)** — migration **232** adds `sessions.parent_channel_id`, `sessions.owner_user_id`, `sessions.is_current` + partial unique index enforcing one current scratch per (user, channel). `spawn_ephemeral_session` accepts the new fields. Three new endpoints in `app/routers/api_v1_sessions.py`: `GET /sessions/scratch/current` (resolve-or-spawn), `POST /sessions/scratch/reset` (archive + spawn), `GET /sessions/scratch/list` (history, sorted by `is_current DESC, created_at DESC`). Client hooks `useScratchSession` / `useResetScratchSession` / `useScratchHistory` in `useEphemeralSession.ts`. `EphemeralChatSession` branches on a new `scratchBoundChannelId` source flag — set by the channel page — and resolves the session id from the server query. localStorage kept as first-paint cache for model override only.
 - **Scratch history UI** — `ScratchHistoryModal` opens from a new History icon in the scratch dock header. Selecting a row navigates to `/channels/:channelId/scratch/:sessionId`, rendered by a new `ScratchViewer` that mounts `SessionChatView` without a composer.
 - **Thread dock parity UI (2026-04-21)** — reply-in-thread kept the existing dock and route model, but stopped rendering the replied-to message as a special block above the transcript. Thread parent context now enters `SessionChatView` as a synthetic `thread_parent_preview` row, so it lives in the normal message stack and never becomes a real persisted/sent message. The thread dock and full-screen thread route also switched to the same overlaid composer treatment as scratch chat, removing the stray top border wrapper and restoring the normal model selector plumbing.
+- **Dashboard scratch handoff clarity (2026-04-21, later polish pass)** — channel dashboards remain parent-channel scoped, but scratch full-page routes now carry the exact `scratch_session_id` into `/widgets/channel/:id`. The dashboard dock binds that exact session via `pinnedSessionId` instead of re-resolving "current scratch," and the channel-dashboard breadcrumb shows a visible scratch-state chip clarifying that only the chat dock is in a sub-session while widgets/layout still belong to the parent channel. The return-to-chat button now routes back to the exact scratch session.
+- **Header session switcher + scratch chrome cleanup (2026-04-21, later same-day polish)** — the vague sticky-note icon in `ChannelHeader` became a real **Scratch session** control with a purpose-built session switcher (`ScratchSessionMenu`) showing current session, recent sessions, `Open side pane`, `Open full screen`, `Return to channel`, and `Start new`. The old header-level history/reset icon pair was removed; scratch route identity now leans on the header button's active state plus subtitle copy ("Private scratch session for this channel" / archive variant) instead of scattered chrome. Dashboard scratch indication was reduced from a long banner to a compact breadcrumb chip.
+- **Scratch switcher menu polish (2026-04-21, follow-up)** — the first switcher pass carried too much amber chrome and spacing. The menu was tightened into the same neutral surface language as the rest of the app: smaller shell, flatter header, denser list rows, fewer nested cards, reduced recent-session count, and a single clear primary action so it reads like an in-product sheet instead of a bespoke modal.
+- **Scratch sessions are editable even when non-current (2026-04-21, follow-up)** — the earlier "archive" UI model was wrong for the product. `Session.is_current` still marks the default scratch returned by `/sessions/scratch/current`, but opening any prior scratch session from history/switcher now stays writable. The `archive=true` query/read-only frontend path was removed; older scratch sessions are just other scratch sessions.
 
 ### Key decisions
 
 - Scratch pointer lives on the Session row, not a side table. Session already owns every identity axis we need (channel, user, type); a separate `scratch_session_pointer` would duplicate FKs.
 - Reset is archive-not-delete. The DB row stays; only `is_current` flips. History list returns every prior scratch session so nothing is lost on reset.
 - List endpoint sorts by `is_current DESC, created_at DESC`. Pure `created_at DESC` is flaky when reset + spawn happen in the same tick (the test caught it immediately).
-- Old scratch sessions open read-only for now. Full reply-into-archive UX is parked — `SessionChatView` without a composer is enough for the MVP "view old sessions" story.
+- Old scratch sessions do **not** open read-only. `Session.is_current` only marks the default scratch pointer; any scratch session selected from history/switcher stays editable.
 - No FAB on chat-screen docks. User's explicit request: "on the chat screen we intentionally don't show a fab; only accessible from header. on the dashboard widget screen, we collapse to fab." Encoded as `onDismiss` override.
+- Channel dashboards do **not** become sub-session-scoped when entered from scratch. Only the chat dock can bind to a scratch session; dashboard widgets/layout/chrome remain parent-channel scoped and must say so plainly.
 
 ### Files
 
@@ -47,6 +52,7 @@ After Phases 6 + 7 + 7-hardening landed, three gaps surfaced in everyday use:
 - `ui/app/(app)/channels/[channelId]/ScratchViewer.tsx` — new.
 - `ui/app/(app)/channels/[channelId]/index.tsx` — `scratchBoundChannelId` wired into scratchSource.
 - `ui/src/router.tsx` — `scratch/:sessionId` route.
+- `ui/app/(app)/widgets/index.tsx` + `ui/app/(app)/widgets/ChannelDashboardBreadcrumb.tsx` — dashboard scratch query handoff, exact-session dock binding, visible scratch-state indicator.
 - `tests/integration/test_scratch_sessions.py` — new; 6 cases covering current + reset + list. 194 adjacent tests green. UI tsc clean.
 
 ### Follow-ups parked

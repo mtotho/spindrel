@@ -180,6 +180,51 @@ When the user says "build me a dashboard for X":
 
 This is the highest-leverage pattern: a `widget://` bundle + the `file` tool + `library_ref` emission turns "build me a widget" into a live, iteratively-editable surface.
 
+## Dashboard composition rule
+
+Pinned dashboards already provide the outer widget slot. Do not waste that shell by making the widget feel raw, and do not fight it by always nesting a second thick card.
+
+- Use the host shell for outer placement and dashboard chrome.
+- Use the widget interior for content hierarchy and action grouping.
+- Add a single `sd-card` only when the widget needs to read as a deliberate inner panel.
+- Use `sd-tile` / `sd-subcard` inside that panel for the quieter nested sections.
+- If you have several sub-panels, wrap them in `sd-stack-sm` or `sd-grid` so the spacing is explicit.
+- Prefer spacing, section titles, and button grouping over gratuitous borders.
+
+Good pattern:
+
+```html
+<div class="sd-stack">
+  <div class="sd-frame">…camera…</div>
+  <section class="sd-section">
+    <div class="sd-section__header">
+      <span class="sd-section__title">Quick actions</span>
+    </div>
+    <div class="sd-card-actions">
+      <button class="sd-btn sd-btn-primary">Bright kitchen</button>
+      <button class="sd-btn">Kitchen off</button>
+    </div>
+  </section>
+</div>
+```
+
+Good pattern when you want a stronger control-center feel:
+
+```html
+<div class="sd-card">
+  <header class="sd-card-header">
+    <div class="sd-stack" style="gap: 2px;">
+      <span class="sd-subtitle">Home</span>
+      <h3 class="sd-title">Command center</h3>
+      <span class="sd-meta">Live just now</span>
+    </div>
+  </header>
+  <div class="sd-card-body">
+    …
+  </div>
+</div>
+```
+
 ## Remember what you built
 
 Widgets disappear from your attention once they're pinned. A future turn might be the first time in a week you're aware of the dashboard — and without breadcrumbs, you'll rebuild things that already exist, or forget design decisions that will bite you.

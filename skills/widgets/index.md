@@ -84,6 +84,33 @@ The default shape is a **folder on disk** that you iterate on: `index.html` + `s
 
 Inline mode (`emit_html_widget(html="...")`) is for one-off snapshots — a single view of data you already have in the turn. Anything the user will see more than once should be path-mode.
 
+## Reactive controls — the rule authors keep missing
+
+For control widgets (Home Assistant panels, mini dashboards with buttons, toggles, sliders), **`window.spindrel.callTool()` does not automatically re-render your widget**.
+
+It only:
+
+- runs the backend tool
+- returns the fresh envelope to your JS
+- leaves `window.spindrel.toolResult` alone unless the host later pushes a separate refresh
+
+So after a click, the widget author must do one of these on purpose:
+
+1. **Patch local in-memory state and re-render the affected section immediately**.
+2. **Use the returned envelope from `callTool()` as the next source of truth and re-render from it**.
+3. **Kick off a follow-up state read** (`spindrel.api(...)` or another tool call) and reconcile when it returns.
+
+Do **not** assume the tile will become reactive just because the button call succeeded.
+
+Also, avoid the "whole widget reload" feel:
+
+- Do not call `location.reload()`.
+- Do not rebuild the entire app root on every click unless the widget is tiny.
+- Keep a local `state` object, mark only the clicked control busy, and re-render only the panel/card that changed.
+- Treat host-driven refreshes (`onToolResult`, `onReload`) as reconciliation, not as the primary click response.
+
+If you're building a live control surface, read `widgets/tool-dispatch.md` after this file. That's where the concrete click→state-update pattern lives.
+
 ## When NOT to use this skill
 
 - Simple text / Markdown reply → just reply normally.

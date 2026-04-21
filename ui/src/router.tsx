@@ -147,8 +147,7 @@ export const router = createBrowserRouter([
               // screen against the thread session with a "Replying to …"
               // header + close-X that returns to the channel.
               { path: "threads/:threadSessionId", element: <ChannelPage /> },
-              // Session sub-view. `?scratch=true` = scratch-pad full-page;
-              // `?scratch=true&archive=true` = read-only archived scratch.
+              // Session sub-view. `?scratch=true` = scratch-session full-page.
               // Path is deliberately generic so future session-switching
               // (non-scratch) flavors can share this route.
               { path: "session/:sessionId", element: <ChannelPage /> },

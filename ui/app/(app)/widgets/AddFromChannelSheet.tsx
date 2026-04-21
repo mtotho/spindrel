@@ -16,9 +16,9 @@ import type {
 } from "@/src/types/api";
 import { PinScopePicker } from "./PinScopePicker";
 import {
-  LibraryWidgetsTab,
+  WidgetLibrary,
   libraryPinIdentity,
-} from "./LibraryWidgetsTab";
+} from "./WidgetLibrary";
 
 /** Previews are read-only — widget `callTool` dispatches inside the sheet
  *  don't mutate anything. A no-op dispatcher makes that explicit. */
@@ -378,7 +378,9 @@ export default function AddFromChannelSheet({
             />
           )}
           {tab === "library" && (
-            <LibraryWidgetsTab
+            <WidgetLibrary
+              mode="pin"
+              botEnumeration="single-bot"
               query={query}
               pinScope={pinScope}
               scopeChannelId={scopeChannelId ?? null}

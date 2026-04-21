@@ -11,6 +11,12 @@ category: core
 
 A widget is a **folder**, not a single HTML file. Put everything the widget needs in one directory and path-mode the `index.html` inside it.
 
+When authoring the HTML, remember the rendering split:
+
+- the host provides the outer tile shell
+- your widget provides the inner composition
+- `sd-card` is an optional inner panel, not a mandatory wrapper
+
 ```
 <widget-root>/<widget-slug>/
 ├── index.html          ← the widget itself (emit_html_widget path target)

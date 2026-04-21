@@ -9,6 +9,24 @@ category: core
 
 Every widget iframe auto-inherits the app's design language: colors, spacing, typography, and component classes. **Use these instead of inline hex colors or bespoke CSS.** Widgets that lean on the vocabulary look like part of the app, stay correct in both light and dark mode, and survive future theme changes.
 
+## Ownership model: host shell vs widget panel
+
+The pinned-widget host already gives you the outer slot: bounds, dashboard spacing, drag/edit chrome, and scroll containment. Your widget is responsible for the **inside**.
+
+- The **host** owns the outer tile shell.
+- The **widget** owns hierarchy, grouping, emphasis, and action layout.
+- The **SDK** gives you the styling vocabulary and an optional inner panel primitive.
+
+That means:
+
+- Use plain `sd-stack` / `sd-grid` / `sd-section` when the content should sit flush in the host tile.
+- Use `sd-card` when the widget needs an intentional inner panel, like a compact control center or a grouped status board.
+- Use `sd-tile` / `sd-subcard` inside that panel for nested stat blocks, grouped controls, or quieter inset regions.
+- Use `sd-card--flat` when you want card semantics without the extra panel treatment.
+- When rendering multiple `sd-tile` / `sd-subcard` blocks, wrap them in `sd-stack-sm`, `sd-grid`, or another explicit gap container. Do not rely on plain sibling `<div>` flow.
+
+The goal is not "never use a panel." The goal is "don't accidentally create double chrome."
+
 ## CSS variables
 
 Every token from the host theme is available as a CSS variable:
@@ -37,7 +55,8 @@ Prefer these over hand-rolled CSS:
 | Vertical layout | `sd-stack`, `sd-stack-sm`, `sd-stack-lg` |
 | Horizontal layout | `sd-hstack`, `sd-hstack-sm`, `sd-hstack-between` |
 | Responsive auto-fit grid | `sd-grid`, `sd-grid-2`, `sd-tiles` (smaller tiles) |
-| Card surface | `sd-card`, `sd-card-header`, `sd-card-body`, `sd-card-actions` |
+| Optional base panel | `sd-card`, `sd-card-header`, `sd-card-body`, `sd-card-actions`, `sd-card--flat` |
+| Greyer sub-panel | `sd-tile`, `sd-subcard` |
 | Framed media region | `sd-frame`, `sd-frame-overlay` (centered status text) |
 | Bordered tile | `sd-tile` |
 | Text | `sd-title`, `sd-subtitle`, `sd-meta`, `sd-muted`, `sd-dim`, `sd-mono` |
@@ -61,13 +80,33 @@ Toggle buttons work via `aria-pressed="true"` — the base `.sd-btn` handles the
 ```html
 <div class="sd-card">
   <header class="sd-card-header">
-    <h3 class="sd-title">Driveway</h3>
-    <span class="sd-meta">Updated 30s ago</span>
+    <div class="sd-stack" style="gap: 2px;">
+      <span class="sd-subtitle">Driveway</span>
+      <h3 class="sd-title">Camera quick view</h3>
+      <span class="sd-meta">Updated 30s ago</span>
+    </div>
   </header>
   <div class="sd-frame"><img src="…" /></div>
   <div class="sd-card-actions">
     <button class="sd-btn" aria-pressed="true">Bounding boxes</button>
     <button class="sd-btn sd-btn-primary">Refresh</button>
+  </div>
+</div>
+```
+
+For a flatter, host-led layout:
+
+```html
+<div class="sd-stack">
+  <div class="sd-frame"><img src="…" /></div>
+  <div class="sd-section">
+    <div class="sd-section__header">
+      <span class="sd-section__title">Quick actions</span>
+    </div>
+    <div class="sd-card-actions">
+      <button class="sd-btn sd-btn-primary">Bright kitchen</button>
+      <button class="sd-btn">Kitchen off</button>
+    </div>
   </div>
 </div>
 ```
@@ -105,9 +144,40 @@ See `widgets/sdk.md#reacting-to-live-updates` for the full event surface.
 | `style="color: #1f2937; background: #f9fafb"` | `style="color: var(--sd-text); background: var(--sd-surface-raised)"` or `class="sd-card"` | Hex colors drift from the app theme and break dark mode silently. |
 | `style="font-family: sans-serif"` | Inherit body default (`var(--sd-font-sans)`) | The theme already sets a system font matching the app. |
 | Custom card component from scratch | `class="sd-card"` + `sd-card-header` + `sd-card-body` | Consistency across widgets. |
+| Assume the host tile gives enough structure by itself | Add `sd-section` / `sd-card` where the UI needs hierarchy | Widgets still need to compose their own interior. |
+| Wrap every widget in a heavy nested card by default | Start with `sd-stack`; add `sd-card` only when grouping improves clarity | Avoid double chrome in pinned dashboards. |
 | `<button style="padding: 3px 8px; border: 1px solid #e5e7eb; ...">` | `<button class="sd-btn">` | Fewer lines, on-brand, dark-mode correct. |
 | `border-bottom: 1px solid #e5e7eb` between bars | Spacing + `sd-card` separation | Gratuitous borders look like low-polish admin chrome. |
 | Hard-coded success green (`#16a34a`) | `class="sd-chip-success"` or `var(--sd-success)` | Same color in one place; updates ripple. |
+
+## Panel guidance
+
+Reach for `sd-card` when the widget needs to read as a single composed unit:
+
+- command center / control panel
+- status board with grouped metrics
+- mini app with media + controls + state
+
+Stay flatter when the host tile is already doing enough:
+
+- single image or chart
+- one stat block with a couple of actions
+- a lightweight list or feed
+
+If you're unsure, start flat and add one panel only where it improves comprehension.
+
+Hierarchy rule:
+
+- `sd-card` = base panel, brighter, reads as the widget's main surface
+- `sd-tile` / `sd-subcard` = inset sub-panel, slightly greyer, used inside the main panel
+
+That keeps light mode from turning the whole widget muddy while still giving bots a quieter nested surface for grouped controls or stats.
+
+Spacing rule:
+
+- Repeated sub-panels should usually live inside `sd-stack-sm` or `sd-grid`
+- The SDK adds a narrow fallback only for direct sibling sub-panels inside `.sd-card-body`
+- Outside that case, authors should declare spacing explicitly
 
 ## Layout & sizing
 

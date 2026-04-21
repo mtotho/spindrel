@@ -176,6 +176,32 @@ textarea::placeholder {
   overflow-anchor: none;           /* disable browser scroll anchoring — fights column-reverse auto-pin */
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .chat-scroll-web {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 200ms ease;
+  }
+  .chat-scroll-web:hover,
+  .chat-scroll-web:focus-within {
+    scrollbar-color: rgb(var(--color-text-dim) / 0.35) transparent;
+  }
+  .chat-scroll-web::-webkit-scrollbar { width: 6px; height: 6px; }
+  .chat-scroll-web::-webkit-scrollbar-track { background: transparent; }
+  .chat-scroll-web::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 3px;
+    transition: background-color 200ms ease;
+  }
+  .chat-scroll-web:hover::-webkit-scrollbar-thumb,
+  .chat-scroll-web:focus-within::-webkit-scrollbar-thumb {
+    background: rgb(var(--color-text-dim) / 0.35);
+  }
+  .chat-scroll-web::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--color-text-dim) / 0.55);
+  }
+}
+
 /* On touch devices the chat scrollbar reads as chrome noise — hide it.
    Desktop (pointer: fine) keeps the subtle scrollbar so users can tell
    there's more content above. */

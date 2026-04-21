@@ -64,22 +64,55 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
     --sd-skeleton-bg: ${t.skeletonBg};
     --sd-code-bg: ${t.codeBg};
 
-    --sd-radius-sm: 4px;
-    --sd-radius-md: 6px;
-    --sd-radius-lg: 8px;
+    --sd-shadow-focus: 0 0 0 3px var(--sd-accent-subtle);
+
+    --sd-radius-sm: 6px;
+    --sd-radius-md: 10px;
+    --sd-radius-lg: 14px;
+    --sd-radius-xl: 18px;
     --sd-gap-xs: 4px;
-    --sd-gap-sm: 6px;
+    --sd-gap-sm: 8px;
     --sd-gap-md: 10px;
     --sd-gap-lg: 16px;
+    --sd-gap-xl: 24px;
     --sd-pad-sm: 8px;
     --sd-pad-md: 12px;
-    --sd-pad-lg: 16px;
+    --sd-pad-lg: 14px;
     --sd-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --sd-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     --sd-font-size: 13px;
-    --sd-font-size-sm: 11px;
-    --sd-font-size-xs: 10px;
-    --sd-line: 1.4;
+    --sd-font-size-sm: 12px;
+    --sd-font-size-xs: 11px;
+    --sd-line: 1.45;
+    --sd-shell-pad-x: 0px;
+    --sd-shell-pad-y: 0px;
+    --sd-card-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-raised) 90%, var(--sd-surface-overlay) 10%)' : 'var(--sd-surface-raised)'};
+    --sd-card-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 78%, transparent 22%)' : 'color-mix(in srgb, var(--sd-surface-border) 72%, white 28%)'};
+    --sd-card-shadow: ${isDark ? '0 1px 0 rgba(255,255,255,0.03) inset' : '0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(255,255,255,0.7) inset'};
+    --sd-subpanel-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-overlay) 86%, transparent 14%)' : 'color-mix(in srgb, var(--sd-surface-overlay) 88%, white 12%)'};
+    --sd-subpanel-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 72%, transparent 28%)' : 'color-mix(in srgb, var(--sd-surface-border) 64%, white 36%)'};
+    --sd-section-gap: 12px;
+  }
+
+  html[data-sd-host="inline"] {
+    --sd-shell-pad-x: 0px;
+    --sd-shell-pad-y: 0px;
+  }
+  html[data-sd-host="pinned"] {
+    --sd-card-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-raised) 84%, var(--sd-surface-overlay) 16%)' : 'var(--sd-surface-raised)'};
+    --sd-card-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 62%, transparent 38%)' : 'color-mix(in srgb, var(--sd-surface-border) 78%, white 22%)'};
+  }
+  html[data-sd-layout="grid"],
+  html[data-sd-layout="rail"],
+  html[data-sd-layout="dock"] {
+    --sd-shell-pad-x: 0px;
+    --sd-shell-pad-y: 0px;
+  }
+  html[data-sd-layout="chip"] {
+    --sd-shell-pad-x: 0px;
+    --sd-shell-pad-y: 0px;
+    --sd-gap-md: 8px;
+    --sd-gap-sm: 6px;
   }
 
   /* ── Reset + body ─────────────────────────────────────────── */
@@ -90,13 +123,14 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
     font-size: var(--sd-font-size);
     line-height: var(--sd-line);
     color: var(--sd-text);
-    background: var(--sd-surface-raised);
+    background: transparent;
   }
-  /* Host wraps the iframe in its own padded card (WidgetCard, PinnedToolWidget,
-     ToolsSandbox). We intentionally sit flush inside that container — widgets
-     that want inner chrome opt in via .sd-card; flatter layouts (image-heavy,
-     chart-heavy) can fill the full tile by not using sd-card. */
-  body { padding: 0; overflow-y: auto; }
+  /* The host owns the outer tile shell. Widgets render inside it and opt into
+     an inner panel with .sd-card only when they need stronger grouping. */
+  body {
+    padding: var(--sd-shell-pad-y) var(--sd-shell-pad-x);
+    overflow-y: auto;
+  }
   * { box-sizing: border-box; max-width: 100%; }
   img, video { max-width: 100%; height: auto; border-radius: var(--sd-radius-sm); }
   a { color: var(--sd-accent); text-decoration: none; }
@@ -119,13 +153,25 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
   ::-webkit-scrollbar-corner { background: transparent; }
 
   /* ── Root wrapper (measured by host for iframe auto-sizing) ─ */
-  #__sd_root { display: block; }
+  #__sd_root {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sd-gap-md);
+    min-height: 100%;
+  }
+  #__sd_root[data-sd-layout="chip"] { gap: var(--sd-gap-sm); }
 
   /* ── Layout ───────────────────────────────────────────────── */
-  .sd-stack { display: flex; flex-direction: column; gap: var(--sd-gap-md); }
+  .sd-stack,
+  .sd-stack-sm,
+  .sd-stack-lg { display: flex; flex-direction: column; }
+  .sd-stack { gap: var(--sd-gap-md); }
   .sd-stack-sm { gap: var(--sd-gap-sm); }
   .sd-stack-lg { gap: var(--sd-gap-lg); }
-  .sd-hstack { display: flex; flex-direction: row; align-items: center; gap: var(--sd-gap-md); flex-wrap: wrap; }
+  .sd-hstack,
+  .sd-hstack-sm,
+  .sd-hstack-lg { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; }
+  .sd-hstack { gap: var(--sd-gap-md); }
   .sd-hstack-sm { gap: var(--sd-gap-sm); }
   .sd-hstack-lg { gap: var(--sd-gap-lg); }
   .sd-hstack-between { justify-content: space-between; }
@@ -135,19 +181,53 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
   .sd-spacer { flex: 1; }
 
   /* ── Typography ───────────────────────────────────────────── */
-  .sd-title { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.01em; color: var(--sd-text); }
+  .sd-title { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; color: var(--sd-text); line-height: 1.2; }
   .sd-subtitle { margin: 0; font-size: var(--sd-font-size-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--sd-text-muted); }
-  .sd-meta { font-size: var(--sd-font-size-sm); color: var(--sd-text-muted); }
+  .sd-meta { font-size: var(--sd-font-size-sm); color: var(--sd-text-muted); line-height: 1.45; }
+  .sd-label { margin: 0; font-size: var(--sd-font-size-xs); font-weight: 650; text-transform: uppercase; letter-spacing: 0.08em; color: var(--sd-text-muted); }
   .sd-muted { color: var(--sd-text-muted); }
   .sd-dim { color: var(--sd-text-dim); }
   .sd-mono { font-family: var(--sd-font-mono); font-size: 12px; }
 
   /* ── Surfaces ─────────────────────────────────────────────── */
-  .sd-card { background: var(--sd-surface-raised); border-radius: var(--sd-radius-lg); padding: var(--sd-pad-md); display: flex; flex-direction: column; gap: var(--sd-gap-md); }
-  .sd-card-header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sd-gap-sm); }
-  .sd-card-body { display: flex; flex-direction: column; gap: var(--sd-gap-md); }
+  .sd-card {
+    background: var(--sd-card-bg);
+    border: 1px solid var(--sd-card-border);
+    box-shadow: var(--sd-card-shadow);
+    border-radius: var(--sd-radius-lg);
+    padding: var(--sd-pad-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sd-section-gap);
+  }
+  .sd-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sd-gap-sm); }
+  .sd-card-body { display: flex; flex-direction: column; gap: var(--sd-section-gap); }
   .sd-card-actions { display: flex; flex-direction: row; gap: var(--sd-gap-sm); flex-wrap: wrap; }
-  .sd-tile { background: var(--sd-surface-overlay); border: 1px solid var(--sd-surface-border); border-radius: var(--sd-radius-md); padding: var(--sd-pad-sm); display: flex; flex-direction: column; gap: var(--sd-gap-xs); }
+  .sd-card.sd-card-flat,
+  .sd-card--flat {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    padding: 0;
+    border-radius: 0;
+  }
+  .sd-tile,
+  .sd-subcard {
+    background: var(--sd-subpanel-bg);
+    border: 1px solid var(--sd-subpanel-border);
+    border-radius: var(--sd-radius-md);
+    padding: var(--sd-pad-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sd-gap-xs);
+  }
+  /* Sensible default for stacked inset panels in the most common authoring
+     shape: multiple sub-panels placed directly inside a card body. This avoids
+     visually merged tiles without changing grid/row layouts or nested stacks. */
+  .sd-card-body > .sd-tile + .sd-tile,
+  .sd-card-body > .sd-subcard + .sd-subcard {
+    margin-top: var(--sd-gap-sm);
+  }
   .sd-frame { position: relative; border-radius: var(--sd-radius-md); overflow: hidden; background: var(--sd-surface-overlay); }
   .sd-frame-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--sd-text-muted); font-size: var(--sd-font-size-sm); }
 
@@ -158,48 +238,72 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
     align-items: center;
     justify-content: center;
     gap: var(--sd-gap-xs);
-    padding: 4px 10px;
+    min-height: 32px;
+    padding: 7px 12px;
     border: 1px solid var(--sd-surface-border);
-    background: var(--sd-surface-overlay);
+    background: color-mix(in srgb, var(--sd-surface-overlay) 84%, transparent 16%);
     color: var(--sd-text);
-    border-radius: var(--sd-radius-sm);
+    border-radius: 10px;
     font-size: var(--sd-font-size-sm);
+    font-weight: 600;
+    letter-spacing: 0.01em;
     font-family: inherit;
     cursor: pointer;
-    transition: background 120ms, border-color 120ms, color 120ms;
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease;
   }
-  .sd-btn:hover { background: var(--sd-overlay-light); }
-  .sd-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .sd-btn:hover {
+    background: color-mix(in srgb, var(--sd-surface-overlay) 72%, var(--sd-overlay-light) 28%);
+    border-color: var(--sd-overlay-border);
+  }
+  .sd-btn:disabled { opacity: 0.55; cursor: not-allowed; }
   .sd-btn[aria-pressed="true"] { background: var(--sd-accent); border-color: var(--sd-accent); color: white; }
-  .sd-btn-primary { background: var(--sd-accent); border-color: var(--sd-accent); color: white; }
+  .sd-btn-primary {
+    background: var(--sd-accent);
+    border-color: var(--sd-accent);
+    color: white;
+  }
   .sd-btn-primary:hover { background: var(--sd-accent-hover); border-color: var(--sd-accent-hover); color: white; }
-  .sd-btn-subtle { background: transparent; border-color: transparent; color: var(--sd-text-muted); }
+  .sd-btn-subtle {
+    background: transparent;
+    border-color: color-mix(in srgb, var(--sd-surface-border) 55%, transparent 45%);
+    color: var(--sd-text-muted);
+  }
   .sd-btn-subtle:hover { background: var(--sd-overlay-light); color: var(--sd-text); }
   .sd-btn-danger { background: var(--sd-danger-subtle); border-color: var(--sd-danger-border); color: var(--sd-danger); }
   .sd-btn-danger:hover { background: var(--sd-danger); border-color: var(--sd-danger); color: white; }
 
   .sd-input, .sd-select, .sd-textarea {
     appearance: none;
-    padding: 4px 8px;
+    width: 100%;
+    padding: 9px 11px;
     border: 1px solid var(--sd-input-border);
     background: var(--sd-input-bg);
     color: var(--sd-text);
-    border-radius: var(--sd-radius-sm);
+    border-radius: 12px;
     font-size: var(--sd-font-size-sm);
     font-family: inherit;
     outline: none;
+    transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
   }
-  .sd-input:focus, .sd-select:focus, .sd-textarea:focus { border-color: var(--sd-accent); }
+  .sd-input::placeholder, .sd-textarea::placeholder { color: color-mix(in srgb, var(--sd-text-dim) 84%, transparent 16%); }
+  .sd-input:hover, .sd-select:hover, .sd-textarea:hover { border-color: var(--sd-surface-border); }
+  .sd-input:focus, .sd-select:focus, .sd-textarea:focus {
+    border-color: var(--sd-accent);
+    box-shadow: var(--sd-shadow-focus);
+    background: var(--sd-input-bg);
+  }
 
   /* ── Status chips ─────────────────────────────────────────── */
   .sd-chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 6px;
-    border-radius: var(--sd-radius-sm);
+    padding: 3px 8px;
+    border-radius: 999px;
     font-size: var(--sd-font-size-xs);
-    font-weight: 500;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     background: var(--sd-overlay-light);
     color: var(--sd-text-muted);
     border: 1px solid transparent;
@@ -234,7 +338,15 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
 
   /* ── Feedback ─────────────────────────────────────────────── */
   .sd-error { color: var(--sd-danger); font-size: var(--sd-font-size-sm); }
-  .sd-empty { color: var(--sd-text-muted); font-size: var(--sd-font-size-sm); padding: var(--sd-pad-md); text-align: center; }
+  .sd-empty {
+    color: var(--sd-text-muted);
+    font-size: var(--sd-font-size-sm);
+    padding: var(--sd-pad-lg) var(--sd-pad-md);
+    text-align: center;
+    border: 1px dashed color-mix(in srgb, var(--sd-surface-border) 84%, transparent 16%);
+    border-radius: var(--sd-radius-md);
+    background: color-mix(in srgb, var(--sd-overlay-light) 72%, transparent 28%);
+  }
   /* Structured empty-state: <div class="sd-empty"><svg class="sd-icon sd-empty__icon">…</svg>
      <div class="sd-empty__title">Nothing yet</div><div class="sd-empty__subtitle">…</div></div> */
   .sd-empty__icon { display: block; margin: 0 auto 6px; width: 28px; height: 28px; color: var(--sd-text-dim); }
@@ -301,7 +413,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
   .sd-row:focus-visible,
   .sd-menu-item:focus-visible {
     outline: 2px solid var(--sd-accent);
-    outline-offset: 1px;
+    outline-offset: 2px;
   }
 
   /* ── Custom checkbox: .sd-check ───────────────────────────── */
@@ -410,7 +522,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
     border: 1px solid var(--sd-input-border);
     border-radius: var(--sd-radius-md);
     transition: border-color 120ms, box-shadow 120ms;
-    min-height: 36px;
+    min-height: 42px;
   }
   .sd-input-group:hover { border-color: var(--sd-surface-border); }
   .sd-input-group:focus-within {
@@ -422,7 +534,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
   .sd-input-group > .sd-textarea {
     flex: 1 1 auto; min-width: 0;
     background: transparent; border: none; outline: none;
-    padding: 6px 10px;
+    padding: 9px 12px;
     font-size: var(--sd-font-size);
   }
   .sd-input-group__icon {
@@ -432,7 +544,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
     width: auto; height: auto;
   }
   .sd-input-group__action {
-    margin: 3px; padding: 4px 14px;
+    margin: 4px; padding: 6px 14px;
     border-radius: calc(var(--sd-radius-md) - 2px);
     flex: 0 0 auto;
     font-weight: 600;
@@ -444,7 +556,13 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
   }
 
   /* ── Textarea auto-grow hook (sizing handled by spindrel.ui.autogrow) ── */
-  .sd-textarea { resize: vertical; min-height: 64px; padding: 6px 8px; line-height: 1.45; }
+  .sd-textarea {
+    resize: vertical;
+    min-height: 88px;
+    padding: 10px 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+  }
   .sd-textarea[data-autogrow] { resize: none; overflow: hidden; min-height: 32px; }
 
   /* ── Rows + list container ────────────────────────────────── */
@@ -489,19 +607,20 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
     display: flex; align-items: center; justify-content: space-between;
     gap: var(--sd-gap-sm);
   }
-  .sd-section__title { font-size: var(--sd-font-size-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--sd-text-muted); }
+  .sd-section__title { font-size: var(--sd-font-size-xs); font-weight: 650; text-transform: uppercase; letter-spacing: 0.1em; color: var(--sd-text-muted); }
   .sd-inline { display: inline-flex; align-items: center; gap: var(--sd-gap-xs); }
 
   /* ── Tags (removable chip extension) ──────────────────────── */
   .sd-tag {
     display: inline-flex; align-items: center; gap: 4px;
-    padding: 2px 8px;
+    padding: 3px 8px;
     border-radius: 999px;
     background: var(--sd-overlay-light);
     color: var(--sd-text);
     font-size: var(--sd-font-size-sm);
+    font-weight: 600;
     border: 1px solid transparent;
-    line-height: 1.4;
+    line-height: 1.35;
   }
   .sd-tag--accent { background: var(--sd-accent-subtle); color: var(--sd-accent); border-color: var(--sd-accent-border); }
   .sd-tag--success { background: var(--sd-success-subtle); color: var(--sd-success); border-color: var(--sd-success-border); }
@@ -630,6 +749,11 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
     .sd-check__mark, .sd-switch__thumb, .sd-radio__dot::after,
     .sd-anim-fade-in, .sd-anim-pop { transition: none !important; animation: none !important; }
   }
+  /* Defense-in-depth: some widget bundles inject a later generic
+     body padding rule. Use a more specific selector plus
+     !important so the iframe body stays flush and widgets opt into spacing
+     explicitly via sd-card / sd-stack / local CSS instead. */
+  html[data-sd-host] body[data-sd-host][data-sd-layout] { padding: 0 !important; }
   ${isDark ? "" : "/* light mode active */"}
   `;
 }

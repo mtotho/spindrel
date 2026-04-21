@@ -47,7 +47,7 @@ import { apiFetch, ApiError } from "../../../api/client";
 import type { ToolResultEnvelope } from "../../../types/api";
 import type { ThemeTokens } from "../../../theme/tokens";
 import { useThemeStore } from "../../../stores/theme";
-import { getAuthToken } from "../../../stores/auth";
+import { getAuthToken, useAuthStore } from "../../../stores/auth";
 import { useIsAdmin } from "../../../hooks/useScope";
 import { toast } from "../../../stores/toast";
 import { useDashboardPinsStore } from "../../../stores/dashboardPins";
@@ -73,6 +73,11 @@ type PooledPinnedWidgetIframe = {
 };
 const PINNED_WIDGET_IFRAME_POOL = new Map<string, PooledPinnedWidgetIframe>();
 let pinnedWidgetIframeParkingLot: HTMLDivElement | null = null;
+
+export function hasPinnedWidgetIframeEntry(key: string | null | undefined): boolean {
+  if (!key) return false;
+  return PINNED_WIDGET_IFRAME_POOL.has(key);
+}
 
 function getPinnedWidgetIframeParkingLot(): HTMLDivElement | null {
   if (typeof document === "undefined") return null;
@@ -222,41 +227,72 @@ const CSP_DIRECTIVE_MAP: Record<string, string> = {
 };
 
 // Origin guard — second line of defense (backend sanitize_extra_csp is first).
-// Drops anything that isn't a bare https:// origin so a compromised envelope
-// can't downgrade the policy by smuggling `'unsafe-eval'` or `*` through.
-function isSafeCspOrigin(value: unknown): value is string {
-  if (typeof value !== "string") return false;
+// Accept only bare http(s) origins. This intentionally rejects paths,
+// queries, fragments, wildcards, and non-network schemes so a compromised
+// envelope can't downgrade the policy by smuggling `'unsafe-eval'` or `*`
+// through. `serverUrl` in local-ui → remote-api dev is often `http://...`,
+// so CSP cannot be https-only here.
+function normalizeSafeCspOrigin(value: unknown): string | null {
+  if (typeof value !== "string") return null;
   const v = value.trim();
-  if (!v.startsWith("https://")) return false;
-  const host = v.slice("https://".length);
-  if (!host) return false;
-  if (host.includes("/") || host.includes("?") || host.includes("#")) return false;
-  if (host.includes("*")) return false;
-  return true;
+  if (!v || v.includes("*")) return null;
+  try {
+    const url = new URL(v);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.username || url.password) return null;
+    if (url.pathname !== "/" || url.search || url.hash) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
 }
 
-function buildCsp(extra: Record<string, unknown> | null | undefined): string {
+function appendCspOrigins(
+  merged: Record<string, string[]>,
+  directive: string,
+  origins: string[],
+): void {
+  if (!origins.length) return;
+  if (!merged[directive]) merged[directive] = ["'self'"];
+  const seen = new Set(merged[directive]);
+  for (const origin of origins) {
+    if (seen.has(origin)) continue;
+    seen.add(origin);
+    merged[directive].push(origin);
+  }
+}
+
+function buildCsp(
+  extra: Record<string, unknown> | null | undefined,
+  appOrigin: string | null,
+): string {
   const merged: Record<string, string[]> = {};
   for (const [directive, sources] of Object.entries(DEFAULT_CSP)) {
     merged[directive] = [...sources];
+  }
+  const runtimeOrigin = normalizeSafeCspOrigin(appOrigin);
+  if (runtimeOrigin) {
+    // Central app/backend origin allowance. Covers the common "UI on localhost,
+    // API on remote agent-server" dev setup without requiring per-widget
+    // extra_csp declarations. Keep it narrowly scoped to the resource classes
+    // widgets legitimately load from the app backend.
+    for (const directive of ["connect-src", "img-src", "media-src", "frame-src"]) {
+      appendCspOrigins(merged, directive, [runtimeOrigin]);
+    }
   }
   if (extra && typeof extra === "object") {
     for (const [key, value] of Object.entries(extra)) {
       const directive = CSP_DIRECTIVE_MAP[key];
       if (!directive) continue;
       const list = Array.isArray(value) ? value : [value];
-      const clean = list.filter(isSafeCspOrigin) as string[];
+      const clean = list
+        .map(normalizeSafeCspOrigin)
+        .filter((origin): origin is string => !!origin);
       if (!clean.length) continue;
       // Lazy-initialize directives not in the baseline (media-src, frame-src,
       // worker-src) — CSP falls back to default-src 'self' otherwise, which
       // would block the very third-party the widget just declared.
-      if (!merged[directive]) merged[directive] = ["'self'"];
-      const seen = new Set(merged[directive]);
-      for (const origin of clean) {
-        if (seen.has(origin)) continue;
-        seen.add(origin);
-        merged[directive].push(origin);
-      }
+      appendCspOrigins(merged, directive, clean);
     }
   }
   return Object.entries(merged)
@@ -308,6 +344,7 @@ function spindrelBootstrap(
   channelId: string | null,
   botId: string | null,
   botName: string | null,
+  serverUrl: string | null,
   widgetToken: string | null,
   initialToolResultJson: string | null,
   themeJson: string,
@@ -324,6 +361,7 @@ function spindrelBootstrap(
   const channelId = ${jsonForScript(channelId)};
   const botId = ${jsonForScript(botId)};
   const botName = ${jsonForScript(botName)};
+  const serverUrl = ${jsonForScript(serverUrl)};
   const dashboardPinId = ${jsonForScript(dashboardPinId)};
   const widgetPath = ${jsonForScript(widgetPath)};
   // Tile size the iframe was spawned into (null for inline chat renders).
@@ -333,6 +371,16 @@ function spindrelBootstrap(
   // Host-zone classification. One of "chip" | "rail" | "dock" | "grid".
   // Chip widgets render a 180×32 compact variant; other zones render full.
   const layout = ${jsonForScript(layout)};
+  function resolveApiUrl(path) {
+    if (typeof path !== "string" || !path) return path;
+    if (/^[a-zA-Z][a-zA-Z\\d+.-]*:/.test(path) || path.startsWith("//")) {
+      return path;
+    }
+    if (!serverUrl) return path;
+    const base = serverUrl.replace(/\\/+$/, "");
+    if (path.startsWith("/")) return base + path;
+    return new URL(path, base + "/").toString();
+  }
   // Normalise a workspace-relative path. Strips "./" segments, collapses
   // "a/b/../c" to "a/c", rejects escapes above the bundle root when the
   // input started with "../". Backend also re-validates; this is just
@@ -418,7 +466,7 @@ function spindrelBootstrap(
       state.token ? { "Authorization": "Bearer " + state.token } : {},
       opts.headers || {}
     );
-    return fetch(path, Object.assign({}, opts, { headers }));
+    return fetch(resolveApiUrl(path), Object.assign({}, opts, { headers }));
   }
   async function api(path, options) {
     const resp = await apiFetch(path, options);
@@ -2144,6 +2192,7 @@ function spindrelBootstrap(
     channelId: channelId,
     botId: botId,
     botName: botName,
+    serverUrl: serverUrl,
     dashboardPinId: dashboardPinId,
     widgetPath: widgetPath,
     gridSize: gridSize,
@@ -2300,6 +2349,7 @@ function wrapHtml(
   channelId: string | null,
   botId: string | null,
   botName: string | null,
+  serverUrl: string | null,
   widgetToken: string | null,
   initialToolResultJson: string | null,
   themeCss: string,
@@ -2311,17 +2361,18 @@ function wrapHtml(
   gridDimensions: { width: number; height: number } | null,
   layout: WidgetLayout,
 ): string {
+  const hostKind = dashboardPinId ? "pinned" : "inline";
   return `<!doctype html>
-<html${isDark ? ' class="dark"' : ""}>
+<html${isDark ? ' class="dark"' : ""} data-sd-host="${hostKind}" data-sd-layout="${layout}">
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <style id="__spindrel_theme">${themeCss}</style>
-${spindrelBootstrap(channelId, botId, botName, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions, layout)}
+${spindrelBootstrap(channelId, botId, botName, serverUrl, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions, layout)}
 </head>
-<body>
+<body data-sd-host="${hostKind}" data-sd-layout="${layout}">
 ${WIDGET_ICON_SPRITE}
-<div id="__sd_root">
+<div id="__sd_root" data-sd-host="${hostKind}" data-sd-layout="${layout}">
 ${body}
 </div>
 </body>
@@ -2350,6 +2401,7 @@ export function InteractiveHtmlRenderer({
   layout,
   t,
 }: Props) {
+  const serverUrl = useAuthStore((s) => s.serverUrl || null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const iframeHostRef = useRef<HTMLDivElement | null>(null);
   // Start from the measured grid height when the caller knows it — otherwise
@@ -2433,8 +2485,8 @@ export function InteractiveHtmlRenderer({
   // the locked-down baseline and drops anything that isn't a concrete
   // ``https://`` origin.
   const cspString = useMemo(
-    () => buildCsp(envelope.extra_csp),
-    [envelope.extra_csp],
+    () => buildCsp(envelope.extra_csp, serverUrl),
+    [envelope.extra_csp, serverUrl],
   );
 
   // Mint a bot-scoped bearer token so widget JS authenticates as the
@@ -2862,6 +2914,7 @@ export function InteractiveHtmlRenderer({
       effectiveChannelId,
       sourceBotId,
       botName,
+      serverUrl,
       widgetToken,
       frozenInitialToolResultRef.current,
       themeCss,
@@ -2894,10 +2947,12 @@ export function InteractiveHtmlRenderer({
     const host = iframeHostRef.current;
     if (!host) return;
     let iframe: HTMLIFrameElement;
+    let reusedPooledIframe = false;
     if (keepAliveKey) {
       const pooled = touchPinnedWidgetIframeEntry(keepAliveKey);
       if (pooled) {
         iframe = pooled.iframe;
+        reusedPooledIframe = true;
       } else {
         iframe = document.createElement("iframe");
         PINNED_WIDGET_IFRAME_POOL.set(keepAliveKey, {
@@ -2913,6 +2968,17 @@ export function InteractiveHtmlRenderer({
     }
     iframeRef.current = iframe;
     host.replaceChildren(iframe);
+    // Reattached pooled iframes often keep their live document and JS state
+    // across dashboard drag/remount cycles, so they won't necessarily post a
+    // second `spindrel:ready` message after adoption. Treat a reused iframe as
+    // ready once it's back under this host so PinnedToolWidget doesn't stay
+    // behind its preload skeleton until a full page refresh.
+    if (reusedPooledIframe) {
+      onIframeReadyRef.current?.();
+      window.requestAnimationFrame(() => {
+        if (iframeRef.current === iframe) onIframeReadyRef.current?.();
+      });
+    }
     try {
       const readyState = iframe.contentDocument?.readyState;
       if (readyState === "interactive" || readyState === "complete") {

@@ -511,6 +511,191 @@ async def list_library_widgets(
     }
 
 
+@router.get(
+    "/library-widgets/all-bots",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def list_library_widgets_all_bots():
+    """Dev-panel variant of ``/library-widgets`` that enumerates EVERY bot's
+    ``.widget_library/`` into one catalog. Each ``bot`` scope entry carries
+    ``bot_id`` + ``bot_name`` so the UI can group/badge them. ``workspace``
+    scope is deduped by shared_workspace_id so a shared library isn't
+    double-counted across bots that share it.
+
+    Shape mirrors ``/library-widgets``. ``channel`` is always empty here —
+    per-channel enumeration uses the base endpoint with ``channel_id``.
+    """
+    import os as _os
+
+    from app.agent.bots import list_bots
+    from app.services.html_widget_scanner import scan_all_integrations
+    from app.services.shared_workspace import shared_workspace_service
+    from app.services.widget_paths import scope_root
+    from app.services.workspace import workspace_service
+    from app.tools.local.widget_library import (
+        _iter_core_widgets,
+        _iter_scope_dir,
+    )
+
+    core = [w for w in _iter_core_widgets() if w.get("format") != "template"]
+
+    integration_entries: list[dict] = []
+    for _integ_id, entries in scan_all_integrations():
+        for e in entries:
+            integration_entries.append(_scanner_entry_to_library(e))
+
+    bot_entries: list[dict] = []
+    workspace_entries: list[dict] = []
+    seen_shared_roots: set[str] = set()
+
+    for bot in list_bots():
+        try:
+            ws_root = workspace_service.get_workspace_root(bot.id, bot)
+        except Exception:  # noqa: BLE001 — skip bots without provisioned workspaces
+            continue
+
+        for entry in _iter_scope_dir(
+            scope_root("bot", ws_root=ws_root, shared_root=None),
+            "bot",
+        ):
+            entry["bot_id"] = bot.id
+            entry["bot_name"] = getattr(bot, "name", None) or bot.id
+            bot_entries.append(entry)
+
+        if bot.shared_workspace_id:
+            try:
+                shared_root = _os.path.realpath(
+                    shared_workspace_service.get_host_root(bot.shared_workspace_id)
+                )
+            except Exception:  # noqa: BLE001
+                continue
+            if shared_root in seen_shared_roots:
+                continue
+            seen_shared_roots.add(shared_root)
+            workspace_entries.extend(
+                _iter_scope_dir(
+                    scope_root("workspace", ws_root=None, shared_root=shared_root),
+                    "workspace",
+                )
+            )
+
+    return {
+        "core": core,
+        "integration": integration_entries,
+        "bot": bot_entries,
+        "workspace": workspace_entries,
+        "channel": [],
+    }
+
+
+@router.get(
+    "/widget-manifest",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def get_widget_manifest(
+    db: AsyncSession = Depends(get_db),
+    scope: str = Query(..., description="Widget scope: core / bot / workspace / integration / channel."),
+    name: str | None = Query(None, description="Widget bundle name (core/bot/workspace scopes)."),
+    bot_id: str | None = Query(None, description="Bot id (bot/workspace scopes)."),
+    integration_id: str | None = Query(None, description="Integration id (integration scope)."),
+    channel_id: str | None = Query(None, description="Channel id (channel scope)."),
+    path: str | None = Query(None, description="Relative bundle path (integration/channel scopes)."),
+):
+    """Return the parsed ``widget.yaml`` (or equivalent) for a library entry.
+
+    Shape: ``{manifest: dict | None, raw: str | None, source_path: str}``.
+    ``manifest`` is None when the bundle has no manifest file — the UI can
+    then just show "No manifest declared" instead of an error.
+    """
+    import os as _os
+
+    from app.services.widget_paths import scope_root
+    from app.services.workspace import workspace_service
+    from app.services.shared_workspace import shared_workspace_service
+    from app.agent.bots import get_bot
+
+    def _read(abs_path: str) -> dict:
+        if not _os.path.isfile(abs_path):
+            return {"manifest": None, "raw": None, "source_path": abs_path}
+        try:
+            with open(abs_path, encoding="utf-8", errors="replace") as f:
+                raw = f.read()
+        except OSError:
+            return {"manifest": None, "raw": None, "source_path": abs_path}
+        try:
+            import yaml
+            parsed = yaml.safe_load(raw) or {}
+        except Exception:  # noqa: BLE001 — surface raw even on parse error
+            parsed = None
+        return {"manifest": parsed, "raw": raw, "source_path": abs_path}
+
+    if scope in {"core", "bot", "workspace"}:
+        if not name:
+            raise HTTPException(400, "name is required for core/bot/workspace scopes.")
+        ws_root: str | None = None
+        shared_root: str | None = None
+        if scope in {"bot", "workspace"}:
+            if not bot_id:
+                raise HTTPException(400, "bot_id is required for bot/workspace scopes.")
+            try:
+                bot = get_bot(bot_id)
+            except HTTPException:
+                raise
+            ws_root = workspace_service.get_workspace_root(bot_id, bot)
+            if bot.shared_workspace_id:
+                shared_root = _os.path.realpath(
+                    shared_workspace_service.get_host_root(bot.shared_workspace_id)
+                )
+        base = scope_root(scope, ws_root=ws_root, shared_root=shared_root)
+        if not base:
+            raise HTTPException(404, f"Scope {scope} unavailable.")
+        bundle = _os.path.join(base, name)
+        for candidate in ("widget.yaml", "suite.yaml", "template.yaml"):
+            p = _os.path.join(bundle, candidate)
+            if _os.path.isfile(p):
+                return _read(p)
+        return {"manifest": None, "raw": None, "source_path": bundle}
+
+    if scope == "integration":
+        if not integration_id or not path:
+            raise HTTPException(400, "integration_id + path required for integration scope.")
+        # integration bundles: integrations/<id>/widgets/<path>; manifest sits
+        # alongside index.html if present.
+        integ_root = _os.path.realpath(
+            _os.path.join(_os.getcwd(), "integrations", integration_id, "widgets")
+        )
+        target_dir = _os.path.dirname(_os.path.realpath(_os.path.join(integ_root, path)))
+        if not target_dir.startswith(integ_root):
+            raise HTTPException(400, "Invalid path.")
+        manifest_path = _os.path.join(target_dir, "widget.yaml")
+        return _read(manifest_path)
+
+    if scope == "channel":
+        if not channel_id or not path:
+            raise HTTPException(400, "channel_id + path required for channel scope.")
+        from app.db.models import Channel
+        from sqlalchemy import select
+        try:
+            ch_uuid = uuid.UUID(channel_id)
+        except ValueError:
+            raise HTTPException(400, f"Invalid channel_id {channel_id!r}")
+        row = (
+            await db.execute(select(Channel.bot_id).where(Channel.id == ch_uuid))
+        ).first()
+        if row is None or not row[0]:
+            raise HTTPException(404, "Channel not found or has no bot.")
+        bot = get_bot(str(row[0]))
+        from app.services.channel_workspace import get_channel_workspace_root
+        ch_root = get_channel_workspace_root(channel_id, bot)
+        target_dir = _os.path.dirname(_os.path.realpath(_os.path.join(ch_root, path)))
+        if not target_dir.startswith(_os.path.realpath(ch_root)):
+            raise HTTPException(400, "Invalid path.")
+        manifest_path = _os.path.join(target_dir, "widget.yaml")
+        return _read(manifest_path)
+
+    raise HTTPException(400, f"Unknown scope: {scope}")
+
+
 def _serve_widget_file(root: str, rel_path: str) -> dict:
     """Shared read-and-return body with path-traversal guards.
 

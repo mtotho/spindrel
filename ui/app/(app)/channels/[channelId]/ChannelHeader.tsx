@@ -4,7 +4,7 @@ import {
   Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
   Cog, PanelRight, Plug, StickyNote,
   MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle,
-  User as UserIcon, History, RotateCcw, MoreHorizontal,
+  User as UserIcon, MoreHorizontal,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
@@ -14,6 +14,7 @@ import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { prettyIntegrationName } from "@/src/utils/format";
+import { ScratchSessionMenu } from "@/src/components/chat/ScratchSessionMenu";
 
 const INTEGRATION_ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
   MessageSquare, Code2, Mail, Camera, LayoutDashboard, Tv, Terminal, MessageCircle, Plug,
@@ -46,14 +47,16 @@ export interface ChannelHeaderProps {
   /** Open the scratch-chat dock. Button is rendered on every viewport. */
   scratchOpen?: boolean;
   onOpenScratch?: () => void;
+  scratchSessionId?: string | null;
+  onOpenMainChat?: () => void;
+  onStartNewScratchSession?: () => void;
+  /** Optional explicit dashboard target. Scratch full-page uses this to
+   *  carry the exact scratch session into the channel dashboard URL. */
+  dashboardHref?: string;
   /** When the current URL is the scratch full-page route, the header
-   *  grows History + Reset icon buttons so the user can manage the
-   *  scratch session from chrome that sits outside the chat column. */
+   *  switches into scratch-session chrome so the route reads clearly as a
+   *  parallel session rather than the main channel chat. */
   scratchFullpageMode?: {
-    onOpenHistory: () => void;
-    onReset: () => void;
-    resetArmed: boolean;
-    archive?: boolean;
   };
 }
 
@@ -72,12 +75,18 @@ export function ChannelHeader({
   findingsCount = 0,
   scratchOpen,
   onOpenScratch,
+  scratchSessionId,
+  onOpenMainChat,
+  onStartNewScratchSession,
+  dashboardHref,
   scratchFullpageMode,
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
   const [mobileOverflowOpen, setMobileOverflowOpen] = React.useState(false);
+  const [scratchMenuOpen, setScratchMenuOpen] = React.useState(false);
   const mobileOverflowRef = React.useRef<HTMLDivElement | null>(null);
+  const scratchMenuRef = React.useRef<HTMLDivElement | null>(null);
   // Mobile hamburger opens the channel drawer (Widgets/Files/Jump) rather
   // than the plain command palette — drawer's Jump tab wraps the palette
   // content inline, so channel-route mobile users get one surface with nav
@@ -134,24 +143,15 @@ export function ChannelHeader({
   const showDashboardButton = !!channelId && !isSystemChannel;
   const showFindingsButton =
     !!toggleFindingsPanel && (findingsCount > 0 || !!findingsPanelOpen);
-  const isScratchArchive = !!scratchFullpageMode?.archive;
   const showScratchState = !!scratchFullpageMode;
-  const scratchBadgeLabel = isScratchArchive ? "Archived scratch" : "Scratch pad";
-  const scratchTone = isScratchArchive
-    ? {
-        bg: t.surfaceOverlay,
-        border: t.surfaceBorder,
-        text: t.textMuted,
-        icon: t.textDim,
-      }
-    : {
-        bg: t.warningSubtle,
-        border: t.warningBorder,
-        text: t.warningMuted,
-        icon: t.warning,
-      };
+  const scratchBadgeLabel = "Scratch session";
+  const scratchTone = {
+    bg: t.warningSubtle,
+    border: t.warningBorder,
+    text: t.warningMuted,
+    icon: t.warning,
+  };
   const showFindingsInline = !isMobile && showFindingsButton;
-  const showScratchExtrasInline = !isMobile && !!scratchFullpageMode;
   const showSettingsInline = !isMobile;
   const showDashboardInline = !isMobile;
   const mobileOverflowActions = [
@@ -165,24 +165,14 @@ export function ChannelHeader({
           danger: false,
         }
       : null,
-    scratchFullpageMode
+    channelId && onOpenScratch
       ? {
-          key: "history",
-          label: "Scratch history",
-          icon: History,
-          onClick: scratchFullpageMode.onOpenHistory,
-          active: false,
+          key: "scratch",
+          label: "Scratch session",
+          icon: StickyNote,
+          onClick: () => setScratchMenuOpen(true),
+          active: !!scratchOpen,
           danger: false,
-        }
-      : null,
-    scratchFullpageMode && !scratchFullpageMode.archive
-      ? {
-          key: "reset",
-          label: scratchFullpageMode.resetArmed ? "Confirm scratch reset" : "Reset scratch session",
-          icon: RotateCcw,
-          onClick: scratchFullpageMode.onReset,
-          active: false,
-          danger: true,
         }
       : null,
     channelId
@@ -200,7 +190,9 @@ export function ChannelHeader({
           key: "widgets",
           label: "Widgets",
           icon: LayoutDashboard,
-          onClick: isMobile ? toggleDrawerToWidgets : () => navigate(`/widgets/channel/${channelId}`),
+          onClick: isMobile
+            ? toggleDrawerToWidgets
+            : () => navigate(dashboardHref ?? `/widgets/channel/${channelId}`),
           active: !!widgetsDrawerActive,
           danger: false,
         }
@@ -226,6 +218,18 @@ export function ChannelHeader({
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [mobileOverflowOpen]);
+
+  React.useEffect(() => {
+    if (!scratchMenuOpen || isMobile) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (scratchMenuRef.current && target && !scratchMenuRef.current.contains(target)) {
+        setScratchMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isMobile, scratchMenuOpen]);
 
   return (
     <header
@@ -329,6 +333,14 @@ export function ChannelHeader({
         )}
         {!isSystemChannel && !isMobile && bot && (
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1, minWidth: 0 }}>
+            {scratchFullpageMode ? (
+              <span
+                className="truncate text-[11px]"
+                style={{ color: t.warningMuted }}
+              >
+                Private scratch session for this channel
+              </span>
+            ) : (
             <a
               className="header-bot-link"
               onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}
@@ -337,6 +349,7 @@ export function ChannelHeader({
             >
               {bot.name}
             </a>
+            )}
 
             {/* Inline integration dots — subtle; replaces the vertical ActiveBadgeBar.
                 Activated integrations use the theme success dot; bound-only dim. */}
@@ -433,53 +446,66 @@ export function ChannelHeader({
           main chat (canonical minimize) and the button shows pressed
           state so the user can see which context they're in. */}
       {channelId && onOpenScratch && (
-        <button
-          className="header-icon-btn"
-          style={{
-            width: iconSize,
-            height: iconSize,
-            backgroundColor: scratchOpen ? t.surfaceOverlay : undefined,
-          }}
-          onClick={onOpenScratch}
-          title={scratchFullpageMode ? "Minimize scratch (back to channel chat)" : "Scratch chat"}
-          aria-label={scratchFullpageMode ? "Minimize scratch and return to channel" : "Open scratch chat"}
-          aria-pressed={!!scratchOpen}
-        >
-          <StickyNote size={16} color={scratchOpen ? t.accent : t.textDim} />
-        </button>
-      )}
-
-      {/* Scratch-mode extras — History + Reset. Only surface while the URL
-          is on the scratch full-page route (or archive deep-link) so the
-          main-chat header stays uncluttered. Reset is hidden on archive
-          reads — you can't reset an archived session in place. */}
-      {showScratchExtrasInline && channelId && scratchFullpageMode && (
-        <>
+        <div ref={scratchMenuRef} className="relative shrink-0">
           <button
-            className="header-icon-btn"
-            style={{ width: iconSize, height: iconSize }}
-            onClick={scratchFullpageMode.onOpenHistory}
-            title="Scratch history"
-            aria-label="Open scratch history"
+            type="button"
+            className={
+              isMobile
+                ? "header-icon-btn"
+                : "inline-flex h-9 items-center gap-2 rounded-full border px-3 text-[12px] font-medium transition-colors"
+            }
+            style={
+              isMobile
+                ? {
+                    width: iconSize,
+                    height: iconSize,
+                    backgroundColor: scratchOpen ? t.surfaceOverlay : undefined,
+                  }
+                : {
+                    borderColor: scratchOpen ? t.warningBorder : t.surfaceBorder,
+                    backgroundColor: scratchOpen ? t.warningSubtle : t.surfaceRaised,
+                    color: scratchOpen ? t.warningMuted : t.text,
+                  }
+            }
+            onClick={() => setScratchMenuOpen((open) => !open)}
+            title="Scratch session"
+            aria-label="Scratch session"
+            aria-expanded={scratchMenuOpen}
+            aria-haspopup="dialog"
+            aria-pressed={!!scratchOpen}
           >
-            <History size={16} color={t.textDim} />
+            <StickyNote size={16} color={scratchOpen ? t.warning : t.textDim} />
+            {!isMobile && (
+              <>
+                <span>Scratch session</span>
+                <span
+                  className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                  style={{
+                    backgroundColor: scratchOpen ? "rgba(251,191,36,0.14)" : t.surfaceOverlay,
+                    color: scratchOpen ? t.warningMuted : t.textDim,
+                  }}
+                >
+                  {scratchOpen ? "Active" : "Ready"}
+                </span>
+              </>
+            )}
           </button>
-          {!scratchFullpageMode.archive && (
-            <button
-              className="header-icon-btn"
-              style={{
-                width: iconSize,
-                height: iconSize,
-                backgroundColor: scratchFullpageMode.resetArmed ? "rgba(239,68,68,0.1)" : undefined,
-              }}
-              onClick={scratchFullpageMode.onReset}
-              title={scratchFullpageMode.resetArmed ? "Click again within 3 s to reset the session" : "Reset scratch session"}
-              aria-label="Reset scratch session"
-            >
-              <RotateCcw size={16} color={scratchFullpageMode.resetArmed ? "#ef4444" : t.textDim} />
-            </button>
-          )}
-        </>
+          <ScratchSessionMenu
+            open={scratchMenuOpen}
+            onClose={() => setScratchMenuOpen(false)}
+            channelId={channelId}
+            botId={bot?.id}
+            currentSessionId={scratchSessionId}
+            mobile={isMobile}
+            onOpenSidePane={onOpenScratch}
+            onOpenMainChat={onOpenMainChat}
+            onStartNewSession={onStartNewScratchSession}
+            onNavigateSession={(sessionId) => {
+              setScratchMenuOpen(false);
+              navigate(`/channels/${channelId}/session/${sessionId}?scratch=true`);
+            }}
+          />
+        </div>
       )}
 
       {/* Settings — primary chrome. */}
@@ -509,7 +535,7 @@ export function ChannelHeader({
           onClick={
             isMobile
               ? toggleDrawerToWidgets
-              : () => navigate(`/widgets/channel/${channelId}`)
+              : () => navigate(dashboardHref ?? `/widgets/channel/${channelId}`)
           }
           title={isMobile ? "Widgets" : "Switch to dashboard view"}
           aria-label={isMobile ? "Widgets" : "Switch to dashboard view"}

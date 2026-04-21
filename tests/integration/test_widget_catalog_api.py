@@ -376,3 +376,118 @@ class TestLibraryWidgetsEndpoint:
             headers=AUTH_HEADERS,
         )
         assert r.status_code == 404
+
+
+class TestLibraryWidgetsAllBotsEndpoint:
+    """``GET /widgets/library-widgets/all-bots`` — dev-panel variant that
+    unions every bot's ``.widget_library/`` into one catalog. Each ``bot``
+    entry carries ``bot_id`` + ``bot_name`` so the dev panel can group +
+    badge rows by their author."""
+
+    @pytest.mark.asyncio
+    async def test_unions_bot_libraries_across_all_bots(
+        self, client, tmp_path, monkeypatch,
+    ):
+        from app.agent import bots as _bots
+        from app.services import workspace as _ws
+
+        # Two bot-specific workspace roots, each with one .widget_library entry.
+        alpha_root = tmp_path / "alpha"
+        bravo_root = tmp_path / "bravo"
+        for root, name, label in (
+            (alpha_root, "alpha_board", "Alpha Board"),
+            (bravo_root, "bravo_board", "Bravo Board"),
+        ):
+            bundle = root / ".widget_library" / name
+            bundle.mkdir(parents=True)
+            (bundle / "index.html").write_text("<div></div>")
+            (bundle / "widget.yaml").write_text(
+                f"name: {label}\ndescription: Author test\n"
+            )
+
+        # Two fake bots with distinct workspace roots.
+        class _FakeBot:
+            def __init__(self, bot_id, name, ws):
+                self.id = bot_id
+                self.name = name
+                self._ws = ws
+                self.shared_workspace_id = None
+
+        alpha_bot = _FakeBot("alpha-id", "Alpha", str(alpha_root))
+        bravo_bot = _FakeBot("bravo-id", "Bravo", str(bravo_root))
+
+        monkeypatch.setattr(_bots, "list_bots", lambda: [alpha_bot, bravo_bot])
+
+        def _root_for(bot_id, bot=None):
+            return {
+                "alpha-id": str(alpha_root),
+                "bravo-id": str(bravo_root),
+            }[bot_id]
+
+        monkeypatch.setattr(
+            _ws.workspace_service, "get_workspace_root", _root_for,
+        )
+
+        r = await client.get(
+            "/api/v1/widgets/library-widgets/all-bots", headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert set(body.keys()) == {
+            "core", "integration", "bot", "workspace", "channel",
+        }
+        assert body["channel"] == []
+        names = {e["name"] for e in body["bot"]}
+        assert names == {"alpha_board", "bravo_board"}
+        by_name = {e["name"]: e for e in body["bot"]}
+        assert by_name["alpha_board"]["bot_id"] == "alpha-id"
+        assert by_name["alpha_board"]["bot_name"] == "Alpha"
+        assert by_name["bravo_board"]["bot_id"] == "bravo-id"
+        assert by_name["bravo_board"]["bot_name"] == "Bravo"
+
+    @pytest.mark.asyncio
+    async def test_shared_workspace_not_duplicated_across_bots(
+        self, client, tmp_path, monkeypatch,
+    ):
+        """Two bots sharing a workspace should yield ONE workspace-scope
+        enumeration, not two. Dedup keys on the resolved shared_root path."""
+        from app.agent import bots as _bots
+        from app.services import workspace as _ws
+        from app.services import shared_workspace as _sw
+
+        shared_root = tmp_path / "shared"
+        bundle = shared_root / ".widget_library" / "team_board"
+        bundle.mkdir(parents=True)
+        (bundle / "index.html").write_text("<div></div>")
+        (bundle / "widget.yaml").write_text("name: Team Board\n")
+
+        class _FakeBot:
+            def __init__(self, bot_id, name):
+                self.id = bot_id
+                self.name = name
+                self.shared_workspace_id = "team-ws"
+
+        monkeypatch.setattr(
+            _bots, "list_bots",
+            lambda: [_FakeBot("b1", "Bot-1"), _FakeBot("b2", "Bot-2")],
+        )
+        monkeypatch.setattr(
+            _ws.workspace_service,
+            "get_workspace_root",
+            lambda bot_id, bot=None: str(tmp_path / bot_id),
+        )
+        monkeypatch.setattr(
+            _sw.shared_workspace_service,
+            "get_host_root",
+            lambda _ws_id: str(shared_root),
+        )
+
+        r = await client.get(
+            "/api/v1/widgets/library-widgets/all-bots", headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        ws_entries = [e for e in r.json()["workspace"] if e["name"] == "team_board"]
+        assert len(ws_entries) == 1, (
+            "shared workspace library must not double-count across bots "
+            "that share it"
+        )

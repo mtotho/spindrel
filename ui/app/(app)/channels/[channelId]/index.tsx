@@ -43,8 +43,6 @@ import { ChannelHeader } from "./ChannelHeader";
 import { ChannelHeaderChip } from "./ChannelHeaderChip";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { useScratchReturnStore } from "@/src/stores/scratchReturn";
-import { ScratchHistoryModal } from "@/src/components/chat/ScratchHistoryModal";
-import { useResetScratchSession } from "@/src/api/hooks/useEphemeralSession";
 import { OrchestratorLaunchpad } from "./OrchestratorEmptyState";
 import { useChannelPipelines } from "@/src/api/hooks/useChannelPipelines";
 import { useWidgetStreamBroker } from "@/src/api/hooks/useWidgetStreamBroker";
@@ -237,17 +235,22 @@ export default function ChatScreen() {
     if (!channel?.name) return;
     // Scratch sub-pages under /session/:sid get a friendlier recents label
     // so the command palette shows "Scratch · #channel" instead of a URL
-    // guid. Archive deep links get the same prefix + " (archive)" suffix.
+    // guid.
     const isScratchPath = /\/channels\/[^/]+\/session\//.test(loc.pathname);
     if (isScratchPath) {
-      const archiveSuffix = loc.search.includes("archive=true") ? " (archive)" : "";
-      enrichRecentPage(loc.pathname, `Scratch · #${channel.name}${archiveSuffix}`);
+      enrichRecentPage(loc.pathname, `Scratch · #${channel.name}`);
     } else {
       enrichRecentPage(loc.pathname, channel.name);
     }
   }, [channel?.name, loc.pathname, loc.search, enrichRecentPage]);
 
   const [activeFile, setActiveFile] = useState<string | null>(null);
+  const scratchLayoutRestoreRef = useRef<{
+    explorerOpen: boolean;
+    rightDockHidden: boolean;
+    activeFile: string | null;
+    splitMode: boolean;
+  } | null>(null);
   const [findingsPanelOpen, setFindingsPanelOpen] = useState(false);
   const [botInfoBotId, setBotInfoBotId] = useState<string | null>(null);
   const isSystemChannel = channel?.client_id === "orchestrator:home";
@@ -379,7 +382,7 @@ export default function ChatScreen() {
   );
 
   // ---- Scratch full-page mode (URL-driven) ----
-  // Route: /channels/:channelId/session/:sessionId?scratch=true[&archive=true]
+  // Route: /channels/:channelId/session/:sessionId?scratch=true
   // Swaps the main chat column with the scratch ephemeral chat against the
   // URL-provided session id. Rail/header/dock-right/widgets all keep
   // rendering normally — only the center column changes.
@@ -388,10 +391,8 @@ export default function ChatScreen() {
   const isScratchRoute =
     !!sessionMatch && scratchSearch.get("scratch") === "true";
   const scratchUrlSessionId = sessionMatch?.params.sessionId ?? null;
-  const scratchIsArchive = scratchSearch.get("archive") === "true";
   const setScratchReturn = useScratchReturnStore((s) => s.setScratchReturn);
   const clearScratchReturn = useScratchReturnStore((s) => s.clearScratchReturn);
-  const [scratchHistoryOpen, setScratchHistoryOpen] = useState(false);
   const scratchSessionState = useChatStore((s) =>
     scratchUrlSessionId ? s.getChannel(scratchUrlSessionId) : null,
   );
@@ -400,8 +401,18 @@ export default function ChatScreen() {
   const handleExitScratchRoute = useCallback(() => {
     if (!channelId) return;
     clearScratchReturn(channelId);
-    setScratchHistoryOpen(false);
     setScratchOpen(false);
+    const restore = scratchLayoutRestoreRef.current;
+    if (restore) {
+      const uiState = useUIStore.getState();
+      uiState.setFileExplorerOpen(restore.explorerOpen);
+      uiState.setRightDockHidden(restore.rightDockHidden);
+      setActiveFile(restore.activeFile);
+      if (restore.splitMode !== uiState.fileExplorerSplit) {
+        uiState.toggleFileExplorerSplit();
+      }
+      scratchLayoutRestoreRef.current = null;
+    }
     navigate(`/channels/${channelId}`);
   }, [channelId, clearScratchReturn, navigate]);
 
@@ -410,40 +421,25 @@ export default function ChatScreen() {
   // links should not hijack the return target — only the live scratch
   // does. Explicit exit is the banner's "minimize" click.
   useEffect(() => {
-    if (isScratchRoute && scratchUrlSessionId && channelId && !scratchIsArchive) {
+    if (isScratchRoute && scratchUrlSessionId && channelId) {
       setScratchReturn(channelId, scratchUrlSessionId);
     }
   }, [
     isScratchRoute,
     scratchUrlSessionId,
     channelId,
-    scratchIsArchive,
     setScratchReturn,
   ]);
 
-  // Scratch reset — used by the ChannelHeader Reset button when the URL is
-  // on the scratch full-page. Two-click speed bump mirrors the in-column
-  // reset button behavior in EphemeralChatSession.
-  const resetScratchMutation = useResetScratchSession();
-  const [scratchResetArmed, setScratchResetArmed] = useState(false);
-  useEffect(() => {
-    if (!scratchResetArmed) return;
-    const t = window.setTimeout(() => setScratchResetArmed(false), 3000);
-    return () => window.clearTimeout(t);
-  }, [scratchResetArmed]);
-  const handleScratchHeaderReset = useCallback(() => {
-    if (!scratchResetArmed) {
-      setScratchResetArmed(true);
-      return;
+  const channelDashboardHref = useMemo(() => {
+    if (!channelId) return "/widgets";
+    const qs = new URLSearchParams();
+    if (isScratchRoute && scratchUrlSessionId) {
+      qs.set("scratch_session_id", scratchUrlSessionId);
     }
-    if (channelId && channel?.bot_id) {
-      resetScratchMutation.mutate({
-        parent_channel_id: channelId,
-        bot_id: channel.bot_id,
-      });
-    }
-    setScratchResetArmed(false);
-  }, [scratchResetArmed, channelId, channel?.bot_id, resetScratchMutation]);
+    const suffix = qs.toString();
+    return `/widgets/channel/${channelId}${suffix ? `?${suffix}` : ""}`;
+  }, [channelId, isScratchRoute, scratchUrlSessionId]);
 
   // ---- Scratch chat (in-channel ephemeral) state ----
   const [scratchOpen, setScratchOpen] = useState(false);
@@ -485,6 +481,21 @@ export default function ChatScreen() {
   );
 
   const handleScratchClose = useCallback(() => setScratchOpen(false), []);
+  const collapseForNewScratchSession = useCallback(() => {
+    const uiState = useUIStore.getState();
+    if (!scratchLayoutRestoreRef.current) {
+      scratchLayoutRestoreRef.current = {
+        explorerOpen: uiState.fileExplorerOpen,
+        rightDockHidden: uiState.rightDockHidden,
+        activeFile,
+        splitMode: uiState.fileExplorerSplit,
+      };
+    }
+    uiState.setFileExplorerOpen(false);
+    uiState.setRightDockHidden(true);
+    setActiveFile(null);
+    if (uiState.fileExplorerSplit) uiState.toggleFileExplorerSplit();
+  }, [activeFile]);
   const handleSetActiveThreadSpawned = useCallback(
     (sid: string) =>
       setActiveThread((curr) => (curr ? { ...curr, sessionId: sid } : curr)),
@@ -767,7 +778,7 @@ export default function ChatScreen() {
         hint: channelLabel,
         icon: LayoutDashboardIcon,
         category: "This Channel",
-        onSelect: () => navigate(`/widgets/channel/${channelId}`),
+        onSelect: () => navigate(channelDashboardHref),
       });
     }
 
@@ -799,6 +810,7 @@ export default function ChatScreen() {
     isSystemChannel,
     findingsCount,
     channel?.bot_id,
+    channelDashboardHref,
     navigate,
     registerPaletteActions,
   ]);
@@ -874,14 +886,14 @@ export default function ChatScreen() {
       <div
         className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
         style={{
-          backgroundColor: scratchIsArchive ? t.surfaceOverlay : t.warningSubtle,
-          border: `1px solid ${scratchIsArchive ? t.surfaceBorder : t.warningBorder}`,
-          color: scratchIsArchive ? t.textMuted : t.warningMuted,
+          backgroundColor: t.warningSubtle,
+          border: `1px solid ${t.warningBorder}`,
+          color: t.warningMuted,
         }}
       >
-        <StickyNote size={13} color={scratchIsArchive ? t.textDim : t.warning} />
+        <StickyNote size={13} color={t.warning} />
         <span className="text-[11px] font-semibold tracking-[0.18em] uppercase">
-          {scratchIsArchive ? "Scratch archive" : "Scratch pad"}
+          Scratch session
         </span>
       </div>
       <div className="space-y-2">
@@ -893,7 +905,7 @@ export default function ChatScreen() {
             letterSpacing: "-0.02em",
           }}
         >
-          {scratchIsArchive ? "Scratch session saved here." : "Sketch before it hits the channel."}
+          Work in a fresh session for this channel.
         </div>
         <div
           style={{
@@ -903,9 +915,7 @@ export default function ChatScreen() {
             lineHeight: 1.55,
           }}
         >
-          {scratchIsArchive
-            ? "This archived scratch chat is read-only. Open the current scratch pad to keep working."
-            : "Try prompts, notes, or half-formed ideas here. Nothing is posted into the main channel until you move it there."}
+          {"Use this scratch session to explore ideas without adding them to the main channel transcript. It's a separate session inside this channel."}
         </div>
       </div>
     </div>
@@ -929,14 +939,12 @@ export default function ChatScreen() {
       },
       scratchBoundChannelId: channelId,
       pinnedSessionId: scratchUrlSessionId,
-      readOnly: scratchIsArchive,
     };
   }, [
     isScratchRoute,
     channelId,
     scratchUrlSessionId,
     channel?.bot_id,
-    scratchIsArchive,
   ]);
 
   const scratchColumnNode =
@@ -948,14 +956,13 @@ export default function ChatScreen() {
             shape="fullpage"
             open
             onClose={handleExitScratchRoute}
-            title={scratchIsArchive ? "Archived scratch" : "Scratch pad"}
+            title="Scratch session"
             emptyState={scratchEmptyState}
             chatMode={chatMode}
           />
         </div>
       </div>
     ) : null;
-
   // Measured height of the composer overlay (input card + banners + strips)
   // so messages scroll BEHIND the frosted input at the bottom — Claude-style.
   const inputOverlayRef = useRef<HTMLDivElement>(null);
@@ -995,26 +1002,18 @@ export default function ChatScreen() {
           toggleFindingsPanel={isSystemChannel ? () => setFindingsPanelOpen((p) => !p) : undefined}
           findingsCount={isSystemChannel ? findingsCount : 0}
           scratchOpen={isScratchRoute || scratchOpen}
+          scratchSessionId={scratchUrlSessionId}
+          onOpenMainChat={isScratchRoute ? handleExitScratchRoute : undefined}
+          onStartNewScratchSession={collapseForNewScratchSession}
+          dashboardHref={channelDashboardHref}
           onOpenScratch={() => {
             if (isScratchRoute && channelId) {
-              // Already in scratch → clicking the button is the "minimize"
-              // action. Clear route-local scratch state too so the dock
-              // doesn't reopen when the channel page remounts.
-              handleExitScratchRoute();
+              setScratchOpen(false);
               return;
             }
             setScratchOpen(true);
           }}
-          scratchFullpageMode={
-            isScratchRoute
-              ? {
-                  onOpenHistory: () => setScratchHistoryOpen(true),
-                  onReset: handleScratchHeaderReset,
-                  resetArmed: scratchResetArmed,
-                  archive: scratchIsArchive,
-                }
-              : undefined
-          }
+          scratchFullpageMode={isScratchRoute ? {} : undefined}
         />
         {/* Desktop: integration dots inlined into ChannelHeader subtitle.
             Mobile: retain the compact scrolling bar (no subtitle row to inline into). */}
@@ -1194,7 +1193,7 @@ export default function ChatScreen() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => navigate(`/widgets/channel/${channelId}`)}
+                  onClick={() => navigate(channelDashboardHref)}
                   className="mt-1 rounded-md px-4 py-1.5 text-[12px] font-medium"
                   style={{ backgroundColor: t.accent, color: t.surface }}
                 >
@@ -1207,10 +1206,10 @@ export default function ChatScreen() {
           {/* Chat column — messages + input stacked vertically. The full-width
               ChannelHeader now lives ABOVE this flex-row, so the column is
               header-free and the message area doesn't need a top-offset. */}
-          {!dashboardOnly && (!showFileViewer || splitMode) && scratchColumnNode && (
+          {!dashboardOnly && scratchColumnNode && (
             scratchColumnNode
           )}
-          {!dashboardOnly && (!showFileViewer || splitMode) && !scratchColumnNode && (
+          {!dashboardOnly && !scratchColumnNode && (!showFileViewer || splitMode) && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
               <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
                 <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
@@ -1435,17 +1434,10 @@ export default function ChatScreen() {
           shape="dock"
           open={scratchOpen}
           onClose={handleScratchClose}
-          title="Scratch chat"
+          title="Scratch session"
           emptyState={scratchEmptyState}
           initiallyExpanded
           chatMode={chatMode}
-        />
-      )}
-      {isScratchRoute && channelId && (
-        <ScratchHistoryModal
-          open={scratchHistoryOpen}
-          onClose={() => setScratchHistoryOpen(false)}
-          channelId={channelId}
         />
       )}
     </div>

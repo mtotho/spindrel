@@ -75,12 +75,9 @@ export type ChatSource =
       /** Explicit session id override. When set, the component loads
        *  messages from this session instead of resolving one via
        *  scratch-pointer or localStorage. Powers deep links to a
-       *  specific scratch session (current or archived) on the full-page
+       *  specific scratch session on the full-page
        *  /channels/:id/session/:sid?scratch=true route. */
       pinnedSessionId?: string;
-      /** Read-only rendering — hides the composer + reset button. Used
-       *  for archived scratch sessions. */
-      readOnly?: boolean;
     }
   | {
       kind: "thread";
@@ -543,7 +540,6 @@ function EphemeralChatSession({
     context,
     scratchBoundChannelId,
     pinnedSessionId,
-    readOnly,
   } = source;
   const resolvedDefault = defaultBotId ?? bots?.[0]?.id ?? "";
 
@@ -844,11 +840,11 @@ function EphemeralChatSession({
             <History size={13} />
           </button>
         )}
-        {sessionId && !readOnly && (
+        {sessionId && (
           <button
             onClick={handleReset}
-            title={resetArmed ? "Click again within 3 s to reset the session" : "Reset session"}
-            aria-label="Reset session"
+            title={resetArmed ? "Click again within 3 s to reset the scratch session" : "Reset scratch session"}
+            aria-label="Reset scratch session"
             className={`p-1.5 rounded transition-colors ${
               resetArmed
                 ? "text-red-400 bg-red-500/10 animate-pulse"
@@ -857,14 +853,6 @@ function EphemeralChatSession({
           >
             <RotateCcw size={13} />
           </button>
-        )}
-        {readOnly && (
-          <span
-            className="px-1.5 py-0.5 rounded bg-surface-overlay text-[10px] uppercase tracking-wider text-text-dim"
-            title="This is an archived scratch session"
-          >
-            Archive
-          </span>
         )}
         {!isFullpage && (
           <button
@@ -896,7 +884,7 @@ function EphemeralChatSession({
             scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
             chatMode={chatMode}
             syntheticMessages={slashSyntheticMessages}
-            bottomSlot={chatMode === "terminal" && !readOnly ? (
+            bottomSlot={chatMode === "terminal" ? (
               <>
                 {sendError && (
                   <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
@@ -943,7 +931,7 @@ function EphemeralChatSession({
             }
             scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
             chatMode={chatMode}
-            bottomSlot={chatMode === "terminal" && !readOnly ? (
+            bottomSlot={chatMode === "terminal" ? (
               <>
                 {sendError && (
                   <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
@@ -972,10 +960,8 @@ function EphemeralChatSession({
         )}
         {/* Composer overlay — messages scroll behind the frosted card
             (mirrors ChannelChatSession + the main channel screen). No
-            border-top wrapper; the card's own elevation separates it.
-            Hidden in read-only mode so archived sessions display as a
-            transcript only. */}
-        {!readOnly && chatMode !== "terminal" && (
+            border-top wrapper; the card's own elevation separates it. */}
+        {chatMode !== "terminal" && (
           <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
             {sendError && (
               <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">

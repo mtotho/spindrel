@@ -1,7 +1,7 @@
 ---
 tags: [widgets, library, sdk, track]
 status: active
-updated: 2026-04-21 (Phase 10 — unify Library + HTML widgets tab; filter template-renderer entries; envelope-shape index + debug-loop recipe in errors skill)
+updated: 2026-04-21 (Phase 11 — Dev Panel Library unified with Add-Widget sheet; bot-authored widgets now visible via new /library-widgets/all-bots endpoint; inline preview Live|Source|Manifest tabs)
 ---
 
 # Track — Widget Library
@@ -28,6 +28,7 @@ Adjacent: make chips a first-class authoring target, close the AI feedback loop 
 | 8 | UI picker for library widgets — `AddFromChannelSheet` "Library" tab + channel-dashboard "Developer tools" split-button | **complete** (2026-04-21) |
 | 9 | `sd-*` v2 DX layer: Lucide icon sprite + styled controls (`sd-check`, `sd-radio`, `sd-switch`, `sd-input-group`, `sd-row`, `sd-tag--removable`, `sd-menu`, `sd-tooltip`, `sd-modal`) + `spindrel.ui.icon/autogrow/menu/tooltip/confirm` + Todo widget rebuild as reference | **complete** (2026-04-21) |
 | 10 | Unify Library + HTML widgets tabs; filter tool-renderer template entries out of Library; envelope-shape index + `inspect_widget_pin` debug recipe in `skills/widgets/errors.md` | **complete** (2026-04-21) |
+| 11 | Dev Panel Library uses same `WidgetLibrary` component as Add-Widget sheet; new `/library-widgets/all-bots` endpoint unions every bot's `.widget_library/` with `bot_id`+`bot_name` per entry; inline preview expansion with Live/Source/Manifest tabs; new `/widget-manifest` endpoint; bot-authorship badge on `widget://bot/` rows; tool renderers moved to their own tab inside Library | **complete** (2026-04-21) |
 
 Phase 1a + 1b shipped 2026-04-20 — bots can now list, emit, and author widget bundles end-to-end. The seam lives in `app/services/widget_paths.py` (one resolver, three scopes) and is re-used by `file_ops._resolve_path`, `widget_library.widget_library_list`, and `emit_html_widget._load_library_widget` so there is a single source of truth for `widget://` resolution and the read-only contract on `core`.
 

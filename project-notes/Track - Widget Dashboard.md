@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dashboard, dev-panel]
 status: active
-updated: 2026-04-21 (session — inspector polish fix: clipboard fallback + semantic danger tokens)
+updated: 2026-04-21 (session — shared HTML widget SDK styling + authorship contract pass)
 ---
 <!-- session: 20 — P5 code shipped, UNTESTED; session 22 — cohesiveness + mobile polish pass landed (does NOT close P5-qa); session 2026-04-19 — P7 sandbox context + grouping -->
 
@@ -19,7 +19,15 @@ updated: 2026-04-21 (session — inspector polish fix: clipboard fallback + sema
 >
 > Safety bound added immediately after: the parked iframe lot is not unbounded. Idle parked iframes now evict after 5 minutes, and the pool only keeps up to 12 parked entries before evicting the oldest parked ones. New invariant: keepalive is for quick surface switches, not indefinite background retention.
 >
+> **2026-04-21 edit-layout follow-up.** Dragging a widget on `/widgets` could blank an interactive HTML pin until full page refresh even though the tile shell stayed mounted. Root cause: the dashboard pin keepalive path reattached a pooled iframe after `react-grid-layout` remounts, but reused iframes do not reliably emit a second `spindrel:ready` handshake. `PinnedToolWidget` was still waiting on that signal before dropping its preload gate, so the widget stayed visually empty. `InteractiveHtmlRenderer` now treats pooled-iframe reuse as ready immediately after reattachment (plus a next-frame confirmation). New invariant: reattaching a parked dashboard-pin iframe must restore visibility without requiring a fresh iframe boot cycle or manual refresh.
+>
+> **2026-04-21 localhost→remote dev follow-up.** Interactive HTML widgets were still assuming same-origin API routing inside the iframe preamble: `window.spindrel.apiFetch()` called `fetch(path)` directly, so running the UI at `http://localhost:5173` against a remote server sent widget traffic to Vite (`/api/v1/widget-actions`, `/widget-debug/events`, `/widget-actions/stream`) and exploded in 404s. The main app already used auth-store `serverUrl`; the iframe SDK now does too. `InteractiveHtmlRenderer` injects the configured `serverUrl` into `window.spindrel`, resolves app-relative widget SDK requests against it, and keeps absolute URLs untouched. New invariant: widget iframe API traffic must follow the configured backend origin, not the browser origin hosting the UI shell.
+>
+> **2026-04-21 CSP follow-up.** After routing iframe SDK requests to auth-store `serverUrl`, localhost→remote dev still failed because widget CSP only trusted `'self'`. The iframe policy builder now auto-appends the configured backend origin to central app-safe directives (`connect-src`, `img-src`, `media-src`, `frame-src`) instead of requiring per-widget `extra_csp`. `extra_csp` remains for third-party services; the first-party agent-server backend is now implicit. New invariant: if the UI is configured against a backend origin, interactive widgets may talk to that backend without per-widget CSP declarations.
+>
 > **2026-04-21 inspector polish follow-up.** `WidgetInspector.tsx` had drifted from the app's theme + clipboard patterns: the row-level "Copy JSON" action was calling `navigator.clipboard.writeText(...)` directly, which fails in plain-HTTP / denied-clipboard contexts and never surfaced success/failure, and the drawer error banner was still using raw `red-*` Tailwind classes. It now uses the shared `writeToClipboard()` fallback helper, shows transient copied/error button states, and keeps the detail/error surfaces on semantic theme tokens. Verification for this pass was `cd agent-server/ui && npx tsc --noEmit`; there is still no repo-wired UI test harness for a small drawer interaction regression test.
+
+> **2026-04-21 shared HTML widget SDK styling pass.** Tightened the authorship contract for interactive HTML widgets: the host owns the outer dashboard tile shell, while the widget owns its inner composition. `InteractiveHtmlRenderer` now stamps `data-sd-host="pinned|inline"` and `data-sd-layout="grid|rail|dock|chip"` onto the iframe document/root so shared CSS can adapt by context without widget JS guessing. `widgetTheme.ts` was retuned toward an embed-first dashboard look: subtler inner panels, calmer spacing/type rhythm, stronger shared button/input/chip defaults, new `sd-label`, and `sd-card` repositioned as an optional inner panel primitive plus `sd-card--flat` for host-led layouts. Guidance updated in `skills/widgets/{styling,dashboards,html}.md`, and bundled examples (`sdk-smoke`, `context_tracker`) were refreshed to teach the new section/panel split. Verification: `cd agent-server/ui && npx tsc --noEmit`.
 
 > 🚩 **SYSTEMIC — Dev panel bypasses the content_type dispatcher.** Surfaced 2026-04-18 (session 21). Every render point under `/widgets/dev/*` hardcodes `ComponentRenderer` instead of the mimetype-keyed `RichToolResult`. Any tool whose envelope isn't `application/vnd.spindrel.components+json` silently blanks in Recent / Tools / Editor — even though the same envelope renders correctly in chat. This makes the entire dev panel a **false oracle**: a tool that works in conversation can look broken in its own preview surface with zero signal why.
 >
@@ -517,6 +525,7 @@ Relationship to P6: the generic renderer already handles the JSON branch well. T
 - `widget_template_packages.template_kind` — promote reusable HTML widgets to parameterized templates (same row shape with `{{var}}` substitution + `sample_payload`).
 - Stop path-mode polling entirely for library/template edits that already have an explicit invalidation path.
 - Consider `PINNED_FILE_UPDATED`/template-version invalidation for dashboard-scope pins so mutable HTML can become fully event-driven.
+- Dashboard edit-layout remount guard: resize commits can remount a tile without changing its pin id. `PinnedToolWidget` now seeds its interactive-HTML ready state from the pooled iframe registry (`dashboard-pin:<id>`) so the preload skeleton does not stay over a live reused iframe after resize/move; this is a host-ready gating fix, not widget cache invalidation.
 
 ## Deferred / Known gaps
 

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Hash, LayoutDashboard, Settings } from "lucide-react";
+import { ArrowLeft, Hash, LayoutDashboard, Settings, StickyNote } from "lucide-react";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 interface Props {
   channelId: string;
@@ -11,6 +12,11 @@ interface Props {
    *  Mirrors the gear icon on `DashboardTabs` so channel dashboards aren't
    *  second-class citizens missing dashboard-scoped controls. */
   onOpenManage?: () => void;
+  /** When present, the dashboard chat dock is bound to a scratch sub-session
+   *  instead of the parent channel chat. Widgets and layout stay channel-
+   *  scoped; this banner exists to make that split explicit before typing. */
+  scratchSessionId?: string | null;
+  scratchHref?: string | null;
   /** Right-aligned slot for page-scoped actions (Edit / Add widget / Dev) —
    *  mirrors `DashboardTabs.right` so the channel-dashboard top bar reads
    *  as one continuous toolbar instead of two stacked rows with chrome
@@ -29,8 +35,11 @@ export function ChannelDashboardBreadcrumb({
   railCount,
   pinCount,
   onOpenManage,
+  scratchSessionId,
+  scratchHref,
   right,
 }: Props) {
+  const t = useThemeTokens();
   return (
     <div
       className="relative flex items-center gap-1.5 sm:gap-2 bg-surface px-2 sm:px-3 py-1.5 text-[12px] shadow-[0_1px_3px_-1px_rgba(0,0,0,0.22)]"
@@ -76,6 +85,34 @@ export function ChannelDashboardBreadcrumb({
       >
         {railCount}/{pinCount}
       </span>
+      {scratchSessionId && (
+        <div
+          className="ml-1 hidden shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] xl:flex"
+          style={{
+            border: `1px solid ${t.warningBorder}`,
+            background: t.warningSubtle,
+            color: t.warningMuted,
+          }}
+          title="Chat replies on this dashboard go to the active scratch sub-session. Widgets and dashboard layout still belong to the parent channel."
+        >
+          <StickyNote size={12} className="shrink-0" style={{ color: t.warningMuted }} />
+          <span className="font-medium">
+            Scratch chat
+          </span>
+          {scratchHref && (
+            <Link
+              to={scratchHref}
+              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors"
+              style={{
+                border: `1px solid ${t.warningBorder}`,
+                color: t.warningMuted,
+              }}
+            >
+              Open
+            </Link>
+          )}
+        </div>
+      )}
       {right && (
         <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2 sm:gap-2 sm:pl-3">
           {right}

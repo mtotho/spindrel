@@ -15,7 +15,10 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { useWidgetAction } from "@/src/api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "@/src/api/hooks/useWidgetAction";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
-import type { WidgetLayout } from "@/src/components/chat/renderers/InteractiveHtmlRenderer";
+import {
+  hasPinnedWidgetIframeEntry,
+  type WidgetLayout,
+} from "@/src/components/chat/renderers/InteractiveHtmlRenderer";
 import type { PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/api";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
@@ -99,6 +102,7 @@ export function PinnedToolWidget({
   // Resolve the effective layout: explicit prop wins, otherwise chip is
   // implied by the compact scope, and everything else is the dashboard grid.
   const effectiveLayout: WidgetLayout = layout ?? (isChip ? "chip" : "grid");
+  const keepAliveKey = isDashboard ? `dashboard-pin:${widget.id}` : null;
 
   const t = useThemeTokens();
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);
@@ -416,10 +420,10 @@ export function PinnedToolWidget({
   // HTML pins until the widget's preamble posts its `ready` handshake. Reset
   // when the pin identity changes so a slot reused for a different pin
   // re-shows the skeleton.
-  const [iframeReady, setIframeReady] = useState(false);
+  const [iframeReady, setIframeReady] = useState(() => hasPinnedWidgetIframeEntry(keepAliveKey));
   useEffect(() => {
-    setIframeReady(false);
-  }, [widget.id]);
+    setIframeReady(hasPinnedWidgetIframeEntry(keepAliveKey));
+  }, [keepAliveKey]);
   const handleIframeReady = useCallback(() => {
     setIframeReady(true);
   }, []);

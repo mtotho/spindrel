@@ -28,7 +28,7 @@ icon: gauge
   #ctx-root .ctx-pct { font-variant-numeric: tabular-nums; font-weight: 600; }
   #ctx-root .ctx-spark-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--sd-text-muted); font-variant-numeric: tabular-nums; margin-top: 2px; }
   #ctx-root .ctx-spark-host { min-height: 36px; }
-  #ctx-root .ctx-warn { background: var(--sd-surface-raised); border: 1px solid var(--sd-warning); color: var(--sd-text); padding: 8px 10px; border-radius: 6px; font-size: var(--sd-font-size-sm); }
+  #ctx-root .ctx-warn { background: color-mix(in srgb, var(--sd-warning-subtle) 60%, transparent 40%); border: 1px solid var(--sd-warning-border); color: var(--sd-text); padding: 10px 12px; border-radius: var(--sd-radius-md); font-size: var(--sd-font-size-sm); }
 </style>
 <div class="sd-card" id="ctx-root">
   <header class="sd-card-header sd-hstack-between">
@@ -42,7 +42,7 @@ icon: gauge
     <span class="sd-chip" id="ctx-model" title="Model">—</span>
   </header>
   <div class="sd-card-body sd-stack">
-    <section>
+    <section class="sd-section">
       <div class="sd-hstack-between" style="align-items: baseline; margin-bottom: 4px;">
         <span class="sd-label">Window fill</span>
         <span class="ctx-pct" id="ctx-util-pct">—</span>
@@ -60,13 +60,17 @@ icon: gauge
       </div>
     </section>
 
-    <section>
-      <h4 class="sd-label">Breakdown</h4>
+    <section class="sd-section">
+      <div class="sd-section__header">
+        <h4 class="sd-label">Breakdown</h4>
+      </div>
       <div id="ctx-breakdown"></div>
     </section>
 
-    <section>
-      <h4 class="sd-label">Recent turns</h4>
+    <section class="sd-section">
+      <div class="sd-section__header">
+        <h4 class="sd-label">Recent turns</h4>
+      </div>
       <div id="ctx-activity"></div>
     </section>
   </div>
