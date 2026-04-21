@@ -12,17 +12,28 @@ import pytest
 AUTH_HEADERS = {"Authorization": "Bearer test-key"}
 
 
-def _widget_html(name: str, ver: str = "1.0.0") -> str:
-    return (
-        "<!--\n"
-        "---\n"
-        f"name: {name}\n"
-        f"version: {ver}\n"
-        "description: Catalog smoke test\n"
-        "---\n"
-        "-->\n"
-        "<div id='root'></div>"
-    )
+def _widget_html(
+    name: str,
+    ver: str = "1.0.0",
+    *,
+    panel_title: str | None = None,
+    show_panel_title: bool | None = None,
+) -> str:
+    lines = [
+        "<!--",
+        "---",
+        f"name: {name}",
+        f"version: {ver}",
+        "description: Catalog smoke test",
+    ]
+    if panel_title is not None:
+        lines.append(f"panel_title: {panel_title}")
+    if show_panel_title is not None:
+        lines.append(
+            f"show_panel_title: {'true' if show_panel_title else 'false'}"
+        )
+    lines.extend(["---", "-->", "<div id='root'></div>"])
+    return "\n".join(lines)
 
 
 @pytest.fixture
@@ -363,6 +374,37 @@ class TestLibraryWidgetsEndpoint:
         assert dog["scope"] == "bot"
         assert dog["format"] == "html"
         assert dog["display_label"] == "Dog Dashboard"
+
+    @pytest.mark.asyncio
+    async def test_library_entries_include_panel_title_metadata(
+        self, client, tmp_path, monkeypatch,
+    ):
+        from app.services import workspace as _ws
+
+        bundle = tmp_path / ".widget_library" / "home_control"
+        bundle.mkdir(parents=True)
+        (bundle / "index.html").write_text("<div></div>")
+        (bundle / "widget.yaml").write_text(
+            "name: Home Control\n"
+            "description: Track the house\n"
+            "panel_title: Home Command Center\n"
+            "show_panel_title: true\n"
+        )
+        monkeypatch.setattr(
+            _ws.workspace_service,
+            "get_workspace_root",
+            lambda bot_id, bot=None: str(tmp_path),
+        )
+
+        r = await client.get(
+            "/api/v1/widgets/library-widgets",
+            params={"bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        home = next(e for e in r.json()["bot"] if e["name"] == "home_control")
+        assert home["panel_title"] == "Home Command Center"
+        assert home["show_panel_title"] is True
 
     @pytest.mark.asyncio
     async def test_unknown_bot_id_returns_404(self, client, monkeypatch):

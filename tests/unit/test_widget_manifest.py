@@ -52,6 +52,21 @@ class TestHappyPath:
         assert m.db is None
         assert m.source_path == p
 
+    def test_panel_title_metadata_is_parsed(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Home control
+            version: 1.0.0
+            description: A test
+            panel_title: Home Command Center
+            show_panel_title: true
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.panel_title == "Home Command Center"
+        assert m.show_panel_title is True
+
     def test_full_manifest(self, tmp_path):
         p = write_yaml(
             tmp_path,
@@ -232,6 +247,8 @@ class TestExtraCspValidation:
         p = write_yaml(tmp_path, "name: W\ndescription: ''\n")
         m = parse_manifest(p)
         assert m.version == "0.0.0"
+        assert m.panel_title is None
+        assert m.show_panel_title is None
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +260,34 @@ class TestNameValidation:
     def test_missing_name_raises(self, tmp_path):
         p = write_yaml(tmp_path, "version: 1.0.0\ndescription: x\n")
         with pytest.raises(ManifestError, match="name"):
+            parse_manifest(p)
+
+
+class TestPanelTitleValidation:
+    def test_non_string_panel_title_raises(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: W
+            version: 1.0.0
+            description: x
+            panel_title: 123
+            """,
+        )
+        with pytest.raises(ManifestError, match="panel_title"):
+            parse_manifest(p)
+
+    def test_non_bool_show_panel_title_raises(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: W
+            version: 1.0.0
+            description: x
+            show_panel_title: "yes"
+            """,
+        )
+        with pytest.raises(ManifestError, match="show_panel_title"):
             parse_manifest(p)
 
     def test_empty_name_raises(self, tmp_path):

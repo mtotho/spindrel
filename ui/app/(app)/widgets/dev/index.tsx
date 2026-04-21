@@ -14,14 +14,16 @@ import { ToolsSandbox } from "./ToolsSandbox";
 import { TemplatesTab } from "./TemplatesTab";
 import { LibraryTab } from "./LibraryTab";
 import { RecentTab } from "./RecentTab";
+import { ThemesTab } from "./ThemesTab";
 import { DashboardTargetPicker } from "./DashboardTargetPicker";
 
-type DevTab = "library" | "templates" | "tools" | "recent";
-const TABS: readonly DevTab[] = ["library", "templates", "tools", "recent"] as const;
+type DevTab = "library" | "templates" | "themes" | "tools" | "recent";
+const TABS: readonly DevTab[] = ["library", "templates", "themes", "tools", "recent"] as const;
 
 const LABELS: Record<DevTab, string> = {
   library: "Library",
   templates: "Templates",
+  themes: "Themes",
   tools: "Call tools",
   recent: "Recent",
 };
@@ -71,7 +73,7 @@ export default function WidgetDevPanelPage() {
         backTo={backTo}
         parentLabel={parentLabel}
         title="Developer panel"
-        subtitle="Browse the library, author templates, call tools, inspect recent results"
+        subtitle="Browse the library, author templates, manage themes, call tools, inspect recent results"
       />
 
       {/* Tab bar — tabs left, docs affordance right. */}
@@ -113,6 +115,7 @@ export default function WidgetDevPanelPage() {
       {/* Tab content */}
       {tab === "library" && <LibraryTab />}
       {tab === "templates" && <TemplatesTab />}
+      {tab === "themes" && <ThemesTab originChannelId={originChannelId} />}
       {tab === "tools" && <ToolsSandbox />}
       {tab === "recent" && <RecentTab />}
 

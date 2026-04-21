@@ -17,6 +17,13 @@ When authoring the HTML, remember the rendering split:
 - your widget provides the inner composition
 - `sd-card` is an optional inner panel, not a mandatory wrapper
 
+Theme note:
+
+- The widget iframe always resolves the channel's effective widget theme before render.
+- Global default comes from the widget theme library.
+- A channel may override it with `channel.config.widget_theme_ref`.
+- Widgets should read from `sd-*`, `var(--sd-*)`, and `window.spindrel.theme`; do not hardcode copied theme CSS into each bundle.
+
 ```
 <widget-root>/<widget-slug>/
 ├── index.html          ← the widget itself (emit_html_widget path target)
@@ -37,6 +44,8 @@ Every `index.html` should open with a YAML frontmatter block inside an HTML comm
 name: Project status              # shown as the card title
 description: Live phase tracker with RMW state.json
 display_label: Project status     # defaults to name — used on the pinned widget chrome
+panel_title: Home command center  # optional host-owned title for panel surfaces
+show_panel_title: true            # host renders it outside the widget body
 version: 1.2.0                    # bump when you make a meaningful change
 author: crumb                     # bot or user who authored the widget
 tags: [dashboard, project]        # filters in the catalog
@@ -49,7 +58,8 @@ icon: activity                    # lucide-react icon name (see https://lucide.d
 Rules:
 
 - **Must be the very first thing in the file.** Leading whitespace is fine; any HTML or text before the comment block disqualifies it.
-- **Only `name` is required.** Everything else has sensible fallbacks (`display_label` → `name`, `version` → `"0.0.0"`, `tags` → `[]`, etc.). Still, description + tags dramatically improve discoverability — write one good sentence for `description` so the user recognizes what they're pinning.
+- **Only `name` is required.** Everything else has sensible fallbacks (`display_label` → `name`, `panel_title` → `display_label`, `version` → `"0.0.0"`, `tags` → `[]`, etc.). Still, description + tags dramatically improve discoverability — write one good sentence for `description` so the user recognizes what they're pinning.
+- **`panel_title` is host chrome, not widget body.** Use it when the title should stay visible on panel surfaces while the widget body scrolls. `display_label` stays the generic widget/library label.
 - **Bump `version` when you change the widget.** Semver — patch for bug fixes, minor for new features, major for incompatible state-shape changes. This is how you (or a future turn) know whether a pinned widget is running the latest code.
 - **Malformed YAML is silently ignored** — the scanner won't crash over a bad block, but your widget will show up with slug-fallback defaults. If the card looks wrong, check the frontmatter.
 
@@ -252,6 +262,27 @@ If your bot has no API key configured, the widget renders but `api()` calls will
 ## Display Label
 
 Always set `display_label` — it appears on the dashboard card header, in the "Updated Xm ago" chip, and in the pinned-widget context block you get on future turns. Without it the card shows generic text.
+
+## Panel Titles
+
+For widgets meant to live in panel surfaces, set:
+
+- `panel_title` — the host-rendered title text
+- `show_panel_title: true` — opt in to showing it
+
+This renders the title outside the widget body on dashboard panels, chat side panels, and the mobile widgets drawer, so it stays visible while the content beneath it scrolls.
+
+Use it when:
+
+- the widget is acting like a self-contained panel or command center
+- the user would lose context if the title scrolled away with the widget body
+- the same bundle may appear in multiple panel hosts and you want one authored title contract
+
+Do not use it when:
+
+- the title is just part of the widget content and should scroll with the rest of the page
+- the widget is mainly a normal tile/card and `display_label` already covers the library/card name
+- you are trying to work around missing in-widget layout; `panel_title` only changes host chrome
 
 ## Layout & sizing
 

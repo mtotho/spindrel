@@ -409,6 +409,8 @@ export interface Channel {
     layout_mode?: "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
     /** Chat presentation mode for the main channel surface. */
     chat_mode?: "default" | "terminal";
+    /** Channel-scoped HTML widget SDK theme override. */
+    widget_theme_ref?: string | null;
   };
   category?: string | null;
   tags?: string[];
@@ -519,6 +521,8 @@ export interface WidgetLibraryEntry {
    *  filtered out server-side — they can't be pinned without runtime args. */
   format: "html" | "suite";
   display_label?: string;
+  panel_title?: string | null;
+  show_panel_title?: boolean | null;
   description?: string;
   version?: string;
   tags?: string[];
@@ -691,6 +695,35 @@ export interface ChannelSettings {
    *  `channel.config`. "default" keeps the current UI; "terminal" swaps in
    *  the command-first transcript treatment. */
   chat_mode?: "default" | "terminal";
+  /** Channel-scoped HTML widget SDK theme override. Null/absent inherits the global default. */
+  widget_theme_ref?: string | null;
+}
+
+export interface WidgetTheme {
+  ref: string;
+  name: string;
+  slug: string;
+  is_builtin: boolean;
+  forked_from_ref?: string | null;
+  light_tokens: Record<string, string>;
+  dark_tokens: Record<string, string>;
+  custom_css: string;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface WidgetThemeDefaultResponse {
+  ref: string;
+  builtin_ref: string;
+}
+
+export interface ResolvedWidgetThemeResponse {
+  theme_ref: string;
+  explicit_channel_theme_ref?: string | null;
+  global_theme_ref: string;
+  builtin_theme_ref: string;
+  theme: WidgetTheme;
 }
 
 export interface EffectiveTools {
@@ -846,6 +879,8 @@ export interface ToolResultEnvelope {
   widget_type?: string;
   /** Resolved display label from widget template (e.g., entity name) */
   display_label?: string | null;
+  panel_title?: string | null;
+  show_panel_title?: boolean | null;
   /** When true, this widget supports state refresh on load via state_poll */
   refreshable?: boolean;
   /** If set, pinned widgets should auto-refresh on this interval (seconds) */

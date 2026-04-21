@@ -50,7 +50,8 @@ logger = logging.getLogger(__name__)
                         "model_override, display_name, channel_prompt, "
                         "workspace_id (UUID string or null to assign/clear workspace), "
                         "carapaces_extra (list of carapace IDs to add), "
-                        "carapaces_disabled (list of carapace IDs to suppress)."
+                        "carapaces_disabled (list of carapace IDs to suppress), "
+                        "widget_theme_ref (custom/<slug> or null to inherit global default)."
                     ),
                 },
             },
@@ -189,6 +190,14 @@ async def manage_channel(
             for field in simple_fields:
                 if field in config:
                     setattr(ch, field, config[field])
+
+            if "widget_theme_ref" in config:
+                cfg = dict(ch.config or {})
+                if config["widget_theme_ref"]:
+                    cfg["widget_theme_ref"] = config["widget_theme_ref"]
+                else:
+                    cfg.pop("widget_theme_ref", None)
+                ch.config = cfg
 
             if "heartbeat_enabled" in config:
                 from app.db.models import ChannelHeartbeat

@@ -172,6 +172,7 @@ export function WidgetRailSection({
               borderless={chrome.borderless}
               hoverScrollbars={chrome.hoverScrollbars}
               hideTitles={chrome.hideTitles}
+              panelSurface
               railMode
               layout={widgetLayout}
             />

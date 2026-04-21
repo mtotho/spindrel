@@ -73,6 +73,9 @@ interface PinnedToolWidgetProps {
   borderless?: boolean;
   hoverScrollbars?: boolean;
   hideTitles?: boolean;
+  /** Panel surfaces use authored host chrome (`panel_title` /
+   *  `show_panel_title`) instead of the generic compact title row. */
+  panelSurface?: boolean;
   /** Channel multi-canvas dashboard: the enclosing `DndContext` supplies a
    *  pre-wired draggable binding (useSortable or useDraggable) so the grip
    *  icon becomes the single drag handle — intra-canvas AND cross-canvas.
@@ -92,6 +95,7 @@ export function PinnedToolWidget({
   borderless = false,
   hoverScrollbars = false,
   hideTitles = false,
+  panelSurface = false,
   externalDrag,
   layout,
 }: PinnedToolWidgetProps) {
@@ -545,6 +549,11 @@ export function PinnedToolWidget({
   const ctrlIconSize = isDashboard ? 14 : 12;
 
   const cardBorderClass = showBorder ? "border" : "";
+  const resolvedPanelTitle = (() => {
+    const raw = currentEnvelope?.panel_title;
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+    return resolveDisplayName(widget);
+  })();
 
   // Title row is always present in channel-scope chips (for drag DOM).
   // Dashboard + rail tiles honor the dashboard's hide_titles flag plus the
@@ -558,12 +567,18 @@ export function PinnedToolWidget({
     { ...DEFAULT_CHROME, hideTitles },
     (widgetConfig ?? null) as Record<string, unknown> | null,
   );
+  const showPanelTitle =
+    panelSurface
+    && currentEnvelope?.show_panel_title === true
+    && !!resolvedPanelTitle;
+  const showGenericTitle = !panelSurface && showTitle;
   // Overlay chrome floats the grip + controls on hover instead of reserving
   // a ~30px header row. Activates for:
   //   - edit-mode dashboard tiles whose titles are hidden (preview parity)
   //   - rail/dock widgets (OmniPanel + WidgetDockRight) always — reclaiming
   //     the 30px header that would otherwise sit empty until hover
-  const overlayChrome = (isDashboard && editMode && !showTitle) || railMode;
+  const overlayChrome =
+    ((isDashboard && editMode && !showGenericTitle) || railMode) && !showPanelTitle;
   if (isChip) {
     // Edit mode (only reachable when the parent DndContext provides
     // `externalDrag`) exposes a grip handle on the left edge + an unpin X on
@@ -644,7 +659,13 @@ export function PinnedToolWidget({
           mode; chrome surfaces as a floating overlay below so the tile's
           footprint matches preview exactly. */}
       {!overlayChrome && (
-        <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-0.5">
+        <div
+          className={
+            showPanelTitle
+              ? "flex items-center gap-1.5 px-2 pt-2 pb-1 border-b border-surface-border/40 shrink-0"
+              : "flex items-center gap-1 px-1.5 pt-1.5 pb-0.5"
+          }
+        >
           {(!isDashboard || editMode || railMode) && (
             <GripVertical
               size={ctrlIconSize}
@@ -659,7 +680,16 @@ export function PinnedToolWidget({
               {...(handleListeners ?? {})}
             />
           )}
-          {showTitle ? (
+          {showPanelTitle ? (
+            <div className="flex-1 min-w-0">
+              <div
+                className="truncate text-[15px] font-semibold tracking-[-0.01em]"
+                style={{ color: t.text }}
+              >
+                {resolvedPanelTitle}
+              </div>
+            </div>
+          ) : showGenericTitle ? (
             <span
               className="flex-1 text-[10px] font-medium uppercase tracking-wider truncate"
               style={{ color: t.textDim }}
@@ -777,7 +807,9 @@ export function PinnedToolWidget({
         className={
           "relative "
           + (isDashboard
-            ? (overlayChrome ? "p-2 flex-1 min-h-0 " : "px-2 pb-2 flex-1 min-h-0 ")
+            ? (overlayChrome
+              ? "p-2 flex-1 min-h-0 "
+              : `${showPanelTitle ? "px-2 py-2" : "px-2 pb-2"} flex-1 min-h-0 `)
             : "px-2 pb-2 max-h-[350px] ")
           + (hoverScrollbars
             ? "overflow-y-auto scroll-subtle"

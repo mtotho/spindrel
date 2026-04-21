@@ -39,6 +39,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "LOG_LEVEL": {"group": "General", "label": "Log Level", "description": "Logging verbosity", "type": "string", "options": ["DEBUG", "INFO", "WARNING", "ERROR"]},
     "CORS_ORIGINS": {"group": "General", "label": "CORS Origins", "description": "Comma-separated allowed origins", "type": "string"},
     "AGENT_TRACE": {"group": "General", "label": "Agent Trace", "description": "Enable one-line trace per tool/response", "type": "bool"},
+    "WIDGET_THEME_DEFAULT_REF": {"group": "Widgets", "label": "Default Widget Theme", "description": "Global default HTML widget SDK theme ref. Use builtin/default or a custom/<slug> theme.", "type": "string"},
     # --- Agent ---
     "AGENT_MAX_ITERATIONS": {"group": "Agent", "label": "Max Iterations", "description": "Maximum agent loop iterations per request", "type": "int", "min": 1, "max": 100},
     "TOOL_LOOP_DETECTION_ENABLED": {"group": "Agent", "label": "Tool Loop Detection", "description": "Detect and break repeating tool call cycles within a single agent run", "type": "bool"},
@@ -185,7 +186,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 
 # Group ordering for consistent display
 GROUP_ORDER = [
-    "System", "Paths", "General", "Security", "API Rate Limiting", "Agent", "Chat History",
+    "System", "Paths", "General", "Widgets", "Security", "API Rate Limiting", "Agent", "Chat History",
     "Memory & Learning", "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization",
     "Tool Policies", "Speech-to-Text", "Heartbeat", "Docker Stacks", "Attachments", "Data Retention", "Image Generation", "Prompt Generation",
 ]

@@ -168,7 +168,7 @@ def _load_library_widget(
                 yaml_name = parsed.get("name")
                 if yaml_name and not parsed.get("display_label"):
                     meta["display_label"] = str(yaml_name)
-                for key in ("display_label", "description", "version"):
+                for key in ("display_label", "panel_title", "show_panel_title", "description", "version"):
                     value = parsed.get(key)
                     if value is not None and key not in meta:
                         meta[key] = value
@@ -445,6 +445,11 @@ async def emit_html_widget(
             envelope["source_bot_id"] = emit_bot_id
         if resolved_label:
             envelope["display_label"] = resolved_label
+        panel_title = ref_meta.get("panel_title")
+        if isinstance(panel_title, str) and panel_title.strip():
+            envelope["panel_title"] = panel_title.strip()
+        if isinstance(ref_meta.get("show_panel_title"), bool):
+            envelope["show_panel_title"] = ref_meta["show_panel_title"]
         if validated_csp:
             envelope["extra_csp"] = validated_csp
         if mode == "panel":

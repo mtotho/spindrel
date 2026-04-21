@@ -449,6 +449,7 @@ class Settings(BaseSettings):
     TIMEZONE: str = "America/New_York"
     BASE_URL: str = ""  # Public URL (e.g. tunnel); used to build webhook URLs in admin UI
     GITHUB_REPO: str = "mtotho/spindrel"  # owner/repo for update checks
+    WIDGET_THEME_DEFAULT_REF: str = "builtin/default"
 
     # Encryption (secrets at rest)
     ENCRYPTION_KEY: str = ""  # Fernet key for encrypting provider API keys + integration secrets

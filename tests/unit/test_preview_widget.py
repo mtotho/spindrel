@@ -173,6 +173,34 @@ class TestLibraryRefMode:
         assert out["envelope"]["body"] == "<p>simple</p>"
         assert out["envelope"]["source_library_ref"] == "bot/simple"
 
+    @pytest.mark.asyncio
+    async def test_library_ref_carries_panel_title_metadata(
+        self, tmp_path, monkeypatch,
+    ):
+        from app.tools.local import emit_html_widget as ehw
+
+        bundle = tmp_path / ".widget_library" / "home_control"
+        bundle.mkdir(parents=True)
+        (bundle / "index.html").write_text("<p>simple</p>")
+        (bundle / "widget.yaml").write_text(
+            "name: Home Control\n"
+            "panel_title: Home Command Center\n"
+            "show_panel_title: true\n"
+        )
+        monkeypatch.setattr(
+            ehw, "_resolve_scope_roots", lambda: (str(tmp_path), None),
+        )
+
+        ctx = current_bot_id.set("crumb")
+        try:
+            out = _parse(await preview_widget(library_ref="bot/home_control"))
+        finally:
+            current_bot_id.reset(ctx)
+
+        assert out["ok"] is True
+        assert out["envelope"]["panel_title"] == "Home Command Center"
+        assert out["envelope"]["show_panel_title"] is True
+
 
 class TestCspValidation:
     @pytest.mark.asyncio

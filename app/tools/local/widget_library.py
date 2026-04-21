@@ -38,7 +38,15 @@ _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 # a ``suite.yaml`` inside a widget folder, alongside template/html bundles.
 _SKIP_NAMES = frozenset({"examples"})
 
-_METADATA_KEYS = ("display_label", "description", "version", "tags", "icon")
+_METADATA_KEYS = (
+    "display_label",
+    "panel_title",
+    "show_panel_title",
+    "description",
+    "version",
+    "tags",
+    "icon",
+)
 
 
 def _read_widget_meta(widget_dir: Path, scope: str) -> dict | None:

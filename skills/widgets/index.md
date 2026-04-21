@@ -1,7 +1,7 @@
 ---
 name: HTML Widgets
 description: Decision tree for building interactive HTML widgets with `emit_html_widget` — which file to read next based on what you're building (inline one-shot, path-mode dashboard, backend handlers, shared-DB suite, chart, chip for the header band, styling question, error lookup)
-triggers: emit_html_widget, html widget, interactive widget, custom widget, build a widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui, project status dashboard, status board, tool control panel, chart widget, chip widget, header chip
+triggers: emit_html_widget, html widget, interactive widget, custom widget, build a widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui, project status dashboard, status board, tool control panel, chart widget, chip widget, header chip, panel title, sticky widget title
 category: core
 ---
 
@@ -83,6 +83,17 @@ Each of the target skills is loadable via `get_skill(skill_id="widgets/<name>")`
 The default shape is a **folder on disk** that you iterate on: `index.html` + `state.json` + optional assets, path-moded as the widget target, living in a well-known location the user can find. See `widgets/html.md` for the bundle layout and path grammar.
 
 Inline mode (`emit_html_widget(html="...")`) is for one-off snapshots — a single view of data you already have in the turn. Anything the user will see more than once should be path-mode.
+
+## Panel titles — when to use them
+
+If the widget is meant to act like a panel surface rather than just a tile, give the bundle host-owned panel chrome:
+
+- Use `panel_title` + `show_panel_title: true` when the title should stay visible while the widget body scrolls.
+- Use this for dashboard main panels, chat side panels, rail/dock panels, and mobile widget-drawer panels.
+- Keep using `display_label` for the generic library/card label everywhere else.
+- Do **not** use `panel_title` just to duplicate a small in-widget heading; if the title belongs inside the content and should scroll away with the body, keep it in the HTML instead.
+
+If you need the exact field shape or examples, read `widgets/html.md` or `widgets/manifest.md`.
 
 ## Reactive controls — the rule authors keep missing
 

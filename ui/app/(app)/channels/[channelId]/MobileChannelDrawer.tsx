@@ -362,6 +362,7 @@ function ZoneSection({
             }
             onUnpin={onUnpin}
             onEnvelopeUpdate={onEnvelopeUpdate}
+            panelSurface={!chipMode}
           />
         ))}
       </div>

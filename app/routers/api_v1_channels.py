@@ -29,6 +29,7 @@ from app.services.channels import (
 )
 from app.services import session_locks
 from app.services.sessions import store_passive_message
+from app.services.widget_themes import normalize_widget_theme_ref, resolve_widget_theme
 from app.tools.local.search_history import _build_query, _serialize_messages
 
 logger = logging.getLogger(__name__)
@@ -235,6 +236,7 @@ class ChannelConfigOut(BaseModel):
     # current bubble/composer UI while ``terminal`` swaps in the Codex-like
     # transcript/composer treatment.
     chat_mode: str = "default"
+    widget_theme_ref: Optional[str] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: bool = False
     heartbeat_interval_minutes: int = 60
@@ -302,6 +304,7 @@ class ChannelConfigUpdate(BaseModel):
     # Chat presentation mode (see ChannelConfigOut.chat_mode for semantics).
     # Accepted values: ``default | terminal``.
     chat_mode: Optional[str] = None
+    widget_theme_ref: Optional[str] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: Optional[bool] = None
     heartbeat_interval_minutes: Optional[int] = None
@@ -665,12 +668,23 @@ async def update_channel_config(
                 status_code=422,
                 detail=f"Invalid chat_mode. Valid: {sorted(_valid_chat_mode)}",
             )
+    if "widget_theme_ref" in ch_updates and ch_updates["widget_theme_ref"] is not None:
+        try:
+            await resolve_widget_theme(db, ch_updates["widget_theme_ref"])
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
 
     # layout_mode is stored inside the channel's JSONB config, not as a top-
     # level column. Split it out so the generic setattr loop below doesn't
     # try to write to a non-existent attribute.
-    layout_mode_update = ch_updates.pop("layout_mode", None) if "layout_mode" in ch_updates else None
-    chat_mode_update = ch_updates.pop("chat_mode", None) if "chat_mode" in ch_updates else None
+    has_layout_mode_update = "layout_mode" in ch_updates
+    layout_mode_update = ch_updates.pop("layout_mode", None) if has_layout_mode_update else None
+    has_chat_mode_update = "chat_mode" in ch_updates
+    chat_mode_update = ch_updates.pop("chat_mode", None) if has_chat_mode_update else None
+    has_widget_theme_ref_update = "widget_theme_ref" in ch_updates
+    widget_theme_ref_update = ch_updates.pop("widget_theme_ref", None) if has_widget_theme_ref_update else None
 
     # Apply channel updates
     if ch_updates:
@@ -680,7 +694,7 @@ async def update_channel_config(
 
     # Apply layout_mode via the JSONB config dict. deepcopy + flag_modified so
     # SQLAlchemy picks up the mutation (JSONB in-place edits don't auto-flag).
-    if layout_mode_update is not None:
+    if has_layout_mode_update:
         import copy as _copy
         from sqlalchemy.orm.attributes import flag_modified
         cfg = _copy.deepcopy(channel.config or {})
@@ -689,7 +703,7 @@ async def update_channel_config(
         flag_modified(channel, "config")
         channel.updated_at = now
 
-    if chat_mode_update is not None:
+    if has_chat_mode_update:
         import copy as _copy
         from sqlalchemy.orm.attributes import flag_modified
         cfg = _copy.deepcopy(channel.config or {})
@@ -697,6 +711,19 @@ async def update_channel_config(
             cfg.pop("chat_mode", None)
         else:
             cfg["chat_mode"] = chat_mode_update
+        channel.config = cfg
+        flag_modified(channel, "config")
+        channel.updated_at = now
+
+    if has_widget_theme_ref_update:
+        import copy as _copy
+        from sqlalchemy.orm.attributes import flag_modified
+        cfg = _copy.deepcopy(channel.config or {})
+        normalized = normalize_widget_theme_ref(widget_theme_ref_update)
+        if normalized == "builtin/default":
+            cfg.pop("widget_theme_ref", None)
+        else:
+            cfg["widget_theme_ref"] = normalized
         channel.config = cfg
         flag_modified(channel, "config")
         channel.updated_at = now
@@ -790,6 +817,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "model_tier_overrides": channel.model_tier_overrides or {},
         "layout_mode": (channel.config or {}).get("layout_mode", "full"),
         "chat_mode": (channel.config or {}).get("chat_mode", "default"),
+        "widget_theme_ref": (channel.config or {}).get("widget_theme_ref"),
         "created_at": channel.created_at,
         "updated_at": channel.updated_at,
     }

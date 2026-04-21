@@ -104,6 +104,14 @@ window.spindrel.db.tx(fn)
 window.spindrel.callHandler(action, args)
 ```
 
+Theme library metadata:
+
+- `window.spindrel.theme.themeRef` — active theme ref, e.g. `builtin/default` or `custom/home-light`
+- `window.spindrel.theme.themeName` — display name
+- `window.spindrel.theme.isBuiltin` — whether the active theme is immutable builtin
+
+Use these for diagnostics or theme-aware behavior. Do not branch on exact refs unless the user explicitly asked for theme-specific behavior.
+
 ## api() vs apiFetch()
 
 `api(path, options)` is a thin `fetch` wrapper — attaches `Authorization: Bearer <short-lived bot token>`, sets `Content-Type: application/json`, parses JSON responses, and throws on non-2xx. **Always use this or `apiFetch` instead of raw `fetch()`**; raw fetch won't be authenticated.

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Trash2, AlertTriangle, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDeleteChannel, useChannelCategories } from "@/src/api/hooks/useChannels";
+import { useWidgetThemes } from "@/src/api/hooks/useWidgetThemes";
 import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
@@ -108,6 +109,7 @@ function GeneralAdvancedSection({
   const t = useThemeTokens();
   const isMobile = useIsMobile();
   const [compactToolResults, setCompactToolResults] = useToolResultCompact(channelId);
+  const { data: widgetThemes } = useWidgetThemes();
 
   return (
     <AdvancedSection>
@@ -183,6 +185,22 @@ function GeneralAdvancedSection({
               { label: "Rail + header + chat — no right dock", value: "rail-header-chat" },
               { label: "Rail + chat — no header chips, no right dock", value: "rail-chat" },
               { label: "Dashboard only — chat screen replaced by dashboard link", value: "dashboard-only" },
+            ]}
+          />
+        </FormRow>
+        <FormRow
+          label="Widget theme"
+          description="Choose the shared HTML widget SDK theme for this channel. Leave on Default to inherit the global widget theme."
+        >
+          <SelectInput
+            value={(form.widget_theme_ref ?? "builtin/default") as string}
+            onChange={(v) => patch("widget_theme_ref", (v === "builtin/default" ? null : v) as ChannelSettings["widget_theme_ref"])}
+            options={[
+              { label: "Default (inherit global)", value: "builtin/default" },
+              ...((widgetThemes ?? []).filter((theme) => theme.ref !== "builtin/default").map((theme) => ({
+                label: theme.is_builtin ? `${theme.name} (builtin)` : theme.name,
+                value: theme.ref,
+              }))),
             ]}
           />
         </FormRow>

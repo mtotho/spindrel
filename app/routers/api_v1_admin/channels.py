@@ -32,6 +32,7 @@ from app.db.models import (
 from app.config import settings
 from app.dependencies import get_db, require_scopes
 from app.services.channels import apply_channel_visibility
+from app.services.widget_themes import normalize_widget_theme_ref, resolve_widget_theme
 
 from ._helpers import _heartbeat_correlation_ids, build_tool_call_previews
 from .turns import TurnToolCall
@@ -374,6 +375,7 @@ class ChannelSettingsOut(BaseModel):
     # Chat presentation mode for the main channel surface. Stored in
     # channel.config["chat_mode"]; default "default".
     chat_mode: str = "default"
+    widget_theme_ref: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -444,6 +446,7 @@ class ChannelSettingsUpdate(BaseModel):
     # Chat presentation mode. "default" (default) | "terminal". Stored
     # inside channel.config JSONB.
     chat_mode: Optional[str] = None
+    widget_theme_ref: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +609,7 @@ async def admin_channel_settings(
     out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
     out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
+    out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
     return out
 
 
@@ -703,6 +707,25 @@ async def admin_channel_settings_update(
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(channel, "config")
 
+    if "widget_theme_ref" in updates:
+        wtr = updates.pop("widget_theme_ref")
+        if wtr is not None:
+            try:
+                await resolve_widget_theme(db, wtr)
+            except LookupError as exc:
+                raise HTTPException(status_code=404, detail=str(exc))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+        cfg = dict(channel.config or {})
+        normalized = normalize_widget_theme_ref(wtr)
+        if normalized == "builtin/default":
+            cfg.pop("widget_theme_ref", None)
+        else:
+            cfg["widget_theme_ref"] = normalized
+        channel.config = cfg
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(channel, "config")
+
     # Validate model tier override names
     if updates.get("model_tier_overrides"):
         from app.services.server_config import VALID_TIER_NAMES
@@ -741,6 +764,7 @@ async def admin_channel_settings_update(
     out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
     out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
+    out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
     return out
 
 

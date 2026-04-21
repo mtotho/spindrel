@@ -698,6 +698,7 @@ export function ChannelDashboardMultiCanvas({
               borderless={chrome.borderless}
               hoverScrollbars={chrome.hoverScrollbars}
               hideTitles={chrome.hideTitles}
+              panelSurface={activePin.zone === "rail" || activePin.zone === "dock"}
               railMode={activePin.zone === "rail" || activePin.zone === "dock"}
             />
           </div>
@@ -1332,6 +1333,7 @@ function TileShell({
         borderless={chrome.borderless}
         hoverScrollbars={chrome.hoverScrollbars}
         hideTitles={chrome.hideTitles}
+        panelSurface={railMode}
         railMode={railMode}
         externalDrag={binding}
       />

@@ -850,6 +850,7 @@ function PanelModeView({
                 borderless={chrome.borderless}
                 hoverScrollbars={chrome.hoverScrollbars}
                 hideTitles={chrome.hideTitles}
+                panelSurface
               />
             </div>
           ))}
@@ -873,6 +874,7 @@ function PanelModeView({
           borderless={chrome.borderless}
           hoverScrollbars={chrome.hoverScrollbars}
           hideTitles={chrome.hideTitles}
+          panelSurface
         />
       </div>
     </div>

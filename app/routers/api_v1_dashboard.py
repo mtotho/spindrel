@@ -50,6 +50,12 @@ from app.services.dashboards import (
     touch_last_viewed,
     update_dashboard,
 )
+from app.services.widget_themes import (
+    BUILTIN_WIDGET_THEME_REF,
+    active_widget_theme_ref,
+    list_widget_themes,
+    resolve_widget_theme,
+)
 
 
 def _auth_identity(auth) -> tuple[uuid.UUID | None, bool]:
@@ -92,6 +98,14 @@ class UpdateDashboardRequest(BaseModel):
 class SetRailPinRequest(BaseModel):
     scope: Literal["everyone", "me"]
     rail_position: int | None = None
+
+
+class WidgetThemeResolveOut(BaseModel):
+    theme_ref: str
+    explicit_channel_theme_ref: str | None = None
+    global_theme_ref: str
+    builtin_theme_ref: str = BUILTIN_WIDGET_THEME_REF
+    theme: dict
 
 
 @router.get(
@@ -262,6 +276,50 @@ async def html_widget_catalog(db: AsyncSession = Depends(get_db)):
 
 
 @router.get(
+    "/themes",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def public_widget_themes(db: AsyncSession = Depends(get_db)):
+    return {"themes": await list_widget_themes(db)}
+
+
+@router.get(
+    "/themes/resolve",
+    response_model=WidgetThemeResolveOut,
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def resolve_effective_widget_theme(
+    channel_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.config import settings as app_settings
+    from app.db.models import Channel
+
+    explicit_channel_theme_ref: str | None = None
+    config: dict | None = None
+    if channel_id is not None:
+        channel = await db.get(Channel, channel_id)
+        if channel is None:
+            raise HTTPException(status_code=404, detail="Channel not found")
+        config = channel.config or {}
+        explicit_channel_theme_ref = config.get("widget_theme_ref")
+
+    theme_ref = active_widget_theme_ref(config)
+    try:
+        theme = await resolve_widget_theme(db, theme_ref)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return WidgetThemeResolveOut(
+        theme_ref=theme_ref,
+        explicit_channel_theme_ref=explicit_channel_theme_ref,
+        global_theme_ref=active_widget_theme_ref({}),
+        theme=theme,
+    )
+
+
+@router.get(
     "/html-widget-content/builtin",
     dependencies=[Depends(require_scopes("channels:read"))],
 )
@@ -365,6 +423,8 @@ def _scanner_entry_to_library(entry: dict) -> dict:
         "scope": scope,
         "format": "html",
         "display_label": entry.get("display_label") or entry.get("name") or "",
+        "panel_title": entry.get("panel_title"),
+        "show_panel_title": entry.get("show_panel_title"),
         "description": entry.get("description") or "",
         "version": entry.get("version") or "0.0.0",
         "tags": entry.get("tags") or [],

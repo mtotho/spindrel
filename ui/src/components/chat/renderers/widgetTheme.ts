@@ -21,16 +21,38 @@
  */
 import type { ThemeTokens } from "../../../theme/tokens";
 
+export interface WidgetThemeDefinition {
+  ref?: string | null;
+  name?: string | null;
+  is_builtin?: boolean;
+  light_tokens?: Partial<ThemeTokens> | null;
+  dark_tokens?: Partial<ThemeTokens> | null;
+  custom_css?: string | null;
+}
+
 export interface WidgetThemeInput {
   tokens: ThemeTokens;
   isDark: boolean;
+  theme?: WidgetThemeDefinition | null;
+}
+
+export function resolveWidgetThemeTokens(
+  theme: WidgetThemeDefinition | null | undefined,
+  fallback: ThemeTokens,
+  isDark: boolean,
+): ThemeTokens {
+  const overrides = (isDark ? theme?.dark_tokens : theme?.light_tokens) || {};
+  return {
+    ...fallback,
+    ...overrides,
+  };
 }
 
 /**
  * Build the full widget stylesheet string. Output goes into a `<style>`
  * block inside the iframe's `<head>`.
  */
-export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): string {
+export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInput): string {
   return `
   :root {
     --sd-surface: ${t.surface};
@@ -754,6 +776,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
      !important so the iframe body stays flush and widgets opt into spacing
      explicitly via sd-card / sd-stack / local CSS instead. */
   html[data-sd-host] body[data-sd-host][data-sd-layout] { padding: 0 !important; }
+  ${theme?.custom_css?.trim() ? `\n  /* theme custom css */\n${theme.custom_css.trim()}\n` : ""}
   ${isDark ? "" : "/* light mode active */"}
   `;
 }
@@ -763,9 +786,12 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
  * SVG/canvas widgets that need programmatic access to resolved color
  * values (charts, pulse animations, dynamic fills).
  */
-export function buildWidgetThemeObject({ tokens: t, isDark }: WidgetThemeInput): Record<string, unknown> {
+export function buildWidgetThemeObject({ tokens: t, isDark, theme }: WidgetThemeInput): Record<string, unknown> {
   return {
     isDark,
+    themeRef: theme?.ref ?? "builtin/default",
+    themeName: theme?.name ?? "Default",
+    isBuiltin: theme?.is_builtin ?? true,
     surface: t.surface,
     surfaceRaised: t.surfaceRaised,
     surfaceOverlay: t.surfaceOverlay,

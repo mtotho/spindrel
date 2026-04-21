@@ -1,7 +1,7 @@
 ---
 tags: [widgets, library, sdk, track]
 status: active
-updated: 2026-04-21 (Phase 11 — Dev Panel Library unified with Add-Widget sheet; bot-authored widgets now visible via new /library-widgets/all-bots endpoint; inline preview Live|Source|Manifest tabs)
+updated: 2026-04-21 (Phase 13 — widget theme library with immutable builtin default, global/per-channel applies, and bot/dev-panel management)
 ---
 
 # Track — Widget Library
@@ -29,6 +29,8 @@ Adjacent: make chips a first-class authoring target, close the AI feedback loop 
 | 9 | `sd-*` v2 DX layer: Lucide icon sprite + styled controls (`sd-check`, `sd-radio`, `sd-switch`, `sd-input-group`, `sd-row`, `sd-tag--removable`, `sd-menu`, `sd-tooltip`, `sd-modal`) + `spindrel.ui.icon/autogrow/menu/tooltip/confirm` + Todo widget rebuild as reference | **complete** (2026-04-21) |
 | 10 | Unify Library + HTML widgets tabs; filter tool-renderer template entries out of Library; envelope-shape index + `inspect_widget_pin` debug recipe in `skills/widgets/errors.md` | **complete** (2026-04-21) |
 | 11 | Dev Panel Library uses same `WidgetLibrary` component as Add-Widget sheet; new `/library-widgets/all-bots` endpoint unions every bot's `.widget_library/` with `bot_id`+`bot_name` per entry; inline preview expansion with Live/Source/Manifest tabs; new `/widget-manifest` endpoint; bot-authorship badge on `widget://bot/` rows; tool renderers moved to their own tab inside Library | **complete** (2026-04-21) |
+| 12 | Authored-widget SDK panel titles: `panel_title` + `show_panel_title` metadata, library/catalog/envelope propagation, and host-owned panel chrome across dashboard/chat/mobile panel surfaces | **complete** (2026-04-21) |
+| 13 | Widget theme library: immutable `builtin/default`, custom theme CRUD/fork, global default + per-channel `widget_theme_ref`, renderer resolution, `/widgets/dev#themes`, and bot theme management/apply-to-channel | **complete** (2026-04-21) |
 
 Phase 1a + 1b shipped 2026-04-20 — bots can now list, emit, and author widget bundles end-to-end. The seam lives in `app/services/widget_paths.py` (one resolver, three scopes) and is re-used by `file_ops._resolve_path`, `widget_library.widget_library_list`, and `emit_html_widget._load_library_widget` so there is a single source of truth for `widget://` resolution and the read-only contract on `core`.
 
@@ -131,6 +133,23 @@ Phase 10 shipped 2026-04-21 — two gaps surfaced in the kitchen-dashboard sessi
 - **`skills/widgets/errors.md` rewritten**: new "Silent extraction failures" section at the top with the success-but-empty-UI symptom → `inspect_widget_pin` fix row; `TypeError: Failed to fetch` literal entry under Network errors; new "Envelope-shape index" table documenting canonical shapes for the 12 most-called tools (frigate_snapshot flat / ha_get_state with one `data` wrapper etc.) so bots can code against confirmed paths without guessing; new "Inspecting a pinned widget" recipe section detailing the five-step debug loop with example event JSON. Imperative "never type `||` between two envelope paths" rule threaded through both the new section and the anti-pattern table. `skills/widgets/tool-dispatch.md` "Knowing the output shape before you call" section trimmed — duplicate canonical shapes pulled out, now points at the central envelope-shape index.
 - **Tests**: 2 new `tests/unit/test_widget_preamble_helpers.py::test_skill_doc_documents_debug_loop_recipe` assertions (inspect_widget_pin mentioned, TypeError: Failed to fetch literal, frigate_snapshot / ha_get_state + canonical extraction paths greppable). 2 new `TestLibraryWidgetsEndpoint` cases (`test_core_excludes_template_renderer_entries`, `test_integration_scope_is_populated`). Existing `test_core_only_without_bot_id` updated to the 5-scope shape + `format ∈ {html, suite}` tightening. 117 widget tests green in Docker; skill-doc tests green locally (Dockerfile.test excludes `ui/`).
 
+Phase 12 shipped 2026-04-21 — authored widgets can now declare a host-owned panel title that renders outside the widget body anywhere the host presents the widget in a panel surface.
+
+- **New metadata contract** — `panel_title` and `show_panel_title` are now valid in HTML frontmatter and `widget.yaml`. `display_label` stays the generic library/card label; `panel_title` is distinct host chrome. `widget_manifest.parse_manifest` validates both fields and `html_widget_scanner` merges them with manifest precedence over frontmatter.
+- **Library/catalog propagation** — scanner entries, `widget_library_list`, `/api/v1/widgets/library-widgets`, `emit_html_widget(library_ref=...)`, `preview_widget(library_ref=...)`, and the shared `ToolResultEnvelope` all now preserve `panel_title` / `show_panel_title`, so authored widgets keep the metadata whether they are previewed, emitted to chat, or pinned from the library.
+- **Panel-surface rendering** — `PinnedToolWidget` now has an explicit `panelSurface` mode. On panel surfaces, authored widgets with `show_panel_title: true` render a dedicated host header row using `panel_title` (falling back to the resolved display name). That header sits outside the widget body and replaces the old compact title treatment on those surfaces. The new contract is wired through dashboard panel mode, rail/dock surfaces, chat side-panel hosts, and the mobile widget drawer so the behavior is consistent instead of mobile keeping its old special-case title/height treatment.
+- **Docs/tests** — `skills/widgets/html.md` and `skills/widgets/manifest.md` now document the new host-chrome contract. Added regression coverage for manifest validation, scanner metadata extraction + manifest override precedence, library-ref envelope propagation in both `emit_html_widget` and `preview_widget`, and `/widgets/library-widgets` returning the new fields for authored widgets. Local targeted pytest selections for the new panel-title cases passed under `.venv`; plain host `pytest` still misses `croniter`, so widget verification should continue using the repo venv or Docker image.
+
+Phase 13 shipped 2026-04-21 — the shared HTML widget SDK now has a first-class theme library instead of one hardcoded renderer stylesheet.
+
+- **Persistence + defaults** — new `widget_themes` table stores named custom themes (light tokens, dark tokens, custom CSS, fork source, author metadata). `builtin/default` is virtual + immutable; global default is now `WIDGET_THEME_DEFAULT_REF`.
+- **Resolution model** — effective theme precedence is `channel.config.widget_theme_ref` → global default → `builtin/default`. Public `/api/v1/widgets/themes/resolve` returns the resolved theme payload for a channel so the renderer does not guess.
+- **Renderer integration** — `InteractiveHtmlRenderer` now resolves the active widget theme per channel, compiles iframe CSS from its tokens, appends theme custom CSS, and injects `themeRef`, `themeName`, and `isBuiltin` on `window.spindrel.theme`.
+- **Human controls** — `/widgets/dev` gained a `Themes` tab for listing/forking/creating/editing themes and applying them globally or to the current channel. Channel settings `General` also gained a widget-theme selector for the per-channel override.
+- **Bot controls** — new control-plane tool `manage_widget_theme` supports `list|get|create|fork|update|delete|apply_channel`; `manage_channel` also accepts `widget_theme_ref`.
+- **Docs** — `skills/widgets/styling.md`, `skills/widgets/html.md`, `skills/widgets/sdk.md`, and `skills/configurator/channel.md` now document the immutable builtin theme, per-channel theme refs, and the rule that widgets should keep using `sd-*` + `window.spindrel.theme` rather than vend their own global stylesheet copies.
+- **Verification** — `npx tsc --noEmit` clean in `ui/`; targeted Python syntax compile on the new/changed backend files clean. Manual browser QA for `/widgets/dev#themes` is still pending.
+
 ## MVP decision — FS-backed, not DB-backed
 
 Per-bot and workspace-scoped widgets will live under `<ws_root>/.widget_library/<name>/` on the host FS (not a `bot_widgets` DB table as originally sketched in the plan). Trade-off: file-backed reuses all existing file-op machinery for free, survives workspace persistence exactly like any other bot file, and listing is a directory walk. DB-backed can come later if we need cross-workspace reuse, but the FS approach unblocks authoring without a migration.
@@ -142,6 +161,7 @@ Per-bot and workspace-scoped widgets will live under `<ws_root>/.widget_library/
 - **Bot-authored widgets are HTML + SDK only.** No server-side Python handlers (`@on_action`/`@on_cron`/`@on_event`) — those require bot-Python sandboxing and stay core-only. SDK's `db.exec`/`api`/`callTool` covers mutation needs.
 - **SQLite for bot suites works via written-schema, not written-files.** Bot writes `suite.yaml` + `migrations/*.sql`; `resolve_suite_db_path` creates the DB on first pin; `acquire_db` runs migrations on first read (Phase B.6 fix).
 - **`library_ref` is canonical.** `path=` stays for power-user / core refs. `html=` is for one-shot ephemera only.
+- **`panel_title` is host chrome, not widget content.** It only affects panel surfaces and only when `show_panel_title: true`; `display_label` remains the generic widget/library label used outside panel chrome.
 
 ## References
 

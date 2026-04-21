@@ -19,9 +19,15 @@ A bundle can declare a sibling `widget.yaml` to opt into backend capabilities (s
 name: My Widget
 version: 1.0.0
 description: What this widget does
+panel_title: Home command center
+show_panel_title: true
 ```
 
 Even a minimal manifest gets you the "manifest" catalog badge and overrides the HTML frontmatter name/description — worth adding whenever a widget is at-home-on-disk enough to deserve a stable identity.
+
+`panel_title` and `show_panel_title` are optional host-chrome metadata. When set, panel surfaces render the title outside the widget body so it stays visible while the widget content scrolls.
+
+Use them when the bundle is intended to read as a named panel across hosts. Skip them when the only title belongs inside the widget body or when `display_label` already handles the generic tile/library label.
 
 ## Full schema
 
@@ -29,6 +35,8 @@ Even a minimal manifest gets you the "manifest" catalog badge and overrides the 
 name: Project Status          # required; overrides HTML frontmatter name
 version: 1.2.0
 description: Live phase tracker
+panel_title: Home command center
+show_panel_title: true
 permissions:
   tools: [fetch_url]          # tools ctx.tool() may call; enforced at dispatch
   events: [new_message]       # ChannelEventKind values @on_event may subscribe to

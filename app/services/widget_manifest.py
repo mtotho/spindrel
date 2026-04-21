@@ -111,6 +111,8 @@ class WidgetManifest:
     name: str
     version: str
     description: str
+    panel_title: str | None
+    show_panel_title: bool | None
     permissions: Permissions
     cron: list[CronEntry]
     events: list[EventEntry]
@@ -467,6 +469,13 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
 
     version = str(raw.get("version", "0.0.0"))
     description = str(raw.get("description", ""))
+    raw_panel_title = raw.get("panel_title")
+    if raw_panel_title is not None and not isinstance(raw_panel_title, str):
+        raise ManifestError("panel_title must be a string when provided")
+    panel_title = raw_panel_title.strip() or None if isinstance(raw_panel_title, str) else None
+    raw_show_panel_title = raw.get("show_panel_title")
+    if raw_show_panel_title is not None and not isinstance(raw_show_panel_title, bool):
+        raise ManifestError("show_panel_title must be a boolean when provided")
 
     raw_perms = raw.get("permissions", {})
     permissions = _validate_permissions(raw_perms if isinstance(raw_perms, dict) else {})
@@ -506,6 +515,8 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
         name=name.strip(),
         version=version,
         description=description,
+        panel_title=panel_title,
+        show_panel_title=raw_show_panel_title,
         permissions=permissions,
         cron=cron,
         events=events,

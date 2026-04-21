@@ -105,6 +105,10 @@ class ToolResultEnvelope:
     # promote action. Defaults to None (== "inline") so existing widgets
     # behave identically.
     display_mode: Literal["inline", "panel"] | None = None
+    # Host-owned title for panel surfaces. Distinct from ``display_label``,
+    # which remains the generic widget/card/library label.
+    panel_title: str | None = None
+    show_panel_title: bool | None = None
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -140,6 +144,10 @@ class ToolResultEnvelope:
             d["extra_csp"] = self.extra_csp
         if self.display_mode and self.display_mode != "inline":
             d["display_mode"] = self.display_mode
+        if self.panel_title:
+            d["panel_title"] = self.panel_title
+        if self.show_panel_title is not None:
+            d["show_panel_title"] = self.show_panel_title
         return d
 
 

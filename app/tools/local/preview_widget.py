@@ -291,6 +291,11 @@ async def preview_widget(
             envelope["source_bot_id"] = emit_bot_id
         if resolved_label:
             envelope["display_label"] = resolved_label
+        panel_title = ref_meta.get("panel_title")
+        if isinstance(panel_title, str) and panel_title.strip():
+            envelope["panel_title"] = panel_title.strip()
+        if isinstance(ref_meta.get("show_panel_title"), bool):
+            envelope["show_panel_title"] = ref_meta["show_panel_title"]
         if validated_csp:
             envelope["extra_csp"] = validated_csp
         if mode == "panel":

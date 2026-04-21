@@ -130,6 +130,8 @@ export function envelopeForLibraryEntry(
     plain_body: entry.description ?? label,
     display: "inline",
     display_label: label,
+    panel_title: entry.panel_title ?? null,
+    show_panel_title: entry.show_panel_title ?? null,
     source_bot_id: botId ?? entry.bot_id ?? null,
   } as ToolResultEnvelope;
 

@@ -9,6 +9,21 @@ category: core
 
 Every widget iframe auto-inherits the app's design language: colors, spacing, typography, and component classes. **Use these instead of inline hex colors or bespoke CSS.** Widgets that lean on the vocabulary look like part of the app, stay correct in both light and dark mode, and survive future theme changes.
 
+## Theme library
+
+The shared SDK styling is now themeable at the app level:
+
+- `builtin/default` is the immutable built-in base theme.
+- Users and bots may **fork** it into a named custom theme or create a custom theme from scratch.
+- Custom themes can be applied globally or per channel via `channel.config.widget_theme_ref`.
+- Widgets should keep using `sd-*`, `var(--sd-*)`, and `window.spindrel.theme`; they should not paste a full house stylesheet into every widget.
+
+Authoring rule:
+
+- Treat `builtin/default` as read-only.
+- If you need a channel-specific look, fork first, then apply the custom `custom/<slug>` ref to the channel.
+- When a theme is active, `window.spindrel.theme` includes `themeRef`, `themeName`, and `isBuiltin` in addition to the usual color tokens.
+
 ## Ownership model: host shell vs widget panel
 
 The pinned-widget host already gives you the outer slot: bounds, dashboard spacing, drag/edit chrome, and scroll containment. Your widget is responsible for the **inside**.

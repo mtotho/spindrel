@@ -111,6 +111,8 @@ _BUNDLE_HTML = """<!--
 ---
 name: Project status
 description: Live phase tracker
+panel_title: Home Command Center
+show_panel_title: true
 version: 1.2.0
 tags: [dashboard, project]
 ---
@@ -158,9 +160,31 @@ class TestScanChannel:
         assert e["slug"] == "project-status"
         assert e["name"] == "Project status"
         assert e["version"] == "1.2.0"
+        assert e["panel_title"] == "Home Command Center"
+        assert e["show_panel_title"] is True
         assert e["tags"] == ["dashboard", "project"]
         assert e["is_bundle"] is True
         assert e["is_loose"] is False
+
+    def test_manifest_panel_metadata_overrides_frontmatter(self, tmp_workspace):
+        from app.services.html_widget_scanner import scan_channel
+        ch, bot, ws = tmp_workspace
+        bundle_dir = os.path.join(ws, "data/widgets/project-status")
+        _write(os.path.join(bundle_dir, "index.html"), _BUNDLE_HTML)
+        _write(
+            os.path.join(bundle_dir, "widget.yaml"),
+            """\
+name: Project status
+version: 1.2.0
+description: Live phase tracker
+panel_title: Host-Owned Command Center
+show_panel_title: false
+""",
+        )
+        entries = scan_channel(ch, bot)
+        assert len(entries) == 1
+        assert entries[0]["panel_title"] == "Host-Owned Command Center"
+        assert entries[0]["show_panel_title"] is False
 
     def test_discovers_loose_file_with_spindrel_ref(self, tmp_workspace):
         from app.services.html_widget_scanner import scan_channel

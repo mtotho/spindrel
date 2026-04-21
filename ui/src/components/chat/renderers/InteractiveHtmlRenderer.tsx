@@ -44,14 +44,18 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Bot as BotIcon, RefreshCw } from "lucide-react";
 import { apiFetch, ApiError } from "../../../api/client";
-import type { ToolResultEnvelope } from "../../../types/api";
+import type { ResolvedWidgetThemeResponse, ToolResultEnvelope } from "../../../types/api";
 import type { ThemeTokens } from "../../../theme/tokens";
 import { useThemeStore } from "../../../stores/theme";
 import { getAuthToken, useAuthStore } from "../../../stores/auth";
 import { useIsAdmin } from "../../../hooks/useScope";
 import { toast } from "../../../stores/toast";
 import { useDashboardPinsStore } from "../../../stores/dashboardPins";
-import { buildWidgetThemeCss, buildWidgetThemeObject } from "./widgetTheme";
+import {
+  buildWidgetThemeCss,
+  buildWidgetThemeObject,
+  resolveWidgetThemeTokens,
+} from "./widgetTheme";
 import { WIDGET_ICON_SPRITE, WIDGET_ICON_NAMES } from "./widgetIcons";
 
 // Dedupes missing-file toasts across renderer re-mounts and periodic polls.
@@ -2472,13 +2476,35 @@ export function InteractiveHtmlRenderer({
     [sourceBotId, needsAuth],
   );
 
+  const widgetThemeQuery = useQuery({
+    queryKey: ["resolved-widget-theme", effectiveChannelId ?? null],
+    queryFn: () => apiFetch<ResolvedWidgetThemeResponse>(
+      `/api/v1/widgets/themes/resolve${effectiveChannelId ? `?channel_id=${encodeURIComponent(effectiveChannelId)}` : ""}`,
+    ),
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+  });
+
+  const resolvedWidgetTokens = useMemo<ThemeTokens>(
+    () => resolveWidgetThemeTokens(widgetThemeQuery.data?.theme ?? null, t, isDark),
+    [widgetThemeQuery.data?.theme, t, isDark],
+  );
+
   const themeCss = useMemo(
-    () => buildWidgetThemeCss({ tokens: t, isDark }),
-    [t, isDark],
+    () => buildWidgetThemeCss({
+      tokens: resolvedWidgetTokens,
+      isDark,
+      theme: widgetThemeQuery.data?.theme,
+    }),
+    [resolvedWidgetTokens, isDark, widgetThemeQuery.data?.theme],
   );
   const themeJson = useMemo(
-    () => JSON.stringify(buildWidgetThemeObject({ tokens: t, isDark })),
-    [t, isDark],
+    () => JSON.stringify(buildWidgetThemeObject({
+      tokens: resolvedWidgetTokens,
+      isDark,
+      theme: widgetThemeQuery.data?.theme,
+    })),
+    [resolvedWidgetTokens, isDark, widgetThemeQuery.data?.theme],
   );
   // CSP is derived per-envelope — widgets declare their third-party origin
   // needs via ``extra_csp`` (Maps, Mapbox, etc.). ``buildCsp`` merges onto
