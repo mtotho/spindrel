@@ -111,6 +111,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "TOOL_RESULT_SUMMARIZE_MODEL_PROVIDER_ID": {"group": "Tool Summarization", "label": "Summarize Model Provider", "type": "string", "description": "Provider for tool result summarize model", "ui_hidden": True},
     "TOOL_RESULT_SUMMARIZE_MAX_TOKENS": {"group": "Tool Summarization", "label": "Max Tokens", "description": "Max tokens for summary output", "type": "int", "min": 50, "max": 2000},
     "TOOL_RESULT_HARD_CAP": {"group": "Tool Summarization", "label": "Hard Cap (chars)", "description": "Maximum chars per tool result in current turn (0 = no cap)", "type": "int", "min": 0, "max": 200000},
+    "TOOL_TURN_AGGREGATE_CAP_CHARS": {"group": "Tool Summarization", "label": "Turn Aggregate Cap (chars)", "description": "Maximum total chars across ALL tool results in one turn — proportional trim kicks in on the biggest results when exceeded (0 = no cap)", "type": "int", "min": 0, "max": 1000000},
     # --- Speech-to-Text ---
     "STT_PROVIDER": {"group": "Speech-to-Text", "label": "STT Provider", "description": "Transcription provider", "type": "string", "options": ["local", "groq", "openai"]},
     "WHISPER_MODEL": {"group": "Speech-to-Text", "label": "Whisper Model", "description": "faster-whisper model name", "type": "string"},

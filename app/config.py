@@ -866,6 +866,7 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     TOOL_RESULT_SUMMARIZE_MAX_TOKENS: int = 300       # max tokens for summary output
     TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS: Annotated[list[str], NoDecode] = ["get_skill"]
     TOOL_RESULT_HARD_CAP: int = 50_000              # max chars per tool result sent to LLM (0 = no cap)
+    TOOL_TURN_AGGREGATE_CAP_CHARS: int = 150_000    # max total chars across all tool results in one turn; proportional trim kicks in above this (0 = no cap)
 
     # RAG injection limits (chars per item before joining; prevents context bloat)
     MEMORY_MAX_INJECT_CHARS: int = 3000      # per memory item injected into context
@@ -1021,13 +1022,35 @@ def _default_instance_id() -> str:
 
 def _default_agent_network() -> str:
     """Docker network the agent-server's api container lives on — used as the
-    bridge for integration sidecars. Derived from COMPOSE_PROJECT_NAME (set by
-    docker compose inside the container) or returns empty to let callers fall
-    back to introspection."""
+    bridge for integration sidecars.
+
+    Docker Compose does NOT propagate ``COMPOSE_PROJECT_NAME`` into containers,
+    so relying on it yields an empty string in virtually every deployment.
+    Instead, introspect the container's own networks via the mounted Docker
+    socket. Picks the first non-``bridge`` network it belongs to."""
+    import json
     import os
+    import socket
+    import subprocess
+
     proj = os.environ.get("COMPOSE_PROJECT_NAME", "").strip()
     if proj:
         return f"{proj}_default"
+
+    try:
+        hostname = socket.gethostname()
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", hostname],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return ""
+        networks = json.loads(result.stdout.strip() or "{}")
+        for name in networks:
+            if name and name != "bridge":
+                return name
+    except Exception:
+        pass
     return ""
 
 

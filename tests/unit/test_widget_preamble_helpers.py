@@ -6,7 +6,8 @@ reads the renderer source as text and asserts that each helper the skill
 doc promises is defined and exported on ``window.spindrel``.
 
 If a new helper lands or a name is renamed, update the asserts AND the
-corresponding section in ``skills/html_widgets.md`` in the same commit.
+corresponding section in ``skills/widgets/`` (sub-files under the folder
+skill — typically ``sdk.md`` or ``handlers.md``) in the same commit.
 
 For behaviour-level coverage (bus round-trips, form submit paths, error
 boundary), write a real UI test once vitest is wired — tracked in
@@ -205,11 +206,21 @@ def test_ui_chart_exposed_on_ui_namespace(source: str) -> None:
 
 
 # ── Skill doc must mention the new helpers so bots know they exist ────
-SKILL_DOC = Path(__file__).resolve().parents[2] / "skills/html_widgets.md"
+# The skill was split from a single file (`skills/html_widgets.md`) into a
+# folder (`skills/widgets/`) with per-topic sub-skills — each helper is
+# documented somewhere under the folder, so the check reads every .md in
+# the folder and asserts presence in the union.
+_WIDGETS_SKILL_DIR = Path(__file__).resolve().parents[2] / "skills" / "widgets"
+
+
+def _skill_doc_text() -> str:
+    assert _WIDGETS_SKILL_DIR.is_dir(), f"widgets skill folder missing: {_WIDGETS_SKILL_DIR}"
+    parts = [p.read_text() for p in sorted(_WIDGETS_SKILL_DIR.rglob("*.md"))]
+    return "\n\n".join(parts)
 
 
 def test_skill_doc_documents_phase_a_helpers() -> None:
-    text = SKILL_DOC.read_text()
+    text = _skill_doc_text()
     for needle in [
         "window.spindrel.db",
         "window.spindrel.bus",
@@ -222,4 +233,4 @@ def test_skill_doc_documents_phase_a_helpers() -> None:
         "window.spindrel.form",
         "window.spindrel.callHandler",
     ]:
-        assert needle in text, f"skills/html_widgets.md missing docs for `{needle}`"
+        assert needle in text, f"skills/widgets/ missing docs for `{needle}`"

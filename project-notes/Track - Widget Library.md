@@ -1,7 +1,7 @@
 ---
 tags: [widgets, library, sdk, track]
 status: active
-updated: 2026-04-20
+updated: 2026-04-20 (Phase 4 `preview_widget` tool shipped — dry-run feedback loop with structured `{ok, envelope, errors[]}` output)
 ---
 
 # Track — Widget Library
@@ -19,8 +19,8 @@ Adjacent: make chips a first-class authoring target, close the AI feedback loop 
 | 1a | `widget_library_list` tool (core scope) + `emit_html_widget(library_ref=...)` for core widgets — 18 new tests | **complete** (2026-04-20) |
 | 1b | `widget://core\|bot\|workspace/<name>/...` virtual paths in `file_ops._resolve_path` + `widget_library_list` / `emit_html_widget` read bot+workspace scopes — new `app/services/widget_paths.py`, ~20 new tests | **complete** (2026-04-20) |
 | 2 | In-repo tidy: `*.widgets.yaml` → `widgets/<name>/template.yaml`; flatten `widgets/suites/` | **complete** (2026-04-20) |
-| 3 | Skill reorg: `skills/html_widgets.md` → `skills/widgets/` folder | pending |
-| 4 | `preview_widget` tool wrapping existing preview endpoints | pending |
+| 3 | Skill reorg: `skills/html_widgets.md` → `skills/widgets/` folder | **complete** (2026-04-20) |
+| 4 | `preview_widget` tool wrapping existing preview endpoints | **complete** (2026-04-20) |
 | 5 | Chips as first-class: `spindrel.layout` + 3 reference chips + `layout_hints` frontmatter + `skills/widgets/chips.md` | pending |
 | 6 | MC SDK dogfood pass — rewrite `mc_{timeline,kanban,tasks}` to use `form`/`ui.table`/`bus` | pending |
 | 7 | Ship next 5 rich widgets: `ha_device_list`, `plex_now_playing`, `calendar_list_events`, `gmail_list_messages`, `list_traces` | pending |
@@ -36,7 +36,35 @@ Phase 2 shipped 2026-04-20 — in-repo core layout now mirrors the library API o
 
 Result: `widget_library_list(scope="core")` returns 12 entries (6 template, 4 html, 1 suite, 1 html). `scan_suites()` finds `mission-control` at the new location. Pre-existing `TestJsonPatchOp` failures remain out of scope; all other widget unit + integration tests pass (269 + 22).
 
-Natural next block is Phase 3 (skill reorg): `skills/html_widgets.md` → `skills/widgets/` folder with a decision-tree `SKILL.md`, per-format docs (templates/html/suites/chips), and an `errors.md` keyed by error string. Items 4–6 fan out from there.
+Phase 3 shipped 2026-04-20 — `skills/html_widgets.md` (1657 lines) split into `skills/widgets/` folder with 11 sub-skills keyed off the folder-layout scanner a parallel session wired into `app/services/file_sync.py::_walk_skill_files` + `app/agent/skills.py::list_available_skills`. Layout:
+
+- `skills/widgets/index.md` — decision tree + triggers for the generic "build a widget" query; each branch cross-links to one of the detail files.
+- `skills/widgets/html.md` — `emit_html_widget` modes, bundle layout, path grammar, sandbox + `extra_csp`, auth (bot not viewer).
+- `skills/widgets/sdk.md` — full `window.spindrel` surface: `api`/`apiFetch`, workspace files + `loadAsset`, `data`/`state`, `bus`, `stream`, `cache`, `notify`, `log`, `ui.status`/`table`/`chart`, `form`, `renderMarkdown`.
+- `skills/widgets/dashboards.md` — `state.json` pattern, four archetypes, "remember what you built" memory convention + workflow.
+- `skills/widgets/tool-dispatch.md` — `/api/v1/widget-actions` envelope, truncation rules (`callTool` bypass), output-shape discovery.
+- `skills/widgets/manifest.md` — `widget.yaml` schema + validation rules.
+- `skills/widgets/db.md` — `spindrel.db` + migrations + WAL.
+- `skills/widgets/handlers.md` — `widget.py` `@on_action`/`@on_cron`/`@on_event` + `ctx` surface + `autoReload` loop.
+- `skills/widgets/suites.md` — `suite.yaml` + dashboard-slug-scoped shared DB + `pin_suite`.
+- `skills/widgets/styling.md` — `sd-*` vocabulary + CSS vars + `spindrel.theme` + dark mode.
+- `skills/widgets/errors.md` — symptom → fix lookup (422, CSP, blank iframe, path mismatch, scope_denied, `truncated` on `callTool`) + the full Common-Mistakes anti-pattern list.
+
+Each sub-file has its own frontmatter with narrow `triggers:` so RAG retrieval can land on the right document instead of dumping all 1657 lines. Skill IDs produced: `widgets` + 10 sub-IDs (`widgets/html`, `widgets/sdk`, `widgets/dashboards`, `widgets/tool-dispatch`, `widgets/manifest`, `widgets/db`, `widgets/handlers`, `widgets/suites`, `widgets/styling`, `widgets/errors`) — verified by `list_available_skills(Path('skills'))`. Chips content deferred to Phase 5 alongside the `spindrel.layout` API + reference chips + `layout_hints` frontmatter — documenting an unbuilt API would have been a stub.
+
+Reference updates in the same commit: `skills/widget_dashboards.md:169` links to `widgets/index.md` with a pointer list of all sub-skills; `tests/unit/test_widget_preamble_helpers.py` swapped its `SKILL_DOC` pointer for a helper that concatenates every `.md` under `skills/widgets/` so the existing `assert needle in text` assertions keep catching missing helper docs. 218 tests green locally (widget preamble + file sync + widget manifest/db/events/suite/scanner/flagship — the only failures are pre-existing `ModuleNotFoundError: croniter` on host Python, unrelated).
+
+Phase 4 shipped 2026-04-20 — `preview_widget` tool closes the AI feedback loop for HTML-widget authoring. Same input shape as `emit_html_widget` (`library_ref` / `html` / `path` + `js` / `css` / `extra_csp` / `display_label` / `display_mode`), returns structured `{ok, envelope?, errors: [{phase, message, severity}]}` instead of emitting anything to chat. Phases surfaced:
+
+- `input` — mutually-exclusive-mode / bad enum
+- `library_ref` — scope/name resolution (shadows `emit_html_widget`'s `_load_library_widget`)
+- `manifest` — bundle's `widget.yaml` fails `parse_manifest` (missing `name`, bad event kind, bad `extra_csp`, etc.). New in preview: when `library_ref` resolves, the manifest gets parsed before the envelope build so a broken manifest surfaces here instead of only at suite-acquire / event-subscribe time.
+- `csp` — `extra_csp` sanitizer rejection
+- `path` — workspace file not found, non-channel absolute path, missing channel context
+
+Lives at `app/tools/local/preview_widget.py` — thin wrapper over `emit_html_widget`'s private helpers (`_load_library_widget`, `_assemble_inline_body`, `_derive_plain_body`, `_CHANNEL_PATH_RE`, `_CORE_WIDGETS_DIR`, `_LIBRARY_NAME_RE`). No refactor of the emit tool itself — scope matches the CLAUDE.md "no premature abstraction" rule; the two tools share source via direct module import, not a pulled-up helper module. 18 new unit tests (`tests/unit/test_preview_widget.py`) — input validation (3), inline mode (4), library ref + manifest parse (5), CSP validation (2), path mode (4). Skill updates: `skills/widgets/html.md` gains a "Dry-run first: preview_widget" section between the two-modes table and the sandbox docs; `skills/widgets/index.md` step 6 of the "build an evolving dashboard" workflow references it; `skills/widgets/errors.md` anti-pattern table adds an "emit and hope" → "preview_widget first" row.
+
+Natural next block is Phase 5 (chips as first-class — needs `spindrel.layout` preamble injection) or Phase 6 (MC SDK dogfood). Items 5–7 still fan out independently.
 
 ## MVP decision — FS-backed, not DB-backed
 

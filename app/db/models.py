@@ -309,13 +309,21 @@ class Session(Base):
     session_type: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'channel'"),
     )
+    parent_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     channel: Mapped["Channel | None"] = relationship(
         back_populates="sessions",
         foreign_keys=[channel_id],
     )
     messages: Mapped[list["Message"]] = relationship(
-        back_populates="session", cascade="all, delete-orphan", order_by="Message.created_at"
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="Message.created_at",
+        foreign_keys="Message.session_id",
     )
 
 
@@ -341,7 +349,10 @@ class Message(Base):
         server_default=text("now()"),
     )
 
-    session: Mapped["Session"] = relationship(back_populates="messages")
+    session: Mapped["Session"] = relationship(
+        back_populates="messages",
+        foreign_keys="Message.session_id",
+    )
     attachments: Mapped[list["Attachment"]] = relationship(
         back_populates="message", cascade="all, delete-orphan"
     )

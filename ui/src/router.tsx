@@ -143,6 +143,10 @@ export const router = createBrowserRouter([
               // stays mounted so closing the modal is instant.
               { path: "pipelines/:pipelineId", element: <ChannelPage /> },
               { path: "runs/:taskId", element: <ChannelPage /> },
+              // Full-screen thread view — renders a channel-chat-shaped
+              // screen against the thread session with a "Replying to …"
+              // header + close-X that returns to the channel.
+              { path: "threads/:threadSessionId", element: <ChannelPage /> },
             ],
           },
 

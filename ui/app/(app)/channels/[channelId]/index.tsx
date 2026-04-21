@@ -49,6 +49,16 @@ import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
 import type { Message } from "@/src/types/api";
+import { ChatSession } from "@/src/components/chat/ChatSession";
+import { SessionChatView } from "@/src/components/chat/SessionChatView";
+import { useSubmitChat } from "@/src/api/hooks/useChat";
+import { selectIsStreaming } from "@/src/stores/chat";
+import {
+  useSpawnThread,
+  useThreadSummaries,
+  useThreadInfo,
+} from "@/src/api/hooks/useThreads";
+import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
 
 import type { ActiveHud } from "@/src/api/hooks/useChatHud";
 
@@ -286,6 +296,55 @@ export default function ChatScreen() {
     [channel?.bot_id],
   );
 
+  // ---- Thread state (reply-in-thread dock) ----
+  // Active thread sits in local state; dock mounts when non-null. Spawning
+  // is an imperative mutation — we spawn-on-click so the anchor card
+  // renders immediately, not on first-send.
+  const [activeThread, setActiveThread] = useState<
+    { sessionId: string; botId: string; parentMessageId: string } | null
+  >(null);
+  const spawnThread = useSpawnThread();
+
+  // Visible message ids drive the batched thread-summaries fetch.
+  // Limit to the rendered window to keep the query key bounded.
+  const visibleMessageIds = useMemo(
+    () =>
+      invertedData
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .slice(0, 50)
+        .map((m) => m.id),
+    [invertedData],
+  );
+  const { data: threadSummaries } = useThreadSummaries(visibleMessageIds);
+
+  const handleReplyInThread = useCallback(
+    async (messageId: string) => {
+      const existing = threadSummaries?.[messageId];
+      if (existing) {
+        setActiveThread({
+          sessionId: existing.session_id,
+          botId: existing.bot_id,
+          parentMessageId: messageId,
+        });
+        return;
+      }
+      try {
+        const res = await spawnThread.mutateAsync({ message_id: messageId });
+        setActiveThread({
+          sessionId: res.session_id,
+          botId: res.bot_id,
+          parentMessageId: res.parent_message_id,
+        });
+      } catch {
+        // Spawn errors surface via the mutation state; nothing more here.
+      }
+    },
+    [threadSummaries, spawnThread],
+  );
+
+  // ---- Scratch chat (in-channel ephemeral) state ----
+  const [scratchOpen, setScratchOpen] = useState(false);
+
   // Pipeline anchors dedupe visually: when multiple runs of the same
   // definition exist in the channel, only the latest stays fully expanded.
   // Older ones collapse to a one-line header. Grouping key is
@@ -333,10 +392,11 @@ export default function ChatScreen() {
       }
       const fullTurnText = getTurnText(invertedData, headerIdx);
       const isLatestBotMessage = item.role === "assistant" && index === 0;
-      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} isLatestBotMessage={isLatestBotMessage} isMobile={columns === "single"} />;
+      const threadSummary = threadSummaries?.[item.id] ?? null;
+      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} isLatestBotMessage={isLatestBotMessage} isMobile={columns === "single"} threadSummary={threadSummary} onReplyInThread={handleReplyInThread} canReplyInThread={true} />;
       return <>{dateSep}{bubble}</>;
     },
-    [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByGroup, columns]
+    [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByGroup, columns, threadSummaries, handleReplyInThread]
   );
 
   // ---- Workspace / file explorer state ----
@@ -1055,6 +1115,51 @@ export default function ChatScreen() {
     >
       {outerChildren}
       <ChannelModalMount />
+      {activeThread && channelId && (
+        <ChatSession
+          source={{
+            kind: "thread",
+            threadSessionId: activeThread.sessionId,
+            parentChannelId: channelId,
+            parentMessageId: activeThread.parentMessageId,
+            botId: activeThread.botId,
+          }}
+          shape="dock"
+          open
+          onClose={() => setActiveThread(null)}
+          title="Thread"
+          initiallyExpanded
+        />
+      )}
+      {channelId && !activeThread && (
+        <ChatSession
+          source={{
+            kind: "ephemeral",
+            sessionStorageKey: `channel:${channelId}:scratch`,
+            parentChannelId: channelId,
+            defaultBotId: channel?.bot_id,
+            context: {
+              page_name: "channel_scratch",
+              payload: { channel_id: channelId },
+            },
+          }}
+          shape="dock"
+          open={scratchOpen}
+          onClose={() => setScratchOpen(false)}
+          title="Scratch chat"
+        />
+      )}
+      {channelId && !activeThread && !scratchOpen && (
+        <button
+          type="button"
+          onClick={() => setScratchOpen(true)}
+          title="Scratch chat — talk to the bot about this channel without touching the feed"
+          aria-label="Open scratch chat"
+          className="fixed bottom-6 right-6 z-[30] w-11 h-11 rounded-full bg-surface-raised border border-surface-border hover:border-accent/60 hover:bg-surface-raised/90 text-text-dim hover:text-text shadow-lg flex items-center justify-center transition-colors"
+        >
+          <StickyNote size={18} />
+        </button>
+      )}
     </div>
   );
 }
@@ -1068,6 +1173,7 @@ export default function ChatScreen() {
 function ChannelModalMount() {
   const preRun = useMatch("/channels/:channelId/pipelines/:pipelineId");
   const live = useMatch("/channels/:channelId/runs/:taskId");
+  const thread = useMatch("/channels/:channelId/threads/:threadSessionId");
   if (preRun?.params.channelId && preRun.params.pipelineId) {
     return (
       <PipelineRunModal
@@ -1086,5 +1192,153 @@ function ChannelModalMount() {
       />
     );
   }
+  if (thread?.params.channelId && thread.params.threadSessionId) {
+    return (
+      <ThreadFullScreenMount
+        channelId={thread.params.channelId as string}
+        threadSessionId={thread.params.threadSessionId as string}
+      />
+    );
+  }
   return null;
+}
+
+/** Full-screen thread view reached by Maximize-from-dock or direct URL.
+ *
+ *   - Loads the thread's info (bot + parent message preview) via GET
+ *     /api/v1/messages/thread/{sessionId}.
+ *   - Wraps ChatSession shape="modal" with a custom "Replying to …"
+ *     header + X that returns to the channel. */
+function ThreadFullScreenMount({
+  channelId,
+  threadSessionId,
+}: {
+  channelId: string;
+  threadSessionId: string;
+}) {
+  const navigate = useNavigate();
+  const { data: info } = useThreadInfo(threadSessionId);
+  const handleClose = useCallback(() => {
+    navigate(`/channels/${channelId}`);
+  }, [channelId, navigate]);
+
+  if (!info) {
+    return (
+      <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-surface/80 backdrop-blur-sm">
+        <div className="text-text-dim text-sm">Loading thread…</div>
+      </div>
+    );
+  }
+
+  const rolePrefix =
+    info.parent_message_role === "assistant"
+      ? `@${info.bot_name ?? info.bot_id}`
+      : info.parent_message_role === "user"
+        ? "User"
+        : "Message";
+  const preview = info.parent_message_preview
+    ? `${rolePrefix}: ${info.parent_message_preview}`
+    : "Message has been deleted";
+
+  return (
+    <div className="fixed inset-0 z-[10050] flex flex-col bg-surface">
+      <div
+        className="flex items-center gap-3 px-4 py-2.5 shrink-0 bg-surface-raised"
+        style={{ borderBottom: "1px solid var(--surface-border)" }}
+      >
+        <MessageCircle size={16} className="text-accent shrink-0" />
+        <div className="flex flex-col min-w-0 flex-1">
+          <span className="text-[11px] uppercase tracking-wider text-text-dim">
+            Replying to
+          </span>
+          <span className="text-[13px] text-text truncate">{preview}</span>
+        </div>
+        {info.bot_name && (
+          <span
+            className="text-[11px] text-text-dim px-2 py-1 rounded bg-surface-overlay shrink-0"
+            title={info.bot_name}
+          >
+            @{info.bot_name}
+          </span>
+        )}
+        <button
+          onClick={handleClose}
+          title="Close thread"
+          aria-label="Close thread"
+          className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors shrink-0"
+        >
+          <CloseIcon size={14} />
+        </button>
+      </div>
+      <ThreadFullScreenBody
+        threadSessionId={threadSessionId}
+        parentChannelId={channelId}
+        botId={info.bot_id}
+      />
+    </div>
+  );
+}
+
+/** Body of the full-screen thread view — SessionChatView + MessageInput.
+ *  Kept separate from ``ThreadFullScreenMount`` so the outer header can
+ *  render while info is loading. Uses the same SessionChatView the dock
+ *  does, so rendering stays single-implementation. */
+function ThreadFullScreenBody({
+  threadSessionId,
+  parentChannelId,
+  botId,
+}: {
+  threadSessionId: string;
+  parentChannelId: string;
+  botId: string;
+}) {
+  const submitChat = useSubmitChat();
+  const chatState = useChatStore((s) => s.getChannel(threadSessionId));
+  const turnActive = selectIsStreaming(chatState);
+  const isSending = submitChat.isPending || turnActive;
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  const handleSend = useCallback(
+    async (message: string) => {
+      setSendError(null);
+      try {
+        await submitChat.mutateAsync({
+          message,
+          bot_id: botId,
+          client_id: "web",
+          session_id: threadSessionId,
+          channel_id: parentChannelId,
+        });
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : "Failed to send message");
+      }
+    },
+    [botId, threadSessionId, parentChannelId, submitChat],
+  );
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 relative">
+        <SessionChatView
+          sessionId={threadSessionId}
+          parentChannelId={parentChannelId}
+          botId={botId}
+        />
+      </div>
+      {sendError && (
+        <div className="px-4 py-1.5 text-[11px] text-red-400 border-t border-red-500/20 bg-red-500/5 shrink-0">
+          {sendError}
+        </div>
+      )}
+      <div className="shrink-0" style={{ borderTop: "1px solid var(--surface-border)" }}>
+        <MessageInput
+          onSend={handleSend}
+          disabled={!botId}
+          isStreaming={isSending}
+          currentBotId={botId}
+          channelId={threadSessionId}
+        />
+      </div>
+    </div>
+  );
 }

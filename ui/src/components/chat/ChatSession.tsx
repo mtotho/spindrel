@@ -58,6 +58,17 @@ export type ChatSource =
       parentChannelId?: string;
       defaultBotId?: string;
       context?: EphemeralContextPayload;
+    }
+  | {
+      kind: "thread";
+      /** Pre-spawned thread session id from POST /messages/{id}/thread. */
+      threadSessionId: string;
+      /** Parent channel hosting the message being replied to — powers SSE. */
+      parentChannelId: string;
+      /** Message the thread replies to, for the "Replying to …" hint. */
+      parentMessageId: string;
+      /** Bot the thread runs as (inherited from parent message's author). */
+      botId: string;
     };
 
 export interface ChatSessionProps {
@@ -89,6 +100,9 @@ export interface ChatSessionProps {
 export function ChatSession(props: ChatSessionProps) {
   if (props.source.kind === "channel") {
     return <ChannelChatSession {...props} source={props.source} />;
+  }
+  if (props.source.kind === "thread") {
+    return <ThreadChatSession {...props} source={props.source} />;
   }
   return <EphemeralChatSession {...props} source={props.source} />;
 }
@@ -636,6 +650,184 @@ function EphemeralChatSession({
       expanded={dockExpanded}
       onExpandedChange={setDockExpanded}
       title={title}
+    >
+      {body}
+    </ChatSessionDock>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Thread-mode — session pre-spawned via POST /messages/{id}/thread.
+// Streaming rides the parent channel's SSE with session-id filter (same
+// path as the pipeline run modal). No bot picker: threads run as the
+// inherited bot. Maximize deep-links into the full-screen thread route.
+// ---------------------------------------------------------------------------
+
+interface ThreadChatSessionProps extends Omit<ChatSessionProps, "source"> {
+  source: Extract<ChatSource, { kind: "thread" }>;
+}
+
+function ThreadChatSession({
+  source,
+  shape,
+  open,
+  onClose,
+  title,
+  emptyState,
+  initiallyExpanded,
+}: ThreadChatSessionProps) {
+  const t = useThemeTokens();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+
+  const { threadSessionId, parentChannelId, botId } = source;
+  const { data: bot } = useBot(botId);
+
+  const [mode, setMode] = useState<"dock" | "modal">(shape);
+  const [dockExpanded, setDockExpanded] = useState(
+    shape === "dock" && (initiallyExpanded ?? false),
+  );
+
+  const submitChat = useSubmitChat();
+  const [sendError, setSendError] = useState<string | null>(null);
+  const chatState = useChatStore((s) => s.getChannel(threadSessionId));
+  const turnActive = selectIsStreaming(chatState);
+  const isSending = submitChat.isPending || turnActive;
+
+  const { data: overheadData } = useSessionConfigOverhead(threadSessionId);
+  const overheadPct = overheadData?.overhead_pct ?? null;
+
+  const handleSend = useCallback(
+    async (message: string, _files?: PendingFile[]) => {
+      setSendError(null);
+      try {
+        await submitChat.mutateAsync({
+          message,
+          bot_id: botId,
+          client_id: "web",
+          session_id: threadSessionId,
+          channel_id: parentChannelId,
+        });
+        qc.invalidateQueries({ queryKey: ["session-messages", threadSessionId] });
+        qc.invalidateQueries({ queryKey: ["thread-summaries"] });
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : "Failed to send message");
+      }
+    },
+    [botId, threadSessionId, parentChannelId, submitChat, qc],
+  );
+
+  const handleMaximize = useCallback(() => {
+    navigate(`/channels/${parentChannelId}/threads/${threadSessionId}`);
+  }, [navigate, parentChannelId, threadSessionId]);
+
+  const handleHeaderClose = useCallback(() => {
+    if (mode === "dock") setDockExpanded(false);
+    else onClose();
+  }, [mode, onClose]);
+
+  const overheadColor = useMemo(() => {
+    if (overheadPct == null) return null;
+    if (overheadPct >= 0.4) return "#ef4444";
+    if (overheadPct >= 0.2) return "#eab308";
+    return null;
+  }, [overheadPct]);
+
+  const displayTitle = title ?? "Thread";
+  const ExpandIcon = mode === "dock" ? Maximize2 : Minimize2;
+
+  const header = (
+    <div
+      className="flex items-center justify-between gap-2 px-3 py-2 shrink-0"
+      style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}
+    >
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <span className="text-[13px] font-semibold text-text truncate">
+          {displayTitle}
+        </span>
+        {bot?.name && (
+          <span
+            className="text-[11px] text-text-dim px-1.5 py-0.5 rounded bg-surface-overlay shrink-0 truncate"
+            title={bot.name}
+          >
+            @{bot.name}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-0.5 shrink-0">
+        {overheadColor && (
+          <button
+            type="button"
+            title={`Context overhead: ${Math.round((overheadPct ?? 0) * 100)}% of the model's window`}
+            className="w-2 h-2 rounded-full mx-1"
+            style={{ backgroundColor: overheadColor, border: "none", cursor: "help" }}
+          />
+        )}
+        <button
+          onClick={handleMaximize}
+          title="Open full-screen thread"
+          aria-label="Open full-screen thread"
+          className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
+        >
+          <ExpandIcon size={13} />
+        </button>
+        <button
+          onClick={handleHeaderClose}
+          title={mode === "dock" ? "Collapse to button" : "Close"}
+          aria-label={mode === "dock" ? "Collapse to button" : "Close"}
+          className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
+        >
+          <X size={13} />
+        </button>
+      </div>
+    </div>
+  );
+
+  const body = (
+    <div className="flex flex-col h-full">
+      {header}
+      <div className="flex-1 min-h-0 relative">
+        <SessionChatView
+          sessionId={threadSessionId}
+          parentChannelId={parentChannelId}
+          botId={botId}
+          emptyStateComponent={emptyState}
+        />
+      </div>
+      {sendError && (
+        <div className="px-4 py-1.5 text-[11px] text-red-400 border-t border-red-500/20 bg-red-500/5 shrink-0">
+          {sendError}
+        </div>
+      )}
+      <div className="shrink-0" style={{ borderTop: `1px solid ${t.surfaceBorder}` }}>
+        <MessageInput
+          onSend={handleSend}
+          disabled={!botId}
+          isStreaming={isSending}
+          currentBotId={botId}
+          channelId={threadSessionId}
+          defaultModel={bot?.model}
+          configOverhead={overheadPct}
+          compact
+        />
+      </div>
+    </div>
+  );
+
+  if (mode === "modal") {
+    return (
+      <ChatSessionModal open={open} onClose={onClose} title={displayTitle}>
+        {body}
+      </ChatSessionModal>
+    );
+  }
+
+  return (
+    <ChatSessionDock
+      open={open}
+      expanded={dockExpanded}
+      onExpandedChange={setDockExpanded}
+      title={displayTitle}
     >
       {body}
     </ChatSessionDock>

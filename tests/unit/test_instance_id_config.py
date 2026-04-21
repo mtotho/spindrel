@@ -36,6 +36,23 @@ class TestDefaultAgentNetwork:
         monkeypatch.setenv("COMPOSE_PROJECT_NAME", "agent-server")
         assert _default_agent_network() == "agent-server_default"
 
-    def test_default_empty_when_no_compose_env(self, monkeypatch):
+    def test_introspects_docker_network_when_compose_env_missing(self, monkeypatch):
+        import subprocess
         monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
+
+        class _Completed:
+            returncode = 0
+            stdout = '{"my-project_default": {}, "bridge": {}}'
+
+        monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _Completed())
+        assert _default_agent_network() == "my-project_default"
+
+    def test_empty_when_inspect_fails(self, monkeypatch):
+        import subprocess
+        monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
+
+        def _boom(*a, **kw):
+            raise FileNotFoundError("docker not installed")
+
+        monkeypatch.setattr(subprocess, "run", _boom)
         assert _default_agent_network() == ""

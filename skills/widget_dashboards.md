@@ -166,5 +166,5 @@ For one-off inline widgets (no file on disk), there's currently no way for a bot
 
 ## See also
 
-- [HTML Widgets](html_widgets.md) — authoring the widgets you'll pin
+- [HTML Widgets](widgets/index.md) — authoring the widgets you'll pin (decision tree + sub-skills: `widgets/html`, `widgets/sdk`, `widgets/dashboards`, `widgets/tool-dispatch`, `widgets/manifest`, `widgets/db`, `widgets/handlers`, `widgets/suites`, `widgets/styling`, `widgets/errors`)
 - [Knowledge Bases](knowledge_bases.md) — how auto-indexed widget frontmatter surfaces in search

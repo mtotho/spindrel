@@ -25,7 +25,7 @@ from app.agent.message_utils import (
 from app.agent.recording import _record_trace_event
 from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, extract_xml_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_silent_tags, strip_think_tags  # noqa: F401 — re-exported
 from app.agent.loop_cycle_detection import ToolCallSignature, detect_cycle, make_signature
-from app.agent.tool_dispatch import ToolCallResult, dispatch_tool_call
+from app.agent.tool_dispatch import ToolCallResult, dispatch_tool_call, enforce_turn_aggregate_cap
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
 from app.config import settings
 from app.tools.client_tools import get_client_tool_schemas, is_client_tool
@@ -1005,6 +1005,22 @@ async def run_agent_tool_loop(
                 _parallel_results: list[tuple[dict, ToolCallResult, bool]] = await asyncio.gather(
                     *[_dispatch_one(tc) for tc in _acc_tool_calls],
                 )
+
+                # Aggregate turn-level cap: after per-tool hard caps, verify the
+                # combined tool-result payload doesn't blow a configured ceiling.
+                # Shrinks the largest result_for_llm strings proportionally.
+                _agg_cap = getattr(settings, "TOOL_TURN_AGGREGATE_CAP_CHARS", 0)
+                if isinstance(_agg_cap, (int, float)) and _agg_cap > 0:
+                    _agg_trim_targets = [
+                        r for _tc, r, was_cancelled in _parallel_results if not was_cancelled
+                    ]
+                    _agg_trimmed = enforce_turn_aggregate_cap(_agg_trim_targets, _agg_cap)
+                    if _agg_trimmed:
+                        logger.warning(
+                            "turn_aggregate_cap_hit bot=%s session=%s trimmed_chars=%d cap=%d tools=%s",
+                            bot.id, session_id, _agg_trimmed, _agg_cap,
+                            [tc["function"]["name"] for tc, _, _ in _parallel_results],
+                        )
 
                 # Process results in original order (approval gates, message assembly, events)
                 _cancelled_during_parallel = False

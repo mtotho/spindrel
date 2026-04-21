@@ -470,12 +470,14 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             {/* Action row — attached to the bottom of the card. Hidden on
                 mobile when the card is idle (collapsed to a one-row pill). */}
             <div
+              onClick={(e) => { if (e.target === e.currentTarget) editorRef.current?.focus(); }}
               style={{
                 display: collapsed ? "none" : "flex",
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
                 padding: compactLayout ? "3px 6px 4px" : isMobile ? "2px 4px 3px" : "4px 8px 6px",
+                cursor: "text",
               }}
             >
               <ComposerAddMenu

@@ -869,6 +869,7 @@ export function CommandPaletteContent({
         {/* Results list */}
         <div
           ref={listRef}
+          className="scroll-subtle"
           style={{
             overflow: "auto",
             flex: 1,

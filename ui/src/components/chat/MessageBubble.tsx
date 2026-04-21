@@ -9,12 +9,14 @@ import { WidgetCard } from "./WidgetCard";
 import { MessageActions, TimestampActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
 import { RichToolResult } from "./RichToolResult";
+import { ThreadAnchor } from "./ThreadAnchor";
 import { extractDisplayText, stripLegacyIngestPrefix, resolveDisplay, avatarColor } from "./messageUtils";
 import { normalizeToolCall } from "../../types/api";
 import { useToolResultCompact } from "../../stores/toolResultPref";
 import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
 import { useUIStore } from "../../stores/ui";
 import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
+import type { ThreadSummary } from "../../api/hooks/useThreads";
 
 // Re-export for external consumers
 export { extractDisplayText } from "./messageUtils";
@@ -44,13 +46,26 @@ interface Props {
    *  the mobile-style bubble. Kept separate from `isMobile` so the latter can
    *  retain its "touch device" semantics elsewhere. */
   compact?: boolean;
+  /** Thread summary for this message (if any). When set, a compact
+   *  ``ThreadAnchor`` card renders beneath the bubble and the
+   *  Reply-in-thread action opens the existing thread instead of spawning
+   *  a new one. */
+  threadSummary?: ThreadSummary | null;
+  /** Click-thread handler — fires on both the anchor card and the
+   *  hover-row "Reply in thread" button. Caller decides whether to
+   *  spawn-new or open-existing based on ``threadSummary``. */
+  onReplyInThread?: (messageId: string) => void;
+  /** Gate on the Reply-in-thread hover action. Caller passes false inside
+   *  thread / ephemeral views so the action doesn't spawn nested threads
+   *  (UI-only guard — backend permits nesting). */
+  canReplyInThread?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // MessageBubble -- Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage, isMobile = false, compact: compactLayout = false }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage, isMobile = false, compact: compactLayout = false, threadSummary = null, onReplyInThread, canReplyInThread = false }: Props) {
   const t = useThemeTokens();
   const narrow = isMobile || compactLayout;
   const [compact] = useToolResultCompact(channelId ?? "");
@@ -285,23 +300,33 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     </>
   );
 
+  const threadAnchorEl = threadSummary && onReplyInThread ? (
+    <ThreadAnchor
+      summary={threadSummary}
+      onOpen={() => onReplyInThread(message.id)}
+    />
+  ) : null;
+
   // Grouped message -- compact, no avatar or name header.
   // Mobile: no left indent (flush-left like non-grouped).
   if (isGrouped) {
     return (
-      <div
-        className="msg-hover"
-        style={{
-          paddingLeft: narrow ? 12 : 68,
-          paddingRight: narrow ? 12 : 20,
-          paddingTop: 1,
-          paddingBottom: 1,
-          borderRadius: 4,
-        }}
-      >
-        {messageContent}
-        {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} />}
-      </div>
+      <>
+        <div
+          className="msg-hover"
+          style={{
+            paddingLeft: narrow ? 12 : 68,
+            paddingRight: narrow ? 12 : 20,
+            paddingTop: 1,
+            paddingBottom: 1,
+            borderRadius: 4,
+          }}
+        >
+          {messageContent}
+          {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}
+        </div>
+        {threadAnchorEl}
+      </>
     );
   }
 
@@ -314,6 +339,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   // Mobile: avatar is inlined in the name header (small badge), content flows
   // flush-left with no avatar-column indent — reclaims the full chat width.
   return (
+    <>
     <div
       className="msg-hover"
       style={{
@@ -437,7 +463,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         {messageContent}
       </div>
 
-      {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} />}
+      {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}
     </div>
+    {threadAnchorEl}
+    </>
   );
 });

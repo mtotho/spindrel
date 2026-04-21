@@ -16,6 +16,7 @@ from typing import Any
 
 import yaml
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger(__name__)
 
@@ -229,12 +230,32 @@ async def seed_widget_packages() -> None:
                     # active rows with the same tool_name even transiently. SA's
                     # unit-of-work does not guarantee flush order between
                     # attribute writes on different objects, so we pin the
-                    # order explicitly. (When replacement is already active,
-                    # SA emits no UPDATE for it — attribute dirty-check sees
-                    # no change — so the second flush is a no-op but cheap.)
-                    row.is_active = False
-                    await db.flush()
-                    replacement.is_active = True
+                    # order explicitly with an explicit flush between writes.
+                    # Wrapped in a try/except so one bad transfer (e.g. a stale
+                    # DB where two rows for the same tool_name both have
+                    # is_active=True from a prior pre-fix run) doesn't abort
+                    # the entire seed cycle — startup stays healthy, operator
+                    # can heal the row manually.
+                    try:
+                        row.is_active = False
+                        await db.flush()
+                        replacement.is_active = True
+                        await db.flush()
+                    except IntegrityError:
+                        await db.rollback()
+                        logger.warning(
+                            "Widget seed transfer failed for tool=%s "
+                            "(orphan=%s → replacement=%s). Leaving as-is; "
+                            "likely a pre-existing duplicate-active row. "
+                            "Manual fix: UPDATE widget_template_packages "
+                            "SET is_active=false WHERE id='%s'.",
+                            row.tool_name, row.id, replacement.id, row.id,
+                        )
+                        # Re-enter the session: the rollback invalidates the
+                        # in-memory objects but we're done with the sweep
+                        # iteration for this row. Skip remaining orphans for
+                        # this seed cycle — the next boot retries.
+                        return
 
         await db.commit()
 

@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Check, Activity, Cog, FileText } from "lucide-react";
+import { Copy, Check, Activity, Cog, FileText, MessageCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { writeToClipboard } from "../../utils/clipboard";
@@ -20,12 +20,19 @@ export function MessageActions({
   fullTurnText,
   correlationId,
   t,
+  canReplyInThread,
+  onReplyInThread,
 }: {
   text: string;
   /** Concatenated text of all segments in a multi-segment bot turn */
   fullTurnText?: string;
   correlationId?: string;
   t: ThemeTokens;
+  /** Show the Reply-in-thread button. Callers gate this to false inside
+   *  thread / ephemeral views (UI-only nested-thread guard). */
+  canReplyInThread?: boolean;
+  /** Click handler for the Reply-in-thread button. */
+  onReplyInThread?: () => void;
 }) {
   const [copied, setCopied] = useState<"single" | "full" | false>(false);
   const navigate = useNavigate();
@@ -54,6 +61,18 @@ export function MessageActions({
 
   return (
     <div className="msg-actions" style={{ userSelect: "none" }}>
+      {canReplyInThread && onReplyInThread && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onReplyInThread();
+          }}
+          title="Reply in thread"
+          style={btnStyle()}
+        >
+          <MessageCircle size={14} />
+        </button>
+      )}
       {correlationId && (
         <button
           onClick={(e) => {

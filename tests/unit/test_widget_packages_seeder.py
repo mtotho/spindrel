@@ -207,6 +207,55 @@ async def test_orphaned_row_is_deactivated(db_session, patched_async_sessions):
 
 
 # ---------------------------------------------------------------------------
+# Active-transfer on orphan (multi-source)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_orphan_transfers_is_active_to_replacement(
+    db_session, patched_async_sessions,
+):
+    """When an active seed orphans AND a non-orphan replacement exists for
+    the same tool_name, the seeder must flip the orphan to is_active=False
+    BEFORE setting the replacement to is_active=True — otherwise the partial
+    unique index `UNIQUE (tool_name) WHERE is_active` fires mid-flush.
+
+    Observed 2026-04-20 on Postgres: `UniqueViolationError: duplicate key value
+    violates constraint "uq_widget_template_packages_active"` on the
+    schedule_task / list_tasks / manage_bot_skill orphan sweep.
+    """
+    # Seed with TWO sources for the same tool_name — first becomes active,
+    # second becomes inactive (normal insert contract).
+    src_both = [
+        _source("my_tool", source_file="file_a.yaml"),
+        _source("my_tool", source_file="file_b.yaml"),
+    ]
+    with patch("app.services.widget_packages_seeder._collect_sources", return_value=src_both):
+        await seed_widget_packages()
+
+    pkgs = await _all_packages(db_session)
+    assert len(pkgs) == 2
+    # file_a is processed first → it becomes active
+    active_first = next(p for p in pkgs if p.source_file == "file_a.yaml")
+    inactive_first = next(p for p in pkgs if p.source_file == "file_b.yaml")
+    assert active_first.is_active is True
+    assert inactive_first.is_active is False
+
+    # Now the first source is removed — file_a orphans, file_b remains.
+    src_only_b = [_source("my_tool", source_file="file_b.yaml")]
+    with patch("app.services.widget_packages_seeder._collect_sources", return_value=src_only_b):
+        await seed_widget_packages()  # must not raise
+
+    db_session.expire_all()
+    pkgs = await _all_packages(db_session)
+    active_after = [p for p in pkgs if p.is_active]
+    assert len(active_after) == 1
+    assert active_after[0].source_file == "file_b.yaml"
+    orphan_row = next(p for p in pkgs if p.source_file == "file_a.yaml")
+    assert orphan_row.is_orphaned is True
+    assert orphan_row.is_active is False
+
+
+# ---------------------------------------------------------------------------
 # M.11 — Un-orphan on re-add
 # ---------------------------------------------------------------------------
 

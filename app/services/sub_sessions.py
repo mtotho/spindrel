@@ -32,7 +32,9 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Session, Task
+from sqlalchemy import select
+
+from app.db.models import Channel, Message, Session, Task
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,9 @@ SESSION_TYPE_CHANNEL = "channel"
 SESSION_TYPE_PIPELINE_RUN = "pipeline_run"
 SESSION_TYPE_EVAL = "eval"
 SESSION_TYPE_EPHEMERAL = "ephemeral"
+SESSION_TYPE_THREAD = "thread"
+
+THREAD_CONTEXT_PRECEDING = 5
 
 
 def _session_type_for_task(task: Task) -> str:
@@ -169,6 +174,113 @@ async def spawn_ephemeral_session(
     logger.info(
         "ephemeral_session spawned: session=%s bot=%s parent_channel=%s",
         sub.id, bot_id, parent_channel_id,
+    )
+    return sub
+
+
+async def spawn_thread_session(
+    db: AsyncSession,
+    *,
+    parent_message_id: uuid.UUID,
+    bot_id: str,
+) -> Session:
+    """Create a thread sub-session anchored at ``parent_message_id``.
+
+    Seeds ``session_type="thread"`` and ``parent_message_id`` so the parent
+    channel can render a compact thread-anchor card beneath the message.
+    Walks the parent Message's Session to inherit ``parent_session_id`` +
+    ``root_session_id`` + ``depth`` so the parent-channel bus bridge
+    routes streaming events the same way pipeline sub-sessions do.
+
+    Seeds a ``thread_context`` system message built from the parent
+    Message plus up to ``THREAD_CONTEXT_PRECEDING`` messages that
+    immediately precede it in the same session (chronological order).
+    The seeded text is what the thread bot sees before the user's first
+    reply.
+
+    Caller owns the transaction.
+    """
+    parent_msg = await db.get(Message, parent_message_id)
+    if parent_msg is None:
+        raise ValueError(f"parent message {parent_message_id} not found")
+
+    parent_session = await db.get(Session, parent_msg.session_id)
+    parent_session_id: uuid.UUID | None = None
+    root_session_id: uuid.UUID | None = None
+    depth = 0
+    if parent_session is not None:
+        parent_session_id = parent_session.id
+        depth = (parent_session.depth or 0) + 1
+        root_session_id = parent_session.root_session_id or parent_session.id
+
+    sub = Session(
+        id=uuid.uuid4(),
+        client_id="thread",
+        bot_id=bot_id,
+        channel_id=None,
+        parent_session_id=parent_session_id,
+        root_session_id=root_session_id,
+        depth=depth,
+        source_task_id=None,
+        session_type=SESSION_TYPE_THREAD,
+        parent_message_id=parent_message_id,
+    )
+    db.add(sub)
+
+    preceding_rows = []
+    if parent_session_id is not None:
+        preceding_stmt = (
+            select(Message)
+            .where(
+                Message.session_id == parent_session_id,
+                Message.created_at < parent_msg.created_at,
+                Message.role.in_(("user", "assistant")),
+            )
+            .order_by(Message.created_at.desc())
+            .limit(THREAD_CONTEXT_PRECEDING)
+        )
+        res = await db.execute(preceding_stmt)
+        preceding_rows = list(reversed(res.scalars().all()))
+
+    context_lines: list[str] = []
+    context_lines.append("# Thread context")
+    context_lines.append(
+        "You are replying in a sub-thread anchored at the message below. "
+        "The preceding messages are included for grounding; the user will "
+        "send their actual reply after this system prompt."
+    )
+    if preceding_rows:
+        context_lines.append("")
+        context_lines.append("## Preceding messages")
+        for m in preceding_rows:
+            content = (m.content or "").strip()
+            if len(content) > 800:
+                content = content[:800] + " …"
+            context_lines.append(f"[{m.role}]: {content}")
+    context_lines.append("")
+    context_lines.append("## Parent message (the one being replied to)")
+    parent_content = (parent_msg.content or "").strip()
+    if len(parent_content) > 2000:
+        parent_content = parent_content[:2000] + " …"
+    context_lines.append(f"[{parent_msg.role}]: {parent_content}")
+
+    ctx_msg = Message(
+        id=uuid.uuid4(),
+        session_id=sub.id,
+        role="system",
+        content="\n".join(context_lines),
+        metadata_={
+            "kind": "thread_context",
+            "parent_message_id": str(parent_message_id),
+            "seeded_messages": len(preceding_rows),
+        },
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(ctx_msg)
+
+    logger.info(
+        "thread_session spawned: session=%s bot=%s parent_msg=%s parent_session=%s depth=%d seeded=%d",
+        sub.id, bot_id, parent_message_id, parent_session_id, depth, len(preceding_rows),
     )
     return sub
 

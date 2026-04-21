@@ -1142,3 +1142,74 @@ async def _notify_approval_request(
         )
     except Exception:
         logger.exception("Failed to publish APPROVAL_REQUESTED for %s", approval_id)
+
+
+def enforce_turn_aggregate_cap(
+    results: list[ToolCallResult], cap_chars: int
+) -> int:
+    """Proportionally shrink the largest `result_for_llm` strings when the
+    combined turn payload exceeds `cap_chars`.
+
+    Complements the per-tool `TOOL_RESULT_HARD_CAP`: N parallel tools can each
+    sit under the per-tool cap yet collectively blow the context budget. This
+    runs after gather and before messages are appended to the turn.
+
+    Returns the total chars trimmed (0 when cap is disabled or already under).
+    The full untruncated output stays in the DB via `record_id` — identical
+    recovery path as the per-tool hard cap.
+    """
+    # Defensive guard: tests sometimes swap `settings` for a MagicMock, in
+    # which case missing attrs come back as mocks that pass `if cap_chars:`
+    # but blow up in arithmetic. Require a real number.
+    if not isinstance(cap_chars, (int, float)) or cap_chars <= 0 or not results:
+        return 0
+
+    # Track original bodies (stripped of any prior marker) and a running
+    # trim-to length per result. Multi-pass 50%-per-iteration shrink converges
+    # quickly for any overage while guaranteeing no single result is trimmed
+    # to zero in one pass.
+    _MARKER = "\n\n[Turn-aggregate cap:"
+
+    def _strip_marker(s: str) -> str:
+        return s.split(_MARKER, 1)[0] if _MARKER in s else s
+
+    originals = [_strip_marker(r.result_for_llm or "") for r in results]
+    current_lens = [len(s) for s in originals]
+
+    total = sum(current_lens)
+    if total <= cap_chars:
+        return 0
+
+    # Multi-pass shrink: each pass halves the biggest result until under cap
+    # or nothing trimmable remains. Bounded at len(results) * 30 iterations
+    # (≈2**-30 of original) — plenty to converge on any realistic input.
+    max_iters = max(1, len(results) * 30)
+    for _ in range(max_iters):
+        total = sum(current_lens)
+        if total <= cap_chars:
+            break
+        # Pick the biggest
+        idx = max(range(len(current_lens)), key=lambda i: current_lens[i])
+        if current_lens[idx] <= 1:
+            break  # nothing more to trim
+        overage = total - cap_chars
+        take = min(current_lens[idx] // 2 or 1, overage)
+        if take <= 0:
+            break
+        current_lens[idx] -= take
+
+    trimmed = 0
+    for i, r in enumerate(results):
+        orig = originals[i]
+        new_len = current_lens[i]
+        if new_len >= len(orig):
+            # Restore original (may have lost a stale marker during strip)
+            r.result_for_llm = orig
+            continue
+        take = len(orig) - new_len
+        trimmed += take
+        r.result_for_llm = (
+            orig[:new_len]
+            + f"\n\n[Turn-aggregate cap: trimmed {take:,} chars — full output stored]"
+        )
+    return trimmed

@@ -1,10 +1,62 @@
 ---
 tags: [agent-server, track, architecture]
 status: active
-updated: 2026-04-20 (session 12 — Phase 3.14 ChatSession primitive + channel-mode dock)
+updated: 2026-04-20 (Phase 6 — message-anchored threads + in-channel scratch chat)
 ---
 
 # Track — Task Sub-Sessions (pipeline-as-chat refactor)
+
+## Phase 6 — Message-anchored threads + in-channel ephemeral (shipped 2026-04-20)
+
+User ask: "lean into sessions" — reply-in-thread on any message forks a sub-session anchored at that message; separately, a scratch FAB on the channel page opens an ephemeral dock that never touches the main feed. Zero new rendering stack — all three surfaces (channel chat, thread dock, scratch dock) share `ChatSession` → `SessionChatView` → `ChatMessageArea`.
+
+### What shipped
+
+**Backend**
+- Migration 229 adds `sessions.parent_message_id` (nullable FK, `ON DELETE SET NULL`) + `ix_sessions_parent_message_id`. New `SESSION_TYPE_THREAD = "thread"` constant.
+- `spawn_thread_session()` in `app/services/sub_sessions.py` — resolves parent message → parent session → inherits parent-session walk-up (parent_session_id / root_session_id / depth+1). Seeds a `thread_context` system message with the parent + up to 5 preceding user/assistant messages, chronological order, per-message truncated to 800 chars, parent capped at 2000.
+- `app/routers/api_v1_messages.py` — new router with three endpoints:
+  - `POST /api/v1/messages/{id}/thread` — spawns thread session. `bot_id` defaults to the parent message's `metadata.bot_id` (assistant messages) or the channel's primary bot (user messages).
+  - `GET /api/v1/messages/thread-summaries?message_ids=<csv>` — batched summaries keyed by `message_id`. `reply_count` counts user+assistant messages; `last_reply_preview` is truncated to 140 chars.
+  - `GET /api/v1/messages/thread/{session_id}` — thread info (bot, parent preview, parent channel) for direct URL navigation to the full-screen route.
+- `Session.messages` relationship + `Message.session` back_populate now pin `foreign_keys="Message.session_id"` to resolve the FK ambiguity introduced by `parent_message_id`.
+- 17 new tests (`tests/unit/test_thread_sessions.py` + `tests/integration/test_api_messages_thread.py`) — all green alongside 32 existing sub-session tests.
+
+**Frontend**
+- New `ChatSource` variant `{ kind: "thread", threadSessionId, parentChannelId, parentMessageId, botId }` on `ChatSession`. New `ThreadChatSession` internal branch: streams via `SessionChatView`'s SSE pattern (parent-channel stream with `sessionFilter=threadSessionId`), composer submits under `session_id: threadSessionId`, Maximize navigates to `/channels/:channelId/threads/:threadSessionId`. No bot picker; `@botname` chip only.
+- `ui/src/api/hooks/useThreads.ts` — `useSpawnThread` (mutation), `useThreadSummaries` (batched query, 15s staleTime, keyed on sorted visible message ids), `useThreadInfo` (single thread lookup for full-screen mount).
+- `ThreadAnchor` — compact card styled after `SubSessionAnchor`: 💬 icon, "Thread · N replies · @bot", optional last-reply excerpt, chevron.
+- `MessageBubble` gains `threadSummary` + `onReplyInThread` + `canReplyInThread` props. Renders `ThreadAnchor` beneath each bubble when a summary exists. `MessageActions` gets a new hover-row button gated on `canReplyInThread && onReplyInThread`.
+- `ChatChannelPage` (`ui/app/(app)/channels/[channelId]/index.tsx`):
+  - `useThreadSummaries(visibleMessageIds.slice(0, 50))` drives anchor rendering.
+  - `handleReplyInThread(messageId)` — opens the existing thread from summaries or calls `spawnThread.mutateAsync` and sets `activeThread` state.
+  - `<ChatSession source={{kind:"thread"}}>` mounts as a dock when `activeThread` is set.
+  - Scratch FAB (`StickyNote` icon, bottom-right, z-30) mounts `<ChatSession source={{kind:"ephemeral", sessionStorageKey:"channel:${id}:scratch", ...}}>`. Gated behind "no active thread" so the two docks don't fight for the same corner.
+  - `ChannelModalMount` extended: new `ThreadFullScreenMount` branch for `/channels/:channelId/threads/:threadSessionId`. Renders a full-viewport overlay with "Replying to: @bot: <preview>" header + X → navigates back to the channel. Body composes `SessionChatView` + `MessageInput` directly (not `shape="modal"`, which is a centered 820px card).
+- Route `/channels/:channelId/threads/:threadSessionId` added to the router alongside the pipeline `runs/` + `pipelines/` sub-routes. Chat page stays mounted underneath (no tear-down on Maximize).
+
+### Key decisions
+
+- **Nesting is UI-only.** Backend `spawn_thread_session` walks `parent_session_id` regardless of depth; the `canReplyInThread` prop is false inside thread/ephemeral views so the hover action doesn't surface. Preserves optionality for future Slack-originated nested threads.
+- **Bot default from parent author.** Assistant messages with `metadata.bot_id` spawn threads under that bot; user messages fall back to `channel.bot_id`. No picker on spawn — user can override by passing `bot_id` in the POST body.
+- **Ephemeral ≠ thread.** Both are sub-sessions; threads get `session_type="thread"` + anchor cards, ephemerals stay `session_type="ephemeral"` + no parent-feed footprint. Unified storage, unified browser (via `list_sub_sessions`) when we add one.
+- **Streaming-reliability fix.** Threads are channel-bound (via parent message → channel), so they ride the already-shipped channel-mode SSE pattern — same path as the pipeline run modal. The three parked dock bugs (4.0a / 4.0b / 4.0c) were channel-less ephemeral specific and do NOT block this phase.
+
+### Scope explicitly deferred
+
+- Slack `thread_ts` mirroring (Phase 7). Outbound: `Session.integration_thread_refs JSONB` + `integrations/slack/renderer.py` reads ref on dispatch. Inbound: map `(channel, thread_ts) → session_id` for routing. `integrations/slack/client.py::post_message` already accepts `thread_ts` — just not wired.
+- Thread browser / drawer — wait for adoption signal. `list_sub_sessions` tool already exists; UI comes later.
+- Mid-thread bot switching, nested threads in UI, thread @-mentions on the parent feed.
+
+### Files
+
+**Backend**: `migrations/versions/229_session_parent_message_id.py`, `app/db/models.py` (Session.parent_message_id + FK disambiguation on Session.messages / Message.session), `app/services/sub_sessions.py` (+spawn_thread_session, +SESSION_TYPE_THREAD, +THREAD_CONTEXT_PRECEDING), `app/routers/api_v1_messages.py` (new), `app/routers/api_v1.py` (register).
+
+**Frontend**: `ui/src/components/chat/ThreadAnchor.tsx` (new), `ui/src/api/hooks/useThreads.ts` (new — useSpawnThread / useThreadSummaries / useThreadInfo), `ui/src/components/chat/ChatSession.tsx` (+ThreadChatSession branch + ChatSource variant), `ui/src/components/chat/MessageBubble.tsx` (+threadSummary / onReplyInThread / canReplyInThread), `ui/src/components/chat/MessageActions.tsx` (+MessageCircle button), `ui/src/router.tsx` (threads/:threadSessionId route), `ui/app/(app)/channels/[channelId]/index.tsx` (+activeThread state + scratch FAB + ThreadFullScreenMount + ThreadFullScreenBody).
+
+Plan: `~/.claude/plans/transient-hatching-tarjan.md`.
+
+
 
 ## Phase 3.14 — `ChatSession` primitive + channel-mode dock (shipped 2026-04-20)
 
