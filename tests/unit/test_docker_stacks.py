@@ -684,7 +684,6 @@ class TestSyncIntegrationStack:
                 compose_definition=compose_yaml,
                 project_name="spindrel-web-search",
                 description="Web search containers",
-                connect_networks=["agent-server_default"],
                 config_files={"config/searxng/settings.yml": "use_default_settings: true\n"},
             )
 
@@ -694,7 +693,6 @@ class TestSyncIntegrationStack:
             assert row.source == "integration"
             assert row.integration_id == "web_search"
             assert row.created_by_bot == "_integration"
-            assert row.connect_networks == ["agent-server_default"]
             assert row.project_name == "spindrel-web-search"
 
             # Verify files materialized
@@ -714,7 +712,6 @@ class TestSyncIntegrationStack:
         existing = MagicMock()
         existing.id = uuid.uuid4()
         existing.compose_definition = old_yaml
-        existing.connect_networks = []
         existing.name = "Old Name"
         existing.description = "Old desc"
         existing.project_name = "spindrel-web-search"
@@ -739,48 +736,6 @@ class TestSyncIntegrationStack:
             # Verify compose was updated
             assert existing.compose_definition == new_yaml
             assert existing.name == "New Name"
-
-
-class TestStartNetworkConnect:
-    """Test that start() calls _connect_network for connect_networks with per-service aliases."""
-
-    @pytest.mark.asyncio
-    async def test_start_connects_extra_networks_with_aliases(self):
-        service = StackService()
-        mock_stack = MagicMock()
-        mock_stack.id = uuid.uuid4()
-        mock_stack.project_name = "spindrel-test-web-search"
-        mock_stack.compose_definition = "services:\n  s:\n    image: x\n"
-        mock_stack.status = "stopped"
-        mock_stack.created_by_bot = "_integration"
-        mock_stack.connect_networks = ["agent-server_default"]
-        mock_stack.network_aliases = {"searxng": "searxng-test", "playwright": "playwright-test"}
-        mock_stack.network_name = None
-
-        with patch.object(service, "_compose_cmd") as mock_cmd, \
-             patch.object(service, "_inspect_stack") as mock_inspect, \
-             patch.object(service, "_materialize"), \
-             patch.object(service, "_connect_network") as mock_cn, \
-             patch.object(service, "_detect_project_name_collision", AsyncMock(return_value=None)), \
-             patch.object(service, "_get") as mock_get, \
-             patch("app.services.docker_stacks.async_session") as mock_session_ctx:
-            mock_cmd.return_value = MagicMock(exit_code=0)
-            mock_inspect.return_value = (
-                {"searxng": "abc123", "playwright": "def456"}, {}, "spindrel-test-web-search_default",
-            )
-            mock_get.return_value = mock_stack
-
-            mock_db = AsyncMock()
-            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
-
-            await service.start(mock_stack)
-
-            assert mock_cn.call_count == 2
-            # Alias should match the service name key
-            call_map = {c.args[1]: c.kwargs.get("alias") for c in mock_cn.call_args_list}
-            assert call_map["abc123"] == "searxng-test"
-            assert call_map["def456"] == "playwright-test"
 
 
 class TestReconcileRunning:
@@ -931,29 +886,6 @@ class TestComposeCmdEnvPropagation:
             app_settings.AGENT_NETWORK_NAME = original_net
 
 
-class TestConnectNetworkAlias:
-    """_connect_network(--alias) — per-service DNS aliasing on the shared network."""
-
-    @pytest.mark.asyncio
-    async def test_connect_network_forwards_alias_to_docker_cli(self):
-        service = StackService()
-        captured_cmd = {}
-
-        async def _fake_exec(*cmd, **kwargs):
-            captured_cmd["argv"] = cmd
-            proc = AsyncMock()
-            proc.communicate.return_value = (b"", b"")
-            proc.returncode = 0
-            return proc
-
-        with patch("asyncio.create_subprocess_exec", side_effect=_fake_exec):
-            await service._connect_network("agent-net", "cid123", alias="searxng-test")
-        argv = captured_cmd["argv"]
-        assert "--alias" in argv
-        assert "searxng-test" in argv
-        assert argv.index("--alias") < argv.index("searxng-test")
-
-
 class TestDiscoverDockerComposeStacks:
     """Tests for discover_docker_compose_stacks integration discovery."""
 
@@ -970,15 +902,10 @@ class TestDiscoverDockerComposeStacks:
         # the same Docker daemon don't collide.
         assert info["project_name"] == "spindrel-testinst-web-search"
         assert info["enabled_setting"] == "WEB_SEARCH_CONTAINERS"
-        assert "agent-net" in info["connect_networks"]
-        assert info["network_aliases"] == {
-            "searxng": "searxng-testinst",
-            "playwright": "playwright-testinst",
-        }
         assert "config/searxng/settings.yml" in info["config_files"]
         assert info["compose_definition"]  # non-empty
 
-    def test_network_aliases_interpolated_for_wyoming(self, monkeypatch):
+    def test_project_name_interpolated_for_wyoming(self, monkeypatch):
         from integrations import discover_docker_compose_stacks
         from app.config import settings as app_settings
         monkeypatch.setattr(app_settings, "SPINDREL_INSTANCE_ID", "e2e")
@@ -986,23 +913,7 @@ class TestDiscoverDockerComposeStacks:
         results = discover_docker_compose_stacks()
         wyoming = [r for r in results if r["integration_id"] == "wyoming"]
         assert len(wyoming) == 1
-        info = wyoming[0]
-        assert info["project_name"] == "spindrel-e2e-wyoming"
-        assert info["network_aliases"] == {
-            "whisper": "whisper-e2e",
-            "piper": "piper-e2e",
-        }
-
-    def test_empty_agent_network_is_dropped(self, monkeypatch):
-        # When AGENT_NETWORK_NAME is unset, the interpolated entry is empty
-        # and should be filtered out rather than appearing as "".
-        from integrations import discover_docker_compose_stacks
-        from app.config import settings as app_settings
-        monkeypatch.setattr(app_settings, "SPINDREL_INSTANCE_ID", "x")
-        monkeypatch.setattr(app_settings, "AGENT_NETWORK_NAME", "")
-        results = discover_docker_compose_stacks()
-        web_search = next(r for r in results if r["integration_id"] == "web_search")
-        assert web_search["connect_networks"] == []
+        assert wyoming[0]["project_name"] == "spindrel-e2e-wyoming"
 
     def test_config_files_loaded(self):
         from integrations import discover_docker_compose_stacks
@@ -1011,6 +922,54 @@ class TestDiscoverDockerComposeStacks:
         assert len(web_search) == 1
         config_content = web_search[0]["config_files"].get("config/searxng/settings.yml", "")
         assert "use_default_settings" in config_content
+
+
+class TestSidecarComposeDeclarativeNetworking:
+    """Sidecar compose files must declare the agent network as an external
+    network and attach each service to it with an instance-scoped alias.
+
+    This is the public contract integrations follow: one commit is enough to
+    keep the agent-to-sidecar bridge alive across restarts, daemon reboots,
+    and crash-auto-restart — no imperative ``docker network connect`` step.
+    """
+
+    @pytest.mark.parametrize(
+        "integration, expected_aliases",
+        [
+            ("web_search", {"searxng", "playwright"}),
+            ("wyoming", {"whisper", "piper"}),
+        ],
+    )
+    def test_compose_declares_external_agent_network(self, integration, expected_aliases):
+        import yaml as _yaml
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[2]
+        compose = _yaml.safe_load(
+            (repo_root / "integrations" / integration / "docker-compose.yml").read_text()
+        )
+
+        # Top-level networks block declares the agent network as external and
+        # interpolates AGENT_NETWORK_NAME (compose resolves the ${VAR} at up time).
+        networks = compose.get("networks") or {}
+        assert "agent_net" in networks, "missing top-level agent_net network"
+        assert networks["agent_net"].get("external") is True
+        assert "${AGENT_NETWORK_NAME" in networks["agent_net"].get("name", "")
+
+        # Every service attaches to agent_net with a ${SPINDREL_INSTANCE_ID}-
+        # scoped alias so the agent can reach it by a stable hostname even
+        # when multiple instances share one Docker daemon.
+        services = compose.get("services") or {}
+        service_aliased = set()
+        for svc_name, svc in services.items():
+            net = (svc.get("networks") or {}).get("agent_net")
+            assert net is not None, f"{svc_name}: not attached to agent_net"
+            aliases = net.get("aliases") or []
+            assert any("${SPINDREL_INSTANCE_ID" in a for a in aliases), (
+                f"{svc_name}: aliases must interpolate SPINDREL_INSTANCE_ID, got {aliases}"
+            )
+            service_aliased.add(svc_name)
+
+        assert service_aliased == expected_aliases
 
 
 class TestMaterializeFile:

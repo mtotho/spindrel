@@ -25,7 +25,6 @@ import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { usePaletteActions, type PaletteAction } from "@/src/stores/paletteActions";
 import { FolderOpen, Cog, Settings as SettingsIcon, PanelRight as PanelRightIcon, LayoutDashboard as LayoutDashboardIcon } from "lucide-react";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
-import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
 import { useIntegrationHuds } from "@/src/api/hooks/useChatHud";
 import { HudStatusStrip } from "./hud/HudStatusStrip";
@@ -1010,7 +1009,6 @@ export default function ChatScreen() {
                   }))}
                 />
               )}
-              <ActiveWorkflowStrip channelId={channelId!} />
               {inputBars.map((h) => (
                 <HudInputBar key={h.key} hud={h} />
               ))}
@@ -1155,7 +1153,6 @@ export default function ChatScreen() {
                       }))}
                     />
                   )}
-                  <ActiveWorkflowStrip channelId={channelId!} />
                   {inputBars.map((h) => (
                     <HudInputBar key={h.key} hud={h} />
                   ))}

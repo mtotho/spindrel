@@ -671,9 +671,7 @@ async def lifespan(application: FastAPI):
                         compose_definition=_dc_info["compose_definition"],
                         project_name=_dc_info["project_name"],
                         description=_dc_info["description"],
-                        connect_networks=_dc_info["connect_networks"],
                         config_files=_dc_info["config_files"],
-                        network_aliases=_dc_info.get("network_aliases", {}),
                     )
                     _enabled = False
                     _enabled_callable = _dc_info.get("enabled_callable")

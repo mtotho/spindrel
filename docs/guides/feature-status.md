@@ -138,6 +138,7 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 | Quick navigation with Ctrl/Cmd-K | `working` | `high` | Command palette is a first-class navigation surface and is heavily used in practice. |
 | Mobile-friendly UI | `working (beta)` | `high` | The app is meaningfully mobile-capable and used regularly on mobile, though some editing surfaces remain desktop-only. |
 | PWA-ready | `working` | `high` | PWA installability and push are shipped. |
+| Web voice controls (chat mic + settings screen) | `experimental` | `low` | The microphone button and voice settings exist in the UI, but they are currently untested and should not be presented as a trusted product surface. |
 
 ## Tools, extensibility, and integrations
 
@@ -146,6 +147,7 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 | Build your own tools | `working` | `high` | Local tool authoring is straightforward and documented. |
 | Build your own integrations | `working (beta)` | `medium` | The integration framework is real and capable, though “easy” still depends on technical comfort. |
 | Programmatic tool orchestration (`run_script`) | `working (beta)` | `medium` | Bots can script many tool calls in one turn instead of forcing everything through long chat loops, but this is still a power-user surface. |
+| Remote client / voice assistant path | `partial` | `low` | The separate client still exists, but it has not been exercised recently enough to promote as a current flagship surface. |
 | Raw shell / exec command path | `working` | `high` | Host-side subprocess execution is part of the current product. |
 | Docker sidecars / integration processes | `working` | `medium` | Docker deployment and sidecar-style service patterns are part of the system design. |
 | Channel integration bindings / outbound delivery | `working` | `medium` | Channels can bind integrations and deliver events/results outward, but the depth and polish still vary by integration. |

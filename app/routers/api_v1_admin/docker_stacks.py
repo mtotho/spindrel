@@ -29,7 +29,6 @@ class DockerStackOut(BaseModel):
     exposed_ports: dict = {}
     source: str = "bot"
     integration_id: str | None = None
-    connect_networks: list = []
     last_started_at: datetime | None = None
     last_stopped_at: datetime | None = None
     created_at: datetime | None = None

@@ -818,6 +818,82 @@ All keys are optional except `id`. See `integrations/github/integration.yaml` an
 
 ---
 
+## Sidecar Docker Stacks
+
+Some integrations ship their own containers — SearXNG for `web_search`, Whisper + Piper
+for `wyoming`, etc. The agent-server manages these stacks for you (start on enable,
+stop on disable, logs + status in the admin UI) but the main `docker-compose.yml`
+stays completely ignorant of them. Integrations can be added at any time — including
+by end users dropping a folder into `INTEGRATION_DIRS` — and the agent still reaches
+them by hostname.
+
+### The contract
+
+Two pieces:
+
+**1. `integration.yaml` declares the stack:**
+
+```yaml
+docker_compose:
+  file: docker-compose.yml
+  # Project name is interpolated with SPINDREL_INSTANCE_ID so multiple
+  # agent-server instances on one Docker daemon (prod + e2e) don't collide.
+  project_name: "spindrel-${SPINDREL_INSTANCE_ID}-web-search"
+  enabled_setting: WEB_SEARCH_CONTAINERS
+  config_files: [config/searxng/settings.yml]  # bind-mounted read-only
+  description: "SearXNG + Playwright for private web search"
+```
+
+**2. Your `docker-compose.yml` attaches each service to the agent's network as
+an *external* network, with an instance-scoped alias:**
+
+```yaml
+name: "spindrel-${SPINDREL_INSTANCE_ID:-default}-web-search"
+
+services:
+  searxng:
+    image: searxng/searxng
+    networks:
+      agent_net:
+        aliases:
+          - "searxng-${SPINDREL_INSTANCE_ID:-default}"
+    restart: unless-stopped
+
+networks:
+  agent_net:
+    external: true
+    name: "${AGENT_NETWORK_NAME:-agent-server_default}"
+```
+
+That's it. At runtime, your integration code reaches the sidecar by its alias:
+
+```python
+SEARXNG_URL = f"http://searxng-{SPINDREL_INSTANCE_ID}:8080"
+```
+
+### Why declarative, not imperative
+
+The agent passes `SPINDREL_INSTANCE_ID` and `AGENT_NETWORK_NAME` as env to every
+`docker compose` subprocess it invokes. Compose resolves the `${VAR}` references
+inside your YAML on every `up`, `restart`, and recreate. That means the network
+attachment and alias survive **every** lifecycle event: agent-initiated start,
+`docker restart`, daemon reboot, crash + `restart: unless-stopped` auto-recovery.
+
+Don't hand-call `docker network connect` from your integration — it looks the same
+at first boot but is lost the moment Docker re-creates the container, and the
+agent-server won't know to re-bridge because your stack is already "running".
+
+### What the main compose file needs to expose
+
+Nothing integration-specific. Your integration relies on the agent-server's default
+network being named `{COMPOSE_PROJECT_NAME}_default` (standard Docker Compose
+behaviour) and that name propagating into `AGENT_NETWORK_NAME` (auto-detected from
+the container's own network attachments — see `app/config.py::_default_agent_network`).
+Users who customize their deployment only need to set `AGENT_NETWORK_NAME` in their
+agent-server env if auto-detection fails.
+
+---
+
 ## Polling Patterns
 
 For integrations that poll an external service (no inbound webhooks), the recommended

@@ -121,6 +121,7 @@ Follow-up refinement the same day:
 - Confidence is now explicitly grounded in operator usage feedback (e.g. command palette = high confidence from constant use; usage tracking = working but medium confidence because cost estimates are best-effort; tool policies = works but not yet polished; webhooks = documented but low-confidence due to limited recent exercise)
 - Added a **provider/model snapshot** subsection to `feature-status.md` so the page now captures operator-tested provider paths and model families (Claude via LiteLLM, anthropic-compatible MiniMax, Gemini via LiteLLM, GPT-5.4 via LiteLLM + openai-subscription, local Ollama models, image-generation paths, embeddings options).
 - Final gap pass tightened the transparency matrix with several user-visible capabilities that were still undercounted: tool approval flow, temporal context awareness, scratch/side-thread sessions, push notifications, `run_script` programmatic orchestration, channel integration bindings/outbound delivery, and endpoint-catalog discoverability.
+- Later truthfulness pass de-emphasized templates/activation as a primary product story, removed `Mission Control` + `Gmail` from promoted nav/index/README surfaces, added a dedicated `programmatic-tool-calling.md` guide for `run_script`, and marked the older client/voice surfaces as low-confidence rather than promoting them.
 
 ### What shipped in session 19 (Phase B finish + Phase D + Phase E nav)
 

@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, roadmap, master]
 status: active
-updated: 2026-04-21 (Context Estimation Consolidation — single tokenizer, last-turn/next-turn toggle, header == tab)
+updated: 2026-04-21 (Chat page request-storm cleanup — workflow polling killed, approvals onto SSE, session-status slowed, widget refresh coalesced, context-breakdown cached)
 ---
 # Agent Server — Roadmap
 

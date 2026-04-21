@@ -41,7 +41,8 @@ nav:
     - Backup & Restore: backup.md
   - Guides:
     - How Spindrel Works: guides/how-spindrel-works.md
-    - Templates & Activation: guides/templates-and-activation.md
+    - Programmatic Tool Calling: guides/programmatic-tool-calling.md
+    - Workspace Templates & Activation: guides/templates-and-activation.md
     - Pipelines: guides/pipelines.md
     - Task Sub-Sessions: guides/task-sub-sessions.md
     - Sub-Agents: guides/subagents.md
@@ -76,7 +77,6 @@ nav:
     - Slack: guides/slack.md
     - Discord: guides/discord.md
     - BlueBubbles (iMessage): guides/bluebubbles.md
-    - Gmail: guides/gmail.md
     - Home Assistant: guides/homeassistant.md
     - Excalidraw: guides/excalidraw.md
     - Browser Live: guides/browser-live.md

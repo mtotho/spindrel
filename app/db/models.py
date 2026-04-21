@@ -1690,10 +1690,6 @@ class DockerStack(Base):
     exposed_ports: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'bot'"))
     integration_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    connect_networks: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    # Per-service network aliases for shared-daemon multi-instance deployments.
-    # Shape: {service_name: alias_hostname}. Applied via `docker network connect --alias`.
-    network_aliases: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     last_started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     last_stopped_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))

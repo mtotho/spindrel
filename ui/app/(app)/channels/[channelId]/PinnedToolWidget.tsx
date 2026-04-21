@@ -168,49 +168,58 @@ export function PinnedToolWidget({
   // an error for tools with no state_poll config, which we ignore.
   const [refreshing, setRefreshing] = useState(false);
   const actionInFlightRef = useRef(false);
+  // Per-pin in-flight guard. A single chat-broadcast can fan out to N widgets
+  // sharing the same identity; each previously started its own POST to
+  // /widget-actions/refresh on top of any in-flight timer-driven refresh.
+  // Coalesce: if a refresh is already running for this pin, join it instead
+  // of firing a second request.
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
   const selfBroadcastRef = useRef<ToolResultEnvelope | null>(null);
-  const refreshState = useCallback(async () => {
+  const refreshState = useCallback((): Promise<void> => {
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
     const displayLabel = resolveDisplayLabel(envelopeRef.current);
     setRefreshing(true);
-    try {
-      const body: Record<string, unknown> = {
-        tool_name: widget.tool_name,
-        display_label: displayLabel,
-        widget_config: widgetConfigRef.current ?? {},
-        // All pins (dashboard-scope and channel-scope) are dashboard pins now.
-        dashboard_pin_id: widget.id,
-      };
-      if (channelId) {
-        body.channel_id = channelId;
-        body.bot_id = widget.bot_id;
-      }
-      const resp = await apiFetch<{ ok: boolean; envelope?: Record<string, unknown> | null; error?: string }>(
-        "/api/v1/widget-actions/refresh",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
-      // Skip if user dispatched an action while poll was in-flight — the action's
-      // own polled envelope is more authoritative than a concurrent background poll.
-      if (actionInFlightRef.current) return;
-      if (resp.ok && resp.envelope) {
-        const fresh = resp.envelope as unknown as ToolResultEnvelope;
-        selfBroadcastRef.current = fresh;
-        setCurrentEnvelope(fresh);
-        onEnvelopeUpdate(widget.id, fresh);
-        dashboardBroadcast(widget.tool_name, fresh);
+    const run = (async () => {
+      try {
+        const body: Record<string, unknown> = {
+          tool_name: widget.tool_name,
+          display_label: displayLabel,
+          widget_config: widgetConfigRef.current ?? {},
+          dashboard_pin_id: widget.id,
+        };
         if (channelId) {
-          channelBroadcast(channelId, widget.tool_name, fresh);
+          body.channel_id = channelId;
+          body.bot_id = widget.bot_id;
         }
-        setLastRefreshedAt(new Date().toISOString());
+        const resp = await apiFetch<{ ok: boolean; envelope?: Record<string, unknown> | null; error?: string }>(
+          "/api/v1/widget-actions/refresh",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+        if (actionInFlightRef.current) return;
+        if (resp.ok && resp.envelope) {
+          const fresh = resp.envelope as unknown as ToolResultEnvelope;
+          selfBroadcastRef.current = fresh;
+          setCurrentEnvelope(fresh);
+          onEnvelopeUpdate(widget.id, fresh);
+          dashboardBroadcast(widget.tool_name, fresh);
+          if (channelId) {
+            channelBroadcast(channelId, widget.tool_name, fresh);
+          }
+          setLastRefreshedAt(new Date().toISOString());
+        }
+      } catch {
+        // Silently keep current envelope — stale is better than empty.
+      } finally {
+        setRefreshing(false);
+        refreshInFlightRef.current = null;
       }
-    } catch {
-      // Silently keep current envelope — stale is better than empty.
-    } finally {
-      setRefreshing(false);
-    }
+    })();
+    refreshInFlightRef.current = run;
+    return run;
   }, [widget.id, widget.tool_name, widget.bot_id, channelId, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, resolveDisplayLabel]);
 
   // Initial refresh on mount / re-pin.
@@ -518,7 +527,12 @@ export function PinnedToolWidget({
     { ...DEFAULT_CHROME, hideTitles },
     (widgetConfig ?? null) as Record<string, unknown> | null,
   );
-  const overlayChrome = isDashboard && editMode && !showTitle;
+  // Overlay chrome floats the grip + controls on hover instead of reserving
+  // a ~30px header row. Activates for:
+  //   - edit-mode dashboard tiles whose titles are hidden (preview parity)
+  //   - rail/dock widgets (OmniPanel + WidgetDockRight) always — reclaiming
+  //     the 30px header that would otherwise sit empty until hover
+  const overlayChrome = (isDashboard && editMode && !showTitle) || railMode;
   if (isChip) {
     // Edit mode (only reachable when the parent DndContext provides
     // `externalDrag`) exposes a grip handle on the left edge + an unpin X on
@@ -529,11 +543,13 @@ export function PinnedToolWidget({
       <div
         ref={externalDrag?.setNodeRef}
         className={
-          "group flex h-8 items-center rounded-md border px-2 overflow-hidden transition-colors "
+          // No left padding in view mode: iframe content fills flush to the
+          // rounded border so the chip's raised bg doesn't leak through as a
+          // white gap beside widget content (notably error banners).
+          "group flex h-8 items-center rounded-md border overflow-hidden transition-colors "
           + (chipEditable
-            ? "border-accent/50 bg-accent/[0.08] hover:bg-accent/[0.14]"
-            : "border-surface-border/60 bg-surface-raised/40")
-          + " "
+            ? "border-accent/50 bg-accent/[0.08] hover:bg-accent/[0.14] pl-1 pr-1 "
+            : "border-surface-border/60 bg-surface-raised/40 pr-1 ")
           + (externalDrag ? "w-full" : "w-[180px]")
         }
         title={resolveDisplayName(widget)}

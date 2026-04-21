@@ -24,7 +24,6 @@ def build_docker_stack(**overrides) -> DockerStack:
         exposed_ports={},
         source="bot",
         integration_id=None,
-        connect_networks=[],
         last_started_at=None,
         last_stopped_at=None,
         created_at=datetime.now(timezone.utc),

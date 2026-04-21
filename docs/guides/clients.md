@@ -1,5 +1,8 @@
 # Agent Client
 
+!!! warning "Older, lightly maintained surface"
+    This client still exists, but it has not been exercised recently enough to present as a current flagship path. The local tool-executor model is still useful; the voice-assistant path should be treated as lower-confidence until it gets fresh testing.
+
 A Python client that runs on a **separate machine** and connects to the Spindrel server over HTTP/SSE. It serves two purposes:
 
 1. **Voice assistant** — wake word detection, speech-to-text, text-to-speech. Deploy on a Raspberry Pi, tablet, or any always-on device for a hands-free AI assistant.

@@ -1,18 +1,22 @@
-# Templates & Integration Activation
+# Workspace Templates & Activation
 
-When you create a channel in Spindrel, it starts as a blank conversation. Templates and integration activation turn it into a structured workspace with the right tools, skills, and file organization for a specific kind of work.
+When you create a channel in Spindrel, it starts as a conversation with a bot plus an optional workspace. Templates and integration activation are secondary setup tools, not the center of the product.
 
 ---
 
 ## How It Works
 
-Two layers combine to configure a channel:
+Two optional layers can shape a channel:
 
 1. **Integration activation** — Enables an integration on a channel, automatically injecting its tools, skills, and behavioral instructions (via capabilities). One click, no manual tool configuration.
 
 2. **Workspace template** — Defines the file structure for the channel's workspace (which `.md` files to create, their headings, their purpose). Templates are independent of activation — you can use a template without activating anything, or activate without a template.
 
-**Together:** Activate Mission Control on a channel and pick the "Software Development" template. The bot immediately gains project management tools (task boards, plans, timelines) AND knows how to organize workspace files (tasks.md with kanban columns, status.md with phase tracking, etc.).
+You do not need either of these to get value from Spindrel. Many channels work well with:
+
+- no template at all
+- no activated integration at all
+- just the bot, its normal capabilities, and the workspace files it creates over time
 
 ---
 
@@ -45,7 +49,7 @@ Templates define the file structure for a channel's workspace. When a bot has `w
 
 ### Do I need a template?
 
-**Usually no.** If you've activated an integration (like Mission Control), it already teaches the bot how to organize workspace files through its capability. The bot will create the right files with the right format automatically.
+**Usually no.** Templates are useful when you want a predictable starting shape, but they are optional. The file-backed workspace is the core feature; the template is just a starting scaffold.
 
 Templates are useful when:
 - You want a **specific file structure** for a non-integration workflow (e.g., a research project)
@@ -70,10 +74,8 @@ Spindrel ships templates for common workflows:
 | Creative Project | Writing, design, content | brief.md, concepts.md, feedback.md |
 | General Project | Lightweight catch-all | overview.md, notes.md, tasks.md |
 | Project Management Hub | Project coordination | status.md, projects.md, reports.md |
-| Mission Control | Structured task tracking | tasks.md, status.md, decisions.md |
 | Software Testing / QA | Test planning and execution | test-plan.md, bugs.md, coverage.md |
 | Media Management | Media library and requests | requests.md, library.md, issues.md |
-| Email Digest | Email ingestion and action tracking | feeds.md, digest.md, actions.md |
 | Home Automation | Device inventory and events | devices.md, automations.md, events.md |
 | DevOps | Repository and deployment tracking | repos.md, prs.md, deployments.md |
 
@@ -111,10 +113,10 @@ Restart the server — the template is auto-synced.
 
 1. **Create a channel** — Give it a name and assign a bot
 2. **Enable the workspace** — In the Workspace tab, toggle workspace on (if not enabled by default)
-3. **Activate integrations** — In the Integrations tab, activate Mission Control (or other integrations relevant to your work)
-4. **Start chatting** — The bot now has the right tools and knows how to organize files. Ask it to create a task board, write a status report, or plan a feature — it knows the formats from the integration's capability.
+3. **Optionally activate an integration** — Only if this channel really needs one
+4. **Start chatting** — Ask the bot to create the files and structure you want. If a template or integration is present, it will use them. If not, it can still build the workspace incrementally.
 
-That's it. No template selection needed. The integration's capability teaches the bot both the tools AND the file organization.
+That's it. Template selection and activation are both optional.
 
 ### What You Get
 

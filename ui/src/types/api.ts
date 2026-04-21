@@ -1209,7 +1209,6 @@ export interface DockerStack {
   exposed_ports: Record<string, Array<{ host_port: number; container_port: number; protocol?: string }>>;
   source: string;
   integration_id?: string | null;
-  connect_networks: string[];
   last_started_at?: string | null;
   last_stopped_at?: string | null;
   created_at?: string | null;

@@ -12,13 +12,13 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **ChatGPT Subscription provider** — Sign in with ChatGPT OAuth device-code flow instead of an API key. Mix plan-billing providers with API-key providers across bots.
 - **Capabilities (auto-discovered expertise)** — Composable bundles of tools, skills, and behavioral instructions. Bots discover and activate relevant capabilities at runtime — or pin specific ones to always include. Capabilities compose via `includes` for layered expertise.
 - **Workspace-driven memory** — Bots maintain `MEMORY.md`, daily logs, and reference documents on disk — all indexed for RAG retrieval. No opaque vector-only memory.
-- **Channel workspaces** — Per-channel file stores with schema-guided organization. 7 built-in templates (Software Dev, Research, QA, PM Hub, etc.) or custom schemas. Active files auto-inject into context.
+- **Channel workspaces** — Per-channel file stores on disk. Optional workspace templates can give the bot a starting structure, but the core model is file-backed memory, not template lock-in.
 - **Conversation continuity** — Conversations are automatically archived into titled, searchable sections. Chat state rehydrates on reconnect, and task runs render as dedicated sub-sessions with their own transcripts.
 - **Task pipelines** — Reusable multi-step automations with `exec`, `tool`, `agent`, `user_prompt`, and `foreach` steps, plus conditions, approval gates, parameters, and cross-bot delegation.
 - **Heartbeats + task scheduling** — Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks. Bots can self-schedule.
 - **Widget dashboards + HTML widgets** — Tool results render as live widgets. Pin them to channel dashboards or named dashboards, or have bots author interactive HTML widgets with bot-scoped auth.
-- **Integration activation + templates** — Activate an integration on a channel and it instantly gets the right tools, skills, and behavioral instructions. Pick a compatible workspace template and the bot knows how to organize files. One click from blank channel to structured project.
-- **Integration framework** — Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Gmail, Frigate, Home Assistant, Excalidraw, Browser Live, Arr, Claude Code, BlueBubbles, Google Workspace, Wyoming, Web Search, OpenWeather, Firecrawl, VS Code, and more. Extend with your own.
+- **Programmatic tool calling** — `run_script` lets bots orchestrate many tool calls in one turn when plain chat loops would be too noisy or expensive.
+- **Integration framework** — Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Frigate, Home Assistant, Excalidraw, Browser Live, Arr, Claude Code, BlueBubbles, Google Workspace, Wyoming, Web Search, OpenWeather, Firecrawl, VS Code, and more. Extend with your own.
 - **Usage tracking + cost budgeting** — Per-bot token usage, cost tracking (with LiteLLM pricing data), and configurable budget limits. *Cost data is best-effort — always verify against your provider's billing dashboard.*
 - **Smart orchestrator bot** — Ships with an orchestrator that guides you through setup conversationally.
 - **Web search** — SearXNG or DuckDuckGo, switchable at runtime from the admin UI.
@@ -94,12 +94,12 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | Guide | Description |
 |-------|-------------|
 | [Setup Guide](docs/setup.md) | Installation, providers, workspaces, integrations |
-| [How Spindrel Works](docs/guides/how-spindrel-works.md) | Mental model — channels, templates, activation, capabilities |
+| [How Spindrel Works](docs/guides/how-spindrel-works.md) | Mental model — channels, capabilities, workspaces, and how they compose |
 | [LLM Providers](docs/guides/providers.md) | Provider types, ChatGPT Subscription OAuth, Ollama, LiteLLM |
-| [Templates & Activation](docs/guides/templates-and-activation.md) | Activate integrations on channels, workspace templates |
+| [Programmatic Tool Calling](docs/guides/programmatic-tool-calling.md) | `run_script` for batching, filtering, and multi-tool orchestration inside one turn |
+| [Workspace Templates & Activation](docs/guides/templates-and-activation.md) | Optional workspace templates and per-channel integration activation |
 | [Slack Integration](docs/guides/slack.md) | Slack bot setup and channel config |
 | [Discord Integration](docs/guides/discord.md) | Discord bot setup |
-| [Gmail Integration](docs/guides/gmail.md) | Gmail integration |
 | [Home Assistant](docs/guides/homeassistant.md) | Device control via MCP with widgets and state polling |
 | [Excalidraw](docs/guides/excalidraw.md) | Hand-drawn diagrams in chat |
 | [Delegation](docs/guides/delegation.md) | Bot-to-bot delegation |
@@ -113,7 +113,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | [Chat History](docs/guides/chat-history.md) | Conversation archival, searchable sections, continuity |
 | [Chat State Rehydration](docs/guides/chat-state-rehydration.md) | Snapshot-based reconnect and reload recovery |
 | [PWA & Push Notifications](docs/guides/pwa-push.md) | Install the PWA and send push notifications |
-| [Agent Client](docs/guides/clients.md) | Remote voice assistant + local tool executor |
+| [Agent Client](docs/guides/clients.md) | Older remote client / voice-assistant path with local tool execution |
 | [Usage & Billing](docs/guides/usage-and-billing.md) | Cost tracking, budget limits, spend forecasting |
 | [Heartbeats](docs/guides/heartbeats.md) | Periodic check-ins, quiet hours, dispatch modes |
 | [MCP Servers](docs/guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs) |

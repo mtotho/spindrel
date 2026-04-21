@@ -98,10 +98,6 @@ docker_compose:
   file: docker-compose.yml
   project_name: "spindrel-${SPINDREL_INSTANCE_ID}-wyoming"
   enabled_setting: WYOMING_CONTAINERS
-  connect_networks: ["${AGENT_NETWORK_NAME}"]
-  network_aliases:
-    whisper: "whisper-${SPINDREL_INSTANCE_ID}"
-    piper: "piper-${SPINDREL_INSTANCE_ID}"
   description: "Whisper STT + Piper TTS for voice assistant pipeline"
 
 process:

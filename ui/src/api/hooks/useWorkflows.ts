@@ -73,11 +73,6 @@ export function useRecentWorkflowRuns() {
   return useQuery({
     queryKey: ["workflow-runs-recent"],
     queryFn: () => apiFetch<WorkflowRun[]>("/api/v1/admin/workflow-runs/recent?limit=30"),
-    refetchInterval: (query) => {
-      const runs = query.state.data;
-      if (runs?.some((r) => r.status === "running" || r.status === "awaiting_approval")) return 5000;
-      return false;
-    },
   });
 }
 
@@ -90,11 +85,6 @@ export function useActiveWorkflowRuns() {
       const runs = await apiFetch<WorkflowRun[]>("/api/v1/admin/workflow-runs/recent?limit=20");
       return runs.filter((r) => r.status === "running" || r.status === "awaiting_approval");
     },
-    refetchInterval: (query) => {
-      const runs = query.state.data;
-      if (runs && runs.length > 0) return 3000;
-      return 15000; // Idle poll — global HUD only needs to surface new runs eventually
-    },
   });
 }
 
@@ -105,11 +95,6 @@ export function useWorkflowRuns(workflowId?: string) {
     queryKey: ["workflow-runs", workflowId],
     queryFn: () => apiFetch<WorkflowRun[]>(`/api/v1/admin/workflows/${workflowId}/runs`),
     enabled: !!workflowId,
-    refetchInterval: (query) => {
-      const runs = query.state.data;
-      if (runs?.some((r) => r.status === "running" || r.status === "awaiting_approval")) return 3000;
-      return false;
-    },
   });
 }
 
@@ -118,11 +103,6 @@ export function useWorkflowRun(runId?: string) {
     queryKey: ["workflow-run", runId],
     queryFn: () => apiFetch<WorkflowRun>(`/api/v1/admin/workflow-runs/${runId}`),
     enabled: !!runId,
-    refetchInterval: (query) => {
-      const run = query.state.data;
-      if (run && (run.status === "running" || run.status === "awaiting_approval")) return 1000;
-      return false;
-    },
   });
 }
 
@@ -227,18 +207,10 @@ export function useChannelWorkflowRuns(channelId?: string) {
     queryKey: ["channel-workflow-runs", channelId],
     queryFn: () => apiFetch<WorkflowRun[]>(`/api/v1/admin/channels/${channelId}/workflow-runs`),
     enabled: !!channelId,
-    refetchInterval: (query) => {
-      const runs = query.state.data;
-      if (runs && runs.length > 0) return 3000;
-      return 30000; // Idle poll — workflow_executor publishes channel SSE events
-                    // for newly-posted messages, so this is a slow safety net.
-    },
   });
 }
 
 // --- Workflow Run Tasks ---
-
-const TERMINAL_STATUSES = new Set(["complete", "failed", "cancelled"]);
 
 export function useWorkflowRunTasks(runId?: string) {
   return useQuery({
@@ -248,11 +220,6 @@ export function useWorkflowRunTasks(runId?: string) {
         `/api/v1/admin/tasks?workflow_run_id=${runId}&include_children=true&limit=100`,
       ),
     enabled: !!runId,
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      if (data?.tasks.some((t) => !TERMINAL_STATUSES.has(t.status))) return 3000;
-      return false;
-    },
   });
 }
 

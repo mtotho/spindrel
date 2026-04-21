@@ -5,6 +5,7 @@ Used by the admin UI to show what goes into each agent turn.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,27 @@ from app.db.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Short-lived in-memory coalescing cache for context-breakdown results. The
+# endpoint re-runs the full assembly pipeline (tokenization + static prompt
+# rendering + RAG estimate + compaction accounting), which is expensive
+# enough to matter when tab flips or parallel widgets trigger back-to-back
+# reads. 15 s is tight enough that message-level churn still surfaces on the
+# next tab flip while coalescing the worst-case stampede.
+_BREAKDOWN_CACHE_TTL = 15.0
+_breakdown_cache: dict[tuple[str, str], tuple[float, "ContextBreakdownResult"]] = {}
+
+
+def invalidate_context_breakdown_cache(channel_id: str | None = None) -> None:
+    """Drop cached breakdowns. Called by turn_worker on TURN_ENDED so the
+    post-turn recompute reflects the latest message. Passing ``None`` clears
+    every entry — use sparingly."""
+    if channel_id is None:
+        _breakdown_cache.clear()
+        return
+    for key in list(_breakdown_cache):
+        if key[0] == channel_id:
+            _breakdown_cache.pop(key, None)
 
 
 @dataclass
@@ -194,6 +216,14 @@ async def compute_context_breakdown(
       live tokenizer (``count_text_tokens_sync`` against the assembled char
       count). May differ from the chat header by design.
     """
+    cache_key = (str(channel_id), mode)
+    cached = _breakdown_cache.get(cache_key)
+    if cached is not None:
+        expiry, payload = cached
+        if expiry > time.monotonic():
+            return payload
+        _breakdown_cache.pop(cache_key, None)
+
     from app.agent.base_prompt import render_base_prompt
     from app.agent.bots import get_bot
     from app.agent.persona import get_persona
@@ -741,7 +771,7 @@ async def compute_context_breakdown(
     else:
         total_tokens = forecast_total_tokens
 
-    return ContextBreakdownResult(
+    result = ContextBreakdownResult(
         channel_id=str(channel_id),
         session_id=session_id,
         bot_id=channel.bot_id,
@@ -754,6 +784,8 @@ async def compute_context_breakdown(
         context_budget=_budget_info,
         disclaimer="RAG components are heuristic estimates. Actual values vary per query based on semantic similarity scores.",
     )
+    _breakdown_cache[cache_key] = (time.monotonic() + _BREAKDOWN_CACHE_TTL, result)
+    return result
 
 
 def _resolve_compaction_enabled(channel: Channel, bot) -> bool:

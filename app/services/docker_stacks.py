@@ -295,18 +295,6 @@ class StackService:
                 )
                 await db.commit()
 
-            # Bridge stack containers into additional networks (integration stacks).
-            # Per-service DNS aliases declared in `network_aliases` are applied
-            # via `docker network connect --alias` so the agent-server can reach
-            # each service at a stable, instance-scoped hostname regardless of
-            # the compose-generated container name.
-            aliases = stack.network_aliases or {}
-            if stack.connect_networks and container_ids:
-                for net in stack.connect_networks:
-                    for service_name, cid in container_ids.items():
-                        alias = aliases.get(service_name)
-                        await self._connect_network(net, cid, alias=alias)
-
             return await self._get(stack.id)
 
         except Exception as e:
@@ -600,9 +588,7 @@ class StackService:
         compose_definition: str,
         project_name: str,
         description: str | None = None,
-        connect_networks: list[str] | None = None,
         config_files: dict[str, str] | None = None,
-        network_aliases: dict[str, str] | None = None,
     ) -> DockerStack:
         """Upsert an integration-owned stack.
 
@@ -616,7 +602,6 @@ class StackService:
             compose_definition: raw YAML string
             project_name: Docker Compose project name (must start with PROJECT_PREFIX)
             description: optional description
-            connect_networks: Docker networks to bridge containers into after start
             config_files: {relative_path: file_content} for volume-mounted config files
         """
         async with async_session() as db:
@@ -630,8 +615,6 @@ class StackService:
                 if row.compose_definition != compose_definition:
                     row.compose_definition = compose_definition
                     row.updated_at = datetime.now(timezone.utc)
-                row.connect_networks = connect_networks or []
-                row.network_aliases = network_aliases or {}
                 row.name = name
                 row.description = description
                 row.project_name = project_name
@@ -647,8 +630,6 @@ class StackService:
                     status="stopped",
                     source="integration",
                     integration_id=integration_id,
-                    connect_networks=connect_networks or [],
-                    network_aliases=network_aliases or {},
                 )
                 db.add(row)
                 await db.commit()
@@ -812,46 +793,6 @@ class StackService:
             pass
 
         return container_ids, exposed_ports, network_name
-
-    async def _connect_network(
-        self,
-        network: str,
-        container_id: str,
-        alias: str | None = None,
-    ) -> None:
-        """Connect a container to an external Docker network.
-
-        When ``alias`` is provided, the container is registered under that
-        DNS name on the target network so other containers can reach it by a
-        stable, instance-scoped hostname without relying on a global
-        ``container_name:``.
-        """
-        cmd = ["docker", "network", "connect"]
-        if alias:
-            cmd += ["--alias", alias]
-        cmd += [network, container_id]
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await proc.communicate()
-            if proc.returncode == 0:
-                if alias:
-                    logger.info(
-                        "Connected container %s to network %s as alias %s",
-                        container_id, network, alias,
-                    )
-                else:
-                    logger.info("Connected container %s to network %s", container_id, network)
-            elif b"already exists" in stderr:
-                pass  # Already connected
-            else:
-                logger.warning("Failed to connect container %s to network %s: %s",
-                               container_id, network, stderr.decode())
-        except Exception:
-            logger.warning("Error connecting container to network", exc_info=True)
 
     async def _detect_project_name_collision(self, stack: DockerStack) -> str | None:
         """Check whether any pre-existing container on the daemon would be

@@ -11,7 +11,7 @@ A **channel** is a conversation with a bot. What makes that bot useful depends o
 The composition chain:
 
 ```
-Channel → Template + Integration Activation → Capabilities → Skills + Tools + Behavior
+Channel → Capabilities + Workspace + Integrations → Skills + Tools + Behavior
 ```
 
 ---
@@ -22,7 +22,7 @@ A channel is where a user talks to a bot. Each channel has:
 
 - A **bot** assignment (which LLM, which personality)
 - A **workspace** (a directory of `.md` files the bot reads and writes)
-- Zero or more **integration bindings** (Slack, GitHub, Mission Control, etc.)
+- Zero or more **integration bindings** (Slack, GitHub, Home Assistant, etc.)
 - Optional **overrides** (extra tools, disabled capabilities, custom prompt)
 
 Channels are lightweight. Create one per project, topic, or workflow. The bot's base configuration comes from its YAML definition, but the channel can layer on top.
@@ -43,13 +43,13 @@ The **Media Management** template says:
 
 Templates are suggestions, not constraints. The bot follows the structure when creating files but adapts if the conversation goes in a different direction.
 
-**Picking a template** happens in the channel's Workspace tab. If an integration is activated, compatible templates are highlighted — pick the green one for the best experience.
+**Picking a template** happens in the channel's Workspace tab. Templates are optional scaffolding, not something every channel needs.
 
 ---
 
 ## Integration Activation
 
-Integrations connect Spindrel to external services (Slack, GitHub, Gmail, your media stack). **Binding** an integration to a channel means messages can flow in and out. **Activating** it means the bot gains the integration's full capabilities.
+Integrations connect Spindrel to external services (Slack, GitHub, Home Assistant, your media stack). **Binding** an integration to a channel means messages can flow in and out. Some integrations also support **activation**, which injects capability bundles for that channel.
 
 When you activate an integration on a channel:
 
@@ -57,15 +57,14 @@ When you activate an integration on a channel:
 2. The capability brings in **tools** (function calls the bot can make), **skills** (domain knowledge), and **behavioral instructions** (how to use them)
 3. No manual tool configuration needed
 
-**Example:** Activate the Arr integration on a channel, and the bot instantly knows how to search Sonarr for TV shows, add movies to Radarr, check download status in qBittorrent, and browse your Jellyfin library. Pair it with the **Media Management** template and the bot also knows to track requests in `requests.md` and log issues in `issues.md`.
+**Example:** Activate the Arr integration on a channel, and the bot instantly knows how to search Sonarr for TV shows, add movies to Radarr, check download status in qBittorrent, and browse your Jellyfin library. Pair it with the **Media Management** template if you want a ready-made file structure for requests and issues.
 
 ### Current Integrations with Activation
 
 | Integration | What it provides | Compatible template |
 |-------------|-----------------|-------------------|
-| **Mission Control** | Task boards, plans, timelines, project management | Mission Control, Software Dev, PM Hub |
 | **Arr (Media Stack)** | Sonarr, Radarr, qBittorrent, Jellyfin, Jellyseerr, Bazarr | Media Management |
-| **Gmail** | Email ingestion, digest management, feed rules | Email Digest |
+| **Home Assistant** | Device control, live entity state, automation helpers | Home Automation |
 
 Other integrations (Slack, GitHub, Discord, Frigate) provide channel binding and tools but don't yet have activation manifests. Their tools are available when configured on the bot directly.
 
@@ -102,7 +101,7 @@ Skills use the same semantic search as tools and capabilities. On each message, 
 
 Skills aren't all loaded at once (that would blow the context window). Only the most relevant skills appear in the index each turn, and the bot fetches full content on demand. This means a bot can have access to thousands of pages of domain knowledge without any of it consuming context until it's actually needed.
 
-Capabilities can also route to skills via their system prompt fragment — e.g., "when the user asks about task management, fetch `get_skill('mission_control')`" — providing an explicit routing layer on top of the semantic search.
+Capabilities can also route to skills via their system prompt fragment — e.g., "when the user asks about home devices, fetch the Home Assistant skill" — providing an explicit routing layer on top of the semantic search.
 
 ### How Capabilities Activate
 
@@ -112,7 +111,7 @@ Capabilities can also route to skills via their system prompt fragment — e.g.,
 
 ### Composition
 
-Capabilities can include other capabilities. The `orchestrator` capability includes `mission-control`. The `qa` capability includes `code-review`. Resolution is depth-first with cycle detection, max 5 levels deep.
+Capabilities can include other capabilities. The `qa` capability includes `code-review`, for example. Resolution is depth-first with cycle detection, max 5 levels deep.
 
 ---
 
@@ -124,13 +123,13 @@ Here's how it all comes together when you set up a channel:
 
 The bot brings its base personality, model, and any pinned capabilities from its config.
 
-### 2. Activate integrations
+### 2. Optionally activate integrations
 
-Each activated integration injects its capability. The bot gains tools and skills without any manual configuration.
+If an integration supports activation, the bot gains its tools and skills without any manual configuration.
 
-### 3. Pick a compatible template
+### 3. Optionally pick a template
 
-The template tells the bot how to organize workspace files. Compatible templates are designed to match the activated integration's tools — e.g., the Media Management template's `requests.md` aligns with how `sonarr_search` and `radarr_search` report results.
+The template tells the bot how to organize workspace files if you want a predefined starting structure.
 
 ### 4. Start chatting
 
@@ -188,17 +187,13 @@ Streaming turns and pending approvals survive reconnects. The `GET /api/v1/chann
 
 ## Common Patterns
 
-### "I want a project management channel"
-1. Create channel → Activate Mission Control → Pick "Software Dev" or "Mission Control" template
-2. Bot can now create task boards, draft plans, track timelines, and organize files
-
 ### "I want a media request channel"
 1. Create channel → Activate Arr → Pick "Media Management" template
 2. Bot can search and add media, monitor downloads, track requests
 
-### "I want an email digest channel"
-1. Create channel → Bind Gmail → Activate Gmail → Pick "Email Digest" template
-2. Bot processes incoming emails, builds digests, tracks action items
+### "I want a home automation channel"
+1. Create channel → bind/activate Home Assistant → optionally pick "Home Automation" template
+2. Bot can inspect devices, operate entities, and keep workspace notes about automations or events
 
 ### "I want a code review channel"
 1. Create channel → The bot auto-discovers `code-review` (or pin it: `carapaces: [code-review]` — `carapaces` is the config key for capabilities)

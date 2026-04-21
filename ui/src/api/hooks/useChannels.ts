@@ -474,6 +474,12 @@ export function useChannelContextBreakdown(
     queryKey: ["channel-context-breakdown", channelId, mode],
     queryFn: () => apiFetch<ContextBreakdown>(`/api/v1/admin/channels/${channelId}/context-breakdown?mode=${mode}`),
     enabled: !!channelId,
+    // The endpoint re-runs the full context-assembly pipeline; tab flips /
+    // route remounts shouldn't fire it back-to-back. Next-turn / new
+    // messages invalidate the key explicitly elsewhere.
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 

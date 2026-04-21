@@ -114,12 +114,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const editorRef = useRef<TiptapChatInputHandle>(null);
   const editorWrapperRef = useRef<HTMLDivElement>(null);
   const [isFocused, setIsFocused] = useState(false);
-  // Mobile idle collapse: single-row card when unfocused + empty + not
-  // recording. Tap the input to expand back to the full composer card.
-  const collapsed = isMobile && !isFocused
-    && text.length === 0
-    && pendingFiles.length === 0
-    && !recorder.isRecording;
+  const collapsed = false;
 
   const handleSend = useCallback(() => {
     const message = (editorRef.current?.getMarkdown() ?? text).trim();

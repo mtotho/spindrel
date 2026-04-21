@@ -7,6 +7,10 @@ services:
       - ./config/searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
       - SEARXNG_BASE_URL=http://localhost:8080/
+    networks:
+      agent_net:
+        aliases:
+          - "searxng-${SPINDREL_INSTANCE_ID:-default}"
     restart: unless-stopped
 
   playwright:
@@ -14,4 +18,13 @@ services:
     environment:
       - TIMEOUT=60000
       - CONCURRENT=5
+    networks:
+      agent_net:
+        aliases:
+          - "playwright-${SPINDREL_INSTANCE_ID:-default}"
     restart: unless-stopped
+
+networks:
+  agent_net:
+    external: true
+    name: "${AGENT_NETWORK_NAME:-agent-server_default}"

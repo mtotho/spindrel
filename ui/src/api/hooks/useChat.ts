@@ -84,12 +84,18 @@ interface SessionStatus {
   pending_tasks: number;
 }
 
-/** Poll the session status endpoint while the agent is processing in the background. */
+/** Session-status safety net while a background turn is active.
+ *
+ *  The channel SSE stream (``turn_ended``) is the primary signal that
+ *  drives ``clearProcessing`` in the chat store. This poll is a fallback
+ *  for the narrow window where a background task finishes without a
+ *  turn-ended event (e.g. queued dispatch completed ahead of the worker
+ *  publishing). Cadence is deliberately slow — SSE carries real-time. */
 export function useSessionStatus(channelId: string | undefined, enabled: boolean) {
   return useQuery({
     queryKey: ["session-status", channelId],
     queryFn: () => apiFetch<SessionStatus>(`/api/v1/channels/${channelId}/session-status`),
     enabled: !!channelId && enabled,
-    refetchInterval: enabled ? 3000 : false,
+    refetchInterval: enabled ? 15000 : false,
   });
 }

@@ -62,7 +62,6 @@ export function useApprovals(botId?: string, status?: string) {
     queryKey: ["approvals", botId, status],
     queryFn: () =>
       apiFetch<ToolApproval[]>(`/api/v1/approvals${qs ? `?${qs}` : ""}`),
-    refetchInterval: 5000, // Poll every 5s for pending approvals
   });
 }
 
@@ -119,11 +118,15 @@ export function useApprovalSuggestions(approvalId: string | undefined) {
 }
 
 export function usePendingApprovalCount(excludeChannelId?: string) {
+  // Cross-channel count surfaces in the global ApprovalToast. SSE invalidates
+  // this key on approval lifecycle events in channels the user is currently
+  // viewing; the 60s fallback catches approvals landing in channels with no
+  // active SSE subscription.
   return useQuery({
     queryKey: ["approvals", undefined, "pending"],
     queryFn: () =>
       apiFetch<ToolApproval[]>("/api/v1/approvals?status=pending&limit=50"),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
     select: (data) =>
       excludeChannelId
         ? data.filter((a) => a.channel_id !== excludeChannelId).length
@@ -132,6 +135,9 @@ export function usePendingApprovalCount(excludeChannelId?: string) {
 }
 
 export function useChannelPendingApprovals(channelId: string | undefined) {
+  // No polling: the channel SSE stream (``approval_requested`` /
+  // ``approval_resolved``) invalidates this key — see
+  // ``useChannelEvents.handleEvent`` approval branches.
   return useQuery({
     queryKey: ["approvals", "channel", channelId],
     queryFn: () =>
@@ -139,6 +145,5 @@ export function useChannelPendingApprovals(channelId: string | undefined) {
         `/api/v1/approvals?status=pending&channel_id=${channelId}&limit=50`,
       ),
     enabled: !!channelId,
-    refetchInterval: 15_000,
   });
 }
